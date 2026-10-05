@@ -245,6 +245,9 @@ export function memberGroupUsesFamilySurface(
     readonly detailsPending?: boolean;
   } | null | undefined,
 ): boolean {
+  if (group?.sourceOverloadCount !== undefined) {
+    return group.sourceOverloadCount > 1;
+  }
   return group?.detailsPending === true
     || (group?.overloads.length ?? 0) > 1;
 }

@@ -254,6 +254,24 @@ public class UntrustedTypeSpellingContainmentTests : IDisposable
         AssertNoLineSplit(output);
     }
 
+    [Fact]
+    public async Task TypeTree_WithHostileNamespace_RendersNoHazard()
+    {
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => TypeCommand.ExecuteAsync(new TypeOptions
+            {
+                AssemblyPath = _path,
+                TypeName = "NamespaceType",
+                Tree = true,
+            }));
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("INJECTED", output, StringComparison.Ordinal);
+        AssertNoHazard(output);
+        AssertNoLineSplit(output);
+    }
+
     /// <summary>
     /// The Type Info section's <c>Type Parameters</c> row, which is its own
     /// channel and not covered by the type-spelling cases above.
@@ -364,6 +382,12 @@ public class UntrustedTypeSpellingContainmentTests : IDisposable
             $"IHostile{Hazard}INJECTED",
             TypeAttributes.Public | TypeAttributes.Interface | TypeAttributes.Abstract);
         var hostileInterfaceType = hostileInterface.CreateType();
+
+        var hostileNamespace = module.DefineType(
+            $"Hostile{Hazard}INJECTED.NamespaceType",
+            TypeAttributes.Public | TypeAttributes.Class);
+        hostileNamespace.DefineDefaultConstructor(MethodAttributes.Public);
+        hostileNamespace.CreateType();
 
         // Hostile type name as both a parameter type and a return type.
         var normal = module.DefineType("NormalType", TypeAttributes.Public | TypeAttributes.Class);

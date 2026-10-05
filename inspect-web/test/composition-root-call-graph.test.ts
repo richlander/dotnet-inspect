@@ -1021,6 +1021,9 @@ test("member family navigation resets exact sections without resetting Compare",
   assert.match(
     openMemberGroup,
     /const resetMethodSection =\s*ordinaryMethodGroup\(group\) && state\.memberSection !== "compare";[\s\S]*state\.selectedOverloadIndex =\s*graphOnlyTarget \? 0 : singletonSourceIndex;[\s\S]*if \(resetMethodSection \|\| !preserveSection\) \{\s*state\.memberSection = "overview";/);
+  assert.match(
+    openMemberGroup,
+    /group\?\.overloads\.length === 1[\s\S]*!memberGroupUsesFamilySurface\(group\)[\s\S]*!graphOnlyTarget/);
 });
 
 test("fallback ordinary families load the shared document", () => {
@@ -1030,6 +1033,12 @@ test("fallback ordinary families load the shared document", () => {
   assert.match(
     overview,
     /const member = selectedMember\(selectedType\(\)\)[\s\S]*!member\.overloads\.some\(overload => overload\.graphOnly\)[\s\S]*state\.selectedOverloadIndex === null[\s\S]*member\.overloads\.length === 0[\s\S]*member\.detailsPending[\s\S]*loadSelectedMemberGroupAndSelectSingleton\(\)[\s\S]*loadSelectedMemberDocumentation\(\)/);
+  const singleton =
+    appSource.match(/async function loadSelectedMemberGroupAndSelectSingleton\([\s\S]*?\n}/)?.[0]
+    ?? "";
+  assert.match(
+    singleton,
+    /resolved\?\.overloads\.length !== 1[\s\S]*memberGroupUsesFamilySurface\(resolved\)/);
 
   const applyView =
     appSource.match(/function applyView\([\s\S]*?\n}\n\nasync function restorePlatformHistoryView/)?.[0]

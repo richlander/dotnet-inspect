@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Reflection;
 
+using CSharpText;
 using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
@@ -215,7 +216,7 @@ internal static class TypeDocumentTreeCommand
                 available.Document.Subject,
                 packageName,
                 packageVersion);
-        Console.WriteLine(header);
+        Console.WriteLine(CSharpIdentifier.ContainRenderedText(header));
         if (rows.Items.IsEmpty)
             return 0;
 

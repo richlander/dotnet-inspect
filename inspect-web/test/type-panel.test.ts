@@ -1047,7 +1047,7 @@ test("the member nav marks the active group and its selected overload", () => {
   assert.match(html, /←→ sections/);
 });
 
-test("the member nav renders one active declaration as an exact member", () => {
+test("the member nav keeps a partially resident family as a family", () => {
   const group = {
     key: "method:Run",
     name: "Run",
@@ -1066,17 +1066,16 @@ test("the member nav renders one active declaration as an exact member", () => {
     visibleMemberCount: 1,
     filterControlsHtml: "",
     selectedMemberKey: group.key,
-    selectedOverloadIndex: 1,
+    selectedOverloadIndex: null,
     escapeHtml,
     typeDisplayName,
     shortKind,
     highlight,
   });
 
-  assert.match(
-    html,
-    /<span class="type-name"><span class="sig-name">Run<\/span><span class="sig-punct">\(.*<span class="sig-keyword">int<\/span><span class="sig-punct">\)<\/span><\/span>/);
-  assert.doesNotMatch(html, /family-name|family-count|data-nav-overload/);
+  assert.match(html, /<span class="type-name family-name">Run<\/span>/);
+  assert.match(html, /<span class="family-count">2×<\/span>/);
+  assert.doesNotMatch(html, /data-nav-overload/);
   assert.match(
     html,
     /data-nav-member="method:Run" role="option" aria-selected="true"/);
@@ -2637,7 +2636,7 @@ test("a filtered singleton retains exact selection without an overload row", () 
     key: "method:Parse",
     name: "Parse",
     kind: "method",
-    sourceOverloadCount: 3,
+    sourceOverloadCount: 1,
     overloads: [{
       signature: "public void Parse(System.IO.Stream value)",
       stableSelector: "Parse~3333333333",

@@ -259,13 +259,13 @@ test("filtered member overloads retain their exact source index", () => {
     /Source overload 1 .* is not visible/);
 });
 
-test("only a visible multi-declaration family clears its exact child", () => {
+test("an authoritative multi-declaration family clears its exact child", () => {
   const state = { selectedOverloadIndex: 1 };
   assert.equal(selectMemberFamilyParent(state, {
     overloads: [{ stableSelector: "Item~1" }],
     sourceOverloadCount: 2,
-  }), false);
-  assert.equal(state.selectedOverloadIndex, 1);
+  }), true);
+  assert.equal(state.selectedOverloadIndex, null);
 
   const single = { selectedOverloadIndex: 0 };
   assert.equal(selectMemberFamilyParent(single, {
@@ -285,12 +285,17 @@ test("only a visible multi-declaration family clears its exact child", () => {
   assert.equal(family.selectedOverloadIndex, null);
 });
 
-test("only multiple visible declarations use the MemberGroup surface", () => {
+test("authoritative selected cardinality chooses the MemberGroup surface", () => {
   assert.equal(memberGroupUsesFamilySurface(null), false);
   assert.equal(memberGroupUsesFamilySurface({ overloads: [{}] }), false);
   assert.equal(memberGroupUsesFamilySurface({
     overloads: [{}],
     sourceOverloadCount: 3,
+  }), true);
+  assert.equal(memberGroupUsesFamilySurface({
+    overloads: [{}],
+    sourceOverloadCount: 1,
+    detailsPending: true,
   }), false);
   assert.equal(memberGroupUsesFamilySurface({ overloads: [{}, {}] }), true);
   assert.equal(memberGroupUsesFamilySurface({
@@ -371,6 +376,51 @@ test("compact mixed groups use producer-issued trait counts", () => {
       query: "",
     }),
     []);
+});
+
+test("partially resident groups retain pending matching traits", () => {
+  const partial = {
+    key: "method:Create",
+    name: "Create",
+    kind: "method",
+    overloads: [{
+      signature: "public static Widget Create()",
+      isStatic: true,
+      isExtension: false,
+    }],
+    completeCount: 2,
+    sourceOverloadCount: 2,
+    detailsPending: true,
+    traitCounts: {
+      all: 2,
+      static: 1,
+      instance: 1,
+      virtual: 0,
+      interface: 0,
+      extensions: 0,
+    },
+  };
+
+  assert.equal(memberGroupMatches(partial, {
+    trait: "instance",
+  }), true);
+  assert.deepEqual(
+    filterMemberGroups([partial], {
+      trait: "instance",
+    }),
+    [{
+      ...partial,
+      overloads: [],
+      sourceOverloadCount: 1,
+    }]);
+  assert.deepEqual(
+    filterMemberGroups([partial], {
+      trait: "static",
+    }),
+    [{
+      ...partial,
+      sourceOverloadCount: 1,
+    }]);
 });
 
 test("member traits use the complete selector vocabulary", () => {

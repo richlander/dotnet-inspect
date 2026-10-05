@@ -8354,6 +8354,7 @@ async function loadSelectedMemberGroupAndSelectSingleton() {
   await loadSelectedMemberGroupDocument();
   const resolved = selectedMember(selectedType());
   if (resolved?.overloads.length !== 1
+    || memberGroupUsesFamilySurface(resolved)
     || state.selectedOverloadIndex !== null) {
     return false;
   }
@@ -8389,7 +8390,9 @@ function openMemberGroup(key: string) {
       ? graphOnlyBodyTarget(group.overloads[0])
       : null;
   const singletonSourceIndex =
-    group?.overloads.length === 1 && !graphOnlyTarget
+    group?.overloads.length === 1
+      && !memberGroupUsesFamilySurface(group)
+      && !graphOnlyTarget
       ? memberNavOverloadSourceIndex(group, 0)
       : null;
   const resetMethodSection =
