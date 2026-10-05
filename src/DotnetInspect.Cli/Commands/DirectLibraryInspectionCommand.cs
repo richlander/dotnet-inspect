@@ -31,6 +31,7 @@ internal static class DirectLibraryInspectionCommand
         options.EnvelopeOutput
         && !LibraryCommand.IsExactLibraryMetricsSelection(options)
         && !LibraryCommand.IsExactNameFamilySelection(options)
+        && !LibraryCommand.IsExactNameFamilyRoleSelection(options)
         && !LibraryCommand.IsExactDependencyStructureSelection(options);
 
     internal static async Task<int> ExecuteAsync(

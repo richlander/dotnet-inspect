@@ -2,7 +2,6 @@ using System.Text;
 using System.Text.Json;
 using DotnetInspector.JsonSchema;
 using DotnetInspector.Sections;
-using DotnetInspector.Vocabulary;
 using ILInspector.JsExportSurface;
 using ILInspector.TypeScriptGeneration;
 using QuerySpace.Vocabulary;
@@ -28,7 +27,7 @@ internal static class DeclaredJsonSchemaExports
                     declarationPlan,
                     JsExportContractIdentity.Api,
                     VocabularySnapshotReference.FromSnapshot(
-                        VocabularyCatalog.Snapshot));
+                        TsJsExportVocabularyComposition.Snapshot));
             inspections = [
                 .. operation.Requests.Select(operation.Inspect),
             ];

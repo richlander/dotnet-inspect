@@ -236,6 +236,7 @@ tools/HarnessReportDiff
 tools/IlDiffHarness
 tools/ImplementationMetricPerformance
 tools/InspectWebFixtureResolver
+tools/LibraryFamilyRoleScorecard
 tools/LibraryInfoCountScorecard
 tools/MemberBodySizeScorecard
 tools/MemberGroupScorecard

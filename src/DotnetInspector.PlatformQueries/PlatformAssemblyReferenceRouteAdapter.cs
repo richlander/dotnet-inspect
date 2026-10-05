@@ -95,6 +95,38 @@ public abstract class PlatformAssemblyReferenceFamilyEligibility
             };
         }
     }
+
+    public sealed class DelegatedPackageRoute :
+        PlatformAssemblyReferenceFamilyEligibility
+    {
+        public DelegatedPackageRoute(
+            PackageAssemblyReferenceRouteOccurrence route)
+            : base(GetTarget(route).Family)
+        {
+            Route = route;
+            Target = GetTarget(route);
+        }
+
+        public PackageAssemblyReferenceRouteOccurrence Route { get; }
+
+        public PlatformFamilyTarget Target { get; }
+
+        static PlatformFamilyTarget GetTarget(
+            PackageAssemblyReferenceRouteOccurrence route)
+        {
+            ArgumentNullException.ThrowIfNull(route);
+            if (route.Disposition
+                    != PackageAssemblyReferenceRouteDisposition
+                        .PlatformDelegated
+                || route.Execution.Pruning is not { } pruning)
+            {
+                throw new ArgumentException(
+                    "Platform eligibility requires one exact delegated Package route.",
+                    nameof(route));
+            }
+            return pruning.Target;
+        }
+    }
 }
 
 /// <summary>
@@ -194,7 +226,9 @@ public sealed class PlatformAssemblyReferenceExternalRoute :
         AssemblyReferenceResolutionGenerationReceipt generation,
         MemberCallGraphFocalScopeReceipt focalScope,
         ImmutableArray<PlatformAssemblyReferenceFamilyRoute> families,
-        PackageAssemblyReferenceRouteEligibilityReceipt? packageRoutes = null)
+        PackageAssemblyReferenceRouteEligibilityReceipt? packageRoutes = null,
+        PlatformAssemblyReferenceNonParticipationEvidence?
+            nonParticipation = null)
         : base(request, generation)
     {
         ArgumentNullException.ThrowIfNull(focalScope);
@@ -205,11 +239,12 @@ public sealed class PlatformAssemblyReferenceExternalRoute :
                 "The Platform route requires an ordinary assembly-reference target.",
                 nameof(request));
         }
-        if (families.IsDefaultOrEmpty
-            || families.Any(static family => family is null))
+        if (families.IsDefault
+            || families.Any(static family => family is null)
+            || families.IsEmpty != (nonParticipation is not null))
         {
             throw new ArgumentException(
-                "A Platform route requires a complete non-empty family composition.",
+                "A Platform route requires either a complete non-empty family composition or exact non-participation evidence.",
                 nameof(families));
         }
         if (!ReferenceEquals(
@@ -237,13 +272,33 @@ public sealed class PlatformAssemblyReferenceExternalRoute :
                 "Package route evidence must retain the exact Platform route generation and focal scope.",
                 nameof(packageRoutes));
         }
+        if (nonParticipation is not null
+            && (!ReferenceEquals(
+                    nonParticipation.Generation,
+                    generation)
+                || !ReferenceEquals(
+                    nonParticipation.FocalScope,
+                    focalScope)
+                || !ReferenceEquals(
+                    nonParticipation.PackageRoutes,
+                    packageRoutes)))
+        {
+            throw new ArgumentException(
+                "Platform non-participation evidence must retain the exact generation, focal scope, and Package routes.",
+                nameof(nonParticipation));
+        }
 
         var familySet = new HashSet<PlatformFamily>();
         var workspaceEligibility =
             new HashSet<MemberCallGraphPlatformPopulationScope>(
                 ReferenceEqualityComparer.Instance);
         AssemblyBindingRequest platformBindingRequest =
-            families[0].BindingRequest;
+            families.IsEmpty
+                ? new(
+                    request.Target,
+                    AssemblyBindingOrigin.Global(),
+                    AssemblyResolutionScope.Platform)
+                : families[0].BindingRequest;
         if (!Equals(
                 platformBindingRequest.Target,
                 request.Target))
@@ -308,6 +363,22 @@ public sealed class PlatformAssemblyReferenceExternalRoute :
                             nameof(families));
                     }
                 }
+                else if (eligibility
+                    is PlatformAssemblyReferenceFamilyEligibility
+                        .DelegatedPackageRoute delegated)
+                {
+                    if (packageRoutes is null
+                        || delegated.Target != family.Target
+                        || !packageRoutes.Routes.Any(
+                            route => ReferenceEquals(
+                                route,
+                                delegated.Route)))
+                    {
+                        throw new ArgumentException(
+                            "Delegated Package eligibility must retain its exact route and target.",
+                            nameof(families));
+                    }
+                }
             }
         }
         if (focalScope.PlatformPopulations.Any(
@@ -350,6 +421,7 @@ public sealed class PlatformAssemblyReferenceExternalRoute :
         Families = families;
         PackageRoutes = packageRoutes;
         DelegatedPackageRoutes = delegatedRoutes;
+        NonParticipation = nonParticipation;
     }
 
     public MemberCallGraphFocalScopeReceipt FocalScope { get; }
@@ -366,6 +438,42 @@ public sealed class PlatformAssemblyReferenceExternalRoute :
         DelegatedPackageRoutes
     { get; }
 
+    public PlatformAssemblyReferenceNonParticipationEvidence?
+        NonParticipation
+    { get; }
+
+}
+
+public sealed record PlatformAssemblyReferenceNonParticipationEvidence
+{
+    public PlatformAssemblyReferenceNonParticipationEvidence(
+        AssemblyReferenceResolutionGenerationReceipt generation,
+        MemberCallGraphFocalScopeReceipt focalScope,
+        PackageAssemblyReferenceRouteEligibilityReceipt packageRoutes,
+        string reason)
+    {
+        Generation = generation
+            ?? throw new ArgumentNullException(nameof(generation));
+        FocalScope = focalScope
+            ?? throw new ArgumentNullException(nameof(focalScope));
+        PackageRoutes = packageRoutes
+            ?? throw new ArgumentNullException(nameof(packageRoutes));
+        if (string.IsNullOrWhiteSpace(reason))
+            throw new ArgumentException(
+                "Platform non-participation requires a reason.",
+                nameof(reason));
+        Reason = reason;
+    }
+
+    public AssemblyReferenceResolutionGenerationReceipt Generation
+    { get; }
+
+    public MemberCallGraphFocalScopeReceipt FocalScope { get; }
+
+    public PackageAssemblyReferenceRouteEligibilityReceipt PackageRoutes
+    { get; }
+
+    public string Reason { get; }
 }
 
 /// <summary>

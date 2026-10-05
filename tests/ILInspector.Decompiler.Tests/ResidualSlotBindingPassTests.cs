@@ -54,7 +54,7 @@ public class ResidualSlotBindingPassTests
         Assert.Equal(Int32, function.Locals[index]);
         Assert.Equal("S_0", function.SynthesizedLocalNames[index]);
         Assert.DoesNotContain(function.Descendants, static node => node is StoreStackSlot or LoadStackSlot);
-        Assert.Contains("return S_0;", CSharpPrinter.Print(function).Output);
+        Assert.Contains("return S_0;", DecidedPrint.Print(function).Output);
     }
 
     [Fact]
@@ -78,7 +78,7 @@ public class ResidualSlotBindingPassTests
         Assert.Equal("S_0", function.SynthesizedLocalNames[bindings[0].Key]);
         Assert.Equal(Int32, function.Locals[bindings[1].Key]);
         Assert.Equal("S_0_1", function.SynthesizedLocalNames[bindings[1].Key]);
-        string output = CSharpPrinter.Print(function).Output!;
+        string output = DecidedPrint.Print(function).Output!;
         Assert.Contains("S_0 = l;", output);
         Assert.Contains("S_0_1 = i;", output);
         Assert.Contains("return S_0_1;", output);
@@ -123,7 +123,7 @@ public class ResidualSlotBindingPassTests
 
         Assert.DoesNotContain(function.Descendants, static node => node is StoreStackSlot or LoadStackSlot);
         Assert.Contains(function.ResidualSlotBindings.Values, binding => binding.Vetoes.HasFlag(expected));
-        Assert.NotNull(CSharpPrinter.Print(function).Output);
+        Assert.NotNull(DecidedPrint.Print(function).Output);
     }
 
     [Fact]
@@ -192,7 +192,7 @@ public class ResidualSlotBindingPassTests
         block.Add(new Return(new LoadStackSlot(0, Int32)));
         var function = Function(Int32, block, [new Parameter("value", Int32)]);
 
-        var result = CSharpPrinter.Print(function);
+        var result = DecidedPrint.Print(function);
 
         Assert.Null(result.Output);
         Assert.Contains("reached C# emission without residual storage binding", result.Diagnostics.Single().Message);
@@ -217,7 +217,7 @@ public class ResidualSlotBindingPassTests
         var coerce = Assert.Single(function.Descendants.OfType<Coerce>());
         Assert.Equal(Int16, coerce.Target);
         Assert.Empty(CoercionInvariant.Check(function));
-        Assert.Contains("f = (short)S_0;", CSharpPrinter.Print(function).Output);
+        Assert.Contains("f = (short)S_0;", DecidedPrint.Print(function).Output);
     }
 
     [Fact]
@@ -260,7 +260,7 @@ public class ResidualSlotBindingPassTests
         var function = Function(Int32, block, [new Parameter("l", Int64)]);
 
         new ResidualSlotBindingPass().Run(function, PassContext.None);
-        string output = CSharpPrinter.Print(function).Output!;
+        string output = DecidedPrint.Print(function).Output!;
 
         Assert.Equal(2, function.ResidualSlotBindings.Count);
         Assert.All(function.ResidualSlotBindings.Values, static binding => Assert.Equal(ResidualSlotBindingKind.Split, binding.Kind));
@@ -321,7 +321,7 @@ public class ResidualSlotBindingPassTests
         Assert.Equal(2, boundLambda.ResidualSlotBindings.Count);
         Assert.Empty(function.ResidualSlotBindings);
 
-        string output = CSharpPrinter.Print(function).Output!;
+        string output = DecidedPrint.Print(function).Output!;
 
         Assert.Equal(2, System.Text.RegularExpressions.Regex.Matches(output, @"\bint S_0_1;").Count);
         Assert.Equal(2, System.Text.RegularExpressions.Regex.Matches(output, @"\blong S_0 = l;").Count);
@@ -345,7 +345,7 @@ public class ResidualSlotBindingPassTests
         var pieces = function.ResidualSlotBindings.Where(static entry => entry.Value.Slot == 256).ToList();
         Assert.Equal(2, pieces.Count);
         Assert.All(pieces, static entry => Assert.Equal(ResidualSlotBindingKind.Split, entry.Value.Kind));
-        string output = CSharpPrinter.Print(function).Output!;
+        string output = DecidedPrint.Print(function).Output!;
 
         Assert.Contains("bool S_256_1;", output);
         Assert.Contains("return (S_256_1 ? 1 : 0)", output);
@@ -376,7 +376,7 @@ public class ResidualSlotBindingPassTests
         Assert.Empty(adjustForLifting.ResidualSlotBindings);
         Assert.Empty(function.ResidualSlotBindings);
 
-        string output = CSharpPrinter.Print(function).Output!;
+        string output = DecidedPrint.Print(function).Output!;
         Assert.Contains("TypeWithState adjustForLifting(TypeWithState argumentResult)", output);
         Assert.Contains("NullableFlowState S_1 = ", output);
         Assert.DoesNotContain("S_1 = default", output);
@@ -394,7 +394,7 @@ public class ResidualSlotBindingPassTests
         new ResidualSlotBindingPass().Run(function, PassContext.None);
         new ScalarSelfUpdatePass().Run(function, PassContext.None);
 
-        Assert.Contains("S_0++;", CSharpPrinter.Print(function).Output);
+        Assert.Contains("S_0++;", DecidedPrint.Print(function).Output);
     }
 
     [Theory]

@@ -1,3 +1,5 @@
+using DotnetInspect.Cli.Commands;
+using DotnetInspect.ProductVocabularyTesting;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspector.Vocabulary;
@@ -12,14 +14,13 @@ public sealed class ProductVocabularySnapshotTests
     [Fact]
     public void ProductSnapshotAuthenticatesStyleChoiceTierMap()
     {
-        VocabularySnapshot snapshot = VocabularyCatalog.Snapshot;
+        VocabularySnapshot snapshot = CliVocabularyComposition.Snapshot;
         VocabularyDefinition choices = snapshot.GetVocabulary(
             new(snapshot.Catalog, "csharp.style-choices"));
         VocabularyMapDefinition tier = choices.GetMap("tier");
-        Assert.Equal(1, snapshot.FormatVersion);
-        Assert.Equal(
-            "sha256:f0527bd80f85c7683fcf3797da980ef38b3266116f375cc44323796775d884df",
-            snapshot.Identity.Value);
+
+        Assert.Equal(ProductVocabularyPin.FormatVersion, snapshot.FormatVersion);
+        Assert.Equal(ProductVocabularyPin.SnapshotIdentity, snapshot.Identity.Value);
         Assert.Equal(
             VocabularyMapCardinality.ExactlyOne,
             tier.Cardinality);
@@ -44,7 +45,7 @@ public sealed class ProductVocabularySnapshotTests
     [Fact]
     public void ProductSnapshotComposesEveryOwnerDeclaration()
     {
-        VocabularySnapshot snapshot = VocabularyCatalog.Snapshot;
+        VocabularySnapshot snapshot = CliVocabularyComposition.Snapshot;
         var catalog = snapshot.Catalog;
 
         Assert.Equal(
@@ -82,15 +83,43 @@ public sealed class ProductVocabularySnapshotTests
         Assert.Equal(
             declared.Terms.Select(term => term.DisplayLabel),
             composed.Terms.Select(term => term.DisplayLabel));
+        foreach ((VocabularyTerm declaredTerm, VocabularyTerm composedTerm) in
+            declared.Terms.Zip(composed.Terms))
+        {
+            Assert.Equal(declaredTerm.Summary, composedTerm.Summary);
+            Assert.Equal(
+                declaredTerm.MapEntries.Select(entry => entry.Map),
+                composedTerm.MapEntries.Select(entry => entry.Map));
+            foreach ((VocabularyMapEntry declaredEntry, VocabularyMapEntry composedEntry) in
+                declaredTerm.MapEntries.Zip(composedTerm.MapEntries))
+            {
+                Assert.Equal(declaredEntry.Values, composedEntry.Values);
+            }
+        }
     }
 
     [Fact]
-    public void ProductInspectionReturnsTheSharedStaticSnapshot()
+    public void ProjectionOfASnapshotMissingAProductSectionFailsVisibly()
+    {
+        VocabularySnapshot partial = ProductVocabularyComposition.Compose(
+            [
+                new(
+                    ApiAccessibilityVocabulary.Declare(ProductVocabularyComposition.Catalog),
+                    "api.type-inventory"),
+            ]);
+
+        KeyNotFoundException error = Assert.Throws<KeyNotFoundException>(
+            () => VocabularyCatalog.ProjectDocument(partial));
+        Assert.Contains("csharp.style-tiers", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ProductInspectionCarriesTheHostComposedSnapshot()
     {
         InspectionEnvelope<VocabularySnapshot> inspection =
-            ProductVocabularyInspection.Execute();
+            ProductVocabularyInspection.Execute(CliVocabularyComposition.Snapshot);
 
-        Assert.Same(VocabularyCatalog.Snapshot, inspection.Content);
+        Assert.Same(CliVocabularyComposition.Snapshot, inspection.Content);
         var share = Assert.IsType<InspectionShare.NonProjectable>(
             inspection.Share);
         Assert.Equal("vocabulary/share", share.Path);

@@ -26,7 +26,7 @@ public class DiscardedExpressionStatementTests
         var signature = new MethodSignature(Void, [], HasThis: false, GenericParameterCount: 0);
         var function = new IrFunction("M", Owner, signature, [], container);
         new ResidualSlotBindingPass().Run(function, PassContext.None);
-        return CSharpPrinter.Print(function).Output!;
+        return DecidedPrint.Print(function).Output!;
     }
 
     [Fact]

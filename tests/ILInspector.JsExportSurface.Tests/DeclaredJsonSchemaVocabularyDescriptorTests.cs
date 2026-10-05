@@ -111,7 +111,7 @@ public sealed class DeclaredJsonSchemaVocabularyDescriptorTests
             declarationPlan,
             JsExportContractIdentity.Api,
             VocabularySnapshotReference.FromSnapshot(
-                VocabularyCatalog.Snapshot));
+                TsJsExportVocabularyComposition.Snapshot));
         JsonSchemaVocabularyInspectionRequest request =
             Assert.Single(inspection.Requests);
         InspectionEnvelope<JsonSchemaVocabularyDescriptor> envelope =
@@ -140,7 +140,7 @@ public sealed class DeclaredJsonSchemaVocabularyDescriptorTests
                     declarationPlan,
                     JsExportContractIdentity.Api,
                     new VocabularySnapshotReference(
-                        VocabularyCatalog.Snapshot.Catalog,
+                        TsJsExportVocabularyComposition.Snapshot.Catalog,
                         new(
                             "sha256:0000000000000000000000000000000000000000000000000000000000000000"),
                         [])));
@@ -163,7 +163,7 @@ public sealed class DeclaredJsonSchemaVocabularyDescriptorTests
             "serialize",
             descriptor.GetProperty("direction").GetString());
         Assert.Equal(
-            VocabularyCatalog.Snapshot.Identity.Value,
+            TsJsExportVocabularyComposition.Snapshot.Identity.Value,
             descriptor
                 .GetProperty("vocabularySnapshotIdentity")
                 .GetString());
