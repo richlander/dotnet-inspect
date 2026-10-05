@@ -86,10 +86,13 @@ settlement never inventories a package implicitly. `Newtonsoft.Json` remains
 the neighboring external-symbol-package fallback scenario because its ordinary
 package does not list an adjacent Portable PDB.
 
-Browser/Wasm adopts the same host-neutral operation in the next host slice
-with explicit in-memory or browser-owned stores and fetch capabilities. The
-CLI-first slice must not place provider policy, identity validation, cache
-keys, or fallback logic in the command.
+Browser/Wasm member and type source now adopt the same host-neutral operation.
+Queries creates an opaque settlement target for the already-open PDB context;
+the browser host supplies its shared network client, PackageHouse content
+queries, source authorization, finite limits, deadline, and one bounded
+pathless in-memory positive store. Provider policy, identity validation, store
+keys, candidate ordering, and fallback remain in settlement. This adoption
+does not retire the remaining SourceHouse compatibility routes.
 
 ### Request and exact binding
 
@@ -447,6 +450,19 @@ Receipts distinguish successful transfer from admitted Portable PDB content,
 so an exact-identity rejection is not reported as an acquired candidate and a
 later authorized provider may still succeed.
 
+Browser member and type source use the same query operations and now opt into
+`PortablePdbSettlement` at their PDB-opening boundary. Package-role
+realization preserves the exact selected target, runtime identifier, and
+package-relative implementation path in assembly provenance, allowing
+PackageHouse to issue a candidate for the already-realized implementation
+without reacquiring its assembly bytes. A browser-session 24 MiB in-memory
+positive store is shared across source operations and never exposes a local
+path. Package-binding preparation failures remain typed package-local
+candidate failures while authorized later providers may still succeed.
+Platform participants use the same capability without a package candidate.
+Browser rendering, TypeScript exports, source-document fetching, and
+authored-versus-decompiled selection are unchanged.
+
 Each implementation adoption publishes exact-base/head NativeAOT evidence for
 the production command it changes. The CLI-first slice measures the
 `System.Text.Json` Source Locations command with an empty operation-owned store
@@ -464,7 +480,7 @@ The complete adoption must gate at least:
 - platform `System.Text.Json` Source Locations acquiring a matching Portable
   PDB through the CLI-first settlement path;
 - warm verified-store reuse with no network request;
-- Browser/Wasm-equivalent pathless store behavior before that host adopts;
+- Browser/Wasm member/type source using one shared bounded pathless store;
 - rejection of matching GUID with a different Portable PDB stamp;
 - package Listed, Absent, and Not applicable evidence without implicit
   inventory work;
@@ -485,8 +501,11 @@ The CLI slices gate the first two items, pathless positive-store behavior,
 GUID-plus-stamp rejection, package Listed/Absent/Not applicable behavior,
 reference-to-implementation binding, exact package Files acquisition,
 logical-row retention, later-provider success, limits and store failures as
-non-absence, and repeatable result content. Negative-observation and
-Browser-host gates land with their owning slices.
+non-absence, and repeatable result content. The Browser-host slice gates exact
+package-role provenance, PackageHouse candidate preparation for an
+already-realized implementation, authored type and member source, shared
+pathless-store publication and reuse, and visible package-binding failure.
+Negative-observation gates land with their owning slice.
 
 The platform CLI scenario and `NodaTime@3.3.5`, which publishes adjacent
 Portable PDB entries, are the production fixtures. Synthetic PDB identity and

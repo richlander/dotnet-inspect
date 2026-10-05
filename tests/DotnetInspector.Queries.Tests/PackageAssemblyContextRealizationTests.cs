@@ -1765,6 +1765,14 @@ public sealed class PackageAssemblyContextRealizationTests
                 secondParticipant.Participant.Assembly.Provenance);
         Assert.Equal("First.Package", firstProvenance.PackageId);
         Assert.Equal("Second.Package", secondProvenance.PackageId);
+        Assert.Equal("net11.0", firstProvenance.Tfm);
+        Assert.Null(firstProvenance.Rid);
+        Assert.Equal(
+            "lib/net11.0/Common.dll",
+            firstProvenance.AssetPath);
+        Assert.Equal(
+            "lib/net11.0/Common.dll",
+            secondProvenance.AssetPath);
         Assert.Equal(
             "lib/net11.0/Common.dll",
             firstParticipant.Asset.Path);

@@ -10,6 +10,7 @@ using DotnetInspector.SourceHouse;
 using ILInspector.Analysis;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
+using ILInspector.SourceLink;
 using DotnetInspect.Web.Interop.Source;
 using InspectWeb.MethodBodyFixtures;
 using NuGetFetch;
@@ -48,6 +49,191 @@ namespace DotnetInspect.Web.Tests;
 [SupportedOSPlatform("browser")]
 public sealed class BrowserSourceComparisonOperationTests(ITestOutputHelper output)
 {
+    [Fact]
+    public async Task
+        PackageLocalPortablePdb_SettlesTypeAndMemberSourceAndReusesPathlessStore()
+    {
+        const string PackageId = "InspectWeb.PackagePdbFixture";
+        const string Version = "1.0.0";
+        const string Framework = "net11.0";
+        const string Assembly = "InspectWebPackagePdbFixture.dll";
+        FixtureDefinition fixture =
+            FixtureCatalog.InspectWebPackagePdb;
+        await BrowserPackageWorkspace.RegisterGalleryPackageAsync(
+            new BrowserPackage(
+                PackageId,
+                Version,
+                File.ReadAllBytes(fixture.AssetPath("package")),
+                fromCache: false));
+
+        BrowserInspectionScope? retainedScope = null;
+        try
+        {
+            await using BrowserScopeLease<BrowserInspectionScope> lease =
+                await BrowserPackageWorkspace.OpenScopeAsync(
+                    PackageId,
+                    Version,
+                    Framework,
+                    TestContext.Current.CancellationToken);
+            BrowserInspectionScope scope = lease.Scope;
+            retainedScope = scope;
+            BrowserPackageCoordinate coordinate =
+                scope.Coordinates[0];
+            BrowserWorkspaceParticipant participant =
+                scope.ImplementationParticipant(
+                    scope.SurfaceParticipant(
+                        coordinate,
+                        coordinate.CompileAsset(Assembly)));
+            ApiSurface surface =
+                scope.UseImplementationParticipant(
+                    participant,
+                    BrowserMemberResolution.ImplementationSurface);
+            ApiType type = Assert.Single(
+                surface.Types,
+                candidate =>
+                    candidate.FullName
+                    == "SourceDiffFixture.Counter");
+            ApiMember member = Assert.Single(
+                type.Members,
+                candidate => candidate.Name == "Value");
+
+            using var sourceClient =
+                new HttpClient(
+                    new PackagePdbSourceHandler(
+                        File.ReadAllBytes(
+                            fixture.AssetPath("source"))));
+            var sourceFetch =
+                new SourceFetch(
+                    sourceClient,
+                    new InMemorySourceContentStore(),
+                    BrowserSourceFetchPolicy.Instance);
+            AssemblyContextSourceQueryContext context =
+                BrowserSourceQueryContext.Create(sourceFetch);
+            IPortablePdbSettlementCapability capability =
+                Assert.IsAssignableFrom<
+                    IPortablePdbSettlementCapability>(
+                    context.PortablePdbSettlementCapability);
+            PortablePdbPackageBindingResult packageBinding =
+                await PortablePdbPackageComposition
+                    .PrepareForAssemblyAsync(
+                        participant.Assembly,
+                        BrowserPackageContentSource.Instance,
+                        TestContext.Current.CancellationToken);
+            var boundPackage =
+                Assert.IsType<
+                PortablePdbPackageBindingResult.Bound>(
+                    packageBinding);
+            Assert.Equal(
+                $"lib/{Framework}/{Assembly}",
+                (boundPackage.Value.Candidate.Row.ImplementationEntry
+                    ?? boundPackage.Value.Candidate.Row.CompileEntry)
+                    .Path);
+
+            using (SourceLinkService first =
+                SourceLinkService.OpenEmbeddedPdbOnly(
+                    participant.Assembly))
+            {
+                PortablePdbSettlementResult firstSettlement =
+                    await capability.SettleAsync(
+                        new PortablePdbSettlementTarget(
+                            first.Context),
+                        participant.Assembly,
+                        TestContext.Current.CancellationToken);
+
+                PortablePdbSettlementResult.Acquired packageLocal =
+                    Assert.IsType<
+                        PortablePdbSettlementResult.Acquired>(
+                        firstSettlement);
+                Assert.Equal(
+                    PortablePdbSettlementSource.PackageLocal,
+                    packageLocal.Source);
+                Assert.Equal(
+                    PortablePdbPositiveStoreDisposition.Published,
+                    packageLocal.PositiveStore);
+                Assert.False(packageLocal.NetworkOccurred);
+            }
+
+            InspectionEnvelope<AssemblyTypeSourceEntry>
+                typeInspection =
+                    await scope.UseImplementationParticipant(
+                        participant,
+                        (group, selected) =>
+                            TypeSourceInspection
+                                .ExecuteWithPdbLatencyHedgeAsync(
+                                    group,
+                                    selected,
+                                    AssemblyTypeSourceRequest.From(
+                                        type),
+                                    context,
+                                    SourceExports
+                                        .BrowserTypeSourcePdbLatencyHedge,
+                                    TestContext.Current
+                                        .CancellationToken));
+            var availableType =
+                Assert.IsType<
+                    AssemblyTypeSourceEntry.Available>(
+                    typeInspection.Content);
+            Assert.IsType<AssemblyTypeSource.Pdb>(
+                availableType.Source);
+            Assert.Contains(
+                "class Counter",
+                availableType.Source.Text,
+                StringComparison.Ordinal);
+
+            InspectionEnvelope<AssemblyMemberSourceEntry>
+                memberInspection =
+                    await scope.UseImplementationParticipant(
+                        participant,
+                        (group, selected) =>
+                            MemberSourceInspection.ExecuteAsync(
+                                group,
+                                selected,
+                                AssemblyMemberSourceRequest.From(
+                                    type,
+                                    member),
+                                context,
+                                TestContext.Current
+                                    .CancellationToken));
+            var availableMember =
+                Assert.IsType<
+                    AssemblyMemberSourceEntry.Available>(
+                    memberInspection.Content);
+            Assert.IsType<AssemblyMemberSource.Pdb>(
+                availableMember.Source);
+            Assert.Contains(
+                "Value",
+                availableMember.Source.Text,
+                StringComparison.Ordinal);
+
+            using SourceLinkService reused =
+                SourceLinkService.OpenEmbeddedPdbOnly(
+                    participant.Assembly);
+            PortablePdbSettlementResult.Acquired positiveStore =
+                Assert.IsType<
+                    PortablePdbSettlementResult.Acquired>(
+                    await capability.SettleAsync(
+                        new PortablePdbSettlementTarget(
+                            reused.Context),
+                        participant.Assembly,
+                        TestContext.Current.CancellationToken));
+            Assert.Equal(
+                PortablePdbSettlementSource.PackageLocal,
+                positiveStore.Source);
+            Assert.Equal(
+                PortablePdbPositiveStoreDisposition.Reused,
+                positiveStore.PositiveStore);
+            Assert.False(positiveStore.NetworkOccurred);
+        }
+        finally
+        {
+            if (retainedScope is not null)
+            {
+                await BrowserPackageWorkspace.RemoveScopeAsync(
+                    retainedScope);
+            }
+        }
+    }
+
     const string Framework = "net11.0";
     const string SourcePackageId = "InspectWeb.SourceComparisonFixture";
     const string AssemblyName = "InspectWebSourceComparisonFixture.dll";
@@ -1389,5 +1575,53 @@ public sealed class BrowserSourceComparisonOperationTests(ITestOutputHelper outp
                 });
             }
         }
+    }
+
+    sealed class PackagePdbSourceHandler(byte[] source) :
+        HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            bool expected =
+                request.RequestUri?.Host.Equals(
+                    "raw.githubusercontent.com",
+                    StringComparison.OrdinalIgnoreCase)
+                == true
+                && request.RequestUri.AbsolutePath.Contains(
+                    "/package-pdb/v1/",
+                    StringComparison.Ordinal);
+            return Task.FromResult(
+                new HttpResponseMessage(
+                    expected
+                        ? HttpStatusCode.OK
+                        : HttpStatusCode.NotFound)
+                {
+                    Content = expected
+                        ? new ByteArrayContent(source)
+                        : null,
+                    RequestMessage = request,
+                });
+        }
+    }
+
+    sealed class BrowserPackageContentSource :
+        IPortablePdbPackageContentSource
+    {
+        internal static BrowserPackageContentSource Instance
+        {
+            get;
+        } = new();
+
+        public Task<PackageHouseSettlement> AcquireAsync(
+            PackageSourceCoordinate coordinate,
+            PackageHouseContentQuery query,
+            CancellationToken cancellationToken = default) =>
+            BrowserPackageWorkspace.AcquireContentAsync(
+                coordinate,
+                query,
+                cancellationToken);
     }
 }

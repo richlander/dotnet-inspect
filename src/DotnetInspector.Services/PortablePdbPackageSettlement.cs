@@ -113,6 +113,93 @@ public static class PortablePdbPackageComposition
     private const long DefaultMaxAssemblyBytes =
         512L * 1024 * 1024;
 
+    /// <summary>
+    /// Issues a package-local candidate for an already owner-bound package
+    /// implementation assembly without reacquiring that assembly.
+    /// </summary>
+    public static async Task<PortablePdbPackageBindingResult>
+        PrepareForAssemblyAsync(
+        ResolvedAssemblyReference assembly,
+        IPortablePdbPackageContentSource source,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(assembly);
+        ArgumentNullException.ThrowIfNull(source);
+        if (assembly.Provenance
+            is not AssemblyResolutionProvenance.PackageAsset
+            {
+                Tfm: { } framework,
+                AssetPath: { } assetPath,
+            } package)
+        {
+            throw new ArgumentException(
+                "An existing package-local Portable PDB binding requires exact package target and asset provenance.",
+                nameof(assembly));
+        }
+
+        PackageSourceCoordinate coordinate =
+            PackageSourceCoordinate.Create(
+                package.PackageId,
+                package.PackageVersion);
+        PackageHouseTargetContext target =
+            PackageHouseTargetContext.Exact(
+                framework,
+                package.Rid);
+        PackageHouseSettlement inventorySettlement =
+            await AcquireInventoryAsync(
+                    coordinate,
+                    target,
+                    source,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        if (inventorySettlement
+                is not PackageHouseSettlement.Acquired acquired
+            || acquired.Result
+                is not PackageHouseResult.Settled)
+        {
+            return new PortablePdbPackageBindingResult.Terminal(
+                Classify(inventorySettlement.Result),
+                inventorySettlement);
+        }
+
+        PackageHouseLibraryAndInventory? library =
+            acquired.Result.Evidence.LibraryAndInventory;
+        if (library is null)
+        {
+            return new PortablePdbPackageBindingResult.Terminal(
+                PortablePdbPackageBindingFailureKind.PackageFailed,
+                inventorySettlement);
+        }
+
+        PackageHouseLibraryInventoryRow[] matchingRows =
+        [
+            .. library.Inventory.Rows.Where(
+                candidate => string.Equals(
+                    (candidate.ImplementationEntry
+                        ?? candidate.CompileEntry).Path,
+                    assetPath,
+                    StringComparison.Ordinal)),
+        ];
+        if (matchingRows.Length != 1)
+        {
+            return new PortablePdbPackageBindingResult.Terminal(
+                PortablePdbPackageBindingFailureKind
+                    .SelectedLibraryUnavailable,
+                inventorySettlement);
+        }
+
+        var candidate =
+            new PortablePdbPackageCandidate(
+                library.Inventory,
+                matchingRows[0],
+                source);
+        return new PortablePdbPackageBindingResult.Bound(
+            new PortablePdbPackageBinding(
+                assembly,
+                library,
+                candidate));
+    }
+
     public static async Task<PortablePdbPackageBindingResult>
         PrepareAsync(
         PackageSourceCoordinate coordinate,
@@ -128,13 +215,11 @@ public static class PortablePdbPackageComposition
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
             maxAssemblyBytes);
 
-        PackageHouseContentQuery inventoryQuery =
-            PackageHouseContentQuery.GetLibraryAndInventoryForTarget(
-                target);
         PackageHouseSettlement inventorySettlement =
-            await source.AcquireAsync(
+            await AcquireInventoryAsync(
                     coordinate,
-                    inventoryQuery,
+                    target,
+                    source,
                     cancellationToken)
                 .ConfigureAwait(false);
         if (inventorySettlement
@@ -315,6 +400,22 @@ public static class PortablePdbPackageComposition
                 assembly,
                 library,
                 candidate));
+    }
+
+    private static Task<PackageHouseSettlement>
+        AcquireInventoryAsync(
+        PackageSourceCoordinate coordinate,
+        PackageHouseTargetContext target,
+        IPortablePdbPackageContentSource source,
+        CancellationToken cancellationToken)
+    {
+        PackageHouseContentQuery query =
+            PackageHouseContentQuery
+                .GetLibraryAndInventoryForTarget(target);
+        return source.AcquireAsync(
+            coordinate,
+            query,
+            cancellationToken);
     }
 
     private static ResolvedAssemblyReference?

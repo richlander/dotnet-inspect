@@ -84,7 +84,36 @@ public sealed record PortablePdbSettlementReceipt(
     PortablePdbAcquisitionFailureKind? ProviderFailure = null,
     bool Applicable = true,
     bool Authorized = true,
-    PortablePdbSettlementSkipReason? SkipReason = null);
+    PortablePdbSettlementSkipReason? SkipReason = null,
+    PortablePdbPackageBindingFailureKind? PackageBindingFailure = null);
+
+/// <summary>
+/// Opaque metadata-owned target for one exact Portable PDB settlement.
+/// </summary>
+public sealed class PortablePdbSettlementTarget
+{
+    public PortablePdbSettlementTarget(PdbContext context)
+    {
+        Context =
+            context
+            ?? throw new ArgumentNullException(nameof(context));
+    }
+
+    internal PdbContext Context { get; }
+
+    public bool HasEmbeddedPdb => Context.HasEmbeddedPdb;
+}
+
+/// <summary>
+/// Host composition for one exact Portable PDB settlement.
+/// </summary>
+public interface IPortablePdbSettlementCapability
+{
+    Task<PortablePdbSettlementResult> SettleAsync(
+        PortablePdbSettlementTarget target,
+        ResolvedAssemblyReference assembly,
+        CancellationToken cancellationToken = default);
+}
 
 /// <summary>
 /// Explicit host capabilities for one exact Portable PDB settlement.
@@ -93,6 +122,8 @@ public sealed class PortablePdbSettlementRequest
 {
     private TimeSpan? _timeout;
     private PortablePdbPackageCandidate? _packageCandidate;
+    private PortablePdbPackageBindingFailureKind?
+        _packageBindingFailure;
 
     public PortablePdbSettlementRequest(
         PdbContext context,
@@ -126,6 +157,22 @@ public sealed class PortablePdbSettlementRequest
         }
     }
 
+    public PortablePdbSettlementRequest(
+        PortablePdbSettlementTarget target,
+        ResolvedAssemblyReference assembly,
+        HttpClient symbolClient,
+        IPdbStore positiveStore,
+        IPackageSourceAuthorization packageSourceAuthorization)
+        : this(
+            target?.Context
+                ?? throw new ArgumentNullException(nameof(target)),
+            assembly,
+            symbolClient,
+            positiveStore,
+            packageSourceAuthorization)
+    {
+    }
+
     public PdbContext Context { get; }
     public ResolvedAssemblyReference Assembly { get; }
     public HttpClient SymbolClient { get; }
@@ -144,8 +191,32 @@ public sealed class PortablePdbSettlementRequest
         init
         {
             if (value is not null)
+            {
+                if (_packageBindingFailure is not null)
+                {
+                    throw new ArgumentException(
+                        "A Portable PDB settlement cannot carry both a package-local candidate and a package-binding failure.",
+                        nameof(value));
+                }
                 ValidatePackageCandidate(value);
+            }
             _packageCandidate = value;
+        }
+    }
+    public PortablePdbPackageBindingFailureKind?
+        PackageBindingFailure
+    {
+        get => _packageBindingFailure;
+        init
+        {
+            if (value is not null
+                && _packageCandidate is not null)
+            {
+                throw new ArgumentException(
+                    "A Portable PDB settlement cannot carry both a package-local candidate and a package-binding failure.",
+                    nameof(value));
+            }
+            _packageBindingFailure = value;
         }
     }
     public TimeSpan? Timeout
@@ -476,6 +547,29 @@ public static class PortablePdbSettlement
                     applicable: false),
                 NetworkOccurred: false,
                 Stopped: false);
+
+        internal static PackageLocalProbe BindingFailed(
+            PortablePdbPackageBindingFailureKind failure)
+        {
+            bool incomplete =
+                failure
+                    is PortablePdbPackageBindingFailureKind
+                            .PackageIncomplete
+                        or PortablePdbPackageBindingFailureKind
+                            .AssemblyContentLimit;
+            return new(
+                Content: null,
+                new(
+                    PortablePdbSettlementCandidate.PackageLocal,
+                    incomplete
+                        ? PortablePdbSettlementAttemptOutcome
+                            .Incomplete
+                        : PortablePdbSettlementAttemptOutcome
+                            .Failed,
+                    PackageBindingFailure: failure),
+                NetworkOccurred: false,
+                Stopped: incomplete);
+        }
     }
 
     private readonly record struct ProvenancePublicationResult(
@@ -501,6 +595,9 @@ public static class PortablePdbSettlement
 
             packageProducer = requestedProducer;
         }
+        bool hasPackageAttempt =
+            request.PackageCandidate is not null
+            || request.PackageBindingFailure is not null;
 
         var receipts =
             ImmutableArray.CreateBuilder<
@@ -528,7 +625,7 @@ public static class PortablePdbSettlement
             receipts.Add(Skipped(
                 PortablePdbSettlementCandidate.PositiveStore,
                 PortablePdbSettlementSkipReason.OperationStopped));
-            if (request.PackageCandidate is not null)
+            if (hasPackageAttempt)
             {
                 receipts.Add(Skipped(
                     PortablePdbSettlementCandidate.PackageLocal,
@@ -578,7 +675,7 @@ public static class PortablePdbSettlement
                 receipts.Add(Skipped(
                     PortablePdbSettlementCandidate.PositiveStore,
                     PortablePdbSettlementSkipReason.OperationStopped));
-                if (request.PackageCandidate is not null)
+                if (hasPackageAttempt)
                 {
                     receipts.Add(Skipped(
                         PortablePdbSettlementCandidate.PackageLocal,
@@ -707,7 +804,7 @@ public static class PortablePdbSettlement
                 PortablePdbSettlementCandidate.PositiveStore,
                 PortablePdbSettlementSkipReason
                     .EarlierCandidateAcquired));
-            if (request.PackageCandidate is not null)
+            if (hasPackageAttempt)
             {
                 receipts.Add(Skipped(
                     PortablePdbSettlementCandidate.PackageLocal,
@@ -739,7 +836,7 @@ public static class PortablePdbSettlement
                 PortablePdbSettlementCandidate.PositiveStore,
                 PortablePdbSettlementSkipReason.NoPortableIdentity,
                 applicable: false));
-            if (request.PackageCandidate is not null)
+            if (hasPackageAttempt)
             {
                 receipts.Add(Skipped(
                     PortablePdbSettlementCandidate.PackageLocal,
@@ -765,7 +862,7 @@ public static class PortablePdbSettlement
                 PortablePdbSettlementCandidate.PositiveStore,
                 PortablePdbSettlementSkipReason.UnsupportedFormat,
                 applicable: false));
-            if (request.PackageCandidate is not null)
+            if (hasPackageAttempt)
             {
                 receipts.Add(Skipped(
                     PortablePdbSettlementCandidate.PackageLocal,
@@ -817,7 +914,7 @@ public static class PortablePdbSettlement
                     PortablePdbSettlementAttemptOutcome.Acquired,
                     Coordinates:
                         storeProbe.Provenance?.Coordinates));
-                if (request.PackageCandidate is not null)
+                if (hasPackageAttempt)
                 {
                     receipts.Add(Skipped(
                         PortablePdbSettlementCandidate.PackageLocal,
@@ -846,7 +943,7 @@ public static class PortablePdbSettlement
                 receipts.Add(new(
                     PortablePdbSettlementCandidate.PositiveStore,
                     PortablePdbSettlementAttemptOutcome.Incomplete));
-                if (request.PackageCandidate is not null)
+                if (hasPackageAttempt)
                 {
                     receipts.Add(Skipped(
                         PortablePdbSettlementCandidate.PackageLocal,
@@ -870,7 +967,15 @@ public static class PortablePdbSettlement
                 StoreFailure: storeProbe.Failure));
             positiveStoreReceiptRecorded = true;
 
-            if (request.PackageCandidate is not null
+            if (request.PackageBindingFailure
+                is { } packageBindingFailure)
+            {
+                packageProbe =
+                    PackageLocalProbe.BindingFailed(
+                        packageBindingFailure);
+                receipts.Add(packageProbe.Receipt);
+            }
+            else if (request.PackageCandidate is not null
                 && request.CacheOnly)
             {
                 receipts.Add(Skipped(
@@ -980,7 +1085,7 @@ public static class PortablePdbSettlement
                         : PortablePdbSettlementAttemptOutcome
                             .Unavailable,
                     StoreFailure: storeProbe.Failure));
-                if (request.PackageCandidate is not null)
+                if (hasPackageAttempt)
                 {
                     receipts.Add(Skipped(
                         PortablePdbSettlementCandidate.PackageLocal,

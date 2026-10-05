@@ -1631,6 +1631,74 @@ public class PdbAcquisitionServiceTests
     }
 
     [Fact]
+    public async Task
+        PackageSettlement_PreservesPackageBindingFailureWhenProvidersAreUnavailable()
+    {
+        var (assembly, _) = CreateTestAssembly(
+            AssemblyResolutionProvenance.Package(
+                "Private.Package",
+                "1.0.0",
+                "net10.0",
+                rid: null,
+                assetPath:
+                    "lib/net10.0/Private.Package.dll"));
+        using var source =
+            SourceLinkService.OpenEmbeddedPdbOnly(assembly);
+        var handler =
+            new PlatformSymbolHandler(
+                throwOnRequest: true);
+        using var client = new HttpClient(handler);
+        var privateSource =
+            new NuGetFetch.PackageSource(
+                "private",
+                "https://packages.example/v3/index.json");
+
+        PortablePdbSettlementResult result =
+            await PortablePdbSettlement.SettleAsync(
+                new PortablePdbSettlementRequest(
+                    source.Context,
+                    assembly,
+                    client,
+                    new InMemoryPdbStore(),
+                    new UniformPackageSourceAuthorization(
+                        [
+                            privateSource,
+                            NuGetFetch.PackageSource.NuGetOrg,
+                        ]))
+                {
+                    PackageBindingFailure =
+                        PortablePdbPackageBindingFailureKind
+                            .SelectedLibraryUnavailable,
+                    PackageProducer =
+                        NuGetFetch.PackageSourceClientFactory
+                            .GetProducerIdentity(
+                                privateSource),
+                },
+                TestContext.Current.CancellationToken);
+
+        var failed =
+            Assert.IsType<
+                PortablePdbSettlementResult.Failed>(result);
+        Assert.Equal(
+            PortablePdbSettlementFailureKind.PackageLocalFailed,
+            failed.Failure);
+        PortablePdbSettlementReceipt packageReceipt =
+            Assert.Single(
+                failed.Receipts,
+                receipt =>
+                    receipt.Candidate
+                    == PortablePdbSettlementCandidate.PackageLocal);
+        Assert.Equal(
+            PortablePdbSettlementAttemptOutcome.Failed,
+            packageReceipt.Outcome);
+        Assert.Equal(
+            PortablePdbPackageBindingFailureKind
+                .SelectedLibraryUnavailable,
+            packageReceipt.PackageBindingFailure);
+        Assert.Empty(handler.RequestUris);
+    }
+
+    [Fact]
     public void SettlementRequest_RequiresExactAssemblyBinding()
     {
         var (assembly, _) = CreateTestAssembly(

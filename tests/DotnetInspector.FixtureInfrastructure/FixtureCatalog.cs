@@ -179,6 +179,7 @@ public static class FixtureIds
     public const string InspectWebDocumentation =
         "inspect-web.documentation";
     public const string InspectWebMethodBodies = "inspect-web.method-bodies";
+    public const string InspectWebPackagePdb = "inspect-web.package-pdb";
     public const string InspectWebSourceComparisonV1 = "inspect-web.source-comparison.v1";
     public const string InspectWebSourceComparisonV2 = "inspect-web.source-comparison.v2";
     public const string SourceLinkMalformed = "sourcelink.malformed";
@@ -308,6 +309,25 @@ public static class FixtureCatalog
         Boundaries(FixtureBoundary.SidecarAsset, FixtureBoundary.PostBuildTransformation),
         Asset("reference", "InspectWeb.MethodBodyFixtures", "ref/InspectWeb.MethodBodyFixtures.dll"),
         Asset("package", "InspectWeb.MethodBodyFixtures", "InspectWeb.MethodBodyFixtures.1.0.0.nupkg"));
+
+    public static readonly FixtureDefinition InspectWebPackagePdb = Fixture(
+        FixtureIds.InspectWebPackagePdb,
+        "InspectWeb.PackagePdbFixture",
+        "InspectWebPackagePdbFixture.dll",
+        ["inspect-web", "source", "package-pdb"],
+        Boundaries(
+            FixtureBoundary.SidecarAsset,
+            FixtureBoundary.SourceLinkMap,
+            FixtureBoundary.PostBuildTransformation),
+        Asset(
+            "package",
+            "InspectWeb.PackagePdbFixture",
+            "InspectWeb.PackagePdbFixture.1.0.0.nupkg"),
+        Asset(
+            "pdb",
+            "InspectWeb.PackagePdbFixture",
+            "InspectWebPackagePdbFixture.pdb"),
+        Asset("source", "InspectWeb.PackagePdbFixture", "Counter.cs"));
 
     // The browser Source comparison pair needs the same authored difference as the
     // queries source-diff pair, but reachable from a browser participant: an embedded
@@ -1198,6 +1218,7 @@ public static class FixtureCatalog
         InspectWebCloneTransport,
         InspectWebDocumentation,
         InspectWebMethodBodies,
+        InspectWebPackagePdb,
         InspectWebSourceComparisonV1,
         InspectWebSourceComparisonV2,
         DecompilerAuthoredRebuild,
@@ -1647,6 +1668,8 @@ public static class FixtureCatalog
             "InspectWeb.DocumentationFixtures" =>
                 "fixtures/inspect-web/InspectWeb.DocumentationFixtures",
             "InspectWeb.MethodBodyFixtures" => "fixtures/inspect-web/InspectWeb.MethodBodyFixtures",
+            "InspectWeb.PackagePdbFixture" =>
+                "fixtures/inspect-web/InspectWeb.PackagePdbFixture",
             "InspectWeb.SourceComparisonFixtures.V1" =>
                 "fixtures/inspect-web/InspectWeb.SourceComparisonFixtures.V1",
             "InspectWeb.SourceComparisonFixtures.V2" =>
