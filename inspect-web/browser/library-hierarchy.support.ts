@@ -883,6 +883,7 @@ async function installFacades(
             },
             diagnostics: [],
           },
+          documents: surface.documents,
           surface: {
           ...surfaceFor(id, version, framework),
           package: id,
@@ -1259,6 +1260,19 @@ async function installFacades(
               }))
             : [{ name: selected.name + ".Dependency", version: "1.0.0.0", culture: null, publicKeyToken: null }] },
           compileLibrary: surface.compileLibrary
+        };
+      }
+      export async function queryPackageVulnerabilities(id, version) {
+        document.documentElement.dataset.packageVulnerabilitiesRequest =
+          JSON.stringify([id, version]);
+        return {
+          package: id.toLowerCase(),
+          version,
+          availability: "Complete",
+          advisories: [],
+          failures: [],
+          advisoryProducer: "https://api.github.com/advisories",
+          observedAt: "2026-10-05T00:00:00Z"
         };
       }`,
     library: `

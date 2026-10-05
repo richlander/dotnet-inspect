@@ -333,6 +333,7 @@ import {
   renderPackageOverviewContent,
 } from "./overview-surface.ts";
 import { renderPackageInfo } from "./package-info.ts";
+import { renderPackageVulnerabilities } from "./package-vulnerabilities.ts";
 import { renderLibraryReferencesSurface } from "./library-references.ts";
 import { renderLibraryIntegrationsSurface } from "./library-integrations.ts";
 import {
@@ -536,9 +537,8 @@ import {
   type ProductDestination,
 } from "./brand.ts";
 import {
-  isExactPlatformPruningFramework,
   loadPlatformIndex, parsePlatformCatalogTarget,
-  platformCatalogFramework, requirePlatformPackageSupplies,
+  platformCatalogFramework,
   type PlatformAssemblyRow, type PlatformIndex, type PlatformCatalogTarget,
 } from "./platform-index.ts";
 import {
@@ -772,8 +772,8 @@ import type {
   BrowserPackageCacheStats,
   BrowserPackageDependencies,
   BrowserPackageDependencyGroup,
-  BrowserPackagePruningResult,
   BrowserPackageSurface,
+  BrowserPackageVulnerabilityResult,
   BrowserPlatformForwarderRow,
   BrowserPlatformForwarderView,
   BrowserExactLibraryApiInspection,
@@ -854,8 +854,8 @@ let inspectLibraryDocument: EngineClient["library"]["inspectLibrary"];
 let inspectLibraryApi: EngineClient["package"]["queryLibraryApi"];
 let inspectPackageDependencies:
   EngineClient["package"]["queryPackageDependencies"];
-let inspectPackagePruning:
-  EngineClient["package"]["queryPackagePruning"];
+let inspectPackageVulnerabilities:
+  EngineClient["package"]["queryPackageVulnerabilities"];
 let inspectPackageVersions: EngineClient["package"]["queryPackageVersions"];
 let resolveDependencyVersion:
   EngineClient["package"]["resolvePackageDependencyVersion"];
@@ -1066,7 +1066,7 @@ async function loadEngineModule() {
       queryPackageRoot: inspectPackageRoot,
       queryPackageSummary: inspectPackageSummary,
       queryPackageDependencies: inspectPackageDependencies,
-      queryPackagePruning: inspectPackagePruning,
+      queryPackageVulnerabilities: inspectPackageVulnerabilities,
       queryPackageVersions: inspectPackageVersions,
       resolvePackageDependencyVersion: resolveDependencyVersion,
       runPackageActivity: inspectRunPackageActivity,
@@ -1428,11 +1428,10 @@ const initialState = {
   packageDependenciesLoading: false,
   packageDependenciesError: "",
   packageDependenciesKey: "",
-  packagePruning: null,
-  packagePruningLoading: false,
-  packagePruningError: "",
-  packagePruningKey: "",
-  packagePruningFamily: "Microsoft.NETCore.App",
+  packageVulnerabilities: null,
+  packageVulnerabilitiesLoading: false,
+  packageVulnerabilitiesError: "",
+  packageVulnerabilitiesKey: "",
   dependenciesGroupIndex: null,
   workspaceDependencies: {},
   workspaceDependencyErrors: {},
@@ -1602,7 +1601,7 @@ interface StateOverrides {
   libraryEnablements: Map<string, BrowserLibraryEnablements | null>;
   libraryEnablementLoads: Set<string>;
   packageDependencies: BrowserPackageDependencies | null;
-  packagePruning: BrowserPackagePruningResult | null;
+  packageVulnerabilities: BrowserPackageVulnerabilityResult | null;
   dependenciesGroupIndex: number | null;
   workspaceDependencies: Record<string, DependencyGroupData>;
   workspaceDependencyErrors: Record<string, string>;
@@ -1882,7 +1881,8 @@ function normalizeWorkspaceAsyncSnapshotState(
   const memberAnnotatedLoading = snapshotState.memberAnnotatedLoading;
   const typeMetadataLoading = snapshotState.typeMetadataLoading;
   const packageDependenciesLoading = snapshotState.packageDependenciesLoading;
-  const packagePruningLoading = snapshotState.packagePruningLoading;
+  const packageVulnerabilitiesLoading =
+    snapshotState.packageVulnerabilitiesLoading;
   const packageIntegrationsLoading = snapshotState.packageIntegrationsLoading;
   const packageOpportunitiesLoading = snapshotState.packageOpportunitiesLoading;
   const packagePerformanceLoading = snapshotState.packagePerformanceLoading;
@@ -1899,7 +1899,7 @@ function normalizeWorkspaceAsyncSnapshotState(
   snapshotState.memberAnnotatedLoading = false;
   snapshotState.typeMetadataLoading = false;
   snapshotState.packageDependenciesLoading = false;
-  snapshotState.packagePruningLoading = false;
+  snapshotState.packageVulnerabilitiesLoading = false;
   snapshotState.packageIntegrationsLoading = false;
   snapshotState.packageOpportunitiesLoading = false;
   snapshotState.packagePerformanceLoading = false;
@@ -1945,7 +1945,9 @@ function normalizeWorkspaceAsyncSnapshotState(
   if (memberAnnotatedLoading) snapshotState.memberAnnotatedKey = "";
   if (typeMetadataLoading) snapshotState.typeMetadataKey = "";
   if (packageDependenciesLoading) snapshotState.packageDependenciesKey = "";
-  if (packagePruningLoading) snapshotState.packagePruningKey = "";
+  if (packageVulnerabilitiesLoading) {
+    snapshotState.packageVulnerabilitiesKey = "";
+  }
   if (packageIntegrationsLoading) snapshotState.packageIntegrationsKey = "";
   if (packageOpportunitiesLoading) snapshotState.packageOpportunitiesKey = "";
   if (packagePerformanceLoading) snapshotState.packagePerformanceKey = "";
@@ -5170,6 +5172,7 @@ const packageControls = createPackageControls({
       "Switching the package framework");
   },
   selectVersion: version => {
+    if (contentFrameUsesPush()) contentFramePane = "detail";
     if (state.package?.isRuntimePack)
       observeAsync(
         switchPlatformVersion(version),
@@ -7112,10 +7115,14 @@ function selectScopeLensByIndex(index: number, workspaceScope: WorkspaceScope): 
   }
 }
 
-// The resident runtime pseudo-package has no NuGet package dependency graph.
+// The resident runtime pseudo-package has no NuGet package evidence. Uploaded
+// packages have no GitHub-to-source authority correspondence.
 function packageLensesFor(pkg: AppPackage | null) {
-  if (!pkg?.isRuntimePack) return packageLenses;
-  return packageLenses.filter(([id]) => id === "overview");
+  return packageLenses.filter(([id]) => {
+    if (pkg?.isRuntimePack) return id === "overview";
+    if (id === "vulnerabilities") return pkg?.source.kind === "nuget.org";
+    return true;
+  });
 }
 
 function libraryLensesFor(pkg: AppPackage | null) {
@@ -8715,9 +8722,13 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
   const packageLoadingFramework = packageLoadingHadFocus
     ? focusedElement?.dataset.packageLoadingFramework
     : focusedElement?.dataset.packageFramework;
-  const packageControlHadFocus = packageLoadingControl === "framework"
+  const packageLoadingFocusControl: PackageLoadingFocusControl | null =
+    packageLoadingControl === "framework"
     || packageLoadingControl === "package-framework"
-    || packageLoadingControl === "package-version";
+    || packageLoadingControl === "package-version"
+      ? packageLoadingControl
+      : null;
+  const packageControlHadFocus = packageLoadingFocusControl !== null;
   const packageRetryHadFocus = loadingPackageContent
     && focusedElement?.id === "retry-notice";
   const homeFocus =
@@ -9004,6 +9015,8 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
     || (activeScope === "type" && forwarder !== null);
   const packageDependenciesWorkingSurface =
     activeScope === "package" && state.packageLens === "dependencies";
+  const packageVulnerabilitiesWorkingSurface =
+    activeScope === "package" && state.packageLens === "vulnerabilities";
   const libraryMetadataWorkingSurface =
     activeScope === "library" && state.libraryLens === "metadata";
   const compareWorkingSurface = currentCompareSubject() !== null;
@@ -9123,7 +9136,7 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
           ${contentFrameEnabled
             ? renderContentNavigationBar(contentNavigationLabel)
             : ""}
-          <article id="inspector-panel" ${loadingPackageContent ? 'aria-busy="true"' : ""} class="detail-scroll${sourceWorkingSurface ? " source-working-surface" : ""}${apiWorkingSurface ? " api-working-surface" : ""}${metadataWorkingSurface ? " metadata-working-surface" : ""}${overviewWorkingSurface ? " overview-working-surface" : ""}${packageDependenciesWorkingSurface ? " package-dependencies-working-surface" : ""}${compareWorkingSurface ? " library-api-diff-working-surface" : ""}${libraryMetadataWorkingSurface ? " package-metadata-working-surface" : ""}${libraryReferencesWorkingSurface ? " library-references-working-surface" : ""}${libraryAnalysisWorkingSurface ? " library-analysis-working-surface" : ""}${memberWorkingSurface ? " member-working-surface" : ""}">
+          <article id="inspector-panel" ${loadingPackageContent ? 'aria-busy="true"' : ""} class="detail-scroll${sourceWorkingSurface ? " source-working-surface" : ""}${apiWorkingSurface ? " api-working-surface" : ""}${metadataWorkingSurface ? " metadata-working-surface" : ""}${overviewWorkingSurface ? " overview-working-surface" : ""}${packageDependenciesWorkingSurface ? " package-dependencies-working-surface" : ""}${packageVulnerabilitiesWorkingSurface ? " package-vulnerabilities-working-surface" : ""}${compareWorkingSurface ? " library-api-diff-working-surface" : ""}${libraryMetadataWorkingSurface ? " package-metadata-working-surface" : ""}${libraryReferencesWorkingSurface ? " library-references-working-surface" : ""}${libraryAnalysisWorkingSurface ? " library-analysis-working-surface" : ""}${memberWorkingSurface ? " member-working-surface" : ""}">
             ${loadingPackageContent
               ? `<div id="package-content-loading" class="package-content-loading" role="status" tabindex="-1" data-package-loading-control="${packageContentLoadingFocusControl ?? (state.requestedVersion !== pkg.version ? "package-version" : "package-framework")}"${state.requestedVersion !== pkg.version ? "" : ` data-package-loading-framework="${escapeHtml(state.requestedFramework)}"`}><span class="loader" aria-hidden="true"></span><span>Loading ${state.requestedVersion !== pkg.version ? `version ${escapeHtml(state.requestedVersion)}` : escapeHtml(state.requestedFramework)} content…</span></div>`
               : renderLens(current)}
@@ -9191,21 +9204,14 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
   } else if (isCompareMode(compareTabFocus)) {
     restoreCompareTabFocus(document, compareTabFocus);
   } else if (packageRetryHadFocus || packageControlHadFocus) {
-    const packageFrameworkControl = () =>
-      contentFrameMedia.matches
-        ? document.querySelector<HTMLElement>("#content-navigation-toggle")
-        : [...document.querySelectorAll<HTMLElement>("[data-package-framework]")]
-            .find(button =>
-              button.dataset.packageFramework === packageLoadingFramework);
-    const packageControl = loadingPackageContent
-      ? document.querySelector<HTMLElement>("#package-content-loading")
-      : packageLoadingControl === "package-framework"
-        ? packageFrameworkControl()
-        : document.querySelector<HTMLElement>(`#${packageLoadingControl}`)
-          ?? (packageLoadingControl === "framework"
-            ? packageFrameworkControl()
-            : null);
-    packageControl?.focus({ preventScroll: true });
+    if (loadingPackageContent) {
+      document.querySelector<HTMLElement>("#package-content-loading")
+        ?.focus({ preventScroll: true });
+    } else if (packageLoadingFocusControl) {
+      focusPackageCoordinateControl(
+        packageLoadingFocusControl,
+        packageLoadingFramework ?? "");
+    }
   }
   if (scopeBarOwnsFocus) {
     let restored = false;
@@ -9239,6 +9245,7 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
     maybeAutoLoadLibraryApi();
     maybeAutoLoadLibraryEnablements();
     maybeAutoLoadPackageDependencies();
+    maybeAutoLoadPackageVulnerabilities();
     maybeAutoLoadPackageIntegrations();
     maybeAutoLoadPackageOpportunities();
     maybeAutoLoadPackagePerformance();
@@ -9548,6 +9555,10 @@ function renderNavPane(
     return renderPackageNav({
       frameworks: pkg.frameworks,
       activeFramework: pkg.activeFramework,
+      versionFieldHtml: state.packageLens === "overview"
+        || state.packageLens === "vulnerabilities"
+        ? packageVersionField()
+        : "",
       escapeHtml,
     });
   }
@@ -9938,6 +9949,33 @@ function packageVersionField() {
   </label>`;
 }
 
+function focusPackageCoordinateControl(
+  control: PackageLoadingFocusControl,
+  framework: string,
+) {
+  const navigationToggle =
+    document.querySelector<HTMLElement>("#content-navigation-toggle");
+  if (control === "package-version") {
+    if (contentFrameMedia.matches
+      && (state.packageLens === "overview"
+        || state.packageLens === "vulnerabilities")) {
+      navigationToggle?.focus({ preventScroll: true });
+      return;
+    }
+    const version =
+      document.querySelector<HTMLElement>("#package-version");
+    (version?.checkVisibility() ? version : navigationToggle)
+      ?.focus({ preventScroll: true });
+    return;
+  }
+  const frameworkControl =
+    [...document.querySelectorAll<HTMLElement>("[data-package-framework]")]
+      .find(button => button.dataset.packageFramework === framework);
+  (frameworkControl?.checkVisibility()
+    ? frameworkControl
+    : navigationToggle)?.focus({ preventScroll: true });
+}
+
 function renderPackageView() {
   return packageLensBody();
 }
@@ -10044,6 +10082,19 @@ function packageLensBody() {
   switch (state.packageLens) {
     case "overview": return renderPackageOverview();
     case "dependencies": return renderPackageDependencies();
+    case "vulnerabilities": {
+      const pkg = currentPackage();
+      const fresh =
+        state.packageVulnerabilitiesKey === packageVulnerabilitiesSignature();
+      return renderPackageVulnerabilities({
+        packageId: pkg.id,
+        packageVersion: pkg.version,
+        loading: fresh && state.packageVulnerabilitiesLoading,
+        error: fresh ? state.packageVulnerabilitiesError : "",
+        result: fresh ? state.packageVulnerabilities : null,
+        escapeHtml,
+      });
+    }
   }
   // `packageLenses` drives the rendered strip directly, so a new catalog entry is offered
   // to users the moment it is added. It used to fall through to a "not available"
@@ -10128,11 +10179,6 @@ function packageDependenciesStatus(
 const DEPENDENCY_GRAPH_SUMMARY =
   "callers above · dependencies below · click a package to open";
 
-const PACKAGE_PRUNING_FAMILIES = [
-  { value: "Microsoft.NETCore.App", label: ".NET Runtime" },
-  { value: "Microsoft.AspNetCore.App", label: "ASP.NET Core" },
-] as const;
-
 function packageDeclarationFailureReason(
   failure: BrowserPackageDependencies["declarationFailures"][number],
 ) {
@@ -10160,7 +10206,7 @@ function renderPackageDeclarationFailures(
   failures: BrowserPackageDependencies["declarationFailures"],
 ) {
   if (!failures.length) return "";
-  return `<div class="package-pruning-status package-pruning-error">
+  return `<div class="package-declaration-failures">
     <strong>Dependency declarations incomplete</strong>
     <ul>${failures.map(failure =>
       `<li>${escapeHtml(packageDeclarationFailureReason(failure))}</li>`)
@@ -10168,112 +10214,9 @@ function renderPackageDeclarationFailures(
   </div>`;
 }
 
-function packagePruningSignature(family = state.packagePruningFamily) {
+function packageVulnerabilitiesSignature() {
   const pkg = currentPackage();
-  return `${pkg.id}@${pkg.version}/${pkg.activeFramework}#${family}`;
-}
-
-function packagePruningReason(row: BrowserPackagePruningResult["rows"][number]) {
-  if (row.disposition === "PlatformDelegation") {
-    return "The platform supplies the candidate version or a newer one.";
-  }
-  if (row.disposition === "PackageRetained") {
-    return row.platformSuppliedVersion
-      ? "The selected candidate is newer than the platform-supplied version."
-      : "The platform does not supply this package.";
-  }
-  if (row.disposition === "CandidateUnavailable") {
-    return `Candidate resolution did not complete (${row.reason}).`;
-  }
-  return `Pruning was not evaluated (${row.reason}).`;
-}
-
-function packagePruningDisposition(
-  row: BrowserPackagePruningResult["rows"][number],
-) {
-  switch (row.disposition) {
-    case "PlatformDelegation": return "Use platform";
-    case "PackageRetained": return "Keep package";
-    case "CandidateUnavailable": return "Candidate unavailable";
-    case "NotEvaluated": return "Not evaluated";
-    default: return "Not evaluated";
-  }
-}
-
-function renderPackagePruningSection(
-  data: BrowserPackageDependencies,
-): string {
-  const pkg = currentPackage();
-  const exactPlatformFramework =
-    isExactPlatformPruningFramework(pkg.activeFramework);
-  const activeGroup = data.dependencyGroups.find(group => group.isActive);
-  if (pkg.isRuntimePack
-    || !exactPlatformFramework
-    || !activeGroup?.dependencies.length) {
-    return "";
-  }
-
-  const signature = packagePruningSignature();
-  const fresh = state.packagePruningKey === signature;
-  const result = fresh ? state.packagePruning : null;
-  const loading = fresh && state.packagePruningLoading;
-  const error = fresh ? state.packagePruningError : "";
-  const familyOptions = PACKAGE_PRUNING_FAMILIES.map(family =>
-    `<option value="${family.value}"${family.value === state.packagePruningFamily ? " selected" : ""}>${family.label}</option>`)
-    .join("");
-  const resultRows = result?.rows.map(row => `
-      <tr>
-        <td><code>${escapeHtml(row.package)}</code><small>${escapeHtml(row.requestedRange || "*")}</small></td>
-        <td>${row.candidateVersion ? `<code>${escapeHtml(row.candidateVersion)}</code>` : "—"}</td>
-        <td>${row.platformSuppliedVersion ? `<code>${escapeHtml(row.platformSuppliedVersion)}</code>` : "—"}</td>
-        <td><strong>${escapeHtml(packagePruningDisposition(row))}</strong><small>${escapeHtml(packagePruningReason(row))}</small></td>
-      </tr>`)
-    .join("") ?? "";
-  const declarationFailures = result
-    ? renderPackageDeclarationFailures(result.declarationFailures)
-    : "";
-  const basis = result
-    ? `Evaluated active group <code>${escapeHtml(
-      result.selectedFramework || activeGroup.framework,
-    )}</code> against <code>${escapeHtml(
-      result.family,
-    )}</code> at <code>${escapeHtml(
-      `${result.targetFramework}@${result.platformVersion}`,
-    )}</code>.`
-    : `Evaluation uses the active normalized group <code>${escapeHtml(
-      activeGroup.framework,
-    )}</code> and the selected platform family; choosing another displayed group does not change that input. Candidate version discovery may query nuget.org.`;
-  const resultHtml = loading
-    ? `<div class="package-pruning-status source-progress"><span class="loader"></span><span>Resolving dependency candidates…</span></div>`
-    : error
-      ? `<div class="package-pruning-status package-pruning-error"><strong>Pruning query failed</strong><span>${escapeHtml(error)}</span></div>`
-      : result
-        ? result.message
-          ? `<div class="package-pruning-status"><span>${escapeHtml(result.message)}</span></div>${declarationFailures}`
-          : `<div class="package-pruning-result">
-              <p><strong>${result.summary.delegated}</strong> platform · <strong>${result.summary.retained}</strong> package · <strong>${result.summary.notEvaluated}</strong> not evaluated · <strong>${result.summary.failed}</strong> unresolved · <strong>${result.summary.declarationFailures}</strong> declaration failures</p>
-              <div class="package-pruning-table-scroll">
-                <table class="package-pruning-table">
-                  <thead><tr><th>Dependency</th><th>Candidate</th><th>Supplied</th><th>Disposition</th></tr></thead>
-                  <tbody>${resultRows}</tbody>
-                </table>
-              </div>
-              ${declarationFailures}
-            </div>`
-        : "";
-
-  return `
-    <section class="document-section package-pruning-section">
-      <div class="section-title"><h2>Platform pruning</h2><span>explicit evaluation · no graph changes</span></div>
-      <div class="package-pruning-controls">
-        <label>Platform family
-          <select data-pruning-family${loading ? " disabled" : ""}>${familyOptions}</select>
-        </label>
-        <button type="button" data-pruning-evaluate${loading ? " disabled" : ""}>${result || error ? "Evaluate again" : "Evaluate"}</button>
-      </div>
-      <p class="package-pruning-intro">${basis}</p>
-      ${resultHtml}
-    </section>`;
+  return `${pkg.id.toLowerCase()}@${pkg.version.toLowerCase()}`;
 }
 
 function renderPackageDependencies() {
@@ -10332,10 +10275,8 @@ function renderPackageDependencies() {
       <div id="dependency-graph-diagram" class="call-graph-diagram"><span class="loader"></span><p>Rendering graph…</p></div>
       ${dependencyGraphLegendHtml()}
     </section>`;
-  const pruningSection = renderPackagePruningSection(data);
-
   return renderPackageDependenciesSurface(
-    `<div data-dependency-graph-surface>${dependencyGroupNotice}${declarationFailureNotice}${selector}${graphSection}</div>${pruningSection}${depList}`,
+    `<div data-dependency-graph-surface>${dependencyGroupNotice}${declarationFailureNotice}${selector}${graphSection}</div>${depList}`,
     packageDependenciesStatus(data, selectedGroupIndex));
 }
 
@@ -10468,20 +10409,9 @@ const packageInspection = createPackageInspectionCoordinator({
     packageModel.version,
     packageModel.activeFramework,
     packageQueryAssemblyId(packageModel)),
-  queryPruning: async (packageModel, family) => {
-    const target = await ensurePlatformCatalog(packageModel.activeFramework);
-    return await inspectPackagePruning(
-      packageModel.id,
-      packageModel.version,
-      packageModel.activeFramework,
-      {
-        schemaVersion: 1,
-        family,
-        targetFramework: target.tfm,
-        platformVersion: target.version,
-        supplies: requirePlatformPackageSupplies(target),
-      });
-  },
+  queryVulnerabilities: packageModel => inspectPackageVulnerabilities(
+    packageModel.id,
+    packageModel.version),
   queryPackageIntegrations: (packageModel, library) => inspectPackageIntegrations(
     packageModel.id,
     packageModel.version,
@@ -10619,6 +10549,22 @@ function maybeAutoLoadPackageDependencies() {
     return;
   }
   observeAsync(loadPackageDependencies(), "Loading package dependencies");
+}
+
+function maybeAutoLoadPackageVulnerabilities() {
+  if (!state.atPackageRoot
+    || state.packageLens !== "vulnerabilities"
+    || state.package?.source.kind !== "nuget.org") return;
+  const signature = packageVulnerabilitiesSignature();
+  if (state.packageVulnerabilitiesKey === signature
+    && (state.packageVulnerabilitiesLoading
+      || state.packageVulnerabilities
+      || state.packageVulnerabilitiesError)) return;
+  observeAsync(
+    packageInspection.loadVulnerabilities(
+      currentPackage(),
+      signature),
+    "Checking package vulnerabilities");
 }
 
 // Fetches dependency manifests for every other open package so the dependency graph can
@@ -11708,7 +11654,6 @@ function renderPackageOverview() {
     activeFramework: pkg.activeFramework,
     totalTypes: pkg.totalTypes,
     totalMembers: pkg.totalMembers,
-    coordinateFieldsHtml: packageVersionField(),
     contentHtml,
     escapeHtml,
   });
@@ -12625,21 +12570,6 @@ const packageViewActions: PackageViewBindingActions = {
     if (state.dependenciesGroupIndex === index) return;
     state.dependenciesGroupIndex = index;
     patchDependenciesGroup();
-  },
-  onPruningEvaluate: () =>
-    observeAsync(
-      packageInspection.loadPruning(
-        currentPackage(),
-        packagePruningSignature(),
-        state.packagePruningFamily),
-      "Evaluating platform pruning"),
-  onPruningFamilySelect: family => {
-    if (state.packagePruningFamily === family) return;
-    state.packagePruningFamily = family;
-    state.packagePruning = null;
-    state.packagePruningError = "";
-    state.packagePruningKey = "";
-    renderPreservingMemberFocus();
   },
   onDependencyLoad: (id, version) =>
     observeAsync(
@@ -15129,6 +15059,10 @@ async function switchPackageVersion(newVersion: string) {
     loadingPresentation: "content",
     loadingFocusControl: "package-version",
   });
+  if (state.package?.version.toLowerCase() === newVersion.toLowerCase())
+    focusPackageCoordinateControl(
+      "package-version",
+      state.package.activeFramework);
 }
 
 async function switchPackageFramework(
@@ -15150,6 +15084,11 @@ async function switchPackageFramework(
       loadingPresentation: "content",
       loadingFocusControl,
     });
+  if (state.package?.activeFramework.toLowerCase()
+    === newFramework.toLowerCase())
+    focusPackageCoordinateControl(
+      loadingFocusControl,
+      state.package.activeFramework);
 }
 
 

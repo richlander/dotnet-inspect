@@ -631,7 +631,12 @@ for (const [subject, width] of [
     await expect(page.locator("#inspector-panel h1")).toHaveText(name);
     expect((await box(page, ".overview-identity h1")).width).toBeGreaterThan(100);
     expect((await box(page, ".overview-identity .subject-icon")).width).toBe(40);
-    await expect(page.locator(".overview-surface-head p")).toHaveText("32 types · 1,234 members");
+    if (subject === "package") {
+      await expect(page.locator(".overview-surface-head")).toHaveCount(0);
+    } else {
+      await expect(page.locator(".overview-surface-head p"))
+        .toHaveText("32 types · 1,234 members");
+    }
     await expect(page.locator(".overview-surface-footer span")).toHaveText([
       "System.Text.Json@10.0.0", "net10.0",
     ]);
@@ -653,11 +658,21 @@ for (const [subject, width] of [
         "Documentation");
       await expect(page.locator(
         ".package-overview-resources .section-title h2")).toHaveText([
-          "Documentation",
           "Comparison targets",
+          "Documentation",
         ]);
+      if (width === 390) {
+        await page.getByRole(
+          "button",
+          { name: "Frameworks", exact: true }).click();
+      }
       await page.getByRole("combobox", { name: "Version", exact: true }).selectOption("9.0.0");
       await expect(page.locator("#package-version")).toHaveValue("9.0.0");
+      if (width === 390) {
+        await page.getByRole(
+          "button",
+          { name: "Show details", exact: true }).click();
+      }
       await expect(page.getByRole("combobox", { name: "Framework", exact: true }))
         .toHaveCount(0);
       await expect(page.locator('[data-package-framework="net10.0"]'))
@@ -686,8 +701,9 @@ for (const [subject, width] of [
       }
     }
 
-    const header = await box(page, ".overview-surface-head");
-    const controls = subject === "package" ? await box(page, ".overview-controls") : null;
+    const header = subject === "library"
+      ? await box(page, ".overview-surface-head")
+      : null;
     const footer = await box(page, ".overview-surface-footer");
     expect(await page.locator(".overview-scroll").evaluate(element =>
       element.scrollHeight > element.clientHeight)).toBe(true);
@@ -699,8 +715,9 @@ for (const [subject, width] of [
     } else {
       await expect(page.locator("[data-namespace-jump]").last()).toBeVisible();
     }
-    expect((await box(page, ".overview-surface-head")).y).toBe(header.y);
-    if (controls) expect((await box(page, ".overview-controls")).y).toBe(controls.y);
+    if (header) {
+      expect((await box(page, ".overview-surface-head")).y).toBe(header.y);
+    }
     expect((await box(page, ".overview-surface-footer")).y).toBe(footer.y);
     expect(await page.locator(".overview-scroll").evaluate(element =>
       element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(0);
@@ -709,8 +726,11 @@ for (const [subject, width] of [
 
     if (width === 390) {
       const toggle = await box(page, "#content-navigation-toggle");
-      expect(toggle.y).toBeGreaterThanOrEqual(header.y);
-      expect(toggle.y + toggle.height).toBeLessThanOrEqual(header.y + header.height);
+      if (header) {
+        expect(toggle.y).toBeGreaterThanOrEqual(header.y);
+        expect(toggle.y + toggle.height)
+          .toBeLessThanOrEqual(header.y + header.height);
+      }
       await page.getByRole("button", { name: subject === "package" ? "Frameworks" : "Libraries", exact: true }).click();
       await expect(page.locator(subject === "package" ? ".package-framework-list" : ".type-list")).toBeFocused();
       await expect(page.locator(".detail-pane")).toBeHidden();
@@ -721,7 +741,7 @@ for (const [subject, width] of [
 test("Package Overview keeps empty totals and available documents", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 700 });
   await page.goto("/browser/workspace-titlebar.html?package-overview=1&empty=1");
-  await expect(page.locator(".overview-surface-head p")).toHaveText("0 types · 0 members");
+  await expect(page.locator(".overview-surface-head")).toHaveCount(0);
   await expect(page.locator(".library-row")).toHaveCount(0);
   await expect(page.locator("[data-doc-path='README.md']")).toBeVisible();
   await expect(page.locator(".overview-surface-footer")).toBeVisible();

@@ -304,6 +304,7 @@ function packageRootLoad(
 ): BrowserPackageRootLoadResult {
   return {
     packageChildren: packageChildren(surface),
+    documents: surface.documents,
   };
 }
 
@@ -878,6 +879,7 @@ function acquisitionDependencies(
       },
       packageInfo: packageInfo(),
       packageChildren: packageChildren(packageSurface()),
+      documents: [],
       surface: packageSurface(),
     }),
     loadRuntimePack: async () => JSON.stringify(
@@ -920,8 +922,15 @@ test("query results open through the exact opaque Root request", async () => {
     },
     queryPackageRoot: async request => {
       opened.push(request);
-      const surface =
-        packageSurface({ activeFramework: "net9.0" });
+      const surface = packageSurface({
+        activeFramework: "net9.0",
+        documents: [{
+          kind: "readme",
+          name: "README.md",
+          path: "README.md",
+          size: 128,
+        }],
+      });
       return packageRootLoad(surface);
     },
   }));
@@ -938,6 +947,12 @@ test("query results open through the exact opaque Root request", async () => {
   assert.equal(result?.version, "1.2.3");
   assert.equal(result?.activeFramework, "net9.0");
   assert.deepEqual(result?.assemblies, []);
+  assert.deepEqual(result?.documents, [{
+    kind: "readme",
+    name: "README.md",
+    path: "README.md",
+    size: 128,
+  }]);
   assert.equal(packageLibrariesForModel(result)[0]?.types, null);
 });
 
@@ -997,6 +1012,7 @@ test("NotSettled package loads preserve the complete shared baseline", async () 
       versionSettlement,
       packageInfo: null,
       packageChildren: null,
+      documents: [],
       surface: null,
     }),
   }));

@@ -108,7 +108,9 @@ public static partial class PackageExports
                                 .ConfigureAwait(false);
                     return new BrowserPackageRootLoadResult(
                         BrowserPackageWireProjection.Project(
-                            packageChildren));
+                            packageChildren),
+                        BrowserPackageWireProjection.Project(
+                            coordinate.Package.Documents()));
                 },
                 BrowserPackageWorkspace.PackageOperationTimeout);
         return JsonSerializer.Serialize(
@@ -135,6 +137,7 @@ public static partial class PackageExports
                     notSettled.VersionSettlement),
                 PackageInfo: null,
                 PackageChildren: null,
+                Documents: [],
                 Surface: null);
         }
 
@@ -165,6 +168,8 @@ public static partial class PackageExports
             BrowserPackageWireProjection.Project(
                 realization.PackageInfo),
             BrowserPackageWireProjection.Project(packageChildren),
+            BrowserPackageWireProjection.Project(
+                realization.Coordinate.Package.Documents()),
             surface);
     }
 
