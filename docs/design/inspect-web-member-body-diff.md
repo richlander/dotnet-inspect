@@ -13,12 +13,13 @@ end-to-end Compare tracker
 Its normative claim is:
 
 > For one retained Gallery Package Library and its effective Diff target,
-> Member Body projects the settled Implementation Diff document into changed
-> Type rows and current-Member destinations. Opening one issued Member
-> destination presents that exact added, signature-changed, or body-changed
-> Member's Annotated Source diff document in the shared diff viewer on the
-> Member page. A deleted Member remains a non-activatable Type-level finding.
-> Managed code issues every identity and destination; the Browser performs no
+> Member Body projects the settled Implementation Diff document and portable
+> Library API member relations into changed Type rows and current-Member
+> destinations. Opening one issued Member destination presents that exact
+> added, signature-changed, or body-changed Member's Annotated Source diff
+> document in the shared diff viewer on the Member page. A deleted Member of a
+> surviving Type remains a non-activatable Type-level finding. Managed code
+> issues every relation, identity, and destination; the Browser performs no
 > correspondence, text comparison, or identity inference.
 
 Member is the detailed-result boundary. Explore may expand the same retained
@@ -38,8 +39,10 @@ It consumes and does not redefine:
 | Owner | Contract consumed |
 | --- | --- |
 | [Compare experience](inspect-web-compare-experience.md) | The retained Package model, effective Diff target, sticky Compare state, subject drill-down, Member detail boundary, and return behavior |
+| [Library API diff presentation](library-api-diff-presentation.md) | Producer-corresponded `LibraryApiMemberRelation` values: exact occupied-side Type identities and `MemberAnchor`s, changed/added/removed topology, and removed-Type Member summaries |
 | [Implementation Diff](implementation-diff.md) and its [explicit request adoption](https://github.com/richlander/dotnet-inspect/issues/9339) | Exact-Library-pair endpoints, selected population and mechanisms, changed body-backed Members, `ResearchSubjectKey` identity, producer evidence, and per-mechanism coverage |
-| [Annotated Source diff document](annotated-source-diff-document.md) and its [designated-pair and added-Member extension](https://github.com/richlander/dotnet-inspect/issues/9369) | Exact-Member side outcomes, designated Before/After pairs, added-Member mapped comparisons, C# and optional IL text comparisons, line maps, and fact comparison |
+| [Research designated-pair admission](implementation-diff.md#research-designated-pair-admission) | Physical association of two already-corresponded exact side-local Research attempts without asserting semantic identity |
+| [Annotated Source diff document](annotated-source-diff-document.md) and its [API-relation and added-Member extension](https://github.com/richlander/dotnet-inspect/issues/9369) | Exact-Member side outcomes, admitted designated pairs, added-Member mapped comparisons, C# and optional IL text comparisons, line maps, and fact comparison |
 | [Diff viewer interaction](inspect-web-diff-viewer-interaction.md) | Embedded and full-bleed rendering of one mapped diff |
 | [Source-diff transport](inspect-web-source-diff-transport.md) | Bounded mapped rows and typed admission outcomes |
 | [Operation Authority](inspect-web-operation-authority.md) | Per-execution identity, authorization, cancellation, supersession, and publication |
@@ -108,9 +111,12 @@ Compare and Member Body.
 Rows whose evidence cannot issue an exact destination remain visible with their
 typed identity or analysis reason and are inert. The Browser never converts
 `Display`, `TypeName`, or `MemberName` text into a selector and never resolves
-an ordinal independently on each endpoint. Deletion is intentionally one such
-Type-level result: because no current Member exists, the row carries no Member
-destination and is not clickable.
+an ordinal independently on each endpoint. A Member deleted from a surviving
+current Type is intentionally one such Type-level result: because no current
+Member exists, the row carries no Member destination and is not clickable.
+When the whole Type was removed, its inert Library row retains the portable API
+diff's occupied-side Member count and names; there is no Type page on which to
+repeat those individual rows.
 
 ## Inventory operation
 
@@ -136,26 +142,37 @@ C# and IL/body. Complexity may be added later as a separately visible summary;
 it is not computed, reported, or used to decide whether a row is changed.
 
 Managed code resolves exactly one Library assembly at each endpoint through the
-retained Gallery scopes. It obtains the union of public body-backed Member
-selections from the endpoint surface and correspondence owners and passes an
-explicit selected-population request to `ImplementationDiffDocumentQuery`.
-That request remains selected when the union contains zero Members, producing
-a complete empty C#/IL result rather than whole-assembly work. The query
-therefore compares only the requested public population; the host does not
-compare every implementation and filter private rows afterward. The selected
-population and mechanism semantics are owned and gated by #9339, not by this
-Browser composition. A rejected or failed endpoint does not manufacture an
-empty document. The result keeps its
+retained Gallery scopes. For that same pair it consumes the portable Library
+API diff's complete changed-member relations. A `Changed` relation establishes
+the exact public Before/After API pair, including a signature change; an
+`Added` or `Removed` relation establishes the occupied side and absent side.
+These Metadata-corresponded relations are the only semantic source for
+signature and public addition/deletion topology.
+
+Managed code also obtains the union of public body-backed Member selections
+from the endpoint surface and correspondence owners and passes an explicit
+selected-population request to `ImplementationDiffDocumentQuery`. That request
+remains selected when the union contains zero Members, producing a complete
+empty C#/IL result rather than whole-assembly work. The query therefore
+compares only the requested public population; the host does not compare every
+implementation and filter private rows afterward. The selected population and
+mechanism semantics are owned and gated by #9339, not by this Browser
+composition. A rejected or failed endpoint does not manufacture an empty
+document. The result keeps its
 `InspectionEnvelope<ImplementationDiffDocument>` baseline and ordered
 diagnostics.
 
-The Browser projection is a bounded, lossless view of that result for this
-host. Managed code groups changed subjects by their owner-issued `TypeName`,
-retains each complete `ResearchSubjectKey`, mechanism evidence, coverage, and
-typed failure, and joins canonical Navigation destinations where available.
-It does not recompute correspondence or parse display strings. If complete
-Content fits the ordinary Worker limits, the projection retains it; otherwise
-it returns the typed transport rejection and no successful-looking inventory.
+The Browser projection is a bounded, lossless composition of those two results
+for this host. Managed code groups changed implementation subjects and API
+relations by their exact owner-issued Type identities, retains every complete
+`ResearchSubjectKey`, `LibraryApiMemberRelation`, mechanism result, coverage,
+and typed failure, and joins canonical Navigation destinations where
+available. A current Member appears once when API and body evidence overlap;
+the managed projection associates them only through the API relation's exact
+After `MemberAnchor` and its resolved Research attempt, never through display
+text. It does not recompute correspondence. If complete Content fits the
+ordinary Worker limits, the projection retains it; otherwise it returns the
+typed transport rejection and no successful-looking inventory.
 
 The projection admits at most 10,000 changed Member subjects and the ordinary
 Worker's 16,777,216-character and 524,288-collection-entry limits. Admission
@@ -208,32 +225,44 @@ Library-to-Type and Type-to-Member navigation does not rerun the assembly-wide
 comparison. Back, Forward, and returning from the Member restore the same
 settled inventory, selected row, list position, and useful focus.
 
-A removed Member has no current Navigation subject. Its row and Before-side
-evidence remain visible in the Type inventory, but it is inert. Added and
-paired Members with issued current locations may open the Member result.
+A removed Member whose declaring Type survives has no current Navigation
+subject. Its row and Before-side evidence remain visible in that Type
+inventory, but it is inert. A removed Type instead keeps its occupied-side
+Member count and names on its inert Library row; it has neither a Type
+inventory nor descendant destinations. Added and paired Members with issued
+current locations may open the Member result.
 
 ## Exact Member handoff
 
 An active Member row supplies:
 
 - the ordered comparison endpoints from the inventory request;
-- its complete `ResearchSubjectKey`;
+- its complete `ResearchSubjectKey` for a strict body correspondence, complete
+  `LibraryApiMemberRelation` for an API addition or signature change, or both;
 - the declaring Type identity;
-- either one stable Member selector, a correspondence-issued designated
-  Before/After selector pair, or an After selector with the Before absence
-  proof;
+- either one stable Member selector, the API relation's exact Before/After
+  `MemberAnchor`s, or its exact After anchor with typed Before absence;
 - nullable canonical Before and After Member locations;
 - the inventory cache key; and
 - one stable Annotated Source diff cache key derived in managed code.
 
 The exact-Member request executes the Annotated Source diff query extended by
 [#9369](https://github.com/richlander/dotnet-inspect/issues/9369). Its
-correspondence owner decides `Paired`, `AfterOnly`, unavailable, or absent for
-the current Member destination. When a signature change gives the endpoints
-different stable selectors, that owner issues the designated pair; when the
-Member is new, it issues the After selector and Before absence proof. The
-Browser does not resolve one selector twice, infer that same-named methods
-correspond, or manufacture an empty endpoint for an addition.
+input path follows the row's owner-issued evidence:
+
+- A body-only row uses its strict Research correspondence and one stable
+  selector.
+- A signature-changed `LibraryApiMemberRelation` already establishes the
+  semantic pair. Managed code resolves its exact Before and After anchors as
+  side-local Research attempts under the same admitted question, then requests
+  `ResearchDesignatedPairAdmission`. The admitted pair associates those
+  physical endpoints with producer work; it does not assert correspondence.
+- An added `LibraryApiMemberRelation` supplies exact After identity and typed
+  Before absence. Managed code resolves only its occupied After anchor.
+
+The Browser does not resolve one selector twice, turn `SelectionDrift` into
+correspondence, infer that same-named methods correspond, or manufacture an
+empty endpoint for an addition.
 
 `BeforeOnly` remains valid inventory evidence but cannot be an active Member
 handoff because it has no current Member destination.
@@ -254,14 +283,15 @@ The Member page is the primary body-diff experience:
 
 | Type inventory outcome | Member-page evidence |
 | --- | --- |
-| Added current Member | `AfterOnly` document whose correspondence-proven empty Before sequence and complete After sequence produce mapped C#/IL rows that are all additions |
-| Signature changed | Owner-designated Before/After pair, even when its stable selectors differ; the declaration and body share one mapped document |
+| Added current Member | API relation's typed Before absence and exact After anchor produce an exact document whose empty Before sequence and complete After sequence lower to mapped C#/IL rows that are all additions |
+| Signature changed | API relation's producer-corresponded anchors admit one Research designated pair, even when their stable selectors differ; the declaration and body share one mapped document |
 | Body changed | Existing `Paired` C#/IL text comparison |
 | Signature and body changed | The same designated pair and document show both changes together |
 
-A deleted Member is not a Member-page case. Its Before-side identity and
-evidence remain visible in the Type inventory, with no destination or click
-affordance.
+A deleted Member is not a Member-page case. When its declaring Type survives,
+its Before-side identity and evidence remain visible in the Type inventory,
+with no destination or click affordance. When its declaring Type was removed,
+the inert Library row retains only that Type's occupied-side Member summary.
 
 ```text
 Compare JsonSerializerOptions(JsonSerializerOptions)           Diff
@@ -374,8 +404,9 @@ text reader.
 This design does not claim:
 
 - selected-population or mechanism request semantics, which #9339 owns;
-- designated endpoint-pair or added-Member comparison semantics, which #9369
-  owns;
+- API Member correspondence, which the portable Library API diff owns;
+- designated-pair admission or added-Member comparison semantics, which
+  existing Research and #9369 respectively own;
 - new implementation correspondence, C#, IL, complexity, or fact semantics;
 - semantic equivalence when body text is identical;
 - authored Source acquisition or presentation;
@@ -392,7 +423,7 @@ This design does not claim:
 | Step | Delivers | Production host |
 | --- | --- | --- |
 | Inventory prerequisite | #9339 distinguishes whole from explicitly selected population, including zero selections, and executes exactly the requested Implementation Diff mechanisms | Shared Implementation Diff query; existing CLI defaults remain unchanged |
-| Exact-Member prerequisite | #9369 supplies designated endpoint pairs and correspondence-proven added-Member mapped comparisons | Annotated Source diff document and Browser projection |
+| Exact-Member prerequisite | #9369 consumes producer-corresponded Library API relations, admits their physical signature-change pair, and supplies added-Member mapped comparisons | Annotated Source diff document and Browser projection |
 | MB1 | `member-body` choice, exact-pair operation, bounded managed inventory projection, Library and Type presentation, sticky drill-down | Inspect Web Compare |
 | MB2 | Exact Member destination and Annotated Source diff Browser export, automatic inline C#/IL reader, retained result, optional Explore expansion | Inspect Web Member Compare |
 
@@ -421,9 +452,9 @@ switching to IL changes the retained medium without another comparison.
 | Gate | Evidence |
 | --- | --- |
 | Release Implementation Diff request tests from #9339 | Whole population remains distinct from an explicitly selected empty population; C#+IL does not execute or report Complexity; document mechanisms, coverage, and completeness describe only requested work |
-| Release Annotated Source tests from #9369 | Added Member lowers to all-added C#/IL mapped rows from correspondence-proven absence; designated selectors produce one signature or signature-and-body document; malformed pairs are rejected |
-| Release managed Browser operation tests | Pinned System.Text.Json pair, exact endpoint order and assets, complete envelope, public selections including zero Members, current Member destinations, inert deleted rows, identity-failure rows, mechanism coverage, transport bounds, cancellation, and stale publication rejection |
-| Release Annotated Source Browser projection tests | Exact Member handoff, designated pairs, added-Member mapped comparison, Present/Absent/Unavailable/NotApplicable/Failed sides, changed and identical C#/IL media, Too complex admission, and no host-side correspondence |
+| Release Annotated Source tests from #9369 | Added API relation lowers to all-added C#/IL mapped rows; changed API relation resolves both exact anchors and admits one Research designated pair; signature and signature-and-body documents retain the API relation; malformed associations are rejected |
+| Release managed Browser operation tests | Pinned System.Text.Json pair, exact endpoint order and assets, complete envelope, public selections including zero Members, current Member destinations, inert deleted rows in surviving Types, removed-Type Member summaries, identity-failure rows, mechanism coverage, transport bounds, cancellation, and stale publication rejection |
+| Release Annotated Source Browser projection tests | Strict exact Member handoff, API relation handoff, admitted designated pairs, added-Member mapped comparison, Present/Absent/Unavailable/NotApplicable/Failed sides, changed and identical C#/IL media, Too complex admission, and no host-side correspondence |
 | Node Compare composition tests | Closed content choices, explicit activation, sticky Library/Type/Member and Up/Down navigation, inert deleted and failure rows, restoration, and stale completion suppression |
 | Node diff viewer tests | Embedded changed, identical, all-added, signature, failure, narrow, keyboard, whitespace, move, and medium-switch behavior |
 | Published Firefox gate | Real Gallery package acquisition and inline Member reader through the generated Wasm facade |
@@ -447,11 +478,15 @@ harness does not manufacture or repair C# or IL.
 5. Open an added method and confirm the inline mapped diff renders every C#
    and IL line as added beside **Not present on this side**.
 6. Open a signature-changed method whose endpoint selectors differ and confirm
-   one owner-designated comparison shows the declaration and body together.
-   Repeat with both signature and body changed.
-7. Confirm a removed method remains visible in the Type inventory with
-   Before-side evidence but has no navigation or click affordance and no
-   Member page.
+   its producer-issued API relation resolves both exact anchors, admits one
+   Research designated pair, and shows the declaration and body together.
+   Repeat with both signature and body changed and confirm ordinary Research
+   correspondence still reports `SelectionDrift` for the divergent keys.
+7. Confirm a removed method of a surviving Type remains visible in the Type
+   inventory with Before-side evidence but has no navigation or click
+   affordance and no Member page. Remove the entire declaring Type and confirm
+   its inert Library row retains the occupied-side Member count and names but
+   offers no Type or Member destination.
 8. Open a Member with identical C# but changed IL and confirm each medium states
    its own outcome.
 9. Exercise unavailable, incomplete, failed, canceled, and too-complex results

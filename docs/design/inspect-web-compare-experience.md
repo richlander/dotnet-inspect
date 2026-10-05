@@ -216,9 +216,11 @@ does not select a detail region inside Library, open the immersive viewer, or
 derive a Type result from display text.
 
 A removed Type has no current-Package Navigation subject. Its row remains
-visible with complete Before-side change evidence but is not activatable.
-Compare does not synthesize a current Type identity or silently open a
-different Type.
+visible with complete Before-side change evidence but is not activatable. The
+portable Library API diff retains its occupied-side changed-Member count and
+name preview on that Library row; Compare does not promise an unreachable
+Type-level Member list. Compare does not synthesize a current Type identity or
+silently open a different Type.
 
 ### Library Clone
 
@@ -362,6 +364,10 @@ through Public API's What changed or authored-Source composition, and Explore
 only expands the same retained Member Body document. A deleted Member remains
 the non-activatable Type-level row defined above; Compare does not create a
 Member boundary for an identity that is absent from the current Type.
+Signature changes and additions consume the portable Library API diff's
+producer-issued Member relation; body-only changes consume strict
+Implementation Diff correspondence. Browser composition does not substitute
+one relation source for the other or infer a pair.
 
 Member Clone renders the Member-scoped globally ranked candidate rows and
 selected-candidate evidence supplied by Clone Candidates Presentation.
@@ -614,5 +620,7 @@ behavior.
 17. Select Member Body and open current Members representing a whole addition,
     a signature change, a body change, and a combined signature-and-body
     change. Confirm each uses the same inline Member viewer. Supply a deleted
-    Member and confirm it remains a non-activatable Type-level finding with no
-    Member page.
+    Member under a surviving Type and confirm it remains a non-activatable
+    Type-level finding with no Member page. Remove the entire Type and confirm
+    its inert Library row retains the occupied-side Member summary without
+    offering a Type or Member destination.
