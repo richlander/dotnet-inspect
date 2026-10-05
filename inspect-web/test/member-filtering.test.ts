@@ -356,13 +356,13 @@ test("compact mixed groups use producer-issued trait counts", () => {
     ["interface", 2],
     ["extensions", 15],
   ] as const) {
-    const groups = filterMemberGroups([summary], {
+    const filtered = filterMemberGroups([summary], {
       kind: "method",
       trait,
       query: "",
     });
-    assert.equal(groups.length, 1);
-    assert.equal(groups[0]?.sourceOverloadCount, expected);
+    assert.equal(filtered.length, 1);
+    assert.equal(filtered[0]?.sourceOverloadCount, expected);
   }
   assert.deepEqual(
     filterMemberGroups([summary], {
