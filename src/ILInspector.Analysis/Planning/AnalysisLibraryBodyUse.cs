@@ -109,7 +109,7 @@ internal sealed class AnalysisLibraryBodyUseProducer
 
     internal sealed class Accumulator(int maximumOccurrences)
     {
-        List<IReadOnlyList<BodyTypeUseOccurrence>>? _occurrenceBatches;
+        List<BodyTypeUseOccurrence>? _occurrences;
         List<BodyTypeUsePhysicalFact>? _bodies;
         readonly List<AnalysisLibraryBodyUseDiagnostic> _diagnostics = [];
         int _occurrenceCount;
@@ -142,14 +142,15 @@ internal sealed class AnalysisLibraryBodyUseProducer
                 return [];
 
             if (retainOccurrences)
-                _occurrenceBatches ??= [];
+                _occurrences ??= [];
             if (retainBodies)
                 _bodies ??= [];
             _bodiesConsidered++;
             _operandsConsidered += body.OperandsConsidered;
             _operandsExamined += body.OperandsExamined;
             _operandsUnavailable += body.OperandsUnavailable;
-            _diagnostics.AddRange(body.Diagnostics);
+            if (body.Diagnostics is not null)
+                _diagnostics.AddRange(body.Diagnostics);
             if (retainBodies)
             {
                 _bodies!.Add(
@@ -170,11 +171,12 @@ internal sealed class AnalysisLibraryBodyUseProducer
                 return [];
             }
 
-            bool unavailable = body.Diagnostics.Any(
-                static diagnostic =>
-                    diagnostic.Kind
-                        == AnalysisLibraryBodyUseDiagnosticKind
-                            .MalformedBody);
+            bool unavailable = body.Diagnostics?.Any(
+                    static diagnostic =>
+                        diagnostic.Kind
+                            == AnalysisLibraryBodyUseDiagnosticKind
+                                .MalformedBody)
+                == true;
             if (unavailable)
             {
                 _bodiesUnavailable++;
@@ -183,7 +185,7 @@ internal sealed class AnalysisLibraryBodyUseProducer
 
             long attempted = checked(
                 (long)_occurrenceCount
-                    + body.Occurrences.Count);
+                    + (body.Occurrences?.Count ?? 0));
             if (attempted > maximumOccurrences)
             {
                 _bodiesLimited++;
@@ -210,10 +212,16 @@ internal sealed class AnalysisLibraryBodyUseProducer
             else
             {
                 _bodiesExamined++;
-                _occurrenceCount += body.Occurrences.Count;
-                if (retainOccurrences)
-                    _occurrenceBatches!.Add(body.Occurrences);
-                return body.Occurrences;
+                int occurrenceCount = body.Occurrences?.Count ?? 0;
+                _occurrenceCount += occurrenceCount;
+                if (retainOccurrences
+                    && body.Occurrences is { } occurrences)
+                {
+                    _occurrences!.AddRange(occurrences);
+                }
+                return body.Occurrences is { } retained
+                    ? retained
+                    : Array.Empty<BodyTypeUseOccurrence>();
             }
 
             return [];
@@ -223,28 +231,11 @@ internal sealed class AnalysisLibraryBodyUseProducer
             Create(
                 _occurrenceCount,
                 retainRows
-                    ? CompleteOccurrences()
+                    ? [.. _occurrences ?? []]
                     : default,
                 retainRows
                     ? [.. _bodies ?? []]
                     : default);
-
-        ImmutableArray<BodyTypeUseOccurrence> CompleteOccurrences()
-        {
-            var occurrences =
-                ImmutableArray.CreateBuilder<BodyTypeUseOccurrence>(
-                    _occurrenceCount);
-            if (_occurrenceBatches is not null)
-            {
-                foreach (IReadOnlyList<BodyTypeUseOccurrence> batch
-                    in _occurrenceBatches)
-                {
-                    foreach (BodyTypeUseOccurrence occurrence in batch)
-                        occurrences.Add(occurrence);
-                }
-            }
-            return occurrences.MoveToImmutable();
-        }
 
         internal Result CompleteCount(int occurrenceCount)
         {
@@ -298,13 +289,14 @@ internal sealed class AnalysisLibraryBodyUseProducer
         && !body.Limited
         && body.Fidelity
             == AnalysisLibraryBodyUseFidelity.LogicalOwner
-        && !body.Diagnostics.Any(
-            static diagnostic =>
-                diagnostic.Kind
-                    == AnalysisLibraryBodyUseDiagnosticKind
-                        .MalformedBody)
-        && body.Occurrences.Count > 0
-        && body.Occurrences.Count <= maximumOccurrences;
+        && body.Diagnostics?.Any(
+                static diagnostic =>
+                    diagnostic.Kind
+                        == AnalysisLibraryBodyUseDiagnosticKind
+                            .MalformedBody)
+            != true
+        && body.Occurrences is { Count: > 0 } occurrences
+        && occurrences.Count <= maximumOccurrences;
 
     internal sealed record Result(
         int OccurrenceCount,

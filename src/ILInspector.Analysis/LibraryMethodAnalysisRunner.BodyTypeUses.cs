@@ -200,12 +200,8 @@ internal sealed partial class LibraryMethodAnalysisRunner
                 owner.Status == BodyUseOwnerStatus.Logical
                     ? AnalysisLibraryBodyUseFidelity.LogicalOwner
                     : AnalysisLibraryBodyUseFidelity.PhysicalOnly,
-                rows is null
-                    ? Array.Empty<BodyTypeUseOccurrence>()
-                    : rows,
-                diagnostics is null
-                    ? Array.Empty<AnalysisLibraryBodyUseDiagnostic>()
-                    : diagnostics,
+                rows,
+                diagnostics,
                 operandsConsidered,
                 operandsExamined,
                 operandsUnavailable,
@@ -602,12 +598,12 @@ internal readonly record struct BodyTypeUseOccurrence(
     int IlOffset,
     int OccurrenceOrdinal);
 
-internal readonly record struct BodyTypeUseMethodFact(
+internal sealed record BodyTypeUseMethodFact(
     TypeDefinitionHandle PhysicalType,
     int PhysicalMethodToken,
     AnalysisLibraryBodyUseFidelity Fidelity,
-    IReadOnlyList<BodyTypeUseOccurrence> Occurrences,
-    IReadOnlyList<AnalysisLibraryBodyUseDiagnostic> Diagnostics,
+    List<BodyTypeUseOccurrence>? Occurrences,
+    List<AnalysisLibraryBodyUseDiagnostic>? Diagnostics,
     int OperandsConsidered,
     int OperandsExamined,
     int OperandsUnavailable,
@@ -623,7 +619,7 @@ internal readonly record struct BodyTypeUseMethodFact(
             type,
             methodToken,
             AnalysisLibraryBodyUseFidelity.PhysicalOnly,
-            [],
+            null,
             [new(
                 AnalysisLibraryBodyUseDiagnosticKind.MalformedBody,
                 methodToken,
@@ -649,7 +645,7 @@ internal readonly record struct BodyTypeUseMethodFact(
             type,
             methodToken,
             AnalysisLibraryBodyUseFidelity.PhysicalOnly,
-            [],
+            null,
             [new(
                 AnalysisLibraryBodyUseDiagnosticKind.Limit,
                 methodToken,
