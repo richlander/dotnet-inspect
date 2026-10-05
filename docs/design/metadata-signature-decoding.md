@@ -192,9 +192,10 @@ same entry is reached once per occurrence.
 Those costs describe *physical* heap entries. SRM can also return **projected**
 virtual strings, whose bytes it synthesizes and allocates inside
 `GetBlobReader` itself; for those the price is paid in the act of reading it,
-and pricing before materializing is not available. Projected strings arise only
-from Windows Metadata, which `AGENTS.md` excludes as an unsupported input
-format.
+and pricing before materializing is not available. Projected strings arise
+only from Windows Metadata, which the
+[repository engineering contract](../repository-workflow.md#engineering-constraints)
+excludes as an unsupported input format.
 
 The new facade calls `MetadataImageFormatClassifier` before constructing an SRM
 reader and proceeds only on `SupportedEcma335`.
