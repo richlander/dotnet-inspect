@@ -795,6 +795,7 @@ import type {
 import type {
   BrowserMemberDeclaration,
   BrowserMemberGroupDocumentInspection,
+  BrowserMemberGroupDocumentRow,
   BrowserTypeDocumentInspection,
   BrowserTypeMetadata,
 } from "./facades/inspect-web-metadata.d.ts";
@@ -4485,6 +4486,9 @@ function withRetainedWorkspaceHistoryId(historyState: unknown): unknown {
 }
 
 function memberSectionsFor(member: AppMemberGroup) {
+  if (selectedMemberOverload(selectedType(), member)?.documentOnly) {
+    return memberSectionDefinitions.filter(([id]) => id === "overview");
+  }
   if (state.rootKind === "library") {
     return memberSectionDefinitions.filter(([id]) => id === "overview");
   }
@@ -6745,6 +6749,60 @@ function memberPopulationReceiver(
     : member.isStatic ? "static" : "this";
 }
 
+function documentMemberOverload(
+  type: AppTypeSurface,
+  group: Pick<AppMemberGroup, "kind" | "name">,
+  row: BrowserMemberGroupDocumentRow,
+  resident: AppMemberSurface | undefined,
+): AppMemberSurface {
+  const signature =
+    `${row.accessibility} ${memberReceiverPrefix(row.receiver)}${row.displaySignature}`;
+  if (resident) {
+    return {
+      ...resident,
+      baselineOrdinal: row.baselineOrdinal,
+      signature,
+      isVirtual: row.isVirtual,
+      isExplicitInterfaceImplementation:
+        row.isExplicitInterfaceImplementation,
+    };
+  }
+  const typeIdentity = type.definitionId ?? type.id;
+  return {
+    name: group.name,
+    kind: group.kind,
+    signature,
+    accessibility: row.accessibility,
+    isStatic: row.receiver !== "This",
+    isUnsafe: false,
+    isVirtual: row.isVirtual,
+    isAbstract: false,
+    isOverride: false,
+    isExtension: row.receiver === "Extension",
+    isObsolete: false,
+    genericArity: 0,
+    metadataToken: row.metadataToken,
+    declarationMetadataToken: row.metadataToken,
+    returnType: null,
+    parameters: [],
+    documentationId: row.documentationId,
+    summary: null,
+    returns: null,
+    exceptions: [],
+    stableSelector: "",
+    anchorDigest: row.fingerprint,
+    canonicalSignature: row.canonicalSignature,
+    anchorTypeFullName: typeIdentity,
+    declaringTypeDefinitionId: typeIdentity,
+    graphSelectorKey: group.name,
+    bodySelectors: [],
+    baselineOrdinal: row.baselineOrdinal,
+    isExplicitInterfaceImplementation:
+      row.isExplicitInterfaceImplementation,
+    documentOnly: true,
+  };
+}
+
 function declaredMemberGroups(type: AppTypeSurface): AppMemberGroup[] {
   const population = currentTypeMemberPopulation(type);
   if (population) {
@@ -6767,8 +6825,6 @@ function declaredMemberGroups(type: AppTypeSurface): AppMemberGroup[] {
           && state.memberGroupDocument?.outcome === "Available"
           ? state.memberGroupDocument.document
           : null;
-      const exactRows = new Map(
-        document?.rows.map(row => [row.metadataToken, row]) ?? []);
       const residentOverloads = type.api.filter(member =>
           member.name === group.name
           && member.kind === group.kind
@@ -6779,25 +6835,16 @@ function declaredMemberGroups(type: AppTypeSurface): AppMemberGroup[] {
           && group.receivers.includes(memberPopulationReceiver(member)));
       const residentRowsComplete =
         residentOverloads.length === group.completeCount;
-      const overloads = exactRows.size > 0
-        ? residentOverloads
-          .filter(member => exactRows.has(
-            member.declarationMetadataToken
-              ?? member.metadataToken
-              ?? 0))
-          .map(member => {
-            const token =
-              member.declarationMetadataToken
-                ?? member.metadataToken
-                ?? 0;
-            const row = exactRows.get(token)!;
-            return {
-              ...member,
-              baselineOrdinal: row.baselineOrdinal,
-              signature:
-                `${row.accessibility} ${memberReceiverPrefix(row.receiver)}${row.displaySignature}`,
-            };
-          })
+      const overloads = document
+        ? document.rows.map(row =>
+            documentMemberOverload(
+              type,
+              group,
+              row,
+              residentOverloads.find(member =>
+                (member.declarationMetadataToken
+                  ?? member.metadataToken
+                  ?? 0) === row.metadataToken)))
         : (!uploadedLibraryIsActive()
             && residentOverloads.length <= group.completeCount)
           || (group.kind !== "method" && residentRowsComplete)
@@ -8393,6 +8440,7 @@ function openMemberGroup(key: string) {
     group?.overloads.length === 1
       && !memberGroupUsesFamilySurface(group)
       && !graphOnlyTarget
+      && !ordinaryMethodGroup(group)
       ? memberNavOverloadSourceIndex(group, 0)
       : null;
   const resetMethodSection =
@@ -12884,6 +12932,36 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
             <h2>Declaration details are not loaded</h2>
             <p>The shared Type document supplied this Member-group inventory without constructing exact declaration rows.</p>
           </section>
+        </div>
+      </section>`;
+  }
+  if (overload.documentOnly) {
+    return `
+      <section class="member-surface" aria-labelledby="member-surface-title">
+        <header class="api-surface-head member-surface-head">
+          <h1 id="member-surface-title">${escapeHtml(member.name)}</h1>
+          <p>Exact declaration <span>· ${escapeHtml(member.kind)}</span></p>
+        </header>
+        <div class="member-surface-scroll">
+          <article class="learn-overview">
+            <section class="learn-section member-overview-intro">
+              <section class="signature-panel" aria-labelledby="member-declaration-title">
+                <div class="signature-language">
+                  <h2 id="member-declaration-title"><span>${state.memberSpelling === "metadata" ? "metadata" : "C#"}</span><small>declaration</small></h2>
+                </div>
+                <pre class="language-csharp signature-code"><code class="language-csharp">${highlightCSharp(overload.signature)}</code></pre>
+              </section>
+              <section class="member-identity" aria-labelledby="member-identity-title">
+                <div class="identity-heading"><h2 id="member-identity-title">Identity</h2><span>owner-issued exact Member</span></div>
+                <dl>
+                  <div><dt>Metadata token</dt><dd><code>0x${(overload.metadataToken ?? 0).toString(16).padStart(8, "0")}</code></dd></div>
+                  <div><dt>Baseline ordinal</dt><dd>${overload.baselineOrdinal ?? "unavailable"}</dd></div>
+                  <div><dt>Fingerprint</dt><dd><code>${escapeHtml(overload.anchorDigest)}</code></dd></div>
+                  <div class="canonical-identity"><dt>Canonical signature</dt><dd><code>${escapeHtml(overload.canonicalSignature)}</code></dd></div>
+                </dl>
+              </section>
+            </section>
+          </article>
         </div>
       </section>`;
   }
@@ -21301,6 +21379,7 @@ async function loadSelectedMemberGroupDocument() {
           type.assemblyId,
           type.definitionId ?? type.id,
           member.name,
+          state.memberSpelling,
           state.memberAccessibilityFilter,
           memberGroupReceiverIntent(),
           false)
@@ -21314,6 +21393,7 @@ async function loadSelectedMemberGroupDocument() {
             row.pack,
             type.definitionId ?? type.id,
             member.name,
+            state.memberSpelling,
             state.memberAccessibilityFilter,
             memberGroupReceiverIntent(),
             false);
@@ -21325,6 +21405,7 @@ async function loadSelectedMemberGroupDocument() {
           type.assembly,
           type.definitionId ?? type.id,
           member.name,
+          state.memberSpelling,
           state.memberAccessibilityFilter,
           memberGroupReceiverIntent(),
           false);

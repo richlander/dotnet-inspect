@@ -228,6 +228,7 @@ public sealed class TypeMemberCompositionTests
                     materializeRows: false,
                     MetadataMethodAccessibilityFilter.Public,
                     MetadataMethodReceiverFilter.Extension,
+                    MetadataMemberSpelling.CSharp,
                     includeHidden: false,
                     maximumMembers: int.MaxValue,
                     maximumRetainedTextCharacters: int.MaxValue);

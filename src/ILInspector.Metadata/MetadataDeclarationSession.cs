@@ -71,6 +71,7 @@ public sealed class MetadataDeclarationSession : IDisposable
         bool materializeRows,
         MetadataMethodAccessibilityFilter accessibility,
         MetadataMethodReceiverFilter receiver,
+        MetadataMemberSpelling spelling,
         bool includeHidden,
         int maximumMembers,
         int maximumRetainedTextCharacters)
@@ -90,6 +91,7 @@ public sealed class MetadataDeclarationSession : IDisposable
             materializeRows,
             accessibility,
             receiver,
+            spelling,
             includeHidden,
             maximumMembers,
             maximumRetainedTextCharacters);

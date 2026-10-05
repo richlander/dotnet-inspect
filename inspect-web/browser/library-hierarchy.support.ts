@@ -1384,7 +1384,10 @@ async function installFacades(
             diagnostics: [],
           };
         }
-        const members = type.api.filter(member => !member.graphOnly);
+        const members = [
+          ...type.api,
+          ...(type.exactApi ?? []),
+        ].filter(member => !member.graphOnly);
         const composition = {
           public: 0,
           protected: 0,
@@ -1690,11 +1693,15 @@ async function installFacades(
         surface,
         typeIdentity,
         memberName,
+        spelling,
         accessibility,
         receiver) {
         const type = surface.types.find(item =>
           item.definitionId === typeIdentity || item.queryId === typeIdentity);
-        const overloads = type?.api.filter(member =>
+        const overloads = [
+          ...(type?.api ?? []),
+          ...(type?.exactApi ?? []),
+        ].filter(member =>
           member.kind === "method"
           && member.name === memberName
           && (accessibility === "all"
@@ -1703,7 +1710,8 @@ async function installFacades(
             || receiver === "extension" && member.isExtension
             || receiver === "static" && member.isStatic && !member.isExtension
             || receiver === "this" && !member.isStatic)
-          && member.metadataAccessor !== true
+          && (spelling === "metadata"
+            || member.metadataAccessor !== true)
           && !member.graphOnly) ?? [];
         if (!type || overloads.length === 0) {
           return {
@@ -1726,10 +1734,14 @@ async function installFacades(
               displaySignature: memberDisplaySignature(member),
               canonicalSignature: member.canonicalSignature,
               fingerprint: member.anchorDigest,
+              documentationId: member.documentationId ?? "",
               accessibility: member.accessibility,
               receiver: member.isExtension
                 ? "Extension"
                 : member.isStatic ? "Static" : "This",
+              isVirtual: member.isVirtual,
+              isExplicitInterfaceImplementation:
+                member.isExplicitInterfaceImplementation ?? false,
             })),
           },
           diagnostics: [],
@@ -1737,7 +1749,7 @@ async function installFacades(
       }
       export async function queryMemberGroupDocument(
         id, version, framework, assembly, typeIdentity, memberName,
-        accessibility, receiver, includeHidden) {
+        spelling, accessibility, receiver, includeHidden) {
         document.documentElement.dataset.memberGroupDocumentRequest =
           JSON.stringify([
             id,
@@ -1746,6 +1758,7 @@ async function installFacades(
             assembly,
             typeIdentity,
             memberName,
+            spelling,
             accessibility,
             receiver,
             includeHidden,
@@ -1754,12 +1767,13 @@ async function installFacades(
           surfaceFor(id, version, framework),
           typeIdentity,
           memberName,
+          spelling,
           accessibility,
           receiver);
       }
       export async function queryPlatformMemberGroupDocument(
         framework, version, assembly, pack, typeIdentity, memberName,
-        accessibility, receiver, includeHidden) {
+        spelling, accessibility, receiver, includeHidden) {
         document.documentElement.dataset.platformMemberGroupDocumentRequest =
           JSON.stringify([
             framework,
@@ -1768,6 +1782,7 @@ async function installFacades(
             pack,
             typeIdentity,
             memberName,
+            spelling,
             accessibility,
             receiver,
             includeHidden,
@@ -1776,18 +1791,20 @@ async function installFacades(
           surfaceFor("Microsoft.NETCore.App", version, framework),
           typeIdentity,
           memberName,
+          spelling,
           accessibility,
           receiver);
       }
       export async function queryUploadedLibraryMemberGroupDocument(
         declaredName, content, typeIdentity, memberName,
-        accessibility, receiver, includeHidden) {
+        spelling, accessibility, receiver, includeHidden) {
         document.documentElement.dataset.uploadedLibraryMemberGroupDocumentRequest =
           JSON.stringify([
             declaredName,
             content.length,
             typeIdentity,
             memberName,
+            spelling,
             accessibility,
             receiver,
             includeHidden,
@@ -1796,6 +1813,7 @@ async function installFacades(
           surfaces[0],
           typeIdentity,
           memberName,
+          spelling,
           accessibility,
           receiver);
       }

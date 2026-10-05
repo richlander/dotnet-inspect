@@ -64,6 +64,7 @@ public static class MemberOverloadPopulationInspectionOperation
                             && compatibleContinuation,
                         Accessibility(query.Accessibility),
                         Receiver(query.Receiver),
+                        Spelling(request.Plan.Subject.Spelling),
                         request.Plan.Bounds,
                         query.IncludeHidden,
                         expectedModuleVersionId:
@@ -220,6 +221,7 @@ public static class MemberOverloadPopulationInspectionOperation
             subject.Name,
             subject.Category,
             subject.Role,
+            subject.Spelling,
             ordering,
             query.Accessibility,
             query.Receiver,
@@ -296,6 +298,8 @@ public static class MemberOverloadPopulationInspectionOperation
                                         _ => throw new InvalidOperationException(
                                             "Unknown exact-Member receiver."),
                                     },
+                                    row.IsVirtual,
+                                    row.IsExplicitInterfaceImplementation,
                                     binding)),
                     ];
                 rows = new MemberOverloadRowsOutcome.Read(
@@ -339,6 +343,7 @@ public static class MemberOverloadPopulationInspectionOperation
             StringComparison.Ordinal)
         && binding.Category == subject.Category
         && binding.Role == subject.Role
+        && binding.Spelling == subject.Spelling
         && binding.Ordering == ordering
         && binding.Accessibility == accessibility
         && binding.Receiver == receiver
@@ -376,6 +381,18 @@ public static class MemberOverloadPopulationInspectionOperation
                 MetadataMethodReceiverFilter.Extension,
             _ => throw new InvalidOperationException(
                 "Unknown exact-Member receiver filter."),
+        };
+
+    private static MetadataMemberSpelling Spelling(
+        TypeMemberGroupSpelling spelling) =>
+        spelling switch
+        {
+            TypeMemberGroupSpelling.CSharp =>
+                MetadataMemberSpelling.CSharp,
+            TypeMemberGroupSpelling.Metadata =>
+                MetadataMemberSpelling.Metadata,
+            _ => throw new InvalidOperationException(
+                "Unknown exact-Member spelling."),
         };
 
     private static InspectionEnvelope<

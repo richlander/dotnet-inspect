@@ -14,6 +14,7 @@ public sealed record LibraryMethodGroupInspectionRequest
         bool materializeRows,
         MetadataMethodAccessibilityFilter accessibility,
         MetadataMethodReceiverFilter receiver,
+        MetadataMemberSpelling spelling,
         ApiSurfaceExtractionBounds bounds,
         bool includeHidden = false,
         Guid? expectedModuleVersionId = null)
@@ -39,6 +40,13 @@ public sealed record LibraryMethodGroupInspectionRequest
                 receiver,
                 "Unknown Method-group receiver filter.");
         }
+        if (!Enum.IsDefined(spelling))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(spelling),
+                spelling,
+                "Unknown Method-group spelling.");
+        }
         Bounds = bounds
             ?? throw new ArgumentNullException(nameof(bounds));
         if (expectedModuleVersionId == Guid.Empty)
@@ -54,6 +62,7 @@ public sealed record LibraryMethodGroupInspectionRequest
         MaterializeRows = materializeRows;
         Accessibility = accessibility;
         Receiver = receiver;
+        Spelling = spelling;
         IncludeHidden = includeHidden;
         ExpectedModuleVersionId = expectedModuleVersionId;
     }
@@ -66,6 +75,7 @@ public sealed record LibraryMethodGroupInspectionRequest
     public bool MaterializeRows { get; }
     public MetadataMethodAccessibilityFilter Accessibility { get; }
     public MetadataMethodReceiverFilter Receiver { get; }
+    public MetadataMemberSpelling Spelling { get; }
     public bool IncludeHidden { get; }
     public ApiSurfaceExtractionBounds Bounds { get; }
     public Guid? ExpectedModuleVersionId { get; }
@@ -244,6 +254,7 @@ public static class LibraryMethodGroupInspection
                         && !staleContinuation,
                     request.Accessibility,
                     request.Receiver,
+                    request.Spelling,
                     request.IncludeHidden,
                     request.Bounds.MaxMembers,
                     request.Bounds.MaxRetainedTextCharacters);

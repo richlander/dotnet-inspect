@@ -804,6 +804,21 @@ test("metadata accessors retain their established overload detail route", async 
     .toHaveText("get_Value");
   await expect(page.locator(".member-surface"))
     .toContainText("int Example.Widget.get_Value()");
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-member-group-document-request",
+    JSON.stringify([
+      "Example.Package",
+      "1.0.0",
+      "net10.0",
+      "Example.Core.dll",
+      "Example.Widget",
+      "get_Value",
+      "metadata",
+      "public",
+      "all",
+      false,
+    ]),
+  );
 });
 
 test("filtered non-public groups reuse complete resident exact rows when the group query fails", async ({

@@ -278,8 +278,11 @@ public sealed record BrowserMemberGroupDocumentRow(
     string DisplaySignature,
     string CanonicalSignature,
     string Fingerprint,
+    string DocumentationId,
     string Accessibility,
-    string Receiver);
+    string Receiver,
+    bool IsVirtual,
+    bool IsExplicitInterfaceImplementation);
 
 public sealed record BrowserMemberGroupDocumentDiagnostic(
     string Code,

@@ -34,6 +34,7 @@ public static partial class MetadataExports
         string assemblyName,
         string typeIdentity,
         string memberName,
+        string spelling,
         string accessibility,
         string receiver,
         bool includeHidden)
@@ -70,6 +71,7 @@ public static partial class MetadataExports
                                 CancellationToken.None)),
                     typeIdentity,
                     memberName,
+                    spelling,
                     accessibility,
                     receiver,
                     includeHidden)
@@ -85,6 +87,7 @@ public static partial class MetadataExports
         string pack,
         string typeIdentity,
         string memberName,
+        string spelling,
         string accessibility,
         string receiver,
         bool includeHidden)
@@ -112,6 +115,7 @@ public static partial class MetadataExports
                                 CancellationToken.None)),
                     typeIdentity,
                     memberName,
+                    spelling,
                     accessibility,
                     receiver,
                     includeHidden)
@@ -125,6 +129,7 @@ public static partial class MetadataExports
         byte[] content,
         string typeIdentity,
         string memberName,
+        string spelling,
         string accessibility,
         string receiver,
         bool includeHidden)
@@ -141,6 +146,7 @@ public static partial class MetadataExports
                             .MaterializationLimits),
                     typeIdentity,
                     memberName,
+                    spelling,
                     accessibility,
                     receiver,
                     includeHidden)
@@ -154,6 +160,7 @@ public static partial class MetadataExports
             ValueTask<AssemblyContextLibraryAdapterResult> materialization,
             string typeIdentity,
             string memberName,
+            string spelling,
             string accessibility,
             string receiver,
             bool includeHidden)
@@ -164,7 +171,10 @@ public static partial class MetadataExports
             BrowserExactMemberPolicy.ParseTypeIdentity(
                 typeIdentity);
         var plan = new MemberOverloadPopulationInspectionPlan(
-            new MemberGroupSubject(type, memberName),
+            new MemberGroupSubject(
+                type,
+                memberName,
+                spelling: ParseMemberSpelling(spelling)),
             new MemberOverloadPopulationRequest(
                 new MemberOverloadCountRequest(),
                 new MemberOverloadRowsRequest(
@@ -224,6 +234,18 @@ public static partial class MetadataExports
                     nameof(accessibility),
                     accessibility,
                     "Unknown Member-group accessibility filter."),
+            };
+
+    private static TypeMemberGroupSpelling
+        ParseMemberSpelling(string spelling) =>
+            spelling switch
+            {
+                "csharp" or "c#" => TypeMemberGroupSpelling.CSharp,
+                "metadata" => TypeMemberGroupSpelling.Metadata,
+                _ => throw new ArgumentOutOfRangeException(
+                    nameof(spelling),
+                    spelling,
+                    "Unknown Member-group spelling."),
             };
 
     private static MemberOverloadReceiverFilter
@@ -329,8 +351,11 @@ public static partial class MetadataExports
                             row.DisplaySignature.ToString(),
                             row.CanonicalSignature.ToString(),
                             row.Fingerprint.ToString(),
+                            row.DocumentationId.ToString(),
                             row.Accessibility.ToString(),
-                            row.Receiver.ToString())),
+                            row.Receiver.ToString(),
+                            row.IsVirtual,
+                            row.IsExplicitInterfaceImplementation)),
                 ]),
             diagnostics);
     }

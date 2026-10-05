@@ -46,7 +46,9 @@ public sealed record MetadataMethodGroupRow(
     string DocumentationId,
     string Fingerprint,
     string Accessibility,
-    MetadataMethodReceiver Receiver);
+    MetadataMethodReceiver Receiver,
+    bool IsVirtual,
+    bool IsExplicitInterfaceImplementation);
 
 public abstract record MetadataMethodGroupInspectionOutcome
 {
@@ -116,6 +118,7 @@ internal static class MetadataMethodGroupInspection
             MethodDefinitionHandle,
             ApiSurfaceExtractor.InterfaceImplementationAccess>
             _interfaceImplementations;
+        private readonly MetadataMemberSpelling _spelling;
 
         internal Analysis(
             MetadataReader reader,
@@ -123,6 +126,7 @@ internal static class MetadataMethodGroupInspection
             TypeDefinitionHandle typeHandle,
             TypeDefinition type,
             string methodName,
+            MetadataMemberSpelling spelling,
             HashSet<MethodDefinitionHandle> accessors,
             HashSet<MethodDefinitionHandle> explicitImplementationBodies,
             Dictionary<
@@ -135,6 +139,7 @@ internal static class MetadataMethodGroupInspection
             TypeHandle = typeHandle;
             Type = type;
             MethodName = methodName;
+            _spelling = spelling;
             _accessors = accessors;
             _explicitImplementationBodies =
                 explicitImplementationBodies;
@@ -165,8 +170,9 @@ internal static class MetadataMethodGroupInspection
             if (!Reader.StringComparer.Equals(
                     method.Name,
                     MethodName)
-                || !IsOrdinaryMethodName(MethodName)
-                || _accessors.Contains(handle))
+                || (_spelling is MetadataMemberSpelling.CSharp
+                    && (!IsOrdinaryMethodName(MethodName)
+                        || _accessors.Contains(handle))))
             {
                 return CandidateKind.OutsideGroup;
             }
@@ -248,7 +254,9 @@ internal static class MetadataMethodGroupInspection
                 documentationIdentity.Value,
                 anchor.Fingerprint,
                 declaration.Accessibility,
-                receiver);
+                receiver,
+                declaration.IsVirtual,
+                _interfaceImplementations.ContainsKey(handle));
         }
     }
 
@@ -470,7 +478,8 @@ internal static class MetadataMethodGroupInspection
         MetadataReader reader,
         MetadataMethodSemanticsAssociationResult methodSemantics,
         MetadataTypeDefinitionName declaringType,
-        string methodName)
+        string methodName,
+        MetadataMemberSpelling spelling)
     {
         TypeDefinitionHandle typeHandle = default;
         foreach (TypeDefinitionHandle candidate
@@ -523,6 +532,7 @@ internal static class MetadataMethodGroupInspection
                 typeHandle,
                 type,
                 methodName,
+                spelling,
                 accessors,
                 ApiSurfaceExtractor.GetExplicitImplementationBodies(
                     reader,
@@ -542,6 +552,7 @@ internal static class MetadataMethodGroupInspection
         bool materializeRows,
         MetadataMethodAccessibilityFilter accessibility,
         MetadataMethodReceiverFilter receiver,
+        MetadataMemberSpelling spelling,
         bool includeHidden,
         int maximumMembers,
         int maximumRetainedTextCharacters)
@@ -566,6 +577,13 @@ internal static class MetadataMethodGroupInspection
                 receiver,
                 "Unknown Method-group receiver filter.");
         }
+        if (!Enum.IsDefined(spelling))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(spelling),
+                spelling,
+                "Unknown Method-group spelling.");
+        }
         ArgumentOutOfRangeException.ThrowIfNegative(maximumMembers);
         ArgumentOutOfRangeException.ThrowIfNegative(
             maximumRetainedTextCharacters);
@@ -577,7 +595,8 @@ internal static class MetadataMethodGroupInspection
                     reader,
                     methodSemantics,
                     declaringType,
-                    methodName);
+                    methodName,
+                    spelling);
             if (preparation
                 is PreparationResult.Rejected rejected)
             {

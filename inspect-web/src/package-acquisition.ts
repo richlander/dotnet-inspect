@@ -140,6 +140,7 @@ export interface AppMemberSurface
   graphOnly?: boolean;
   graphTarget?: BodyTarget;
   implementationBody?: InspectedMemberBodySelector;
+  documentOnly?: boolean;
 }
 
 export interface AppTypeSurface extends Omit<InspectedTypeSurface, "api"> {

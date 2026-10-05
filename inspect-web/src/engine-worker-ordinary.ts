@@ -199,6 +199,7 @@ type MetadataWorkerClient =
       libraryIdentity: string,
       typeIdentity: string,
       memberName: string,
+      spelling: string,
       accessibility: string,
       receiver: string,
       includeHidden: boolean,
@@ -1274,7 +1275,7 @@ export const engineWorkerOrdinaryOperations = {
     ),
     queryMemberGroupDocument: valueOperation(
       "ordinary-metadata-query-member-group-document",
-      9,
+      10,
       (
         facades,
         ...args: Parameters<
@@ -1314,7 +1315,7 @@ export const engineWorkerOrdinaryOperations = {
     ),
     queryPlatformMemberGroupDocument: valueOperation(
       "ordinary-metadata-query-platform-member-group-document",
-      9,
+      10,
       (
         facades,
         ...args: Parameters<
@@ -1367,12 +1368,13 @@ export const engineWorkerOrdinaryOperations = {
     ),
     queryUploadedLibraryMemberGroupDocument: valueOperation(
       "ordinary-metadata-query-uploaded-library-member-group-document",
-      6,
+      7,
       (
         facades,
         libraryIdentity: string,
         typeIdentity: string,
         memberName: string,
+        spelling: string,
         accessibility: string,
         receiver: string,
         includeHidden: boolean,
@@ -1394,6 +1396,7 @@ export const engineWorkerOrdinaryOperations = {
           retained.content,
           typeIdentity,
           memberName,
+          spelling,
           accessibility,
           receiver,
           includeHidden,

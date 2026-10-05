@@ -353,6 +353,7 @@ test("uploaded Library method family renders owner-backed receiver kinds", async
       4,
       "Example.Widget",
       "Run",
+      "csharp",
       "public",
       "all",
       false,
@@ -478,7 +479,8 @@ test("uploaded Library private method family renders private exact rows", async 
       types: [{
         ...widget,
         members: 3,
-        api: [publicParse, ...privateParses],
+        api: [publicParse],
+        exactApi: privateParses,
       }],
       accessibility: [
         {
@@ -524,6 +526,24 @@ test("uploaded Library private method family renders private exact rows", async 
       .toContainText("private static Widget Parse(ReadOnlySpan<byte> utf8Json)");
     await expect(page.locator(".member-surface-list"))
       .not.toContainText("public static");
+    const exactPrivate = page.locator(
+      ".member-surface-list .overload-row",
+    ).first();
+    await expect(exactPrivate).toBeEnabled();
+    await exactPrivate.click();
+    await expect(page.locator("#member-surface-title")).toHaveText("Parse");
+    await expect(page.locator(".signature-code"))
+      .toContainText("private static Widget Parse(ReadOnlySpan<char> json)");
+    await expect(page.locator(".member-identity"))
+      .toContainText("owner-issued exact Member");
+    await page.getByRole("button", { name: "Back", exact: true }).click();
+    await expect(page.locator(".member-surface-list .overload-row"))
+      .toHaveCount(2);
+    await page.getByRole("button", { name: "Forward", exact: true }).click();
+    await expect(page.locator(".signature-code"))
+      .toContainText("private static Widget Parse(ReadOnlySpan<char> json)");
+    await expect(page.locator(".member-identity"))
+      .toContainText("owner-issued exact Member");
     await expect(page.locator("html")).toHaveAttribute(
       "data-uploaded-library-member-group-document-request",
       JSON.stringify([
@@ -531,6 +551,7 @@ test("uploaded Library private method family renders private exact rows", async 
         4,
         "Example.Widget",
         "Parse",
+        "csharp",
         "private",
         "all",
         false,

@@ -329,6 +329,7 @@ public sealed class BrowserMemberDeclarationTests
                     AssemblyFileName,
                     SpellingType,
                     "PointerFreeUnsafeMethod",
+                    "csharp",
                     "public",
                     "all",
                     includeHidden: false));
@@ -420,6 +421,7 @@ public sealed class BrowserMemberDeclarationTests
                     image,
                     ExtensionType,
                     "Examine",
+                    "csharp",
                     "public",
                     "extension",
                     includeHidden: false));
@@ -446,6 +448,7 @@ public sealed class BrowserMemberDeclarationTests
                     runtimeImage,
                     typeof(JsonDocument).FullName!,
                     "Parse",
+                    "csharp",
                     "private",
                     "all",
                     includeHidden: false));
@@ -526,6 +529,30 @@ public sealed class BrowserMemberDeclarationTests
             group => group.Name == "get_Type");
         Assert.True(getter.BaselineOrdinal > 0);
         Assert.Equal(1, getter.CompleteCount);
+        BrowserMemberGroupDocumentInspection getterGroup =
+            MemberGroupDocument(
+                await MetadataExports.QueryMemberGroupDocument(
+                    PackageId,
+                    Version,
+                    Framework,
+                    AssemblyFileName,
+                    SpellingType,
+                    "get_Type",
+                    "metadata",
+                    "public",
+                    "all",
+                    includeHidden: false));
+        Assert.Equal(
+            BrowserMemberGroupDocumentOutcome.Available,
+            getterGroup.Outcome);
+        BrowserMemberGroupDocument getterDocument =
+            Assert.IsType<BrowserMemberGroupDocument>(
+                getterGroup.Document);
+        BrowserMemberGroupDocumentRow getterRow =
+            Assert.Single(getterDocument.Rows);
+        Assert.Equal("get_Type", getterDocument.MemberName);
+        Assert.True(getterRow.MetadataToken > 0);
+        Assert.True(getterRow.BaselineOrdinal > 0);
         BrowserTypeMemberPopulationGroup metadataMethod = Assert.Single(
             metadataMembers.Groups,
             group => group.Name == "PointerFreeUnsafeMethod");
@@ -602,6 +629,7 @@ public sealed class BrowserMemberDeclarationTests
                     AssemblyFileName,
                     SpellingType,
                     "MissingMethod",
+                    "csharp",
                     "public",
                     "all",
                     includeHidden: false));
@@ -863,6 +891,7 @@ public sealed class BrowserMemberDeclarationTests
                         "netcore.app",
                         ExtensionType,
                         "Examine",
+                        "csharp",
                         "public",
                         "extension",
                         includeHidden: false));
