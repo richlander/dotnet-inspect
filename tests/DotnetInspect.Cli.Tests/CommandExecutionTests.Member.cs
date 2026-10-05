@@ -505,6 +505,7 @@ public partial class CommandExecutionTests
             nameof(MemberCallGraphFixture.RootCall),
             "-S",
             SectionNames.Signature,
+            "--markdown",
             "-E",
             ".tips");
 
@@ -680,7 +681,7 @@ public partial class CommandExecutionTests
             "type", typeName,
             "--library", TestAssemblyPath,
             "--all",
-            "-S", "Member Index",
+            "-S", "Member Index", "--markdown",
             "-n", "80", "--lines");
         Assert.Equal(0, index.Exit);
         var stable = index.Output
@@ -726,7 +727,7 @@ public partial class CommandExecutionTests
         Assert.Contains(
             "| Signature | section | member-detail/sections/signature "
             + "| --markdown, --plaintext, --table, --tsv, --jsonl "
-            + "| table | scalar |  |",
+            + "| table | inventory | rows, count |",
             output);
         Assert.Contains(
             "| Decompiled Source | section | member-detail/sections/decompiled-source "
@@ -861,6 +862,79 @@ public partial class CommandExecutionTests
         }
 
         Assert.True(failures.Count == 0, string.Join(Environment.NewLine, failures));
+    }
+
+    [Fact]
+    public async Task Member_LoneSection_RendersInItsDeclaredShape()
+    {
+        // Section shapes, member adoption slice 2: a lone Text prints its
+        // undecorated payload (the shape decides, not a list of section
+        // names), a lone Table streams TSV, a scalar rejects --count and
+        // --rows but keeps the bare -n line window, and an explicit format
+        // wins. Call Graph is a Graph and keeps its composed rendering.
+        string[] target =
+        [
+            "member", "DotnetInspect.Cli.Tests.CommandExecutionTests+ConstructorChainTarget", ".ctor:1",
+            "--library", TestAssemblyPath, "--all",
+        ];
+        var (textExit, text, textError) = await RunAppAsync(
+            [.. target, "-S", SectionNames.DecompiledSource]);
+
+        Assert.Equal(0, textExit);
+        Assert.Empty(textError);
+        Assert.DoesNotContain("## Decompiled Source", text);
+        Assert.Contains("ConstructorChainTarget(int value) : base(value)", text);
+
+        var (markdownExit, markdown, _) = await RunAppAsync(
+            [.. target, "-S", SectionNames.DecompiledSource, "--markdown"]);
+
+        Assert.Equal(0, markdownExit);
+        Assert.Contains("## Decompiled Source", markdown);
+
+        var (tableExit, table, tableError) = await RunAppAsync(
+            [.. target, "-S", SectionNames.Signature]);
+
+        Assert.Equal(0, tableExit);
+        Assert.Empty(tableError);
+        Assert.StartsWith("signature\t", table);
+        Assert.DoesNotContain("## Signature", table);
+
+        // Signature is a one-row inventory: Count observes that row.
+        var (countExit, countOutput, countError) = await RunAppAsync(
+            [.. target, "-S", SectionNames.Signature, "--count"]);
+
+        Assert.Equal(0, countExit);
+        Assert.Empty(countError);
+        Assert.Equal("1", countOutput.Trim());
+
+        // A scalar record (Type Info on the type view) and a scalar Text (IL)
+        // reject the row terminals before acquisition.
+        var (scalarExit, scalarOutput, scalarError) = await RunAppAsync(
+            "member", "DotnetInspect.Cli.Tests.CommandExecutionTests+ConstructorChainTarget",
+            "--library", TestAssemblyPath, "--all", "-S", SectionNames.TypeInfo, "--count");
+
+        Assert.Equal(1, scalarExit);
+        Assert.Empty(scalarOutput);
+        Assert.Contains("Section 'Type Info' is scalar and does not support --count", scalarError);
+
+        var (rowsExit, _, rowsError) = await RunAppAsync(
+            [.. target, "-S", SectionNames.IL, "--rows", "1"]);
+
+        Assert.Equal(1, rowsExit);
+        Assert.Contains("Section 'IL' is scalar and does not support --rows", rowsError);
+
+        var (windowExit, window, windowError) = await RunAppAsync(
+            [.. target, "-S", SectionNames.Signature, "-n", "1"]);
+
+        Assert.Equal(0, windowExit);
+        Assert.Empty(windowError);
+        Assert.StartsWith("signature\t", window);
+
+        var (graphExit, graph, _) = await RunAppAsync(
+            [.. target, "-S", SectionNames.CallGraph]);
+
+        Assert.Equal(0, graphExit);
+        Assert.Contains("## Call Graph", graph);
     }
 
     [Fact]
@@ -1704,7 +1778,7 @@ public partial class CommandExecutionTests
     public async Task Member_BareSimpleTypeMiss_UsesPlatformFindIfMiss()
     {
         var (exit, output, error) = await RunAppAsync(
-            "member", "Regex", "-m", "Match", "-S", "Member Index", "--rows", "4");
+            "member", "Regex", "-m", "Match", "-S", "Member Index", "--rows", "4", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Contains("# System.Text.RegularExpressions.Regex", output);
@@ -1754,7 +1828,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, _) = await RunAppAsync(
             "member", "System.Text.Json.JsonSerializer", "--platform", "System.Text.Json",
-            "-S", "Properties");
+            "-S", "Properties", "--markdown");
 
         Assert.Equal(0, exit);
 
@@ -1992,8 +2066,8 @@ public partial class CommandExecutionTests
             "--platform",
             "System.Private.CoreLib",
             "-S",
-            "M*,Sign*,Custom*"
-            );
+            "M*,Sign*,Custom*",
+            "--markdown");
 
         Assert.Equal(0, exit);
         Assert.DoesNotContain("Error:", error);
@@ -2402,7 +2476,8 @@ public partial class CommandExecutionTests
             PlatformAssembly = "System.Text.Json",
             TypeName = "JsonSerializer",
             MemberFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "SerializeToNode" },
-            Select = ["Member Index"]
+            Select = ["Member Index"],
+            FormatExplicitlySet = true,
         };
 
         var (exit, output, _) = await ConsoleCapture.RunAsync(
@@ -2426,7 +2501,8 @@ public partial class CommandExecutionTests
             PlatformAssembly = "System.Text.Json",
             TypeName = "JsonSerializerOptions",
             MemberFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "GetConverter" },
-            Select = ["Member Index"]
+            Select = ["Member Index"],
+            FormatExplicitlySet = true,
         };
 
         var (exit, output, _) = await ConsoleCapture.RunAsync(
@@ -2475,7 +2551,8 @@ public partial class CommandExecutionTests
             PlatformAssembly = "System.Text.Json",
             TypeName = "JsonSerializerOptions",
             MemberFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "GetConverter" },
-            Select = ["Signature"]
+            Select = ["Signature"],
+            FormatExplicitlySet = true,
         };
 
         var (exit, output, _) = await ConsoleCapture.RunAsync(
@@ -2495,7 +2572,8 @@ public partial class CommandExecutionTests
             TypeName = "JsonSerializer",
             MemberFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "SerializeToNode" },
             OverloadIndex = 1,
-            Select = ["Custom Attributes"]
+            Select = ["Custom Attributes"],
+            FormatExplicitlySet = true,
         };
 
         var (exit, output, _) = await ConsoleCapture.RunAsync(
@@ -2781,7 +2859,7 @@ public partial class CommandExecutionTests
         var testDirectory = Path.GetDirectoryName(TestAssemblyPath)!;
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(MemberCallGraphFixture).FullName!, "--library", TestAssemblyPath,
-            nameof(MemberCallGraphFixture.Inner), "-S", "Callers", "--bin", testDirectory);
+            nameof(MemberCallGraphFixture.Inner), "-S", "Callers", "--markdown", "--bin", testDirectory);
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -3118,7 +3196,8 @@ public partial class CommandExecutionTests
             TypeName = "JsonSerializer",
             MemberFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "SerializeToElement" },
             OverloadIndex = 1,
-            IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Facts" }
+            IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Facts" },
+            FormatExplicitlySet = true,
         };
 
         var (exit, output, _) = await ConsoleCapture.RunAsync(
@@ -3137,7 +3216,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(FactsTableFixture).FullName!, "--library", TestAssemblyPath,
-            nameof(FactsTableFixture.BoxInt), "-S", "Facts");
+            nameof(FactsTableFixture.BoxInt), "-S", "Facts", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -3681,7 +3760,7 @@ public partial class CommandExecutionTests
         // selected Applied Taste section renders its empty-state note, not a row.
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(FactsTableFixture).FullName!, "--library", TestAssemblyPath,
-            nameof(FactsTableFixture.BoxInt), "-S", "Applied Taste");
+            nameof(FactsTableFixture.BoxInt), "-S", "Applied Taste", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -4410,7 +4489,7 @@ public partial class CommandExecutionTests
 
         (exit, output, error) = await RunAppAsync(
             "member", "JsonSerializer", "--package", "System.Text.Json",
-            stableSelector, "-S", "Signature");
+            stableSelector, "-S", "Signature", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -4709,7 +4788,7 @@ public partial class CommandExecutionTests
     public async Task Member_BareStringAliasWithMemberFilter_RendersStringMembers()
     {
         var (exit, output, error) = await RunAppAsync(
-            "member", "string", "-m", "Normalize", "-S", "Methods");
+            "member", "string", "-m", "Normalize", "-S", "Methods", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -4832,7 +4911,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "System.Text.Json.JsonSerializer.SerializeToNode:1",
-            "-S", "Signature");
+            "-S", "Signature", "--markdown");
         var (countExit, countOutput, countError) = await RunAppAsync(
             "member", "System.Text.Json.JsonSerializer.SerializeToNode:1",
             "-S", "Signature", "--count");
@@ -4872,7 +4951,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "System.Text.Json.JsonSerializer",
-            "-m", "SerializeToNode", "-S", "Methods");
+            "-m", "SerializeToNode", "-S", "Methods", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Equal([SectionNames.Methods], SectionHeadings(output));

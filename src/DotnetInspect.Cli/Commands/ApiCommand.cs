@@ -298,6 +298,16 @@ public partial class ApiCommand
                 SelectDeferredToListing = false
             }
             : options with { SelectDeferredToListing = false };
+        listingOptions = (TypeOptions)ApplyNativeShapeOutput(
+            listingOptions,
+            typePipeline.SectionShapes);
+        if (ValidateApiScalarTerminals(
+                listingOptions,
+                ApiTypeSectionCardinality.Declarations) is { } scalarError)
+        {
+            CommandError.Write(scalarError);
+            return null;
+        }
 
         // Re-check selection arity against the final listing catalog. The payload projections are
         // deliberately not re-checked: the listing refuses them outright further down, and that
@@ -689,6 +699,20 @@ public partial class ApiCommand
         // actionable, and judging the listing's sections preempts the single-type view's own, more
         // accurate rejection. ReresolveSectionsForListing re-runs them once the pipeline is known.
         var selectionSections = options.SelectDeferredToListing ? null : options.IncludeSections;
+        // Section shapes: a lone explicitly selected section renders natively
+        // unless the caller named a format, and a lone scalar rejects the row
+        // terminals. Both stand down for a deferred select, which
+        // ReresolveSectionsForListing re-runs once the listing is known.
+        options = ApplyNativeShapeOutput(
+            options,
+            singleTypeMode ? memberPipeline.SectionShapes : typePipeline.SectionShapes);
+        if (ValidateApiScalarTerminals(
+                options,
+                ApiCardinalities(singleTypeMode, memberPipeline)) is { } scalarError)
+        {
+            CommandError.Write(scalarError);
+            return (null!, 1);
+        }
         var countMapSelectionSections = selectionSections;
         if (selectionSections is { Count: > 0 }
             && options is MemberOptions { HasCallerScope: true })
