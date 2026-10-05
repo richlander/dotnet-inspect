@@ -780,12 +780,13 @@ rules to the pass.
 
 **Position.** The pass runs on every body — function, raised lambda, raised
 local function — immediately after `CoercionInsertionPass` and before
-`ScalarSelfUpdatePass`, in every pipeline that includes
-`SlotMaterializationPass` (`Default`, `Lowered`, and the capturing-lambda
-completion split) and in none that excludes it: the `ForReconstruction`
-pipelines and the intermediate re-runs of a reconstructed body
-(`ForIntermediateBody`) leave their slot nodes for the host's tail, which binds
-the transplanted body. It is the last pass that may observe a stack-slot node. The position is chosen so
+`ScalarSelfUpdatePass` in the complete presentation pipelines (`Default`,
+`Lowered`, and the capturing-lambda completion split). `ForReconstruction`
+excludes both materialization and residual binding because reconstruction still
+needs structural slot evidence. `ForIntermediateBody` retains materialization
+but defers residual binding so the host tail binds the transplanted body's
+remaining slot webs. It is the last pass that may observe a stack-slot node.
+The position is chosen so
 the pass sees exactly the tree the printer sees today in that pipeline: the
 slot-consuming raises present in it (`SwapIdiomPass`,
 `PointerCompoundAssignmentPass`, `UnsafeAwaitBoundaryPass`) have run;

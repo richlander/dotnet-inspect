@@ -97,6 +97,9 @@ source idioms, synthesized-body constructs, locals, and final coercions or
 spellability diagnostics. This is not a strict one-pass-per-phase partition:
 some transforms repeat after another transform exposes new opportunities.
 Read the registry and its ordering comments before inserting a pass.
+[Decompiler Pass Composition](design/decompiler-pass-composition.md) validates
+the finite set of ordering and exclusion relationships whose violation changes
+correctness or destroys reconstruction evidence; it does not reorder passes.
 
 [`PassContext`](../src/ILInspector.Decompiler/Pipeline/PassContext.cs) carries
 stepping, an optional structuring stop-reason sink, sibling-body import, and
