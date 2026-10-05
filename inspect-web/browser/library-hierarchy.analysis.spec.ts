@@ -52,6 +52,7 @@ test("Analysis opens on Relationships as its first tab", async ({ page }) => {
     "Relationships",
     "Complexity",
     "Performance",
+    "Unsafe",
     "Integrations",
   ]);
   await expect(tabs.first()).toHaveAttribute("aria-selected", "true");
