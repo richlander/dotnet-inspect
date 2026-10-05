@@ -289,11 +289,48 @@ public class AnnotatedSourceDiffDocumentTests
         """{"schema_version":1,"schema_version":1,"methodology_version":1,"subject":{"declaring_type":"T","selector":"M"},"style":"ByteFaithful","before":{"outcome":"Absent","reason":"CorrespondenceKeyAbsent"},"after":{"outcome":"Absent","reason":"CorrespondenceKeyAbsent"},"forwarders":[],"media":[{"medium":"CSharp","before_lines":[],"after_lines":[]}]}""")]
     [InlineData(
         """{"schema_version":1,"methodology_version":1,"subject":{"declaring_type":"T","selector":"M"},"style":"bytefaithful","before":{"outcome":"Absent","reason":"CorrespondenceKeyAbsent"},"after":{"outcome":"Absent","reason":"CorrespondenceKeyAbsent"},"forwarders":[],"media":[{"medium":"CSharp","before_lines":[],"after_lines":[]}]}""")]
+    [InlineData(
+        """{"schema_version":1,"methodology_version":1,"subject":{"declaring_type":"T","selector":"M"},"style":"0","before":{"outcome":"Absent","reason":"CorrespondenceKeyAbsent"},"after":{"outcome":"Absent","reason":"CorrespondenceKeyAbsent"},"forwarders":[],"media":[{"medium":"CSharp","before_lines":[],"after_lines":[]}]}""")]
     public void Json_RejectsUnknownDuplicateAndNonExactValues(
         string json)
     {
         Assert.Throws<JsonException>(
             () => AnnotatedSourceDiffJson.Deserialize(json));
+    }
+
+    [Theory]
+    [InlineData("\"content\":\"Changed\"", "\"content\":\"2\"")]
+    [InlineData("\"placement\":\"Stable\"", "\"placement\":\"1\"")]
+    public void Json_RejectsNumericAnalysisDiffRelationEnums(
+        string canonical,
+        string numeric)
+    {
+        Guid beforeMvid =
+            new("00112233-4455-6677-8899-AABBCCDDEEFF");
+        Guid afterMvid =
+            new("10213243-5465-7687-98A9-BACBDCEDFE0F");
+        AnnotatedSourceDiffDocument document =
+            AnnotatedSourceDiffDocument.Create(
+                new("Tests.C", "M"),
+                AnnotatedSourceDiffSide.Present(
+                    Endpoint(beforeMvid),
+                    CSharpDocument("return 1;", beforeMvid)),
+                AnnotatedSourceDiffSide.Present(
+                    Endpoint(afterMvid),
+                    CSharpDocument("return 2;", afterMvid)),
+                [],
+                includeIl: false);
+        string json = AnnotatedSourceDiffJson.Serialize(
+            document,
+            indented: false);
+        string invalid = json.Replace(
+            canonical,
+            numeric,
+            StringComparison.Ordinal);
+
+        Assert.NotEqual(json, invalid);
+        Assert.Throws<JsonException>(
+            () => AnnotatedSourceDiffJson.Deserialize(invalid));
     }
 
     static AnnotatedSourceDiffEndpoint Endpoint(Guid mvid)

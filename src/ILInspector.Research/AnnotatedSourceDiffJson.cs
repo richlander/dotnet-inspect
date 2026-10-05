@@ -320,7 +320,10 @@ public static class AnnotatedSourceDiffJson
             || value.ValueKind != JsonValueKind.String
             || value.GetString() is not { } name
             || !Enum.TryParse(name, ignoreCase: false, out TEnum parsed)
-            || !Enum.IsDefined(parsed))
+            || !string.Equals(
+                Enum.GetName(parsed),
+                name,
+                StringComparison.Ordinal))
         {
             throw new JsonException(
                 $"Annotated-source diff JSON contains an unknown "
@@ -524,7 +527,10 @@ public sealed class AnalysisDiffRelationJsonConverter
             || value.ValueKind != JsonValueKind.String
             || value.GetString() is not { } text
             || !Enum.TryParse(text, ignoreCase: false, out TEnum parsed)
-            || !Enum.IsDefined(parsed))
+            || !string.Equals(
+                Enum.GetName(parsed),
+                text,
+                StringComparison.Ordinal))
         {
             throw new JsonException(
                 $"Analysis diff relation contains an unknown {typeof(TEnum).Name}.");
