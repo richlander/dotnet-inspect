@@ -2764,6 +2764,16 @@ kbd {
   }
   .analysis-mode-tabs button { font-size: clamp(9px, 2.6vw, 10px); }
 }
+@media (max-width: 360px) {
+  .analysis-inspector { grid-template-rows: 108px minmax(0, 1fr) 34px; }
+  .analysis-inspector.library-analysis-with-controls { grid-template-rows: 108px auto minmax(0, 1fr) 34px; }
+  .analysis-inspector > .api-surface-head { height: 108px; }
+  .analysis-mode-tabs {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    height: 72px;
+  }
+}
 .library-analysis-scroll { overflow-wrap: anywhere; }
 .library-analysis-note { margin: 0; padding: 10px 16px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 12px; }
 .library-analysis-scroll .perf-list { gap: 0; }

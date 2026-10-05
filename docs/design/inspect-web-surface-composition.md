@@ -1062,7 +1062,8 @@ Tabs use manual activation: Left/Right and Home/End move focus, Enter/Space
 select, and rerenders preserve focused-tab identity. The selected tab labels the
 shared results panel. Full labels remain available at narrow widths, where the
 tabs occupy a second header row rather than clipping or introducing page-level
-horizontal scrolling.
+horizontal scrolling. At extra-narrow widths, that tab area wraps into two
+three-tab rows so every full label remains visible.
 
 The shared frame uses a quiet count/state header, an optional platform Library
 selector, one full-area results scroller, and bottom assembly context. At wide

@@ -51,6 +51,7 @@ async function expectCompactAnalysisHeader(page: Page) {
     "Complexity",
     "Relationships",
     "Performance",
+    "Unsafe",
     "Integrations",
     "Opportunities",
   ]) {
@@ -61,8 +62,9 @@ async function expectCompactAnalysisHeader(page: Page) {
   const headerBox = await header.boundingBox();
   const tabsBox = await tabs.boundingBox();
   const resultsBox = await frame.getByRole("tabpanel").boundingBox();
-  const narrow = (page.viewportSize()?.width ?? 0) <= 600;
-  expect(headerBox!.height).toBe(narrow ? 72 : 40);
+  const width = page.viewportSize()?.width ?? 0;
+  const narrow = width <= 600;
+  expect(headerBox!.height).toBe(width <= 360 ? 108 : narrow ? 72 : 40);
   if (narrow) {
     expect(tabsBox!.y - headerBox!.y).toBeGreaterThanOrEqual(20);
   } else {
