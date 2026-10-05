@@ -789,8 +789,10 @@ test("the type nav lists namespace groups with the current type selected", () =>
   assert.match(
     html,
     /<details class="filter-disclosure type-filter-disclosure" data-type-filter-disclosure>/);
-  assert.match(html, /<summary id="type-filter-summary">/);
-  assert.match(html, /<strong>Filters<\/strong><small>public<\/small>/);
+  assert.match(html, /<summary id="type-filter-summary" title="Show Type filters">/);
+  assert.match(
+    html,
+    /<strong>Types<\/strong><small>2 shown · public<\/small><span class="filter-action">Filters<\/span>/);
   assert.match(html, /id="type-filter"/);
   assert.match(html, /id="namespace-jump"/);
   assert.match(html, /id="content-navigation-pane"/);
@@ -1072,7 +1074,7 @@ test("the member nav marks the active group and its selected overload", () => {
     html,
     /data-nav-selection="overload:method:Serialize:1"/);
   assert.match(html, /id="member-filters"/);
-  assert.match(html, /←→ sections/);
+  assert.doesNotMatch(html, /type-browser-footer/);
 });
 
 test("the member nav renders one active declaration as an exact member", () => {
@@ -1138,7 +1140,7 @@ test("the member nav labels a selected graph-only target", () => {
 
   assert.match(html, /class="type-row member-row graph-member-row active-group/);
   assert.match(html, /graph target · method/);
-  assert.match(html, /0 of 0/);
+  assert.doesNotMatch(html, /type-browser-footer/);
   assert.doesNotMatch(html, /family-name|family-count/);
 });
 
@@ -1583,9 +1585,8 @@ test("type metadata renders a loading state while the projection is in flight", 
   assert.match(html, /Projecting type metadata…/);
   assert.match(
     html,
-    /class="metadata-surface"[\s\S]*?<h1 id="metadata-surface-title">Metadata<\/h1>[\s\S]*?class="metadata-surface-scroll"[\s\S]*?Projecting type metadata…[\s\S]*?class="metadata-surface-footer"/);
-  assert.match(html, /System\.Text\.Json\.JsonSerializer/);
-  assert.match(html, /net9\.0 · System\.Text\.Json\.dll · System\.Text\.Json@9\.0\.0/);
+    /class="metadata-surface"[\s\S]*?<h1 id="metadata-surface-title">Metadata<\/h1>[\s\S]*?class="metadata-surface-scroll"[\s\S]*?Projecting type metadata…/);
+  assert.doesNotMatch(html, /metadata-surface-footer/);
   assert.doesNotMatch(html, /class="type-heading"/);
 });
 
@@ -1650,7 +1651,8 @@ test("type metadata keeps projection failures inside the full-area surface", () 
 
   assert.match(
     html,
-    /class="metadata-surface"[\s\S]*?class="document-section metadata-surface-state empty-document"[\s\S]*?Metadata projection failed[\s\S]*?projection unavailable[\s\S]*?class="metadata-surface-footer"/);
+    /class="metadata-surface"[\s\S]*?class="document-section metadata-surface-state empty-document"[\s\S]*?Metadata projection failed[\s\S]*?projection unavailable/);
+  assert.doesNotMatch(html, /metadata-surface-footer/);
   assert.match(html, /data-type-graph-surface/);
 });
 
@@ -1780,7 +1782,7 @@ for (const nodeCount of [0, 1, 2]) {
       assert.match(html, /data-type-graph-surface>[\s\S]*?type-graph-diagram[\s\S]*?metadata-warning/);
     }
     assert.match(html, /Type shape/);
-    assert.match(html, /metadata-surface-footer/);
+    assert.doesNotMatch(html, /metadata-surface-footer/);
   });
 }
 

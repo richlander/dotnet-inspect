@@ -333,11 +333,11 @@ these named browser tests in `workspace-titlebar.spec.ts`:
 ## Working surfaces
 
 Type API, Member API, Type Metadata, Package Overview, Package Dependencies,
-Library Metadata, Compare, Source, Member Diff, and Diagnostics are working
-surfaces rather than documents inset inside a general page. Annotated Source is
-a transient full-bleed viewer reached from Source or exact Finding actions, not
-a persistent Member inspector. The Metadata Explorer retains its separately
-owned full-bleed composition.
+Library References, Library Metadata, Compare, Source, Member Diff, and
+Diagnostics are working surfaces rather than documents inset inside a general
+page. Annotated Source is a transient full-bleed viewer reached from Source or
+exact Finding actions, not a persistent Member inspector. The Metadata Explorer
+retains its separately owned full-bleed composition.
 
 The package-query surface's internal query behavior remains owned by
 `package-query-experience.md`; product facet identities, ordering, evidence,
@@ -346,25 +346,24 @@ package-tab placement stays superseded.
 
 ### Type and Member API
 
-Type API and Member API use the full area to the right of Type or Member
-navigation. They do not retain a centered document column, a large subject
+Type API and Member API use the primary area to the left of a bounded trailing
+Type or Member inventory. Detail therefore leads in document, keyboard, and
+visual order. They do not retain a centered document column, a large subject
 hero, or repeated package, library, namespace, and target-framework context.
 The persistent subject path remains the owner of that hierarchy.
 
 The Type API surface contains:
 
 ```text
-Members                                  visible / total members
-Filters                                            active restrictions
+Members · visible / total · active restrictions              Filters
 member rows
-                                                  select-row guidance
 ```
 
-`Members` and its count use the same quiet label hierarchy as the navigation
-pane rather than competing with the subject path. The count changes with the
-active member filters. The collapsed `Filters` row owns member text, kind,
-accessibility, and trait controls. Member rows use the complete remaining
-scroll area. The bottom guidance does not repeat the count.
+One compact inventory row owns `Members`, the live count, active restrictions,
+and the `Filters` disclosure. The count changes with the active member filters.
+Expanding that row reveals member text, kind, accessibility, trait, and spelling
+controls without creating a second heading or result-count row. Member rows use
+the complete remaining scroll area. There is no bottom guidance row.
 
 If active filters exclude the selected member, the detail pane retains a
 full-area Member empty state with the quiet header and adjustment guidance. It
@@ -661,7 +660,7 @@ Package Dependencies uses the same viewer and action-row placement. Explore is
 available once dependency groups have been read, including a selected group with
 no connected packages. The viewer contains the manifest-group selector, exact-group
 notice, graph, and workspace/diagram diagnostics. Package coordinate controls,
-dependency lists, assembly references, and the coordinate footer remain on the
+the dependency list, and persistent inspected-target context remain on the
 underlying page. The viewer identifies the inspected package; group buttons
 identify the selected manifest framework independently of the active coordinate.
 The shared header uses the package coordinate as its subject, the active target
@@ -701,8 +700,8 @@ cover truncation diagnostics.
 
 Type Metadata uses the same viewer when its current projection contains a
 relationship graph. Only that graph and its relationship warnings move; type
-shape, member composition, related-type lists, attributes, and the coordinate
-footer stay inline. Pending diagram rendering can complete in either placement.
+shape, member composition, related-type lists, and attributes stay inline.
+Pending diagram rendering can complete in either placement.
 Browsable nodes use the shared keyboard activation and drag suppression;
 unavailable types remain non-interactive with an accessible explanation. Type
 activation closes Explore before the existing typed navigation path runs. It
@@ -768,7 +767,7 @@ hidden.
 
 ### Type Metadata
 
-Type Metadata uses the full area to the right of Type navigation. It does not
+Type Metadata uses the primary area to the left of Type navigation. It does not
 retain a centered document column or the large type hero. The persistent
 subject path remains the owner of the selected package and type hierarchy.
 
@@ -778,7 +777,6 @@ The surface contains:
 Metadata                                  kind · accessibility
 type shape rows
 member composition and relationship sections
-exact type identity            TFM · library · package@version
 ```
 
 The quiet header labels the lens and reports type kind and accessibility
@@ -788,34 +786,34 @@ composition, interfaces, derived types, attributes, relationship graphs, and
 inspection warnings retain their owned semantics and follow in the same
 scroller.
 
-The fixed bottom context row preserves the exact type identity and package
-coordinate needed to compare or capture the projection without restoring a
-large duplicate heading. Loading and failure states retain the same header,
-scroll owner, and bottom context row; they remain visibly distinct from a
+The surface does not repeat exact type identity or package coordinates in a
+bottom row. The persistent inspected-target row retains that context while the
+projection uses the complete remaining height. Loading and failure states
+retain the same header and scroll owner and remain visibly distinct from a
 successful empty projection.
 
-At narrow widths, header status and both context values may elide as complete
-strings. The surface retains one scroll owner and creates no page-level
-horizontal overflow.
+At narrow widths, header status may elide as a complete string. The surface
+retains one scroll owner and creates no page-level horizontal overflow.
 
 ### Package Overview
 
-Package and Library Overview use the complete inspector area, following Library
-Metadata and Package Dependencies rather than enclosing their content in a second
-layer of chrome. Both use the same frame and retain a readable local subject name
-and icon; the small persistent subject path is navigation, not a replacement for
+Package and Library Overview use the complete content frame rather than
+permanently reserving width for Framework or Library selection. A persistent
+target-bar action swaps the full-width detail with the corresponding inventory.
+Both Overviews use the same frame and retain a readable local subject name and
+icon; the small persistent subject path is navigation, not a replacement for
 Overview identity.
 
 ```text
 platform compatibility warning              (when present)
 icon · subject name
 subject-specific identity details and content
-package@version                                    active framework
 ```
 
 Package Overview starts directly with its identity and content rather than
-reserving a quiet `Overview` header row. Its Version selector sits at the top
-of the Package navigation pane, immediately above the TFM list. Library
+reserving a quiet `Overview` header row. Its Version selector occupies the
+target-bar page-action region beside the persistent `Frameworks` action.
+Framework selection remains in the swapped full-width inventory. Library
 Overview retains the shared quiet header and does not gain coordinate controls.
 One independently scrolling content region starts with a larger icon and
 readable name, the surface's single visible level-one heading. Both subjects
@@ -868,18 +866,17 @@ navigation, while Library defaults to the package aggregate and can narrow to
 as primary navigation while five type-kind counts remain a compact secondary
 summary.
 
-The bottom context row preserves the exact package/version and active
-framework. At narrow widths the Frameworks (Package), Libraries (Library), or
-Types (Type and Member) return control remains available above the working
-surface; the local name and icon remain visible in the content below it.
-Controls wrap within their row, and header/footer values may elide as complete
-strings. Local subject names wrap rather than disappearing.
+The persistent inspected-target row preserves the exact subject context, so
+Overview does not add a bottom coordinate row. The Frameworks (Package) or
+Libraries (Library) action remains in the target bar at every width. Type and
+Member retain their responsive inventory action there when the trailing split
+cannot fit. Local subject names wrap rather than disappearing.
 Long identifiers, asset paths, and document names remain contained without
 page-level horizontal overflow. Many rows scroll inside Overview while its
-header, any controls, and coordinates remain in place.
+identity and any local controls remain in place.
 
 Overview presents the already-loaded package. Changing its selected TFM or
-version from the Package navigation pane keeps the
+version from the Package inventory or target-bar selector keeps the
 package shell, inspected target, navigation, and data bar visible, whether the
 target is cached or needs acquisition. Only the
 inspector content becomes busy, with a compact text-and-spinner status rather
@@ -934,17 +931,15 @@ The surface contains:
 
 ```text
 Dependencies                         package and reference count or state
-Version · Framework
 target-framework groups and graph
-package dependencies and assembly references
-package@version                                             active framework
+package dependencies
 ```
 
 The quiet header labels the lens and reports the selected dependency group's
-package count together with the selected assembly's direct reference count.
-A compact control row keeps Version and Framework available. Dependency-group
-selection remains with the result because it selects a manifest group rather
-than changing the active package coordinate.
+package count. Version remains in the target-bar Package actions and Framework
+selection remains in the swapped Package inventory. Dependency-group selection
+stays with the result because it selects a manifest group rather than changing
+the active package coordinate.
 
 One independently scrolling content region retains the exact-group notice,
 target-framework selector, dependency graph, package dependency list, assembly
@@ -971,17 +966,23 @@ surfaces retain their existing inline sizing.
 beside the inline graph experience. `System.Text.Json@10.0.0` is the neighboring
 zero-dependency case.
 
-The fixed bottom context row preserves the exact package coordinate and active
-framework. Loading, query failure, no-dependency, no-exact-group, graph
-failure, and partial-workspace states retain the same header, controls, scroll
-owner, and context row. Failures remain visibly distinct from successful
-empty results.
+The persistent inspected-target row preserves the exact package coordinate.
+Loading, query failure, no-dependency, no-exact-group, graph failure, and
+partial-workspace states retain the same header and scroll owner. Failures
+remain visibly distinct from successful empty results.
 
-At narrow widths, the `Types` return control shares the quiet header, controls
-wrap within their row, and header and footer values may elide as complete
-strings. The surface creates no page-level horizontal overflow. This slice
-does not change graph construction or navigation, Package Overview,
-Integrations, Analysis, Package Metadata, or the Metadata Explorer.
+At every width, the target-bar `Frameworks` action swaps the full-width result
+with its inventory. Header values may elide as complete strings, and the
+surface creates no page-level horizontal overflow.
+
+Package Dependencies and Library References use one direct-answer row
+vocabulary: a leading dependency or reference name, trailing exact identity
+details, and link styling only when the row has a typed destination. Package
+dependencies switch to an exact loaded package or explicitly load their
+declared package coordinate. Assembly references open an exact admitted
+Library only when name, version, culture, and public-key token resolve uniquely;
+unresolved or ambiguous assembly identities remain inert. The browser does not
+guess a package destination from an assembly display name.
 
 ### Package Vulnerabilities
 
@@ -994,7 +995,6 @@ framework selection does not alter vulnerability identity.
 Vulnerabilities                    reviewed advisory count and coverage
 coverage basis and acquisition failures
 reviewed advisory cards
-package@version                         GitHub reviewed advisories
 ```
 
 Opening the lens starts explicit network acquisition through
@@ -1020,7 +1020,6 @@ an inset reference-section heading. The subject path retains navigation context.
 References                                  direct reference count or state
 direct AssemblyRef graph
 reference names, versions, cultures, and public-key tokens
-Library asset and assembly identity              TFM · package@version
 ```
 
 One independently scrolling region begins with a bounded one-hop AssemblyRef
@@ -1032,22 +1031,23 @@ inference. The preview is capped at 80 total nodes; when a Library exceeds that
 bound, the graph reports its shown count and the complete list remains
 authoritative immediately below it.
 
-The graph and list use the available width. The quiet header and bottom context
-remain in place while the content scrolls. Full Library assembly identity and
-asset path remain available in the footer rather than being discarded with the
-old heading. This follows the Package Dependencies composition: structural
-graph first, complete direct-answer list second.
+The graph and list use the available width. The quiet header remains in place
+while the content scrolls; the persistent inspected-target row owns Library and
+package context. This follows Package Dependencies: structural graph first,
+complete direct-answer list second, and the same linked-row presentation.
+Uniquely resolved admitted Libraries are buttons that navigate through the
+existing typed Library path. Unresolved or ambiguous references remain text.
 
 Loading, query failure, inspection failure, and successful zero-reference results
 retain the same frame and remain visibly distinct. Existing Library selection,
 query freshness, direct AssemblyRef semantics, counts, order, and field values
 are unchanged.
 
-At narrow widths the existing Types return control shares the quiet header.
-The graph uses the constrained inline height at narrow widths. Reference names
-and identity fields wrap within rows; header status and footer values may elide
-as complete strings with their full text retained. Long values and many rows
-create local scrolling, not page-level horizontal overflow.
+At every width the target-bar `Libraries` action swaps the full-width result
+with the Library inventory. The graph uses the constrained inline height at
+narrow widths. Reference names and identity fields wrap within rows; header
+status may elide as a complete string. Long values and many rows create local
+scrolling, not page-level horizontal overflow.
 
 The browser-only presentation scope was explicitly approved for
 [the one-step adoption tracker](https://github.com/richlander/dotnet-inspect/issues/6165).
@@ -1086,16 +1086,14 @@ tabs occupy a second header row rather than clipping or introducing page-level
 horizontal scrolling.
 
 The shared frame uses a quiet count/state header, an optional platform Library
-selector, one full-area results scroller, and bottom assembly context. At wide
-widths the title, status, and tabs share one header row. At narrow widths the
-existing Types control occupies the title's place and the tabs use the second
-header row.
+selector, and one full-area results scroller. At wide widths the title, status,
+and tabs share one header row. At narrow widths the tabs use a second header row
+while the target-bar `Libraries` action remains outside the surface.
 
 ```text
 Analysis  count/state   [Relationships]  Complexity  Performance  Integrations
 optional platform Library selector
 mode-owned content
-Library asset and assembly identity              TFM · package@version
 ```
 
 Performance retains product triage order, opportunity and loop counts, shape
@@ -1112,10 +1110,9 @@ defined by
 [Library structural report](library-structural-report.md#browserwasm).
 
 The platform selector stays above scrolling results and keeps its existing
-acquisition behavior. The footer retains asset path, full assembly identity,
-and package/version/framework context. Browser HTML lowering consumes the
-existing typed mode results; no producer, query, acquisition, CLI section, or
-result contract changes.
+acquisition behavior. The persistent inspected-target row retains Library and
+package context. Browser HTML lowering consumes the existing typed mode results;
+no producer, query, acquisition, CLI section, or result contract changes.
 
 Focused renderer and production-composition browser gates cover all four
 direct tabs, lazy loading, focus retention across asynchronous completion,
@@ -1132,27 +1129,26 @@ The surface contains:
 
 ```text
 Metadata images                                  assembly count or state
-Version · Framework · optional platform Library
+optional platform Library
 assembly image facts, heaps, and populated tables
-package@version                           TFM · optional scoped library
 ```
 
 The quiet header labels the image-level lens and reports its assembly count or
-current state. A compact control row keeps Version and Framework available and,
-for the platform package, adds the scoped Library selector. The independently
-scrolling content region begins with assembly metadata rather than a repeated
-package summary. Each assembly retains its format, header facts, heaps, and
-populated-table controls, and those controls continue to open the separately
-owned Metadata Explorer.
+current state. Version remains in the Package target-bar actions and Framework
+selection remains in the Package inventory. For the platform package, a local
+control row adds the scoped Library selector. The independently scrolling
+content region begins with assembly metadata rather than a repeated package
+summary. Each assembly retains its format, header facts, heaps, and populated-
+table controls, and those controls continue to open the separately owned
+Metadata Explorer.
 
-The fixed bottom context row preserves the exact package coordinate, target
-framework, and optional scoped library. Library-required, loading, failure,
-partial-failure, and no-image states retain the same header, controls, scroll
-owner, and context row. Failures remain visibly distinct from a successful
-empty result.
+The persistent inspected-target row preserves the exact package coordinate.
+Library-required, loading, failure, partial-failure, and no-image states retain
+the same header, controls, and scroll owner. Failures remain visibly distinct
+from a successful empty result.
 
-At narrow widths, controls wrap within their row and header and footer values
-may elide as complete strings. The surface creates no page-level horizontal
+At narrow widths, local controls wrap within their row and header values may
+elide as complete strings. The surface creates no page-level horizontal
 overflow. This slice does not change the Metadata Explorer or other package
 lenses.
 
@@ -1253,7 +1249,7 @@ existing narrow navigation/detail composition, and Explore remains full-bleed.
 
 ### Source and Annotated Source viewer
 
-Source uses the full area to the right of Type or Member navigation. It does
+Source uses the primary area to the left of Type or Member navigation. It does
 not retain the old breadcrumb row, subject hero, metadata summary, centered
 maximum-width column, or inset source card.
 
@@ -1406,22 +1402,25 @@ reconstructs that label from an endpoint.
 
 One information hierarchy adapts across viewport sizes:
 
-- wide layouts retain Type or Member navigation beside a full working surface,
-  using a bounded inventory column rather than a percentage split; the column
-  stays within its readable minimum and maximum while the detail pane receives
-  all remaining width, and no draggable divider is introduced;
+- Package and Library always lead with one full-width working surface.
+  `Frameworks` or `Libraries` in the target-bar page-action region swaps that
+  surface with its full-width inventory without changing subject or history;
+- wide layouts retain Type or Member navigation as a trailing column beside a
+  leading full working surface, using a bounded inventory width rather than a
+  percentage split; the inventory stays within its readable minimum and
+  maximum while detail receives all remaining width, and no draggable divider
+  is introduced;
 - narrow layouts replace the split with one presentation-local pane:
   inventory or detail. Detail exposes a visible `Types` or `Members` button
-  that switches to the corresponding full-width inventory; activating an
-  inventory row switches back to detail, and inventory retains a visible
-  detail-return action even when filters leave no activatable row;
-- the narrow inventory/detail choice is not workspace state or product
+  in the target-bar page-action region; activating it shows the corresponding
+  full-width inventory, activating an inventory row switches back to detail,
+  and inventory retains a visible detail-return action even when filters leave
+  no activatable row;
+- the inventory/detail choice is not workspace state or product
   navigation. Switching panes does not change the selected coordinate,
   subject, lens, filters, canonical packet, URL, or browser history;
-- the return button shares the quiet 40-pixel working-surface header when one
-  exists. Heading-free Source and Member Diff, plus
-  document-style package surfaces use a narrow-only local navigation band
-  rather than inventing a working-surface title;
+- the detail-return action belongs to the inventory's own top region. Working
+  surfaces do not reserve a local navigation band or displace their headings;
 - both persistent shell rows remain one line;
 - the row-one subject/inspector region remains outside and above the
   navigation/content grid;
@@ -1453,10 +1452,11 @@ One information hierarchy adapts across viewport sizes:
 Responsive layout is not workspace state. Changing viewport size does not alter
 the selected coordinate, subject, lens, filters, or canonical packet.
 
-Activating `Types` or `Members` moves focus to the visible inventory and scrolls
-its selected row into view. Activating an inventory row moves focus to the
-return button in the resulting narrow detail pane. A filter-focus command first
-switches to inventory, then opens and focuses the applicable filter.
+Activating `Frameworks`, `Libraries`, `Types`, or `Members` moves focus to the
+visible inventory and scrolls its selected row into view. Activating an
+inventory row moves focus to the corresponding target-bar action in the
+resulting detail pane. A Type or Member filter-focus command first switches to
+inventory, then opens and focuses the applicable filter.
 
 When crossing into the narrow layout, focus inside Type or Member navigation
 keeps inventory visible; focus inside detail keeps detail visible. Otherwise
@@ -1635,11 +1635,11 @@ with the absence of a synthesized `Default feed` control.
 ### Type and Member API working surfaces
 
 1. Open a Type API surface with no member filters and confirm that the quiet
-   header, collapsed Filters row, member list, and bottom guidance exactly fill
-   the inspector pane without page overflow.
-2. Apply member text and selector filters and confirm that the header reports
-   the live visible/total member count, the collapsed summary discloses the
-   restrictions, and no second result-count row or footer count appears.
+   inventory summary row and member list exactly fill the trailing inventory
+   without page overflow.
+2. Apply member text and selector filters and confirm that the same row reports
+   the live visible/total member count and restrictions, and no preceding
+   heading, second result-count row, or footer count appears.
 3. Open a member group with multiple overloads and confirm that the exact
    member name and overload count remain in the quiet header while the overload
    rows own the scroll area.
@@ -1658,22 +1658,22 @@ with the absence of a synthesized `Default feed` control.
 ### Type Metadata working surface
 
 1. Open Type Metadata and confirm that the quiet Metadata header, full-width
-   type shape rows, scrolling relationship sections, and bottom exact-target
-   context row exactly fill the inspector pane without an inset type hero.
+   type shape rows, and scrolling relationship sections exactly fill the
+   inspector pane without an inset type hero or bottom context row.
 2. Exercise loading, projection failure, relationship warnings, and a type with
    enough sections to scroll. Confirm that each state keeps the same surface
    frame, that failures remain visible, and that only the content region
    scrolls.
 3. Repeat with a long generic type identity, long package coordinate, and a
-   narrow viewport. Confirm that header and footer values elide as complete
-   strings without selective loss or page-level horizontal overflow.
+   narrow viewport. Confirm that header values and persistent target context
+   remain accessible without page-level horizontal overflow.
 
 ### Package Metadata working surface
 
-1. Open package Metadata and confirm that the quiet header, compact Version and
-   Framework controls, assembly image facts, and bottom exact package context
-   fill the inspector pane without the generic package hero or inset coordinate
-   section.
+1. Open package Metadata and confirm that the quiet header and assembly image
+   facts fill the inspector pane without the generic package hero, inset
+   coordinate section, or bottom context row. Confirm that Version remains in
+   target-bar actions and Framework remains in the full-width inventory.
 2. Open platform Metadata before and after choosing a Library. Confirm that the
    Library selector remains in the compact control row, the required-selection
    state keeps the full-area frame, and the selected assembly's heap and table
@@ -1682,16 +1682,16 @@ with the absence of a synthesized `Default feed` control.
    containing enough assembly content to scroll. Confirm that only the content
    region scrolls and that failure is never presented as successful emptiness.
 4. Repeat with long package and library names at a narrow viewport. Confirm
-   that controls wrap within their row, context values elide as complete
-   strings, and no page-level horizontal overflow appears.
+   that local controls wrap within their row and no page-level horizontal
+   overflow appears.
 
 ### Package Dependencies working surface
 
-1. Open package Dependencies and confirm that the quiet header, compact
-   Version and Framework controls, target-framework groups, dependency graph,
-   package dependencies, assembly references, and bottom exact package context
-   fill the inspector pane without the generic package hero or inset coordinate
-   section.
+1. Open package Dependencies and confirm that the quiet header,
+   target-framework groups, dependency graph, and package dependency rows fill
+   the inspector pane without the generic package hero, inset coordinate
+   section, or bottom context row. Confirm that Version remains in target-bar
+   actions and Framework remains in the full-width inventory.
 2. Switch manifest target-framework groups and confirm that the dependency
    list and graph update in place while the surface frame, package coordinate,
    and scroll ownership remain stable. With
@@ -1705,10 +1705,23 @@ with the absence of a synthesized `Default feed` control.
    keeps the full-area frame and that failure is never presented as successful
    emptiness.
 4. Open a package with enough graph and list content to scroll. Repeat with a
-   long package coordinate and narrow viewport; confirm that the `Types`
-   control shares the quiet header, controls wrap within their row, context
-   values elide as complete strings, and no page-level horizontal overflow
-   appears.
+   long package coordinate and narrow viewport; confirm that `Frameworks`
+   remains in the target bar and no page-level horizontal overflow appears.
+5. Confirm that every package dependency name is actionable: exact loaded
+   packages switch directly and other declared coordinates start explicit
+   package loading.
+
+### Library References working surface
+
+1. Open Library References and confirm that the quiet header, bounded direct
+   reference graph, and complete reference list fill the inspector pane without
+   a bottom context row.
+2. Confirm that a reference whose complete assembly identity uniquely matches
+   an admitted Library is a link-styled button and opens that exact Library.
+   Confirm that unresolved and ambiguous identities remain inert text.
+3. Exercise loading, query failure, inspection failure, zero references, long
+   identities, and enough rows to scroll. Confirm that each state retains the
+   same frame and never creates page-level horizontal overflow.
 
 ### Package Vulnerabilities working surface
 

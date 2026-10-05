@@ -1102,7 +1102,10 @@ test("the shell separates typed target and Subject navigation rows", () => {
 
   assert.match(
     render,
-    /workbenchShellHtml\(\{[\s\S]*contextualActionsHtml:[\s\S]*class="working-surface-actions"[\s\S]*inspectedTargetHtml:[\s\S]*class="inspected-target"[\s\S]*renderInspectedSubjectIcon\(pkg\)[\s\S]*class="subject-path"[\s\S]*subjectInspectorHtml: renderScopeBar\(\)[\s\S]*titleNavigationHtml: renderTitleNavigation\([\s\S]*<main id="subject-panel" class="workspace\$\{contentFrameEnabled[\s\S]*renderApplicationMenu\(state\.rootKind !== "library"\)/);
+    /workbenchShellHtml\(\{[\s\S]*contextualActionsHtml,[\s\S]*inspectedTargetHtml:[\s\S]*class="inspected-target"[\s\S]*renderInspectedSubjectIcon\(pkg\)[\s\S]*class="subject-path"[\s\S]*subjectInspectorHtml: renderScopeBar\(\)[\s\S]*titleNavigationHtml: renderTitleNavigation\([\s\S]*<main id="subject-panel" class="workspace\$\{contentFrameEnabled[\s\S]*renderApplicationMenu\(state\.rootKind !== "library"\)/);
+  assert.match(
+    render,
+    /const contextualActionsHtml =[\s\S]*class="working-surface-actions" role="group" aria-label="Page actions"[\s\S]*\$\{contentNavigationHtml\}[\s\S]*\$\{packageCoordinateHtml\}[\s\S]*\$\{workingSurfaceActionsHtml\}/);
   assert.doesNotMatch(render, /id="copy-name"|id="taste-btn"/);
   assert.doesNotMatch(
     render,
@@ -1331,6 +1334,9 @@ test("typed type panel owns its rendered control bindings", () => {
   assert.match(
     binding,
     /onTypeFilterEscape: \(\) => \{\s*state\.typeFilter = "";\s*render\(\);\s*focusFilter\(\{ immediate: true \}\);\s*},/);
+  assert.match(
+    binding,
+    /onMemberGroupOpen: memberKey => \{[\s\S]*if \(!contentFrameUsesPush\(\)\)[\s\S]*restoreContentNavigationFocus\(focusGeneration\)/);
   assert.equal(
     appSource.match(/\bbindTypePanelEvents\b/g)?.length,
     2);
@@ -1397,7 +1403,7 @@ test("typed type panel owns its rendered control bindings", () => {
     /enterMemberNavigation\(\(\) => \{[\s\S]*resetMemberFilters\(\);[\s\S]*enterMemberScope\(\);[\s\S]*selectTypeMemberPopulation\(value\)/);
   assert.match(
     binding,
-    /onMemberGroupOpen: memberKey => \{\s*const focusGeneration = beginSpotlightNavigation\(\);\s*showContentDetailAfterRender\(\);\s*openMemberGroup\(memberKey\);\s*if \(!contentFrameMedia\.matches\)\s*restoreContentNavigationFocus\(focusGeneration\);/);
+    /onMemberGroupOpen: memberKey => \{\s*const focusGeneration = beginSpotlightNavigation\(\);\s*showContentDetailAfterRender\(\);\s*openMemberGroup\(memberKey\);\s*if \(!contentFrameUsesPush\(\)\)\s*restoreContentNavigationFocus\(focusGeneration\);/);
   assert.match(
     binding,
     /onMemberBack: drillOut[\s\S]*onMemberOverloadOpen: selector => \{\s*openOverload\(selector\);\s*}/);

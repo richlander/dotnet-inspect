@@ -38,12 +38,11 @@ test("Package Overview starts with identity and content without a redundant head
   assert.equal(html.match(/<h1\b/g)?.length, 1);
   assert.match(html, /overview-identity[\s\S]*subject-icon[\s\S]*Example\.Package/);
   assert.match(html,
-    /overview-scroll[\s\S]*<h2>Package info<\/h2>[\s\S]*overview-surface-footer/);
+    /overview-scroll[\s\S]*<h2>Package info<\/h2>/);
   assert.doesNotMatch(
     html,
     /overview-surface-head|overview-surface-label|>Overview<|package-version/);
-  assert.match(html, /title="Example.Package@10.0.0">Example.Package@10.0.0<\/span>/);
-  assert.match(html, /title="net10.0">net10.0<\/span>/);
+  assert.doesNotMatch(html, /overview-surface-footer/);
   assert.doesNotMatch(html, /type-heading|package-coordinate-editor/);
 });
 
@@ -72,7 +71,8 @@ test("Package Overview retains supplied document navigation", () => {
   });
 
   assert.match(html,
-    /overview-scroll[\s\S]*data-doc-path="README.md"[\s\S]*overview-surface-footer/);
+    /overview-scroll[\s\S]*data-doc-path="README.md"/);
+  assert.doesNotMatch(html, /overview-surface-footer/);
 });
 
 test("Overview passes complete coordinate text through the existing escaping boundary", () => {
@@ -83,9 +83,6 @@ test("Overview passes complete coordinate text through the existing escaping bou
     packageVersion: "10.0.0&preview",
     activeFramework: "net10.0<browser>",
   });
-  assert.match(html,
-    /title="Example\.&quot;Package@10\.0\.0&amp;preview">Example\.&quot;Package@10\.0\.0&amp;preview<\/span>/);
-  assert.match(html, /title="net10\.0&lt;browser&gt;">net10\.0&lt;browser&gt;<\/span>/);
   assert.match(html, />Example &lt;Package&gt;<\/h1>/);
   assert.match(html, /lib\/net10\.0\/Example&amp;Package\.dll/);
 });

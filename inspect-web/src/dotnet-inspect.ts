@@ -773,6 +773,7 @@ import {
 import type { BrowserBuildIdentity } from "./facades/inspect-web-host.d.ts";
 import type {
   BrowserPackageChangesEcosystemDescriptor,
+  BrowserAssemblyReference,
   BrowserPackageCacheStats,
   BrowserPackageDependencies,
   BrowserPackageDependencyGroup,
@@ -5010,7 +5011,7 @@ function focusTypeList(
   if (!canRestoreWorkbenchFocus(generation, focusGeneration)) return;
   afterCurrentNavigationFrame(() => {
     if (!canRestoreWorkbenchFocus(generation, focusGeneration)) return;
-    if (contentFrameUsesPush() && contentFrameMedia.matches) {
+    if (contentFrameUsesPush()) {
       contentFramePane = "detail";
       render({ synchronizeUrl: false });
       afterCurrentNavigationFrame(() => {
@@ -5042,7 +5043,7 @@ function restoreContentFrameFocusAfterDismiss(
   afterCurrentNavigationFrame(() => {
     if (!canRestoreWorkbenchFocus(generation, focusGeneration)) return;
     restoreOrdinaryModalDismissFocus(() => {
-      if (contentFrameUsesPush() && contentFrameMedia.matches) {
+      if (contentFrameUsesPush()) {
         if (contentFramePane === "navigation")
           focusContentNavigation(document);
         else
@@ -5059,7 +5060,11 @@ function restoreOrdinaryModalDismissFocus(fallback: () => void) {
 }
 
 function contentFrameUsesPush() {
-  return scope() !== "workspace";
+  const activeScope = scope();
+  return activeScope !== "workspace"
+    && (activeScope === "package"
+      || activeScope === "library"
+      || contentFrameMedia.matches);
 }
 
 function showContentNavigation() {
@@ -5079,7 +5084,7 @@ function showContentDetail() {
 
 function showContentDetailAfterRender() {
   contentFramePane = "detail";
-  if (!contentFrameMedia.matches) return;
+  if (!contentFrameUsesPush()) return;
   afterCurrentNavigationFrame(() =>
     focusContentNavigationToggle(document));
 }
@@ -5097,7 +5102,7 @@ function renderPreservingContentFrameFocus() {
     const activeOwner = contentFrameFocusOwnerFor(document.activeElement);
     const owner = activeOwner
       ?? (pendingFocusGeneration === documentFocusGeneration
-          && contentFrameMedia.matches
+          && contentFrameUsesPush()
           && contentFramePane === "detail"
         ? "navigation-toggle"
         : null);
@@ -5145,7 +5150,10 @@ function releaseContentFrameFocusOwner() {
 }
 
 function handleContentFrameResize(event: MediaQueryListEvent) {
-  if (!contentFrameUsesPush()) return;
+  const activeScope = scope();
+  if (activeScope === "workspace"
+    || activeScope === "package"
+    || activeScope === "library") return;
   const focused = document.activeElement instanceof HTMLElement
     ? document.activeElement
     : null;
@@ -6936,15 +6944,23 @@ function renderMemberFilterControls(type: AppTypeSurface) {
       : state.memberAccessibilityFilter,
     state.memberSpelling === "metadata" ? "metadata spelling" : "",
     activeTrait ?? "",
-  ].filter(Boolean).join(" · ");
+  ].filter(Boolean).join(" · ") || "All members";
+  const groups = selectedMemberGroups(type);
+  const visibleGroups = visibleMemberGroups(type);
+  const memberCount = groups.reduce(
+    (count, group) => count + group.overloads.length,
+    0);
+  const visibleMemberCount = visibleGroups.reduce(
+    (count, group) => count + group.overloads.length,
+    0);
   return `
     ${renderMethodLeverageStatus()}
     <details class="filter-disclosure member-filter-disclosure" data-member-filter-disclosure${state.memberFiltersExpanded ? " open" : ""}>
-      <summary id="member-filter-summary"><span aria-hidden="true">›</span><strong>Filters</strong><small>${escapeHtml(filterSummary)}</small></summary>
+      <summary id="member-filter-summary" title="Show Member filters"><span aria-hidden="true">›</span><strong>Members</strong><small>${visibleMemberCount.toLocaleString()} of ${memberCount.toLocaleString()} · ${escapeHtml(filterSummary)}</small><span class="filter-action">Filters</span></summary>
       <div class="type-search member-search">
-        <span aria-hidden="true">/</span>
-        <input id="member-filter" aria-label="Filter members and signatures" value="${escapeHtml(state.memberTextFilter)}" placeholder="Filter members and signatures" autocomplete="off" spellcheck="false" />
-        <button class="tiny-button" id="clear-member-filter" title="Clear member filters" aria-label="Clear member filters">×</button>
+      <span aria-hidden="true">/</span>
+      <input id="member-filter" aria-label="Filter members and signatures" value="${escapeHtml(state.memberTextFilter)}" placeholder="Filter members and signatures" autocomplete="off" spellcheck="false" />
+      <button class="tiny-button filter-clear-button" id="clear-member-filter" title="Clear member filters" aria-label="Clear member filters">Clear</button>
       </div>
       <div class="member-filter-selects">
         <label class="member-filter-select">
@@ -8521,7 +8537,7 @@ function drillIn() {
       && state.selectedOverloadIndex == null) {
       showContentDetailAfterRender();
       openOverload(memberNavOverloadSourceIndex(member, 0));
-    } else if (contentFrameUsesPush() && contentFrameMedia.matches) {
+    } else if (contentFrameUsesPush()) {
       showContentDetail();
     } else {
       document.querySelector<HTMLElement>(".detail-scroll")?.focus();
@@ -9065,6 +9081,8 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
       .filter(Boolean)
       .join(" · ")).join(" > ");
   const contentFrameEnabled = activeScope !== "workspace";
+  const contentFrameFullWidth =
+    activeScope === "package" || activeScope === "library";
   const contentNavigationLabel =
     activeScope === "package"
       ? "Frameworks"
@@ -9073,16 +9091,56 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
       : activeScope === "library" && state.rootKind !== "platform"
         ? "Libraries"
       : navMode() === "member" && current ? "Members" : "Types";
-  const contentNavigationIntegrated =
-    apiWorkingSurface
-    || metadataWorkingSurface
-    || overviewWorkingSurface
-    || packageDependenciesWorkingSurface
-    || compareWorkingSurface
-    || libraryMetadataWorkingSurface
-    || libraryReferencesWorkingSurface
-    || libraryAnalysisWorkingSurface
-    || memberWorkingSurface;
+  const contentNavigationHtml = contentFrameEnabled
+    ? renderContentNavigationBar(
+        contentNavigationLabel,
+        contentFrameFullWidth)
+    : "";
+  const packageCoordinateHtml =
+    activeScope === "package" && state.rootKind === "package"
+      ? `<div class="package-coordinate-actions" role="group" aria-label="Package coordinate">
+          ${packageVersionField()}
+        </div>`
+      : "";
+  const workingSurfaceActionsHtml =
+    memberDiffExploreTarget || sourcePageKind
+      || packageDependenciesWorkingSurface || metadataWorkingSurface
+      ? `${memberDiffExploreTarget
+          ? '<button type="button" id="member-diff-explore" data-member-diff-explore>Explore</button>'
+          : ""}
+        ${metadataWorkingSurface
+          ? `<button type="button" id="type-graph-explore" data-graph-explore${typeGraphAvailable() ? "" : " disabled"}>Explore</button>`
+          : ""}
+        ${packageDependenciesWorkingSurface
+          ? `<button type="button" id="dependency-graph-explore" data-graph-explore${dependencyGraphAvailable() ? "" : " disabled"}>Explore</button>`
+          : ""}
+        ${sourcePageKind
+          ? renderSourcePageActions({
+              source: sourcePageSource,
+              typeCodeView,
+              typeView: state.typeSourceView,
+              memberView: state.memberSourceView,
+              memberSource: sourcePageMemberSource,
+              selectedMemberPart: selectedSourcePart,
+              exploreBusy: sourcePageKind === "member"
+                && state.memberAnnotatedLoading,
+              copyButtonId: sourcePageKind === "member"
+                ? "copy-source"
+                : "copy-type-source",
+              escapeHtml,
+            })
+          : ""}`
+      : "";
+  const contextualActionsHtml = !loadingPackageContent
+    && (contentNavigationHtml
+      || packageCoordinateHtml
+      || workingSurfaceActionsHtml)
+    ? `<div class="working-surface-actions" role="group" aria-label="Page actions">
+        ${contentNavigationHtml}
+        ${packageCoordinateHtml}
+        ${workingSurfaceActionsHtml}
+      </div>`
+    : "";
 
   if (scopeBarOwnsFocus) {
     app.tabIndex = -1;
@@ -9093,35 +9151,7 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
   replaceChildrenPreservingRenderedInteractions(app, `
     <div class="workbench"${state.memberAnnotatedModal || applicationModalOpen ? " inert" : ""}>
       ${workbenchShellHtml({
-        contextualActionsHtml: !loadingPackageContent && (memberDiffExploreTarget || sourcePageKind || packageDependenciesWorkingSurface || metadataWorkingSurface)
-          ? `<div class="working-surface-actions" role="group" aria-label="${memberDiffExploreTarget ? "Member Diff actions" : metadataWorkingSurface ? "Type graph actions" : packageDependenciesWorkingSurface ? "Dependency graph actions" : sourcePageKind ? "Source actions" : "Member actions"}">
-              ${memberDiffExploreTarget
-                ? '<button type="button" id="member-diff-explore" data-member-diff-explore>Explore</button>'
-                : ""}
-              ${metadataWorkingSurface
-                ? `<button type="button" id="type-graph-explore" data-graph-explore${typeGraphAvailable() ? "" : " disabled"}>Explore</button>`
-                : ""}
-              ${packageDependenciesWorkingSurface
-                ? `<button type="button" id="dependency-graph-explore" data-graph-explore${dependencyGraphAvailable() ? "" : " disabled"}>Explore</button>`
-                : ""}
-              ${sourcePageKind
-                ? renderSourcePageActions({
-                    source: sourcePageSource,
-                    typeCodeView,
-                    typeView: state.typeSourceView,
-                    memberView: state.memberSourceView,
-                    memberSource: sourcePageMemberSource,
-                    selectedMemberPart: selectedSourcePart,
-                    exploreBusy: sourcePageKind === "member"
-                      && state.memberAnnotatedLoading,
-                    copyButtonId: sourcePageKind === "member"
-                      ? "copy-source"
-                      : "copy-type-source",
-                    escapeHtml,
-                  })
-                : ""}
-            </div>`
-          : "",
+        contextualActionsHtml,
         inspectedTargetHtml: `
           <div class="inspected-target" aria-label="Inspected target">
             ${renderInspectedSubjectIcon(pkg)}
@@ -9146,25 +9176,21 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
           : ""}
       </div>
 
-      <main id="subject-panel" class="workspace${contentFrameEnabled ? " content-frame" : ""}"
+      <main id="subject-panel" class="workspace${contentFrameEnabled
+        ? ` content-frame ${contentFrameFullWidth
+          ? "content-frame-full"
+          : "content-frame-split"}`
+        : ""}"
         ${contentFrameEnabled ? `data-content-pane="${contentFramePane}"` : ""}
         >
-        ${renderNavPane(current, visible)}
-
-        <section class="detail-pane${contentFrameEnabled
-          ? contentNavigationIntegrated
-            ? " content-navigation-integrated"
-            : " content-navigation-separated"
-          : ""}">
-          ${contentFrameEnabled
-            ? renderContentNavigationBar(contentNavigationLabel)
-            : ""}
+        <section class="detail-pane">
           <article id="inspector-panel" ${loadingPackageContent ? 'aria-busy="true"' : ""} class="detail-scroll${sourceWorkingSurface ? " source-working-surface" : ""}${apiWorkingSurface ? " api-working-surface" : ""}${metadataWorkingSurface ? " metadata-working-surface" : ""}${overviewWorkingSurface ? " overview-working-surface" : ""}${packageDependenciesWorkingSurface ? " package-dependencies-working-surface" : ""}${packageVulnerabilitiesWorkingSurface ? " package-vulnerabilities-working-surface" : ""}${compareWorkingSurface ? " library-api-diff-working-surface" : ""}${libraryMetadataWorkingSurface ? " package-metadata-working-surface" : ""}${libraryReferencesWorkingSurface ? " library-references-working-surface" : ""}${libraryAnalysisWorkingSurface ? " library-analysis-working-surface" : ""}${memberWorkingSurface ? " member-working-surface" : ""}">
             ${loadingPackageContent
               ? `<div id="package-content-loading" class="package-content-loading" role="status" tabindex="-1" data-package-loading-control="${packageContentLoadingFocusControl ?? (state.requestedVersion !== pkg.version ? "package-version" : "package-framework")}"${state.requestedVersion !== pkg.version ? "" : ` data-package-loading-framework="${escapeHtml(state.requestedFramework)}"`}><span class="loader" aria-hidden="true"></span><span>Loading ${state.requestedVersion !== pkg.version ? `version ${escapeHtml(state.requestedVersion)}` : escapeHtml(state.requestedFramework)} content…</span></div>`
               : renderLens(current)}
           </article>
         </section>
+        ${contentFrameEnabled ? renderNavPane(current, visible) : ""}
       </main>
 
       ${dataBarHtml({
@@ -9203,7 +9229,7 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
   bindLibraryOpenEvents();
   if (loadingPackageContent) {
     for (const region of document.querySelectorAll(
-      ".subject-inspector-region, #subject-panel > aside, .content-navigation-bar")) {
+      ".subject-inspector-region, #subject-panel > aside")) {
       region.setAttribute("inert", "");
     }
   }
@@ -9849,10 +9875,6 @@ function renderNavPane(
     return renderPackageNav({
       frameworks: pkg.frameworks,
       activeFramework: pkg.activeFramework,
-      versionFieldHtml: state.packageLens === "overview"
-        || state.packageLens === "vulnerabilities"
-        ? packageVersionField()
-        : "",
       escapeHtml,
     });
   }
@@ -10249,12 +10271,6 @@ function focusPackageCoordinateControl(
   const navigationToggle =
     document.querySelector<HTMLElement>("#content-navigation-toggle");
   if (control === "package-version") {
-    if (contentFrameMedia.matches
-      && (state.packageLens === "overview"
-        || state.packageLens === "vulnerabilities")) {
-      navigationToggle?.focus({ preventScroll: true });
-      return;
-    }
     const version =
       document.querySelector<HTMLElement>("#package-version");
     (version?.checkVisibility() ? version : navigationToggle)
@@ -10434,23 +10450,14 @@ function packageDependenciesSignature() {
 }
 
 function renderPackageDependenciesSurface(content: string, status: string) {
-  const pkg = currentPackage();
-  const coordinate = `${pkg.id}@${pkg.version}`;
   return `<section class="package-dependencies-surface" aria-labelledby="package-dependencies-surface-title">
     <header class="api-surface-head package-dependencies-surface-head">
       <h1 id="package-dependencies-surface-title">Dependencies</h1>
       <p data-package-dependencies-status>${escapeHtml(status)}</p>
     </header>
-    <section class="package-dependencies-controls" aria-label="Dependency coordinate">
-      <div class="package-coordinate-fields">${packageVersionField()}</div>
-    </section>
     <div class="package-dependencies-scroll">
       ${content}
     </div>
-    <footer class="api-surface-footer package-dependencies-surface-footer">
-      <span title="${escapeHtml(coordinate)}">${escapeHtml(coordinate)}</span>
-      <span title="${escapeHtml(pkg.activeFramework)}">${escapeHtml(pkg.activeFramework)}</span>
-    </footer>
   </section>`;
 }
 
@@ -10579,6 +10586,12 @@ function renderLibraryReferences() {
   const fresh = state.packageDependenciesKey === current;
   const library = selectedLibrary();
   const pkg = currentPackage();
+  const references =
+    fresh && state.packageDependencies
+      && state.packageDependencies.assemblyReferences
+      && typeof state.packageDependencies.assemblyReferences !== "string"
+      ? state.packageDependencies.assemblyReferences.references
+      : [];
   return renderLibraryReferencesSurface({
     assemblyIdentity: library ? libraryIdentity(library) : "No library selected",
     assetPath: library?.asset ?? "",
@@ -10586,8 +10599,29 @@ function renderLibraryReferences() {
     loading: state.packageDependenciesLoading && fresh,
     error: fresh ? state.packageDependenciesError : "",
     data: fresh ? state.packageDependencies : null,
+    referenceLibraryIds: references.map(reference =>
+      assemblyReferenceLibraryId(reference)),
     escapeHtml,
   });
+}
+
+function assemblyReferenceLibraryId(
+  reference: BrowserAssemblyReference,
+): string | null {
+  const normalizeCulture = (value: string | null) => {
+    const normalized = value?.toLowerCase() ?? "";
+    return normalized === "neutral" ? "" : normalized;
+  };
+  const normalizeToken = (value: string | null) =>
+    value?.toLowerCase() ?? "";
+  const matches = packageLibraries().filter(library =>
+    library.name.toLowerCase() === reference.name.toLowerCase()
+    && library.version.toLowerCase() === reference.version.toLowerCase()
+    && normalizeCulture(library.culture)
+      === normalizeCulture(reference.culture)
+    && normalizeToken(library.publicKeyToken)
+      === normalizeToken(reference.publicKeyToken));
+  return matches.length === 1 ? matches[0]!.id : null;
 }
 
 async function uniqueCompatiblePackage(
@@ -12380,10 +12414,7 @@ function renderApiLens(item: AppTypeSurface) {
   const graphGroups = groupMembers(graphMembers, true);
   return `
     <section class="api-surface" aria-labelledby="api-surface-title">
-      <header class="api-surface-head">
-        <h1 id="api-surface-title">Members</h1>
-        <p>${populationSummary}${definingLibraryHtml}</p>
-      </header>
+      <h1 id="api-surface-title" class="visually-hidden">Members</h1>
       <div class="member-browser-controls api-surface-controls">${populationStatus}${renderMemberFilterControls(item)}</div>
       <div class="api-surface-scroll">
         <div class="api-list api-surface-list">${visibleGroups.map(group => {
@@ -12433,9 +12464,6 @@ function renderApiLens(item: AppTypeSurface) {
             </section>`
           : ""}
       </div>
-      <footer class="api-surface-footer">
-        <span>Select a row to inspect its API</span>
-      </footer>
     </section>`;
 }
 
@@ -12547,10 +12575,6 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
             }).join("")}
           </div>
         </div>
-        <footer class="api-surface-footer member-surface-footer">
-          <button class="member-back" id="member-back">← ${escapeHtml(typeDisplayName(type))}</button>
-          <span>Choose an overload to inspect</span>
-        </footer>
       </section>`;
   }
   const overload = selectedOverload ?? member.overloads[0];
@@ -13095,7 +13119,7 @@ function bindLibrarySubjectNavEvents() {
       if (!selected) return;
       showContentDetailAfterRender();
       render();
-      if (!contentFrameMedia.matches)
+      if (!contentFrameUsesPush())
         document.querySelector<HTMLElement>(".library-subject-list")?.focus();
     },
   });
@@ -13264,7 +13288,7 @@ function bindTypePanelEvents() {
       state.selectedOverloadIndex = null;
       showContentDetailAfterRender();
       render();
-      if (!contentFrameMedia.matches)
+      if (!contentFrameUsesPush())
         restoreContentNavigationFocus(focusGeneration);
     },
     onListKeyDown: handleTypeKeys,
@@ -13345,7 +13369,7 @@ function bindTypePanelEvents() {
       const focusGeneration = beginSpotlightNavigation();
       showContentDetailAfterRender();
       openMemberGroup(memberKey);
-      if (!contentFrameMedia.matches)
+      if (!contentFrameUsesPush())
         restoreContentNavigationFocus(focusGeneration);
     },
     onMemberKindFilterSelect: value => {
@@ -13417,7 +13441,7 @@ function bindTypePanelEvents() {
     },
     onTypeSelect: typeId => {
       if (scope() === "type" && typeId === state.selectedTypeId) {
-        if (contentFrameMedia.matches) showContentDetail();
+        if (contentFrameUsesPush()) showContentDetail();
         return;
       }
       showContentDetailAfterRender();
@@ -16345,7 +16369,6 @@ function focusFilter(
   { immediate = false }: { immediate?: boolean } = {},
 ) {
   if (contentFrameUsesPush()
-    && contentFrameMedia.matches
     && contentFramePane !== "navigation") {
     contentFramePane = "navigation";
     render({ synchronizeUrl: false });

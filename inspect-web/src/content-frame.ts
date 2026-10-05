@@ -83,17 +83,19 @@ export function decideContentFrameResize(
 
 export function renderContentNavigationBar(
   label: "Frameworks" | "Libraries" | "Types" | "Members",
+  persistent = false,
 ) {
   return `
-    <div class="content-navigation-bar">
-      <button id="content-navigation-toggle" class="content-navigation-toggle"
-        type="button" aria-controls="content-navigation-pane">
-        <svg viewBox="0 0 20 20" aria-hidden="true">
-          <path d="M12.5 4.5 7 10l5.5 5.5"></path>
-        </svg>
-        <span>${label}</span>
-      </button>
-    </div>`;
+    <button id="content-navigation-toggle"
+      class="content-navigation-toggle ${persistent
+        ? "content-navigation-toggle-persistent"
+        : "content-navigation-toggle-responsive"}"
+      type="button" aria-controls="content-navigation-pane">
+      <span>${label}</span>
+      <svg viewBox="0 0 20 20" aria-hidden="true">
+        <path d="m7.5 4.5 5.5 5.5-5.5 5.5"></path>
+      </svg>
+    </button>`;
 }
 
 export function renderContentNavigationCloseButton() {
@@ -101,7 +103,7 @@ export function renderContentNavigationCloseButton() {
     <button id="content-navigation-close" class="content-navigation-close"
       type="button" title="Show details" aria-label="Show details">
       <svg viewBox="0 0 20 20" aria-hidden="true">
-        <path d="m7.5 4.5 5.5 5.5-5.5 5.5"></path>
+        <path d="M12.5 4.5 7 10l5.5 5.5"></path>
       </svg>
     </button>`;
 }

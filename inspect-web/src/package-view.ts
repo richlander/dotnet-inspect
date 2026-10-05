@@ -70,7 +70,6 @@ export function renderPackageNav(options: PackageNavOptions): string {
           </button>`;
         }).join("") || '<div class="empty-list">No target frameworks are available for this package version.</div>'}
       </div>
-      <footer class="pane-footer"><span>choose a TFM</span><span>↵ load</span></footer>
     </aside>`;
 }
 

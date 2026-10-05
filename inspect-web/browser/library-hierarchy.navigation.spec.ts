@@ -5,6 +5,7 @@ import {
   chooseInspector,
   chooseSubject,
   selectLibrary,
+  showLibraryNavigation,
   library,
   createType as type,
   run,
@@ -249,6 +250,7 @@ test("exact Library inspectors auto-select the alphabetical fallback only on nav
   await expect(page.locator(".library-overview-surface h1"))
     .toHaveText(core.name);
 
+  await showLibraryNavigation(page);
   await allLibraries.click();
   await expect(allLibraries).toHaveAttribute("aria-selected", "true");
   await chooseInspector(page, "data-library-lens", "metadata", "Metadata");
@@ -256,6 +258,7 @@ test("exact Library inspectors auto-select the alphabetical fallback only on nav
     `.library-subject-list [data-library-subject="${core.id}"]`))
     .toHaveAttribute("aria-selected", "true");
 
+  await showLibraryNavigation(page);
   await allLibraries.click();
   await expect(allLibraries).toHaveAttribute("aria-selected", "true");
   await expect(page.locator("#inspector-panel"))
@@ -360,8 +363,7 @@ for (const [width, activation] of [[900, "click"], [480, "keyboard"]] as const) 
     await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
     await expect(page.locator("#inspector-panel")).toBeVisible();
     await expect(page.locator("#inspector-panel")).toContainText("Example.Other.Dependency");
-    await expect(page.locator(width === 480
-      ? "#content-navigation-toggle" : ".library-subject-list")).toBeFocused();
+    await expect(page.locator("#content-navigation-toggle")).toBeFocused();
     await expect(page.locator(
       `.library-subject-list [data-library-subject="${other.id}"]`))
       .toHaveAttribute("aria-selected", "true");
@@ -463,21 +465,14 @@ for (const width of [1440, 800, 390]) {
     expect((await overview.locator(".overview-identity h1").boundingBox())!.width).toBeGreaterThan(100);
     await expect(overview.locator(".overview-identity [data-package-icon]")).toBeVisible();
     await expect(overview.locator("#package-version")).toHaveCount(0);
-    await expect(page.locator(".package-framework-nav #package-version"))
+    await expect(page.locator(".working-surface-actions #package-version"))
       .toHaveCount(1);
-    if (width === 390) {
-      await expect(page.locator(".package-framework-nav #package-version"))
-        .toBeHidden();
-    } else {
-      await expect(page.locator(".package-framework-nav #package-version"))
-        .toBeVisible();
-    }
+    await expect(page.locator(".working-surface-actions #package-version"))
+      .toBeVisible();
     await expect(overview.locator("#framework")).toHaveCount(0);
     const packageIconSource = await overview.locator("[data-package-icon]").getAttribute("src");
     await expect(overview.locator(".overview-surface-head")).toHaveCount(0);
-    await expect(page.locator(".overview-surface-footer span")).toHaveText([
-      "Example.Package@1.0.0", "net10.0",
-    ]);
+    await expect(page.locator(".overview-surface-footer")).toHaveCount(0);
     await expect(overview.locator(".library-row, [data-lib-scope]")).toHaveCount(0);
     await expect(overview.locator(".comparison-target-row")).toHaveCount(2);
     const diffTarget = overview.locator("#package-diff-target");
@@ -556,8 +551,8 @@ for (const width of [1440, 800, 390]) {
     const aggregateOverview = page.locator(".library-overview-surface");
     expect(await aggregateOverview.boundingBox()).toEqual(
       await page.locator("#inspector-panel").boundingBox());
-    await expect(page.locator(".detail-pane"))
-      .toHaveClass(/content-navigation-integrated/);
+    await expect(page.locator("#subject-panel"))
+      .toHaveClass(/content-frame-full/);
     await selectLibrary(page, other.id);
     await expect(page.locator("#inspector-panel h1")).toHaveText("Example.Other");
     const libraryOverview = page.locator(".library-overview-surface");
@@ -618,7 +613,8 @@ for (const width of [1440, 800, 390]) {
       .toContainText("No public types.");
     await expect(libraryOverview.locator(
       "[data-namespace-jump], [data-kind-jump]")).toHaveCount(0);
-    await expect(libraryOverview.locator(".overview-surface-footer")).toBeVisible();
+    await expect(libraryOverview.locator(".overview-surface-footer"))
+      .toHaveCount(0);
   });
 }
 
@@ -701,7 +697,7 @@ test("aggregate Type navigation qualifies only colliding Types by defining Libra
       "Example.Package · net10.0 > All libraries > Example.Widget · "
       + "Example.Shared · lib/net10.0/left/Example.Shared.dll");
   await expect(page.locator("#inspector-panel [data-type-library]"))
-    .toHaveText("· Example.Shared · lib/net10.0/left/Example.Shared.dll");
+    .toHaveCount(0);
   await chooseSubject(page, "library", "Library");
   await chooseSubject(page, "type", "Type");
   await page.locator(
@@ -723,7 +719,7 @@ test("aggregate Type navigation qualifies only colliding Types by defining Libra
       "Example.Package · net10.0 > All libraries > Example.Widget · "
       + "Example.Shared · lib/net10.0/right/Example.Shared.dll");
   await expect(page.locator("#inspector-panel [data-type-library]"))
-    .toHaveText("· Example.Shared · lib/net10.0/right/Example.Shared.dll");
+    .toHaveCount(0);
 
   await chooseSubject(page, "library", "Library");
   await selectLibrary(page, left.id);
@@ -736,7 +732,7 @@ test("aggregate Type navigation qualifies only colliding Types by defining Libra
   await expect(page.locator(".subject-path-segment").nth(1))
     .toHaveText("Example.Shared · lib/net10.0/left/Example.Shared.dll");
   await expect(page.locator("#inspector-panel [data-type-library]"))
-    .toHaveText("· Example.Shared · lib/net10.0/left/Example.Shared.dll");
+    .toHaveCount(0);
 
   await chooseSubject(page, "library", "Library");
   await selectLibrary(page, right.id);
@@ -752,7 +748,7 @@ test("aggregate Type navigation qualifies only colliding Types by defining Libra
   await expect(page.locator(".subject-path-segment").nth(1))
     .toHaveText("Example.Shared · lib/net10.0/right/Example.Shared.dll");
   await expect(page.locator("#inspector-panel [data-type-library]"))
-    .toHaveText("· Example.Shared · lib/net10.0/right/Example.Shared.dll");
+    .toHaveCount(0);
 });
 
 test("aggregate Library remains active through Member entry and return", async ({ page }) => {
@@ -1292,8 +1288,8 @@ test("Member filters use dropdowns and request all accessibility buckets", async
   await expect(trait).toHaveValue("instance");
   await expect(trait.locator('option[value="instance"]'))
     .toHaveAttribute("selected", "");
-  await expect(page.locator(".api-surface > .api-surface-head p"))
-    .toContainText("1 of 2 members");
+  await expect(page.locator("#member-filter-summary"))
+    .toContainText("1 of 2");
   const filteredRun = page.locator("#inspector-panel [data-member]");
   await expect(filteredRun).toHaveCount(1);
   await expect(filteredRun.locator("code"))
@@ -1353,8 +1349,7 @@ for (const width of [900, 390]) {
     await installFacades(page);
     await page.goto(root);
     await chooseSubject(page, "library", "Library");
-    if (width === 390)
-      await page.getByRole("button", { name: "Libraries", exact: true }).click();
+    await showLibraryNavigation(page);
     const list = page.locator(".library-subject-list");
     await list.focus();
     const aggregateLocation = page.url();
@@ -1368,8 +1363,7 @@ for (const width of [900, 390]) {
       `.library-subject-list [data-library-subject="${core.id}"]`))
       .toHaveAttribute("aria-selected", "true");
 
-    if (width === 390)
-      await page.getByRole("button", { name: "Libraries", exact: true }).click();
+    await showLibraryNavigation(page);
     await page.locator(".library-subject-list").focus();
     await page.keyboard.press("Home");
     await page.keyboard.press("Enter");
@@ -1384,6 +1378,7 @@ test("exact Library selection resolves an aggregate References refusal", async (
   await installFacades(page);
   await page.goto(root.replace("#pkg", "#library"));
   await chooseInspector(page, "data-library-lens", "references", "References");
+  await showLibraryNavigation(page);
   await page.locator(
     '.library-subject-list [data-library-subject="all"]').click();
   await expect(page.getByRole("heading", {
@@ -1472,6 +1467,7 @@ test("a single-library package retains a distinct Library level", async ({ page 
   });
   await page.goto(root);
   await chooseSubject(page, "library", "Library");
+  await showLibraryNavigation(page);
   const list = page.locator(".library-subject-list");
   await list.focus();
   await page.keyboard.press("ArrowDown");
@@ -1614,7 +1610,9 @@ test("browser history from before reload reuses the active Workspace", async ({ 
   await expect.poll(() =>
     currentWorkspaceHistoryState(page)).toEqual(reloadedWorkspace);
   await openProductDestination(page, "workspace");
-  await expect(page.locator(".workspace-card")).toHaveCount(1);
+  await expect(page.locator(".workspace-occurrence")).toHaveCount(1);
+  await expect(page.locator(".workspace-occurrence"))
+    .toContainText("Second.Package");
   await expect(page.locator(".query-notice-text", {
     hasText: "Workspace limit reached",
   })).toHaveCount(0);

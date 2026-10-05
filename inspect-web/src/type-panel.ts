@@ -662,26 +662,18 @@ export function renderTypeNav(options: TypeNavOptions): string {
     options.namespaceSelectionValue ?? (namespace => namespace);
   return `
     <aside id="content-navigation-pane" class="type-browser${itemAchievements ? " has-item-achievement-rail" : ""}" aria-label="Public types">
-      <div class="browser-head">
-        <div>
-          <span class="pane-label">PUBLIC TYPES</span>
-          <span class="result-count">${visible.length} shown</span>
-        </div>
-        <div class="browser-head-actions">
-          <button class="tiny-button" id="clear-filter" title="Clear filters" aria-label="Clear filters">×</button>
-          ${renderContentNavigationCloseButton()}
-        </div>
-      </div>
+      <div class="browser-filter-head">
       ${parentSubject ? `<button class="nav-back-row" type="button" data-type-nav-back title="Back to ${parentSubject}" aria-label="${escapeHtml(library)}: Back to ${parentSubject}">
         <span class="chevron">‹</span>
         <span class="type-name">${escapeHtml(library)}</span>
         <small>library</small>
       </button>` : ""}
       <details class="filter-disclosure type-filter-disclosure" data-type-filter-disclosure${filtersExpanded ? " open" : ""}>
-        <summary id="type-filter-summary"><span aria-hidden="true">›</span><strong>Filters</strong><small>${escapeHtml(filterSummary)}</small></summary>
+        <summary id="type-filter-summary" title="Show Type filters"><span aria-hidden="true">›</span><strong>Types</strong><small>${visible.length.toLocaleString()} shown · ${escapeHtml(filterSummary)}</small><span class="filter-action">Filters</span></summary>
         <label class="type-search">
           <span aria-hidden="true">/</span>
           <input id="type-filter" aria-label="Filter types" value="${escapeHtml(typeFilter)}" placeholder="Filter types" autocomplete="off" spellcheck="false" />
+          <button class="tiny-button filter-clear-button" id="clear-filter" title="Clear filters" aria-label="Clear filters">Clear</button>
           <kbd>⌘F</kbd>
         </label>
         <div class="member-filter-selects type-filter-selects">
@@ -715,6 +707,8 @@ export function renderTypeNav(options: TypeNavOptions): string {
           </label>
         </div>
       </details>
+      ${renderContentNavigationCloseButton()}
+      </div>
       ${statusHtml}
       <div class="type-list" role="listbox" tabindex="0" id="type-list" data-nav-scope="types" data-nav-selection="${current ? `type:${escapeHtml(current.id)}` : ""}">
         ${[...typeGroups].map(([namespace, types]) => {
@@ -755,7 +749,6 @@ export function renderTypeNav(options: TypeNavOptions): string {
           </section>`;
         }).join("") || '<div class="empty-list">No public types match this filter.</div>'}
       </div>
-      <footer class="pane-footer"><span>↑↓ types</span><span>←→ lens</span><span>↵ open</span></footer>
     </aside>`;
 }
 
@@ -825,7 +818,8 @@ export interface MemberNavOptions {
 
 export function renderMemberNav(options: MemberNavOptions): string {
   const {
-    type, entries, memberCount, visibleMemberCount, filterControlsHtml,
+    type, entries, memberCount: _memberCount,
+    visibleMemberCount: _visibleMemberCount, filterControlsHtml,
     selectedMemberKey, selectedOverloadIndex,
     selectedAccessibility = "public", overloadFilterActive = false,
     escapeHtml, typeDisplayName, shortKind, highlight,
@@ -845,19 +839,15 @@ export function renderMemberNav(options: MemberNavOptions): string {
     : "";
   return `
     <aside id="content-navigation-pane" class="type-browser member-nav${memberAchievements ? " has-item-achievement-rail" : ""}" aria-label="Members of ${escapeHtml(typeDisplayName(type))}">
-      <div class="browser-head">
-        <div>
-          <span class="pane-label">MEMBERS</span>
-          <span class="result-count">${visibleMemberCount} of ${memberCount}</span>
-        </div>
-        ${renderContentNavigationCloseButton()}
-      </div>
+      <div class="browser-filter-head">
       <button class="nav-back-row" id="nav-to-types" title="Back to types (Esc)">
         <span class="chevron">‹</span>
         <span class="type-name">${escapeHtml(typeDisplayName(type))}</span>
         <small>types</small>
       </button>
       ${filterControlsHtml}
+      ${renderContentNavigationCloseButton()}
+      </div>
       <div class="type-list member-list" role="listbox" tabindex="0" id="type-list" data-nav-scope="members:${escapeHtml(type.id)}" data-nav-selection="${escapeHtml(navigationSelection)}">
         ${entries.map(entry => {
           if (entry.kind === "member") {
@@ -927,7 +917,6 @@ export function renderMemberNav(options: MemberNavOptions): string {
           </button>`;
         }).join("") || `<div class="empty-list">${escapeHtml(options.emptyMessage ?? "No members match these filters.")}</div>`}
       </div>
-      <footer class="pane-footer"><span>↑↓ members</span>${selectedMemberKey ? "<span>←→ sections</span>" : ""}<span>esc types</span></footer>
     </aside>`;
 }
 
@@ -1042,8 +1031,6 @@ export function renderTypeMetadata(options: RenderTypeMetadataOptions): string {
       exactUnavailable
         ? "unavailable"
         : exact?.accessibility || item.accessibility || "public";
-    const coordinate =
-      `${packageContext.activeFramework} · ${item.assembly} · ${packageContext.id}@${packageContext.version}`;
     return `
       <section class="metadata-surface" aria-labelledby="metadata-surface-title">
         <header class="metadata-surface-head">
@@ -1053,10 +1040,6 @@ export function renderTypeMetadata(options: RenderTypeMetadataOptions): string {
         <div class="metadata-surface-scroll">
           ${content}
         </div>
-        <footer class="metadata-surface-footer">
-          <span title="${escapeHtml(item.id)}">${escapeHtml(item.id)}</span>
-          <span title="${escapeHtml(coordinate)}">${escapeHtml(coordinate)}</span>
-        </footer>
       </section>`;
   };
   if (metadataState.typeMetadataLoading && fresh) {

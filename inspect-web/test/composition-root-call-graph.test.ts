@@ -1206,6 +1206,7 @@ test("unavailable exact Member populations omit selector counts", () => {
         typeMemberPopulationKey: () =>
           `${state.memberSpelling}/${state.memberAccessibilityFilter}`,
         currentTypeMethodLeverageState: () => ({ status: "idle" }),
+        filterMemberGroups: (groups: readonly unknown[]) => groups,
         escapeHtml: (value: string) => value,
       });
     if (!rendered
@@ -1297,12 +1298,15 @@ test("type API reports the filtered member count once in its header", () => {
   const renderApi =
     appSource.match(/function renderApiLens\([\s\S]*?\n}\n\nfunction renderMember/)?.[0]
     ?? "";
+  const filters =
+    appSource.match(/function renderMemberFilterControls\([\s\S]*?\n}\n\nfunction renderTypeMemberPopulationStatus/)?.[0]
+    ?? "";
   assert.match(
     renderApi,
-    /<h1 id="api-surface-title">Members<\/h1>/);
+    /<h1 id="api-surface-title" class="visually-hidden">Members<\/h1>/);
   assert.match(
-    renderApi,
-    /<p>\$\{populationSummary}\$\{definingLibraryHtml}/);
+    filters,
+    /<strong>Members<\/strong><small>\$\{visibleMemberCount\.toLocaleString\(\)} of \$\{memberCount\.toLocaleString\(\)} · \$\{escapeHtml\(filterSummary\)}/);
   assert.doesNotMatch(renderApi, /member-filter-result/);
   assert.doesNotMatch(renderApi, /member groups visible/);
 });
@@ -1397,9 +1401,7 @@ test("member API uses full-area overload and selected-member surfaces", () => {
   assert.match(
     renderMember,
     /class="member-surface-scroll"[\s\S]*?class="api-list api-surface-list member-surface-list"/);
-  assert.match(
-    renderMember,
-    /class="api-surface-footer member-surface-footer"[\s\S]*?id="member-back"[\s\S]*?Choose an overload to inspect/);
+  assert.doesNotMatch(renderMember, /api-surface-footer|member-surface-footer/);
   assert.match(
     renderMember,
     /if \(!memberSectionUsesWorkingSurface\(state\.memberSection\)\) return content;/);
@@ -1495,7 +1497,7 @@ test("type metadata uses a full-area working surface without the inset type head
     /\.detail-scroll\.api-working-surface,\s*\.detail-scroll\.metadata-working-surface,\s*\.detail-scroll\.member-working-surface \{[^}]*overflow: hidden;[^}]*padding: 0;/s);
   assert.match(
     stylesSource,
-    /\.metadata-surface \{[^}]*height: 100%;[^}]*grid-template-rows: 40px minmax\(0, 1fr\) 34px;/s);
+    /\.metadata-surface \{[^}]*height: 100%;[^}]*grid-template-rows: 40px minmax\(0, 1fr\);/s);
   assert.match(
     stylesSource,
     /\.metadata-surface-scroll \{[^}]*overflow: auto;/s);
@@ -1513,7 +1515,7 @@ test("Package and Library Overview share the named identity frame", () => {
   assert.match(appSource,
     /overviewWorkingSurface \? " overview-working-surface" : ""/);
   assert.match(appSource,
-    /const contentNavigationIntegrated =[\s\S]*?\|\| overviewWorkingSurface[\s\S]*?;/);
+    /const contentFrameFullWidth =\s*activeScope === "package" \|\| activeScope === "library"/);
   assert.match(renderPackage,
     /return packageLensBody\(\);/);
   assert.match(renderOverview,
@@ -1526,7 +1528,7 @@ test("Package and Library Overview share the named identity frame", () => {
     /renderOverviewSurface\(\{[\s\S]*subject: "package",[\s\S]*displayName: packageDisplayName\(pkg\),[\s\S]*iconHtml: renderInspectedSubjectIcon\(pkg\),[\s\S]*contentHtml,/);
   assert.doesNotMatch(renderOverview, /coordinateFieldsHtml:/);
   assert.match(appSource,
-    /renderPackageNav\(\{[\s\S]*versionFieldHtml: state\.packageLens === "overview"[\s\S]*packageVersionField\(\)/);
+    /const packageCoordinateHtml =[\s\S]*packageVersionField\(\)/);
   const renderLibraryOverview =
     appSource.match(/function renderLibraryOverview\([\s\S]*?\n}\n\nfunction renderGraphMemberPendingHtml/)?.[0]
     ?? "";
@@ -1568,7 +1570,7 @@ test("library metadata uses compact coordinates in a full-area working surface",
     /libraryMetadataWorkingSurface \? " package-metadata-working-surface" : ""/);
   assert.match(
     appSource,
-    /const contentNavigationIntegrated =[\s\S]*?\|\| libraryMetadataWorkingSurface[\s\S]*?;/);
+    /contentFrameFullWidth[\s\S]*"content-frame-full"[\s\S]*"content-frame-split"/);
   assert.match(
     renderLibrary,
     /if \(state\.libraryLens === "overview"\s*\|\| state\.libraryLens === "compare"\s*\|\| state\.libraryLens === "references"\s*\|\| state\.libraryLens === "analysis"\s*\|\| state\.libraryLens === "metadata"\) return body;/);
@@ -1589,7 +1591,7 @@ test("library metadata uses compact coordinates in a full-area working surface",
     /\.detail-scroll\.package-metadata-working-surface \{[^}]*overflow: hidden;[^}]*padding: 0;/s);
   assert.match(
     stylesSource,
-    /\.package-metadata-surface \{[^}]*height: 100%;[^}]*grid-template-rows: 40px auto minmax\(0, 1fr\) 34px;/s);
+    /\.package-metadata-surface \{[^}]*height: 100%;[^}]*grid-template-rows: 40px auto minmax\(0, 1fr\);/s);
   assert.match(
     stylesSource,
     /\.package-metadata-scroll \{[^}]*overflow: auto;/s);
@@ -1604,7 +1606,7 @@ test("all Library Analysis modes use one full-area working surface", () => {
     /libraryAnalysisWorkingSurface \? " library-analysis-working-surface" : ""/);
   assert.match(
     appSource,
-    /contentNavigationIntegrated =[\s\S]*\|\| libraryAnalysisWorkingSurface[\s\S]*?;/);
+    /libraryAnalysisWorkingSurface \? " library-analysis-working-surface" : ""/);
 });
 
 test("package dependencies use compact coordinates in a full-area working surface", () => {
@@ -1622,13 +1624,16 @@ test("package dependencies use compact coordinates in a full-area working surfac
     /packageDependenciesWorkingSurface \? " package-dependencies-working-surface" : ""/);
   assert.match(
     appSource,
-    /const contentNavigationIntegrated =[\s\S]*?\|\| packageDependenciesWorkingSurface[\s\S]*?;/);
+    /const packageCoordinateHtml =[\s\S]*packageVersionField\(\)/);
   assert.match(
     renderPackage,
     /return packageLensBody\(\);/);
   assert.match(
     appSource,
-    /function renderPackageDependenciesSurface\([\s\S]*?package-dependencies-surface[\s\S]*?packageVersionField\(\)[\s\S]*?package-dependencies-scroll[\s\S]*?package-dependencies-surface-footer/);
+    /function renderPackageDependenciesSurface\([\s\S]*?package-dependencies-surface[\s\S]*?package-dependencies-scroll/);
+  assert.doesNotMatch(
+    appSource,
+    /package-dependencies-surface-footer/);
   assert.equal(
     renderDependencies.match(/renderPackageDependenciesSurface\(/g)?.length,
     5);
@@ -1640,7 +1645,7 @@ test("package dependencies use compact coordinates in a full-area working surfac
     /\.detail-scroll\.package-dependencies-working-surface,[\s\S]*?overflow: hidden;[^}]*padding: 0;/s);
   assert.match(
     stylesSource,
-    /\.package-dependencies-surface,[\s\S]*?grid-template-rows: 40px auto minmax\(0, 1fr\) 34px;/s);
+    /\.package-dependencies-surface,[\s\S]*?grid-template-rows: 40px minmax\(0, 1fr\);/s);
   assert.match(
     stylesSource,
     /\.package-dependencies-scroll,[\s\S]*?overflow: auto;/s);

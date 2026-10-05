@@ -297,7 +297,7 @@ test("member filters retain accessible controls and focus across rerenders", () 
     /async loadDocumentation\(request\)[\s\S]*const preservedFocus = dependencies\.renderPreservingMemberFocus\(\);[\s\S]*state\.memberDocumentationLoading = false;[\s\S]*dependencies\.renderPreservingMemberFocus\(preservedFocus\)/);
   assert.match(
     stylesSource,
-    /\.type-library-context \.namespace-chips, \.pane-footer \{ display: none; \}/);
+    /\.type-library-context \.namespace-chips \{ display: none; \}/);
   assert.match(
     typePanelSource,
     /memberFilter\?\.addEventListener\(\s*"input",\s*\(\) => actions\.onMemberFilterChange\(memberFilter\.value\)\)/);
@@ -317,8 +317,12 @@ test("member filters retain accessible controls and focus across rerenders", () 
     appSource,
     /function exitMemberScope\(\) \{\s*const focusGeneration = beginSpotlightNavigation\(\);\s*contentFramePane = "navigation";[\s\S]*render\(\);\s*restoreContentNavigationFocus\(focusGeneration\);\s*return true;/);
   assert.match(appSource, /onShowTypes: exitMemberScope,/);
-  assert.match(appSource, /<summary id="member-filter-summary">/);
-  assert.match(typePanelSource, /<summary id="type-filter-summary">/);
+  assert.match(
+    appSource,
+    /<summary id="member-filter-summary" title="Show Member filters">/);
+  assert.match(
+    typePanelSource,
+    /<summary id="type-filter-summary" title="Show Type filters">/);
   assert.match(
     appSource,
     /const renderMemberFilterAndRestoreFocus = \(selector = ""\) => \{[\s\S]*renderWithMemberFocus\(preserved\)/);
@@ -838,7 +842,7 @@ test("package-root Open and selected-Type activation preserve local frame state"
     /if \(navMode\(\) === "type"\) \{\s*const focusGeneration = beginSpotlightNavigation\(\);\s*if \(enterMemberScope\(\)\) \{\s*contentFramePane = "navigation";\s*render\(\);\s*restoreContentNavigationFocus\(focusGeneration\);/);
   assert.match(
     bindings,
-    /onTypeSelect: typeId => \{\s*if \(scope\(\) === "type" && typeId === state\.selectedTypeId\) \{\s*if \(contentFrameMedia\.matches\) showContentDetail\(\);\s*return;\s*}\s*showContentDetailAfterRender\(\);[\s\S]*resetMemberFilters\(\)/);
+    /onTypeSelect: typeId => \{\s*if \(scope\(\) === "type" && typeId === state\.selectedTypeId\) \{\s*if \(contentFrameUsesPush\(\)\) showContentDetail\(\);\s*return;\s*}\s*showContentDetailAfterRender\(\);[\s\S]*resetMemberFilters\(\)/);
 });
 
 test("workspace package selection resets type-specific member filters", () => {

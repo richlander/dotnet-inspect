@@ -82,18 +82,24 @@ async function chooseSubject(page: Page, subject: string, label: string) {
 }
 
 async function selectLibrary(page: Page, libraryId: string) {
-  if (await subjectTab(page, "library").getAttribute("aria-selected") !== "true")
-    await chooseSubject(page, "library", "Library");
+  await showLibraryNavigation(page);
   const row = page.locator(
     `.library-subject-list [data-library-subject="${libraryId}"]`);
+  await row.click();
+  await expect(row).toHaveAttribute("aria-selected", "true");
+}
+
+async function showLibraryNavigation(page: Page) {
+  if (await subjectTab(page, "library").getAttribute("aria-selected") !== "true")
+    await chooseSubject(page, "library", "Library");
+  const list = page.locator(".library-subject-list");
   const navigationToggle = page.getByRole(
     "button",
     { name: "Libraries", exact: true });
   await expect.poll(async () =>
-    await row.isVisible() || await navigationToggle.isVisible()).toBe(true);
-  if (!await row.isVisible()) await navigationToggle.click();
-  await row.click();
-  await expect(row).toHaveAttribute("aria-selected", "true");
+    await list.isVisible() || await navigationToggle.isVisible()).toBe(true);
+  if (!await list.isVisible()) await navigationToggle.click();
+  await expect(list).toBeVisible();
 }
 
 async function expectCurrentSubjectVisible(
@@ -313,7 +319,7 @@ async function installFacades(
   page: Page,
   model = surface,
   additionalSurfaces: readonly BrowserPackageSurface[] = [],
-  references: "ready" | "long" | "empty" | "query-error" | "inspection-error" | "deferred" = "ready",
+  references: "ready" | "resolved" | "long" | "empty" | "query-error" | "inspection-error" | "deferred" = "ready",
   integrations: "ready" | "long" | "empty" | "partial" | "partial-empty" | "query-error" | "deferred" = "ready",
   platform?: PlatformFixture,
   opportunities: "ready" | "long" | "empty" | "partial" | "partial-empty" | "query-error" | "deferred" = "ready",
@@ -1252,6 +1258,7 @@ async function installFacades(
         const surface = surfaceFor(id, version, framework);
         const selected = surface.assemblies.find(item => item.id === asset);
         if (!selected) throw new Error("Unknown library: " + asset);
+        const resolved = surface.assemblies.find(item => item.id !== asset);
         const scenario = ${JSON.stringify(references)};
         if (scenario === "deferred") {
           await new Promise(resolve => document.addEventListener(
@@ -1262,7 +1269,14 @@ async function installFacades(
           package: id, version, activeFramework: framework, assembly: selected.name,
           dependencyGroups: [], declarationFailures: [], dependencyGroupError: null,
           assemblyReferences: scenario === "inspection-error" ? "Cannot decode AssemblyRef."
-            : { references: scenario === "empty" ? [] : scenario === "long"
+            : { references: scenario === "empty" ? [] : scenario === "resolved" && resolved
+            ? [{
+                name: resolved.name,
+                version: resolved.version,
+                culture: resolved.culture,
+                publicKeyToken: resolved.publicKeyToken
+              }]
+            : scenario === "long"
             ? Array.from({ length: 80 }, (_, index) => ({
                 name: selected.name + "." + "LongNamespace.".repeat(20) + "Reference" + index,
                 version: "1.2.3.4", culture: "x-" + Array(20).fill("private").join("-"),
@@ -3806,6 +3820,7 @@ export {
   chooseInspector,
   chooseSubject,
   selectLibrary,
+  showLibraryNavigation,
   expectCurrentSubjectVisible,
   library,
   run,

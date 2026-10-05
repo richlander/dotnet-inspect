@@ -398,9 +398,6 @@ const navigationHtml = workspaceMode
     ? renderPackageNav({
         frameworks: ["net10.0", "net10.0-windows10.0.19041.0"],
         activeFramework: "net10.0",
-        versionFieldHtml: packageOverviewMode
-          ? '<label class="version-select"><span>Version</span><select id="package-version"><option>10.0.0</option><option>9.0.0</option></select></label>'
-          : "",
         escapeHtml,
       })
   : activeScope === "library"
@@ -604,10 +601,6 @@ function detailHtml() {
           </ul>
         </section>
       </div>
-      <footer class="api-surface-footer package-dependencies-surface-footer">
-        <span>System.Text.Json@10.0.0</span>
-        <span>net10.0</span>
-      </footer>
     </section>`;
   }
   if (packageMetadataMode) {
@@ -618,10 +611,6 @@ function detailHtml() {
       </header>
       <section class="package-metadata-controls" aria-label="Metadata coordinate"></section>
       <div class="package-metadata-scroll"></div>
-      <footer class="metadata-surface-footer package-metadata-surface-footer">
-        <span>System.Text.Json@10.0.0</span>
-        <span>net10.0</span>
-      </footer>
     </section>`;
   }
   if (metadataMode) {
@@ -635,10 +624,6 @@ function detailHtml() {
           <div class="section-title"><h2>Type shape</h2><span>ECMA-335 metadata</span></div>
         </section>
       </div>
-      <footer class="metadata-surface-footer">
-        <span>System.Text.Json.JsonSerializer</span>
-        <span>net10.0 · System.Text.Json.dll</span>
-      </footer>
     </section>`;
   }
   if (memberMode) {
@@ -937,20 +922,46 @@ const harnessKeyboardHelpBindings = [
     ? harnessKeybindings.availableBindingsFor(graphHelpScope)
     : []),
 ];
+const contentFrameFullWidth =
+  activeScope === "package" || activeScope === "library";
+const navigationActionHtml = workspaceMode
+  ? ""
+  : renderContentNavigationBar(contentNavigationLabel, contentFrameFullWidth);
+const packageCoordinateHtml = activeScope === "package"
+  ? `<div class="package-coordinate-actions" role="group" aria-label="Package coordinate">
+      <label class="version-select"><span class="visually-hidden">Version</span><select id="package-version" aria-label="Version"><option>10.0.0</option><option>9.0.0</option></select></label>
+    </div>`
+  : "";
+const sourceActionsHtml = sourceMode
+  ? renderSourcePageActions({
+      source,
+      copyButtonId: memberMode
+        ? "copy-source"
+        : "copy-type-source",
+      escapeHtml,
+    })
+  : "";
+const contextualActionsHtml =
+  navigationActionHtml || packageCoordinateHtml || sourceActionsHtml
+    ? `<div class="working-surface-actions" role="group" aria-label="Page actions">
+        ${navigationActionHtml}
+        ${packageCoordinateHtml}
+        ${sourceActionsHtml}
+      </div>`
+    : "";
+const detailPaneHtml = `
+  <section class="detail-pane">
+    <article id="inspector-panel" class="detail-scroll${sourceMode ? " source-working-surface" : ""}${metadataMode ? " metadata-working-surface" : ""}${overviewMode ? " overview-working-surface" : ""}${packageDependenciesMode ? " package-dependencies-working-surface" : ""}${packageMetadataMode ? " package-metadata-working-surface" : ""}${memberMode && !sourceMode ? " member-working-surface" : ""}${!workspaceMode && !packageMode && !memberMode && !sourceMode && !metadataMode ? " api-working-surface" : ""}">
+      ${detailHtml()}
+    </article>
+  </section>`;
+const subjectPanelHtml = workspaceMode
+  ? `${navigationHtml}${detailPaneHtml}`
+  : `${detailPaneHtml}${navigationHtml}`;
 app.innerHTML = `
   <div class="workbench">
     ${workbenchShellHtml({
-      contextualActionsHtml: sourceMode
-        ? `<div class="working-surface-actions" role="group" aria-label="Source actions">
-            ${renderSourcePageActions({
-              source,
-              copyButtonId: memberMode
-                ? "copy-source"
-                : "copy-type-source",
-              escapeHtml,
-            })}
-          </div>`
-        : "",
+      contextualActionsHtml,
       inspectedTargetHtml: `
         <div class="inspected-target" aria-label="Inspected target">
           <span class="subject-icon" aria-hidden="true">${workspaceMode
@@ -975,24 +986,14 @@ app.innerHTML = `
         historyForwardMode),
     })}
     <div class="notice-stack"></div>
-    <main id="subject-panel" class="workspace${workspaceMode ? "" : " content-frame"}"
+    <main id="subject-panel" class="workspace${workspaceMode
+      ? ""
+      : ` content-frame ${contentFrameFullWidth
+        ? "content-frame-full"
+        : "content-frame-split"}`}"
       ${workspaceMode ? "" : `data-content-pane="${contentFramePane}"`}
       >
-      ${navigationHtml}
-      <section class="detail-pane${workspaceMode
-        ? ""
-        : sourceMode
-          || (packageMode
-            && !overviewMode
-            && !packageDependenciesMode
-            && !packageMetadataMode)
-          ? " content-navigation-separated"
-          : " content-navigation-integrated"}">
-        ${workspaceMode ? "" : renderContentNavigationBar(contentNavigationLabel)}
-        <article id="inspector-panel" class="detail-scroll${sourceMode ? " source-working-surface" : ""}${metadataMode ? " metadata-working-surface" : ""}${overviewMode ? " overview-working-surface" : ""}${packageDependenciesMode ? " package-dependencies-working-surface" : ""}${packageMetadataMode ? " package-metadata-working-surface" : ""}${memberMode && !sourceMode ? " member-working-surface" : ""}${!workspaceMode && !packageMode && !memberMode && !sourceMode && !metadataMode ? " api-working-surface" : ""}">
-          ${detailHtml()}
-        </article>
-      </section>
+      ${subjectPanelHtml}
     </main>
     ${dataBarHtml({
       buildIdentity: {

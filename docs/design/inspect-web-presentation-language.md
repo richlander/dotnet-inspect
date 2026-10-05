@@ -20,9 +20,9 @@ This owner defines:
   hover, keyboard focus, disabled) and their accessibility contract;
 - the interaction grammar and collapsed-summary rules for progressive filter
   disclosure;
-- the shared heading rules across the API and Metadata lenses: both use quiet
-  local headings while Metadata retains its detailed type-level context in its
-  projection and exact-target context row; and
+- the shared heading rules across the API and Metadata lenses: inventory-owned
+  API summaries and quiet local Metadata headings avoid repeating persistent
+  subject context; and
 - the compact status vocabulary for successful and failed source provenance.
 
 It does not own:
@@ -212,10 +212,12 @@ as a user preference across browser sessions.
 
 #### Collapsed summary
 
-Hidden controls must not create hidden state. A member-filter disclosure shows
-`All members` when no restriction is active. Metadata spelling is not a
-restriction, but it changes every row, so the collapsed member summary names
-it whenever it is selected. A type-filter disclosure shows
+Hidden controls must not create hidden state. One compact disclosure row owns
+the inventory label, visible/total result count, active restrictions, and
+`Filters` action. A member-filter disclosure shows `All members` when no
+restriction is active. Metadata spelling is not a restriction, but it changes
+every row, so the collapsed member summary names it whenever it is selected. A
+type-filter disclosure shows
 `All types` only when no text, namespace, kind, or accessibility restriction is
 active. When non-public types are available, the default public-access scope is
 an active restriction and remains visible in the collapsed summary. Otherwise
@@ -239,8 +241,9 @@ selector selected styling.
 - A restored or deep-linked filter is summarized while collapsed; it does not
   force the selector region open.
 - Explicitly expanded controls remain available at narrow widths.
-- The collapsed summary supplements the live visible/total result count in the
-  owning pane or working-surface header. It does not replace that count.
+- The collapsed summary is the visible owner of the inventory label, live
+  count, and active restriction summary. No preceding heading or result-count
+  row repeats them.
 
 ## Shared heading rules
 
@@ -258,34 +261,32 @@ underline on hover plus an explicit keyboard focus outline.
 
 ### API, Source, Metadata, and Package Dependencies lenses
 
-API renders a compact local heading followed by its primary content. Type API
-uses `Members` with the live visible/total count of actual members (exact
-declarations, so each overload counts). The visible count totals the visible
-rows' overload counts; the total is the selected bucket's Composition Count. Member API uses
-the exact local member name with its kind and overload count or ordinal. These
-headings use the same quiet label hierarchy as the navigation pane rather than
-competing with the subject path. Source is the full-area exception governed by
+Type API exposes an accessible `Members` heading while its visible trailing
+inventory summary owns `Members`, the live visible/total count of actual
+members, active restrictions, and `Filters`. Exact declarations count, so each
+overload counts; the visible count totals the visible rows' overload counts and
+the total is the selected bucket's Composition Count. Member API uses the exact
+local member name with its kind and overload count or ordinal. These labels use
+the same quiet hierarchy as the navigation pane rather than competing with the
+subject path. Source is the full-area exception governed by
 [Inspect Web Surface Composition](inspect-web-surface-composition.md#source-and-annotated-source):
 it adds no local heading, so the subject zone remains the visible owner of the
 complete hierarchy while the active Source inspector labels the lens panel.
-Type Metadata uses a quiet local `Metadata` heading while retaining its detailed
-type-level context in the primary projection and compact bottom context row.
-Package Metadata uses the parallel quiet `Metadata images` heading while its
-compact controls and bottom row retain the active package coordinate.
-Package Dependencies uses a quiet `Dependencies` heading while its compact
-controls and bottom row retain the active package coordinate.
+Type Metadata uses a quiet local `Metadata` heading and retains detailed
+type-level context in its primary projection. Package Metadata uses the
+parallel quiet `Metadata images` heading with its local controls. Package
+Dependencies uses a quiet `Dependencies` heading. The persistent inspected
+target owns subject identity and Package coordinates for all three.
 
-At narrow widths, API header identity and status plus Type Metadata, Package
-Metadata, and Package Dependencies header status and context values may elide
-visually as complete strings. Responsive styling does not selectively remove
-a member count, overload count, or ordinal from the rendered or accessible
-status.
+At narrow widths, API and Metadata header status may elide visually as complete
+strings. Responsive styling does not selectively remove a member count,
+overload count, or ordinal from the rendered or accessible status.
 
-The narrow content-frame `Types` or `Members` control may occupy the leading
-space of these quiet headers. The local heading remains the accessible name
-even when it is visually elided. Member Overview begins its first content
-within the normal compact content inset; the scroller and first paragraph do
-not stack independent top margins into a blank introductory band.
+The responsive content-frame `Types` or `Members` control stays in the
+persistent target-bar page-action region rather than occupying a local heading.
+Member Overview begins its first content within the normal compact content
+inset; the scroller and first paragraph do not stack independent top margins
+into a blank introductory band.
 
 When the snapshot has no effective lens, the UI renders no `tabpanel`. A status
 region references the target heading and its visible `Lens unavailable`
@@ -327,26 +328,23 @@ and increases the amount visible without scrolling.
 Type Metadata uses a quiet `Metadata` heading with kind and accessibility
 status. Its full-area projection remains the type-level view for kind,
 namespace, declaration shape, target framework, library, package, and version
-context. Type shape rows begin at the top of the scroll region; the exact type
-identity and package coordinate remain in the compact bottom context row.
+context. Type shape rows begin at the top of the scroll region; the persistent
+inspected target owns exact identity.
 
 Package Metadata uses a quiet `Metadata images` heading with assembly count or
-state. Version, Framework, and optional platform Library remain compact controls
-above the image facts. The exact package coordinate, framework, and optional
-library remain in the bottom context row.
+state. Version remains in the Package target-bar actions, Framework remains in
+the Package inventory, and an optional platform Library remains a local control
+above the image facts.
 
 Package Dependencies uses a quiet `Dependencies` heading with selected
-package-dependency and direct assembly-reference counts or state. Version and
-Framework remain compact controls above the result. Manifest target-framework
-selection remains in the result because it does not change the package
-coordinate. The exact package coordinate and active framework remain in the
-bottom context row.
+package-dependency count or state. Version remains in the Package target-bar
+actions, Framework remains in the Package inventory, and manifest
+target-framework selection remains in the result because it does not change the
+package coordinate.
 
 The exact-target identity remains the common orientation point between API,
-Metadata, and Source. API uses its local member heading, Type Metadata preserves
-the type identity in its context row, Package Metadata and Package Dependencies
-preserve their package coordinates, and Source relies on the persistent subject
-zone rather than duplicating it inside the full-area working surface. Switching
+Metadata, and Source. The persistent subject zone owns that identity; surfaces
+use only local lens labels, inventory summaries, and result state. Switching
 lenses does not change the selected subject or its display identity.
 
 ## Source provenance

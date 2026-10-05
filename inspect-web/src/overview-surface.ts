@@ -73,10 +73,8 @@ export function renderOverviewSurface(
 ): string {
   const {
     subject, subjectLabel, displayName, iconHtml, details = [], enablements = [],
-    packageId, packageVersion, activeFramework, totalTypes, totalMembers,
-    contentHtml, escapeHtml,
+    totalTypes, totalMembers, contentHtml, escapeHtml,
   } = options;
-  const coordinate = `${packageId}@${packageVersion}`;
   const typeCount = totalTypes === null
     ? "Type Count unavailable"
     : `${totalTypes.toLocaleString()} type${totalTypes === 1 ? "" : "s"}`;
@@ -103,9 +101,5 @@ export function renderOverviewSurface(
       </header>
       ${contentHtml}
     </div>
-    <footer class="api-surface-footer overview-surface-footer">
-      <span title="${escapeHtml(coordinate)}">${escapeHtml(coordinate)}</span>
-      <span title="${escapeHtml(activeFramework)}">${escapeHtml(activeFramework)}</span>
-    </footer>
   </section>`;
 }

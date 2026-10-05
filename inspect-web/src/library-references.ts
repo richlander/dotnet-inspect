@@ -8,17 +8,16 @@ export interface LibraryReferencesOptions {
   loading: boolean;
   error: string;
   data: BrowserPackageDependencies | null;
+  referenceLibraryIds: readonly (string | null)[];
   escapeHtml: (value: unknown) => string;
 }
 
 export function renderLibraryReferencesSurface(options: LibraryReferencesOptions): string {
   const {
-    assemblyIdentity,
-    assetPath,
-    coordinate,
     loading,
     error,
     data,
+    referenceLibraryIds,
     escapeHtml,
   } = options;
   let status: string;
@@ -50,21 +49,21 @@ export function renderLibraryReferencesSurface(options: LibraryReferencesOptions
         </section>
         <section class="document-section reference-list-section">
           <div class="section-title"><h2>Assembly references</h2><span>${references.length.toLocaleString()} direct reference${references.length === 1 ? "" : "s"}</span></div>
-          <ul class="dep-list" aria-label="Assembly references">${references.map(reference =>
-            `<li><span class="dep-name">${escapeHtml(reference.name)}</span><code class="dep-version">${escapeHtml(`${reference.version} \u00b7 ${reference.culture || "neutral"} \u00b7 ${reference.publicKeyToken ? `pkt ${reference.publicKeyToken}` : "unsigned"}`)}</code></li>`).join("")}</ul>
+          <ul class="dep-list" aria-label="Assembly references">${references.map((reference, index) => {
+            const libraryId = referenceLibraryIds[index];
+            const name = libraryId
+              ? `<button type="button" class="dep-name as-link" data-package-child-library="${escapeHtml(libraryId)}" title="Open ${escapeHtml(reference.name)} Library">${escapeHtml(reference.name)}</button>`
+              : `<span class="dep-name">${escapeHtml(reference.name)}</span>`;
+            return `<li>${name}<code class="dep-version">${escapeHtml(`${reference.version} \u00b7 ${reference.culture || "neutral"} \u00b7 ${reference.publicKeyToken ? `pkt ${reference.publicKeyToken}` : "unsigned"}`)}</code></li>`;
+          }).join("")}</ul>
         </section>`
       : `<section class="document-section empty-document"><h2>No direct references</h2><p>This assembly declares no direct AssemblyRef rows.</p></section>`;
   }
-  const identity = assetPath ? `${assetPath} \u00b7 ${assemblyIdentity}` : assemblyIdentity;
   return `<section class="library-references-surface" aria-labelledby="library-references-title">
     <header class="api-surface-head">
       <h1 id="library-references-title">References</h1>
       <p>${escapeHtml(status)}</p>
     </header>
     <div class="library-references-scroll">${content}</div>
-    <footer class="metadata-surface-footer">
-      <span title="${escapeHtml(identity)}">${escapeHtml(identity)}</span>
-      <span title="${escapeHtml(coordinate)}">${escapeHtml(coordinate)}</span>
-    </footer>
   </section>`;
 }

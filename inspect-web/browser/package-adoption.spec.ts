@@ -1213,8 +1213,8 @@ test.describe("Package Query website over real Wasm", () => {
     await expect(overview.locator("h1")).toHaveText(
       literalCoordinate.packageId.toLowerCase(),
     );
-    await expect(overview.locator(".overview-surface-footer"))
-      .toContainText(literalCoordinate.version);
+    await expect(page.locator("#package-version"))
+      .toHaveValue(literalCoordinate.version);
     const packageUrl = page.url();
     const retainedWorkspaceId = await currentHistoryWorkspaceId(page);
     expect(retainedWorkspaceId).not.toBeNull();
@@ -1226,8 +1226,8 @@ test.describe("Package Query website over real Wasm", () => {
     const workspaceUrl = page.url();
     expect(await currentHistoryWorkspaceId(page))
       .toBe(retainedWorkspaceId);
-    await expect(page.locator(".workspace-list .workspace-row"))
-      .toHaveCount(1);
+    await expect(page.locator(".workspace-occurrence"))
+      .toContainText(literalCoordinate.packageId.toLowerCase());
 
     await page.evaluate(() => history.back());
     await expect.poll(() => page.url()).toBe(packageUrl);
@@ -1241,8 +1241,8 @@ test.describe("Package Query website over real Wasm", () => {
       .toHaveCount(1, { timeout: 180_000 });
     expect(await currentHistoryWorkspaceId(page))
       .toBe(retainedWorkspaceId);
-    await expect(page.locator(".workspace-list .workspace-row"))
-      .toHaveCount(1);
+    await expect(page.locator(".workspace-occurrence"))
+      .toContainText(literalCoordinate.packageId.toLowerCase());
   });
 
   test("qualifies package Results by decoded library literal and opens the exact Root", async ({
@@ -2479,12 +2479,11 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
       .toContainText(healthy.packageId, { timeout: 180_000 });
     await expect.poll(() => new URL(page.url()).searchParams.get("package"))
       .toBe(healthy.packageId);
-    await expect(page.getByTitle(
-      `${healthy.packageId}@${healthy.version}`,
-      { exact: true },
+    await expect(page.locator("#package-version"))
+      .toHaveValue(healthy.version);
+    await expect(page.locator(
+      `[data-subject-framework="${fixtureFramework}"]`,
     )).toBeVisible();
-    await expect(page.getByTitle(fixtureFramework, { exact: true }))
-      .toBeVisible();
     expect(searchRequests).toBe(0);
     expect(registry.downloadCount(healthy)).toBe(1);
   });
@@ -2901,7 +2900,7 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     // "Inspection failed" instead.
     await expect(panel.locator(".api-surface-head"))
       .toContainText("1 direct reference");
-    await expect(panel.locator("footer")).toContainText(healthyAssemblyFileName);
+    await expect(panel.locator("footer")).toHaveCount(0);
     await expect(panel).not.toContainText("Inspection failed");
   });
 
@@ -3351,8 +3350,8 @@ test.describe("deterministic two-host Workspace demo", () => {
       await expect(overview).toBeVisible({ timeout: 180_000 });
       await expect(overview.locator("h1"))
         .toHaveText(retainedWorkspace.packageId);
-      await expect(overview.locator(".overview-surface-footer"))
-        .toContainText(retainedWorkspace.version);
+      await expect(page.locator("#package-version"))
+        .toHaveValue(retainedWorkspace.version);
     };
 
     await page.setViewportSize({ width: 1440, height: 900 });
@@ -3373,11 +3372,8 @@ test.describe("deterministic two-host Workspace demo", () => {
     await exactPackage.dispatchEvent("click");
     await expect(page.locator(".inspected-target"))
       .toContainText(retainedWorkspace.packageId, { timeout: 180_000 });
-    await expect(page.getByTitle(
-      `${retainedWorkspace.packageId}@${retainedWorkspace.version}`,
-      { exact: true },
-    ))
-      .toBeVisible({ timeout: 180_000 });
+    await expect(page.locator("#package-version"))
+      .toHaveValue(retainedWorkspace.version, { timeout: 180_000 });
     await expect(page.locator("#app"))
       .not.toHaveAttribute("aria-busy", "true", { timeout: 180_000 });
 
@@ -3463,18 +3459,21 @@ test.describe("deterministic two-host Workspace demo", () => {
     const managedWorkspaceUrl = page.url();
     const managedWorkspaceHistoryId = await currentHistoryWorkspaceId(page);
     expect(managedWorkspaceHistoryId).not.toBeNull();
-    await expect(page.locator(".workspace-row")
-      .filter({ hasText: savedWorkspaceName })
-      .locator("small"))
-      .toHaveText("Active", { timeout: 180_000 });
     await expect(page.getByRole("button", {
-      name: `Delete ${savedWorkspaceName}`,
+      name: `Open saved Workspace ${savedWorkspaceName}`,
+      exact: true,
+    })).toBeVisible({ timeout: 180_000 });
+    await expect(page.getByRole("button", {
+      name: `Forget saved Workspace ${savedWorkspaceName}`,
       exact: true,
     })).toBeEnabled({ timeout: 180_000 });
-    await expect(page.locator('[data-workspace-select]').first())
+    await expect(page.getByRole("heading", {
+      name: "Workspace",
+      level: 1,
+    }))
       .toBeFocused({ timeout: 180_000 });
-    await expect(page.locator(".workspace-list .workspace-row"))
-      .toHaveCount(2);
+    await expect(page.locator(".workspace-saved-row"))
+      .toHaveCount(1);
     await page.getByRole(
       "button",
       { name: "Save Workspace", exact: true },
@@ -3482,7 +3481,7 @@ test.describe("deterministic two-host Workspace demo", () => {
     await page.getByLabel("Workspace name", { exact: true })
       .fill(resavedWorkspaceName);
     await page.getByRole("button", { name: "Save", exact: true }).click();
-    await expect(page.locator(".workspace-list .workspace-row"))
+    await expect(page.locator(".workspace-saved-row"))
       .toHaveCount(2);
     const resavedPacket = await page.evaluate<string | null, string>(name => {
       const raw = localStorage.getItem("inspect-saved-workspaces");
@@ -3522,7 +3521,7 @@ test.describe("deterministic two-host Workspace demo", () => {
     await expect(page.locator("[data-navigation-order]"))
       .toContainText(retainedWorkspace.packageId);
     await expect(page.locator("#package-query-heading")).toHaveCount(0);
-    await expect(page.locator(".workspace-list .workspace-row"))
+    await expect(page.locator(".workspace-saved-row"))
       .toHaveCount(2);
     await page.evaluate(() => history.forward());
     await expect(page).toHaveURL(/\/query$/);
@@ -3530,7 +3529,7 @@ test.describe("deterministic two-host Workspace demo", () => {
       .toHaveText("Package query");
     await page.evaluate(() => history.back());
     await expect.poll(() => page.url()).toBe(managedUrl);
-    await expect(page.locator(".workspace-list .workspace-row"))
+    await expect(page.locator(".workspace-saved-row"))
       .toHaveCount(2);
 
     await page.locator("[data-product-navigation-button]").click();
@@ -3553,7 +3552,7 @@ test.describe("deterministic two-host Workspace demo", () => {
     await expect(page.locator("[data-navigation-order]"))
       .toContainText(retainedWorkspace.packageId);
     await expect(page.locator("#package-changes-heading")).toHaveCount(0);
-    await expect(page.locator(".workspace-list .workspace-row"))
+    await expect(page.locator(".workspace-saved-row"))
       .toHaveCount(2);
     await page.evaluate(() => history.forward());
     await expect(page).toHaveURL(/\/activity$/);
@@ -3561,7 +3560,7 @@ test.describe("deterministic two-host Workspace demo", () => {
       .toHaveText("Package Activity");
     await page.evaluate(() => history.back());
     await expect.poll(() => page.url()).toBe(managedUrl);
-    await expect(page.locator(".workspace-list .workspace-row"))
+    await expect(page.locator(".workspace-saved-row"))
       .toHaveCount(2);
 
     await page.locator("[data-product-navigation-button]").click();
@@ -3606,8 +3605,8 @@ test.describe("deterministic two-host Workspace demo", () => {
       history.back();
     });
     await expect.poll(() => page.url()).toBe(compatibilityUrl);
-    await expect(page.locator(".workspace-list .workspace-row"))
-      .toHaveCount(1, { timeout: 180_000 });
+    await expect(page.locator(".workspace-saved-row"))
+      .toHaveCount(2, { timeout: 180_000 });
     await expect(page.locator(".workspace-occurrence-row"))
       .toContainText(retainedWorkspace.packageId);
 
@@ -3654,6 +3653,7 @@ test.describe("bounded network-backed Worker smoke", () => {
       .toBeVisible();
     const forwardedRows = page.locator("#type-list [data-type] small").filter({ hasText: "Forwarded" });
     expect(await forwardedRows.count()).toBeGreaterThan(100);
+    await page.getByRole("button", { name: "Types", exact: true }).click();
     await page.locator('[data-type="System.Xml:System.Xml.XmlReader"]').click();
     await expect(page.locator("#forwarded-type-title")).toHaveText("System.Xml.XmlReader");
     const copyType = page.getByRole("button", {
@@ -3794,9 +3794,9 @@ test.describe("bounded network-backed Worker smoke", () => {
 
     await expect(page.locator(".inspected-target"))
       .toContainText("WrongTurn", { timeout: 180_000 });
-    await expect(page.getByTitle("WrongTurn@0.1.14", { exact: true }))
+    await expect(page.locator("#package-version")).toHaveValue("0.1.14");
+    await expect(page.locator('[data-subject-framework="net11.0"]'))
       .toBeVisible();
-    await expect(page.getByTitle("net11.0", { exact: true })).toBeVisible();
   });
 
   test("opens ordinary and pathological packages over the real Gallery CDN", async ({

@@ -527,7 +527,8 @@ test("the metadata lens asks the platform to pick a library before reading an im
   assert.match(html, /id=picker/);
   assert.match(
     html,
-    /class="package-metadata-surface"[\s\S]*?class=package-metadata-controls[\s\S]*?Pick a library to inspect[\s\S]*?class="metadata-surface-footer package-metadata-surface-footer"/);
+    /class="package-metadata-surface"[\s\S]*?class=package-metadata-controls[\s\S]*?Pick a library to inspect/);
+  assert.doesNotMatch(html, /package-metadata-surface-footer/);
 });
 
 test("the metadata lens reports loading and failure only for the current scope", () => {
@@ -554,8 +555,7 @@ test("the metadata lens surfaces a partial-read warning alongside the image", ()
   assert.match(html, /This library could not be read completely/);
   assert.match(html, /Native\.dll unreadable/);
   assert.match(html, /<p>1 assembly<\/p>/);
-  assert.match(html, /title="Contoso@1\.2\.3"/);
-  assert.match(html, /title="net10\.0 · Contoso"/);
+  assert.doesNotMatch(html, /package-metadata-surface-footer/);
 });
 
 test("the metadata lens keeps selected platform context in its stable frame", () => {
@@ -564,10 +564,10 @@ test("the metadata lens keeps selected platform context in its stable frame", ()
     scopedLibrary: "System.Runtime",
   }));
   assert.match(html, /<p>1 assembly<\/p>/);
-  assert.match(html, /title="net10\.0 · System\.Runtime"/);
   assert.match(
     html,
-    /class=package-metadata-controls[\s\S]*?class="package-metadata-scroll"[\s\S]*?class="metadata-surface-footer package-metadata-surface-footer"/);
+    /class=package-metadata-controls[\s\S]*?class="package-metadata-scroll"/);
+  assert.doesNotMatch(html, /package-metadata-surface-footer/);
 });
 
 test("the metadata lens distinguishes a truncated metadata version", () => {

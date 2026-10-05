@@ -115,15 +115,14 @@ test("ranked member rows retain navigation identity and triage evidence", () => 
   assert.match(html, /perf-high[^>]*>high/);
 });
 
-test("the full-area frame retains Library identity and package coordinates", () => {
+test("the full-area frame leaves Library identity to the persistent shell", () => {
   const html = renderLibraryAnalysisSurface({
     ...baseOptions,
     data: result(),
   });
 
-  assert.match(html, /lib\/net10\.0\/Test\.Assembly\.dll/);
-  assert.match(html, /Test\.Assembly, Version=1\.0\.0\.0/);
-  assert.match(html, /net10\.0 · Test\.Package@1\.0\.0/);
+  assert.doesNotMatch(html, /library-analysis-surface-footer/);
+  assert.doesNotMatch(html, /lib\/net10\.0\/Test\.Assembly\.dll/);
 });
 
 test("a complete empty result may state there are no public hot spots", () => {

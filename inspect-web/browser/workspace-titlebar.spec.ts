@@ -298,7 +298,7 @@ test("the content frame clamps wide inventory and pushes at constrained widths",
   const wideDetail = await box(page, ".detail-pane");
   expect(wideInventory.width).toBeGreaterThanOrEqual(304);
   expect(wideInventory.width).toBeLessThanOrEqual(360);
-  expect(wideInventory.x + wideInventory.width).toBeCloseTo(wideDetail.x, 0);
+  expect(wideDetail.x + wideDetail.width).toBeCloseTo(wideInventory.x, 0);
 
   await page.setViewportSize({ width: 900, height: 700 });
   const intermediateInventory = await box(page, "#content-navigation-pane");
@@ -503,73 +503,53 @@ test("keyboard entry focuses an empty Member inventory after replacement", async
   await expect(page.locator(".detail-pane")).toBeHidden();
 });
 
-test("the narrow return control integrates with Metadata and Source frames", async ({
+test("content navigation stays in the target bar across working surfaces", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 600, height: 700 });
   await page.goto("/browser/workspace-titlebar.html?metadata=1");
 
-  const metadataHeader = await box(page, ".metadata-surface-head");
+  const targetBar = await box(page, ".targetbar");
   const metadataToggle = await box(page, "#content-navigation-toggle");
-  expect(metadataToggle.y).toBeGreaterThanOrEqual(metadataHeader.y);
+  expect(metadataToggle.y).toBeGreaterThanOrEqual(targetBar.y);
   expect(metadataToggle.y + metadataToggle.height)
-    .toBeLessThanOrEqual(metadataHeader.y + metadataHeader.height);
+    .toBeLessThanOrEqual(targetBar.y + targetBar.height);
   await expect(page.locator(".metadata-surface-head h1")).toHaveText("Metadata");
 
   await page.goto("/browser/workspace-titlebar.html?package-dependencies=1");
-  const packageDependenciesHeader = await box(
-    page,
-    ".package-dependencies-surface-head");
   const packageDependenciesToggle = await box(
     page,
     "#content-navigation-toggle");
   expect(packageDependenciesToggle.y)
-    .toBeGreaterThanOrEqual(packageDependenciesHeader.y);
+    .toBeGreaterThanOrEqual(targetBar.y);
   expect(packageDependenciesToggle.y + packageDependenciesToggle.height)
-    .toBeLessThanOrEqual(
-      packageDependenciesHeader.y + packageDependenciesHeader.height);
-  await expect(page.locator(".detail-pane"))
-    .toHaveClass(/content-navigation-integrated/);
+    .toBeLessThanOrEqual(targetBar.y + targetBar.height);
+  await expect(page.locator("#subject-panel"))
+    .toHaveClass(/content-frame-full/);
   await expect(page.locator(".package-dependencies-surface-head h1"))
     .toHaveText("Dependencies");
   await expect(page.locator(
-    ".package-dependencies-controls #package-version")).toBeVisible();
+    ".working-surface-actions #package-version")).toBeVisible();
   await expect(page.locator(
     ".package-dependencies-controls #framework")).toHaveCount(0);
   await expect(page.locator('[data-package-framework="net10.0"]'))
     .toHaveAttribute("aria-current", "page");
-  const packageDependenciesFooter = await box(
-    page,
-    ".package-dependencies-surface-footer");
-  const packageDependenciesCoordinate = await box(
-    page,
-    ".package-dependencies-surface-footer span:first-child");
-  const packageDependenciesFramework = await box(
-    page,
-    ".package-dependencies-surface-footer span:last-child");
-  expect(packageDependenciesCoordinate.x)
-    .toBeLessThan(packageDependenciesFooter.x + packageDependenciesFooter.width / 3);
-  expect(packageDependenciesFramework.x + packageDependenciesFramework.width)
-    .toBeGreaterThan(
-      packageDependenciesFooter.x + packageDependenciesFooter.width * 2 / 3);
+  await expect(page.locator(".package-dependencies-surface-footer"))
+    .toHaveCount(0);
   expect(await page.evaluate(() =>
     document.documentElement.scrollWidth
     - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
 
   await page.goto("/browser/workspace-titlebar.html?package-metadata=1");
-  const packageMetadataHeader = await box(
-    page,
-    ".package-metadata-surface-head");
   const packageMetadataToggle = await box(
     page,
     "#content-navigation-toggle");
   expect(packageMetadataToggle.y)
-    .toBeGreaterThanOrEqual(packageMetadataHeader.y);
+    .toBeGreaterThanOrEqual(targetBar.y);
   expect(packageMetadataToggle.y + packageMetadataToggle.height)
-    .toBeLessThanOrEqual(
-      packageMetadataHeader.y + packageMetadataHeader.height);
-  await expect(page.locator(".detail-pane"))
-    .toHaveClass(/content-navigation-integrated/);
+    .toBeLessThanOrEqual(targetBar.y + targetBar.height);
+  await expect(page.locator("#subject-panel"))
+    .toHaveClass(/content-frame-full/);
   await expect(page.locator(".package-metadata-surface-head h1"))
     .toHaveText("Metadata images");
   expect(await page.evaluate(() =>
@@ -577,11 +557,9 @@ test("the narrow return control integrates with Metadata and Source frames", asy
     - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
 
   await page.goto("/browser/workspace-titlebar.html?member=1&source=1");
-  const sourceNavigation = await box(page, ".content-navigation-bar");
+  const panel = await box(page, "#inspector-panel");
   const source = await box(page, ".source-result");
-  expect(source.y).toBeCloseTo(
-    sourceNavigation.y + sourceNavigation.height,
-    0);
+  expect(source.y).toBeCloseTo(panel.y, 0);
   await expect(page.locator("#inspector-panel > h1")).toHaveCount(0);
 });
 
@@ -637,9 +615,10 @@ for (const [subject, width] of [
       await expect(page.locator(".overview-surface-head p"))
         .toHaveText("32 types · 1,234 members");
     }
-    await expect(page.locator(".overview-surface-footer span")).toHaveText([
-      "System.Text.Json@10.0.0", "net10.0",
-    ]);
+    await expect(page.locator(".overview-surface-footer")).toHaveCount(0);
+    await expect(page.locator("#subject-panel"))
+      .toHaveClass(/content-frame-full/);
+    await expect(page.locator("#content-navigation-pane")).toBeHidden();
     if (subject === "package") {
       const summary = await box(page, ".package-overview-summary");
       const resources = await box(page, ".package-overview-resources");
@@ -661,18 +640,8 @@ for (const [subject, width] of [
           "Comparison targets",
           "Documentation",
         ]);
-      if (width === 390) {
-        await page.getByRole(
-          "button",
-          { name: "Frameworks", exact: true }).click();
-      }
       await page.getByRole("combobox", { name: "Version", exact: true }).selectOption("9.0.0");
       await expect(page.locator("#package-version")).toHaveValue("9.0.0");
-      if (width === 390) {
-        await page.getByRole(
-          "button",
-          { name: "Show details", exact: true }).click();
-      }
       await expect(page.getByRole("combobox", { name: "Framework", exact: true }))
         .toHaveCount(0);
       await expect(page.locator('[data-package-framework="net10.0"]'))
@@ -704,7 +673,6 @@ for (const [subject, width] of [
     const header = subject === "library"
       ? await box(page, ".overview-surface-head")
       : null;
-    const footer = await box(page, ".overview-surface-footer");
     expect(await page.locator(".overview-scroll").evaluate(element =>
       element.scrollHeight > element.clientHeight)).toBe(true);
     await page.locator(".overview-scroll").evaluate(element => {
@@ -718,23 +686,23 @@ for (const [subject, width] of [
     if (header) {
       expect((await box(page, ".overview-surface-head")).y).toBe(header.y);
     }
-    expect((await box(page, ".overview-surface-footer")).y).toBe(footer.y);
     expect(await page.locator(".overview-scroll").evaluate(element =>
       element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(0);
     expect(await page.evaluate(() =>
       document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
 
-    if (width === 390) {
-      const toggle = await box(page, "#content-navigation-toggle");
-      if (header) {
-        expect(toggle.y).toBeGreaterThanOrEqual(header.y);
-        expect(toggle.y + toggle.height)
-          .toBeLessThanOrEqual(header.y + header.height);
-      }
-      await page.getByRole("button", { name: subject === "package" ? "Frameworks" : "Libraries", exact: true }).click();
-      await expect(page.locator(subject === "package" ? ".package-framework-list" : ".type-list")).toBeFocused();
-      await expect(page.locator(".detail-pane")).toBeHidden();
-    }
+    const toggle = await box(page, "#content-navigation-toggle");
+    const currentTargetBar = await box(page, ".targetbar");
+    expect(toggle.y).toBeGreaterThanOrEqual(currentTargetBar.y);
+    expect(toggle.y + toggle.height)
+      .toBeLessThanOrEqual(currentTargetBar.y + currentTargetBar.height);
+    await page.getByRole("button", { name: subject === "package" ? "Frameworks" : "Libraries", exact: true }).click();
+    await expect(page.locator(subject === "package" ? ".package-framework-list" : ".type-list")).toBeFocused();
+    await expect(page.locator(".detail-pane")).toBeHidden();
+    await page.getByRole(
+      "button",
+      { name: "Show details", exact: true }).click();
+    await expect(page.locator(".detail-pane")).toBeVisible();
   });
 }
 
@@ -744,7 +712,7 @@ test("Package Overview keeps empty totals and available documents", async ({ pag
   await expect(page.locator(".overview-surface-head")).toHaveCount(0);
   await expect(page.locator(".library-row")).toHaveCount(0);
   await expect(page.locator("[data-doc-path='README.md']")).toBeVisible();
-  await expect(page.locator(".overview-surface-footer")).toBeVisible();
+  await expect(page.locator(".overview-surface-footer")).toHaveCount(0);
 });
 
 test("Library Overview keeps explicit empty namespace and type-kind states", async ({ page }) => {
@@ -756,7 +724,7 @@ test("Library Overview keeps explicit empty namespace and type-kind states", asy
   await expect(page.locator(".library-overview-kinds"))
     .toContainText("No public types.");
   await expect(page.locator("[data-namespace-jump], [data-kind-jump]")).toHaveCount(0);
-  await expect(page.locator(".overview-surface-footer")).toBeVisible();
+  await expect(page.locator(".overview-surface-footer")).toHaveCount(0);
 });
 
 test("Library Overview controls retain focus across allocation changes", async ({
@@ -2163,7 +2131,7 @@ test("Source fills the detail area below working-surface actions and above prove
     ).toBeVisible();
     await expect(page.locator("#inspector-panel > h1")).toHaveCount(0);
     await expect(
-      page.getByRole("group", { name: "Source actions" }),
+      page.getByRole("group", { name: "Page actions" }),
     ).toBeVisible();
     await expect(
       page.locator("#application-menu-button"),
