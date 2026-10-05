@@ -8,6 +8,7 @@ using DotnetInspector.SourceSelection;
 using NuGetFetch;
 using PackageAdmission = DotnetInspect.Web.BrowserRetainedWorkspaceAdmissionResult<DotnetInspect.Web.BrowserRetainedWorkspacePackagePresentation>;
 using PlatformAdmission = DotnetInspect.Web.BrowserRetainedWorkspaceAdmissionResult<DotnetInspect.Web.BrowserRetainedWorkspacePlatformPresentation>;
+using EcosystemPackageAdmission = DotnetInspect.Web.BrowserEcosystemPackageAdmissionResult;
 
 namespace DotnetInspect.Web.Interop.Catalog;
 
@@ -216,6 +217,33 @@ public static partial class CatalogExports
         return JsonSerializer.Serialize(
             result,
             BrowserCatalogJsonContext.Default.BrowserRetainedWorkspacePlatformAdmissionResult);
+    }
+
+    [JSExport]
+    public static async Task<string> AdmitEcosystemPackageToWorkspace(
+        string retainedDefinitionId,
+        string realizationId,
+        string packageId,
+        string version,
+        string ecosystemId,
+        string basis,
+        string registration)
+    {
+        BrowserEcosystemPackageWorkspaceAdmissionResult result =
+            await BrowserRetainedWorkspaceActivationService
+                .AdmitEcosystemPackageAsync(
+                    retainedDefinitionId,
+                    realizationId,
+                    packageId,
+                    version,
+                    ecosystemId,
+                    basis,
+                    registration)
+                .ConfigureAwait(false);
+        return JsonSerializer.Serialize(
+            result,
+            BrowserCatalogJsonContext.Default
+                .BrowserEcosystemPackageWorkspaceAdmissionResult);
     }
 
     [JSExport]
@@ -558,6 +586,80 @@ internal static class BrowserRetainedWorkspaceActivationService
                 new("unavailable", null, unavailable.Message),
             _ => throw new InvalidOperationException(
                 "Retained Platform admission returned an unsupported result."),
+        };
+    }
+
+    internal static async Task<BrowserEcosystemPackageWorkspaceAdmissionResult>
+        AdmitEcosystemPackageAsync(
+            string retainedDefinitionId,
+            string realizationId,
+            string packageId,
+            string version,
+            string ecosystemId,
+            string basis,
+            string registration)
+    {
+        if (!WorkspaceEcosystemRegistrationId.TryCreate(
+                ecosystemId,
+                out WorkspaceEcosystemRegistrationId? ecosystem))
+        {
+            return new(
+                "failed",
+                null,
+                null,
+                $"'{ecosystemId}' is not a canonical Ecosystem identity.");
+        }
+        if (!Enum.TryParse(
+                basis,
+                ignoreCase: false,
+                out PackageQueryEcosystemMembershipBasis membershipBasis)
+            || !Enum.IsDefined(membershipBasis))
+        {
+            return new(
+                "failed",
+                null,
+                null,
+                $"'{basis}' is not a Package Query Ecosystem membership basis.");
+        }
+
+        EcosystemPackageAdmission result =
+            await Owner.AdmitEcosystemPackageAsync(
+                retainedDefinitionId,
+                realizationId,
+                packageId,
+                version,
+                new(ecosystem, membershipBasis, registration))
+                .ConfigureAwait(false);
+        return result switch
+        {
+            EcosystemPackageAdmission.Admitted admitted =>
+                new(
+                    "admitted",
+                    Posting(admitted.Posting),
+                    BrowserCatalogWireProjection.Project(
+                        admitted.Navigation.Consumer),
+                    null),
+            EcosystemPackageAdmission.NoEffect noEffect =>
+                new(
+                    "noEffect",
+                    Posting(noEffect.Posting),
+                    null,
+                    null),
+            EcosystemPackageAdmission.Failed failed =>
+                new(
+                    "failed",
+                    failed.Posting is null
+                        ? null
+                        : Posting(failed.Posting),
+                    failed.Navigation is null
+                        ? null
+                        : BrowserCatalogWireProjection.Project(
+                            failed.Navigation.Consumer),
+                    failed.Message),
+            EcosystemPackageAdmission.Superseded =>
+                new("superseded", null, null, null),
+            _ => throw new InvalidOperationException(
+                "Ecosystem Package admission returned an unsupported result."),
         };
     }
 
