@@ -821,7 +821,7 @@ public class StackTypeInterpreterTests
         // The substrate exposes a single malformed-IL exception: BadImageFormatException. The
         // runtime-ported ILReader uses InvalidProgramException internally for truncated
         // opcode/branch/switch reads, so InstructionDecoder.Decode must normalize it at the
-        // boundary — otherwise consumers (ReachingDefinitions, LibraryBodyIndex) leak the wrong
+        // boundary — otherwise consumers (ReachingDefinitions, Analysis) leak the wrong
         // exception type past their recovery gate.
         Assert.Throws<BadImageFormatException>(() => InstructionDecoder.Decode(il));
     }

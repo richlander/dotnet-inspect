@@ -240,6 +240,31 @@ test("Top Leverage decorates source families without filter or history state", (
     /methodLeverageEnabled|memberLeverageFilter|onMethodLeverageActivate|onMethodLeverageFilterSelect/);
 });
 
+test("settled API Diff evidence decorates exact Type and Member navigation rows", () => {
+  const typeNav = sourceText(functionDeclaration("renderTypeNavPane"));
+  assert.match(
+    typeNav,
+    /libraryApiDiffPresence\(state\.libraryApiDiff\)[\s\S]*diffPresence\.typeIdentifiers\.has\(item\.definitionId \?\? item\.id\)[\s\S]*achievements\.push\(apiDiffAchievement\)/,
+  );
+
+  const memberNav = sourceText(functionDeclaration("renderMemberNavPane"));
+  assert.match(
+    memberNav,
+    /libraryApiDiffPresence\(state\.libraryApiDiff\)[\s\S]*memberApiDiffAchievements\(\s*diffPresence\.memberFingerprints,\s*group,\s*index\)/,
+  );
+
+  const memberDiff = sourceText(
+    functionDeclaration("memberApiDiffAchievements"));
+  assert.match(
+    memberDiff,
+    /index === null[\s\S]*group\.overloads\.slice\(index, index \+ 1\)[\s\S]*memberFingerprints\.has\(overload\.anchorDigest\)/,
+  );
+  assert.match(
+    stylesSource,
+    /\.item-achievement-glyph\.api-diff[\s\S]*color: var\(--purple\)/,
+  );
+});
+
 test("platform call graphs carry the target pack into lazy acquisition", () => {
   assert.equal(
     platformPackFromProvenance(
@@ -867,7 +892,7 @@ test("typed library controls own library and Platform picker bindings", () => {
     /onPlatformLensLibrarySelect: \(lens, name, pack\) =>\s*observeAsync\(\s*openPlatformLensLibrary\(lens, name, pack\),\s*"Opening a platform library"\)/);
   assert.match(
     appSource,
-    /if \(lens === "analysis"\) \{[\s\S]*state\.analysisMode === "performance"[\s\S]*state\.analysisMode === "integrations"[\s\S]*state\.analysisMode === "opportunities"[\s\S]*loadPackageLibraryMetrics\(\)/);
+    /if \(lens === "analysis"\) \{[\s\S]*state\.analysisMode === "performance"[\s\S]*state\.analysisMode === "integrations"[\s\S]*state\.analysisMode === "opportunities"[\s\S]*state\.analysisMode === "complexity"[\s\S]*state\.analysisMode === "relationships"[\s\S]*loadPackageLibraryMetrics\(\)/);
   assert.doesNotMatch(
     workspaceBinding,
     /\[data-(?:library-chip|platform-(?:library-select|integrations-library|opportunities-library|analysis-library|metrics-library|metadata-library))\]|#library-jump/);

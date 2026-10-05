@@ -269,6 +269,7 @@ public sealed class ResourceExplanationCatalog
         {
             var identity =
                 new ResourceExplanationIdentity.Structural(
+                    document.Catalog,
                     resource.Identity);
             explanationIdentities.Add(resource.Identity, identity);
             resources.Add(
@@ -1257,7 +1258,9 @@ public sealed class ResourceExplanationCatalog
                 new ResourceExplanationDetail.StructuralSectionDetails(
                     resource.Identity.Name,
                     resource.OutputModes,
-                    resource.Members.Length),
+                    resource.Members.Length,
+                    resource.Shape,
+                    resource.Cardinality?.Kind),
             DiscoveryResourceKind.Item =>
                 new ResourceExplanationDetail.StructuralItemDetails(
                     resource.Identity.Name,

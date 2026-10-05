@@ -765,6 +765,52 @@ public sealed class TypeRef : IEquatable<TypeRef>
         => Copy(elementType, typeArguments);
 
     /// <summary>
+    /// Returns a copy of this named definition bound to <paramref name="identity"/>
+    /// as its resolution assembly, dropping the defining-row provenance that only
+    /// means something inside the module the row was read from. Used when a
+    /// definition decoded from another module's metadata (a cross-assembly base
+    /// type) enters a function's IR: the referencing function must see the same
+    /// definition identity it would have decoded from its own <c>TypeRef</c>
+    /// row. A definition already carrying a resolution assembly, or any other
+    /// kind, is returned unchanged.
+    /// </summary>
+    internal TypeRef WithResolutionAssembly(AssemblyReferenceIdentity identity)
+    {
+        if (Kind != TypeRefKind.Definition || ResolutionAssembly is not null)
+            return this;
+        return new(Kind)
+        {
+            Assembly = Assembly,
+            Namespace = Namespace,
+            Name = Name,
+            ElementType = ElementType,
+            TypeArguments = TypeArguments,
+            Rank = Rank,
+            GenericParameterIndex = GenericParameterIndex,
+            GenericParameterName = GenericParameterName,
+            UnsupportedReason = UnsupportedReason,
+            MetadataNameFailure = MetadataNameFailure,
+            DefinitionName = DefinitionName,
+            IntroducedTypeParameterCounts = IntroducedTypeParameterCounts,
+            ResolutionAssembly = identity,
+            DefinitionHandle = default,
+            DefinitionModuleVersionId = null,
+            CallingConvention = CallingConvention,
+            FunctionPointerParameterRefKinds = FunctionPointerParameterRefKinds,
+            FunctionPointerSignatureIsExact = FunctionPointerSignatureIsExact,
+            FunctionPointerSignatureDiscriminator = FunctionPointerSignatureDiscriminator,
+            FunctionPointerGenericParameterCount = FunctionPointerGenericParameterCount,
+            FunctionPointerRequiredParameterCount = FunctionPointerRequiredParameterCount,
+            FunctionPointerConventionModifiersAreExact = FunctionPointerConventionModifiersAreExact,
+            ArrayShapeIsExact = ArrayShapeIsExact,
+            ValueTypeHint = ValueTypeHint,
+            InlineArray = InlineArray,
+            EnclosingType = EnclosingType?.WithResolutionAssembly(identity),
+            CustomModifiers = CustomModifiers,
+        };
+    }
+
+    /// <summary>
     /// Substitutes generic parameters with the given arguments (type
     /// parameters from a generic instantiation, method parameters from a
     /// MethodSpec). Returns this instance when nothing substitutes.

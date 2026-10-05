@@ -295,6 +295,7 @@ import {
 import {
   itemAchievementClassNames,
   renderItemAchievementRail,
+  type ItemAchievement,
 } from "./item-achievements.ts";
 import { createOperationAuthorityPage } from "./operation-authority.ts";
 import {
@@ -344,6 +345,7 @@ import { renderLibraryAnalysisSurface } from "./library-analysis.ts";
 import {
   bindLibraryMetricsInteractions,
   renderLibraryMetricsSurface,
+  type LibraryMetricsMode,
   type LibraryMetricsRelationshipState,
 } from "./library-metrics.ts";
 import {
@@ -599,6 +601,7 @@ import {
 import {
   bindLibraryApiDiffRows,
   createLibraryApiDiffCoordinator,
+  libraryApiDiffPresence,
   libraryApiDiffMemberExploreContext,
   renderLibraryApiDiff,
   type LibraryApiDiffMemberExploreContext,
@@ -6763,6 +6766,31 @@ function methodLeverageAchievements(
     : [];
 }
 
+const apiDiffAchievement: ItemAchievement = {
+  kind: "api-diff",
+  description: "API differences",
+};
+
+function memberApiDiffAchievements(
+  memberFingerprints: ReadonlySet<string>,
+  group: {
+    readonly overloads: readonly {
+      readonly anchorDigest?: string | null;
+    }[];
+  },
+  index: number | null,
+): readonly ItemAchievement[] {
+  const overloads = index === null
+    ? group.overloads
+    : group.overloads.slice(index, index + 1);
+  return overloads.some(overload =>
+    overload.anchorDigest !== null
+    && overload.anchorDigest !== undefined
+    && memberFingerprints.has(overload.anchorDigest))
+    ? [apiDiffAchievement]
+    : [];
+}
+
 function selectedMemberGroups(type: AppTypeSurface) {
   return declaredMemberGroups(type);
 }
@@ -8144,7 +8172,8 @@ function openMemberGroup(key: string) {
     group?.overloads.length === 1 && !graphOnlyTarget
       ? memberNavOverloadSourceIndex(group, 0)
       : null;
-  const methodGroup = ordinaryMethodGroup(group);
+  const resetMethodSection =
+    ordinaryMethodGroup(group) && state.memberSection !== "compare";
   state.memberBrowseTypeId = type?.id ?? "";
   state.selectedMemberKey = key;
   state.selectedOverloadIndex =
@@ -8155,7 +8184,7 @@ function openMemberGroup(key: string) {
     clearMemberGroupDocumentCache();
   }
   state.selectedBodyTarget = graphOnlyTarget;
-  if (methodGroup || !preserveSection) {
+  if (resetMethodSection || !preserveSection) {
     state.memberSection = "overview";
   } else {
     const retainedSection = state.memberSection;
@@ -9697,6 +9726,7 @@ function renderTypeNavPane(
   visible: readonly TypeInventoryRow[],
 ) {
   const definingLibraries = aggregateTypeLibraryLabels();
+  const diffPresence = libraryApiDiffPresence(state.libraryApiDiff);
   const { definitions, forwarders } =
     accessibilityScopedTypeSelectorDefinitions();
   return renderTypeNav({
@@ -9750,12 +9780,16 @@ function renderTypeNavPane(
       const leverage = presentation?.byType.get(
         item.definitionId ?? item.id,
       );
-      return leverage
-        ? [{
-            kind: leverage.pole,
-            description: leverage.description,
-          }]
-        : [];
+      const achievements: ItemAchievement[] = [];
+      if (leverage) {
+        achievements.push({
+          kind: leverage.pole,
+          description: leverage.description,
+        });
+      }
+      if (diffPresence.typeIdentifiers.has(item.definitionId ?? item.id))
+        achievements.push(apiDiffAchievement);
+      return achievements;
     },
     statusHtml:
       `${typeLeverageStatus()}${platformForwarderInventoryStatus()}`,
@@ -9765,6 +9799,7 @@ function renderTypeNavPane(
 function renderMemberNavPane(type: AppTypeSurface) {
   const visibleGroups = visibleMemberGroups(type);
   const groups = selectedMemberGroups(type);
+  const diffPresence = libraryApiDiffPresence(state.libraryApiDiff);
   return renderMemberNav({
     type,
     entries: memberNavEntries(type),
@@ -9785,7 +9820,13 @@ function renderMemberNavPane(type: AppTypeSurface) {
     highlight,
     overloadHeat: memberNavOverloadHeat,
     familyHeatCue: memberNavFamilyHeatCue,
-    memberAchievements: methodLeverageAchievements,
+    memberAchievements: (group, index) => [
+      ...methodLeverageAchievements(group, index),
+      ...memberApiDiffAchievements(
+        diffPresence.memberFingerprints,
+        group,
+        index),
+    ],
     overloadSourceIndex: memberNavOverloadSourceIndex,
     emptyMessage: "No members match these filters.",
   });
@@ -10027,10 +10068,13 @@ function libraryLensBody() {
     case "references": return renderLibraryReferences();
     case "analysis":
       switch (state.analysisMode) {
+        case "complexity":
+          return renderPackageLibraryMetrics("complexity");
+        case "relationships":
+          return renderPackageLibraryMetrics("relationships");
         case "performance": return renderPackagePerformance();
         case "integrations": return renderPackageIntegrations();
         case "opportunities": return renderPackageOpportunities();
-        case "metrics": return renderPackageLibraryMetrics();
         default: return assertNever(state.analysisMode, "analysis mode");
       }
     case "metadata": return renderPackageMetadata();
@@ -10714,7 +10758,7 @@ function renderPackagePerformance() {
   });
 }
 
-function renderPackageLibraryMetrics() {
+function renderPackageLibraryMetrics(mode: LibraryMetricsMode) {
   const pkg = currentPackage();
   const library = selectedLibrary();
   const scopedLib = scopedPlatformLibrary();
@@ -10746,7 +10790,7 @@ function renderPackageLibraryMetrics() {
     relationshipState:
       state.packageLibraryMetricsRelationshipState,
     escapeHtml,
-  });
+  }, mode);
 }
 
 function activateLibraryMetricsType(typeKey: string) {
@@ -10806,7 +10850,8 @@ function loadPackageLibraryDependencyStructure() {
 function maybeAutoLoadPackageLibraryMetrics() {
   if (!state.atLibraryRoot || state.libraryLens !== "analysis") return;
   if (aggregateLibrarySubjectIsActive()) return;
-  if (state.analysisMode !== "metrics") return;
+  if (state.analysisMode !== "complexity"
+    && state.analysisMode !== "relationships") return;
   if (Boolean(state.package?.isRuntimePack) && !scopedPlatformLibrary()) return;
   if (state.packageLibraryMetricsKey !== packageScopeSignature())
     observeAsync(loadPackageLibraryMetrics(), "Loading library metrics");
@@ -12799,7 +12844,10 @@ async function openPlatformLensLibrary(
       await loadPackageIntegrations();
     else if (state.analysisMode === "opportunities")
       await loadPackageOpportunities();
-    else await loadPackageLibraryMetrics();
+    else if (state.analysisMode === "complexity"
+      || state.analysisMode === "relationships")
+      await loadPackageLibraryMetrics();
+    else assertNever(state.analysisMode, "analysis mode");
   } else await loadPackageMetadata();
 }
 

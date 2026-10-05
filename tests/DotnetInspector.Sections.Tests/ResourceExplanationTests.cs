@@ -235,6 +235,7 @@ public class ResourceExplanationTests
             new ResourceExplanationResource(
                 new ResourcePath("library/sections/references"),
                 new ResourceExplanationIdentity.Structural(
+                    "library",
                     Section("References")),
                 ResourceExplanationResourceKind.StructuralSection,
                 new ResourceExplanationDetail.StructuralItemDetails(

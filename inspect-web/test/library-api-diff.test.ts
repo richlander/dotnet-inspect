@@ -10,6 +10,7 @@ import type {
 import {
   bindLibraryApiDiffRows,
   createLibraryApiDiffCoordinator,
+  libraryApiDiffPresence,
   libraryApiDiffMemberExploreContext,
   renderLibraryApiDiff,
   type LibraryApiDiffSelection,
@@ -1061,6 +1062,21 @@ function withMembers(): BrowserLibraryApiDiffResult {
     },
   };
 }
+
+test("Diff presence indexes only exact current-side Type and Member identities", () => {
+  const ready = libraryApiDiffPresence(readyState(withMembers()));
+  assert.deepEqual([...ready.typeIdentifiers], ["after-widget"]);
+  assert.deepEqual(
+    [...ready.memberFingerprints],
+    ["digest-run", "digest-new"],
+  );
+  assert.equal(ready.typeIdentifiers.has("before-options"), false);
+  assert.equal(ready.memberFingerprints.has("digest-gone"), false);
+
+  const idle = libraryApiDiffPresence({ status: "idle" });
+  assert.equal(idle.typeIdentifiers.size, 0);
+  assert.equal(idle.memberFingerprints.size, 0);
+});
 
 test("Type Diff lists Type-level changes first and classifies each Member row from producer changes", () => {
   const html = renderLibraryApiDiff(readyState(withMembers()), String, {

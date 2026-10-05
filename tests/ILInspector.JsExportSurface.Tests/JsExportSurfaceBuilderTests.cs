@@ -37,7 +37,6 @@ public sealed partial class JsExportSurfaceBuilderTests
         Assert.Contains(
             "JSON wire-contract flow was not requested",
             exception.Message);
-        Assert.False(execution.HasMaterializedCompatibilityIndex);
     }
 
     [Fact]
