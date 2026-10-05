@@ -13050,7 +13050,12 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
     assertNever(state.memberSection, "member section");
   }
   if (!memberSectionUsesWorkingSurface(state.memberSection)) return content;
-  const sourceOverloadIndex = state.selectedOverloadIndex ?? 0;
+  const visibleOverloadIndex =
+    state.selectedOverloadIndex == null
+      ? 0
+      : memberNavOverloadVisibleIndex(
+          member,
+          state.selectedOverloadIndex);
   const sourceOverloadCount =
     member.sourceOverloadCount ?? member.overloads.length;
   const callGraphExplore = state.memberSection === "call-graph"
@@ -13065,7 +13070,7 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
       <header class="api-surface-head member-surface-head">
         <h1 id="member-surface-title">${escapeHtml(member.name)}</h1>
         <div class="member-surface-meta">
-          <p>${escapeHtml(member.kind)} <span>· ${sourceOverloadIndex + 1} of ${sourceOverloadCount}</span></p>
+          <p>${escapeHtml(member.kind)} <span>· ${visibleOverloadIndex + 1} of ${sourceOverloadCount}</span></p>
           ${callGraphExplore}
         </div>
       </header>

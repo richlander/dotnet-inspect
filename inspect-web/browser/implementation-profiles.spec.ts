@@ -165,9 +165,15 @@ test("Type heat paints the member list without an Implementation section", async
   await releaseFacade(page, `fixture-type-heat-ready:${core.id}`);
   await expect(privateRun.locator(".family-heat-cue")).toHaveCount(0);
   const rows = page.locator(".overload-nav-row");
-  await expect(rows).toHaveCount(0);
-  await expect(page.locator(".member-surface"))
-    .toContainText("Exact overload detail is unavailable");
+  await expect(rows).toHaveCount(2);
+  await expect(rows.nth(0).locator("code")).toHaveText("Run()");
+  await expect(rows.nth(0)).toHaveClass(/\bheated\b/);
+  await expect(rows.nth(0)).toHaveAttribute(
+    "aria-description",
+    /not a listed overload/,
+  );
+  await expect(page.locator(".member-surface-head"))
+    .toContainText("2 overloads");
 
   // Public declarations reuse the Type heat record and expose exact rows.
   await selectMemberAccessibility(page, "public");

@@ -1427,7 +1427,7 @@ test("member API uses full-area overload and selected-member surfaces", () => {
   assert.doesNotMatch(renderMember, /implementation-profiles/);
   assert.match(
     renderMember,
-    /· \$\{sourceOverloadIndex \+ 1} of \$\{sourceOverloadCount}<\/span>/);
+    /· \$\{visibleOverloadIndex \+ 1} of \$\{sourceOverloadCount}<\/span>/);
   assert.match(
     memberOverview,
     /class="learn-section member-overview-intro">\s*<section class="signature-panel"[\s\S]*?class="member-documentation"[\s\S]*?class="member-identity"/);
