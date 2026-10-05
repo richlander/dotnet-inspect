@@ -242,6 +242,9 @@ public class LibraryInspectionView
         nameof(EcosystemDependencyCoverageIsComplete),
         nameof(PackageEcosystemDependencyRow.Coverage))]
     [MarkoutIgnoreColumnWhen(
+        nameof(EcosystemDependencyAssemblyEvidenceIsEmpty),
+        nameof(PackageEcosystemDependencyRow.AssemblyEvidence))]
+    [MarkoutIgnoreColumnWhen(
         nameof(EcosystemDependencyRequestedTargetFrameworkIsEmpty),
         nameof(PackageEcosystemDependencyRow.RequestedTargetFramework))]
     [MarkoutIgnoreColumnWhen(
@@ -253,7 +256,7 @@ public class LibraryInspectionView
     public List<PackageEcosystemDependencyRow>? EcosystemDependenciesSection =>
         RecognitionDocument is { } document
             ? (_data.EcosystemDependencyRows
-                    ?? document.Classification.Recognized)
+                    ?? document.Classification.Matches)
                 .Select(entry =>
                     PackageEcosystemDependencyRow.Create(
                         entry,
@@ -264,6 +267,10 @@ public class LibraryInspectionView
     public static bool EcosystemDependencyCoverageIsComplete(
         List<PackageEcosystemDependencyRow>? rows) =>
         InspectionResultView.EcosystemDependencyCoverageIsComplete(rows);
+
+    public static bool EcosystemDependencyAssemblyEvidenceIsEmpty(
+        List<PackageEcosystemDependencyRow>? rows) =>
+        InspectionResultView.EcosystemDependencyAssemblyEvidenceIsEmpty(rows);
 
     public static bool EcosystemDependencyRequestedTargetFrameworkIsEmpty(
         List<PackageEcosystemDependencyRow>? rows) =>
