@@ -136,7 +136,11 @@ internal static class TypeDocumentTreeCommand
                     LibraryTypeDeclarationSelection.Definitions,
                     ApiTypeInventoryKinds.All),
                 cancellationToken,
-                includeMemberCount: false);
+                includeMemberCount: false,
+                accessibility:
+                    options.IncludeAll
+                        ? LibraryTypeAccessibility.All
+                        : LibraryTypeAccessibility.Public);
         if (listing is null)
             return new TypeDocumentTreeExecution.Failed();
 

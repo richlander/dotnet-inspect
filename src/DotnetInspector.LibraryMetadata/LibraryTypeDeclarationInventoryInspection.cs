@@ -77,7 +77,8 @@ public sealed record LibraryTypeDeclarationRowsInspectionRequest
             ApiTypeInventoryKinds.All,
         string? @namespace = null,
         MetadataNamespaceMatch namespaceMatch =
-            MetadataNamespaceMatch.Exact)
+            MetadataNamespaceMatch.Exact,
+        bool includeNonPublicDefinitions = false)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(startOrdinal);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maximumRows);
@@ -165,6 +166,7 @@ public sealed record LibraryTypeDeclarationRowsInspectionRequest
         Namespace = @namespace;
         NamespaceMatch = namespaceMatch;
         ExpectedModuleVersionId = expectedModuleVersionId;
+        IncludeNonPublicDefinitions = includeNonPublicDefinitions;
     }
 
     public int StartOrdinal { get; }
@@ -176,6 +178,7 @@ public sealed record LibraryTypeDeclarationRowsInspectionRequest
     public string? Namespace { get; }
     public MetadataNamespaceMatch NamespaceMatch { get; }
     public Guid? ExpectedModuleVersionId { get; }
+    public bool IncludeNonPublicDefinitions { get; }
 
     internal bool Includes(AssemblyTypeDefinitionKind kind) =>
         kind switch
@@ -632,7 +635,10 @@ public static class LibraryTypeDeclarationInventoryInspection
         }
 
         ImmutableArray<AssemblyTypeDeclaration> allDeclarations =
-            [.. inventory.GetDeclarations()];
+            [
+                .. inventory.GetDeclarations(
+                    request.IncludeNonPublicDefinitions)
+            ];
         if (request.IncludeDefinitions
             && request.IncludeForwarders
             && request.DefinitionKinds

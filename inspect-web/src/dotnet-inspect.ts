@@ -8525,7 +8525,8 @@ function normalizeMemberSelection() {
   const group = memberGroupForCurrentFilters(
     type,
     state.selectedMemberKey);
-  if (group?.overloads.length === 1) {
+  if (group?.overloads.length === 1
+    && !memberGroupUsesFamilySurface(group)) {
     const graphTarget = graphOnlyBodyTarget(group.overloads[0]);
     state.selectedOverloadIndex = graphTarget
       ? 0

@@ -52,6 +52,27 @@ public partial class CommandExecutionTests
         Assert.Contains(".ctor", output);
     }
 
+    [Theory]
+    [InlineData("DotnetInspect.Cli.Tests.CommandExecutionTests.NestedDrillTarget")]
+    [InlineData("DotnetInspect.Cli.Tests.CommandExecutionTests+NestedDrillTarget")]
+    public async Task
+        TypeCommand_AllTreeUsesCompactDocumentForNonPublicNestedTypes(
+            string typeName)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", typeName,
+            "--library", TestAssemblyPath,
+            "--all",
+            "--tree");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.StartsWith("sealed class ", output);
+        Assert.Contains("Constructors (1)", output);
+        Assert.Contains("Properties (1)", output);
+        Assert.DoesNotContain("# ", output);
+    }
+
     [Fact]
     public async Task TypeCommand_RestatesCrossAssemblyConstraintKinds()
     {

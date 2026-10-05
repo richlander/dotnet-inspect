@@ -234,6 +234,56 @@ public sealed class LibraryInspectionOperationTests
 
     [Fact]
     public async Task
+        RealSystemTextJson_AllAccessibilityIncludesNonPublicDefinitions()
+    {
+        byte[] content =
+            await LibraryInspectionTestLibrary.RealSystemTextJsonAsync();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+        var rowsRequest = new LibraryTypePopulationRowsRequest(
+            maximumRows: 5_000);
+
+        LibraryDocument publicDocument = Document(
+            Execute(
+                library,
+                count: true,
+                rowsRequest));
+        LibraryDocument allDocument = Document(
+            Execute(
+                library,
+                count: true,
+                rowsRequest,
+                accessibility:
+                    LibraryTypeAccessibility.All));
+        LibraryTypePopulationCountOutcome.Counted publicCount =
+            Assert.IsType<LibraryTypePopulationCountOutcome.Counted>(
+                publicDocument.Types!.Count);
+        LibraryTypePopulationCountOutcome.Counted allCount =
+            Assert.IsType<LibraryTypePopulationCountOutcome.Counted>(
+                allDocument.Types!.Count);
+        LibraryTypePopulationRowsOutcome.Read publicRows =
+            Assert.IsType<LibraryTypePopulationRowsOutcome.Read>(
+                publicDocument.Types.Rows);
+        LibraryTypePopulationRowsOutcome.Read allRows =
+            Assert.IsType<LibraryTypePopulationRowsOutcome.Read>(
+                allDocument.Types.Rows);
+
+        Assert.True(allCount.Total > publicCount.Total);
+        Assert.Equal(publicCount.Total, publicRows.Items.Length);
+        Assert.Equal(allCount.Total, allRows.Items.Length);
+        Assert.All(
+            publicRows.Items,
+            static row => Assert.True(row.IsPublicSurface));
+        Assert.Contains(
+            allRows.Items,
+            static row => !row.IsPublicSurface);
+        await library.RetireAsync();
+    }
+
+    [Fact]
+    public async Task
         RealSystemTextJson_ExactNamespaceCountAndRowsShareMembership()
     {
         const string Namespace = "System.Text.Json.Nodes";
@@ -2030,13 +2080,15 @@ public sealed class LibraryInspectionOperationTests
             ApiTypeInventoryKinds.All,
         string? @namespace = null,
         MetadataNamespaceMatch namespaceMatch =
-            MetadataNamespaceMatch.Exact) =>
+            MetadataNamespaceMatch.Exact,
+        LibraryTypeAccessibility accessibility =
+            LibraryTypeAccessibility.Public) =>
         LibraryInspectionOperation.Execute(
             new(
                 library.Reference,
                 new(
                     new(
-                        LibraryTypeAccessibility.Public,
+                        accessibility,
                         count
                             ? new LibraryTypePopulationCountRequest()
                             : null,

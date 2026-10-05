@@ -219,7 +219,9 @@ internal static class LibraryTypeListingCommand
         string? @namespace = null,
         MetadataNamespaceMatch namespaceMatch =
             MetadataNamespaceMatch.Exact,
-        bool includeMemberCount = true)
+        bool includeMemberCount = true,
+        LibraryTypeAccessibility accessibility =
+            LibraryTypeAccessibility.Public)
     {
         var rows = ImmutableArray.CreateBuilder<LibraryTypeShape>();
         LibraryDocument? firstDocument = null;
@@ -232,7 +234,7 @@ internal static class LibraryTypeListingCommand
             var plan =
                 new LibraryInspectionPlan(
                     new LibraryTypePopulationRequest(
-                        LibraryTypeAccessibility.Public,
+                        accessibility,
                         count: null,
                         new LibraryTypePopulationRowsRequest(
                             SegmentSize,

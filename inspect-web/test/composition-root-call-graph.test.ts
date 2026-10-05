@@ -1740,6 +1740,9 @@ test("member filters retain an exact selected graph target", () => {
       sourceText(functionDeclaration(name)),
       /memberSelectionIsAvailable\(type, visible\)/);
   }
+  assert.match(
+    sourceText(functionDeclaration("normalizeMemberSelection")),
+    /group\?\.overloads\.length === 1[\s\S]*!memberGroupUsesFamilySurface\(group\)/);
 
   const typePanelCall = onlyCallExpressionNamed(appSyntax, "bindTypePanel");
   const actions = objectArgument(typePanelCall, 1, "bindTypePanel");
