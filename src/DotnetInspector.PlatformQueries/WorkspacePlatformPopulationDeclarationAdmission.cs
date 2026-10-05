@@ -161,7 +161,8 @@ public static class WorkspacePlatformPopulationDeclarationAdmission
                                 "Unknown Platform family."),
                         },
                         member.Target.Version.Value,
-                        provenance.Contribution.Capability.Name)));
+                        provenance.Contribution.Capability.Name),
+                    packageRequest: null));
         }
 
         return WorkspaceLibraryDeclarationContextAdmission.Admit(
