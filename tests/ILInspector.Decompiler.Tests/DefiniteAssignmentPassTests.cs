@@ -63,22 +63,16 @@ public class DefiniteAssignmentPassTests
     [Fact]
     public void NestedBodiesCarryTheirOwnIssuedSet()
     {
-        // A local function and a lambda that each read their own local before
-        // assigning it: the pass issues each body's set on its node, and the
-        // nested printers restore it when they re-enter the body.
-        var localBlock = new Block(0);
-        localBlock.Add(new Return(new LoadLocal(0, Int32)));
-        var localBody = new BlockContainer();
-        localBody.Add(localBlock);
+        // A local function and a lambda whose own V_0 is assigned on one arm
+        // and read after the join: the pass issues each body's set on its
+        // node, and the nested printers restore it when they re-enter the body.
         var localFunction = new LocalFunctionStatement(
-            "Inner", Int32, [], isStatic: true, [Int32], [], usesUpdatedMemorySafetyRules: false, skipLocalsInit: false, localBody);
-
-        var lambdaBlock = new Block(0);
-        lambdaBlock.Add(new Return(new LoadLocal(0, Int32)));
-        var lambdaBody = new BlockContainer();
-        lambdaBody.Add(lambdaBlock);
-        var func = TypeRef.GenericInstance(TypeRef.CoreLib("System", "Func`1"), [Int32]);
-        var lambda = new Lambda(func, [], [Int32], [], usesUpdatedMemorySafetyRules: false, skipLocalsInit: false, lambdaBody);
+            "Inner", Int32, [new Parameter("choose", Bool)], isStatic: true, [Int32, Int32], [],
+            usesUpdatedMemorySafetyRules: false, skipLocalsInit: false, ConditionalAssignmentBody());
+        var func = TypeRef.GenericInstance(TypeRef.CoreLib("System", "Func`2"), [Bool, Int32]);
+        var lambda = new Lambda(
+            func, [new Parameter("choose", Bool)], [Int32, Int32], [],
+            usesUpdatedMemorySafetyRules: false, skipLocalsInit: false, ConditionalAssignmentBody());
 
         var block = new Block(0);
         block.Add(localFunction);
@@ -92,7 +86,7 @@ public class DefiniteAssignmentPassTests
         Assert.Equal([0], lambda.ZeroInitializedLocals!.Order());
         Assert.Empty(function.ZeroInitializedLocals!);
         string output = CSharpPrinter.Print(function).Output!;
-        Assert.Equal(2, System.Text.RegularExpressions.Regex.Matches(output, @"\bint V_0 = default;").Count);
+        Assert.Equal(2, System.Text.RegularExpressions.Regex.Matches(output, @"\bint V_0(_\d+)? = default;").Count);
     }
 
     [Fact]
@@ -103,7 +97,7 @@ public class DefiniteAssignmentPassTests
         var result = CSharpPrinter.Print(function);
 
         Assert.Null(result.Output);
-        Assert.Contains(result.Diagnostics, static diagnostic => diagnostic.Contains("definite assignment was not decided", StringComparison.Ordinal));
+        Assert.Contains(result.Diagnostics, static diagnostic => diagnostic.Message.Contains("definite assignment was not decided", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -121,7 +115,7 @@ public class DefiniteAssignmentPassTests
         var result = CSharpPrinter.Print(function);
 
         Assert.Null(result.Output);
-        Assert.Contains(result.Diagnostics, static diagnostic => diagnostic.Contains("differ from a fresh decision", StringComparison.Ordinal));
+        Assert.Contains(result.Diagnostics, static diagnostic => diagnostic.Message.Contains("differ from a fresh decision", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -171,13 +165,26 @@ public class DefiniteAssignmentPassTests
 
     static IrFunction ConditionalAssignment()
     {
+        var body = ConditionalAssignmentBody();
+        return new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(Int32, [new Parameter("choose", Bool)], HasThis: false, GenericParameterCount: 0),
+            [Int32, Int32],
+            body);
+    }
+
+    static BlockContainer ConditionalAssignmentBody()
+    {
         var block = new Block(0);
         block.Add(new StoreLocal(1, Int32, new Constant(2, Int32)));
         var then = new Block(1);
         then.Add(new StoreLocal(0, Int32, new LoadLocal(1, Int32)));
         block.Add(new IfStatement(new LoadArgument(0, "choose", Bool), then, null));
         block.Add(new Return(new LoadLocal(0, Int32)));
-        return Function(Int32, block, [new Parameter("choose", Bool)], locals: [Int32, Int32]);
+        var body = new BlockContainer();
+        body.Add(block);
+        return body;
     }
 
     static IrFunction Function(TypeRef returnType, Block block, IReadOnlyList<Parameter> parameters, IReadOnlyList<TypeRef>? locals = null)
