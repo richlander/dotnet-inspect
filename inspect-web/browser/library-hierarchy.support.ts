@@ -263,6 +263,7 @@ interface PlatformFixture {
   forwarderInternalType?: boolean;
   forwarderFailure?: boolean;
   forwarderPending?: boolean;
+  forwarderViewPendingAfterFirst?: boolean;
   warmup?: "pending" | "fail-once";
   discoveryFailure?: boolean;
   catalogFailure?: boolean;
@@ -720,8 +721,12 @@ async function installFacades(
       }
       let forwarderView = null;
       let forwarderViewSequence = 0;
+      let forwarderViewRequestCount = 0;
       const forwarderSurfaces = new Map();
       export async function openPlatformForwarderView(tfm, version, file, pack) {
+        if (platformOptions.forwarderViewPendingAfterFirst
+          && ++forwarderViewRequestCount > 1)
+          await new Promise(resolve => document.addEventListener("finish-forwarder-view", resolve, { once: true }));
         const catalogRow = platformTarget.rows.find(row => row.assembly + ".dll" === file && row.pack === pack);
         document.documentElement.dataset.platformLibraryRequest =
           JSON.stringify([tfm, version, file, pack, catalogRow?.file ?? file]);
@@ -1963,6 +1968,46 @@ async function installFacades(
         const selected = surface.assemblies.find(item => item.id === asset);
         if (!selected) throw new Error("Unknown library: " + asset);
         const result = structuralSalience(surface, selected);
+        if (diagnosticsOptions.slowStructuralSalience) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+        return result;
+      }
+      export async function queryPlatformLibraryStructuralSalience(
+        framework, version, file, pack
+      ) {
+        const row = ${JSON.stringify(catalogTarget.rows)}.find(
+          item => item.assembly + ".dll" === file && item.pack === pack);
+        if (!row) throw new Error("Unknown platform library: " + file);
+        const selected = {
+          ...surfaces[0].assemblies[0],
+          id: row.assembly,
+          name: row.assembly,
+          asset: file,
+          platformPack: pack,
+          publicTypes: row.publicTypes,
+          publicMembers: row.publicTypes
+        };
+        const types = row.publicTypes ? surfaces[0].types.map(item => ({
+          ...item,
+          id: selected.id + ":" + item.definitionId,
+          assembly: file,
+          assemblyId: selected.id,
+          assemblyName: selected.name,
+          platformPack: pack
+        })) : [];
+        const platformSurface = {
+          ...surfaces[0],
+          package: "Microsoft.NETCore.App",
+          version,
+          frameworks: [framework],
+          activeFramework: framework,
+          defaultAssemblyId: selected.id,
+          assemblies: [selected],
+          types,
+          totalMembers: row.publicTypes
+        };
+        const result = structuralSalience(platformSurface, selected);
         if (diagnosticsOptions.slowStructuralSalience) {
           await new Promise(resolve => setTimeout(resolve, 100));
         }
