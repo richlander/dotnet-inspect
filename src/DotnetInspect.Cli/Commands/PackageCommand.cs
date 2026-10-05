@@ -431,7 +431,7 @@ public partial class PackageCommand
                     && !sections.Contains(PackageSections.Files))
                 {
                     CommandError.Write(
-                        "--roots requires the Package files section.");
+                        "--roots requires the Files section.");
                     return 1;
                 }
                 if (options.Count || options.Print)
@@ -1938,7 +1938,7 @@ public partial class PackageCommand
         if (!SemanticRowSelection.TrySelect(
                 intent,
                 result.Files ?? [],
-                "Package files",
+                "Files",
                 failure =>
                     $"Package file row selection stage "
                     + $"{failure.Failure.StageNumber} requires row "
