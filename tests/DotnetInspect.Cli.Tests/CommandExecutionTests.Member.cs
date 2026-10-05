@@ -785,6 +785,19 @@ public partial class CommandExecutionTests
         Assert.Equal("member/sections/methods", methods.GetProperty("path").GetString());
         Assert.Equal("table", methods.GetProperty("shape").GetString());
         Assert.Equal("inventory", methods.GetProperty("cardinality").GetString());
+
+        // Source-less member target: --details follows the same target
+        // resolution as bare -D (the platform overload catalog), never the
+        // parser-level --schema ambiguity rule (round-3 finding).
+        var (platformExit, platform, platformError) = await RunAppAsync(
+            "member", "System.String.Trim", "-D", SectionNames.Methods, "--details", "--json");
+
+        Assert.Equal(0, platformExit);
+        Assert.Empty(platformError);
+        using JsonDocument platformDocument = JsonDocument.Parse(platform);
+        JsonElement platformRow = Assert.Single(platformDocument.RootElement.EnumerateArray());
+        Assert.Equal("member-overload/sections/methods", platformRow.GetProperty("path").GetString());
+        Assert.Equal("table", platformRow.GetProperty("shape").GetString());
     }
 
     [Fact]

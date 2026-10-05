@@ -34,10 +34,15 @@ public static class TypeOptionsParser
         if (parseResult.GetValue(args.WorkspaceOption) is not null)
             return false;
         // --schema and --details are both structural, offline views of the
-        // catalog; neither needs a resolved target.
+        // catalog. --schema owns this parser-level route and its syntactic
+        // catalog choice; a details-only request takes it only when fully
+        // target-free (below), because a targeted request is routed by the
+        // command after it resolves the target, exactly as bare -D is.
+        bool schema = options.ParseSchema(parseResult);
+        bool detailsOnly =
+            !schema && options.ParseDiscoverDetails(parseResult);
         if (!options.IsDiscoveryMode(parseResult)
-            || !(options.ParseSchema(parseResult)
-                || options.ParseDiscoverDetails(parseResult)))
+            || !(schema || detailsOnly))
         {
             return false;
         }
@@ -57,6 +62,13 @@ public static class TypeOptionsParser
         bool hasProjectSource =
             parseResult.GetResult(args.ProjectOption)
                 is { Implicit: false };
+        if (detailsOnly
+            && (sourceInputs.Args.Length > 0
+                || sourceInputs.HasExplicitSource
+                || hasProjectSource))
+        {
+            return false;
+        }
         error =
             SharedParsers.GetStructuralPositionalVersionError(
                 sourceInputs,
