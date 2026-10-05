@@ -6,8 +6,9 @@ using ILInspector.Metadata;
 namespace DotnetInspector.Queries;
 
 /// <summary>
-/// Exact Analysis and metadata evidence for one physical MethodDef body in an
-/// assembly-context participant.
+/// Exact Analysis and metadata evidence for one MethodDef in an
+/// assembly-context participant. Body-backed evidence is empty when the
+/// declaration has no IL body.
 /// </summary>
 public sealed record AssemblyMethodAnalysis(
     int RequestedMethodToken,
@@ -22,7 +23,7 @@ public sealed record AssemblyMethodAnalysis(
     ImmutableArray<AnalysisDiagnostic> Diagnostics);
 
 /// <summary>
-/// Reads exact method-body evidence while the query layer owns the retained
+/// Reads exact method evidence while the query layer owns the retained
 /// workspace snapshot and Analysis execution.
 /// </summary>
 public static class AssemblyContextMethodAnalysisQuery
@@ -106,26 +107,23 @@ public static class AssemblyContextMethodAnalysisQuery
                     nameof(methodToken));
             }
 
-            MethodIdentity? method = callGraph.Methods.FirstOrDefault(
+            MethodIdentity? body = callGraph.Methods.FirstOrDefault(
                 candidate => candidate.MetadataToken == methodToken);
-            if (method is null)
-            {
-                throw new InvalidOperationException(
-                    $"Method '{declaration.Name}' (0x{methodToken:X8}) in "
-                        + $"'{subject.Identity.Name}' does not have an IL body.");
-            }
 
-            using PdbContext metadata = PdbContext.OpenMetadataOnly(
-                snapshot.RetainAssemblyReference(
-                    participant.Assembly));
-            IReadOnlyList<MethodExceptionRegionInfo> exceptionRegions =
-                metadata.ResolveExceptionRegions(
+            IReadOnlyList<MethodExceptionRegionInfo> exceptionRegions = [];
+            if (body is not null)
+            {
+                using PdbContext metadata = PdbContext.OpenMetadataOnly(
+                    snapshot.RetainAssemblyReference(
+                        participant.Assembly));
+                exceptionRegions = metadata.ResolveExceptionRegions(
                     methodToken,
                     out string? exceptionRegionError);
-            if (exceptionRegionError is not null)
-            {
-                throw new InvalidOperationException(
-                    exceptionRegionError);
+                if (exceptionRegionError is not null)
+                {
+                    throw new InvalidOperationException(
+                        exceptionRegionError);
+                }
             }
 
             callGraph.MethodSignals.TryGetValue(
@@ -146,7 +144,7 @@ public static class AssemblyContextMethodAnalysisQuery
 
             var result = new AssemblyMethodAnalysis(
                 methodToken,
-                method,
+                body ?? declaration,
                 signals ?? MethodSignals.None,
                 EmptyIfDefault(allocations),
                 EmptyIfDefault(directCalls),

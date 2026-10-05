@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -8,6 +9,7 @@ using System.Runtime.InteropServices;
 using ILInspector.Analysis;
 using ILInspector.Analysis.ClassicAsyncFixtures;
 using ILInspector.Metadata;
+using DotnetInspector.Fixtures;
 
 namespace DotnetInspector.Queries.Tests;
 
@@ -211,25 +213,38 @@ public sealed class AssemblyContextMethodAnalysisQueryTests
     }
 
     [Fact]
-    public async Task MethodAnalysis_BodylessMethodIsAVisibleParticipantFailure()
+    public async Task MethodAnalysis_ReturnsDeclarationEvidenceWithoutAnIlBody()
     {
         byte[] image = File.ReadAllBytes(
-            typeof(IMethodAnalysisProbe).Assembly.Location);
+            FixtureCatalog.MetadataMethodImplContracts.AssemblyPath());
         await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group = Group(workspace, image);
-        int token = typeof(IMethodAnalysisProbe)
-            .GetMethod(nameof(IMethodAnalysisProbe.Bodyless))!
-            .MetadataToken;
+        int token = MethodToken(
+            image,
+            "ILInspector.Metadata.MethodImplContracts",
+            "IFunctionPointerContract",
+            "M");
 
-        var failed = Assert.IsType<
-            AssemblyContextEntry<AssemblyMethodAnalysis>.Failed>(
+        AssemblyMethodAnalysis result = Assert.IsType<
+            AssemblyContextEntry<AssemblyMethodAnalysis>.Available>(
                 AssemblyContextMethodAnalysisQuery.ExecuteParticipant(
                     group,
                     Assert.Single(group.Participants),
                     token,
-                    TestContext.Current.CancellationToken));
+                    TestContext.Current.CancellationToken)).Value;
 
-        Assert.Contains("does not have an IL body", failed.Error.Message);
+        Assert.Equal(token, result.Method.MetadataToken);
+        Assert.True(result.Signals.Unsafe);
+        Assert.Empty(result.Allocations);
+        Assert.Empty(result.DirectCalls);
+        Assert.Empty(result.UnsafetyOccurrences);
+        Assert.Empty(result.ExceptionRegions);
+        Assert.Empty(result.OptimizationOpportunities);
+        Assert.Contains(
+            result.UnsafeEvidence,
+            evidence =>
+                evidence.Member.MetadataToken == token
+                && evidence.Kind == "signature");
     }
 
     [Fact]
@@ -281,10 +296,41 @@ public sealed class AssemblyContextMethodAnalysisQueryTests
                 cancellation.Token,
                 error.CancellationToken);
         }
+
         finally
         {
             release.Set();
         }
+    }
+
+    static int MethodToken(
+        byte[] image,
+        string typeNamespace,
+        string typeName,
+        string methodName)
+    {
+        using var pe = new PEReader(
+            new MemoryStream(image, writable: false));
+        MetadataReader metadata = pe.GetMetadataReader();
+        TypeDefinitionHandle typeHandle =
+            metadata.TypeDefinitions.Single(handle =>
+            {
+                TypeDefinition type = metadata.GetTypeDefinition(handle);
+                return metadata.StringComparer.Equals(
+                        type.Namespace,
+                        typeNamespace)
+                    && metadata.StringComparer.Equals(
+                        type.Name,
+                        typeName);
+            });
+        MethodDefinitionHandle methodHandle =
+            metadata.GetTypeDefinition(typeHandle)
+                .GetMethods()
+                .Single(handle =>
+                    metadata.StringComparer.Equals(
+                        metadata.GetMethodDefinition(handle).Name,
+                        methodName));
+        return MetadataTokens.GetToken(methodHandle);
     }
 
     static AssemblyContextGroup Group(

@@ -1018,17 +1018,19 @@ gates the shared resolver's group-containment boundary.
 `AssemblyContextMethodAnalysisQuery` is the exact method-scoped Analysis seam.
 It accepts one group participant and physical MethodDef token, opens an
 optimization-capable body index over that participant's retained snapshot, and
-returns the matching method identity, signals, allocation and unsafe
-occurrences, physical call sites, unsafe declaration evidence, exception
-regions, optimization opportunities, and Analysis diagnostics. Invalid and
-bodyless tokens are typed participant failures rather than empty success. The
-query does not aggregate a source method with async or lifted implementation
-bodies; callers select each exact physical body explicitly. The query releases
-derived call-graph caches before returning, and group execution remains
-sequential for Browser/Wasm.
+returns the matching method identity and unsafe declaration evidence together
+with any signals, allocation and unsafe occurrences, physical call sites,
+exception regions, optimization opportunities, and Analysis diagnostics.
+Invalid MethodDef tokens are typed participant failures. A declaration without
+an IL body remains an available exact MethodDef result whose body-backed
+collections are empty; this preserves declaration Safety Facts without
+inventing body evidence. The query does not aggregate a source method with
+async or lifted implementation bodies; callers select each exact MethodDef
+explicitly. The query releases derived call-graph caches before returning, and
+group execution remains sequential for Browser/Wasm.
 `AssemblyContextMethodAnalysisQueryTests` gate exact-token filtering, compiled
-allocation/call/exception/opportunity evidence, visible invalid and bodyless
-failures, and unbounded query cost.
+allocation/call/exception/opportunity evidence, declaration-only unsafe
+evidence, visible invalid-token failure, and unbounded query cost.
 
 `AssemblyContextImplementationProfilesQuery` is the participant-scoped
 whole-assembly implementation-profile seam. It borrows one selected

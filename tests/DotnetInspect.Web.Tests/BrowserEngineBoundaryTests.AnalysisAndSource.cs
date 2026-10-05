@@ -301,6 +301,70 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public async Task PackageUnsafeFindings_OpenDeclarationOnlyFacts()
+    {
+        const string PackageId =
+            "Browser.Unsafe.DeclarationOnly.Findings";
+        byte[] image = File.ReadAllBytes(
+            FixtureCatalog.MetadataMethodImplContracts.AssemblyPath());
+        await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
+            new BrowserPackage(
+                PackageId,
+                "1.0.0",
+                PackagePair(
+                    image,
+                    image,
+                    $"{PackageId}.dll"),
+                fromCache: false));
+
+        BrowserPackageUnsafeFindings findings =
+            Assert.IsType<BrowserPackageUnsafeFindings>(
+                JsonSerializer.Deserialize(
+                    await DotnetInspect.Web.Interop.Analysis
+                        .AnalysisExports.QueryPackageUnsafeFindings(
+                            PackageId,
+                            "1.0.0",
+                            "net11.0",
+                            $"{PackageId}.dll"),
+                    BrowserAnalysisJsonContext.Default
+                        .BrowserPackageUnsafeFindings));
+        BrowserUnsafeFinding declaration =
+            Assert.Single(
+                findings.Findings,
+                finding =>
+                    finding.MemberName == "M"
+                    && finding.Kind == "Unsafe signature"
+                    && finding.Location == "declaration");
+
+        BrowserMemberFacts facts =
+            Assert.IsType<BrowserMemberFacts>(
+                JsonSerializer.Deserialize(
+                    await DotnetInspect.Web.Interop.Analysis
+                        .AnalysisExports.QueryMemberFacts(
+                            PackageId,
+                            "1.0.0",
+                            "net11.0",
+                            $"{PackageId}.dll",
+                            declaration.TypeId,
+                            declaration.BodyMember,
+                            memberSignature: "",
+                            declaration.BodySelector,
+                            declaration.BodyToken,
+                            implementationBodySelected: true),
+                    BrowserAnalysisJsonContext.Default
+                        .BrowserMemberFacts));
+        Assert.Equal(declaration.BodyToken, facts.MetadataToken);
+        Assert.True(facts.Signals.Unsafe);
+        Assert.Contains(
+            facts.Safety,
+            fact => fact.Kind == "Unsafe signature");
+        Assert.Empty(facts.Allocations);
+        Assert.Empty(facts.Calls);
+        Assert.Empty(facts.ExceptionRegions);
+        Assert.Empty(facts.PerformanceOpportunities);
+    }
+
+    [Fact]
     public async Task PackageUnsafeFindings_ReferenceOnlyLibraryFailsBeforeRows()
     {
         const string PackageId = "Browser.Unsafe.ReferenceOnly";
