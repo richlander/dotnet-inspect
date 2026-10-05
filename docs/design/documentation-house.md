@@ -273,9 +273,11 @@ only the DocumentationHouse.Contracts floor, and only its `Documentation`
 adapter folder uses a DocumentationHouse type, binding the owner's
 resource-free evidence to exact shared Library content references in the
 source-neutral House contribution contract. That folder boundary is a code
-review convention; no gate checks it, so it is `unverified`. The assembly
-boundary that matters for acyclicity is gated by the build: Contracts
-references no owner, and no owner references the DocumentationHouse core. Live content access comes only from the transferred
+review convention; no gate checks it, so it is `unverified`. The build gates
+acyclicity: Contracts cannot reference an owner without a cycle through the
+owners' Contracts references. That no owner references the DocumentationHouse
+core is a fact of the three owner project files at this head, held by code
+review and `unverified` by any gate. Live content access comes only from the transferred
 Library operation lease. This keeps every dependency acyclic and avoids
 `PackageHouse -> DocumentationHouse -> PackageHouse` and equivalent platform
 and source cycles.
@@ -846,10 +848,12 @@ DotnetInspector.PlatformQueries
   - owns no package, installed-pack, or host acquisition
 ```
 
-PackageHouse, PlatformHouse, SourceHouse, and direct-Library composition
-depend on the source-neutral DocumentationHouse.Contracts floor only through
-the adapter each carries in its `Documentation` folder; none depends on the
-DocumentationHouse implementation, and Workspace depends on neither. Adapters
+PackageHouse, PlatformHouse, and SourceHouse depend on the source-neutral
+DocumentationHouse.Contracts floor only through the adapter each carries in its
+`Documentation` folder, and none depends on the DocumentationHouse
+implementation. The direct-Library adapter is carried in the `Documentation`
+folder of `DotnetInspector.Queries`, which also references the core as the
+executing composer. Workspace depends on neither. Adapters
 depend toward both the source owner and the Contracts floor and cannot change
 either owner's evidence. The DocumentationHouse core does not reference an
 owner or adapter; it invokes only the source-neutral deferred-operation
