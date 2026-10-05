@@ -373,13 +373,14 @@ both complete; otherwise every derived order, role, and designation remains
 visibly qualified. Physical-only body evidence therefore qualifies the result
 but does not manufacture a logical relationship.
 
-This slice is Research-only comparison evidence. It does not define a body-use
-namespace index, automatic acquisition, transport or cache identity, CLI
-surface, Browser/Wasm projection, or website behavior. Production adoption
-requires a separately costed consumer slice and does not justify widening a
-cheap body-use request into full call-graph acquisition. Analysis owns typed
-operand decoding and the existing direct-call index; Research adds neither a
-decoder nor a second general call index.
+This section defines Research comparison evidence. It does not define a
+body-use namespace index, CLI surface, or website behavior.
+[Inspect Web Type leverage](inspect-web-type-leverage.md) owns the separately
+costed Browser consumer, including automatic acquisition, transport, cache
+identity, and presentation. That adoption does not justify widening body use
+into full call-graph acquisition. Analysis owns typed operand decoding and the
+existing direct-call index; Research adds neither a decoder nor a second
+general call index.
 
 #### Signature/body comparative census
 
@@ -463,9 +464,10 @@ degree, score, order, role, designation, or exclusion.
 Production body-use adoption remains a separately costed depth mode over the
 same namespace and Type questions. It defines both incoming and outgoing
 degree rather than silently assigning one producer to sea level and another
-to mountain peak. Adopting that mode requires its own acquisition,
-qualification, cache identity, and Browser/Wasm cost evidence; the Research
-pilot does not change the meaning of signature-level surface mode.
+to mountain peak. [Inspect Web Type leverage](inspect-web-type-leverage.md)
+owns the Browser acquisition, qualification, cache identity, and presentation;
+the Research mode does not change the meaning of signature-level surface
+evidence.
 
 ## Interpretation boundary
 
