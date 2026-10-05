@@ -772,7 +772,6 @@ internal static partial class MetadataRelationInspection
                     && unit.InterfaceMatched
                     && interfaceOrdinal >= startOrdinal
                     && interfaceOrdinal < endOrdinal;
-                int matchedCandidateCount = unit.CandidateCount;
                 if (materializeBase || materializeInterface)
                 {
                     unit = pass.Materialize(
@@ -783,7 +782,9 @@ internal static partial class MetadataRelationInspection
                     if (unit.IsUnavailable)
                     {
                         matched = checked(
-                            matched + matchedCandidateCount);
+                            matched
+                            + (materializeBase ? 1 : 0)
+                            + (materializeInterface ? 1 : 0));
                         unavailable++;
                         diagnostics.Add(
                             unit.Diagnostic

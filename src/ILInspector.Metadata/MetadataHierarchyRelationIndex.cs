@@ -465,8 +465,6 @@ internal static partial class MetadataRelationInspection
                 }
 
                 int ordinal = matched;
-                matched = checked(matched + 1);
-                bool materializationUnavailable = false;
                 if (request.MaterializeRows
                     && ordinal >= startOrdinal
                     && ordinal < endOrdinal)
@@ -494,33 +492,39 @@ internal static partial class MetadataRelationInspection
                         is MetadataTypeDefinitionNameReadResult.Rejected
                             rejected)
                     {
-                        materializationUnavailable = true;
+                        matched = checked(matched + 1);
                         unavailable++;
                         diagnostics.Add(
                             MalformedDiagnostic(
                                 MetadataRelationFamily.Hierarchy,
                                 MetadataTokens.GetToken(source.Handle),
                                 rejected.Failure.Detail));
+                        if (request.ForwardPlan is not null
+                            && matched >= endOrdinal
+                            && considered < candidates.Length)
+                        {
+                            matched = checked((int)endOrdinal);
+                            stopped = true;
+                            break;
+                        }
+                        continue;
                     }
-                    else
-                    {
-                        var sourceName =
-                            (MetadataTypeDefinitionNameReadResult.Read)read;
-                        operation.Charge(
-                            MetadataOperationDimension.StructuredNodes);
-                        rows.Add(
-                            new(
-                                MetadataTypeDefinitionAddress.FromHandle(
-                                    reader,
-                                    source.Handle),
-                                sourceName.Name,
-                                candidate.Kind,
-                                candidate.OccurrenceTokens));
-                    }
+                    var sourceName =
+                        (MetadataTypeDefinitionNameReadResult.Read)read;
+                    operation.Charge(
+                        MetadataOperationDimension.StructuredNodes);
+                    rows.Add(
+                        new(
+                            MetadataTypeDefinitionAddress.FromHandle(
+                                reader,
+                                source.Handle),
+                            sourceName.Name,
+                            candidate.Kind,
+                            candidate.OccurrenceTokens));
                 }
 
-                if (!materializationUnavailable)
-                    examined++;
+                matched = checked(matched + 1);
+                examined++;
                 if (request.ForwardPlan is not null
                     && matched >= endOrdinal
                     && considered < candidates.Length)
