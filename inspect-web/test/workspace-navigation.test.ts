@@ -1211,6 +1211,36 @@ test("history signatures distinguish exact graph member identity", () => {
   }
 });
 
+test("history signatures distinguish owner-issued exact Member selectors", () => {
+  const original = workspaceView();
+  const selected = workspaceView({
+    memberDocumentSelector: {
+      baselineOrdinal: 2,
+      fingerprintPrefix: "member-fingerprint",
+    },
+  });
+
+  assert.notEqual(
+    workspaceViewSignature(original),
+    workspaceViewSignature(selected));
+  assert.notEqual(
+    workspaceViewSignature(selected),
+    workspaceViewSignature(workspaceView({
+      memberDocumentSelector: {
+        baselineOrdinal: 3,
+        fingerprintPrefix: "member-fingerprint",
+      },
+    })));
+  assert.notEqual(
+    workspaceViewSignature(selected),
+    workspaceViewSignature(workspaceView({
+      memberDocumentSelector: {
+        baselineOrdinal: 2,
+        fingerprintPrefix: "different-fingerprint",
+      },
+    })));
+});
+
 test("history signatures distinguish captured library scope", () => {
   const original = workspaceView({
     libraryScope: ["System.Collections", "System.Runtime"],

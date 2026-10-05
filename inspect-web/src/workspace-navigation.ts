@@ -48,6 +48,7 @@ export interface WorkspaceView {
   memberTraitFilter: string;
   memberTextFilter: string;
   selectedOverloadIndex: number | null;
+  memberDocumentSelector?: MemberDocumentHistorySelector | null;
   bodyTarget: BodyTarget | null;
   memberSection: MemberSection;
   memberSourceView?: MemberSourceView;
@@ -59,6 +60,11 @@ export interface WorkspaceView {
   platformLibrary?: string | null;
   platformRootParent?: boolean;
   platformPresentedAsRoot?: boolean;
+}
+
+export interface MemberDocumentHistorySelector {
+  baselineOrdinal: number;
+  fingerprintPrefix: string;
 }
 
 export function workspaceViewSignature(view: WorkspaceView): string {
@@ -76,6 +82,7 @@ export function workspaceViewSignature(view: WorkspaceView): string {
     ma: view.memberAccessibilityFilter,
     mr: view.memberTraitFilter,
     o: view.selectedOverloadIndex,
+    md: view.memberDocumentSelector ?? null,
     b: graphTarget ? null : encodeBodyTarget(view.bodyTarget),
     g: graphTarget,
     s: view.memberSection,

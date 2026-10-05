@@ -526,13 +526,29 @@ test("uploaded Library private property opens from a nonresident exact row", asy
       "IsDisposable",
       "property",
       1,
-      "",
+      "widget-is-disposable",
       "private",
       "all",
       false,
       "csharp",
     ]),
   );
+
+  await chooseSubject(page, "type", "Type");
+  await expect(page.locator(".member-identity")).toHaveCount(0);
+  await page.locator("html").evaluate(element => {
+    element.removeAttribute(
+      "data-uploaded-library-member-group-document-request");
+    element.removeAttribute(
+      "data-uploaded-library-member-document-request");
+  });
+  await page.locator("#nav-back").click();
+
+  await expect(page.locator(".member-identity"))
+    .toContainText("owner-issued exact declaration");
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-uploaded-library-member-document-request",
+    /"IsDisposable","property",1,"widget-is-disposable"/);
 });
 
 test("uploaded resident members wait for Type document authority", async ({
@@ -690,8 +706,13 @@ test("uploaded Library private method family renders private exact rows", async 
     await expect(page.locator(".member-identity"))
       .toContainText("owner-issued exact declaration");
     await page.getByRole("button", { name: "Back", exact: true }).click();
-    await expect(subjectTab(page, "type"))
+    await expect(subjectTab(page, "member"))
       .toHaveAttribute("aria-selected", "true");
+    await expect(page.locator(".member-identity")).toHaveCount(0);
+    await expect(page.locator(".member-surface-list"))
+      .toContainText("private static Widget Parse(ReadOnlySpan<char> json)");
+    await expect(page.locator(".member-surface-list"))
+      .toContainText("private static Widget Parse(ReadOnlySpan<byte> utf8Json)");
     await page.getByRole("button", { name: "Forward", exact: true }).click();
     await expect(page.locator(".signature-code"))
       .toContainText("Widget Parse(ReadOnlySpan<char> json)");

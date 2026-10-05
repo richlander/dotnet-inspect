@@ -53,7 +53,9 @@ export function memberGroupMatches(
 
   const overloads = group.overloads.filter(
     overload => memberMatchesTrait(overload, filters.trait ?? ""));
-  if (group.detailsPending && overloads.length === 0) {
+  const traitCount = groupTraitCount(group, filters.trait ?? "");
+  if (overloads.length === 0
+    && (group.detailsPending || traitCount !== null)) {
     return groupMatchesSummaryTrait(group, filters.trait ?? "")
       && (!query || group.name.toLowerCase().includes(query));
   }
@@ -127,7 +129,9 @@ export function filterMemberGroups<TGroup extends FilterableMemberGroup>(
 
     const overloads = group.overloads.filter(
       overload => memberMatchesTrait(overload, filters.trait ?? ""));
-    if (group.detailsPending && overloads.length === 0) {
+    const traitCount = groupTraitCount(group, filters.trait ?? "");
+    if (overloads.length === 0
+      && (group.detailsPending || traitCount !== null)) {
       if (!groupMatchesSummaryTrait(group, filters.trait ?? "")
         || query && !group.name.toLowerCase().includes(query)) {
         return [];
@@ -135,6 +139,7 @@ export function filterMemberGroups<TGroup extends FilterableMemberGroup>(
       return [{
         ...group,
         overloads,
+        detailsPending: true,
         sourceOverloadCount: filteredSourceOverloadCount(
           group,
           overloads,
@@ -153,6 +158,9 @@ export function filterMemberGroups<TGroup extends FilterableMemberGroup>(
     return [{
       ...group,
       overloads,
+      detailsPending:
+        group.detailsPending
+        || traitCount !== null && overloads.length < traitCount,
       sourceOverloadCount: filteredSourceOverloadCount(
         group,
         overloads,

@@ -1878,6 +1878,9 @@ test("history restores population intent before validating saved Member identity
     /state\.selectedTypeId = type\?\.id \?\? forwarder\?\.id \?\? defaultVisibleTypeId\(pkg\);[\s\S]*state\.memberAccessibilityFilter = isMemberAccessibility\(requestedAccessibility\)[\s\S]*const member = type\s*\? memberGroups\(type\)\.find/);
   assert.match(
     applyView,
+    /activatePackage\(pkg\);[\s\S]*clearMemberDocumentCache\(\);[\s\S]*state\.selectedMemberDocumentSelector =[\s\S]*view\.memberDocumentSelector \?\? null/);
+  assert.match(
+    applyView,
     /const deferOrdinaryMemberRestore = Boolean\([\s\S]*view\.memberBrowseTypeId === type\.id[\s\S]*!historyGraphTarget[\s\S]*\(!member[\s\S]*member\.overloads\.length === 0[\s\S]*Number\.isInteger\(view\.selectedOverloadIndex\)\)/);
   assert.match(
     applyView,
@@ -1893,7 +1896,7 @@ test("history restores population intent before validating saved Member identity
     /if \(deferOrdinaryMemberRestore && type\) \{[\s\S]*render\(\);[\s\S]*restoreOrdinaryMemberHistory\([\s\S]*navigationSequence\.current\(\),[\s\S]*typeMemberPopulationKey\(type\),[\s\S]*viewSignature\(\)/);
   assert.match(
     applyView,
-    /async function restoreOrdinaryMemberHistory\([\s\S]*sourceView: string[\s\S]*await loadSelectedTypeMemberPopulation\(\)[\s\S]*viewSignature\(\) !== sourceView[\s\S]*let member = memberGroups\(type\)[\s\S]*member\?\.overloads\.length === 0[\s\S]*await loadSelectedMemberGroupDocument\(\)[\s\S]*member = memberGroups\(type\)[\s\S]*const restored = restoreMemberHistoryState\([\s\S]*loadMemberSectionContent\(state\.memberSection\)/);
+    /async function restoreOrdinaryMemberHistory\([\s\S]*sourceView: string[\s\S]*await loadSelectedTypeMemberPopulation\(\)[\s\S]*viewSignature\(\) !== sourceView[\s\S]*let member = memberGroups\(type\)[\s\S]*view\.memberDocumentSelector[\s\S]*member\.overloads\.length === 0[\s\S]*await loadSelectedMemberGroupDocument\(\)[\s\S]*member = memberGroups\(type\)[\s\S]*const restored = restoreMemberHistoryState\([\s\S]*state\.selectedMemberDocumentSelector =[\s\S]*view\.memberDocumentSelector \?\? null[\s\S]*if \(view\.memberDocumentSelector\) \{[\s\S]*loadSelectedMemberDocument\([\s\S]*view\.memberDocumentSelector\.baselineOrdinal,[\s\S]*view\.memberDocumentSelector\.fingerprintPrefix\)[\s\S]*else \{[\s\S]*loadMemberSectionContent\(state\.memberSection\)/);
   assert.match(
     applyView,
     /state\.selectedMemberKey && member\) \{\s*loadCurrentSelectionData\("Restoring a Member from navigation history"\)/);

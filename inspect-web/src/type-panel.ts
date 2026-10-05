@@ -392,7 +392,10 @@ export interface TypePanelBindingActions {
   onMemberFilterDisclosureToggle: (expanded: boolean) => void;
   onMemberFilterKeyDown: (event: KeyboardEvent, value: string) => boolean;
   onMemberGroupOpen: (memberKey: string) => void;
-  onMemberDocumentOpen: (baselineOrdinal: number) => void;
+  onMemberDocumentOpen: (
+    baselineOrdinal: number,
+    fingerprintPrefix: string,
+  ) => void;
   onMemberDocumentBack: () => void;
   onMemberKindFilterSelect: (kind: string | undefined) => void;
   onMethodLeverageRetry: () => void;
@@ -481,7 +484,8 @@ export function bindTypePanel(
       button.addEventListener(
         "click",
         () => actions.onMemberDocumentOpen(
-          Number(button.dataset.memberDocumentOrdinal))));
+          Number(button.dataset.memberDocumentOrdinal),
+          button.dataset.memberDocumentFingerprint ?? "")));
   root.querySelector("[data-member-document-back]")?.addEventListener(
     "click",
     actions.onMemberDocumentBack);

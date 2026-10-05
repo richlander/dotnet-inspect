@@ -483,6 +483,44 @@ test("partial resident detail retains producer-matched traits", () => {
   assert.equal(filtered[0]?.sourceOverloadCount, 1);
 });
 
+test("complete resident detail defers to positive producer interface facts", () => {
+  const complete = {
+    key: "explicit-interface-implementation:IDisposable.Dispose",
+    name: "IDisposable.Dispose",
+    kind: "explicit-interface-implementation",
+    overloads: [{
+      signature: "private void IDisposable.Dispose()",
+      isExplicitInterfaceImplementation: false,
+    }],
+    completeCount: 1,
+    sourceOverloadCount: 1,
+    detailsPending: false,
+    receivers: ["this"],
+    traitCounts: {
+      all: 1,
+      static: 0,
+      instance: 1,
+      virtual: 1,
+      interface: 1,
+      extensions: 0,
+    },
+  };
+
+  assert.equal(memberGroupMatches(complete, {
+    trait: "interface",
+  }), true);
+  assert.deepEqual(
+    filterMemberGroups([complete], {
+      trait: "interface",
+    }),
+    [{
+      ...complete,
+      overloads: [],
+      detailsPending: true,
+      sourceOverloadCount: 1,
+    }]);
+});
+
 test("member traits use the complete selector vocabulary", () => {
   assert.equal(memberMatchesTrait(
     { signature: "", isStatic: true },
