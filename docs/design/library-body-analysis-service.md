@@ -24,12 +24,12 @@ and does not describe a still-supported compatibility path.
 The remaining producer hub is now observable through an opt-in typed stage
 participation receipt. A diagnostic request records actual method enumeration,
 body acquisition, local-signature decode, canonical context construction,
-allocation, safety, body-signal, call, optimization, and result-aggregation
-participation. CLI `--trace` is the first production consumer. Ordinary
-executions do not create the recorder. This receipt describes current physical
-work so the migration can prove which stages a planned producer avoids; it is
-not a planner input, producer declaration, cost estimate, or stable substitute
-for owner-issued QuerySpace source receipts.
+direct-call discovery, allocation, safety, body-signal, call, optimization,
+and result-aggregation participation. CLI `--trace` is the first production
+consumer. Ordinary executions do not create the recorder. This receipt
+describes current physical work so the migration can prove which stages a
+planned producer avoids; it is not a planner input, producer declaration, cost
+estimate, or stable substitute for owner-issued QuerySpace source receipts.
 
 The selective implementation-metric extension is tracked by
 [#8450](https://github.com/richlander/dotnet-inspect/issues/8450) as the

@@ -12,6 +12,7 @@ public enum LibraryBodyAnalysisStage
     ManagedBodyAcquisition,
     LocalSignatureDecode,
     CanonicalMethodContext,
+    DirectCallDiscovery,
     AllocationAnalysis,
     SafetyAnalysis,
     BodySignalAnalysis,

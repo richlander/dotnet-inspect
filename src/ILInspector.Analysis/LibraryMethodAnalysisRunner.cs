@@ -1004,6 +1004,10 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                     is { RequiresDirectCallDiscovery: true }
                 && metricBodyAdmitted)
             {
+                using LibraryBodyAnalysisStageRecorder.StageAttempt?
+                    directCallDiscoveryStage = StartStage(
+                        LibraryBodyAnalysisStage
+                            .DirectCallDiscovery);
                 using ImplementationMetricExecutionRecorder.StageAttempt?
                     discovery = StartMetricStage(
                         plan,
@@ -1012,6 +1016,7 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                 MethodCallAnalysis.DiscoveryCounts counts =
                     MethodCallAnalysis.DiscoverCounts(body);
                 discovery?.Complete();
+                directCallDiscoveryStage?.Complete();
                 result.ImplementationMetrics =
                     CreateDirectCallDiscoveryMetrics(
                         plan.ImplementationMetrics!,
@@ -1697,6 +1702,10 @@ internal sealed partial class LibraryMethodAnalysisRunner(
             {
                 try
                 {
+                    using LibraryBodyAnalysisStageRecorder.StageAttempt?
+                        directCallDiscoveryStage = StartStage(
+                            LibraryBodyAnalysisStage
+                                .DirectCallDiscovery);
                     using ImplementationMetricExecutionRecorder.StageAttempt?
                         discovery = StartMetricStage(
                             plan,
@@ -1705,6 +1714,7 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                     MethodCallAnalysis.DiscoveryCounts counts =
                         MethodCallAnalysis.DiscoverCounts(body);
                     discovery?.Complete();
+                    directCallDiscoveryStage?.Complete();
                     result.ImplementationMetrics =
                         CreateDirectCallDiscoveryMetrics(
                             metricPlan,
