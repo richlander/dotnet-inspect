@@ -79,7 +79,7 @@ coordinate. First ask whether it has skill documents:
 
 ```bash
 dnx dotnet-inspect -y -- package Markout@0.35.2 \
-  -S "Package skill files" --count
+  -S Skills --count
 ```
 
 Then list the paths and inspect the YAML header of each candidate row before
@@ -88,11 +88,11 @@ inventory:
 
 ```bash
 dnx dotnet-inspect -y -- package Markout@0.35.2 \
-  -S "Package skill files" --paths
+  -S Skills --paths
 dnx dotnet-inspect -y -- package Markout@0.35.2 \
-  -S "Package skill files" --print --frontmatter --row 1 --raw
+  -S Skills --print --frontmatter --row 1 --raw
 dnx dotnet-inspect -y -- package Markout@0.35.2 \
-  -S "Package skill files" --print --row 1 --raw
+  -S Skills --print --row 1 --raw
 ```
 
 Do not use an unpinned package query when the repository consumes a specific
@@ -131,9 +131,9 @@ Then either redirect the contained stdout payload:
 ```bash
 mkdir -p skills/markout-output-formats
 dnx dotnet-inspect -y -- package Markout@0.35.2 \
-  -S "Package skill files" --paths
+  -S Skills --paths
 dnx dotnet-inspect -y -- package Markout@0.35.2 \
-  -S "Package skill files" --print --row 4 --prefer-rendered-urls --raw \
+  -S Skills --print --row 4 --prefer-rendered-urls --raw \
   > skills/markout-output-formats/SKILL.md
 ```
 
@@ -141,7 +141,7 @@ Or ask dotnet-inspect to write the same contained payload:
 
 ```bash
 dnx dotnet-inspect -y -- package Markout@0.35.2 \
-  -S "Package skill files" --print --row 4 --prefer-rendered-urls --raw \
+  -S Skills --print --row 4 --prefer-rendered-urls --raw \
   --output skills/markout-output-formats/SKILL.md
 ```
 

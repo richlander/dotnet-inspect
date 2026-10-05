@@ -771,7 +771,7 @@ It does not reacquire the Package, independently resolve a version, or create
 an unrelated ephemeral Workspace. Target-sensitive Package and aggregate
 Library behavior uses the selected context's effective target. Without
 `--share`, the command otherwise preserves ordinary exact-Package sections,
-formats, projections, diagnostics, counts, Package files/content, TFM
+formats, projections, diagnostics, counts, Files/content, TFM
 inventory, source-sensitive behavior, and exit behavior.
 
 Appending `--share[=url|packet]` follows the additive
@@ -809,7 +809,7 @@ or otherwise mutates the input Workspace definition.
 
 A Share refusal preserves ordinary stdout, writes no partial scalar, names the
 first non-projectable choice, and makes the explicitly requested side output
-fail nonzero. Inspected content, Package files, metadata rows, acquired
+fail nonzero. Inspected content, Files, metadata rows, acquired
 archives, diagnostics, credentials, and live Workspace authority do not enter
 the packet. The receiving host applies its own offline mode, source
 configuration, credentials, cache, timeout, preview, and transfer limits.
