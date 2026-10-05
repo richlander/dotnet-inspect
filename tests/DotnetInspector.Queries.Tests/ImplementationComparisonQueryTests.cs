@@ -12,6 +12,8 @@ using ILInspector.Instructions;
 using ILInspector.Metadata;
 using ILInspector.Research;
 
+using ILInspector.ILDiff;
+
 namespace DotnetInspector.Queries.Tests;
 
 public sealed class ImplementationComparisonQueryTests

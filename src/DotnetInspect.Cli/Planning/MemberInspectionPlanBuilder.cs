@@ -1,5 +1,6 @@
 using DotnetInspect.Cli.Options;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 
@@ -7,7 +8,7 @@ namespace DotnetInspect.Cli.Planning;
 
 internal static class MemberInspectionPlanBuilder
 {
-    static readonly ViewFacetId ExactMemberDefaultFacet =
+    private static readonly ViewFacetId MemberDefaultFacet =
         InspectionViewFacetCatalog.Registry
             .GetRequiredDescriptor(
                 StructuralSubjectKind.Member,
@@ -32,29 +33,22 @@ internal static class MemberInspectionPlanBuilder
         ArgumentNullException.ThrowIfNull(options);
 
         var basis = new ResolvedMemberInspectionBasis(
-            new ResolvedInspectionSource(
-                sourceAssembly?.Provenance
-                    ?? AssemblyResolutionProvenance.Local(sourcePath),
-                sourceAssembly?.Identity,
-                Path.GetFileNameWithoutExtension(
-                    sourceAssembly?.Path ?? sourcePath),
+            CreateSource(
+                sourceAssembly,
+                sourcePath,
                 selectedFramework,
                 package),
             new ResolvedInspectionMemberTarget(
                 typeName,
                 typeDefinition,
                 member),
-            ExactMemberDefaultFacet,
+            MemberDefaultFacet,
             new InspectionCatalogReference(
                 structuralPlan.Selection.Catalog.ToString(),
                 structuralPlan.Selection.CatalogVersion),
-            new InspectionSemanticDemand(
-                options.IncludeSections is { } resolvedSections
-                    ? resolvedSections
-                    : structuralPlan.Selection.ResolvedSections,
-                options.IncludeSections is null
-                    ? structuralPlan.Selection.ExactSections
-                    : options.ExactIncludeSectionsOverride ?? []),
+            CreateSemanticDemand(
+                structuralPlan,
+                options),
             new InspectionCapabilityRequestProvenance(
                 MapVerbosity(
                     structuralPlan.Intent.CapabilityRequest.UserVerbosity),
@@ -73,6 +67,62 @@ internal static class MemberInspectionPlanBuilder
             basis,
             MapVerbosity(options.Verbosity));
     }
+
+    internal static ResolvedMemberGroupExplanationBasis
+        CreateGroupExplanationBasis(
+            ResolvedAssemblyReference? sourceAssembly,
+            string sourcePath,
+            string? selectedFramework,
+            MemberGroupSubject subject,
+            ResolvedMemberInspectionPlan structuralPlan,
+            MemberOptions options,
+            AssemblyResolutionProvenance.PackageAsset? package = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sourcePath);
+        ArgumentNullException.ThrowIfNull(subject);
+        ArgumentNullException.ThrowIfNull(structuralPlan);
+        ArgumentNullException.ThrowIfNull(options);
+
+        return new(
+            CreateSource(
+                sourceAssembly,
+                sourcePath,
+                selectedFramework,
+                package),
+            subject,
+            MemberDefaultFacet,
+            structuralPlan.Intent.CapabilityRequest
+                    .ExplicitSectionSelectors.IsEmpty
+                ? new([], [])
+                : CreateSemanticDemand(
+                    structuralPlan,
+                    options));
+    }
+
+    private static ResolvedInspectionSource CreateSource(
+        ResolvedAssemblyReference? sourceAssembly,
+        string sourcePath,
+        string? selectedFramework,
+        AssemblyResolutionProvenance.PackageAsset? package) =>
+        new(
+            sourceAssembly?.Provenance
+                ?? AssemblyResolutionProvenance.Local(sourcePath),
+            sourceAssembly?.Identity,
+            Path.GetFileNameWithoutExtension(
+                sourceAssembly?.Path ?? sourcePath),
+            selectedFramework,
+            package);
+
+    private static InspectionSemanticDemand CreateSemanticDemand(
+        ResolvedMemberInspectionPlan structuralPlan,
+        MemberOptions options) =>
+        new(
+            options.IncludeSections is { } resolvedSections
+                ? resolvedSections
+                : structuralPlan.Selection.ResolvedSections,
+            options.IncludeSections is null
+                ? structuralPlan.Selection.ExactSections
+                : options.ExactIncludeSectionsOverride ?? []);
 
     internal static MemberOptions ApplySemanticDemand(
         MemberOptions options,

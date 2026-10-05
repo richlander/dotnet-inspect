@@ -63,8 +63,11 @@ test("aggregate Type lists load icon-only cues automatically", async ({
   await selectLibrary(page, core.id);
   await chooseSubject(page, "library", "Library");
   await chooseInspector(page, "data-library-lens", "analysis", "Analysis");
-  await page.locator('[data-analysis-mode="metrics"]').click();
-  await expect(page.locator(".library-metrics-surface"))
+  await page.locator('[data-analysis-mode="complexity"]').click();
+  await expect(page.locator(".library-complexity-surface"))
+    .not.toContainText("Structural Salience");
+  await page.locator('[data-analysis-mode="relationships"]').click();
+  await expect(page.locator(".library-relationships-surface"))
     .not.toContainText("Structural Salience");
 });
 

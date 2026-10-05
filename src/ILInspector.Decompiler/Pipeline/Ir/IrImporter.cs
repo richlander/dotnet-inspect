@@ -1192,6 +1192,20 @@ public static class IrImporter
                             DiagnosticIds.UnsupportedConstruct,
                             $"IL_{offset:X4} (join-type): slot {i} type unknown — paths carry {existing.Types[i]!.ToDisplayString()} and {types[i]!.ToDisplayString()}"));
                     }
+                    else
+                    {
+                        // A reference merge to a common supertype proves each
+                        // narrower path assignable to it; publish that as a
+                        // function fact so storage decisions downstream need
+                        // no hierarchy of their own. A null-literal arm adopts
+                        // the other arm's type without proving anything about
+                        // System.Object, so it publishes nothing.
+                        if (!existing.NullLiterals[i] && !nullLiterals[i])
+                        {
+                            RecordReferenceWidening(source, function, existing.Types[i]!, merged);
+                            RecordReferenceWidening(source, function, types[i]!, merged);
+                        }
+                    }
                     existing.Types[i] = merged;  // family-canonical, or null — never a guess
                     existing.NullLiterals[i] = false;
                 }
@@ -2140,6 +2154,17 @@ public static class IrImporter
         if (familyA is not null && familyB is not null && familyA == familyB)
             return TypeFamilies.Canonical(familyA.Value);
         return null;
+    }
+
+    /// <summary>
+    /// Records that the join merge proved <paramref name="from"/> assignable to
+    /// <paramref name="to"/>; equal types and non-reference types prove nothing.
+    /// </summary>
+    static void RecordReferenceWidening(MetadataSource source, IrFunction function, TypeRef from, TypeRef to)
+    {
+        if (from.Equals(to) || !IsReferenceType(source, from) || !IsReferenceType(source, to))
+            return;
+        function.RecordProvenReferenceWidening(from, to);
     }
 
     static TypeRef? EnumOverUnderlyingFamily(MetadataSource source, TypeRef enumSide, TypeRef integerSide)

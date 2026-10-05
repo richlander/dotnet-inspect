@@ -5,6 +5,8 @@ using System.Reflection.PortableExecutable;
 
 using Inspector.Findings;
 
+using ILInspector.ILDiff;
+
 namespace ILInspector.ILDiff.Tests;
 
 public class IlMemberEndpointComparisonTests

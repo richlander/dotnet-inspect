@@ -3,6 +3,8 @@ using ILInspector.Instructions;
 using ILInspector.MetadataPrimitives;
 using ILInspector.Research;
 
+using ILInspector.ILDiff;
+
 namespace ILInspector.Decompiler.Tests;
 
 [Trait("Speed", "Slow")]

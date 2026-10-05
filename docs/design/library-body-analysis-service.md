@@ -13,7 +13,13 @@ binding, and detached execution composition used to retire this service's
 closed producer hubs. This document remains authoritative for the current
 implementation and its focused result semantics during that migration. New
 producer coordination adopts the target contract rather than extending the
-feature, plan, runner, aggregate, or compatibility-index hubs described here.
+feature, plan, runner, or aggregate hubs described here.
+
+`LibraryBodyIndex` and its service/execution compatibility adapters are
+retired. `LibraryBodyAnalysisService` now publishes only
+`LibraryBodyAnalysisExecution`; consumers use its independently named focused
+results. The migration narrative below records how that boundary was reached
+and does not describe a still-supported compatibility path.
 
 The selective implementation-metric extension is tracked by
 [#8450](https://github.com/richlander/dotnet-inspect/issues/8450) as the
@@ -46,8 +52,8 @@ The third migration adds `LibraryLeverageAnalysisResult` for whole-library
 ranking and `LibraryCallGraphAnalysisResult` for detached call evidence, local
 graph derivation, and catalog participation. Library Top Leverage and member
 call-graph composition consume those focused types. The compatibility index
-delegates its leverage and local graph members to the same results; it no
-longer owns a second implementation.
+delegated its leverage and local graph members to the same results; it no
+longer owned a second implementation.
 
 The next call-graph adoption moves pairwise direct-use acquisition and bounded
 local root-path analysis to `LibraryCallGraphAnalysisResult`. Pairwise queries
@@ -81,12 +87,11 @@ the selected physical MethodDef tokens, and reuses the input across coordinate
 file rows. The Research producer validates source-module correspondence and
 result participation without reopening Analysis.
 
-The CLI session adoption moves both path and prefetched-image execution in
+The CLI session adoption moved both path and prefetched-image execution in
 `MethodBodyInspectionSession` onto the service. The session continues to own
 command-selected feature and body-scope policy, resolver binding policy, source
-attribution, and reuse of one execution across requested sections. Migrated
-sections consume focused results from that execution; unmigrated sections
-request its lazy compatibility index.
+attribution, and reuse of one execution across requested sections. All sections
+consume focused results from that execution.
 
 The `runfaster` adoption moves static allocation-candidate discovery from the
 default compatibility index to one allocation-only path execution. It consumes
@@ -99,12 +104,8 @@ optimization producers once per corpus assembly. It consumes method identities,
 allocation occurrences, and completed optimization opportunities from their
 focused results while preserving aggregate buckets and failed-open accounting.
 
-`LibraryBodyIndex.Open*` remains a temporary compatibility facade for
-unmigrated consumers. `LibraryBodyIndex` itself is also a temporary aggregate
-for those consumers, not the destination for new producer evidence or query
-algorithms. Each later implementation slice moves at least one production
-consumer to the service and an owner-issued result type, then removes the
-corresponding index dependency.
+The compatibility facade was removed after every production and test consumer
+moved to the service and owner-issued result types.
 
 ## Authority and exact claim
 
@@ -149,7 +150,6 @@ exact path or caller-owned immutable image
           -> one receipt for shared identity, coverage, and diagnostics
           -> explicitly named focused result values
   -> adopting query or section consumes only its focused result
-  -> LibraryBodyIndex compatibility adapter serves unmigrated consumers
 ```
 
 `LibraryBodyAnalysisService` is a static callable boundary, not a global
@@ -170,9 +170,9 @@ separately from compatibility features so omission means "do not run", not
 
 The publication may aggregate several explicitly named result values so one
 command can reuse one acquisition. It is not a universal result algebra,
-producer registry, type-keyed bag, or semantic facade. Producer result types
-remain independently named and owned; section and query APIs accept those
-focused types rather than the aggregate publication or `LibraryBodyIndex`.
+producer registry, type-keyed bag, or semantic facade. Producer result types remain independently named and owned; section and query
+APIs accept those focused types rather than the execution as a semantic
+aggregate.
 
 ## Input ownership
 
@@ -181,7 +181,7 @@ duration of synchronous execution. It does not open the supplied display name
 as a path. When resolution-aware Analysis requires a root snapshot, the
 service creates that root from the supplied bytes.
 
-The path entry point is a desktop compatibility operation. It owns its stream
+The path entry point is a desktop operation. It owns its stream
 and reader for the invocation and may retain an immutable root snapshot while
 producer execution resolves references. Path text does not establish
 cross-operation content identity.
@@ -229,8 +229,7 @@ shape. New Resource Occurrence Analysis publishes a distinct
 `LibraryResourceOccurrenceAnalysisResult` containing root-bound
 `ResourceOccurrenceAnalysisResult` method evidence. Its explicit admitted
 effect set is carried by the request rather than by an unparameterized feature
-bit. It does not add another property or projection method to
-`LibraryBodyIndex`.
+bit. It remains independently typed on `LibraryBodyAnalysisExecution`.
 
 Resource Lifecycle Analysis follows the same parameterized boundary. A
 `CreateResourceLifecycle(admission)` request selects occurrence prerequisites
@@ -259,16 +258,14 @@ member reference on a type specification, so its `CalleeDefinitionToken` is not
 a declared-method token. Resolution binds it by token and then by signature,
 using the same current-module test and signature comparison as the call graph's
 own traversal. Consumers must use this outcome and must not match
-`CalleeDefinitionToken` against `DeclaredMethods`. Resolution is a pure function
-of the published result and does not require `LibraryBodyIndex`.
+`CalleeDefinitionToken` against `DeclaredMethods`. Resolution is a pure function of the published result.
 
 The first production consumer is the Library Metrics relationship projection.
 Library Dependency Structure is the second.
 
 `LibraryCallGraphAnalysisResult.ResolveDeclaredMethod(MethodIdentity)`
 publishes Analysis's declared-source association for any method, including
-call targets and methods that make no calls. Focused consumers call it
-directly; `LibraryBodyIndex` does not forward it.
+call targets and methods that make no calls. Focused consumers call it directly.
 
 - **Where Analysis authenticates the ultimate owner** (lifted lambdas, local
   functions, and async `MoveNext`), it returns that owner. This is the same
@@ -292,11 +289,6 @@ attribute call targets. Gates:
   async association.
 - `OptimizationOpportunities_UnresolvedLiftedSourceFailsClosedAcrossScopes`:
   the unscoped fallback and the scoped `null`, on the focused result.
-
-During migration, `LibraryBodyIndex` may adapt the execution receipt and
-focused results for unmigrated consumers. Adapter-only lazy indexes may remain
-until their focused owner and consumer move. The adapter must not become the
-input required by a newly migrated query.
 
 This first adoption preserves the existing exception boundary. Invalid
 requests fail during request construction; invalid images and producer
@@ -1294,10 +1286,10 @@ result parity, catalog, and cache-boundary gates.
 Resource Triage follows issues #6730 and #6731 so the new ownership path reaches
 a section without returning through the old index shape.
 
-Removal of `LibraryBodyIndex.Open*` follows its final acquisition consumer.
-Removal or narrowing of `LibraryBodyIndex` itself follows its final semantic
-consumer. No service substrate, producer registry, universal request, generic
-result, or type-keyed result bag lands for hypothetical later adoption.
+`LibraryBodyIndex.Open*` and the aggregate itself were removed after their
+final acquisition and semantic consumers moved. No service substrate, producer
+registry, universal request, generic result, or type-keyed result bag landed
+for hypothetical later adoption.
 
 ## Demo
 

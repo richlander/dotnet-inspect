@@ -11,6 +11,8 @@ using ILInspector.Research;
 using System.Reflection.Metadata.Ecma335;
 using System.Text.Json;
 
+using ILInspector.ILDiff;
+
 namespace ILInspector.Decompiler.Tests;
 
 public class CSharpStructuralComparisonTests

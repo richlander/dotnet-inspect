@@ -975,7 +975,7 @@ only neutral mechanics with one bounded answer.**
 
 `member-target-resolution.md` states the divergence is deliberate: "Body identity
 deliberately has a different type-name vocabulary from API identity because it
-mirrors `LibraryBodyIndex`/`MethodIdentity` evidence."
+mirrors focused Analysis `MethodIdentity` evidence."
 
 **This is the highest-value fact in this document for anyone writing a type
 predicate.** The two spellings agree on non-nested types and diverge silently on

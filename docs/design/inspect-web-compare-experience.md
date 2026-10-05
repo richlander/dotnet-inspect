@@ -181,6 +181,21 @@ owner-issued counts and classifications. Diff completeness and Clone
 coverage/truncation remain visibly distinct; the surface never presents a
 bounded Clone result as exhaustive.
 
+### Navigation diff cues
+
+While Compare Diff has a settled Library API Diff result, the existing Type and
+Member achievement rail shows an **API differences** glyph on exact current-side
+subjects present in that result. A Type row is marked from its current metadata
+identifier. A single Member or nested overload is marked from its current
+fingerprint, and an overload-family row is marked when any current overload in
+that represented family population is present.
+
+The cue is absent while Diff is pending or unsuccessful, in Clone mode, and for
+removed Before-only subjects that have no current Navigation identity. It
+coexists with structural-salience, Top Leverage, and implementation-hub cues;
+the shared rail therefore reserves three ordered glyph slots. The Browser never
+infers diff presence from display text, signatures, counts, or classification.
+
 ## Library drill-down
 
 Library Compare contains Type rows and no selected-Type detail pane.

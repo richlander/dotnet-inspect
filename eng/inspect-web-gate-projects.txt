@@ -29,13 +29,9 @@ src/DotnetInspector.PackageHouse.Execution
 src/DotnetInspector.PackageQueries
 src/DotnetInspector.Packages
 src/DotnetInspector.PlatformHouse
-src/DotnetInspector.PlatformHouse.Execution
-src/DotnetInspector.PlatformHouse.Execution.Packages
 src/DotnetInspector.PlatformHouse.Packages
 src/DotnetInspector.PlatformQueries
 src/DotnetInspector.Platforms
-src/DotnetInspector.Platforms.Formats
-src/DotnetInspector.Platforms.Packages
 src/DotnetInspector.Presentation
 src/DotnetInspector.Queries
 src/QuerySpace
