@@ -381,6 +381,50 @@ cheap body-use request into full call-graph acquisition. Analysis owns typed
 operand decoding and the existing direct-call index; Research adds neither a
 decoder nor a second general call index.
 
+#### Signature/body comparative census
+
+The Deep Inspect package sweep records how signature and body Type-leverage
+results differ across its acquired package slice. The census validates every
+selected assembly against the package-sweep manifest's path and SHA-256, then
+invokes the product-owned signature and body shard producers. It does not
+reconstruct relationships, degrees, orders, roles, eligibility, or poles.
+An absent target framework remains valid acquisition provenance when the
+package selector issued a selected assembly without one.
+A selected assembly with no defined Types remains an observed zero population;
+the census retains its provenance and body coverage without constructing a
+namespace batch. Once acquisition succeeds, the census runs independently of
+the bounded decompiler report, while either sensor's failure remains visible.
+
+The census may join rows by exact Type address and report:
+
+- signature and body pole counts and densities within their owner-issued row
+  populations;
+- the same Type with the same pole, the same Type with opposite poles, and
+  signature-only or body-only poles;
+- exact-maximum versus near-maximum cohort membership for an already issued
+  pole;
+- absolute position differences among Types present in both owner-issued
+  incoming or outgoing orders; and
+- source disposition, body coverage, package provenance, and diagnostic
+  acquisition and projection time.
+
+Every aggregate retains per-assembly and per-Type evidence. Rank evidence
+retains the exact Type identity and owner-issued position in each applicable
+signature and body order. The body-use source disposition and the composed
+body-leverage disposition remain distinct: incomplete metadata qualifies the
+composed result even when Analysis completed body acquisition. Qualified body
+results remain qualified; physical-only bodies are reported rather than
+repaired or discarded. Signature and body row populations can differ, so
+their densities have separate denominators and do not define a shared coverage
+rate.
+
+The current-package sweep is observational evidence, not a pinned baseline or
+a product decision. Pole overlap does not establish that the modes are
+interchangeable, and disagreement does not establish which mode is more
+useful. CoreCLR timing is diagnostic feasibility evidence only; an accepted
+performance claim requires exact base/head NativeAOT measurement under the
+performance evidence contract.
+
 #### Sharding and exhaustive composition
 
 The exact namespace is the Type-leverage unit of semantic analysis, demand,
