@@ -1,7 +1,6 @@
-using DotnetInspector.Sections;
 using QuerySpace.Vocabulary;
 
-namespace DotnetInspector.Vocabulary;
+namespace DotnetInspector.Sections;
 
 /// <summary>Completes a host-composed Product Vocabulary as a host-neutral inspection.</summary>
 public static class ProductVocabularyInspection

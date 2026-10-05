@@ -123,6 +123,10 @@ body-use analysis over that same snapshot. Research constructs surface and body
 shards from the shared exact-namespace inventories. MVID and assembly identity
 must correspond before body shards can be issued.
 
+The complete body-use occurrence population is partitioned by exact endpoint
+namespace in one pass before per-namespace Graph execution. Namespace count
+must not multiply traversal of that whole-Library population.
+
 For a reference-only package Library, the surface channel uses the selected
 surface participant and the implementation channel settles as
 `NoImplementationAssembly`. Surface poles remain available. A body-use

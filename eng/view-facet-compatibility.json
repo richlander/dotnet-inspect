@@ -30,6 +30,11 @@
     "purpose": "Direct assembly references for the active Library."
   },
   {
+    "id": "library.ecosystem-dependencies",
+    "kind": "Library",
+    "purpose": "Product-relative ecosystem recognition and candidate evidence for direct assembly references in the active Library."
+  },
+  {
     "id": "library.reference-hierarchy",
     "kind": "Library",
     "purpose": "Rooted transitive assembly references for the active Library."

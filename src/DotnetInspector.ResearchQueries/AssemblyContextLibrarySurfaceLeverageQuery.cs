@@ -116,6 +116,31 @@ public static class AssemblyContextLibrarySurfaceLeverageQuery
             exhaustive: true,
             cancellationToken);
 
+    public static LibrarySurfaceLeverageResult ExecuteExhaustive(
+        AssemblyInspectionSession session,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        cancellationToken.ThrowIfCancellationRequested();
+        return AcquireExhaustive(
+            session,
+            cancellationToken) switch
+        {
+            LibrarySurfaceLeverageExhaustiveAcquisition.Available
+                available =>
+                new LibrarySurfaceLeverageResult.AvailableExhaustive(
+                    available.Document),
+            LibrarySurfaceLeverageExhaustiveAcquisition.Rejected
+                rejected =>
+                new LibrarySurfaceLeverageResult.Rejected(
+                    rejected.Kind,
+                    rejected.Detail,
+                    rejected.Counters),
+            _ => throw new InvalidOperationException(
+                "Unknown exhaustive surface-leverage outcome."),
+        };
+    }
+
     private static AssemblyContextEntry<LibrarySurfaceLeverageResult>
         ExecuteParticipant(
             AssemblyContextGroup group,
