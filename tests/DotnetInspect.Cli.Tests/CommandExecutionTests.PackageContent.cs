@@ -1733,6 +1733,7 @@ public partial class CommandExecutionTests
                 $"{PackageFixtureId}@{PackageFixtureVersion}",
                 "-S",
                 "Manifest",
+                "--markdown",
                 "--source",
                 PackageFixtureFeed,
                 "--nugetconfig",
