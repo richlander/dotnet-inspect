@@ -16,9 +16,9 @@ import type {
 } from "./operation-authority.ts";
 
 type TypeLeveragePole = "sea-level" | "mountain-peak";
-export type TypeLeverageEvidenceMode = "surface" | "implementation";
+type TypeLeverageEvidenceMode = "surface" | "implementation";
 
-export interface TypeLeverageCue {
+interface TypeLeverageCue {
   readonly evidenceMode: TypeLeverageEvidenceMode;
   readonly pole: TypeLeveragePole;
   readonly description: string;
