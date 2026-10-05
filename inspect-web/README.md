@@ -777,7 +777,7 @@ that type identity; ambiguous and external nodes remain static. Platform-only
 type projection keeps its existing isolated runtime-pack scope.
 
 `QueryMemberAnnotatedSource` runs over one group participant. The Research query
-owns the `MetadataSource` and the whole-assembly `LibraryBodyIndex`, takes no
+owns the `MetadataSource` and focused whole-assembly Analysis results, takes no
 filesystem path, and resolves references through the participant's own binding
 policy rather than by matching simple names. Annotated source moves to its
 matching implementation participant and asks `CallGraphMemberResolver` to
@@ -786,8 +786,8 @@ selector when `ref/` and `lib/` row numbers differ. It then returns the
 product's portable `AnnotatedSourceDocument` serialized by its owning
 `AnnotatedSourceDocumentJsonContext` — the same artifact the CLI writes and
 the [#3964] viewer validates — inside an envelope carrying provenance and, when
-whole-assembly fact context could not be built, a visible `contextLimitation` so
-a short fact list is never read as an honest absence of facts. Printer options
+whole-assembly fact context could not be built, a visible `contextLimitation`
+so a short fact list is never read as an honest absence of facts. Printer options
 are resolved from `StyleOptionCatalog`; an id the catalog does not know is a
 visible failure, not a silently ignored selection.
 

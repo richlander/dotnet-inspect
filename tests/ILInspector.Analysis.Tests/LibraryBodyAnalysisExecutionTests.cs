@@ -14,6 +14,105 @@ namespace ILInspector.Analysis.Tests;
 public sealed class LibraryBodyAnalysisExecutionTests
 {
     [Fact]
+    public void StageParticipation_PreservesZeroWorkAndFinalizesAttemptsOnce()
+    {
+        var recorder = new LibraryBodyAnalysisStageRecorder();
+        recorder.RecordCompleted(
+            LibraryBodyAnalysisStage.MethodEnumeration,
+            count: 0);
+        LibraryBodyAnalysisStageRecorder.StageAttempt attempt =
+            recorder.Start(
+                LibraryBodyAnalysisStage.ManagedBodyAcquisition);
+
+        attempt.Dispose();
+        attempt.Dispose();
+        attempt.Complete();
+
+        LibraryBodyAnalysisStageParticipationReceipt participation =
+            recorder.Snapshot();
+        LibraryBodyAnalysisStageParticipation enumeration =
+            Assert.Single(
+                participation.Stages,
+                stage => stage.Stage
+                    == LibraryBodyAnalysisStage.MethodEnumeration);
+        Assert.Equal(0, enumeration.Attempts);
+        Assert.Equal(0, enumeration.Completions);
+        Assert.Equal(0, enumeration.Failures);
+        LibraryBodyAnalysisStageParticipation acquisition =
+            participation.For(
+                LibraryBodyAnalysisStage.ManagedBodyAcquisition);
+        Assert.Equal(1, acquisition.Attempts);
+        Assert.Equal(0, acquisition.Completions);
+        Assert.Equal(1, acquisition.Failures);
+    }
+
+    [Fact]
+    public void StageParticipation_IsOptInAndRecordsCurrentPhysicalWork()
+    {
+        string path =
+            FixtureCatalog.AnalysisCallerLoop.AssemblyPath();
+        LibraryBodyAnalysisRequest request =
+            LibraryBodyAnalysisRequest.Create(
+                LibraryBodyAnalysisFeatures
+                    .OptimizationOpportunities);
+
+        LibraryBodyAnalysisExecution ordinary =
+            LibraryBodyAnalysisService.ExecutePath(
+                path,
+                request);
+        LibraryBodyAnalysisExecution observed =
+            LibraryBodyAnalysisService.ExecutePath(
+                path,
+                request.WithStageParticipation());
+
+        Assert.Null(ordinary.Receipt.StageParticipation);
+        LibraryBodyAnalysisStageParticipationReceipt participation =
+            Assert.IsType<
+                LibraryBodyAnalysisStageParticipationReceipt>(
+                    observed.Receipt.StageParticipation);
+        AssertStageParticipated(
+            LibraryBodyAnalysisStage.MethodEnumeration);
+        AssertStageParticipated(
+            LibraryBodyAnalysisStage.ManagedBodyAcquisition);
+        AssertStageParticipated(
+            LibraryBodyAnalysisStage.LocalSignatureDecode);
+        AssertStageParticipated(
+            LibraryBodyAnalysisStage.CanonicalMethodContext);
+        AssertStageParticipated(
+            LibraryBodyAnalysisStage.AllocationAnalysis);
+        AssertStageParticipated(
+            LibraryBodyAnalysisStage.SafetyAnalysis);
+        AssertStageParticipated(
+            LibraryBodyAnalysisStage.BodySignalAnalysis);
+        AssertStageParticipated(
+            LibraryBodyAnalysisStage.CallAnalysis);
+        AssertStageParticipated(
+            LibraryBodyAnalysisStage
+                .StringMaterializationAnalysis);
+        AssertStageParticipated(
+            LibraryBodyAnalysisStage
+                .OptimizationOpportunityAnalysis);
+        AssertStageParticipated(
+            LibraryBodyAnalysisStage.AsyncSiblingAnalysis);
+        LibraryBodyAnalysisStageParticipation aggregation =
+            participation.For(
+                LibraryBodyAnalysisStage.ResultAggregation);
+        Assert.Equal(1, aggregation.Attempts);
+        Assert.Equal(1, aggregation.Completions);
+        Assert.Equal(0, aggregation.Failures);
+
+        void AssertStageParticipated(
+            LibraryBodyAnalysisStage stage)
+        {
+            LibraryBodyAnalysisStageParticipation actual =
+                participation.For(stage);
+            Assert.True(actual.Attempts > 0, stage.ToString());
+            Assert.Equal(actual.Attempts, actual.Completions);
+            Assert.Equal(0, actual.Failures);
+        }
+    }
+
+    [Fact]
     public void CompleteProfileRequest_CreatesVersionedMetricPlan()
     {
         LibraryBodyAnalysisRequest request =

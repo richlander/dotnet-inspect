@@ -3025,7 +3025,7 @@ public static class ApiOutputFormatter
         if (!profiles.WasRequested)
         {
             throw new InvalidOperationException(
-                "Implementation profiles were not requested for this body index.");
+                "Implementation profiles were not requested for this body analysis execution.");
         }
 
         var drillByToken = BuildMemberDrillMap(type);
