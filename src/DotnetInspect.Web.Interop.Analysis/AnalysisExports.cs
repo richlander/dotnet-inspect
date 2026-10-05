@@ -1475,7 +1475,6 @@ public static partial class AnalysisExports
             return new BrowserPackagePerformance(
                 Members: [],
                 InspectionError: null,
-                NonPublicOpportunities: 0,
                 TotalOpportunities: 0,
                 compileLibrary);
         }
@@ -1489,33 +1488,7 @@ public static partial class AnalysisExports
             scope.UseMetadataParticipant(
                 participant,
                 AssemblyContextOptimizationOpportunitiesQuery.ExecuteParticipant);
-        // The ranking only publishes members the site can navigate to, which is the same
-        // browsable surface the package facade renders. The projection is DTO-neutral shared
-        // mechanics in DotnetInspect.Web.Core; this facade never reaches for a sibling's wire
-        // record to decide what is navigable.
-        BrowserWorkspaceParticipant? surfaceParticipant =
-            scope.TryGetSurfaceParticipant(participant);
-        BrowserSurfaceProjection.Surface? surface = surfaceParticipant is null
-            ? null
-            : BrowserPackageSurfaceProjection.ProjectParticipantSurface(
-                scope,
-                surfaceParticipant);
-        HashSet<(
-            string Assembly,
-            string Type,
-            string Selector)> navigableMembers =
-        [
-            .. (surface?.Types ?? [])
-                .SelectMany(type =>
-                type.Api.Select(member => (
-                    type.Assembly,
-                    type.DefinitionId,
-                    member.StableSelector))),
-        ];
-
         var failures = new List<string>();
-        if (!string.IsNullOrWhiteSpace(surface?.InspectionError))
-            failures.Add($"API surface: {surface.InspectionError}");
         foreach (AssemblyContextEntry<
             AssemblyOptimizationOpportunityRanking> entry
             in result.Assemblies.Assemblies)
@@ -1562,8 +1535,7 @@ public static partial class AnalysisExports
                 PerformanceMembers(
                     result,
                     participants,
-                    scope,
-                    navigableMembers),
+                    scope),
                 failures);
 
         return new BrowserPackagePerformance(
@@ -1571,7 +1543,6 @@ public static partial class AnalysisExports
             failures.Count == 0
                 ? null
                 : string.Join("; ", failures),
-            result.NonPublicOpportunities,
             result.TotalOpportunities,
             compileLibrary);
     }
@@ -1579,40 +1550,41 @@ public static partial class AnalysisExports
     static IEnumerable<BrowserPerformanceMember> PerformanceMembers(
         AssemblyContextOptimizationOpportunitiesResult result,
         ImmutableArray<BrowserWorkspaceParticipant> participants,
-        BrowserInspectionScope scope,
-        HashSet<(
-            string Assembly,
-            string Type,
-            string Selector)> navigableMembers)
+        BrowserInspectionScope scope)
     {
         foreach (AssemblyContextOptimizationOpportunityMember member
             in result.RankedMembers)
         {
-            if (member.Member.PublicMember is not { } publicMember)
-                continue;
-
             BrowserWorkspaceParticipant analysisParticipant =
                 participants.Single(candidate =>
                     ReferenceEquals(
                         candidate.Assembly.Registration,
                         member.Subject.Registration));
+            OptimizationOpportunityDeclaredMember? declaredMember =
+                member.Member.DeclaredMember;
+            ILAnalysis.MethodIdentity method =
+                member.Member.Ranking.Method;
             BrowserWorkspaceParticipant? surfaceParticipant =
                 scope.TryGetSurfaceParticipant(analysisParticipant);
-            if (surfaceParticipant is null
-                || !navigableMembers.Contains((
-                    surfaceParticipant.Asset.AssemblyName,
-                    publicMember.Type,
-                    publicMember.StableSelector)))
-            {
-                continue;
-            }
 
             yield return new BrowserPerformanceMember(
-                surfaceParticipant.Asset.AssemblyName,
-                publicMember.Type,
-                publicMember.Member,
-                publicMember.StableSelector,
-                [.. publicMember.BodyTokens],
+                surfaceParticipant?.Asset.AssemblyName
+                    ?? analysisParticipant.Asset.AssemblyName,
+                declaredMember?.Type
+                    ?? method.DeclaringType.ToQualifiedDisplayString(),
+                declaredMember?.Member ?? method.Name,
+                declaredMember?.StableSelector,
+                declaredMember?.Accessibility ?? "implementation",
+                declaredMember is not null
+                    ? [.. declaredMember.BodyTokens]
+                    : [
+                        .. member.Member.Ranking.Opportunities
+                            .Select(opportunity =>
+                                opportunity.EvidenceMethodToken
+                                ?? opportunity.Method.MetadataToken)
+                            .Distinct()
+                            .Order(),
+                    ],
                 member.Member.Ranking.Opportunities.Length,
                 member.Member.Ranking.InLoopCount,
                 [.. member.Member.Ranking.Shapes],
@@ -1632,7 +1604,7 @@ public static partial class AnalysisExports
             {
                 failures.Add(
                     $"Performance ranking truncated after the top "
-                    + $"{MemberLimit} navigable public members.");
+                    + $"{MemberLimit} implementation members.");
                 break;
             }
 

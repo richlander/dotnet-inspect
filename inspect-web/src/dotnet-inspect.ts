@@ -167,7 +167,7 @@ import {
 } from "./platform-forwarders.ts";
 import {
   createPackageInspectionCoordinator,
-  resolvePackagePerformanceMember,
+  resolvePackagePerformanceType,
   workspaceDependencyKey,
   type PackagePerformance,
 } from "./package-inspection.ts";
@@ -11601,13 +11601,11 @@ function drillToPerfMember(
   typeId: string,
 ) {
   const pkg = currentPackage();
-  const target = resolvePackagePerformanceMember(pkg, {
+  const targetType = resolvePackagePerformanceType(pkg, {
     assembly,
     typeId,
-    stableSelector,
   });
-  if (!target) return;
-  const { type: targetType } = target;
+  if (!targetType) return;
 
   state.atPackageRoot = false;
   state.atLibraryRoot = false;
@@ -11616,7 +11614,7 @@ function drillToPerfMember(
   state.memberBrowseTypeId = "";
   state.namespaceFilter = "";
   resetMemberFilters();
-  setTypeMemberPopulationIntent("public", "csharp");
+  setTypeMemberPopulationIntent("all", "csharp");
   state.lens = "api";
   state.selectedMemberKey = "";
   state.selectedOverloadIndex = null;

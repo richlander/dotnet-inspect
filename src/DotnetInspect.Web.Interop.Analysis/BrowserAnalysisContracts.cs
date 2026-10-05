@@ -254,7 +254,6 @@ public sealed record BrowserOpportunityItem(
 public sealed record BrowserPackagePerformance(
     BrowserPerformanceMember[] Members,
     string? InspectionError,
-    int NonPublicOpportunities,
     int TotalOpportunities,
     BrowserCompileLibraryAvailability CompileLibrary);
 
@@ -424,7 +423,8 @@ public sealed record BrowserPerformanceMember(
     string Assembly,
     string TypeId,
     string MemberName,
-    string StableSelector,
+    string? StableSelector,
+    string Accessibility,
     int[] BodyTokens,
     int OpportunityCount,
     int InLoopCount,

@@ -76,7 +76,6 @@ interface PackageMeasurement {
 interface PackagePerformanceResult {
   readonly totalOpportunities: number;
   readonly members: number;
-  readonly nonPublicOpportunities: number;
   readonly compileLibraryStatus: string | number;
 }
 
@@ -509,7 +508,6 @@ async function measurePackagePerformance(
         result: {
           totalOpportunities: result.totalOpportunities,
           members: result.members.length,
-          nonPublicOpportunities: result.nonPublicOpportunities,
           compileLibraryStatus: result.compileLibrary.status,
         },
       };

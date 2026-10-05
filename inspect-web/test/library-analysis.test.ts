@@ -34,6 +34,7 @@ function member(overrides: Partial<BrowserPerformanceMember> = {}): BrowserPerfo
     typeId: "Test.Namespace.Widget",
     memberName: "Run",
     stableSelector: "Run",
+    accessibility: "internal",
     bodyTokens: [0x06000001],
     opportunityCount: 3,
     inLoopCount: 1,
@@ -49,7 +50,6 @@ function result(
   return {
     members: [member()],
     inspectionError: null,
-    nonPublicOpportunities: 2,
     totalOpportunities: 5,
     compileLibrary: {
       status: "Selected",
@@ -102,9 +102,9 @@ test("ranked member rows retain navigation identity and triage evidence", () => 
     data: result(),
   });
 
-  assert.match(html, /1 public member/);
+  assert.match(html, /1 ranked member/);
   assert.match(html, /5 opportunities/);
-  assert.match(html, /2 non-public/);
+  assert.match(html, /internal/);
   assert.match(html, /data-perf-selector="Run"/);
   assert.match(html, /data-perf-assembly="Test\.Assembly\.dll"/);
   assert.match(html, /data-perf-type="Test\.Namespace\.Widget"/);
@@ -126,15 +126,14 @@ test("the full-area frame retains Library identity and package coordinates", () 
   assert.match(html, /net10\.0 · Test\.Package@1\.0\.0/);
 });
 
-test("a complete empty result may state there are no public hot spots", () => {
+test("a complete empty result states there are no body opportunities", () => {
   const html = renderLibraryAnalysisSurface({
     ...baseOptions,
-    data: result({ members: [], totalOpportunities: 2 }),
+    data: result({ members: [], totalOpportunities: 0 }),
   });
 
-  assert.match(html, /No public allocation hot spots/);
-  assert.match(html, /2 allocation\/performance opportunities were classified/);
-  assert.match(html, /2 opportunities are in non-public members/);
+  assert.match(html, /No allocation or performance opportunities/);
+  assert.match(html, /analyzed implementation bodies/);
 });
 
 test("a partial empty result does not claim established absence", () => {
@@ -149,7 +148,7 @@ test("a partial empty result does not claim established absence", () => {
   assert.match(html, /Analysis incomplete/);
   assert.match(html, /partial/);
   assert.match(html, /A method body could not be analyzed/);
-  assert.doesNotMatch(html, /No public allocation hot spots/);
+  assert.doesNotMatch(html, /No allocation or performance opportunities/);
 });
 
 test("partial rows remain available with a visible diagnostic", () => {
@@ -179,4 +178,20 @@ test("member names, shapes, and confidence are escaped", () => {
   assert.match(html, /&lt;shape&gt;/);
   assert.match(html, /&lt;high&gt;/);
   assert.doesNotMatch(html, /<Run>|<shape>|<high>/);
+});
+
+test("unattributed implementation rows remain visible without fake navigation", () => {
+  const html = renderLibraryAnalysisSurface({
+    ...baseOptions,
+    data: result({
+      members: [member({
+        stableSelector: null,
+        accessibility: "implementation",
+      })],
+    }),
+  });
+
+  assert.match(html, /perf-row-static/);
+  assert.match(html, /implementation/);
+  assert.doesNotMatch(html, /data-perf-selector/);
 });

@@ -199,10 +199,14 @@ for (const width of [1440, 390]) {
     await installFacades(page);
     await openAnalysis(page);
     const frame = page.locator(".library-analysis-surface");
-    await expect(frame.locator(".perf-row")).toHaveCount(2);
-    await expect(frame.locator("header")).toContainText("2 public members");
+    await expect(frame.locator(".perf-row")).toHaveCount(3);
+    await expect(frame.locator("header")).toContainText("3 ranked members");
     await expect(frame.locator("header")).toContainText("6 opportunities");
-    await expect(frame.locator("header")).toContainText("2 non-public");
+    await expect(frame.locator(".perf-accessibility")).toContainText([
+      "public",
+      "public",
+      "private",
+    ]);
     await expect(frame.locator("footer")).toContainText(core.asset);
     await expect(frame.locator("footer")).toContainText("Example.Core, Version=1.0.0.0");
     await expect(page.locator("html")).toHaveAttribute("data-analysis-request", "asset:core");
@@ -267,17 +271,17 @@ for (const width of [1440, 390]) {
       await openAnalysis(page);
       const frame = page.locator(".library-analysis-surface");
       if (scenario === "partial") {
-        await expect(frame.locator(".perf-row")).toHaveCount(2);
+        await expect(frame.locator(".perf-row")).toHaveCount(3);
         await expect(frame.locator("header")).toContainText("partial");
       } else {
         await expect(frame.locator("h2")).toHaveText(scenario === "empty"
-          ? "No public allocation hot spots" : scenario === "partial-empty"
+          ? "No allocation or performance opportunities" : scenario === "partial-empty"
             ? "Analysis incomplete" : "Analysis failed");
         await expect(frame.locator(".perf-row")).toHaveCount(0);
       }
       if (scenario.startsWith("partial")) {
         await expect(frame).toContainText("A method body could not be analyzed.");
-        await expect(frame).not.toContainText("No public allocation hot spots");
+        await expect(frame).not.toContainText("No allocation or performance opportunities");
       }
       await expect(frame.locator("footer")).toBeInViewport();
     });
@@ -290,7 +294,7 @@ for (const width of [1440, 390]) {
     await chooseInspector(page, "data-library-lens", "analysis", "Analysis");
     await selectPerformanceAnalysis(page);
     const frame = page.locator(".library-analysis-surface");
-    await expect(frame.locator(".perf-row")).toHaveCount(2);
+    await expect(frame.locator(".perf-row")).toHaveCount(3);
     const picker = frame.locator(".library-analysis-controls select");
     await expect(picker).toBeVisible();
     await expect(picker).toHaveValue("System.Text.Json");
@@ -324,7 +328,7 @@ test("production Analysis rows open the exact ranked member", async ({ page }) =
     "Runs the widget.");
 });
 
-test("ranked Analysis members replace sticky private Type population intent", async ({
+test("ranked Analysis members replace sticky private intent with all access", async ({
   page,
 }) => {
   await installFacades(page);
@@ -349,7 +353,7 @@ test("ranked Analysis members replace sticky private Type population intent", as
   await expect(subjectTab(page, "member"))
     .toHaveAttribute("aria-selected", "true");
   await expect(page.locator("[data-member-access-filter]"))
-    .toHaveValue("public");
+    .toHaveValue("all");
   await expect(page.locator("#inspector-panel")).toContainText(
     "Runs the widget.",
   );
@@ -375,13 +379,13 @@ test("ranked Analysis activation does not outlive newer metadata spelling", asyn
   await page.locator(".library-analysis-surface .perf-row").first().click();
   await expect(page.locator("html")).toHaveAttribute(
     "data-type-member-population-request",
-    /"csharp","public"\]$/,
+    /"csharp","all"\]$/,
   );
   await page.locator("#member-filter-summary").click();
   await page.locator("[data-member-spelling]").selectOption("metadata");
   await expect(page.locator("html")).toHaveAttribute(
     "data-type-member-population-request",
-    /"metadata","public"\]$/,
+    /"metadata","all"\]$/,
   );
 
   await releaseFacade(page, "finish-type-member-population");
@@ -426,7 +430,7 @@ test("ranked Analysis activation does not outlive A to B to A Type navigation", 
   await page.locator(".library-analysis-surface .perf-row").first().click();
   await expect(page.locator("html")).toHaveAttribute(
     "data-type-member-population-request",
-    /"Example.Neighbor","csharp","public"\]$/,
+    /"Example.Neighbor","csharp","all"\]$/,
   );
   await expect(subjectTab(page, "type"))
     .toHaveAttribute("aria-selected", "true");
@@ -436,14 +440,14 @@ test("ranked Analysis activation does not outlive A to B to A Type navigation", 
   ).click();
   await expect(page.locator("html")).toHaveAttribute(
     "data-type-member-population-request",
-    /"Example.SecondNeighbor","csharp","public"\]$/,
+    /"Example.SecondNeighbor","csharp","all"\]$/,
   );
   await page.locator(
     '#type-list [data-type="asset:other:Example.Neighbor"]',
   ).click();
   await expect(page.locator("html")).toHaveAttribute(
     "data-type-member-population-request",
-    /"Example.Neighbor","csharp","public"\]$/,
+    /"Example.Neighbor","csharp","all"\]$/,
   );
 
   await releaseFacade(page, "finish-type-member-population");
@@ -567,7 +571,7 @@ test("production Analysis keeps deferred Library results out of the incoming ana
   await expect(page.locator(".library-analysis-surface")).toContainText("Analyzing allocations");
   await expect(page.locator(".library-analysis-surface footer")).toContainText(core.asset);
   await releaseFacade(page, "fixture-analysis-ready:asset:core");
-  await expect(page.locator(".library-analysis-scroll .perf-row")).toHaveCount(2);
+  await expect(page.locator(".library-analysis-scroll .perf-row")).toHaveCount(3);
   await chooseSubject(page, "package", "Package");
   await selectLibrary(page, other.id);
   await chooseInspector(page, "data-library-lens", "analysis", "Analysis");

@@ -60,6 +60,8 @@ public sealed partial class BrowserEngineBoundaryTests
 
     public static object PerformanceBoxingProbe(int value) => value;
 
+    static object PerformancePrivateBoxingProbe(int value) => value;
+
     public static int PerformanceNoAllocationProbe(int value) => value;
 
     public static int InvocationDestinationProbe(int value) =>
@@ -309,7 +311,8 @@ public sealed partial class BrowserEngineBoundaryTests
 
     static async Task AssertPerformanceParticipantIsolation(
         string packageId,
-        byte[] neighbor)
+        byte[] neighbor,
+        bool expectNeighborFailure)
     {
         byte[] selected = File.ReadAllBytes(
             typeof(BrowserEngineBoundaryTests).Assembly.Location);
@@ -344,7 +347,10 @@ public sealed partial class BrowserEngineBoundaryTests
                 await DotnetInspect.Web.Interop.Analysis.AnalysisExports.QueryPackagePerformance(
                     packageId, "1.0.0", "net11.0", neighborId),
                 BrowserAnalysisJsonContext.Default.BrowserPackagePerformance));
-        Assert.NotNull(neighborPerformance.InspectionError);
+        if (expectNeighborFailure)
+            Assert.NotNull(neighborPerformance.InspectionError);
+        else
+            Assert.Null(neighborPerformance.InspectionError);
         Assert.Empty(neighborPerformance.Members);
     }
 

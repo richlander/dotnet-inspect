@@ -145,9 +145,13 @@ The end-to-end work is staged:
 4. expose the resulting candidates through Performance Triage in both CLI and
    Browser/Wasm hosts.
 
-The first two stages are implemented. The browser Analysis contract carries
-the typed lifetime evidence now; candidate policy and candidate UX remain
-stages three and four.
+The first two stages and the initial stage-four product route are implemented.
+Performance Triage uses the current bounded small-primitive-array policy to
+publish `stackalloc-candidate` rows in both CLI and Browser/Wasm hosts. Inspect
+Web includes candidates from every declared-member accessibility because this
+is implementation-body analysis; its signature-oriented Analysis inspectors
+remain public-only. Further `Span<T>` representability and stack-size policy
+expansion remains stage three.
 
 Array Pool Escapes remains unchanged throughout.
 

@@ -2687,7 +2687,10 @@ public sealed partial class BrowserEngineBoundaryTests
                     packageId, "1.0.0", "net11.0", surface.Asset.Id),
                 BrowserAnalysisJsonContext.Default.BrowserPackagePerformance));
         Assert.True(performance.TotalOpportunities > 0);
-        Assert.Empty(performance.Members);
+        Assert.NotEmpty(performance.Members);
+        Assert.All(
+            performance.Members,
+            member => Assert.Equal(fileName, member.Assembly));
         Assert.Null(performance.InspectionError);
     }
 

@@ -2684,6 +2684,7 @@ kbd {
 .perf-name { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .perf-shapes { display: flex; flex-wrap: wrap; gap: 4px; }
 .perf-shape { font-size: 11px; padding: 1px 6px; border-radius: 999px; background: var(--panel-active); color: var(--dim); }
+.perf-accessibility { flex: 0 0 auto; color: var(--muted); font-size: 11px; text-transform: capitalize; }
 .perf-meta { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; }
 .perf-loop { font-size: 11px; color: #d97757; }
 .perf-confidence { font-size: 11px; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--line); color: var(--dim); text-transform: capitalize; }
@@ -2757,7 +2758,9 @@ kbd {
 .library-analysis-scroll { overflow-wrap: anywhere; }
 .library-analysis-note { margin: 0; padding: 10px 16px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 12px; }
 .library-analysis-scroll .perf-list { gap: 0; }
-.library-analysis-scroll .perf-row { display: grid; grid-template-columns: 32px minmax(0, 1fr) auto; align-items: center; gap: 12px; margin: 0; padding: 12px 16px; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: transparent; }
+.library-analysis-scroll .perf-row { display: grid; grid-template-columns: 32px minmax(0, 1fr) auto auto; align-items: center; gap: 12px; margin: 0; padding: 12px 16px; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: transparent; }
+.library-analysis-scroll .perf-row-static { cursor: default; }
+.library-analysis-scroll .perf-row-static:hover { border-color: var(--line); background: transparent; }
 .library-analysis-scroll .perf-name { overflow: visible; white-space: normal; overflow-wrap: anywhere; }
 .library-analysis-scroll .perf-shape { max-width: 100%; overflow-wrap: anywhere; }
 .library-analysis-scroll .perf-meta { min-width: 0; flex-wrap: wrap; justify-content: flex-end; }
@@ -3275,6 +3278,7 @@ kbd {
   .library-integrations-scroll .signal-kind { grid-column: 2; justify-self: start; max-width: 100%; }
   .library-opportunities-scroll .opp-row { padding-inline: 12px; }
   .library-analysis-scroll .perf-row { grid-template-columns: 32px minmax(0, 1fr); align-items: start; padding-inline: 12px; }
+  .library-analysis-scroll .perf-accessibility { grid-column: 2; }
   .library-analysis-scroll .perf-meta { grid-column: 2; justify-content: flex-start; }
   .metadata-surface-head { padding-inline: 12px; }
   .metadata-surface-scroll > .document-section,

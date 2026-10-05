@@ -2537,11 +2537,19 @@ async function installFacades(
             "fixture-analysis-ready:" + requestKey, resolve, { once: true }));
         }
         if (scenario === "query-error") throw new Error("Analysis query unavailable.");
-        const member = (memberName, opportunityCount, inLoopCount, shapes, confidence) => ({
+        const member = (
+          memberName,
+          opportunityCount,
+          inLoopCount,
+          shapes,
+          confidence,
+          accessibility = "public",
+        ) => ({
           assembly: selected.name + ".dll",
           typeId: selectedType.definitionId,
           memberName,
           stableSelector: "Run",
+          accessibility,
           bodyTokens: [100663297],
           opportunityCount,
           inLoopCount,
@@ -2550,7 +2558,8 @@ async function installFacades(
         });
         const members = scenario === "empty" || scenario === "partial-empty" ? [] : [
           member("Run", 3, 1, ["box-value-type", "string-concat"], "high"),
-          member("Write", 1, 0, ["array-allocation"], "medium")
+          member("Write", 1, 0, ["array-allocation"], "medium"),
+          member("Transform", 2, 0, ["stackalloc-candidate"], "high", "private")
         ];
         if (scenario === "long") {
           members.splice(0, members.length, ...Array.from({ length: 80 }, (_, index) =>
@@ -2565,8 +2574,7 @@ async function installFacades(
         return {
           members,
           inspectionError: partial ? "A method body could not be analyzed." : null,
-          nonPublicOpportunities: 2,
-          totalOpportunities: members.reduce((total, item) => total + item.opportunityCount, 0) + 2,
+          totalOpportunities: members.reduce((total, item) => total + item.opportunityCount, 0),
           compileLibrary: surface.compileLibrary
         };
       }
