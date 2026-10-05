@@ -133,7 +133,6 @@ src/DotnetInspector.MetadataRendering
 src/DotnetInspector.PlatformHouse.Local
 src/DotnetInspector.Sections.Local
 src/DotnetInspector.SourceDelegation
-src/DotnetInspector.Vocabulary
 src/ILInspector.Analysis.App
 src/ILInspector.JsExportSurface
 src/ILInspector.TypeScriptGeneration

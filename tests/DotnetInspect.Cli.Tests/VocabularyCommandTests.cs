@@ -6,7 +6,6 @@ using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Sections;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
-using DotnetInspector.Vocabulary;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
 
@@ -233,7 +232,7 @@ public sealed class VocabularyCommandTests
         var result = await ConsoleCapture.RunAsync(() => Task.FromResult(
             VocabularyCommand.Execute(new VocabularyOptions
             {
-                Select = [VocabularyCatalog.AccessibilitySection],
+                Select = [ApiAccessibilityVocabulary.AccessibilityLabel],
                 JsonOutput = true,
             })));
 
@@ -265,7 +264,7 @@ public sealed class VocabularyCommandTests
         var projected = await ConsoleCapture.RunAsync(() => Task.FromResult(
             VocabularyCommand.Execute(new VocabularyOptions
             {
-                Select = [VocabularyCatalog.StyleChoicesSection],
+                Select = [StyleOptionVocabularies.StyleChoicesLabel],
                 Tabular = true,
                 Tsv = true,
                 Columns = ["ID", "Tier"],
@@ -275,7 +274,7 @@ public sealed class VocabularyCommandTests
         var counted = await ConsoleCapture.RunAsync(() => Task.FromResult(
             VocabularyCommand.Execute(new VocabularyOptions
             {
-                Select = [VocabularyCatalog.AccessibilitySection],
+                Select = [ApiAccessibilityVocabulary.AccessibilityLabel],
                 Count = true,
             })));
 
@@ -299,7 +298,7 @@ public sealed class VocabularyCommandTests
         var result = await ConsoleCapture.RunAsync(() => Task.FromResult(
             VocabularyCommand.Execute(new VocabularyOptions
             {
-                Select = [VocabularyCatalog.StyleChoicesSection],
+                Select = [StyleOptionVocabularies.StyleChoicesLabel],
                 Tabular = true,
                 Tsv = true,
                 Fields = ["ID", "Tier"],
@@ -397,8 +396,8 @@ public sealed class VocabularyCommandTests
             {
                 Select =
                 [
-                    VocabularyCatalog.AccessibilitySection,
-                    VocabularyCatalog.StyleTiersSection,
+                    ApiAccessibilityVocabulary.AccessibilityLabel,
+                    StyleOptionVocabularies.StyleTiersLabel,
                 ],
                 JsonOutput = true,
                 Columns = ["byte_divergent"],
@@ -408,8 +407,8 @@ public sealed class VocabularyCommandTests
             {
                 Select =
                 [
-                    VocabularyCatalog.AccessibilitySection,
-                    VocabularyCatalog.StyleTiersSection,
+                    ApiAccessibilityVocabulary.AccessibilityLabel,
+                    StyleOptionVocabularies.StyleTiersLabel,
                 ],
                 Columns = ["byte_divergent"],
             })));
@@ -435,7 +434,7 @@ public sealed class VocabularyCommandTests
         var result = await ConsoleCapture.RunAsync(() => Task.FromResult(
             VocabularyCommand.Execute(new VocabularyOptions
             {
-                Select = [VocabularyCatalog.AccessibilitySection],
+                Select = [ApiAccessibilityVocabulary.AccessibilityLabel],
                 PlainText = true,
             })));
 
@@ -535,8 +534,8 @@ public sealed class VocabularyCommandTests
             {
                 Select =
                 [
-                    VocabularyCatalog.AccessibilitySection,
-                    VocabularyCatalog.StyleTiersSection,
+                    ApiAccessibilityVocabulary.AccessibilityLabel,
+                    StyleOptionVocabularies.StyleTiersLabel,
                 ],
                 Count = true,
                 Columns = ["byte_divergent"],
@@ -686,8 +685,8 @@ public sealed class VocabularyCommandTests
             {
                 Select =
                 [
-                    VocabularyCatalog.StyleChoicesSection,
-                    VocabularyCatalog.AccessibilitySection,
+                    StyleOptionVocabularies.StyleChoicesLabel,
+                    ApiAccessibilityVocabulary.AccessibilityLabel,
                 ],
                 RowSelection = Select(
                     RowSelectionIntentOperation<string>.Window(5, null)),
