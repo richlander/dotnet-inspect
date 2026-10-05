@@ -67,6 +67,7 @@ public static class MemberOverloadPopulationInspectionOperation
                         Spelling(request.Plan.Subject.Spelling),
                         request.Plan.Bounds,
                         query.IncludeHidden,
+                        Category(request.Plan.Subject.Category),
                         expectedModuleVersionId:
                             compatibleContinuation
                                 ? rows?.Continuation?.Binding
@@ -394,6 +395,14 @@ public static class MemberOverloadPopulationInspectionOperation
             _ => throw new InvalidOperationException(
                 "Unknown exact-Member spelling."),
         };
+
+    private static MetadataMethodGroupCategory Category(
+        MemberGroupCategory category) =>
+            category is MemberGroupCategory
+                    .ExplicitInterfaceImplementation
+                ? MetadataMethodGroupCategory
+                    .ExplicitInterfaceImplementation
+                : MetadataMethodGroupCategory.Method;
 
     private static InspectionEnvelope<
         MemberOverloadPopulationInspectionOutcome> Rejected(

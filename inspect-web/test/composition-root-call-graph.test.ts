@@ -1010,17 +1010,17 @@ test("member family navigation resets exact sections without resetting Compare",
     ?? "";
   assert.match(
     selection,
-    /ordinaryMethodGroup\(entry\.group\)/);
+    /exactMethodGroup\(entry\.group\)/);
   assert.match(
     selection,
-    /ordinaryMethodGroup[\s\S]*state\.memberSection = "overview";[\s\S]*openMemberGroup\(entry\.group\.key\)/);
+    /exactMethodGroup[\s\S]*state\.memberSection = "overview";[\s\S]*openMemberGroup\(entry\.group\.key\)/);
 
   const openMemberGroup =
     appSource.match(/function openMemberGroup\([\s\S]*?\n}\n\nfunction enterMemberScope/)?.[0]
     ?? "";
   assert.match(
     openMemberGroup,
-    /const resetMethodSection =\s*ordinaryMethodGroup\(group\) && state\.memberSection !== "compare";[\s\S]*state\.selectedOverloadIndex =\s*graphOnlyTarget \? 0 : singletonSourceIndex;[\s\S]*if \(resetMethodSection \|\| !preserveSection\) \{\s*state\.memberSection = "overview";/);
+    /const resetMethodSection =\s*exactMethodGroup\(group\) && state\.memberSection !== "compare";[\s\S]*state\.selectedOverloadIndex =\s*graphOnlyTarget \? 0 : singletonSourceIndex;[\s\S]*if \(resetMethodSection \|\| !preserveSection\) \{\s*state\.memberSection = "overview";/);
   assert.match(
     openMemberGroup,
     /group\?\.overloads\.length === 1[\s\S]*!memberGroupUsesFamilySurface\(group\)[\s\S]*!graphOnlyTarget/);
@@ -1045,7 +1045,7 @@ test("fallback ordinary families load the shared document", () => {
     ?? "";
   assert.match(
     applyView,
-    /state\.selectedMemberKey && member\) \{\s*loadMemberSectionContent\(state\.memberSection\)/);
+    /state\.selectedMemberKey && member\) \{\s*loadCurrentSelectionData\("Restoring a Member from navigation history"\)/);
 
   const spotlight =
     appSource.match(/async function pickSpotlightMember\([\s\S]*?\n}\n\nasync function pickSpotlight\(/)?.[0]
@@ -1056,14 +1056,14 @@ test("fallback ordinary families load the shared document", () => {
   assert.doesNotMatch(spotlight, /loadSelectedMemberOverview\(\)/);
 
   const groupDocument =
-    appSource.match(/async function loadSelectedMemberGroupDocument\([\s\S]*?\n}\n\nasync function loadSelectedMemberSource/)?.[0]
+    appSource.match(/async function loadSelectedMemberGroupDocument\([\s\S]*?\n}\n\nasync function loadSelectedMemberDocument/)?.[0]
     ?? "";
   assert.doesNotMatch(
     groupDocument,
     /member\.completeCountStatus === "available"/);
   assert.match(
     groupDocument,
-    /member\.kind !== "method"[\s\S]*member\.overloads\.some\(overload => overload\.graphOnly\)[\s\S]*memberGroupDocumentRequestKey\(type, member\)[\s\S]*inspectUploadedLibraryMemberGroupDocument[\s\S]*state\.memberAccessibilityFilter[\s\S]*memberGroupReceiverIntent\(\)[\s\S]*inspectPlatformMemberGroupDocument[\s\S]*inspectMemberGroupDocument/);
+    /!exactMethodGroup\(member\)[\s\S]*memberGroupDocumentRequestKey\(type, member\)[\s\S]*inspectUploadedLibraryMemberGroupDocument[\s\S]*member\.name,\s*member\.kind,[\s\S]*state\.memberAccessibilityFilter[\s\S]*memberGroupReceiverIntent\(\)[\s\S]*inspectPlatformMemberGroupDocument[\s\S]*inspectMemberGroupDocument/);
   assert.match(
     appSource,
     /function memberGroupDocumentRequestKey[\s\S]*state\.memberSpelling[\s\S]*state\.memberAccessibilityFilter[\s\S]*state\.memberTraitFilter/);
@@ -1073,7 +1073,7 @@ test("fallback ordinary families load the shared document", () => {
     ?? "";
   assert.match(
     drillOut,
-    /ordinaryMethodGroup\(member\)[\s\S]*memberGroupUsesFamilySurface\(member\)[\s\S]*state\.selectedOverloadIndex != null[\s\S]*state\.selectedOverloadIndex = null;\s*state\.memberSection = "overview";\s*clearMemberContentCache\(\);\s*loadMemberSectionContent\(state\.memberSection\)/);
+    /exactMethodGroup\(member\)[\s\S]*memberGroupUsesFamilySurface\(member\)[\s\S]*state\.selectedOverloadIndex != null[\s\S]*state\.selectedOverloadIndex = null;\s*state\.memberSection = "overview";\s*clearMemberContentCache\(\);\s*loadMemberSectionContent\(state\.memberSection\)/);
   assert.doesNotMatch(drillOut, /resetMemberSectionState\(\)/);
 
   const drillIn =
@@ -1081,14 +1081,14 @@ test("fallback ordinary families load the shared document", () => {
     ?? "";
   assert.match(
     drillIn,
-    /ordinaryMethodGroup\(member\)[\s\S]*memberGroupUsesFamilySurface\(member\)[\s\S]*state\.selectedOverloadIndex == null[\s\S]*openOverload\(memberNavOverloadSourceIndex\(member, 0\)\)/);
+    /exactMethodGroup\(member\)[\s\S]*memberGroupUsesFamilySurface\(member\)[\s\S]*state\.selectedOverloadIndex == null[\s\S]*openOverload\(memberNavOverloadSourceIndex\(member, 0\)\)/);
 
   const stepHorizontal =
     appSource.match(/function stepHorizontal\([\s\S]*?\n}\n\n\/\/ Enter drills/)?.[0]
     ?? "";
   assert.match(
     stepHorizontal,
-    /const overloadOpen = member\s*&& !\(ordinaryMethodGroup\(member\)\s*&& memberGroupUsesFamilySurface\(member\)\s*&& state\.selectedOverloadIndex == null\)/);
+    /const overloadOpen = member\s*&& !\(exactMethodGroup\(member\)\s*&& memberGroupUsesFamilySurface\(member\)\s*&& state\.selectedOverloadIndex == null\)/);
 
   const normalizeSnapshot =
     appSource.match(/function normalizeWorkspaceAsyncSnapshotState\([\s\S]*?\n}\n\nfunction settleInterruptedPlatformStatus/)?.[0]
@@ -1388,7 +1388,7 @@ test("member API uses full-area overload and selected-member surfaces", () => {
   assert.doesNotMatch(emptyMember, /typeHeadingHtml/);
   assert.match(
     renderMember,
-    /member\.kind === "method"[\s\S]*memberGroupUsesFamilySurface\(member\)[\s\S]*member\.completeCountStatus === "available"[\s\S]*completeMemberGroupHasBaselineOrdinals\(member\)[\s\S]*member\.overloads\.map\(\(overload, index\) =>[\s\S]*memberNavOverloadSourceIndex\(member, index\)[\s\S]*highlight\(overload\.signature\)/);
+    /exactMethodGroup\(member\)[\s\S]*memberGroupUsesFamilySurface\(member\)[\s\S]*member\.completeCountStatus === "available"[\s\S]*completeMemberGroupHasBaselineOrdinals\(member\)[\s\S]*member\.overloads\.map\(\(overload, index\) =>[\s\S]*memberNavOverloadSourceIndex\(member, index\)[\s\S]*highlight\(overload\.signature\)/);
   assert.match(
     renderDeferredMemberGroup,
     /memberGroupDocumentLoading[\s\S]*Building the shared MemberGroup document/);
@@ -1409,7 +1409,7 @@ test("member API uses full-area overload and selected-member surfaces", () => {
     /memberDocumentLoading[\s\S]*Building the exact Member document[\s\S]*owner-issued exact declaration/);
   assert.match(
     renderMember,
-    /member\.overloads\.length === 0 && member\.kind !== "method"[\s\S]*renderDeferredMemberGroup\(type, member\)/);
+    /member\.kind === "explicit-interface-implementation"[\s\S]*member\.overloads\.length === 0 && member\.kind !== "method"[\s\S]*renderDeferredMemberGroup\(type, member\)/);
   assert.doesNotMatch(
     renderMember,
     /Exact Member document|Resolving the shared Member document/);

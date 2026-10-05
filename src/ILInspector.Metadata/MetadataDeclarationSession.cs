@@ -74,7 +74,9 @@ public sealed class MetadataDeclarationSession : IDisposable
         MetadataMemberSpelling spelling,
         bool includeHidden,
         int maximumMembers,
-        int maximumRetainedTextCharacters)
+        int maximumRetainedTextCharacters,
+        MetadataMethodGroupCategory category =
+            MetadataMethodGroupCategory.Method)
     {
         EnsureAccess();
         if (_imageAdmission is MetadataImageAdmissionResult.Rejected)
@@ -94,7 +96,8 @@ public sealed class MetadataDeclarationSession : IDisposable
             spelling,
             includeHidden,
             maximumMembers,
-            maximumRetainedTextCharacters);
+            maximumRetainedTextCharacters,
+            category);
     }
 
     /// <summary>

@@ -526,12 +526,23 @@ test("uploaded Library Member document queries use the retained exact image", as
   const content = [0x4d, 0x5a, 0x00, 0x01];
   const identity = `sha256:${"a".repeat(64)}`;
   let received:
-    [string, number[], string, string, string, string, string, boolean]
+    [
+      string,
+      number[],
+      string,
+      string,
+      string,
+      string,
+      string,
+      string,
+      boolean,
+    ]
       | undefined;
   let exactReceived:
     [
       string,
       number[],
+      string,
       string,
       string,
       number,
@@ -581,6 +592,7 @@ test("uploaded Library Member document queries use the retained exact image", as
         bytes,
         typeIdentity,
         memberName,
+        memberKind,
         baselineOrdinal,
         fingerprintPrefix,
         accessibility,
@@ -593,6 +605,7 @@ test("uploaded Library Member document queries use the retained exact image", as
           bytes,
           typeIdentity,
           memberName,
+          memberKind,
           baselineOrdinal,
           fingerprintPrefix,
           accessibility,
@@ -606,6 +619,7 @@ test("uploaded Library Member document queries use the retained exact image", as
           document: {
             typeIdentity,
             memberName,
+            memberKind,
             spelling,
             metadataToken: 0x06000001,
             baselineOrdinal,
@@ -624,6 +638,7 @@ test("uploaded Library Member document queries use the retained exact image", as
         bytes,
         typeIdentity,
         memberName,
+        memberKind,
         spelling,
         accessibility,
         receiver,
@@ -634,6 +649,7 @@ test("uploaded Library Member document queries use the retained exact image", as
           bytes,
           typeIdentity,
           memberName,
+          memberKind,
           spelling,
           accessibility,
           receiver,
@@ -702,6 +718,7 @@ test("uploaded Library Member document queries use the retained exact image", as
       identity,
       "Example.Widget",
       "Run",
+      "method",
       "metadata",
       "private",
       "static",
@@ -715,6 +732,7 @@ test("uploaded Library Member document queries use the retained exact image", as
     content,
     "Example.Widget",
     "Run",
+    "method",
     "metadata",
     "private",
     "static",
@@ -742,6 +760,7 @@ test("uploaded Library Member document queries use the retained exact image", as
       identity,
       "Example.Widget",
       "Run",
+      "method",
       1,
       "",
       "private",
@@ -756,6 +775,7 @@ test("uploaded Library Member document queries use the retained exact image", as
     content,
     "Example.Widget",
     "Run",
+    "method",
     1,
     "",
     "private",
@@ -769,6 +789,7 @@ test("uploaded Library Member document queries use the retained exact image", as
       `sha256:${"b".repeat(64)}`,
       "Example.Widget",
       "Run",
+      "method",
       "csharp",
       "public",
       "all",

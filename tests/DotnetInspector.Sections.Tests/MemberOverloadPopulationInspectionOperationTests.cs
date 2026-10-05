@@ -1364,7 +1364,9 @@ public sealed class MemberOverloadPopulationInspectionOperationTests
                         count: true,
                         rows: null,
                         accessibility: @case.Accessibility,
-                        declaringType: collection));
+                        declaringType: collection,
+                        category: MemberGroupCategory
+                            .ExplicitInterfaceImplementation));
             Assert.Equal(
                 @case.Expected,
                 Assert.IsType<MemberOverloadCountOutcome.Counted>(
@@ -1932,7 +1934,9 @@ public sealed class MemberOverloadPopulationInspectionOperationTests
                 MemberOverloadAccessibilityFilter.Public,
             MemberOverloadReceiverFilter receiver =
                 MemberOverloadReceiverFilter.All,
-            bool includeHidden = false) =>
+            bool includeHidden = false,
+            MemberGroupCategory category =
+                MemberGroupCategory.Method) =>
         MemberOverloadPopulationInspectionOperation.Execute(
             new(
                 library.Reference,
@@ -1942,7 +1946,8 @@ public sealed class MemberOverloadPopulationInspectionOperationTests
                             ?? Name(
                                 "System.Text.Json",
                                 "JsonSerializer"),
-                        methodName),
+                        methodName,
+                        category),
                     new(
                         count
                             ? new MemberOverloadCountRequest()

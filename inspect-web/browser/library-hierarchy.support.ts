@@ -1600,6 +1600,7 @@ async function installFacades(
         surface,
         typeIdentity,
         memberName,
+        memberKind,
         baselineOrdinal,
         fingerprintPrefix,
         accessibility,
@@ -1613,7 +1614,7 @@ async function installFacades(
           ?? [...(type?.api ?? []), ...(type?.exactApi ?? [])]
         )
           .filter(member =>
-          member.kind === "method"
+          member.kind === memberKind
           && member.name === memberName
           && (accessibility === "all"
             || member.accessibility === accessibility)
@@ -1662,6 +1663,7 @@ async function installFacades(
       }
       export async function queryMemberDocument(
         id, version, framework, assembly, typeIdentity, memberName,
+        memberKind,
         baselineOrdinal, fingerprintPrefix, accessibility, receiver,
         includeHidden, spelling) {
         document.documentElement.dataset.memberDocumentRequest =
@@ -1674,6 +1676,7 @@ async function installFacades(
           surfaceFor(id, version, framework),
           typeIdentity,
           memberName,
+          memberKind,
           baselineOrdinal,
           fingerprintPrefix,
           accessibility,
@@ -1683,6 +1686,7 @@ async function installFacades(
       }
       export async function queryPlatformMemberDocument(
         framework, version, assembly, pack, typeIdentity, memberName,
+        memberKind,
         baselineOrdinal, fingerprintPrefix, accessibility, receiver,
         includeHidden, spelling) {
         document.documentElement.dataset.platformMemberDocumentRequest =
@@ -1695,6 +1699,7 @@ async function installFacades(
           surfaceFor("Microsoft.NETCore.App", version, framework),
           typeIdentity,
           memberName,
+          memberKind,
           baselineOrdinal,
           fingerprintPrefix,
           accessibility,
@@ -1703,7 +1708,7 @@ async function installFacades(
           spelling);
       }
       export async function queryUploadedLibraryMemberDocument(
-        declaredName, content, typeIdentity, memberName, baselineOrdinal,
+        declaredName, content, typeIdentity, memberName, memberKind, baselineOrdinal,
         fingerprintPrefix, accessibility, receiver, includeHidden, spelling) {
         document.documentElement.dataset.uploadedLibraryMemberDocumentRequest =
           JSON.stringify([
@@ -1715,6 +1720,7 @@ async function installFacades(
           surfaces[0],
           typeIdentity,
           memberName,
+          memberKind,
           baselineOrdinal,
           fingerprintPrefix,
           accessibility,
@@ -1726,6 +1732,7 @@ async function installFacades(
         surface,
         typeIdentity,
         memberName,
+        memberKind,
         spelling,
         accessibility,
         receiver,
@@ -1736,7 +1743,7 @@ async function installFacades(
           type?.documentMembers
           ?? [...(type?.api ?? []), ...(type?.exactApi ?? [])]
         ).filter(member =>
-          member.kind === "method"
+          member.kind === memberKind
           && member.name === memberName
           && (accessibility === "all"
             || member.accessibility === accessibility)
@@ -1784,6 +1791,7 @@ async function installFacades(
       }
       export async function queryMemberGroupDocument(
         id, version, framework, assembly, typeIdentity, memberName,
+        memberKind,
         spelling, accessibility, receiver, includeHidden) {
         document.documentElement.dataset.memberGroupDocumentRequest =
           JSON.stringify([
@@ -1802,6 +1810,7 @@ async function installFacades(
           surfaceFor(id, version, framework),
           typeIdentity,
           memberName,
+          memberKind,
           spelling,
           accessibility,
           receiver,
@@ -1809,6 +1818,7 @@ async function installFacades(
       }
       export async function queryPlatformMemberGroupDocument(
         framework, version, assembly, pack, typeIdentity, memberName,
+        memberKind,
         spelling, accessibility, receiver, includeHidden) {
         document.documentElement.dataset.platformMemberGroupDocumentRequest =
           JSON.stringify([
@@ -1827,6 +1837,7 @@ async function installFacades(
           surfaceFor("Microsoft.NETCore.App", version, framework),
           typeIdentity,
           memberName,
+          memberKind,
           spelling,
           accessibility,
           receiver,
@@ -1834,6 +1845,7 @@ async function installFacades(
       }
       export async function queryUploadedLibraryMemberGroupDocument(
         declaredName, content, typeIdentity, memberName,
+        memberKind,
         spelling, accessibility, receiver, includeHidden) {
         document.documentElement.dataset.uploadedLibraryMemberGroupDocumentRequest =
           JSON.stringify([
@@ -1850,6 +1862,7 @@ async function installFacades(
           surfaces[0],
           typeIdentity,
           memberName,
+          memberKind,
           spelling,
           accessibility,
           receiver,

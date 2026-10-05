@@ -456,6 +456,38 @@ test("partial resident detail retains producer-matched traits", () => {
   assert.equal(filtered[0]?.sourceOverloadCount, 1);
 });
 
+test("producer traits survive complete resident detail without the fact", () => {
+  const complete = {
+    key: "explicit-interface-implementation:IWorker.Run",
+    name: "IWorker.Run",
+    kind: "explicit-interface-implementation",
+    overloads: [{
+      signature: "public void IWorker.Run()",
+    }],
+    completeCount: 1,
+    sourceOverloadCount: 1,
+    detailsPending: false,
+    receivers: ["this"],
+    traitCounts: {
+      all: 1,
+      static: 0,
+      instance: 1,
+      virtual: 0,
+      interface: 1,
+      extensions: 0,
+    },
+  };
+
+  const filtered = filterMemberGroups([complete], {
+    kind: "all",
+    trait: "interface",
+    query: "",
+  });
+  assert.equal(filtered.length, 1);
+  assert.deepEqual(filtered[0]?.overloads, []);
+  assert.equal(filtered[0]?.sourceOverloadCount, 1);
+});
+
 test("member traits use the complete selector vocabulary", () => {
   assert.equal(memberMatchesTrait(
     { signature: "", isStatic: true },

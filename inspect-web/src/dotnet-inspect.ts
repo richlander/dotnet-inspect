@@ -1519,6 +1519,7 @@ const initialState = {
   memberDocumentLoading: false,
   memberDocumentError: "",
   memberDocumentKey: "",
+  selectedMemberDocumentOrdinal: null as number | null,
   lens: "api" as const,
   packageLens: "overview" as const,
   libraryLens: "overview" as const,
@@ -3939,6 +3940,8 @@ function captureView(): WorkspaceView | null {
     memberTraitFilter: state.memberTraitFilter,
     memberTextFilter: state.memberTextFilter,
     selectedOverloadIndex: state.selectedOverloadIndex,
+    selectedMemberDocumentOrdinal:
+      state.selectedMemberDocumentOrdinal,
     bodyTarget: state.selectedBodyTarget,
     memberSection: state.memberSection,
     memberSourceView: state.memberSourceRequestedView,
@@ -4096,6 +4099,17 @@ function applyView(view: WorkspaceView) {
   state.memberAccessibilityFilter = isMemberAccessibility(requestedAccessibility)
     ? requestedAccessibility
     : "public";
+  const requestedMemberDocumentOrdinal =
+    Number.isInteger(view.selectedMemberDocumentOrdinal)
+      && (view.selectedMemberDocumentOrdinal ?? 0) > 0
+      ? view.selectedMemberDocumentOrdinal!
+      : null;
+  if (state.selectedMemberDocumentOrdinal
+      !== requestedMemberDocumentOrdinal) {
+    clearMemberDocumentCache();
+  }
+  state.selectedMemberDocumentOrdinal =
+    requestedMemberDocumentOrdinal;
   const historyGraphTarget =
     graphMemberTargetFromShare(graphMemberShareTarget(view.bodyTarget));
   const member = type
@@ -4114,7 +4128,8 @@ function applyView(view: WorkspaceView) {
       && view.selectedMemberKey
       && view.memberBrowseTypeId === type.id
       && !historyGraphTarget
-      && (!member
+      && (requestedMemberDocumentOrdinal !== null
+        || !member
         || (member.overloads.length === 0
           && Number.isInteger(view.selectedOverloadIndex))));
   const pendingMemberSection: MemberSection = isMemberSection(view.memberSection)
@@ -4152,6 +4167,8 @@ function applyView(view: WorkspaceView) {
   state.memberTraitFilter = memberHistory.memberTraitFilter;
   state.memberTextFilter = memberHistory.memberTextFilter;
   state.selectedOverloadIndex = memberHistory.selectedOverloadIndex;
+  state.selectedMemberDocumentOrdinal =
+    requestedMemberDocumentOrdinal;
   state.memberSection = memberHistory.memberSection;
   state.atPackageRoot = view.atPackageRoot ?? false;
   state.atLibraryRoot = !state.atPackageRoot
@@ -4267,8 +4284,15 @@ async function restoreOrdinaryMemberHistory(
   }
   let member = memberGroups(type)
     .find(group => group.key === view.selectedMemberKey);
-  if (member?.overloads.length === 0
-    && view.selectedOverloadIndex !== null) {
+  const memberDocumentOrdinal =
+    Number.isInteger(view.selectedMemberDocumentOrdinal)
+      && (view.selectedMemberDocumentOrdinal ?? 0) > 0
+      ? view.selectedMemberDocumentOrdinal!
+      : null;
+  if (member
+    && (memberDocumentOrdinal !== null
+      || (member.overloads.length === 0
+        && view.selectedOverloadIndex !== null))) {
     await loadSelectedMemberGroupDocument();
     if (!navigationSequence.isCurrent(navigationSeq)
       || state.package !== pkg
@@ -4297,11 +4321,16 @@ async function restoreOrdinaryMemberHistory(
   state.memberTraitFilter = restored.memberTraitFilter;
   state.memberTextFilter = restored.memberTextFilter;
   state.selectedOverloadIndex = restored.selectedOverloadIndex;
+  state.selectedMemberDocumentOrdinal = memberDocumentOrdinal;
   state.memberSection = restored.memberSection;
   state.selectedBodyTarget = restored.selectedBodyTarget;
   navigationHistory.normalizeCurrent();
   if (state.selectedMemberKey && member) {
-    loadMemberSectionContent(state.memberSection);
+    if (memberDocumentOrdinal !== null) {
+      await loadSelectedMemberDocument(memberDocumentOrdinal);
+    } else {
+      loadMemberSectionContent(state.memberSection);
+    }
   } else {
     render();
   }
@@ -8334,6 +8363,7 @@ function clearMemberDocumentCache() {
   state.memberDocumentLoading = false;
   state.memberDocumentError = "";
   state.memberDocumentKey = "";
+  state.selectedMemberDocumentOrdinal = null;
 }
 
 function retainMemberSectionIfSupported(member: AppMemberGroup | undefined) {
@@ -8343,13 +8373,14 @@ function retainMemberSectionIfSupported(member: AppMemberGroup | undefined) {
   }
 }
 
-function ordinaryMethodGroup(
+function exactMethodGroup(
   group: {
     readonly kind: string;
     readonly overloads: readonly { readonly graphOnly?: boolean }[];
   } | null | undefined,
 ) {
-  return group?.kind === "method"
+  return (group?.kind === "method"
+      || group?.kind === "explicit-interface-implementation")
     && group.overloads.every(overload => !overload.graphOnly);
 }
 
@@ -8399,7 +8430,7 @@ async function loadSelectedMemberOverview(): Promise<void> {
       && state.selectedOverloadIndex === null
       && (member.overloads.length === 0
         || member.detailsPending
-        || ordinaryMethodGroup(member))) {
+        || exactMethodGroup(member))) {
     if (await loadSelectedMemberGroupAndSelectSingleton()) {
       await loadSelectedMemberDocumentation();
     }
@@ -8413,6 +8444,7 @@ async function loadSelectedMemberGroupAndSelectSingleton() {
   const resolved = selectedMember(selectedType());
   if (resolved?.overloads.length !== 1
     || memberGroupUsesFamilySurface(resolved)
+    || resolved.kind === "explicit-interface-implementation"
     || state.selectedOverloadIndex !== null) {
     return false;
   }
@@ -8451,11 +8483,11 @@ function openMemberGroup(key: string) {
     group?.overloads.length === 1
       && !memberGroupUsesFamilySurface(group)
       && !graphOnlyTarget
-      && !ordinaryMethodGroup(group)
+      && !exactMethodGroup(group)
       ? memberNavOverloadSourceIndex(group, 0)
       : null;
   const resetMethodSection =
-    ordinaryMethodGroup(group) && state.memberSection !== "compare";
+    exactMethodGroup(group) && state.memberSection !== "compare";
   state.memberBrowseTypeId = type?.id ?? "";
   state.selectedMemberKey = key;
   state.selectedOverloadIndex =
@@ -8543,7 +8575,8 @@ function normalizeMemberSelection() {
     type,
     state.selectedMemberKey);
   if (group?.overloads.length === 1
-    && !memberGroupUsesFamilySurface(group)) {
+    && !memberGroupUsesFamilySurface(group)
+    && group.kind !== "explicit-interface-implementation") {
     const graphTarget = graphOnlyBodyTarget(group.overloads[0]);
     state.selectedOverloadIndex = graphTarget
       ? 0
@@ -8630,7 +8663,7 @@ function selectMemberNavEntry(entry: MemberNavEntry, focusList: boolean) {
   const replacementAuthority = captureContentFrameReplacementAuthority();
   if (entry.kind === "member") {
     if (entry.group.key === state.selectedMemberKey) {
-      if (ordinaryMethodGroup(entry.group)) {
+      if (exactMethodGroup(entry.group)) {
         state.memberSection = "overview";
         openMemberGroup(entry.group.key);
       } else if (selectMemberFamilyParent(state, entry.group)) {
@@ -8722,7 +8755,7 @@ function stepHorizontal(delta: number) {
   const member = state.lens === "api" ? selectedMember(type) : null;
   if (scope() === "member" && !member) return;
   const overloadOpen = member
-    && !(ordinaryMethodGroup(member)
+    && !(exactMethodGroup(member)
       && memberGroupUsesFamilySurface(member)
       && state.selectedOverloadIndex == null);
   if (overloadOpen) {
@@ -8782,7 +8815,7 @@ function drillIn() {
   } else {
     const member = selectedMember(type);
     if (member
-      && ordinaryMethodGroup(member)
+      && exactMethodGroup(member)
       && memberGroupUsesFamilySurface(member)
       && state.selectedOverloadIndex == null) {
       showContentDetailAfterRender();
@@ -8798,7 +8831,7 @@ function drillIn() {
 function drillOut() {
   if (navMode() === "member") {
     const member = selectedMember(selectedType());
-    if (ordinaryMethodGroup(member)
+    if (exactMethodGroup(member)
       && memberGroupUsesFamilySurface(member)
       && state.selectedOverloadIndex != null) {
       state.selectedOverloadIndex = null;
@@ -12891,8 +12924,9 @@ function renderDeferredMemberGroup(
         (overload.declarationMetadataToken
           ?? overload.metadataToken
           ?? 0) === row.metadataToken);
-      if (resident) {
-        return memberMatchesTrait(resident, state.memberTraitFilter);
+      if (resident
+        && memberMatchesTrait(resident, state.memberTraitFilter)) {
+        return true;
       }
       return memberDocumentRowMatchesTrait(
         row,
@@ -12914,7 +12948,9 @@ function renderDeferredMemberGroup(
                 (overload.declarationMetadataToken
                   ?? overload.metadataToken
                   ?? 0) === row.metadataToken);
-              const sourceIndex = visibleIndex < 0
+              const sourceIndex =
+                member.kind === "explicit-interface-implementation"
+                  || visibleIndex < 0
                 ? null
                 : memberNavOverloadSourceIndex(member, visibleIndex);
               return `<button class="api-row overload-row"${sourceIndex === null
@@ -12939,10 +12975,11 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
     const hasSelectedOverload =
       state.selectedOverloadIndex != null
       && selectedOverload !== undefined;
-    if (member.overloads.length === 0 && member.kind !== "method") {
+    if (member.kind === "explicit-interface-implementation"
+      || (member.overloads.length === 0 && member.kind !== "method")) {
       return renderDeferredMemberGroup(type, member);
     }
-    if (member.kind === "method"
+    if (exactMethodGroup(member)
       && (memberGroupUsesFamilySurface(member)
         || member.overloads.length === 0)
     && !hasSelectedOverload) {
@@ -21425,8 +21462,7 @@ async function loadSelectedMemberGroupDocument() {
   const member = selectedMember(type);
   if (!type
     || !member
-    || member.kind !== "method"
-    || member.overloads.some(overload => overload.graphOnly)) {
+    || !exactMethodGroup(member)) {
     renderPreservingMemberFocus();
     return;
   }
@@ -21452,6 +21488,7 @@ async function loadSelectedMemberGroupDocument() {
           type.assemblyId,
           type.definitionId ?? type.id,
           member.name,
+          member.kind,
           state.memberSpelling,
           state.memberAccessibilityFilter,
           memberGroupReceiverIntent(),
@@ -21466,6 +21503,7 @@ async function loadSelectedMemberGroupDocument() {
             row.pack,
             type.definitionId ?? type.id,
             member.name,
+            member.kind,
             state.memberSpelling,
             state.memberAccessibilityFilter,
             memberGroupReceiverIntent(),
@@ -21478,6 +21516,7 @@ async function loadSelectedMemberGroupDocument() {
           type.assembly,
           type.definitionId ?? type.id,
           member.name,
+          member.kind,
           state.memberSpelling,
           state.memberAccessibilityFilter,
           memberGroupReceiverIntent(),
@@ -21515,6 +21554,7 @@ async function loadSelectedMemberDocument(baselineOrdinal: number) {
   state.memberDocumentLoading = true;
   state.memberDocumentError = "";
   state.memberDocumentKey = key;
+  state.selectedMemberDocumentOrdinal = baselineOrdinal;
   state.memberSection = "overview";
   renderPreservingMemberFocus();
   const pkg = currentPackage();
@@ -21524,6 +21564,7 @@ async function loadSelectedMemberDocument(baselineOrdinal: number) {
           type.assemblyId,
           type.definitionId ?? type.id,
           member.name,
+          member.kind,
           baselineOrdinal,
           "",
           state.memberAccessibilityFilter,
@@ -21540,6 +21581,7 @@ async function loadSelectedMemberDocument(baselineOrdinal: number) {
             row.pack,
             type.definitionId ?? type.id,
             member.name,
+            member.kind,
             baselineOrdinal,
             "",
             state.memberAccessibilityFilter,
@@ -21554,6 +21596,7 @@ async function loadSelectedMemberDocument(baselineOrdinal: number) {
           type.assembly,
           type.definitionId ?? type.id,
           member.name,
+          member.kind,
           baselineOrdinal,
           "",
           state.memberAccessibilityFilter,

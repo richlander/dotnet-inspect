@@ -34,6 +34,7 @@ public static partial class MetadataExports
         string assemblyName,
         string typeIdentity,
         string memberName,
+        string memberKind,
         string spelling,
         string accessibility,
         string receiver,
@@ -71,6 +72,7 @@ public static partial class MetadataExports
                                 CancellationToken.None)),
                     typeIdentity,
                     memberName,
+                    memberKind,
                     spelling,
                     accessibility,
                     receiver,
@@ -87,6 +89,7 @@ public static partial class MetadataExports
         string pack,
         string typeIdentity,
         string memberName,
+        string memberKind,
         string spelling,
         string accessibility,
         string receiver,
@@ -115,6 +118,7 @@ public static partial class MetadataExports
                                 CancellationToken.None)),
                     typeIdentity,
                     memberName,
+                    memberKind,
                     spelling,
                     accessibility,
                     receiver,
@@ -129,6 +133,7 @@ public static partial class MetadataExports
         byte[] content,
         string typeIdentity,
         string memberName,
+        string memberKind,
         string spelling,
         string accessibility,
         string receiver,
@@ -146,6 +151,7 @@ public static partial class MetadataExports
                             .MaterializationLimits),
                     typeIdentity,
                     memberName,
+                    memberKind,
                     spelling,
                     accessibility,
                     receiver,
@@ -160,6 +166,7 @@ public static partial class MetadataExports
             ValueTask<AssemblyContextLibraryAdapterResult> materialization,
             string typeIdentity,
             string memberName,
+            string memberKind,
             string spelling,
             string accessibility,
             string receiver,
@@ -174,6 +181,7 @@ public static partial class MetadataExports
             new MemberGroupSubject(
                 type,
                 memberName,
+                ParseMemberCategory(memberKind),
                 spelling: ParseMemberSpelling(spelling)),
             new MemberOverloadPopulationRequest(
                 new MemberOverloadCountRequest(),
@@ -246,6 +254,20 @@ public static partial class MetadataExports
                     nameof(spelling),
                     spelling,
                     "Unknown Member-group spelling."),
+            };
+
+    private static MemberGroupCategory ParseMemberCategory(
+        string kind) =>
+            kind switch
+            {
+                "method" => MemberGroupCategory.Method,
+                "explicit-interface-implementation" =>
+                    MemberGroupCategory
+                        .ExplicitInterfaceImplementation,
+                _ => throw new ArgumentOutOfRangeException(
+                    nameof(kind),
+                    kind,
+                    "Unknown exact Member-group kind."),
             };
 
     private static MemberOverloadReceiverFilter
@@ -367,4 +389,72 @@ public static partial class MetadataExports
             inspection,
             BrowserMetadataJsonContext.Default
                 .BrowserMemberGroupDocumentInspection);
+
+    public static Task<string> QueryMemberGroupDocument(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyName,
+        string typeIdentity,
+        string memberName,
+        string spelling,
+        string accessibility,
+        string receiver,
+        bool includeHidden) =>
+        QueryMemberGroupDocument(
+            packageId,
+            version,
+            targetFramework,
+            assemblyName,
+            typeIdentity,
+            memberName,
+            "method",
+            spelling,
+            accessibility,
+            receiver,
+            includeHidden);
+
+    public static Task<string> QueryPlatformMemberGroupDocument(
+        string targetFramework,
+        string platformVersion,
+        string assemblyName,
+        string pack,
+        string typeIdentity,
+        string memberName,
+        string spelling,
+        string accessibility,
+        string receiver,
+        bool includeHidden) =>
+        QueryPlatformMemberGroupDocument(
+            targetFramework,
+            platformVersion,
+            assemblyName,
+            pack,
+            typeIdentity,
+            memberName,
+            "method",
+            spelling,
+            accessibility,
+            receiver,
+            includeHidden);
+
+    public static Task<string> QueryUploadedLibraryMemberGroupDocument(
+        string declaredName,
+        byte[] content,
+        string typeIdentity,
+        string memberName,
+        string spelling,
+        string accessibility,
+        string receiver,
+        bool includeHidden) =>
+        QueryUploadedLibraryMemberGroupDocument(
+            declaredName,
+            content,
+            typeIdentity,
+            memberName,
+            "method",
+            spelling,
+            accessibility,
+            receiver,
+            includeHidden);
 }

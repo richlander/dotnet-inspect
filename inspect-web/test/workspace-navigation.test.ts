@@ -159,6 +159,7 @@ function workspaceView(
     memberTraitFilter: "",
     memberTextFilter: "",
     selectedOverloadIndex: 0,
+    selectedMemberDocumentOrdinal: null,
     bodyTarget: graphTarget,
     memberSection: "overview",
     atPackageRoot: false,
@@ -1209,6 +1210,20 @@ test("history signatures distinguish exact graph member identity", () => {
       workspaceViewSignature(original),
       workspaceViewSignature(workspaceView({ bodyTarget })));
   }
+});
+
+test("history signatures distinguish exact declaration identity", () => {
+  const group = workspaceView({
+    bodyTarget: null,
+    selectedOverloadIndex: null,
+  });
+
+  assert.notEqual(
+    workspaceViewSignature(group),
+    workspaceViewSignature({
+      ...group,
+      selectedMemberDocumentOrdinal: 2,
+    }));
 });
 
 test("history signatures distinguish captured library scope", () => {

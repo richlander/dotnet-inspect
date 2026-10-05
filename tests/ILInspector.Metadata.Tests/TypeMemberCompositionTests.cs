@@ -122,6 +122,63 @@ public sealed class TypeMemberCompositionTests
             member => member.IsExplicitInterfaceImplementation);
     }
 
+    [Fact]
+    public void ArrayEnumerator_ExactExplicitInterfaceGroupMatchesCSharpPopulation()
+    {
+        MetadataTypeDefinitionName type =
+            Name(
+                "System.Text.Json",
+                "JsonElement",
+                "ArrayEnumerator");
+        using var session = AssemblyInspectionSession.Open(PackageJsonPath);
+        MetadataTypeMemberPopulation population = Assert.IsType<
+                MetadataTypeMemberPopulationOutcome.Available>(
+                MetadataTypeMemberPopulationInspection.Inspect(
+                    session,
+                    new(
+                        type,
+                        MetadataMemberSpelling.CSharp,
+                        includeHidden: false,
+                        MetadataMethodAccessibilityFilter.All),
+                    new(
+                        int.MaxValue,
+                        int.MaxValue,
+                        int.MaxValue,
+                        int.MaxValue,
+                        int.MaxValue)))
+            .Population;
+        MetadataTypeMemberPopulationGroup group = population.Groups.First(
+            candidate =>
+                candidate.Kind
+                    == "explicit-interface-implementation");
+
+        using var declaration = session.CreateDeclarationSession(
+            new MetadataOperationContext(
+                MetadataOperationPolicy.Unbounded));
+        MetadataMethodGroupInspectionOutcome.Read exact = Assert.IsType<
+            MetadataMethodGroupInspectionOutcome.Read>(
+                declaration.InspectMethodGroup(
+                    type,
+                    group.Name,
+                    startOrdinal: 0,
+                    maximumRows: int.MaxValue,
+                    materializeRows: true,
+                    MetadataMethodAccessibilityFilter.All,
+                    MetadataMethodReceiverFilter.All,
+                    MetadataMemberSpelling.CSharp,
+                    includeHidden: false,
+                    maximumMembers: int.MaxValue,
+                    maximumRetainedTextCharacters: int.MaxValue,
+                    category: MetadataMethodGroupCategory
+                        .ExplicitInterfaceImplementation));
+
+        Assert.Equal(group.CompleteCount, exact.Count);
+        Assert.All(
+            exact.Rows,
+            row => Assert.True(
+                row.IsExplicitInterfaceImplementation));
+    }
+
     [Theory]
     [InlineData(nameof(CovariantEmitDerived))]
     [InlineData(nameof(StaticAbstractEmitImpl))]
