@@ -242,6 +242,17 @@ public sealed class IrFunction : IrNode
         _materializedStackSlotLocals = materialized;
     }
 
+    internal void RestoreResidualSlotBindings(
+        ImmutableDictionary<int, ResidualSlotBinding> bindings)
+    {
+        if (bindings.Keys.Any(index => index < 0 || index >= Locals.Length))
+        {
+            throw new ArgumentException(
+                "Residual slot binding provenance does not match the local table.");
+        }
+        _residualSlotBindings = bindings;
+    }
+
     internal bool IsProducerOnlySlotLocal(int index)
         => _materializedStackSlotLocals.TryGetValue(
                 index,

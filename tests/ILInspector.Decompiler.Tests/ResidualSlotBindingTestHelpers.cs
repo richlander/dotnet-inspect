@@ -110,6 +110,7 @@ static class ResidualSlotBindingTestHelpers
             PdbLocalNameCandidates = nested.PdbLocalNameCandidates,
             LocalNameImportCauses = nested.LocalNameImportCauses,
             MaterializedStackSlotLocals = nested.MaterializedStackSlotLocals,
+            ResidualSlotBindings = nested.ResidualSlotBindings,
         };
     }
 
@@ -156,6 +157,7 @@ static class ResidualSlotBindingTestHelpers
             PdbLocalNameCandidates = nested.PdbLocalNameCandidates,
             LocalNameImportCauses = nested.LocalNameImportCauses,
             MaterializedStackSlotLocals = nested.MaterializedStackSlotLocals,
+            ResidualSlotBindings = nested.ResidualSlotBindings,
         };
     }
 }

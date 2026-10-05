@@ -830,7 +830,11 @@ sink rule, each load's parent shape and the consuming sink target
 `CoercionSinks.SemanticLoadSinkTargetType` derives (field type, setter
 parameter, `Box` type, `StoreLocal` type, argument store type, indirect store
 type, element target, or the body's return type); and the function's type
-shapes and enum backing. That inventory is closed. The pass does not read materialization
+shapes and enum backing. That inventory is closed. For a raised lambda body
+the return type is the body's own signature, the closure method's; the deleted
+printer read it from the delegate's shape and fell back to `void`, so a
+delegate it could not read (`Predicate<T>`, for example) is a named, expected
+delta from the verbatim port: the input is more exact and no rule changed. The pass does not read materialization
 testimony to choose a type (the testimony reaches it only through the
 `Coerce` wrappers insertion owns), does not infer a join, hierarchy, or
 variance conversion, and does not gain an admission rule when a class fails
@@ -849,13 +853,38 @@ grouped as *late-decidable*; that group's owner is materialization's position,
 not this pass.
 Provenance is a typed side fact keyed by local index, available to hosts and
 to the census; it is not display text, it does not widen the local declaration
-shape, and it never upgrades fidelity or identity. Bound locals keep their
-`S_n` and `S_n_k` names so render A/B stays comparable; readable naming
+shape, and it never upgrades fidelity or identity. A raised `Lambda` or
+`LocalFunctionStatement` carries its body's provenance the way it carries the
+body's materialized slot locals, and a host re-entering the body restores it,
+so nested bindings stay visible to hosts and to the census. Bound locals keep
+their `S_n` and `S_n_k` names so render A/B stays comparable; readable naming
 remains owned by the declaration plan and
 [Readable local names](readable-local-names.md). Because bound locals are
 ordinary appended locals, the declaration plan owns their placement; the
 plan's current statement that residual slots stay outside it is updated by the
 implementation slice.
+
+**A bound local is never zero-initialised.** The policy binds by type only; it
+proves no live range and no reaching store, so a split piece can be read on a
+path no store of that piece reaches. Such a read is a binding gap, not a
+definitely unassigned local, and `= default` would turn it into compiling C#
+that silently drops the term. The printer therefore declares every
+residual-bound local bare, outside its definite-assignment initializer rule,
+and the gap stays visible as CS0165 exactly as it did before the move. Gate:
+`ResidualSlotBindingPassTests` on a synthetic split piece and on
+`Microsoft.CodeAnalysis.Operations.ForEachLoopOperation.get_ChildOperationsCount`
+(Microsoft.CodeAnalysis 5.0.0).
+
+**A decided type retires the untyped-load diagnostic; provenance does not.**
+The printer reported `DEC0008` for a slot load it could not type even when
+its policy unified the web, so the method was labelled `Partial` and stayed
+out of compile-back. The pass issues that same decided type as a typed local,
+so the diagnostic has nothing to report and the method is labelled by its
+remaining diagnostics alone; the fidelity change is the type, not the
+provenance record. The corpus methods that moved `Partial`→`Full` this way
+(`GetArgArray` among them) entered compile-back, where their pre-existing
+structural gaps are visible (#9249) rather than hidden behind a slot-type
+label.
 
 **The printer deletes its slot machinery in the same slice.**
 `TryChooseUnifiedStackSlotType`, `CanAssignTo`, `CanLoadAsType`,

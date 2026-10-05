@@ -96,7 +96,10 @@ public class StackSlotReuseRenderingTests
         var output = PrintBound(SubtypeStoreSupertypeLoadFunction()).Output!;
 
         Assert.Contains("string S_0;", output);
-        Assert.Contains("object S_0_1 = default;", output);
+        // The load-only object piece is a residual-bound local, so it is never
+        // zero-initialised: a piece read with no reaching store stays CS0165-visible.
+        Assert.Contains("object S_0_1;", output);
+        Assert.DoesNotContain("S_0_1 = default;", output);
         Assert.Contains("Exception S_0_2;", output);
         Assert.Contains("S_0 = s;", output);
         Assert.Contains("S_0_1 = o;", output);

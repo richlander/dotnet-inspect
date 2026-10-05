@@ -247,6 +247,139 @@ public class ResidualSlotBindingPassTests
     }
 
     [Fact]
+    public void SplitPieceReadWithoutReachingStoreDeclaresBare()
+    {
+        // Store long, load int: no candidate qualifies, so the web splits and
+        // the int piece is read on a path no store of that piece reaches. The
+        // policy proves no reaching store, so the piece must not be
+        // zero-initialised: `= default` would compile and silently drop the
+        // term, while the bare declaration keeps the gap CS0165-visible.
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(0, new LoadArgument(0, "l", Int64)));
+        block.Add(new Return(new LoadStackSlot(0, Int32)));
+        var function = Function(Int32, block, [new Parameter("l", Int64)]);
+
+        new ResidualSlotBindingPass().Run(function, PassContext.None);
+        string output = CSharpPrinter.Print(function).Output!;
+
+        Assert.Equal(2, function.ResidualSlotBindings.Count);
+        Assert.All(function.ResidualSlotBindings.Values, static binding => Assert.Equal(ResidualSlotBindingKind.Split, binding.Kind));
+        // The stored piece takes the plan's merged initializer; the unreached
+        // piece is bare.
+        Assert.Contains("long S_0 = l;", output);
+        Assert.Contains("int S_0_1;", output);
+        Assert.Contains("return S_0_1;", output);
+        Assert.DoesNotContain("= default", output);
+    }
+
+    [Fact]
+    public void NestedSplitPieceReadWithoutReachingStoreDeclaresBare()
+    {
+        // The same gap inside a local function and a lambda: the raised node
+        // carries the body's provenance, the printer restores it when it
+        // re-enters the body, and the bare-declaration rule applies there too.
+        var localBody = new BlockContainer();
+        var localBlock = new Block(0);
+        localBlock.Add(new StoreStackSlot(0, new LoadArgument(0, "l", Int64)));
+        localBlock.Add(new Return(new LoadStackSlot(0, Int32)));
+        localBody.Add(localBlock);
+        var localFunction = new LocalFunctionStatement(
+            "Inner",
+            Int32,
+            [new Parameter("l", Int64)],
+            isStatic: true,
+            [],
+            [],
+            usesUpdatedMemorySafetyRules: false,
+            skipLocalsInit: false,
+            localBody);
+
+        var lambdaBody = new BlockContainer();
+        var lambdaBlock = new Block(0);
+        lambdaBlock.Add(new StoreStackSlot(0, new LoadArgument(0, "l", Int64)));
+        lambdaBlock.Add(new Return(new LoadStackSlot(0, Int32)));
+        lambdaBody.Add(lambdaBlock);
+        var func = TypeRef.GenericInstance(TypeRef.CoreLib("System", "Func`2"), [Int64, Int32]);
+        var lambda = new Lambda(
+            func,
+            [new Parameter("l", Int64)],
+            [],
+            [],
+            usesUpdatedMemorySafetyRules: false,
+            skipLocalsInit: false,
+            lambdaBody);
+
+        var block = new Block(0);
+        block.Add(localFunction);
+        block.Add(new StoreLocal(0, func, lambda));
+        block.Add(new Return(new Constant(0, Int32)));
+        var function = Function(Int32, block, [], locals: [func]).BindResidualSlots();
+
+        var boundLocalFunction = Assert.Single(function.Descendants.OfType<LocalFunctionStatement>());
+        var boundLambda = Assert.Single(function.Descendants.OfType<Lambda>());
+        Assert.Equal(2, boundLocalFunction.ResidualSlotBindings.Count);
+        Assert.Equal(2, boundLambda.ResidualSlotBindings.Count);
+        Assert.Empty(function.ResidualSlotBindings);
+
+        string output = CSharpPrinter.Print(function).Output!;
+
+        Assert.Equal(2, System.Text.RegularExpressions.Regex.Matches(output, @"\bint S_0_1;").Count);
+        Assert.Equal(2, System.Text.RegularExpressions.Regex.Matches(output, @"\blong S_0 = l;").Count);
+        Assert.DoesNotContain("= default", output);
+    }
+
+    [Fact]
+    public void RealSplitPieceReadWithoutReachingStoreDeclaresBare()
+    {
+        // Microsoft.CodeAnalysis 5.0.0, ForEachLoopOperation.get_ChildOperationsCount
+        // (0x060029CB): slot 256 splits into an int piece and a Boolean piece
+        // the return reads with no reaching store. The bare declaration keeps
+        // the gap visible instead of compiling to a dropped term.
+        string path = Path.Combine(AppContext.BaseDirectory, "RealAssets", "PrimitiveJoin", "Microsoft.CodeAnalysis.dll");
+        using var source = MetadataSource.Open(path);
+        var function = IrImporter.Import(source, "Microsoft.CodeAnalysis.Operations.ForEachLoopOperation", "get_ChildOperationsCount");
+        Assert.NotNull(function);
+        Assert.Equal(0x060029CB, function.MetadataToken);
+
+        IrPasses.Run(function, IrPasses.Default, PassContext.ForImport(reference => IrImporter.Import(source, reference), source.AreProvablyDisjoint));
+        var pieces = function.ResidualSlotBindings.Where(static entry => entry.Value.Slot == 256).ToList();
+        Assert.Equal(2, pieces.Count);
+        Assert.All(pieces, static entry => Assert.Equal(ResidualSlotBindingKind.Split, entry.Value.Kind));
+        string output = CSharpPrinter.Print(function).Output!;
+
+        Assert.Contains("bool S_256_1;", output);
+        Assert.Contains("return (S_256_1 ? 1 : 0)", output);
+        Assert.DoesNotContain("S_256_1 = default", output);
+        Assert.DoesNotContain("= default", output);
+    }
+
+    [Fact]
+    public void RealNestedBodyBindingCarriesProvenance()
+    {
+        // Microsoft.CodeAnalysis.CSharp, NullableWalker.VisitUnaryOperator: the
+        // local function adjustForLifting binds one web inside its own pipeline
+        // tail; the raised node carries that provenance for hosts and the
+        // census, and the printed body declares the bound local.
+        string path = typeof(Microsoft.CodeAnalysis.CSharp.CSharpSyntaxTree).Assembly.Location;
+        using var source = MetadataSource.Open(path);
+        var function = IrImporter.Import(source, "Microsoft.CodeAnalysis.CSharp.NullableWalker", "VisitUnaryOperator");
+        Assert.NotNull(function);
+
+        IrPasses.Run(function, IrPasses.Default, PassContext.ForImport(reference => IrImporter.Import(source, reference), source.AreProvablyDisjoint));
+        var adjustForLifting = Assert.Single(function.Descendants.OfType<LocalFunctionStatement>(), static local => local.Name == "adjustForLifting");
+        var (index, binding) = Assert.Single(adjustForLifting.ResidualSlotBindings);
+        Assert.Equal(1, binding.Slot);
+        Assert.Equal(ResidualSlotBindingKind.Unified, binding.Kind);
+        Assert.Equal("S_1", adjustForLifting.SynthesizedLocalNames[index - (adjustForLifting.Locals.Length - adjustForLifting.SynthesizedLocalNames.Length)]);
+        Assert.Empty(function.ResidualSlotBindings);
+
+        string output = CSharpPrinter.Print(function).Output!;
+        Assert.Contains("TypeWithState adjustForLifting(TypeWithState argumentResult)", output);
+        Assert.Contains("NullableFlowState S_1 = ", output);
+        Assert.DoesNotContain("S_1 = default", output);
+    }
+
+    [Fact]
     public void BoundLocalSelfUpdateIsOwnedByScalarSelfUpdatePass()
     {
         var block = new Block(0);

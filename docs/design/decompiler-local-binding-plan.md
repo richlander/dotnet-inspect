@@ -39,7 +39,10 @@ binding. Both issue ordinary locals before this plan runs; a residual-bound
 local is a materialized local to this plan, with its slot provenance carried
 separately. No stack-slot node reaches the plan's consumer. Definite-assignment analysis owns whether a
 declaration requires initialization such as `= default`; this plan consumes
-that disposition and does not redesign it.
+that disposition and does not redesign it. The one exception is the thin
+writer's: a residual-bound local is
+[never zero-initialised](value-typed-emission.md#residual-storage-binding),
+so an unreached read of one stays CS0165-visible instead of taking `= default`.
 
 The first production adoption uses the lexical structure already proved by
 the existing PDB-scope and scope-entry-local passes. Consolidating those

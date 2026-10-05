@@ -133,11 +133,13 @@ public class ExactManagedReferenceSlotMaterializationTests
         new ResidualSlotBindingPass().Run(function, PassContext.None);
         string output = CSharpPrinter.Print(function).Output!;
 
-        // The load-only residual piece is a plan-owned local now, so it takes
-        // the plan's definite-assignment initializer; it still precedes the
-        // materialized ref local's up-front declaration.
+        // The load-only residual piece is a plan-owned local now, but a
+        // residual-bound local is never zero-initialised (its unreached read
+        // stays CS0165-visible); it still precedes the materialized ref local's
+        // up-front declaration.
+        Assert.DoesNotContain("S_0 = default;", output);
         int residualDeclaration = output.IndexOf(
-            "int S_0 = default;",
+            "int S_0;",
             StringComparison.Ordinal);
         int materializedDeclaration = output.IndexOf(
             "ref int S_1 = ref System.Runtime.CompilerServices.Unsafe.NullRef<int>();",
