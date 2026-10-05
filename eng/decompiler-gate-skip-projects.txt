@@ -12,6 +12,9 @@ fixtures/analysis/ILInspector.Analysis.CallerGraphCaller
 fixtures/analysis/ILInspector.Analysis.CallerGraphCallerTwin
 fixtures/analysis/ILInspector.Analysis.CallerGraphIndirectCaller
 fixtures/analysis/ILInspector.Analysis.CallerGraphLookalikeCaller
+fixtures/analysis/ILInspector.Analysis.CallerGraphVersionSkewCaller
+fixtures/analysis/ILInspector.Analysis.CallerGraphVersionSkewTargetV1
+fixtures/analysis/ILInspector.Analysis.CallerGraphVersionSkewTargetV2
 fixtures/analysis/ILInspector.Analysis.CrossAsmCollisionFixtures
 fixtures/analysis/ILInspector.Analysis.FacadeFixtures
 fixtures/analysis/ILInspector.Analysis.Fixtures
