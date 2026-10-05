@@ -721,25 +721,36 @@ public sealed class InspectionWorkspaceTests
     }
 
     [Fact]
-    public async Task ParticipantResourceRelease_WaitsForFinalLease()
+    public async Task ParticipantResourceRelease_WaitsForFinalBorrow()
     {
         TestAssembly source = TestAssembly.Create();
         await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [source.Participant]);
-        var resource =
-            new ParticipantReleaseTrackingResource(group);
-        var idleResource =
-            new ParticipantReleaseTrackingResource(group);
-        group.RegisterOwnedResource(resource);
-        group.RegisterOwnedResource(idleResource);
+        var resourceState =
+            new ParticipantReleaseTrackingResourceState<ActiveResourceTag>(
+                group);
+        var idleResourceState =
+            new ParticipantReleaseTrackingResourceState<IdleResourceTag>(
+                group);
+        AssemblyContextGroup.ParticipantResource<
+            ParticipantReleaseTrackingResourceState<ActiveResourceTag>>
+                resource =
+                    group.GetOrCreateParticipantResource(
+                        () => resourceState);
+        _ = group.GetOrCreateParticipantResource(
+            () => idleResourceState);
         AssemblyAcquisitionRegistration registration =
             source.Assembly.Registration;
-        AssemblyContextGroup.AssemblyContextGroupResourceBorrow first =
-            group.BorrowOwnedResource(resource, registration);
-        AssemblyContextGroup.AssemblyContextGroupResourceBorrow second =
-            group.BorrowOwnedResource(resource, registration);
+        AssemblyContextGroup.ParticipantResourceBorrow<
+            ParticipantReleaseTrackingResourceState<ActiveResourceTag>>
+                first =
+                    resource.Borrow(registration);
+        AssemblyContextGroup.ParticipantResourceBorrow<
+            ParticipantReleaseTrackingResourceState<ActiveResourceTag>>
+                second =
+                    resource.Borrow(registration);
 
         AssemblyImageAccessResult<int> result =
             await group.UseAndReleaseAssemblySessionAsync(
@@ -747,25 +758,23 @@ public sealed class InspectionWorkspaceTests
                 static (_, _) => Task.FromResult(1));
 
         Assert.IsType<AssemblyImageAccessResult<int>.Available>(result);
-        Assert.Equal(0, resource.ParticipantReleaseCount);
-        Assert.Equal(1, idleResource.ParticipantReleaseCount);
-        Assert.True(idleResource.SawRetainedImageDuringRelease);
+        Assert.Equal(0, resourceState.ParticipantReleaseCount);
+        Assert.Equal(1, idleResourceState.ParticipantReleaseCount);
+        Assert.True(idleResourceState.SawRetainedImageDuringRelease);
         Assert.True(group.RetainedImageBytes > 0);
         Assert.Throws<ObjectDisposedException>(
-            () => group.BorrowOwnedResource(
-                resource,
-                registration));
+            () => resource.Borrow(registration));
 
         first.Dispose();
 
-        Assert.Equal(0, resource.ParticipantReleaseCount);
+        Assert.Equal(0, resourceState.ParticipantReleaseCount);
         Assert.True(group.RetainedImageBytes > 0);
 
         second.Dispose();
 
-        Assert.Equal(1, resource.ParticipantReleaseCount);
-        Assert.True(resource.SawRetainedImageDuringRelease);
-        Assert.Equal(1, idleResource.ParticipantReleaseCount);
+        Assert.Equal(1, resourceState.ParticipantReleaseCount);
+        Assert.True(resourceState.SawRetainedImageDuringRelease);
+        Assert.Equal(1, idleResourceState.ParticipantReleaseCount);
         Assert.Equal(0, group.RetainedImageBytes);
     }
 
@@ -777,13 +786,18 @@ public sealed class InspectionWorkspaceTests
         using AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [source.Participant]);
-        var resource =
-            new ParticipantReleaseTrackingResource(group);
-        group.RegisterOwnedResource(resource);
-        AssemblyContextGroup.AssemblyContextGroupResourceBorrow borrow =
-            group.BorrowOwnedResource(
-                resource,
-                source.Assembly.Registration);
+        var resourceState =
+            new ParticipantReleaseTrackingResourceState<ActiveResourceTag>(
+                group);
+        AssemblyContextGroup.ParticipantResource<
+            ParticipantReleaseTrackingResourceState<ActiveResourceTag>>
+                resource =
+                    group.GetOrCreateParticipantResource(
+                        () => resourceState);
+        AssemblyContextGroup.ParticipantResourceBorrow<
+            ParticipantReleaseTrackingResourceState<ActiveResourceTag>>
+                borrow =
+                    resource.Borrow(source.Assembly.Registration);
 
         AssemblyImageAccessResult<int> result =
             await group.UseAndReleaseAssemblySessionAsync(
@@ -792,8 +806,7 @@ public sealed class InspectionWorkspaceTests
 
         Assert.IsType<AssemblyImageAccessResult<int>.Available>(result);
         Assert.Throws<ObjectDisposedException>(
-            () => group.BorrowOwnedResource(
-                resource,
+            () => resource.Borrow(
                 source.Assembly.Registration));
         var borrowedAccess = Assert.IsType<
             AssemblyImageAccessResult<int>.Available>(
@@ -802,12 +815,12 @@ public sealed class InspectionWorkspaceTests
                     0,
                     static (snapshot, _) => snapshot.Content.Length));
         Assert.True(borrowedAccess.Value > 0);
-        Assert.Equal(0, resource.ParticipantReleaseCount);
+        Assert.Equal(0, resourceState.ParticipantReleaseCount);
         Assert.True(group.RetainedImageBytes > 0);
 
         borrow.Dispose();
 
-        Assert.Equal(1, resource.ParticipantReleaseCount);
+        Assert.Equal(1, resourceState.ParticipantReleaseCount);
         Assert.Equal(0, group.RetainedImageBytes);
         Assert.Throws<ObjectDisposedException>(
             () => borrow.UseSnapshot(
@@ -833,7 +846,7 @@ public sealed class InspectionWorkspaceTests
                 static image => image.Content.Length));
         var observation =
             new ParticipantSettlementObservation();
-        AssemblyContextParticipantResource<
+        AssemblyContextGroup.ParticipantResource<
             SettlementTrackingParticipantResourceState> resource =
                 group.GetOrCreateParticipantResource<
                     SettlementTrackingParticipantResourceState>(
@@ -903,7 +916,7 @@ public sealed class InspectionWorkspaceTests
         var retirementFailure =
             new InvalidOperationException(
                 "Synthetic participant retirement failure.");
-        AssemblyContextParticipantResource<
+        AssemblyContextGroup.ParticipantResource<
             ThrowingParticipantResourceState> resource =
                 group.GetOrCreateParticipantResource<
                     ThrowingParticipantResourceState>(
@@ -970,7 +983,7 @@ public sealed class InspectionWorkspaceTests
     }
 
     [Fact]
-    public async Task ParticipantResourceLease_RequiresExactRegisteredPair()
+    public async Task ParticipantResourceHandle_RequiresExactRegisteredParticipant()
     {
         TestAssembly source = TestAssembly.Create();
         TestAssembly outsider = TestAssembly.Create();
@@ -978,20 +991,53 @@ public sealed class InspectionWorkspaceTests
         using AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [source.Participant]);
-        var registered =
-            new ParticipantReleaseTrackingResource(group);
-        var unregistered =
-            new ParticipantReleaseTrackingResource(group);
-        group.RegisterOwnedResource(registered);
+        var resourceState =
+            new ParticipantReleaseTrackingResourceState<ActiveResourceTag>(
+                group);
+        AssemblyContextGroup.ParticipantResource<
+            ParticipantReleaseTrackingResourceState<ActiveResourceTag>>
+                resource =
+                    group.GetOrCreateParticipantResource(
+                        () => resourceState);
 
         Assert.Throws<ArgumentException>(
-            () => group.BorrowOwnedResource(
-                registered,
+            () => resource.Borrow(
                 outsider.Assembly.Registration));
-        Assert.Throws<ArgumentException>(
-            () => group.BorrowOwnedResource(
-                unregistered,
-                source.Assembly.Registration));
+    }
+
+    [Fact]
+    public void ParticipantResourceRawLifetimeSurface_IsPrivate()
+    {
+        Type groupType = typeof(AssemblyContextGroup);
+        Type rawResource = Assert.Single(
+            groupType.GetNestedTypes(BindingFlags.NonPublic),
+            static type =>
+                type.Name == "IParticipantOwnedResource");
+        Type rawBorrow = Assert.Single(
+            groupType.GetNestedTypes(BindingFlags.NonPublic),
+            static type =>
+                type.Name == "ParticipantResourceLease");
+        MethodInfo[] rawAdmission =
+            [.. groupType.GetMethods(
+                    BindingFlags.Instance | BindingFlags.NonPublic)
+                .Where(
+                    static method =>
+                        method.Name == "BorrowParticipantResource")];
+
+        Assert.True(rawResource.IsNestedPrivate);
+        Assert.True(rawBorrow.IsNestedPrivate);
+        Assert.NotEmpty(rawAdmission);
+        Assert.All(
+            rawAdmission,
+            static method => Assert.True(method.IsPrivate));
+        Assert.Contains(
+            rawAdmission,
+            method =>
+                method.GetParameters()[0].ParameterType == rawResource);
+        Assert.Null(
+            groupType.Assembly.GetType(
+                "DotnetInspector.Queries."
+                    + "IAssemblyContextParticipantOwnedResource"));
     }
 
     [Fact]
@@ -1007,12 +1053,15 @@ public sealed class InspectionWorkspaceTests
         using var releaseResume = new ManualResetEventSlim();
         CancellationToken cancellationToken =
             TestContext.Current.CancellationToken;
-        var resource = new BlockingParticipantReleaseResource(
+        var resourceState = new BlockingParticipantReleaseResource(
             first.Assembly.Registration,
             releaseEntered,
             releaseResume,
             cancellationToken);
-        group.RegisterOwnedResource(resource);
+        AssemblyContextGroup.ParticipantResource<
+            BlockingParticipantReleaseResource> resource =
+                group.GetOrCreateParticipantResource(
+                    () => resourceState);
         Task<AssemblyImageAccessResult<int>> release =
             StartConcurrent(
                 () => group.UseAndReleaseAssemblySessionAsync(
@@ -1025,16 +1074,16 @@ public sealed class InspectionWorkspaceTests
                 TimeSpan.FromSeconds(10),
                 cancellationToken));
 
-        Task<AssemblyContextGroup.AssemblyContextGroupResourceBorrow>
+        Task<AssemblyContextGroup.ParticipantResourceBorrow<
+            BlockingParticipantReleaseResource>>
             siblingBorrow =
                 StartConcurrent(
-                    () => group.BorrowOwnedResource(
-                        resource,
+                    () => resource.Borrow(
                         second.Assembly.Registration));
         try
         {
-            using AssemblyContextGroup.AssemblyContextGroupResourceBorrow
-                borrow =
+            using AssemblyContextGroup.ParticipantResourceBorrow<
+                BlockingParticipantReleaseResource> borrow =
                     await siblingBorrow.WaitAsync(
                         TimeSpan.FromSeconds(10),
                         cancellationToken);
@@ -1056,8 +1105,9 @@ public sealed class InspectionWorkspaceTests
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [source.Participant]);
-        var resource = new ThrowingParticipantReleaseResource();
-        group.RegisterOwnedResource(resource);
+        var resourceState = new ThrowingParticipantReleaseResource();
+        _ = group.GetOrCreateParticipantResource(
+            () => resourceState);
 
         AggregateException operationFailure =
             await Assert.ThrowsAsync<AggregateException>(
@@ -1066,10 +1116,10 @@ public sealed class InspectionWorkspaceTests
                     static (_, _) => Task.FromResult(1)));
 
         Assert.Same(
-            resource.Failure,
+            resourceState.Failure,
             Assert.Single(
                 operationFailure.Flatten().InnerExceptions));
-        Assert.Equal(1, resource.ParticipantReleaseCount);
+        Assert.Equal(1, resourceState.ParticipantReleaseCount);
         Assert.True(group.RetainedImageBytes > 0);
 
         InspectionWorkspaceCloseReport report =
@@ -1083,8 +1133,10 @@ public sealed class InspectionWorkspaceTests
                 .Flatten()
                 .InnerExceptions;
 
-        Assert.Same(resource.Failure, Assert.Single(closeFailures));
-        Assert.Equal(1, resource.DisposeCount);
+        Assert.Same(
+            resourceState.Failure,
+            Assert.Single(closeFailures));
+        Assert.Equal(1, resourceState.DisposeCount);
         Assert.Equal(0, group.RetainedImageBytes);
     }
 
@@ -2452,9 +2504,17 @@ public sealed class InspectionWorkspaceTests
         }
     }
 
-    sealed class ParticipantReleaseTrackingResource(
+    sealed class ActiveResourceTag
+    {
+    }
+
+    sealed class IdleResourceTag
+    {
+    }
+
+    sealed class ParticipantReleaseTrackingResourceState<TTag>(
         AssemblyContextGroup group)
-        : IAssemblyContextParticipantOwnedResource
+        : IAssemblyContextParticipantResourceState
     {
         int _participantReleaseCount;
 
@@ -2558,7 +2618,7 @@ public sealed class InspectionWorkspaceTests
         ManualResetEventSlim entered,
         ManualResetEventSlim resume,
         CancellationToken cancellationToken)
-        : IAssemblyContextParticipantOwnedResource
+        : IAssemblyContextParticipantResourceState
     {
         public void ReleaseParticipant(
             AssemblyAcquisitionRegistration registration)
@@ -2580,7 +2640,7 @@ public sealed class InspectionWorkspaceTests
     }
 
     sealed class ThrowingParticipantReleaseResource
-        : IAssemblyContextParticipantOwnedResource
+        : IAssemblyContextParticipantResourceState
     {
         int _disposeCount;
         int _participantReleaseCount;

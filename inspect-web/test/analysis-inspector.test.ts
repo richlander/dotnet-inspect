@@ -35,6 +35,7 @@ test("Relationships is default and Unsafe follows Performance", () => {
     modes,
     [
       "relationships",
+      "dependencies",
       "complexity",
       "performance",
       "unsafe",
@@ -45,6 +46,7 @@ test("Relationships is default and Unsafe follows Performance", () => {
 
 for (const mode of [
   "complexity",
+  "dependencies",
   "relationships",
   "performance",
   "unsafe",

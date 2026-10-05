@@ -221,12 +221,12 @@ public static partial class AnalysisExports
                 assemblyFileName,
                 pack))
         {
-            AssemblyContextEntry<LibrarySurfaceLeverageResult> entry =
+            AssemblyContextEntry<LibraryTypeLeverageResult> entry =
                 resolution.Scope.UseParticipant(
                     resolution.Participant,
                     static (group, selectedParticipant) =>
-                        AssemblyContextLibrarySurfaceLeverageQuery
-                            .ExecuteExhaustiveParticipant(
+                        AssemblyContextLibraryTypeLeverageQuery
+                            .ExecuteParticipant(
                                 group,
                                 selectedParticipant));
             salience = AnalysisExports.ProjectLibraryStructuralSalience(

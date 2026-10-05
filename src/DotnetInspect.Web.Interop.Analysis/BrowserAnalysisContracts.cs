@@ -389,13 +389,18 @@ public sealed record BrowserLibraryDependencyCycle(
 
 public sealed record BrowserLibraryStructuralSalience(
     int SchemaVersion,
+    BrowserLibraryTypeLeverageChannel Surface,
+    BrowserLibraryTypeLeverageChannel Implementation,
+    BrowserCompileLibraryAvailability CompileLibrary);
+
+public sealed record BrowserLibraryTypeLeverageChannel(
     string Outcome,
     string? MethodologyVersion,
-    string? EvidenceMode,
+    string EvidenceMode,
     BrowserLibraryNamespaceLeverageIndex? NamespaceIndex,
     BrowserLibraryTypeLeverageShard[] TypeLeverageShards,
     string? Failure,
-    BrowserCompileLibraryAvailability CompileLibrary);
+    string? FailureKind);
 
 public sealed record BrowserLibraryNamespaceLeverageIndex(
     string Disposition,
@@ -412,7 +417,8 @@ public sealed record BrowserLibraryNamespaceLeverageRow(
 public sealed record BrowserLibraryTypeLeverageShard(
     string Namespace,
     string Disposition,
-    BrowserLibrarySignatureUseCoverage Coverage,
+    BrowserLibrarySignatureUseCoverage? SignatureCoverage,
+    BrowserLibraryBodyUseCoverage? BodyCoverage,
     BrowserLibraryTypeLeverageRow[] Types,
     string[] SeaLevelOrder,
     string[] MountainPeakOrder,
@@ -423,6 +429,17 @@ public sealed record BrowserLibrarySignatureUseCoverage(
     int Examined,
     int Unavailable,
     int Limited);
+
+public sealed record BrowserLibraryBodyUseCoverage(
+    int BodiesConsidered,
+    int BodiesExamined,
+    int BodiesPhysicalOnly,
+    int BodiesUnavailable,
+    int BodiesLimited,
+    int OperandsConsidered,
+    int OperandsExamined,
+    int OperandsUnavailable,
+    int OperandsLimited);
 
 [JsonConverter(
     typeof(JsonStringEnumConverter<BrowserLibraryStructuralTypePole>))]
@@ -436,8 +453,8 @@ public sealed record BrowserLibraryTypeLeverageRow(
     string TypeDefinitionId,
     string TypeDisplay,
     bool DesignationEligible,
-    int SignatureIncomingDegree,
-    int SignatureOutgoingDegree,
+    int IncomingDegree,
+    int OutgoingDegree,
     string Role,
     BrowserLibraryStructuralTypePole? Pole);
 

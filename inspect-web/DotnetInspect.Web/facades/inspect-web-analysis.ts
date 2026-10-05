@@ -516,6 +516,18 @@ export interface BrowserIntegrationSignal {
   readonly shape: string;
 }
 
+export interface BrowserLibraryBodyUseCoverage {
+  readonly bodiesConsidered: number;
+  readonly bodiesExamined: number;
+  readonly bodiesPhysicalOnly: number;
+  readonly bodiesUnavailable: number;
+  readonly bodiesLimited: number;
+  readonly operandsConsidered: number;
+  readonly operandsExamined: number;
+  readonly operandsUnavailable: number;
+  readonly operandsLimited: number;
+}
+
 export interface BrowserLibraryDependencyCounts {
   readonly invocations: number;
   readonly functionReferences: number;
@@ -660,21 +672,27 @@ export interface BrowserLibrarySignatureUseCoverage {
 
 export interface BrowserLibraryStructuralSalience {
   readonly schemaVersion: number;
+  readonly surface: BrowserLibraryTypeLeverageChannel;
+  readonly implementation: BrowserLibraryTypeLeverageChannel;
+  readonly compileLibrary: BrowserCompileLibraryAvailability;
+}
+
+export interface BrowserLibraryTypeLeverageChannel {
   readonly outcome: string;
   readonly methodologyVersion: string | null;
-  readonly evidenceMode: string | null;
+  readonly evidenceMode: string;
   readonly namespaceIndex: BrowserLibraryNamespaceLeverageIndex | null;
   readonly typeLeverageShards: ReadonlyArray<BrowserLibraryTypeLeverageShard>;
   readonly failure: string | null;
-  readonly compileLibrary: BrowserCompileLibraryAvailability;
+  readonly failureKind: string | null;
 }
 
 export interface BrowserLibraryTypeLeverageRow {
   readonly typeDefinitionId: string;
   readonly typeDisplay: string;
   readonly designationEligible: boolean;
-  readonly signatureIncomingDegree: number;
-  readonly signatureOutgoingDegree: number;
+  readonly incomingDegree: number;
+  readonly outgoingDegree: number;
   readonly role: string;
   readonly pole: BrowserLibraryStructuralTypePole | null;
 }
@@ -682,7 +700,8 @@ export interface BrowserLibraryTypeLeverageRow {
 export interface BrowserLibraryTypeLeverageShard {
   readonly namespace: string;
   readonly disposition: string;
-  readonly coverage: BrowserLibrarySignatureUseCoverage;
+  readonly signatureCoverage: BrowserLibrarySignatureUseCoverage | null;
+  readonly bodyCoverage: BrowserLibraryBodyUseCoverage | null;
   readonly types: ReadonlyArray<BrowserLibraryTypeLeverageRow>;
   readonly seaLevelOrder: ReadonlyArray<string>;
   readonly mountainPeakOrder: ReadonlyArray<string>;

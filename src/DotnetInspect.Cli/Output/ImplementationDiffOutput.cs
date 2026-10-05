@@ -10,7 +10,7 @@ internal static class ImplementationDiffOutput
     static readonly InspectionEnvelopeJsonContract<ImplementationDiffDocument>
         JsonContract = new(
             "implementation-diff",
-            2,
+            3,
             ImplementationDiffJsonContext.Default.ImplementationDiffDocument);
 
     internal static int Write(

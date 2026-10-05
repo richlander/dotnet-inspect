@@ -347,7 +347,10 @@ import { renderLibraryAnalysisSurface } from "./library-analysis.ts";
 import { renderLibraryUnsafeSurface } from "./library-unsafe.ts";
 import {
   bindLibraryMetricsInteractions,
+  renderLibraryDependencyStructureSurface,
   renderLibraryMetricsSurface,
+  type LibraryAnalysisOptions,
+  type LibraryDependencyStructureState,
   type LibraryMetricsMode,
   type LibraryMetricsRelationshipState,
 } from "./library-metrics.ts";
@@ -1474,6 +1477,12 @@ const initialState = {
   packageLibraryMetricsKey: "",
   packageLibraryMetricsRelationshipState:
     null as LibraryMetricsRelationshipState | null,
+  packageLibraryDependencyStructureState: {
+    includeGlobalNamespace: false,
+    selectedSourceNamespace: null,
+    selectedTargetNamespace: null,
+  } as LibraryDependencyStructureState,
+  packageLibraryDependencyStructureStateKey: "",
   packageLibraryDependencyStructure: null,
   packageLibraryDependencyStructureLoading: false,
   packageLibraryDependencyStructureError: "",
@@ -5301,9 +5310,10 @@ function createTypeLeverageTarget(
     const row = platformLibraryForRequest(pkg, library.id);
     const assemblyFileName = platformAssemblyRequest(row);
     const salienceLibraryKey = JSON.stringify([
-      "library-structural-salience",
+      "library-type-leverage",
+      2,
       "structural-salience.v3",
-      "signature",
+      "signature+body-use",
       generation,
       "platform",
       pkg.activeFramework,
@@ -5326,9 +5336,10 @@ function createTypeLeverageTarget(
   }
 
   const salienceLibraryKey = JSON.stringify([
-    "library-structural-salience",
+    "library-type-leverage",
+    2,
     "structural-salience.v3",
-    "signature",
+    "signature+body-use",
     generation,
     "package",
     pkg.id,
@@ -6504,19 +6515,17 @@ function typeLeverageStatus() {
   const qualified = currentTypeLeveragePresentations().filter(
     ({ presentation }) =>
       presentation.disposition.toLowerCase() !== "complete"
-      || presentation.diagnostics.length > 0,
+      || presentation.diagnostics.length > 0
+      || presentation.warnings.length > 0,
   );
   if (qualified.length === 0) return "";
   const diagnostics = qualified.flatMap(
-    ({ presentation }) => presentation.diagnostics);
-  const examined = qualified.reduce(
-    (sum, { presentation }) => sum + presentation.coverage.examined,
-    0);
-  const considered = qualified.reduce(
-    (sum, { presentation }) => sum + presentation.coverage.considered,
-    0);
+    ({ presentation }) => [
+      ...presentation.warnings,
+      ...presentation.diagnostics,
+    ]);
   return `<div class="metadata-warning" aria-live="polite">
-    <small>Structural salience has qualified evidence · ${examined}/${considered} examined${diagnostics.length ? `<br>${diagnostics.map(escapeHtml).join("<br>")}` : ""}</small>
+    <small>Structural salience has qualified evidence${diagnostics.length ? `<br>${diagnostics.map(escapeHtml).join("<br>")}` : ""}</small>
     <button type="button" class="tiny-button" data-type-leverage-retry>Retry</button>
   </div>`;
 }
@@ -10106,13 +10115,12 @@ function renderTypeNavPane(
     itemAchievements: (item: TypeInventoryRow) => {
       if (isForwardedType(item)) return [];
       const presentation = currentTypeLeveragePresentation(item);
-      const leverage = presentation?.byType.get(
-        item.definitionId ?? item.id,
-      );
       const achievements: ItemAchievement[] = [];
-      if (leverage) {
+      for (const leverage of presentation?.byType.get(
+        item.definitionId ?? item.id,
+      ) ?? []) {
         achievements.push({
-          kind: leverage.pole,
+          kind: `${leverage.evidenceMode}-${leverage.pole}`,
           description: leverage.description,
         });
       }
@@ -10401,6 +10409,8 @@ function libraryLensBody() {
           return renderPackageLibraryMetrics("complexity");
         case "relationships":
           return renderPackageLibraryMetrics("relationships");
+        case "dependencies":
+          return renderPackageLibraryDependencyStructure();
         case "performance": return renderPackagePerformance();
         case "unsafe": return renderPackageUnsafeFindings();
         case "integrations": return renderPackageIntegrations();
@@ -11115,12 +11125,12 @@ function renderPackageUnsafeFindings() {
   });
 }
 
-function renderPackageLibraryMetrics(mode: LibraryMetricsMode) {
+function packageLibraryAnalysisOptions(): LibraryAnalysisOptions {
   const pkg = currentPackage();
   const library = selectedLibrary();
   const scopedLib = scopedPlatformLibrary();
   const current = packageScopeSignature();
-  return renderLibraryMetricsSurface({
+  return {
     libraryName: library?.name ?? "",
     assemblyIdentity: library ? libraryIdentity(library) : "No library selected",
     assetPath: library?.asset ?? "",
@@ -11128,7 +11138,7 @@ function renderPackageLibraryMetrics(mode: LibraryMetricsMode) {
     requireLibrary: pkg.isRuntimePack && !scopedLib,
     pickerHtml: pkg.isRuntimePack
       ? platformLibrarySelectHtml({
-        dataAttr: "data-platform-analysis-library",
+          dataAttr: "data-platform-analysis-library",
           selected: scopedLib || "",
         })
       : "",
@@ -11146,8 +11156,22 @@ function renderPackageLibraryMetrics(mode: LibraryMetricsMode) {
       state.packageLibraryDependencyStructure,
     relationshipState:
       state.packageLibraryMetricsRelationshipState,
+    dependencyState:
+      state.packageLibraryDependencyStructureStateKey === current
+        ? state.packageLibraryDependencyStructureState
+        : null,
     escapeHtml,
-  }, mode);
+  };
+}
+
+function renderPackageLibraryMetrics(mode: LibraryMetricsMode) {
+  return renderLibraryMetricsSurface(packageLibraryAnalysisOptions(), mode);
+}
+
+function renderPackageLibraryDependencyStructure() {
+  return renderLibraryDependencyStructureSurface(
+    packageLibraryAnalysisOptions(),
+  );
 }
 
 function activateLibraryMetricsType(typeKey: string) {
@@ -13250,6 +13274,10 @@ async function openPlatformLensLibrary(
     else if (state.analysisMode === "complexity"
       || state.analysisMode === "relationships")
       await loadPackageLibraryMetrics();
+    else if (state.analysisMode === "dependencies") {
+      render();
+      return;
+    }
     else assertNever(state.analysisMode, "analysis mode");
   } else await loadPackageMetadata();
 }
@@ -14332,6 +14360,18 @@ function bindEvents() {
         "Loading library dependency structure"),
     updateRelationshipState: relationshipState => {
       state.packageLibraryMetricsRelationshipState = relationshipState;
+    },
+    updateDependencyState: dependencyState => {
+      const current = packageScopeSignature();
+      const presentationChanged =
+        (state.packageLibraryDependencyStructureStateKey === current
+          ? state.packageLibraryDependencyStructureState
+            .includeGlobalNamespace
+          : false)
+          !== dependencyState.includeGlobalNamespace;
+      state.packageLibraryDependencyStructureState = dependencyState;
+      state.packageLibraryDependencyStructureStateKey = current;
+      if (presentationChanged) render();
     },
   });
   workbenchShellBinding =
