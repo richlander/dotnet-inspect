@@ -64,6 +64,8 @@ heap addressing, decoded `MetadataValue`, unsupported Windows Metadata, and
 malformed-root behavior. An absent ReadyToRun manifest root never falls back to
 the CLI root.
 
+### Population query contract
+
 Population intent carries already-admitted records rather than a file path.
 Each record is either one valid IL point or one retained malformed-input
 observation. Construction snapshots the records, requires at least one, and
