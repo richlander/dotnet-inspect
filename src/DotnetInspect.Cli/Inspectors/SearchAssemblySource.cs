@@ -25,7 +25,9 @@ internal sealed record SearchAssemblySource(
             assembly.Source,
             assembly.Version,
             assembly.Path,
-            new FindingSubject(fullPath, Path.GetFileName(assembly.Path)));
+            new FindingSubject(
+                fullPath,
+                Path.GetFileName(assembly.Path)));
     }
 
     internal static SearchAssemblySource FromPackage(
