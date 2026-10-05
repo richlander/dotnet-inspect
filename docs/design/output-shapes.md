@@ -1449,13 +1449,13 @@ folded and their rendering hazards (VT, ANSI escapes, bidi overrides, LS/PS)
 rewritten as visible `\uXXXX`, so they cannot escape a table cell, a code
 fence, a tree gutter, or a diagnostic line (issue #3319).
 
-Printing documents (`-S "Package README file" --print`) and `--content`
+Printing documents (`-S README --print`) and `--content`
 visually encode rendering hazards on stdout. Exact payload transfer is an
 explicit unary file operation: add `--out <path>` to a selection that resolves
 one payload. An unscoped file export preserves the package bytes exactly,
 including encoding, byte order mark, and line endings, except for package skill
 documents: skills are agent instructions, so every route, including
-`project -S Skills --print`, `package -S "Package skill files" --print`,
+`project -S Skills --print`, `package -S Skills --print`,
 `--content`, and a package README declaration, classifies through a
 `TextPolicy.Prose` `InertString` and carries one containment-selected value
 through stdout, structured output, and `--out`. The raw scoped skill is
@@ -1495,7 +1495,7 @@ described by the historical #4677 target. It remains pending focused L3
 payload-projection ownership and gates.
 
 Tool-authored companion output still uses the stream split: for example,
-`package X -S "Package README file" --print` writes the framed, encoded
+`package X -S README --print` writes the framed, encoded
 document to stdout and any tips or diagnostics to stderr.
 
 Two consequences define the boundary:
