@@ -244,6 +244,10 @@ public sealed class AssemblyContextGroup : IDisposable
 {
     private interface IParticipantOwnedResource : IDisposable
     {
+        AssemblyContextGroup Owner { get; }
+
+        object UntypedState { get; }
+
         void ReleaseParticipant(
             AssemblyAcquisitionRegistration registration);
     }
@@ -319,8 +323,11 @@ public sealed class AssemblyContextGroup : IDisposable
             AssemblyAcquisitionRegistration registration) =>
             _owner.BorrowParticipantResource(
                 this,
-                _state,
                 registration);
+
+        AssemblyContextGroup IParticipantOwnedResource.Owner => _owner;
+
+        object IParticipantOwnedResource.UntypedState => _state;
 
         void IParticipantOwnedResource.ReleaseParticipant(
             AssemblyAcquisitionRegistration registration) =>
@@ -349,19 +356,13 @@ public sealed class AssemblyContextGroup : IDisposable
         : ParticipantResourceBorrow<TState>
         where TState : class, IAssemblyContextParticipantResourceState
     {
-        private AssemblyContextGroup? _owner;
-        private readonly TState _state;
         private readonly ParticipantState _participant;
-        private readonly IParticipantOwnedResource _resource;
+        private IParticipantOwnedResource? _resource;
 
         internal ParticipantResourceBorrowImplementation(
-            AssemblyContextGroup owner,
-            TState state,
             ParticipantState participant,
             IParticipantOwnedResource resource)
         {
-            _owner = owner;
-            _state = state;
             _participant = participant;
             _resource = resource;
         }
@@ -370,10 +371,10 @@ public sealed class AssemblyContextGroup : IDisposable
         {
             get
             {
-                ObjectDisposedException.ThrowIf(
-                    Volatile.Read(ref _owner) is null,
-                    this);
-                return _state;
+                IParticipantOwnedResource? resource =
+                    Volatile.Read(ref _resource);
+                ObjectDisposedException.ThrowIf(resource is null, this);
+                return (TState)resource.UntypedState;
             }
         }
 
@@ -384,10 +385,10 @@ public sealed class AssemblyContextGroup : IDisposable
             TInput input,
             Func<AssemblyImageSnapshot, TInput, TResult> callback)
         {
-            AssemblyContextGroup? owner =
-                Volatile.Read(ref _owner);
-            ObjectDisposedException.ThrowIf(owner is null, this);
-            return owner.UseBorrowedSnapshot(
+            IParticipantOwnedResource? resource =
+                Volatile.Read(ref _resource);
+            ObjectDisposedException.ThrowIf(resource is null, this);
+            return resource.Owner.UseBorrowedSnapshot(
                 _participant,
                 cancellationToken,
                 input,
@@ -396,11 +397,11 @@ public sealed class AssemblyContextGroup : IDisposable
 
         public override void Dispose()
         {
-            AssemblyContextGroup? owner =
-                Interlocked.Exchange(ref _owner, null);
-            owner?.EndParticipantResourceBorrow(
+            IParticipantOwnedResource? resource =
+                Interlocked.Exchange(ref _resource, null);
+            resource?.Owner.EndParticipantResourceBorrow(
                 _participant,
-                _resource);
+                resource);
         }
     }
 
@@ -1028,8 +1029,7 @@ public sealed class AssemblyContextGroup : IDisposable
 
     private ParticipantResourceBorrow<TState>
         BorrowParticipantResource<TState>(
-            IParticipantOwnedResource resource,
-            TState state,
+            ParticipantResource<TState> resource,
             AssemblyAcquisitionRegistration registration)
         where TState : class, IAssemblyContextParticipantResourceState
     {
@@ -1046,8 +1046,6 @@ public sealed class AssemblyContextGroup : IDisposable
 
         AdmitParticipantResource(resource, participant);
         return new ParticipantResourceBorrowImplementation<TState>(
-            this,
-            state,
             participant,
             resource);
     }
