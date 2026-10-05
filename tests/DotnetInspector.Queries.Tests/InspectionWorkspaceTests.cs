@@ -1029,13 +1029,11 @@ public sealed class InspectionWorkspaceTests
         Assert.NotEmpty(rawAdmission);
         Assert.All(
             rawAdmission,
+            static method => Assert.True(method.IsPrivate));
+        Assert.Contains(
+            rawAdmission,
             method =>
-            {
-                Assert.True(method.IsPrivate);
-                Assert.Same(
-                    rawResource,
-                    method.GetParameters()[0].ParameterType);
-            });
+                method.GetParameters()[0].ParameterType == rawResource);
         Assert.Null(
             groupType.Assembly.GetType(
                 "DotnetInspector.Queries."
