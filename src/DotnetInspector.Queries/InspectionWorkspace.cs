@@ -349,15 +349,21 @@ public sealed class AssemblyContextGroup : IDisposable
         : ParticipantResourceBorrow<TState>
         where TState : class, IAssemblyContextParticipantResourceState
     {
+        private AssemblyContextGroup? _owner;
         private readonly TState _state;
-        private ParticipantResourceLease? _borrow;
+        private readonly ParticipantState _participant;
+        private readonly IParticipantOwnedResource _resource;
 
         internal ParticipantResourceBorrowImplementation(
+            AssemblyContextGroup owner,
             TState state,
-            ParticipantResourceLease borrow)
+            ParticipantState participant,
+            IParticipantOwnedResource resource)
         {
+            _owner = owner;
             _state = state;
-            _borrow = borrow;
+            _participant = participant;
+            _resource = resource;
         }
 
         internal override TState State
@@ -365,7 +371,7 @@ public sealed class AssemblyContextGroup : IDisposable
             get
             {
                 ObjectDisposedException.ThrowIf(
-                    Volatile.Read(ref _borrow) is null,
+                    Volatile.Read(ref _owner) is null,
                     this);
                 return _state;
             }
@@ -378,10 +384,11 @@ public sealed class AssemblyContextGroup : IDisposable
             TInput input,
             Func<AssemblyImageSnapshot, TInput, TResult> callback)
         {
-            ParticipantResourceLease? borrow =
-                Volatile.Read(ref _borrow);
-            ObjectDisposedException.ThrowIf(borrow is null, this);
-            return borrow.UseSnapshot(
+            AssemblyContextGroup? owner =
+                Volatile.Read(ref _owner);
+            ObjectDisposedException.ThrowIf(owner is null, this);
+            return owner.UseBorrowedSnapshot(
+                _participant,
                 cancellationToken,
                 input,
                 callback);
@@ -389,9 +396,11 @@ public sealed class AssemblyContextGroup : IDisposable
 
         public override void Dispose()
         {
-            ParticipantResourceLease? borrow =
-                Interlocked.Exchange(ref _borrow, null);
-            borrow?.Dispose();
+            AssemblyContextGroup? owner =
+                Interlocked.Exchange(ref _owner, null);
+            owner?.EndParticipantResourceBorrow(
+                _participant,
+                _resource);
         }
     }
 
@@ -1022,14 +1031,7 @@ public sealed class AssemblyContextGroup : IDisposable
             IParticipantOwnedResource resource,
             TState state,
             AssemblyAcquisitionRegistration registration)
-        where TState : class, IAssemblyContextParticipantResourceState =>
-        new ParticipantResourceBorrowImplementation<TState>(
-            state,
-            BorrowParticipantResource(resource, registration));
-
-    private ParticipantResourceLease BorrowParticipantResource(
-        IParticipantOwnedResource resource,
-        AssemblyAcquisitionRegistration registration)
+        where TState : class, IAssemblyContextParticipantResourceState
     {
         ArgumentNullException.ThrowIfNull(resource);
         ArgumentNullException.ThrowIfNull(registration);
@@ -1042,7 +1044,12 @@ public sealed class AssemblyContextGroup : IDisposable
                 nameof(registration));
         }
 
-        return BorrowParticipantResource(resource, participant);
+        AdmitParticipantResource(resource, participant);
+        return new ParticipantResourceBorrowImplementation<TState>(
+            this,
+            state,
+            participant,
+            resource);
     }
 
     private ParticipantResourceLease BorrowParticipantResource(
@@ -1057,6 +1064,17 @@ public sealed class AssemblyContextGroup : IDisposable
     }
 
     private ParticipantResourceLease BorrowParticipantResource(
+        IParticipantOwnedResource resource,
+        ParticipantState participant)
+    {
+        AdmitParticipantResource(resource, participant);
+        return new ParticipantResourceLease(
+            this,
+            participant,
+            resource);
+    }
+
+    private void AdmitParticipantResource(
         IParticipantOwnedResource resource,
         ParticipantState participant)
     {
@@ -1079,10 +1097,6 @@ public sealed class AssemblyContextGroup : IDisposable
                 _activeCallbacks++;
             }
         }
-        return new ParticipantResourceLease(
-            this,
-            participant,
-            resource);
     }
 
     internal void UnregisterOwnedResource(IDisposable resource)
