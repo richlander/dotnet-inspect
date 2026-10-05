@@ -93,7 +93,9 @@ identity, display label, maps, terms, and order are the owner's, and equal
 inputs yield equal declarations. A host composes the declarations it ships into
 one exactly identified snapshot, under the tier-1 composition rule the
 [QuerySpace library boundary](query-space-library.md#two-assemblies-and-two-participation-tiers)
-states. No component owns the complete list of product vocabularies.
+states. No component owns the complete list of product vocabularies; the
+Product Vocabulary document schema's fixed section list, described below, is
+the one exception.
 
 The term owners, and therefore the declaring owners, are:
 
@@ -147,9 +149,16 @@ The declaration types live in `QuerySpace.Primitives`. The composition
 (`ProductVocabularyComposition`), the document projection
 (`ProductVocabularyProjection`), the inspection wrapper, and the document and
 wire types live in `DotnetInspector.Sections`. Each host holds only its
-contribution list. No product assembly owns the complete list of product
-vocabularies, and no assembly between the owners and the hosts restates their
-values.
+contribution list, and no assembly between the owners and the hosts restates
+their values. The one fixed list is the Product Vocabulary document schema:
+`ProductVocabularyProjection` names each section it projects, with that
+section's fields and operators, and fails visibly when a composed snapshot
+lacks one. A vocabulary that a host contributes without a document section
+appears only as an index row until the projection names it. Whether the
+document keeps a per-section schema or projects every composed vocabulary
+generically is decided with the explanation adoption in
+[#9250](https://github.com/richlander/dotnet-inspect/issues/9250) steps 7
+and 8.
 
 Static vocabulary answers "what may I ask?" Target-aware facets remain query
 results: they add availability, counts, or rejection reasons for one inspected
