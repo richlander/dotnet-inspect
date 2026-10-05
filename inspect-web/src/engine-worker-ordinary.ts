@@ -1783,7 +1783,7 @@ export const engineWorkerOrdinaryOperations = {
     ),
     queryMemberFindingCensus: valueOperation(
       "ordinary-source-query-member-finding-census",
-      11,
+      12,
       (
         facades,
         ...args: Parameters<SourceFacade["queryMemberFindingCensus"]>
@@ -1791,7 +1791,7 @@ export const engineWorkerOrdinaryOperations = {
     ),
     queryPlatformMemberFindingCensus: valueOperation(
       "ordinary-source-query-platform-member-finding-census",
-      12,
+      13,
       (
         facades,
         ...args: Parameters<SourceFacade["queryPlatformMemberFindingCensus"]>

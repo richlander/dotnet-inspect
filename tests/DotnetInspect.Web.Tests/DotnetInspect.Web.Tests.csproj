@@ -89,6 +89,7 @@
     <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.CallerGraphTarget\ILInspector.Analysis.CallerGraphTarget.csproj" ReferenceOutputAssembly="false" Private="false" />
     <ProjectReference Include="..\..\fixtures\research\ILInspector.Research.DependencyStructureFixtures\ILInspector.Research.DependencyStructureFixtures.csproj" ReferenceOutputAssembly="false" Private="false" />
     <ProjectReference Include="..\..\fixtures\decompiler\ILInspector.Decompiler.Fixtures.NewUnsafe\ILInspector.Decompiler.Fixtures.NewUnsafe.csproj" ReferenceOutputAssembly="false" Private="false" />
+    <ProjectReference Include="..\..\fixtures\decompiler\ILInspector.Decompiler.Fixtures.ClassicAsync\ILInspector.Decompiler.Fixtures.ClassicAsync.csproj" ReferenceOutputAssembly="false" Private="false" />
     <!--
       Both Source comparison fixtures publish the same InspectWebSourceComparisonFixture.dll file
       name, so they are build-ordering references only; the tests read them through FixtureCatalog.

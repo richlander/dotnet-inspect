@@ -485,6 +485,7 @@ function findingCensusRequest(
     memberSignature: "void Run(string value)",
     selectorKey: "Run|System.String",
     metadataToken: 0x06000001,
+    implementationBodySelected: false,
     taste: "[\"prefer-expression-bodied-members\"]",
     isCurrent: () => true,
     ...overrides,

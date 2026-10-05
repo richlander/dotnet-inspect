@@ -808,12 +808,12 @@ type $ManagedExports = {
             readonly "CancelTypeExplorerQuery.271973316": (operationId: string, reason: string) => string;
             readonly "CancelTypeSourceQuery.271973316": (operationId: string, reason: string) => string;
             readonly "QueryMemberAnnotatedSource.1135530322": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, typeQueryId: string, memberName: string, memberSignature: string, selectorKey: string, metadataToken: number, styleOptionsJson: string) => Promise<string>;
-            readonly "QueryMemberFindingCensus.1135530322": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, typeQueryId: string, memberName: string, memberSignature: string, selectorKey: string, metadataToken: number, styleOptionsJson: string) => Promise<string>;
+            readonly "QueryMemberFindingCensus.1802848808": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, typeQueryId: string, memberName: string, memberSignature: string, selectorKey: string, metadataToken: number, implementationBodySelected: boolean, styleOptionsJson: string) => Promise<string>;
             readonly "QueryMemberSource.279098206": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number, documentBaselineOrdinal: number, styleOptionsJson: string, view: string) => Promise<string>;
             readonly "QueryMemberSourceComparison.451505237": (operationId: string, requestJson: string) => Promise<string>;
             readonly "QueryMethodBodyComparison.451505237": (operationId: string, requestJson: string) => Promise<string>;
             readonly "QueryMethodBodyComparisonTargets.642387634": (operationId: string, packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number) => Promise<string>;
-            readonly "QueryPlatformMemberFindingCensus.861956385": (targetFramework: string, platformVersion: string, assemblyName: string, pack: string, typeIdentity: string, typeQueryId: string, memberName: string, memberSignature: string, selectorKey: string, metadataToken: number, styleOptionsJson: string, contextId: string | null) => Promise<string>;
+            readonly "QueryPlatformMemberFindingCensus.316828023": (targetFramework: string, platformVersion: string, assemblyName: string, pack: string, typeIdentity: string, typeQueryId: string, memberName: string, memberSignature: string, selectorKey: string, metadataToken: number, implementationBodySelected: boolean, styleOptionsJson: string, contextId: string | null) => Promise<string>;
             readonly "QueryPlatformMemberSource.2033029677": (targetFramework: string, platformVersion: string, assemblyName: string, pack: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number, documentBaselineOrdinal: number, styleOptionsJson: string, view: string, contextId: string | null) => Promise<string>;
             readonly "QueryPlatformTypeSource.65947390": (operationId: string, targetFramework: string, platformVersion: string, assemblyName: string, pack: string, typeIdentity: string, styleOptionsJson: string, view: string, contextId: string | null) => Promise<string>;
             readonly "QueryRetainedMethodBodyComparison.1330709314": (operationId: string, retainedDefinitionId: string, realizationId: string, navigationId: string, requestJson: string) => Promise<string>;
@@ -949,9 +949,9 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "Interop");
     value = $ownDataProperty(value, "Source");
     value = $ownDataProperty(value, "SourceExports");
-    value = $ownDataProperty(value, "QueryMemberFindingCensus.1135530322");
+    value = $ownDataProperty(value, "QueryMemberFindingCensus.1802848808");
     if (typeof value !== "function") {
-      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Source.SourceExports.QueryMemberFindingCensus.1135530322\u0027 is not callable.");
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Source.SourceExports.QueryMemberFindingCensus.1802848808\u0027 is not callable.");
     }
   }
   {
@@ -1009,9 +1009,9 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "Interop");
     value = $ownDataProperty(value, "Source");
     value = $ownDataProperty(value, "SourceExports");
-    value = $ownDataProperty(value, "QueryPlatformMemberFindingCensus.861956385");
+    value = $ownDataProperty(value, "QueryPlatformMemberFindingCensus.316828023");
     if (typeof value !== "function") {
-      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Source.SourceExports.QueryPlatformMemberFindingCensus.861956385\u0027 is not callable.");
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Source.SourceExports.QueryPlatformMemberFindingCensus.316828023\u0027 is not callable.");
     }
   }
   {
@@ -1183,8 +1183,8 @@ export async function queryMemberAnnotatedSource(packageId: string, version: str
   return $parsed as BrowserAnnotatedSource;
 }
 
-export async function queryMemberFindingCensus(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, typeQueryId: string, memberName: string, memberSignature: string, selectorKey: string, metadataToken: number, styleOptionsJson: string): Promise<BrowserMemberFindingCensus> {
-  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Source"]["SourceExports"]["QueryMemberFindingCensus.1135530322"](packageId, version, targetFramework, assemblyName, typeIdentity, typeQueryId, memberName, memberSignature, selectorKey, metadataToken, styleOptionsJson);
+export async function queryMemberFindingCensus(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, typeQueryId: string, memberName: string, memberSignature: string, selectorKey: string, metadataToken: number, implementationBodySelected: boolean, styleOptionsJson: string): Promise<BrowserMemberFindingCensus> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Source"]["SourceExports"]["QueryMemberFindingCensus.1802848808"](packageId, version, targetFramework, assemblyName, typeIdentity, typeQueryId, memberName, memberSignature, selectorKey, metadataToken, implementationBodySelected, styleOptionsJson);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserMemberFindingCensus;
 }
@@ -1212,8 +1212,8 @@ export async function queryMethodBodyComparisonTargets(operationId: string, pack
   return $parsed as BrowserMethodBodyTargetsResult;
 }
 
-export async function queryPlatformMemberFindingCensus(targetFramework: string, platformVersion: string, assemblyName: string, pack: string, typeIdentity: string, typeQueryId: string, memberName: string, memberSignature: string, selectorKey: string, metadataToken: number, styleOptionsJson: string, contextId: string | null): Promise<BrowserMemberFindingCensus> {
-  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Source"]["SourceExports"]["QueryPlatformMemberFindingCensus.861956385"](targetFramework, platformVersion, assemblyName, pack, typeIdentity, typeQueryId, memberName, memberSignature, selectorKey, metadataToken, styleOptionsJson, contextId);
+export async function queryPlatformMemberFindingCensus(targetFramework: string, platformVersion: string, assemblyName: string, pack: string, typeIdentity: string, typeQueryId: string, memberName: string, memberSignature: string, selectorKey: string, metadataToken: number, implementationBodySelected: boolean, styleOptionsJson: string, contextId: string | null): Promise<BrowserMemberFindingCensus> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Source"]["SourceExports"]["QueryPlatformMemberFindingCensus.316828023"](targetFramework, platformVersion, assemblyName, pack, typeIdentity, typeQueryId, memberName, memberSignature, selectorKey, metadataToken, implementationBodySelected, styleOptionsJson, contextId);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserMemberFindingCensus;
 }

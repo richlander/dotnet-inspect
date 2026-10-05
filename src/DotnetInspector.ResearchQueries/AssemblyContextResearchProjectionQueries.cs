@@ -485,12 +485,14 @@ public static class AssemblyContextMemberProjectionQuery
                 throw new InvalidOperationException(
                     "Call relationship projection produced no callee topology.");
             }
+            (string projectionType, string projectionMember) =
+                ProjectionCoordinates(request, callGraph);
             MemberProjectionResult projection =
                 MemberProjectionProducer.Produce(
                     new MemberProjectionRequest(
                         source,
-                        request.Type,
-                        request.Member,
+                        projectionType,
+                        projectionMember,
                         request.OverloadIndex,
                         request.PublicOnly,
                         request.AnnotatedSource,
@@ -625,6 +627,44 @@ public static class AssemblyContextMemberProjectionQuery
             // returns rather than leaving it to a browser's collector.
             execution?.CallGraph.ReleaseCaches();
         }
+    }
+
+    static (string Type, string Member) ProjectionCoordinates(
+        AssemblyContextMemberProjectionRequest request,
+        LibraryCallGraphAnalysisResult? callGraph)
+    {
+        if (request.MethodToken is not { } methodToken
+            || callGraph is null)
+        {
+            return (request.Type, request.Member);
+        }
+
+        MethodIdentity[] methods =
+        [
+            .. callGraph.Methods.Where(
+                method => method.MetadataToken == methodToken),
+        ];
+        if (methods.Length != 1)
+        {
+            throw new InvalidOperationException(
+                $"MethodDef 0x{methodToken:X8} does not identify one "
+                    + "analyzed physical method.");
+        }
+
+        MethodIdentity method = methods[0];
+        string? type =
+            CallGraphMemberResolver.DefinitionIdentity(
+                method.DeclaringType)
+            ?? CallGraphMemberResolver.UnambiguousMetadataIdentity(
+                method.DeclaringType);
+        if (type is null)
+        {
+            throw new InvalidOperationException(
+                $"MethodDef 0x{methodToken:X8} has no unambiguous "
+                    + "declaring-type identity.");
+        }
+
+        return (type, method.Name);
     }
 
     static IReadOnlyList<AssemblyMemberFindingEvidence> ProjectFindingEvidence(

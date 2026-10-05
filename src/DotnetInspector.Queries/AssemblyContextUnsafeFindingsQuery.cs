@@ -139,7 +139,8 @@ public static class AssemblyContextUnsafeFindingsQuery
                             new AssemblyUnsafeFinding(
                                 finding,
                                 PublicMember(
-                                    finding.Method.MetadataToken,
+                                    finding.Method,
+                                    callGraph,
                                     publicMembers.ByBodyToken)))
                         .OrderBy(
                             finding =>
@@ -175,21 +176,36 @@ public static class AssemblyContextUnsafeFindingsQuery
     }
 
     static UnsafeFindingPublicMember? PublicMember(
-        int bodyToken,
+        MethodIdentity body,
+        LibraryCallGraphAnalysisResult callGraph,
         IReadOnlyDictionary<
             int,
             AssemblyContextPublicMember> publicMembers) =>
-        publicMembers.TryGetValue(
-            bodyToken,
-            out AssemblyContextPublicMember? publicMember)
-            ? new(
-                publicMember.TypeDefinitionId,
-                publicMember.Member,
-                publicMember.StableSelector,
-                publicMember.BodyMember,
-                publicMember.BodySelector,
-                publicMember.BodyToken)
-            : null;
+        PublicMember(
+            body,
+            publicMembers.GetValueOrDefault(body.MetadataToken)
+                ?? (callGraph.ResolveDeclaredMethod(body) is { } source
+                    ? publicMembers.GetValueOrDefault(
+                        source.MetadataToken)
+                    : null));
+
+    static UnsafeFindingPublicMember? PublicMember(
+        MethodIdentity body,
+        AssemblyContextPublicMember? publicMember)
+    {
+        if (publicMember is null)
+            return null;
+
+        CallGraphMemberSelector bodySelector =
+            CallGraphMemberResolver.CreateSelector(body);
+        return new(
+            publicMember.TypeDefinitionId,
+            publicMember.Member,
+            publicMember.StableSelector,
+            body.Name,
+            bodySelector.Key,
+            body.MetadataToken);
+    }
 
     static void EnsureSameSubject(
         AssemblyContextSubject actual,

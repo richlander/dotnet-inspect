@@ -60,6 +60,7 @@ interface MemberFindingCensusCoordinates {
   memberSignature: string;
   selectorKey: string;
   metadataToken: number;
+  implementationBodySelected: boolean;
   taste: string;
   embeddedSession?: boolean;
   isCurrent(): boolean;

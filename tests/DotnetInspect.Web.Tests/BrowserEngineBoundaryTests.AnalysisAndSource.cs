@@ -40,6 +40,7 @@ using BrowserPackageOpportunities = DotnetInspect.Web.Interop.Analysis.BrowserPa
 using BrowserPackagePerformance = DotnetInspect.Web.Interop.Analysis.BrowserPackagePerformance;
 using BrowserPackageUnsafeFindings = DotnetInspect.Web.Interop.Analysis.BrowserPackageUnsafeFindings;
 using BrowserUnsafeFinding = DotnetInspect.Web.Interop.Analysis.BrowserUnsafeFinding;
+using BrowserMemberFacts = DotnetInspect.Web.Interop.Analysis.BrowserMemberFacts;
 using BrowserPerformanceMember = DotnetInspect.Web.Interop.Analysis.BrowserPerformanceMember;
 using BrowserOpportunityItem = DotnetInspect.Web.Interop.Analysis.BrowserOpportunityItem;
 using BrowserSource = DotnetInspect.Web.Interop.Source.BrowserSource;
@@ -125,17 +126,18 @@ public sealed partial class BrowserEngineBoundaryTests
                         .BrowserPackageUnsafeFindings));
 
         Assert.True(findings.TotalFindings > 0);
-        Assert.Contains(
-            findings.Findings,
-            finding =>
-                finding.MemberName
-                    == nameof(PerformanceStackAllocProbe)
-                && finding.Kind == "stackalloc"
-                && finding.Location == "method body"
-                && finding.BodyToken > 0
-                && !string.IsNullOrWhiteSpace(
-                    finding.BodySelector)
-                && finding.Offset is not null);
+        BrowserUnsafeFinding stackAllocation =
+            Assert.Single(
+                findings.Findings,
+                finding =>
+                    finding.MemberName
+                        == nameof(PerformanceStackAllocProbe)
+                    && finding.Kind == "stackalloc"
+                    && finding.Location == "method body"
+                    && finding.BodyToken > 0
+                    && !string.IsNullOrWhiteSpace(
+                        finding.BodySelector)
+                    && finding.Offset is not null);
         using JsonDocument document = JsonDocument.Parse(json);
         JsonElement finding = Assert.Single(
             document.RootElement
@@ -149,6 +151,119 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.False(finding.TryGetProperty("severity", out _));
         Assert.False(finding.TryGetProperty("confidence", out _));
         Assert.False(finding.TryGetProperty("rank", out _));
+
+        string censusJson =
+            await DotnetInspect.Web.Interop.Source
+                .SourceExports.QueryMemberFindingCensus(
+                    PackageId,
+                    "1.0.0",
+                    "net11.0",
+                    $"{PackageId}.dll",
+                    stackAllocation.TypeId,
+                    stackAllocation.TypeId,
+                    stackAllocation.BodyMember,
+                    stackAllocation.MemberName,
+                    stackAllocation.BodySelector,
+                    stackAllocation.BodyToken,
+                    implementationBodySelected: true,
+                    styleOptionsJson: "[]");
+        using JsonDocument census = JsonDocument.Parse(censusJson);
+        Assert.True(
+            census.RootElement.GetProperty("annotatedSource")
+                .GetProperty("viewerCatalog")
+                .GetProperty("callRelationships")
+                .GetProperty("available")
+                .GetBoolean());
+    }
+
+    [Fact]
+    public async Task PackageUnsafeFindings_OpenLiftedBodyFactsAndAnnotatedSource()
+    {
+        const string PackageId = "Browser.Unsafe.Async.Findings";
+        byte[] image = File.ReadAllBytes(
+            FixtureCatalog.DecompilerClassicAsync.AssemblyPath());
+        await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
+            new BrowserPackage(
+                PackageId,
+                "1.0.0",
+                PackagePair(
+                    image,
+                    image,
+                    $"{PackageId}.dll"),
+                fromCache: false));
+
+        BrowserPackageUnsafeFindings findings =
+            Assert.IsType<BrowserPackageUnsafeFindings>(
+                JsonSerializer.Deserialize(
+                    await DotnetInspect.Web.Interop.Analysis
+                        .AnalysisExports.QueryPackageUnsafeFindings(
+                            PackageId,
+                            "1.0.0",
+                            "net11.0",
+                            $"{PackageId}.dll"),
+                    BrowserAnalysisJsonContext.Default
+                        .BrowserPackageUnsafeFindings));
+        BrowserUnsafeFinding stackAllocation =
+            Assert.Single(
+                findings.Findings,
+                finding =>
+                    finding.MemberName
+                        == "AwaitInitializedStackalloc"
+                    && finding.Kind == "stackalloc");
+        Assert.Equal("MoveNext", stackAllocation.BodyMember);
+
+        BrowserMemberFacts facts =
+            Assert.IsType<BrowserMemberFacts>(
+                JsonSerializer.Deserialize(
+                    await DotnetInspect.Web.Interop.Analysis
+                        .AnalysisExports.QueryMemberFacts(
+                            PackageId,
+                            "1.0.0",
+                            "net11.0",
+                            $"{PackageId}.dll",
+                            stackAllocation.TypeId,
+                            stackAllocation.BodyMember,
+                            memberSignature: "",
+                            stackAllocation.BodySelector,
+                            stackAllocation.BodyToken,
+                            implementationBodySelected: true),
+                    BrowserAnalysisJsonContext.Default
+                        .BrowserMemberFacts));
+        Assert.Equal(
+            stackAllocation.BodyToken,
+            facts.MetadataToken);
+        Assert.Contains(
+            facts.Safety,
+            fact => fact.Kind == "stackalloc");
+
+        string censusJson =
+            await DotnetInspect.Web.Interop.Source
+                .SourceExports.QueryMemberFindingCensus(
+                    PackageId,
+                    "1.0.0",
+                    "net11.0",
+                    $"{PackageId}.dll",
+                    stackAllocation.TypeId,
+                    stackAllocation.TypeId,
+                    stackAllocation.BodyMember,
+                    memberSignature:
+                        stackAllocation.MemberName,
+                    stackAllocation.BodySelector,
+                    stackAllocation.BodyToken,
+                    implementationBodySelected: true,
+                    styleOptionsJson: "[]");
+        using JsonDocument census = JsonDocument.Parse(censusJson);
+        Assert.Contains(
+            census.RootElement.GetProperty("facts").EnumerateArray(),
+            fact => fact.GetProperty("category").GetString()
+                    == "Unsafety"
+                && fact.GetProperty("id").GetString()
+                    == "unsafe.stackalloc");
+        Assert.Equal(
+            JsonValueKind.Object,
+            census.RootElement.GetProperty("annotatedSource")
+                .GetProperty("document")
+                .ValueKind);
     }
 
     [Fact]
@@ -634,6 +749,7 @@ public sealed partial class BrowserEngineBoundaryTests
             CallerCanonicalIdentity,
             member.GetProperty("graphSelectorKey").GetString()!,
             member.GetProperty("metadataToken").GetInt32(),
+            implementationBodySelected: false,
             "[]");
         using JsonDocument censusDocument = JsonDocument.Parse(censusJson);
         JsonElement root = censusDocument.RootElement;
@@ -755,6 +871,7 @@ public sealed partial class BrowserEngineBoundaryTests
             member.GetProperty("signature").GetString()!,
             member.GetProperty("graphSelectorKey").GetString()!,
             member.GetProperty("metadataToken").GetInt32(),
+            implementationBodySelected: false,
             "[]");
         using JsonDocument censusDocument = JsonDocument.Parse(censusJson);
         JsonElement root = censusDocument.RootElement;
@@ -944,6 +1061,7 @@ public sealed partial class BrowserEngineBoundaryTests
                     member.GetProperty("graphSelectorKey")
                         .GetString()!,
                     member.GetProperty("metadataToken").GetInt32(),
+                    implementationBodySelected: false,
                     "[]");
 
         using JsonDocument censusDocument =
@@ -1039,6 +1157,7 @@ public sealed partial class BrowserEngineBoundaryTests
                     member.GetProperty("graphSelectorKey")
                         .GetString()!,
                     member.GetProperty("metadataToken").GetInt32(),
+                    implementationBodySelected: false,
                     "[]");
 
         using JsonDocument censusDocument =
@@ -1126,6 +1245,7 @@ public sealed partial class BrowserEngineBoundaryTests
                     member.GetProperty("graphSelectorKey")
                         .GetString()!,
                     member.GetProperty("metadataToken").GetInt32(),
+                    implementationBodySelected: false,
                     "[]");
 
         using JsonDocument censusDocument =
@@ -1216,6 +1336,7 @@ public sealed partial class BrowserEngineBoundaryTests
                     member.GetProperty("graphSelectorKey")
                         .GetString()!,
                     member.GetProperty("metadataToken").GetInt32(),
+                    implementationBodySelected: false,
                     "[]");
 
         using JsonDocument censusDocument =
@@ -1301,6 +1422,7 @@ public sealed partial class BrowserEngineBoundaryTests
                     member.GetProperty("graphSelectorKey")
                         .GetString()!,
                     member.GetProperty("metadataToken").GetInt32(),
+                    implementationBodySelected: false,
                     "[]");
 
         using JsonDocument censusDocument =
@@ -1430,6 +1552,7 @@ public sealed partial class BrowserEngineBoundaryTests
                 member.GetProperty("signature").GetString()!,
                 member.GetProperty("graphSelectorKey").GetString()!,
                 member.GetProperty("metadataToken").GetInt32(),
+                implementationBodySelected: false,
                 "[]");
         using JsonDocument censusDocument = JsonDocument.Parse(censusJson);
         JsonElement root = censusDocument.RootElement;

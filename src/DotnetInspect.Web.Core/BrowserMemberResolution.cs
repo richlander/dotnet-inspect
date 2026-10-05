@@ -44,6 +44,15 @@ internal static class BrowserMemberResolution
         public ValueTask DisposeAsync() => Lease.DisposeAsync();
     }
 
+    internal sealed record ScopedImplementationParticipant(
+        BrowserScopeLease<BrowserInspectionScope> Lease,
+        BrowserWorkspaceParticipant Participant) : IAsyncDisposable
+    {
+        internal BrowserInspectionScope Scope => Lease.Scope;
+
+        public ValueTask DisposeAsync() => Lease.DisposeAsync();
+    }
+
     internal sealed record ScopedDeclarationResolution(
         BrowserScopeLease<BrowserInspectionScope> Lease,
         DeclarationResolved Member) : IAsyncDisposable
@@ -61,6 +70,15 @@ internal static class BrowserMemberResolution
     internal sealed record ScopedPlatformResolution(
         BrowserPlatformScopeResolution Resolution,
         Analysis.CallGraphMemberResolution Member) : IAsyncDisposable
+    {
+        internal BrowserPlatformScope Scope => Resolution.Scope;
+        internal WorkspaceContextMember Participant => Resolution.Participant;
+
+        public ValueTask DisposeAsync() => Resolution.DisposeAsync();
+    }
+
+    internal sealed record ScopedPlatformImplementationParticipant(
+        BrowserPlatformScopeResolution Resolution) : IAsyncDisposable
     {
         internal BrowserPlatformScope Scope => Resolution.Scope;
         internal WorkspaceContextMember Participant => Resolution.Participant;
@@ -145,6 +163,40 @@ internal static class BrowserMemberResolution
                 resolved.SurfaceParticipant,
                 resolved.ImplementationParticipant,
                 resolved.Member);
+        }
+        catch
+        {
+            await lease.DisposeAsync().ConfigureAwait(false);
+            throw;
+        }
+    }
+
+    internal static async Task<ScopedImplementationParticipant>
+        ImplementationParticipantAsync(
+            string packageId,
+            string version,
+            string targetFramework,
+            string assemblyName,
+            CancellationToken cancellationToken = default)
+    {
+        BrowserScopeLease<BrowserInspectionScope> lease =
+            await BrowserPackageWorkspace.OpenScopeAsync(
+                packageId,
+                version,
+                targetFramework,
+                cancellationToken);
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            BrowserInspectionScope scope = lease.Scope;
+            BrowserPackageCoordinate coordinate = scope.Coordinates[0];
+            PackageCompileAsset surfaceAsset =
+                coordinate.CompileAsset(assemblyName);
+            BrowserWorkspaceParticipant surfaceParticipant =
+                scope.SurfaceParticipant(coordinate, surfaceAsset);
+            return new ScopedImplementationParticipant(
+                lease,
+                scope.ImplementationParticipant(surfaceParticipant));
         }
         catch
         {
@@ -290,6 +342,34 @@ internal static class BrowserMemberResolution
             await resolution.DisposeAsync().ConfigureAwait(false);
             throw;
         }
+    }
+
+    internal static async Task<ScopedPlatformImplementationParticipant>
+        PlatformImplementationParticipantAsync(
+            string targetFramework,
+            string platformVersion,
+            string assemblyName,
+            string pack,
+            string? contextId = null,
+            CancellationToken cancellationToken = default)
+    {
+        BrowserPlatformScopeResolution resolution =
+            contextId is null
+                ? await BrowserPlatformWorkspace.OpenAssemblyAsync(
+                    targetFramework,
+                    platformVersion,
+                    assemblyName,
+                    pack,
+                    cancellationToken)
+                : await BrowserPlatformWorkspace
+                    .OpenRetainedContextAssemblyAsync(
+                        contextId,
+                        targetFramework,
+                        platformVersion,
+                        assemblyName,
+                        pack,
+                        cancellationToken);
+        return new ScopedPlatformImplementationParticipant(resolution);
     }
 
     internal static async Task<ScopedPlatformTypeResolution>
@@ -518,15 +598,29 @@ internal static class BrowserMemberResolution
         string memberName,
         string selectorKey,
         int metadataToken) =>
+            TryResolveImplementationMember(
+                implementation,
+                typeId,
+                memberName,
+                selectorKey,
+                metadataToken)
+            ?? throw new InvalidOperationException(
+                $"The implementation of '{typeId}.{memberName}' does not contain the selected "
+                + "API body.");
+
+    internal static Analysis.CallGraphMemberResolution?
+        TryResolveImplementationMember(
+            ApiSurface implementation,
+            string typeId,
+            string memberName,
+            string selectorKey,
+            int metadataToken) =>
             Analysis.CallGraphMemberResolver.ResolveDefinitionIdentity(
                 implementation,
                 typeId,
                 memberName,
                 selectorKey,
-                metadataToken == 0 ? null : metadataToken)
-            ?? throw new InvalidOperationException(
-                $"The implementation of '{typeId}.{memberName}' does not contain the selected "
-                + "API body.");
+                metadataToken == 0 ? null : metadataToken);
 
     internal static ApiType ResolveImplementationType(
         ApiSurface implementation,

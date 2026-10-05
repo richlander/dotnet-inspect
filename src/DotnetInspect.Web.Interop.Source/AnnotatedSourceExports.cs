@@ -53,7 +53,8 @@ public static partial class SourceExports
             selectorKey,
             metadataToken,
             styleOptionsJson,
-            factRows: false);
+            factRows: false,
+            implementationBodySelected: false);
         BrowserAnnotatedSource annotated = BrowserAnnotatedSource.Create(
             source.Document,
             source.Signature,
@@ -107,6 +108,7 @@ public static partial class SourceExports
         string memberSignature,
         string selectorKey,
         int metadataToken,
+        bool implementationBodySelected,
         string styleOptionsJson)
     {
         MemberSourceProjection source = await ProjectMemberAsync(
@@ -121,7 +123,8 @@ public static partial class SourceExports
             selectorKey,
             metadataToken,
             styleOptionsJson,
-            factRows: true);
+            factRows: true,
+            implementationBodySelected);
         return JsonSerializer.Serialize(
             CreateFindingCensus(source),
             BrowserSourceJsonContext.Default.BrowserMemberFindingCensus);
@@ -173,6 +176,7 @@ public static partial class SourceExports
         string memberSignature,
         string selectorKey,
         int metadataToken,
+        bool implementationBodySelected,
         string styleOptionsJson,
         string? contextId = null)
     {
@@ -189,6 +193,7 @@ public static partial class SourceExports
             metadataToken,
             styleOptionsJson,
             factRows: true,
+            implementationBodySelected,
             contextId: contextId);
         return JsonSerializer.Serialize(
             CreateFindingCensus(source),
@@ -207,9 +212,68 @@ public static partial class SourceExports
         string selectorKey,
         int metadataToken,
         string styleOptionsJson,
-        bool factRows)
+        bool factRows,
+        bool implementationBodySelected)
     {
-        _ = memberSignature;
+        if (implementationBodySelected)
+        {
+            await using BrowserMemberResolution.ScopedImplementationParticipant
+                exact =
+                    await BrowserMemberResolution
+                        .ImplementationParticipantAsync(
+                            packageId,
+                            version,
+                            targetFramework,
+                            assemblyName);
+            BrowserInspectionScope exactScope = exact.Scope;
+            BrowserWorkspaceParticipant exactParticipant =
+                exact.Participant;
+            Analysis.CallGraphMemberResolution? surfaceResolution =
+                exactScope.UseImplementationParticipant(
+                    exactParticipant,
+                    (group, participant) =>
+                        BrowserMemberResolution
+                            .TryResolveImplementationMember(
+                                BrowserMemberResolution
+                                    .ImplementationSurface(
+                                        group,
+                                        participant),
+                                typeIdentity,
+                                memberName,
+                                selectorKey,
+                                metadataToken));
+            return ProjectResolvedMember(
+                () => exactScope.UseImplementationParticipant(
+                    exactParticipant,
+                    (group, member) =>
+                        AssemblyContextMemberProjectionQuery
+                            .ExecuteParticipant(
+                                group,
+                                member,
+                                ProjectionRequest(
+                                    typeQueryId,
+                                    memberName,
+                                    metadataToken,
+                                    styleOptionsJson,
+                                    factRows,
+                                    extendedRelationships:
+                                        factRows
+                                        && surfaceResolution is not null))),
+                surfaceResolution is null
+                    ? new InertString(
+                        TextPolicy.Field,
+                        memberSignature)
+                    : MemberDeclaration(surfaceResolution),
+                typeQueryId,
+                memberName,
+                exactParticipant.Assembly.Identity,
+                exactScope.SurfaceParticipants,
+                platformPackForAssembly: null,
+                PackageProvenance(
+                    "Annotated by dotnet-inspect from",
+                    exactParticipant));
+        }
+
         await using BrowserMemberResolution.ScopedResolution resolved =
             await BrowserMemberResolution.ImplementationMemberAsync(
                 packageId,
@@ -226,29 +290,18 @@ public static partial class SourceExports
         return ProjectResolvedMember(
             () => scope.UseImplementationParticipant(
                 participant,
-                (group, member) => AssemblyContextMemberProjectionQuery.ExecuteParticipant(
-                    group,
-                    member,
-                    new AssemblyContextMemberProjectionRequest(
-                        typeQueryId,
-                        memberName,
-                        MethodToken: resolution.BodyToken,
-                        SourceDocument: true,
-                        FactRows: factRows,
-                        FindingEvidence: factRows,
-                        InvocationDestinations: true,
-                        AnalysisFeatures: factRows
-                            ? Analysis.LibraryBodyAnalysisFeatures.Default
-                                | Analysis.LibraryBodyAnalysisFeatures.LocalThrows
-                            : Analysis.LibraryBodyAnalysisFeatures.Default,
-                        PrinterOptions: BrowserStyleOptions.Resolve(styleOptionsJson),
-                        CallRelationships: factRows,
-                        CallCycles: factRows,
-                        SynchronousCompletions: factRows,
-                        AwaitCompletionPaths: factRows,
-                        AllocationExceptionPaths: factRows,
-                        LocalThrowPaths: factRows))),
-            resolution,
+                (group, member) =>
+                    AssemblyContextMemberProjectionQuery.ExecuteParticipant(
+                        group,
+                        member,
+                        ProjectionRequest(
+                            typeQueryId,
+                            memberName,
+                            resolution.BodyToken,
+                            styleOptionsJson,
+                            factRows,
+                            extendedRelationships: factRows))),
+            MemberDeclaration(resolution),
             typeQueryId,
             memberName,
             participant.Assembly.Identity,
@@ -270,11 +323,69 @@ public static partial class SourceExports
         int metadataToken,
         string styleOptionsJson,
         bool factRows,
+        bool implementationBodySelected,
         string? contextId)
     {
-        _ = memberSignature;
         using BrowserSourceOperationLease operation =
             await BrowserSourceOperationCoordinator.BeginAsync();
+        if (implementationBodySelected)
+        {
+            await using BrowserMemberResolution
+                .ScopedPlatformImplementationParticipant exact =
+                    await BrowserMemberResolution
+                        .PlatformImplementationParticipantAsync(
+                            targetFramework,
+                            platformVersion,
+                            assemblyName,
+                            pack,
+                            contextId,
+                            operation.CancellationToken);
+            Analysis.CallGraphMemberResolution? surfaceResolution =
+                exact.Scope.UseParticipant(
+                    exact.Participant,
+                    (group, participant) =>
+                        BrowserMemberResolution
+                            .TryResolveImplementationMember(
+                                BrowserMemberResolution
+                                    .ImplementationSurface(
+                                        group,
+                                        participant),
+                                typeIdentity,
+                                memberName,
+                                selectorKey,
+                                metadataToken));
+            return ProjectResolvedMember(
+                () => exact.Scope.UseParticipant(
+                    exact.Participant,
+                    (group, member) =>
+                        AssemblyContextMemberProjectionQuery
+                            .ExecuteParticipant(
+                                group,
+                                member,
+                                ProjectionRequest(
+                                    typeQueryId,
+                                    memberName,
+                                    metadataToken,
+                                    styleOptionsJson,
+                                    factRows,
+                                    extendedRelationships:
+                                        factRows
+                                        && surfaceResolution is not null))),
+                surfaceResolution is null
+                    ? new InertString(
+                        TextPolicy.Field,
+                        memberSignature)
+                    : MemberDeclaration(surfaceResolution),
+                typeQueryId,
+                memberName,
+                exact.Participant.Participant.Assembly.Identity,
+                surfaceParticipants: null,
+                exact.Scope.PlatformPackForAssembly,
+                PlatformProvenance(
+                    "Annotated by dotnet-inspect from",
+                    exact.Participant));
+        }
+
         await using BrowserMemberResolution.ScopedPlatformResolution resolved =
             await BrowserMemberResolution.PlatformImplementationMemberAsync(
                 targetFramework,
@@ -290,29 +401,18 @@ public static partial class SourceExports
         return ProjectResolvedMember(
             () => resolved.Scope.UseParticipant(
                 resolved.Participant,
-                (group, member) => AssemblyContextMemberProjectionQuery.ExecuteParticipant(
-                    group,
-                    member,
-                    new AssemblyContextMemberProjectionRequest(
-                        typeQueryId,
-                        memberName,
-                        MethodToken: resolved.Member.BodyToken,
-                        SourceDocument: true,
-                        FactRows: factRows,
-                        FindingEvidence: factRows,
-                        InvocationDestinations: true,
-                        AnalysisFeatures: factRows
-                            ? Analysis.LibraryBodyAnalysisFeatures.Default
-                                | Analysis.LibraryBodyAnalysisFeatures.LocalThrows
-                            : Analysis.LibraryBodyAnalysisFeatures.Default,
-                        PrinterOptions: BrowserStyleOptions.Resolve(styleOptionsJson),
-                        CallRelationships: factRows,
-                        CallCycles: factRows,
-                        SynchronousCompletions: factRows,
-                        AwaitCompletionPaths: factRows,
-                        AllocationExceptionPaths: factRows,
-                        LocalThrowPaths: factRows))),
-            resolved.Member,
+                (group, member) =>
+                    AssemblyContextMemberProjectionQuery.ExecuteParticipant(
+                        group,
+                        member,
+                        ProjectionRequest(
+                            typeQueryId,
+                            memberName,
+                            resolved.Member.BodyToken,
+                            styleOptionsJson,
+                            factRows,
+                            extendedRelationships: factRows))),
+            MemberDeclaration(resolved.Member),
             typeQueryId,
             memberName,
             resolved.Participant.Participant.Assembly.Identity,
@@ -323,9 +423,36 @@ public static partial class SourceExports
                 resolved.Participant));
     }
 
+    static AssemblyContextMemberProjectionRequest ProjectionRequest(
+        string typeQueryId,
+        string memberName,
+        int methodToken,
+        string styleOptionsJson,
+        bool factRows,
+        bool extendedRelationships) =>
+        new(
+            typeQueryId,
+            memberName,
+            MethodToken: methodToken,
+            SourceDocument: true,
+            FactRows: factRows,
+            FindingEvidence: factRows,
+            InvocationDestinations: !factRows || extendedRelationships,
+            AnalysisFeatures: extendedRelationships
+                ? Analysis.LibraryBodyAnalysisFeatures.Default
+                    | Analysis.LibraryBodyAnalysisFeatures.LocalThrows
+                : Analysis.LibraryBodyAnalysisFeatures.Default,
+            PrinterOptions: BrowserStyleOptions.Resolve(styleOptionsJson),
+            CallRelationships: extendedRelationships,
+            CallCycles: extendedRelationships,
+            SynchronousCompletions: extendedRelationships,
+            AwaitCompletionPaths: extendedRelationships,
+            AllocationExceptionPaths: extendedRelationships,
+            LocalThrowPaths: extendedRelationships);
+
     static MemberSourceProjection ProjectResolvedMember(
         Func<AssemblyContextEntry<AssemblyMemberProjection>> project,
-        Analysis.CallGraphMemberResolution resolution,
+        InertString signature,
         string typeQueryId,
         string memberName,
         ILInspector.Metadata.AssemblyReferenceIdentity participantIdentity,
@@ -333,7 +460,6 @@ public static partial class SourceExports
         Func<string, string?>? platformPackForAssembly,
         InertString provenance)
     {
-        InertString signature = MemberDeclaration(resolution);
         AssemblyMemberProjection projection = BrowserSurfaceProjection.Require(
             project(),
             $"Annotated source for '{typeQueryId}.{memberName}'");

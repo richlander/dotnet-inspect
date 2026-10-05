@@ -3,6 +3,7 @@ using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using System.Runtime.InteropServices;
 
+using DotnetInspector.Fixtures;
 using ILInspector.Analysis;
 using ILInspector.Metadata;
 
@@ -97,6 +98,87 @@ public sealed class AssemblyContextUnsafeFindingsQueryTests
                         finding.Finding.SafetyKind,
                     StringComparer.Ordinal),
             result.Findings);
+    }
+
+    [Fact]
+    public async Task ExecuteParticipant_AttributesLiftedUnsafeBodyToPublicSource()
+    {
+        var policy = new UnresolvedBindingPolicy();
+        await using var workspace = new InspectionWorkspace();
+        ImmutableArray<byte> image =
+            ImmutableCollectionsMarshal.AsImmutableArray(
+                File.ReadAllBytes(
+                    FixtureCatalog.DecompilerClassicAsync
+                        .AssemblyPath()));
+        using AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+            [
+                Participant(
+                    image,
+                    ContentIdentity(image),
+                    policy),
+            ]);
+
+        AssemblyUnsafeFindings result =
+            Assert.IsType<
+                AssemblyContextEntry<
+                    AssemblyUnsafeFindings>.Available>(
+                        AssemblyContextUnsafeFindingsQuery
+                            .ExecuteParticipant(
+                                group,
+                                Assert.Single(group.Participants)))
+                .Value;
+        AssemblyUnsafeFinding stackAllocation =
+            Assert.Single(
+                result.Findings,
+                finding =>
+                    finding.PublicMember?.Member
+                        == "AwaitInitializedStackalloc"
+                    && finding.Finding.SafetyKind
+                        == "stackalloc");
+
+        Assert.Equal(
+            "MoveNext",
+            stackAllocation.PublicMember!.BodyMember);
+        Assert.Equal(
+            stackAllocation.Finding.Method.MetadataToken,
+            stackAllocation.PublicMember.BodyToken);
+        Assert.False(
+            string.IsNullOrWhiteSpace(
+                stackAllocation.PublicMember.BodySelector));
+        Assert.NotEqual(
+            stackAllocation.PublicMember.StableSelector,
+            stackAllocation.PublicMember.BodySelector);
+
+        AssemblyContextEntry<AssemblyMemberProjection> projectionEntry =
+            AssemblyContextMemberProjectionQuery.ExecuteParticipant(
+                group,
+                Assert.Single(group.Participants),
+                new AssemblyContextMemberProjectionRequest(
+                    stackAllocation.PublicMember.TypeDefinitionId,
+                    stackAllocation.PublicMember.BodyMember,
+                    MethodToken:
+                        stackAllocation.PublicMember.BodyToken,
+                    SourceDocument: true,
+                    FactRows: true,
+                    FindingEvidence: true,
+                    AnalysisFeatures:
+                        LibraryBodyAnalysisFeatures.Default));
+        if (projectionEntry is
+            AssemblyContextEntry<AssemblyMemberProjection>.Failed failed)
+        {
+            throw failed.Error;
+        }
+        AssemblyMemberProjection projection =
+            Assert.IsType<
+                AssemblyContextEntry<
+                    AssemblyMemberProjection>.Available>(
+                        projectionEntry)
+                .Value;
+        Assert.Equal(
+            stackAllocation.PublicMember.BodyToken,
+            projection.Projection.SelectedMethodToken);
+        Assert.NotNull(projection.Projection.SourceDocument);
     }
 
     [Fact]

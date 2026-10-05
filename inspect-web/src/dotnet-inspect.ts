@@ -3836,6 +3836,7 @@ const memberDetailInspection = createMemberDetailInspectionCoordinator({
           request.memberSignature,
           request.selectorKey,
           request.metadataToken,
+          request.implementationBodySelected,
           request.taste,
           request.contextId)
       : inspectMemberFindingCensus(
@@ -3849,6 +3850,7 @@ const memberDetailInspection = createMemberDetailInspectionCoordinator({
           request.memberSignature,
           request.selectorKey,
           request.metadataToken,
+          request.implementationBodySelected,
           request.taste));
     const document = result.annotatedSource.document;
     validateAnnotatedSourceDocument(document);
@@ -19453,6 +19455,7 @@ async function inspectTypeExplorerBody(
     memberSignature: request.destination.member.canonicalSignature,
     selectorKey: request.destination.member.stableSelector,
     metadataToken: request.destination.metadataToken,
+    implementationBodySelected: true,
     taste: JSON.stringify(state.taste),
     embeddedSession: false,
     isCurrent: () =>
@@ -21230,6 +21233,7 @@ async function loadSelectedMemberAnnotatedSource() {
       state.selectedBodyTarget?.selectorKey ?? overload.graphSelectorKey,
     metadataToken:
       state.selectedBodyTarget?.metadataToken ?? overload.metadataToken ?? 0,
+    implementationBodySelected: state.selectedBodyTarget !== null,
     taste: JSON.stringify(state.taste),
     isCurrent: () => memberRequestIsCurrent(signature, true, true),
   };

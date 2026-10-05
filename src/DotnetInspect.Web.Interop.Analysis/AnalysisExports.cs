@@ -78,6 +78,30 @@ public static partial class AnalysisExports
         bool implementationBodySelected)
     {
         _ = memberSignature;
+        if (implementationBodySelected)
+        {
+            await using BrowserMemberResolution.ScopedImplementationParticipant
+                exact =
+                    await BrowserMemberResolution
+                        .ImplementationParticipantAsync(
+                            packageId,
+                            version,
+                            targetFramework,
+                            assemblyName);
+            AssemblyMethodAnalysis exactAnalysis =
+                BrowserSurfaceProjection.Require(
+                    exact.Scope.UseImplementationParticipant(
+                        exact.Participant,
+                        (group, participant) =>
+                            AssemblyContextMethodAnalysisQuery
+                                .ExecuteParticipant(
+                                    group,
+                                    participant,
+                                    metadataToken)),
+                    $"Facts for '{typeIdentity}.{memberName}'");
+            return ProjectMemberFacts(exactAnalysis);
+        }
+
         await using BrowserMemberResolution.ScopedResolution resolved =
             await BrowserMemberResolution.ImplementationMemberAsync(
                 packageId,
@@ -87,7 +111,7 @@ public static partial class AnalysisExports
                 typeIdentity,
                 memberName,
                 selectorKey,
-                implementationBodySelected ? metadataToken : 0);
+                0);
         BrowserInspectionScope scope = resolved.Scope;
         BrowserWorkspaceParticipant participant = resolved.ImplementationParticipant;
         ILAnalysis.CallGraphMemberResolution resolution = resolved.Member;
