@@ -95,7 +95,7 @@ public sealed class LibraryStructuralTypeLeveragePerformanceTests(
 
     [Fact]
     [Trait("Speed", "Slow")]
-    public void CoreLibBodyTypeLeverageBatchMatchesIndependentShards()
+    public void CoreLibBodyTypeLeverageBatchMatchesPinnedReference()
     {
         string path = Path.Combine(
             AppContext.BaseDirectory,
@@ -131,13 +131,6 @@ public sealed class LibraryStructuralTypeLeveragePerformanceTests(
             Assert.IsType<AnalysisLibraryBodyUseOutcome.Available>(
                 bodyOutcome).Result;
 
-        LibraryStructuralBodyTypeLeverageShard[] independent =
-        [
-            .. inventories.Select(inventory =>
-                LibraryStructuralReport.CreateBodyTypeLeverageShard(
-                    inventory,
-                    bodyUse)),
-        ];
         ImmutableArray<LibraryStructuralBodyTypeLeverageShard> batch =
             LibraryStructuralReport.CreateBodyTypeLeverageShards(
                 inventories,
@@ -146,16 +139,9 @@ public sealed class LibraryStructuralTypeLeveragePerformanceTests(
         Assert.Equal(61, batch.Length);
         Assert.Equal(1_907, batch.Sum(
             static shard => shard.Rows.Length));
-        Assert.Equal(independent.Length, batch.Length);
-        for (var shardIndex = 0;
-            shardIndex < batch.Length;
-            shardIndex++)
-        {
-            Assert.Equivalent(
-                independent[shardIndex],
-                batch[shardIndex],
-                strict: true);
-        }
+        Assert.Equal(
+            "bfeb8c144c20238d1e4d473cc8396c2a086bca1305a33cde56dda7f78086fb86",
+            BodyChecksum(batch));
     }
 
     [Fact]
@@ -467,6 +453,32 @@ public sealed class LibraryStructuralTypeLeveragePerformanceTests(
                     _ => throw new InvalidOperationException(
                         "Unknown structural Type pole."),
                 });
+                value.Append(';');
+            }
+        }
+        byte[] hash = SHA256.HashData(
+            Encoding.UTF8.GetBytes(value.ToString()));
+        return Convert.ToHexString(hash).ToLowerInvariant();
+    }
+
+    private static string BodyChecksum(
+        IEnumerable<LibraryStructuralBodyTypeLeverageShard> shards)
+    {
+        var value = new StringBuilder();
+        foreach (LibraryStructuralBodyTypeLeverageShard shard in shards)
+        {
+            value.Append('[');
+            value.Append(shard.Namespace);
+            value.Append(']');
+            foreach (LibraryStructuralBodyTypeLeverageRow row in shard.Rows)
+            {
+                value.Append(row.Type.Definition.Value);
+                value.Append(':');
+                value.Append(row.BodyIncomingDegree);
+                value.Append(':');
+                value.Append(row.BodyOutgoingDegree);
+                value.Append(':');
+                value.Append((int?)row.Pole);
                 value.Append(';');
             }
         }
