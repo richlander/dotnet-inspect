@@ -53,9 +53,7 @@ export function memberGroupMatches(
 
   const overloads = group.overloads.filter(
     overload => memberMatchesTrait(overload, filters.trait ?? ""));
-  const traitCount = groupTraitCount(group, filters.trait ?? "");
-  if (overloads.length === 0
-    && (group.detailsPending || traitCount !== null)) {
+  if (overloads.length === 0) {
     return groupMatchesSummaryTrait(group, filters.trait ?? "")
       && (!query || group.name.toLowerCase().includes(query));
   }
@@ -130,8 +128,7 @@ export function filterMemberGroups<TGroup extends FilterableMemberGroup>(
     const overloads = group.overloads.filter(
       overload => memberMatchesTrait(overload, filters.trait ?? ""));
     const traitCount = groupTraitCount(group, filters.trait ?? "");
-    if (overloads.length === 0
-      && (group.detailsPending || traitCount !== null)) {
+    if (overloads.length === 0) {
       if (!groupMatchesSummaryTrait(group, filters.trait ?? "")
         || query && !group.name.toLowerCase().includes(query)) {
         return [];

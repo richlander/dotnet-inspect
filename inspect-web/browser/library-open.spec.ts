@@ -705,19 +705,27 @@ test("uploaded Library private method family renders private exact rows", async 
       .toContainText("private · Static");
     await expect(page.locator(".member-identity"))
       .toContainText("owner-issued exact declaration");
-    await page.getByRole("button", { name: "Back", exact: true }).click();
-    await expect(subjectTab(page, "member"))
-      .toHaveAttribute("aria-selected", "true");
+    await page.locator("[data-member-document-back]").click();
+    await expect(page.locator(".member-surface-list .overload-row"))
+      .toHaveCount(2);
     await expect(page.locator(".member-identity")).toHaveCount(0);
-    await expect(page.locator(".member-surface-list"))
-      .toContainText("private static Widget Parse(ReadOnlySpan<char> json)");
-    await expect(page.locator(".member-surface-list"))
-      .toContainText("private static Widget Parse(ReadOnlySpan<byte> utf8Json)");
-    await page.getByRole("button", { name: "Forward", exact: true }).click();
+    await chooseSubject(page, "library", "Library");
+    await expect(subjectTab(page, "library"))
+      .toHaveAttribute("aria-selected", "true");
+    await page.getByRole("button", { name: "Back", exact: true }).click();
+    await expect(page.locator(".member-surface-list .overload-row"))
+      .toHaveCount(2);
+    await page.getByRole("button", { name: "Back", exact: true }).click();
     await expect(page.locator(".signature-code"))
       .toContainText("Widget Parse(ReadOnlySpan<char> json)");
     await expect(page.locator(".member-identity"))
       .toContainText("owner-issued exact declaration");
+    await page.getByRole("button", { name: "Forward", exact: true }).click();
+    await expect(page.locator(".member-surface-list .overload-row"))
+      .toHaveCount(2);
+    await page.getByRole("button", { name: "Forward", exact: true }).click();
+    await expect(subjectTab(page, "library"))
+      .toHaveAttribute("aria-selected", "true");
     await expect(page.locator("html")).toHaveAttribute(
       "data-uploaded-library-member-group-document-request",
       JSON.stringify([

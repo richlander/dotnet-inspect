@@ -1905,10 +1905,10 @@ test("history restores population intent before validating saved Member identity
     /const navigationHistory = createNavigationHistory\(\{\s*capture: captureView,\s*signature: workspaceViewSignature,\s*apply: applyView/);
   assert.match(
     workspaceNavigationSource,
-    /function workspaceViewSignature\([\s\S]*o: view\.selectedOverloadIndex,[\s\S]*b: graphTarget \? null : encodeBodyTarget\(view\.bodyTarget\),[\s\S]*g: graphTarget/);
+    /function workspaceViewSignature\([\s\S]*o: view\.selectedOverloadIndex,[\s\S]*md: view\.memberDocumentSelector \?\? null,[\s\S]*b: graphTarget \? null : encodeBodyTarget\(view\.bodyTarget\),[\s\S]*g: graphTarget/);
   assert.match(
     appSource,
-    /function captureView\(\): WorkspaceView \| null \{[\s\S]*selectedOverloadIndex: state\.selectedOverloadIndex,[\s\S]*bodyTarget: state\.selectedBodyTarget/);
+    /function captureView\(\): WorkspaceView \| null \{[\s\S]*selectedOverloadIndex: state\.selectedOverloadIndex,[\s\S]*memberDocumentSelector: state\.selectedMemberDocumentSelector,[\s\S]*bodyTarget: state\.selectedBodyTarget/);
   assert.match(
     appSource,
     /else if \(current && state\.selectedTypeId !== current\.id\) \{\s*state\.selectedTypeId = current\.id;\s*state\.selectedMemberKey = "";\s*state\.memberBrowseTypeId = "";\s*state\.selectedOverloadIndex = null;\s*resetMemberFilters\(\);\s*resetMemberSectionState\(\)/);

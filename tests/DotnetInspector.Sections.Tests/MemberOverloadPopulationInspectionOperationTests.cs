@@ -1408,7 +1408,9 @@ public sealed class MemberOverloadPopulationInspectionOperationTests
                         count: true,
                         rows: null,
                         accessibility: @case.Accessibility,
-                        declaringType: collection));
+                        declaringType: collection,
+                        category: MemberGroupCategory
+                            .ExplicitInterfaceImplementation));
             Assert.Equal(
                 @case.Expected,
                 Assert.IsType<MemberOverloadCountOutcome.Counted>(

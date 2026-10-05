@@ -8352,13 +8352,14 @@ function retainMemberSectionIfSupported(member: AppMemberGroup | undefined) {
   }
 }
 
-function ordinaryMethodGroup(
+function exactMethodGroup(
   group: {
     readonly kind: string;
     readonly overloads: readonly { readonly graphOnly?: boolean }[];
   } | null | undefined,
 ) {
-  return group?.kind === "method"
+  return (group?.kind === "method"
+      || group?.kind === "explicit-interface-implementation")
     && group.overloads.every(overload => !overload.graphOnly);
 }
 
@@ -8408,7 +8409,7 @@ async function loadSelectedMemberOverview(): Promise<void> {
       && state.selectedOverloadIndex === null
       && (member.overloads.length === 0
         || member.detailsPending
-        || ordinaryMethodGroup(member))) {
+        || exactMethodGroup(member))) {
     if (await loadSelectedMemberGroupAndSelectSingleton()) {
       await loadSelectedMemberDocumentation();
     }
@@ -8422,6 +8423,7 @@ async function loadSelectedMemberGroupAndSelectSingleton() {
   const resolved = selectedMember(selectedType());
   if (!resolved
     || memberGroupUsesFamilySurface(resolved)
+    || resolved.kind === "explicit-interface-implementation"
     || state.selectedOverloadIndex !== null) {
     return false;
   }
@@ -8476,11 +8478,11 @@ function openMemberGroup(key: string) {
     group?.overloads.length === 1
       && !memberGroupUsesFamilySurface(group)
       && !graphOnlyTarget
-      && !ordinaryMethodGroup(group)
+      && !exactMethodGroup(group)
       ? memberNavOverloadSourceIndex(group, 0)
       : null;
   const resetMethodSection =
-    ordinaryMethodGroup(group) && state.memberSection !== "compare";
+    exactMethodGroup(group) && state.memberSection !== "compare";
   state.memberBrowseTypeId = type?.id ?? "";
   state.selectedMemberKey = key;
   state.selectedOverloadIndex =
@@ -8568,7 +8570,8 @@ function normalizeMemberSelection() {
     type,
     state.selectedMemberKey);
   if (group?.overloads.length === 1
-    && !memberGroupUsesFamilySurface(group)) {
+    && !memberGroupUsesFamilySurface(group)
+    && group.kind !== "explicit-interface-implementation") {
     const graphTarget = graphOnlyBodyTarget(group.overloads[0]);
     state.selectedOverloadIndex = graphTarget
       ? 0
@@ -8655,7 +8658,7 @@ function selectMemberNavEntry(entry: MemberNavEntry, focusList: boolean) {
   const replacementAuthority = captureContentFrameReplacementAuthority();
   if (entry.kind === "member") {
     if (entry.group.key === state.selectedMemberKey) {
-      if (ordinaryMethodGroup(entry.group)) {
+      if (exactMethodGroup(entry.group)) {
         state.memberSection = "overview";
         openMemberGroup(entry.group.key);
       } else if (selectMemberFamilyParent(state, entry.group)) {
@@ -8747,7 +8750,7 @@ function stepHorizontal(delta: number) {
   const member = state.lens === "api" ? selectedMember(type) : null;
   if (scope() === "member" && !member) return;
   const overloadOpen = member
-    && !(ordinaryMethodGroup(member)
+    && !(exactMethodGroup(member)
       && memberGroupUsesFamilySurface(member)
       && state.selectedOverloadIndex == null);
   if (overloadOpen) {
@@ -8807,7 +8810,7 @@ function drillIn() {
   } else {
     const member = selectedMember(type);
     if (member
-      && ordinaryMethodGroup(member)
+      && exactMethodGroup(member)
       && memberGroupUsesFamilySurface(member)
       && state.selectedOverloadIndex == null) {
       showContentDetailAfterRender();
@@ -8823,7 +8826,7 @@ function drillIn() {
 function drillOut() {
   if (navMode() === "member") {
     const member = selectedMember(selectedType());
-    if (ordinaryMethodGroup(member)
+    if (exactMethodGroup(member)
       && memberGroupUsesFamilySurface(member)
       && state.selectedOverloadIndex != null) {
       state.selectedOverloadIndex = null;
@@ -12916,8 +12919,9 @@ function renderDeferredMemberGroup(
         (overload.declarationMetadataToken
           ?? overload.metadataToken
           ?? 0) === row.metadataToken);
-      if (resident) {
-        return memberMatchesTrait(resident, state.memberTraitFilter);
+      if (resident
+        && memberMatchesTrait(resident, state.memberTraitFilter)) {
+        return true;
       }
       return memberDocumentRowMatchesTrait(
         row,
@@ -12939,7 +12943,9 @@ function renderDeferredMemberGroup(
                 (overload.declarationMetadataToken
                   ?? overload.metadataToken
                   ?? 0) === row.metadataToken);
-              const sourceIndex = visibleIndex < 0
+              const sourceIndex =
+                member.kind === "explicit-interface-implementation"
+                  || visibleIndex < 0
                 ? null
                 : memberNavOverloadSourceIndex(member, visibleIndex);
               return `<button class="api-row overload-row"${sourceIndex === null
@@ -12964,10 +12970,11 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
     const hasSelectedOverload =
       state.selectedOverloadIndex != null
       && selectedOverload !== undefined;
-    if (member.overloads.length === 0 && member.kind !== "method") {
+    if (member.kind === "explicit-interface-implementation"
+      || (member.overloads.length === 0 && member.kind !== "method")) {
       return renderDeferredMemberGroup(type, member);
     }
-    if (member.kind === "method"
+    if (exactMethodGroup(member)
       && (memberGroupUsesFamilySurface(member)
         || member.overloads.length === 0)
     && !hasSelectedOverload) {

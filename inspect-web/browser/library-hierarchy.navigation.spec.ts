@@ -994,6 +994,9 @@ test("owner-issued explicit-interface rows activate without resident enrichment"
   await page.locator("[data-member-trait-filter]").selectOption("interface");
   await chooseSubject(page, "member", "Member");
 
+  const exactRow = page.locator("[data-member-document-ordinal]");
+  await expect(exactRow).toHaveCount(1);
+  await exactRow.click();
   await expect(page.locator(".member-surface"))
     .toContainText("owner-issued exact declaration");
   expect(JSON.parse(
@@ -1009,6 +1012,58 @@ test("owner-issued explicit-interface rows activate without resident enrichment"
     "widget-idisposable-dispose",
     "private",
   ]);
+});
+
+test("producer-issued explicit-interface rows filter and activate exactly", async ({
+  page,
+}) => {
+  const resident = {
+    ...run,
+    key: "explicit-interface-implementation:IWorker.Run",
+    name: "IWorker.Run",
+    kind: "explicit-interface-implementation",
+    signature: "public void IWorker.Run()",
+    canonicalSignature: "void Example.Widget.IWorker.Run()",
+    graphSelectorKey: "IWorker.Run()",
+    anchorDigest: "widget-iworker-run",
+    metadataToken: 0x06000033,
+    declarationMetadataToken: 0x06000033,
+  };
+  const owner = {
+    ...resident,
+    isExplicitInterfaceImplementation: true,
+  };
+  const widget = {
+    ...type("Example.Widget", core),
+    members: 1,
+    api: [resident],
+    documentMembers: [owner],
+  };
+  await installFacades(page, {
+    ...surface,
+    types: [widget],
+    totalMembers: 1,
+  });
+  await page.goto(root);
+  await selectLibrary(page, core.id);
+  await chooseSubject(page, "type", "Type");
+  await page.locator(
+    '#type-list [data-type="asset:core:Example.Widget"]').click();
+  await page.locator("#member-filter-summary").click();
+  await page.locator("[data-member-trait-filter]")
+    .selectOption("interface");
+
+  const group = page.locator(
+    '[data-member="explicit-interface-implementation:IWorker.Run"]',
+  );
+  await expect(group).toBeVisible();
+  await group.click();
+  const exactRow = page.locator("[data-member-document-ordinal]");
+  await expect(exactRow).toHaveCount(1);
+  await expect(exactRow).toContainText("IWorker.Run()");
+  await exactRow.click();
+  await expect(page.locator(".member-surface"))
+    .toContainText("owner-issued exact declaration");
 });
 
 test("filtered non-public groups reuse complete resident exact rows when the group query fails", async ({

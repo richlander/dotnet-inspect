@@ -753,7 +753,7 @@ test("moving between members keeps Compare sticky without carrying exact method 
     /state\.selectedBodyTarget = graphOnlyTarget;[\s\S]*if \(resetMethodSection \|\| !preserveSection\) \{\s*state\.memberSection = "overview"/);
   assert.match(
     openMemberGroupBody,
-    /const resetMethodSection =\s*ordinaryMethodGroup\(group\) && state\.memberSection !== "compare"/);
+    /const resetMethodSection =\s*exactMethodGroup\(group\) && state\.memberSection !== "compare"/);
   assert.doesNotMatch(
     openMemberGroupBody,
     /openMemberDocument|memberBaselineOrdinal/);
