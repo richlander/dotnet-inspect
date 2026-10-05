@@ -126,6 +126,119 @@ public sealed class HierarchyRelationOracleTests
         Assert.Empty(result.Relations.Evidence);
     }
 
+    [Fact]
+    public void IndexedForwardPlanStartsAtTheRequestedOrdinal()
+    {
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Open(
+                Path.Combine(
+                    AppContext.BaseDirectory,
+                    "PinnedArtifacts",
+                    "System.Private.CoreLib.dll"));
+        MetadataHierarchyRelationIndex index =
+            RequireIndex(
+                session.PrepareHierarchyRelationIndex(
+                    MetadataOperationPolicy.Unbounded,
+                    TestContext.Current.CancellationToken));
+        var target =
+            new MetadataHierarchyTargetSelection(
+                TypeName(
+                    "System.Collections.Generic",
+                    "IEnumerable`1"),
+                MetadataHierarchyRelationKind.Interface);
+        MetadataHierarchyRelationAnalysisResult complete =
+            RequireAvailable(
+                index.Analyze(
+                    new(target, MetadataOperationPolicy.Unbounded),
+                    TestContext.Current.CancellationToken));
+        MetadataHierarchyRelationAnalysisResult continued =
+            RequireAvailable(
+                index.Analyze(
+                    new(
+                        target,
+                        MetadataOperationPolicy.Unbounded,
+                        forwardPlan:
+                            new(
+                                startOrdinal: 2,
+                                maximumCandidates: 4)),
+                    TestContext.Current.CancellationToken));
+
+        Assert.True(complete.CandidateCount > 6);
+        Assert.True(continued.WasStopped);
+        Assert.Equal(6, continued.CandidateCount);
+        Assert.Equal(
+            complete.Relations.Evidence
+                .Skip(2)
+                .Take(4)
+                .Select(static row => row.Source),
+            continued.Relations.Evidence
+                .Select(static row => row.Source));
+    }
+
+    [Fact]
+    public void
+        IndexedForwardPlanConsumesRejectedMaterializationOrdinal()
+    {
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.OpenPrefetched(
+                new MemoryStream(
+                    HierarchyRelationSafetyFixtures
+                        .BuildRejectedSourceNameBetweenHierarchyMatches(),
+                    writable: false));
+        MetadataHierarchyRelationIndex index =
+            RequireIndex(
+                session.PrepareHierarchyRelationIndex(
+                    MetadataOperationPolicy.Unbounded,
+                    TestContext.Current.CancellationToken));
+        var target =
+            new MetadataHierarchyTargetSelection(
+                TypeName("Sample", "ITarget"),
+                MetadataHierarchyRelationKind.Interface);
+        MetadataHierarchyRelationAnalysisResult first =
+            RequireAvailable(
+                index.Analyze(
+                    new(
+                        target,
+                        MetadataOperationPolicy.Unbounded,
+                        includeNonPublic: true,
+                        includeHidden: true,
+                        forwardPlan:
+                            new(maximumCandidates: 2)),
+                    TestContext.Current.CancellationToken));
+        MetadataHierarchyRelationAnalysisResult continued =
+            RequireAvailable(
+                index.Analyze(
+                    new(
+                        target,
+                        MetadataOperationPolicy.Unbounded,
+                        includeNonPublic: true,
+                        includeHidden: true,
+                        forwardPlan:
+                            new(
+                                startOrdinal: 1,
+                                maximumCandidates: 2)),
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(2, first.CandidateCount);
+        Assert.Equal(3, continued.CandidateCount);
+        Assert.Equal(
+            ["First"],
+            first.Relations.Evidence
+                .Select(static row => row.SourceType.Segments[^1]));
+        Assert.Equal(
+            ["Second"],
+            continued.Relations.Evidence
+                .Select(static row => row.SourceType.Segments[^1]));
+        Assert.Equal(
+            MetadataRelationFamilyDisposition.Partial,
+            first.Relations.Disposition);
+        Assert.Equal(
+            MetadataRelationFamilyDisposition.Partial,
+            continued.Relations.Disposition);
+        Assert.Single(first.Relations.Diagnostics);
+        Assert.Single(continued.Relations.Diagnostics);
+    }
+
     [Theory]
     [InlineData(MetadataOperationDimension.StructuredNodes)]
     [InlineData(MetadataOperationDimension.RetainedText)]
