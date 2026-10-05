@@ -14,10 +14,12 @@ Its normative claim is:
 
 > For one retained Gallery Package Library and its effective Diff target,
 > Member Body projects the settled Implementation Diff document into changed
-> Type and Member destinations. Opening one issued Member destination presents
-> that exact Member's Annotated Source diff document in the shared diff viewer
-> on the Member page. Managed code issues every identity and destination; the
-> Browser performs no correspondence, text comparison, or identity inference.
+> Type rows and current-Member destinations. Opening one issued Member
+> destination presents that exact added, signature-changed, or body-changed
+> Member's Annotated Source diff document in the shared diff viewer on the
+> Member page. A deleted Member remains a non-activatable Type-level finding.
+> Managed code issues every identity and destination; the Browser performs no
+> correspondence, text comparison, or identity inference.
 
 Member is the detailed-result boundary. Explore may expand the same retained
 Member document, but it neither owns nor replaces the inline result.
@@ -37,7 +39,7 @@ It consumes and does not redefine:
 | --- | --- |
 | [Compare experience](inspect-web-compare-experience.md) | The retained Package model, effective Diff target, sticky Compare state, subject drill-down, Member detail boundary, and return behavior |
 | [Implementation Diff](implementation-diff.md) and its [explicit request adoption](https://github.com/richlander/dotnet-inspect/issues/9339) | Exact-Library-pair endpoints, selected population and mechanisms, changed body-backed Members, `ResearchSubjectKey` identity, producer evidence, and per-mechanism coverage |
-| [Annotated Source diff document](annotated-source-diff-document.md) | Exact-Member side outcomes, C# and optional IL text comparisons, line maps, and fact comparison |
+| [Annotated Source diff document](annotated-source-diff-document.md) and its [designated-pair and added-Member extension](https://github.com/richlander/dotnet-inspect/issues/9369) | Exact-Member side outcomes, designated Before/After pairs, added-Member mapped comparisons, C# and optional IL text comparisons, line maps, and fact comparison |
 | [Diff viewer interaction](inspect-web-diff-viewer-interaction.md) | Embedded and full-bleed rendering of one mapped diff |
 | [Source-diff transport](inspect-web-source-diff-transport.md) | Bounded mapped rows and typed admission outcomes |
 | [Operation Authority](inspect-web-operation-authority.md) | Per-execution identity, authorization, cancellation, supersession, and publication |
@@ -68,6 +70,12 @@ The user-visible precedent is the content-first Member Compare composition in
 then the diff reader directly on the Member page. The full-bleed viewer in
 [#9112](https://github.com/richlander/dotnet-inspect/pull/9112) is an expansion
 of that result, not its primary home.
+
+Member Body is the site's signature comparison experience: a current Member
+opens directly into one polished document that makes a whole addition, a
+signature change, a body change, or a combined signature-and-body change
+immediately legible. Reachability alone is insufficient; each supported case
+uses the same complete inline viewer.
 
 ## Content and hierarchy
 
@@ -100,7 +108,9 @@ Compare and Member Body.
 Rows whose evidence cannot issue an exact destination remain visible with their
 typed identity or analysis reason and are inert. The Browser never converts
 `Display`, `TypeName`, or `MemberName` text into a selector and never resolves
-an ordinal independently on each endpoint.
+an ordinal independently on each endpoint. Deletion is intentionally one such
+Type-level result: because no current Member exists, the row carries no Member
+destination and is not clickable.
 
 ## Inventory operation
 
@@ -208,15 +218,25 @@ An active Member row supplies:
 
 - the ordered comparison endpoints from the inventory request;
 - its complete `ResearchSubjectKey`;
-- the declaring Type identity and stable Member selector issued from that key;
+- the declaring Type identity;
+- either one stable Member selector, a correspondence-issued designated
+  Before/After selector pair, or an After selector with the Before absence
+  proof;
 - nullable canonical Before and After Member locations;
 - the inventory cache key; and
 - one stable Annotated Source diff cache key derived in managed code.
 
-The exact-Member request executes the existing Annotated Source diff query. Its
-correspondence owner decides `Paired`, `BeforeOnly`, `AfterOnly`, unavailable,
-or absent; the Browser does not resolve the stable selector twice or infer that
-same-named methods correspond.
+The exact-Member request executes the Annotated Source diff query extended by
+[#9369](https://github.com/richlander/dotnet-inspect/issues/9369). Its
+correspondence owner decides `Paired`, `AfterOnly`, unavailable, or absent for
+the current Member destination. When a signature change gives the endpoints
+different stable selectors, that owner issues the designated pair; when the
+Member is new, it issues the After selector and Before absence proof. The
+Browser does not resolve one selector twice, infer that same-named methods
+correspond, or manufacture an empty endpoint for an addition.
+
+`BeforeOnly` remains valid inventory evidence but cannot be an active Member
+handoff because it has no current Member destination.
 
 Each execution for that cache key receives its own fresh Operation Authority
 identity. Publication requires both the current semantic cache key and the
@@ -231,6 +251,17 @@ any of those values changes.
 ## Member presentation
 
 The Member page is the primary body-diff experience:
+
+| Type inventory outcome | Member-page evidence |
+| --- | --- |
+| Added current Member | `AfterOnly` document whose correspondence-proven empty Before sequence and complete After sequence produce mapped C#/IL rows that are all additions |
+| Signature changed | Owner-designated Before/After pair, even when its stable selectors differ; the declaration and body share one mapped document |
+| Body changed | Existing `Paired` C#/IL text comparison |
+| Signature and body changed | The same designated pair and document show both changes together |
+
+A deleted Member is not a Member-page case. Its Before-side identity and
+evidence remain visible in the Type inventory, with no destination or click
+affordance.
 
 ```text
 Compare JsonSerializerOptions(JsonSerializerOptions)           Diff
@@ -260,7 +291,7 @@ body area shows:
 | --- | --- |
 | Both sides Present, text differs | Mapped diff |
 | Both sides Present, selected medium identical | **Identical** |
-| BeforeOnly or AfterOnly | Present side as source beside **Not present on this side** |
+| AfterOnly added Member | Mapped diff with every present line added and **Not present on this side** for Before |
 | Medium Too complex | Typed limit and the other medium when available |
 | Unavailable or NotApplicable side | The side's typed reason and any present other side |
 | Projection or query Failed | Failure with retry when the context remains current |
@@ -275,7 +306,7 @@ selection from a Property row.
 
 One settled inventory is retained by stable inventory cache key for the
 retained Package model. One settled Annotated Source diff document is retained
-per exact-Member cache key. Available, identical, one-sided, unavailable,
+per exact-Member cache key. Available, identical, added-Member, unavailable,
 not-applicable, and too-complex outcomes may be retained; failed and canceled
 operations are not.
 
@@ -343,10 +374,13 @@ text reader.
 This design does not claim:
 
 - selected-population or mechanism request semantics, which #9339 owns;
+- designated endpoint-pair or added-Member comparison semantics, which #9369
+  owns;
 - new implementation correspondence, C#, IL, complexity, or fact semantics;
 - semantic equivalence when body text is identical;
 - authored Source acquisition or presentation;
 - Property, Event, or Field comparison without an issued accessor Member;
+- a Member page or destination for a deleted Member;
 - private, internal, or protected implementation inventory;
 - a generalized Browser analysis picker;
 - local assembly, platform, or multi-Library comparison;
@@ -357,15 +391,18 @@ This design does not claim:
 
 | Step | Delivers | Production host |
 | --- | --- | --- |
-| Prerequisite | #9339 distinguishes whole from explicitly selected population, including zero selections, and executes exactly the requested Implementation Diff mechanisms | Shared Implementation Diff query; existing CLI defaults remain unchanged |
+| Inventory prerequisite | #9339 distinguishes whole from explicitly selected population, including zero selections, and executes exactly the requested Implementation Diff mechanisms | Shared Implementation Diff query; existing CLI defaults remain unchanged |
+| Exact-Member prerequisite | #9369 supplies designated endpoint pairs and correspondence-proven added-Member mapped comparisons | Annotated Source diff document and Browser projection |
 | MB1 | `member-body` choice, exact-pair operation, bounded managed inventory projection, Library and Type presentation, sticky drill-down | Inspect Web Compare |
 | MB2 | Exact Member destination and Annotated Source diff Browser export, automatic inline C#/IL reader, retained result, optional Explore expansion | Inspect Web Member Compare |
 
-MB1 follows the prerequisite and consumes its request without redefining it.
-MB1 and MB2 may land as a stack, but MB2 is the production adoption target and
-the stack is not complete until the viewer is visible on the Member page. Any
-temporary MB1-only deployment must keep Member rows inert rather than route
-them to a placeholder or the API Member detail.
+MB1 follows the inventory prerequisite and consumes its request without
+redefining it. MB2 follows the exact-Member prerequisite. MB1 and MB2 may land
+as a stack, but MB2 is the production adoption target and the stack is not
+complete until the viewer is visible on the Member page for additions,
+signature changes, and body changes. Any temporary MB1-only deployment must
+keep Member rows inert rather than route them to a placeholder or the API
+Member detail.
 
 The implementation retires any Explore-only Decompiler route it supersedes. It
 reuses the shared diff viewer and one Annotated Source document per stable
@@ -384,10 +421,11 @@ switching to IL changes the retained medium without another comparison.
 | Gate | Evidence |
 | --- | --- |
 | Release Implementation Diff request tests from #9339 | Whole population remains distinct from an explicitly selected empty population; C#+IL does not execute or report Complexity; document mechanisms, coverage, and completeness describe only requested work |
-| Release managed Browser operation tests | Pinned System.Text.Json pair, exact endpoint order and assets, complete envelope, public selections including zero Members, stable Member destinations, one-sided and identity-failure rows, mechanism coverage, transport bounds, cancellation, and stale publication rejection |
-| Release Annotated Source Browser projection tests | Exact Member handoff, Present/Absent/Unavailable/NotApplicable/Failed sides, changed and identical C#/IL media, Too complex admission, and no host-side correspondence |
-| Node Compare composition tests | Closed content choices, explicit activation, sticky Library/Type/Member and Up/Down navigation, inert failure rows, restoration, and stale completion suppression |
-| Node diff viewer tests | Embedded changed, identical, one-sided, failure, narrow, keyboard, whitespace, move, and medium-switch behavior |
+| Release Annotated Source tests from #9369 | Added Member lowers to all-added C#/IL mapped rows from correspondence-proven absence; designated selectors produce one signature or signature-and-body document; malformed pairs are rejected |
+| Release managed Browser operation tests | Pinned System.Text.Json pair, exact endpoint order and assets, complete envelope, public selections including zero Members, current Member destinations, inert deleted rows, identity-failure rows, mechanism coverage, transport bounds, cancellation, and stale publication rejection |
+| Release Annotated Source Browser projection tests | Exact Member handoff, designated pairs, added-Member mapped comparison, Present/Absent/Unavailable/NotApplicable/Failed sides, changed and identical C#/IL media, Too complex admission, and no host-side correspondence |
+| Node Compare composition tests | Closed content choices, explicit activation, sticky Library/Type/Member and Up/Down navigation, inert deleted and failure rows, restoration, and stale completion suppression |
+| Node diff viewer tests | Embedded changed, identical, all-added, signature, failure, narrow, keyboard, whitespace, move, and medium-switch behavior |
 | Published Firefox gate | Real Gallery package acquisition and inline Member reader through the generated Wasm facade |
 
 Synthetic fixtures define deterministic failure, one-sided, collision, limit,
@@ -406,20 +444,25 @@ harness does not manufacture or repair C# or IL.
    the same exact Member relation.
 4. Move to the next or previous Member with Up/Down and confirm Compare and
    Member Body remain active while the exact destination and viewer change.
-5. Open an added method and confirm its body appears beside **Not present on
-   this side**; confirm a removed method remains visible with Before-side
-   evidence but has no navigation affordance.
-6. Open a Member with identical C# but changed IL and confirm each medium states
+5. Open an added method and confirm the inline mapped diff renders every C#
+   and IL line as added beside **Not present on this side**.
+6. Open a signature-changed method whose endpoint selectors differ and confirm
+   one owner-designated comparison shows the declaration and body together.
+   Repeat with both signature and body changed.
+7. Confirm a removed method remains visible in the Type inventory with
+   Before-side evidence but has no navigation or click affordance and no
+   Member page.
+8. Open a Member with identical C# but changed IL and confirm each medium states
    its own outcome.
-7. Exercise unavailable, incomplete, failed, canceled, and too-complex results
+9. Exercise unavailable, incomplete, failed, canceled, and too-complex results
    and confirm none appears as no changes, identical, or empty source.
-8. Exercise an identity-failure row and confirm its evidence remains visible,
+10. Exercise an identity-failure row and confirm its evidence remains visible,
    it has no navigation affordance, and the Browser does not derive one.
-9. Open Explore and close it and confirm it uses the same result and restores
+11. Open Explore and close it and confirm it uses the same result and restores
    the inline medium, scroll position, and focus.
-10. Change the target while inventory and Member requests are pending and
+12. Change the target while inventory and Member requests are pending and
     confirm neither stale completion can publish.
-11. Return to the same Member and semantic cache key and confirm the settled
+13. Return to the same Member and semantic cache key and confirm the settled
     reader appears without another comparison.
-12. At a narrow viewport, confirm the inventory and embedded reader use one
+14. At a narrow viewport, confirm the inventory and embedded reader use one
     vertical scroll owner each and create no page-level horizontal overflow.

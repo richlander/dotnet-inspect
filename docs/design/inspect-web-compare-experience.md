@@ -356,9 +356,12 @@ placeholder, disabled section, or "not available yet" pane.
 For **Member Body** content, the separately owned
 [Member Body Diff](inspect-web-member-body-diff.md) projects the selected
 implementation relation and places the shared C#/IL diff viewer directly on
-this same Member boundary. It does not route the user through Public API's
-What changed or authored-Source composition, and Explore only expands the same
-retained Member Body document.
+this same Member boundary for a current Member addition, signature change,
+body change, or combined signature-and-body change. It does not route the user
+through Public API's What changed or authored-Source composition, and Explore
+only expands the same retained Member Body document. A deleted Member remains
+the non-activatable Type-level row defined above; Compare does not create a
+Member boundary for an identity that is absent from the current Type.
 
 Member Clone renders the Member-scoped globally ranked candidate rows and
 selected-candidate evidence supplied by Clone Candidates Presentation.
@@ -608,3 +611,8 @@ behavior.
     issued, sits in the What changed section header.
 16. Confirm that Explore appears only when the Member diff destination is
     issued, and that it appears before authored Source is requested.
+17. Select Member Body and open current Members representing a whole addition,
+    a signature change, a body change, and a combined signature-and-body
+    change. Confirm each uses the same inline Member viewer. Supply a deleted
+    Member and confirm it remains a non-activatable Type-level finding with no
+    Member page.
