@@ -69,6 +69,18 @@ public sealed class ExplanationPrimitivesTests
     }
 
     [Fact]
+    public void DataShape_RejectsDefaultValueBudget()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => new ExplanationDataShapeDeclaration.Scalar(
+                TextShape,
+                "Text",
+                "Unicode text.",
+                default,
+                ExplanationScalarKind.Text));
+    }
+
+    [Fact]
     public void ScalarCarriers_AreFiniteAndStructurallyEqual()
     {
         Assert.Equal(

@@ -156,6 +156,15 @@ public abstract record ExplanationDataShapeDeclaration
             displayName,
             nameof(displayName));
         ExplanationContract.ValidateMetadata(meaning, nameof(meaning));
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
+            budget.MaximumCanonicalByteCount,
+            nameof(budget));
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
+            budget.MaximumDepth,
+            nameof(budget));
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
+            budget.MaximumNodeCount,
+            nameof(budget));
         Identity = identity;
         DisplayName = displayName;
         Meaning = meaning;
