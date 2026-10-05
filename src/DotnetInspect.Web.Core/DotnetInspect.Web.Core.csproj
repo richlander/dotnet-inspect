@@ -30,7 +30,6 @@
     <ProjectReference Include="..\DotnetInspector.Packages\DotnetInspector.Packages.csproj" />
     <ProjectReference Include="..\DotnetInspector.PlatformHouse.Packages\DotnetInspector.PlatformHouse.Packages.csproj" />
     <ProjectReference Include="..\DotnetInspector.PlatformQueries\DotnetInspector.PlatformQueries.csproj" />
-    <ProjectReference Include="..\DotnetInspector.DocumentationHouse.Source\DotnetInspector.DocumentationHouse.Source.csproj" />
     <ProjectReference Include="..\DotnetInspector.Libraries\DotnetInspector.Libraries.csproj" />
     <ProjectReference Include="..\DotnetInspector.Queries\DotnetInspector.Queries.csproj" />
     <ProjectReference Include="..\DotnetInspector.Sections\DotnetInspector.Sections.csproj" />
