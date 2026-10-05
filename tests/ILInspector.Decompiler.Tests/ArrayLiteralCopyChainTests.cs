@@ -378,12 +378,15 @@ public class ArrayLiteralCopyChainTests
         Assert.DoesNotContain("S_257", output);
     }
 
-    // csc-compiled local-array fills with spilled conditional elements render
-    // through the full pipeline (Release and Debug builds keep the local).
+    // csc-compiled local-array fills with spilled conditional elements. The
+    // test assembly is a Release build, and csc keeps the array in a local
+    // because it is read in a loop. A lone spilled conditional raises; two
+    // conditionals sharing one merge slot (a multi-store carrier) decline. Both
+    // render Full: the round 1 code threw on the first shape it reached.
     [Theory]
-    [InlineData(nameof(ArrayLiteralCopyChainSamples.LocalSharedSpill))]
-    [InlineData(nameof(ArrayLiteralCopyChainSamples.LocalSpilledConditional))]
-    public void CompiledLocalArraySpillsRender(string method)
+    [InlineData(nameof(ArrayLiteralCopyChainSamples.LocalSharedSpill), 0)]
+    [InlineData(nameof(ArrayLiteralCopyChainSamples.LocalSpilledConditional), 1)]
+    public void CompiledLocalArraySpillsRender(string method, int literals)
     {
         using var source = MetadataSource.Open(typeof(ArrayLiteralCopyChainSamples).Assembly.Location);
         var function = IrImporter.Import(source, typeof(ArrayLiteralCopyChainSamples).FullName!, method);
@@ -392,6 +395,7 @@ public class ArrayLiteralCopyChainTests
 
         Assert.True(result.Succeeded, string.Join("\n", result.Diagnostics.Select(diagnostic => diagnostic.Message)));
         Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
+        Assert.Equal(literals, function.Descendants.OfType<ArrayLiteral>().Count());
     }
 
     // "Name#n" selects the overload with n parameters; a bare name selects the first.
