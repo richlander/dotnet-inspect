@@ -40,7 +40,7 @@ Member identity has two related vocabularies:
   It formats `MethodIdentity` subjects and API-derived `ResolvedMemberTarget`
   body aliases through one body canonicalization path. Body identity deliberately
   has a different type-name vocabulary from API identity because it mirrors
-  `LibraryBodyIndex`/`MethodIdentity` evidence.
+  focused Analysis `MethodIdentity` evidence.
 
 Conversion operators are a special API-identity case: every MethodDef name in
 Metadata's owner-issued `ApiMemberIdentity.IsConversionOperator`

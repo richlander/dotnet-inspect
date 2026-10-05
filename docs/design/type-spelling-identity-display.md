@@ -331,10 +331,10 @@ own contract states *"Display names are for humans; equality is structural"*. It
 carries `ElementType` / `TypeArguments` / `ContainsPointer()` and excludes
 advisory provenance (`TrustedFrameworkAssembly`, spoof flags) from structural
 identity — exactly the separation of concerns this design argues for. Analysis
-consumers (`OpaqueUnsafe`, `LibraryBodyIndex`) ask `TypeRef` structural questions
-and never string-match. **Metadata is the outlier:** it builds a `TypeNode` tree,
-flattens it to a display string, discards the structure, then makes every
-downstream consumer re-parse.
+consumers ask `TypeRef` structural questions and never string-match.
+**Metadata is the outlier:** it builds a `TypeNode` tree, flattens it to a
+display string, discards the structure, then makes every downstream consumer
+re-parse.
 
 **Important caveat (round 2):** `TypeRef` cannot simply move below Metadata. It
 carries Analysis-specific trust bits and its decoder *rejects* function pointers

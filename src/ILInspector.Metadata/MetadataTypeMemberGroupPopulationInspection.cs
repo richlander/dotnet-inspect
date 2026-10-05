@@ -186,58 +186,64 @@ internal static class MetadataTypeMemberGroupPopulationInspection
 
         try
         {
-            long metadataRows =
-                MetadataOperationContext.CountMetadataRows(reader);
-            if (metadataRows > bounds.MaxMetadataRows)
+            return MetadataExactTypeDefinitionInspection.Resolve(
+                reader,
+                request.Type,
+                bounds,
+                cancellationToken) switch
             {
-                return new MetadataTypeMemberGroupPopulationOutcome.Incomplete(
-                    MetadataTypeMemberGroupPopulationBound.MetadataRows,
-                    bounds.MaxMetadataRows,
-                    metadataRows);
-            }
-
-            TypeDefinitionHandle typeHandle = default;
-            foreach (TypeDefinitionHandle candidate in reader.TypeDefinitions)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                MetadataTypeDefinitionNameMatchResult match =
-                    MetadataTypeDefinitionName.Matches(
+                MetadataExactTypeDefinitionResolution.Resolved resolved =>
+                    ReadResolved(
                         reader,
-                        candidate,
-                        request.Type,
-                        out _);
-                if (match is MetadataTypeDefinitionNameMatchResult.Rejected)
-                    return new MetadataTypeMemberGroupPopulationOutcome.Failed();
-                if (match is not MetadataTypeDefinitionNameMatchResult.Match)
-                    continue;
-                if (!typeHandle.IsNil)
-                {
-                    return new MetadataTypeMemberGroupPopulationOutcome
-                        .TypeAmbiguous();
-                }
-                typeHandle = candidate;
-            }
-            if (typeHandle.IsNil)
-            {
-                return new MetadataTypeMemberGroupPopulationOutcome
-                    .TypeNotFound();
-            }
+                        request,
+                        bounds,
+                        resolved,
+                        cancellationToken),
+                MetadataExactTypeDefinitionResolution.TypeNotFound =>
+                    new MetadataTypeMemberGroupPopulationOutcome
+                        .TypeNotFound(),
+                MetadataExactTypeDefinitionResolution.TypeAmbiguous =>
+                    new MetadataTypeMemberGroupPopulationOutcome
+                        .TypeAmbiguous(),
+                MetadataExactTypeDefinitionResolution.Incomplete incomplete =>
+                    new MetadataTypeMemberGroupPopulationOutcome.Incomplete(
+                        MetadataTypeMemberGroupPopulationBound.MetadataRows,
+                        incomplete.Limit,
+                        incomplete.Measured),
+                MetadataExactTypeDefinitionResolution.Failed =>
+                    new MetadataTypeMemberGroupPopulationOutcome.Failed(),
+                _ => throw new InvalidOperationException(
+                    "Unknown exact Type definition resolution."),
+            };
+        }
+        catch (Exception exception) when (
+            MetadataTypeMemberCompositionInspection.IsMetadataFailure(
+                exception))
+        {
+            return new MetadataTypeMemberGroupPopulationOutcome.Failed();
+        }
+    }
 
-            Guid moduleVersionId =
-                reader.GetGuid(reader.GetModuleDefinition().Mvid);
-            if (moduleVersionId == Guid.Empty)
-                return new MetadataTypeMemberGroupPopulationOutcome.Failed();
-
-            TypeDefinition type = reader.GetTypeDefinition(typeHandle);
+    internal static MetadataTypeMemberGroupPopulationOutcome ReadResolved(
+        MetadataReader reader,
+        MetadataTypeMemberGroupPopulationRequest request,
+        ApiSurfaceExtractionBounds bounds,
+        MetadataExactTypeDefinitionResolution.Resolved resolved,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            TypeDefinition type =
+                reader.GetTypeDefinition(resolved.Handle);
             var sink = new PopulationSink(
                 reader,
                 request,
                 bounds,
-                typeHandle,
+                resolved.Handle,
                 cancellationToken);
             ApiSurfaceExtractor.ClassifyDeclaredMembers(
                 reader,
-                typeHandle,
+                resolved.Handle,
                 type,
                 request.Spelling,
                 publicOnly: false,
@@ -249,7 +255,7 @@ internal static class MetadataTypeMemberGroupPopulationInspection
                 ref sink);
 
             return new MetadataTypeMemberGroupPopulationOutcome.Available(
-                sink.Complete(moduleVersionId));
+                sink.Complete(resolved.ModuleVersionId));
         }
         catch (MemberBoundExceededException exceeded)
         {

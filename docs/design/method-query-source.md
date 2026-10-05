@@ -24,10 +24,9 @@ MethodDef coverage for definitions examined, physical methods selected, and
 terminal bodies attempted and acquired, plus module-lookup use. Type
 `Unsafe Members` effective discovery is the first sparse production consumer:
 it closes the unsafe-evidence producer with `Exists` over the selected TypeDef
-instead of rendering the ordinary section through a scoped
-`LibraryBodyIndex`. The source owns resource-free planning, exact subject
-binding, serial reference execution, source-receipt translation, and detached
-publication.
+instead of rendering the ordinary whole-scope section. The source owns
+resource-free planning, exact subject binding, serial reference execution,
+source-receipt translation, and detached publication.
 
 Compatible all-definition request sets now execute as one physical MethodDef
 traversal with independent terminal-specialized lanes. Each lane retains its
