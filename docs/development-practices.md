@@ -1,8 +1,8 @@
 # Development practices
 
 This document owns the repository's development-practice model: how convention,
-design, evidence, implementation, demos, and review work together. `AGENTS.md`
-states the binding summary. Focused documents such as
+design, evidence, implementation, demos, and review work together.
+[`AGENTS.md`](../AGENTS.md) routes agents here at launch. Focused documents such as
 [Design scope and composition](design-scope.md),
 [Evidence and validation](evidence-and-validation.md), and
 [Round orchestration](round-orchestration.md) own their specialized contracts

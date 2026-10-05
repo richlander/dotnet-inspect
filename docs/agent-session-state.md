@@ -1,9 +1,8 @@
 # Agent session state
 
-[Session theme and resume](../AGENTS.md#session-theme-and-resume) and
-[Making your work findable](../AGENTS.md#making-your-work-findable) state the
-binding rules. This document owns the session-theme lifecycle, post-merge
-handoff, tmux mechanics, and the reasoning behind them.
+This document owns the session-theme lifecycle, post-merge handoff, tmux
+mechanics, and their reasoning. [`AGENTS.md`](../AGENTS.md#session-visibility)
+retains the directly usable operator templates.
 
 ## Establish the session theme
 
@@ -28,7 +27,7 @@ Before continuing:
 1. Restate the theme, using the transcript or the user's latest direction.
 2. Confirm the worktree, branch, and head from git. Fetch the effective base and
    re-check the PR per
-   [Canonical round flow](../AGENTS.md#canonical-round-flow). Do not pull or
+   [Candidate lifecycle](round-orchestration.md#candidate-lifecycle). Do not pull or
    rebase a pushed branch to catch up.
 3. Rename the window, update the pane title, and re-announce the PR as
    described below.

@@ -776,9 +776,10 @@ producers that will extend that space.
 
 ## Engineering guidance
 
-[AGENTS.md](../AGENTS.md) is the source of truth for repository-wide
-engineering and workflow rules. This document describes subsystem ownership;
-use the task map in `AGENTS.md` to find the focused guidance for a change.
+[AGENTS.md](../AGENTS.md) is the launch constitution.
+[Repository workflow](repository-workflow.md) owns cross-cutting contributor
+rules, this document describes subsystem ownership, and
+[the documentation index](README.md) routes focused guidance.
 
 ## Important systems
 
