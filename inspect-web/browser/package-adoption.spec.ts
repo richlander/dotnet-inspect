@@ -3156,6 +3156,24 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     await expect(explore).toBeFocused();
     await page.setViewportSize({ width: 1440, height: 900 });
 
+    // Cross-Member keyboard navigation keeps Compare active.
+    await page.locator("#type-list").focus();
+    await page.keyboard.press("ArrowDown");
+    await expect(panel.locator("#compare-title"))
+      .toHaveText("LibraryApiDiffFixture.AddedType.Second");
+    await expect(page.locator(
+      '[data-inspector-tab][data-member-section="compare"]',
+    )).toHaveAttribute("aria-selected", "true");
+    await page.keyboard.press("ArrowUp");
+    await expect(panel.locator("#compare-title"))
+      .toHaveText("LibraryApiDiffFixture.AddedType.First");
+    await page.locator("#nav-back").click();
+    await expect(panel.locator("#compare-title"))
+      .toHaveText("LibraryApiDiffFixture.AddedType.Second");
+    await page.locator("#nav-back").click();
+    await expect(panel.locator("#compare-title"))
+      .toHaveText("LibraryApiDiffFixture.AddedType.First");
+
     // A Member with its own classified change shows the producer's change row.
     await page.locator("#nav-back").click();
     await expect.poll(() => page.url()).toBe(addedTypeLocation);

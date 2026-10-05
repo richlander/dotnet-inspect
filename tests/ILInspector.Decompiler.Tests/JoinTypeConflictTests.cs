@@ -182,6 +182,448 @@ public class JoinTypeConflictTests : IDisposable
     }
 
     [Fact]
+    public void ReferenceJoin_CrossAssemblyBaseChain_TypesTheSlotAndProvesTheWidening()
+    {
+        // Both arms are CoreLib types the test assembly only references:
+        // UTF8Encoding's base chain reaches Encoding through the metadata
+        // context, so the join types Encoding (the arm instance, not a
+        // decoded copy) and records the UTF8Encoding -> Encoding widening.
+        // The CoreLib base chain is reachable only through a metadata context
+        // that resolves the trusted platform assemblies, as the CLI's package
+        // resolver and the harness corpus context do.
+        var metadata = ILInspector.DecompilerHarness.CorpusMetadata.Create([typeof(CfgSampleClass).Assembly.Location]);
+        _disposables.Push(metadata);
+        var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location, context: metadata);
+        _disposables.Push(source);
+        var function = IrImporter.Import(
+            source, typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.MergedCrossAssemblyBaseSlot))!;
+
+        Assert.DoesNotContain(function.Diagnostics, d => (d.Message ?? "").Contains("(join-type)"));
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        var load = Assert.Single(
+            function.Descendants.OfType<LoadStackSlot>(),
+            l => l.Type is { Namespace: "System.Text", Name: "Encoding" });
+        Assert.Contains(
+            function.ProvenReferenceWidenings,
+            w => w.From is { Namespace: "System.Text", Name: "UTF8Encoding" }
+                && w.To.Equals(load.Type));
+        function.CheckInvariant();
+
+        // Materialization admits the UTF8Encoding store into the Encoding slot
+        // on the strength of that widening: one typed local, no residual slot.
+        new SlotMaterializationPass().Run(function, PassContext.None);
+        Assert.DoesNotContain(function.Descendants, n => n is StoreStackSlot or LoadStackSlot);
+        Assert.Contains(function.Locals, l => l is { Namespace: "System.Text", Name: "Encoding" });
+    }
+
+    [Fact]
+    public void ReferenceJoin_CrossAssemblyInterfaceImplementation_TypesTheCoalesce()
+    {
+        // IEqualityComparer<string> ?? EqualityComparer<string>.Default: the
+        // interface arm is a cross-assembly generic instance, the class arm
+        // implements it in another assembly. The merge must resolve to the
+        // interface through the metadata context instead of leaving an
+        // untyped slot the printer could only spell as `var`.
+        var metadata = ILInspector.DecompilerHarness.CorpusMetadata.Create([typeof(CfgSampleClass).Assembly.Location]);
+        _disposables.Push(metadata);
+        var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location, context: metadata);
+        _disposables.Push(source);
+        var function = IrImporter.Import(
+            source, typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.CoalescedCrossAssemblyInterface))!;
+
+        Assert.DoesNotContain(function.Diagnostics, d => (d.Message ?? "").Contains("(join-type)"));
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.DoesNotContain(function.Descendants.OfType<LoadStackSlot>(), l => l.Type is null);
+        Assert.Contains(
+            function.ProvenReferenceWidenings,
+            w => w.From.ToDisplayString() == "EqualityComparer<string>"
+                && w.To.ToDisplayString() == "IEqualityComparer<string>");
+        function.CheckInvariant();
+
+        string output = CSharpPrinter.PrintRaised(function).Output!;
+        Assert.Contains("comparer ?? EqualityComparer<string>.Default", output);
+        Assert.DoesNotContain("var S_", output);
+    }
+
+    [Fact]
+    public void ReferenceJoin_FacadeForwardedPair_DisjointnessStaysSameAssemblyAndTheCascadeStaysAnIf()
+    {
+        // XmlTextReader derives from XmlReader; both are referenced through the
+        // System.Xml.ReaderWriter facade and defined in System.Private.Xml.
+        // The cross-assembly reach belongs to the join merge only:
+        // AreProvablyDisjoint keeps its same-assembly contract (a foreign base
+        // yields false, never a false "disjoint"), so PatternSwitchExpressionPass
+        // must not fold the guarded cascade into a switch expression that would
+        // route a guard-failing XmlTextReader to the XmlReader arm.
+        var metadata = ILInspector.DecompilerHarness.CorpusMetadata.Create([typeof(CfgSampleClass).Assembly.Location]);
+        _disposables.Push(metadata);
+        var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location, context: metadata);
+        _disposables.Push(source);
+        var function = IrImporter.Import(
+            source, typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.GuardedXmlReaderCascade))!;
+
+        var textReader = Assert.Single(function.TypeShapes.Keys, t => t is { Namespace: "System.Xml", Name: "XmlTextReader" });
+        var reader = Assert.Single(function.TypeShapes.Keys, t => t is { Namespace: "System.Xml", Name: "XmlReader" });
+        Assert.False(source.AreProvablyDisjoint(textReader, reader));
+        Assert.False(source.AreProvablyDisjoint(reader, textReader));
+
+        var result = CSharpPrinter.PrintRaised(function);
+        Assert.NotNull(result.Output);
+        Assert.DoesNotContain("switch", result.Output);
+        Assert.Contains("return -1;", result.Output);
+    }
+
+    [Fact]
+    public void ReferenceJoin_CrossAssemblySiblingArms_TypeTheAncestorUnderTheModuleReference()
+    {
+        // XElement and XComment are siblings under XNode, all three declared in
+        // System.Xml.XDocument (reached through its facade). The function
+        // references XNode itself (the local), so the merge types the join as
+        // the module's own XNode reference: not ambiguous, Reference shape, and
+        // both widenings proven.
+        var metadata = ILInspector.DecompilerHarness.CorpusMetadata.Create([typeof(CfgSampleClass).Assembly.Location]);
+        _disposables.Push(metadata);
+        var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location, context: metadata);
+        _disposables.Push(source);
+        var function = IrImporter.Import(
+            source, typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.SiblingXNodeJoin))!;
+
+        Assert.DoesNotContain(function.Diagnostics, d => (d.Message ?? "").Contains("(join-type)"));
+        var load = Assert.Single(
+            function.Descendants.OfType<LoadStackSlot>(),
+            l => l.Type is { Namespace: "System.Xml.Linq", Name: "XNode" });
+        Assert.DoesNotContain(function.AmbiguousTypeFacts, t => t.Equals(load.Type));
+        Assert.Equal(TypeShape.Reference, function.TypeShapes[load.Type!]);
+        Assert.Contains(function.ProvenReferenceWidenings, w => w.From is { Name: "XElement" } && w.To.Equals(load.Type));
+        Assert.Contains(function.ProvenReferenceWidenings, w => w.From is { Name: "XComment" } && w.To.Equals(load.Type));
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void ReferenceJoin_CrossAssemblySiblingArms_UnreferencedAncestorStaysUnknown()
+    {
+        // XAttribute and XComment meet only at XObject, which this module never
+        // references. The identity rule declines the merge instead of admitting
+        // a TypeRef none of the function's rows share, so the join stays an
+        // honest unknown with its diagnostic.
+        var metadata = ILInspector.DecompilerHarness.CorpusMetadata.Create([typeof(CfgSampleClass).Assembly.Location]);
+        _disposables.Push(metadata);
+        var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location, context: metadata);
+        _disposables.Push(source);
+        var function = IrImporter.Import(
+            source, typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.UnreferencedAncestorJoin))!;
+
+        Assert.Contains(function.Diagnostics, d => (d.Message ?? "").Contains("(join-type)") && (d.Message ?? "").Contains("XAttribute"));
+        Assert.DoesNotContain(function.Descendants.OfType<LoadStackSlot>(), l => l.Type is { Name: "XObject" });
+        Assert.DoesNotContain(function.ProvenReferenceWidenings, w => w.To is { Name: "XObject" });
+    }
+
+    [Fact]
+    public void ReferenceJoin_NullLiteralArm_PublishesNoWidening()
+    {
+        // `c ? null : s` adopts string for the null arm. Adoption is not a
+        // proven conversion from System.Object, so nothing may be published.
+        var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        _disposables.Push(source);
+        var function = IrImporter.Import(
+            source, typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.NullArmJoin))!;
+
+        Assert.DoesNotContain(function.Diagnostics, d => (d.Message ?? "").Contains("(join-type)"));
+        Assert.Empty(function.ProvenReferenceWidenings);
+        // The join must exist for the assertion above to mean anything: the
+        // conditional is raised from a merged evaluation-stack slot, so the
+        // printed body still carries the `null` arm.
+        var printed = CSharpPrinter.PrintRaised(function);
+        Assert.Equal(DecompilationFidelity.Full, printed.Fidelity);
+        Assert.Contains("c ? null : s", printed.Output);
+    }
+
+    [Fact]
+    public void ReferenceJoin_CyclicCrossAssemblyBaseChain_TerminatesWithAnHonestUnknownJoin()
+    {
+        // Version skew can close a base chain into a cycle without any
+        // hand-written IL: SkewX v2 declares `A : B` (compiled against a SkewY
+        // in which B has no base) and SkewY declares `B : A` (compiled against
+        // SkewX v1). Deployed together they resolve to A -> B -> A -> ...
+        // The merge-private chain walk must end on the revisit; before the
+        // iteration bound it spun forever on `Merge(A, C)`, so the import of a
+        // method joining those arms never returned (adversarial review of
+        // #9266, round 2). The generic pair `GA<T> : GB<Tuple<T,T>>` /
+        // `GB<T> : GA<Tuple<T,T>>` never revisits an equal instance and
+        // doubles the instance at every step, so a step bound alone still
+        // left a walk growing as 2^depth (round 3); the walk must end on the
+        // repeated definition, including under an interface arm whose
+        // implementation walk climbs the same chain.
+        var deployment = CompileSkewCycleDeployment();
+        _disposables.Push(deployment);
+        var source = MetadataSource.Open(deployment.ConsumerPath);
+        _disposables.Push(source);
+
+        foreach (var method in new[] { "L", "G", "K", "H", "GD", "DG", "GI", "IG" })
+        {
+            IrFunction? function = null;
+            var worker = new Thread(() => function = IrImporter.Import(source, "M.P", method)) { IsBackground = true };
+            worker.Start();
+            Assert.True(worker.Join(TimeSpan.FromSeconds(60)), $"IrImporter.Import of M.P::{method} did not return within 60 seconds");
+            Assert.NotNull(function);
+            // The cycle shares no ancestor with the other arm, the arms are
+            // class or interface definitions outside the ECMA stack-family
+            // table, and nothing proves object: the import leaves the join an
+            // honest unknown and publishes no widening. The printed body's
+            // fidelity label for a declined sibling join is #9281's
+            // pre-existing concern, not this test's; it only has to render.
+            Assert.Contains(function!.Diagnostics, d => (d.Message ?? "").Contains("(join-type)"));
+            Assert.Empty(function.ProvenReferenceWidenings);
+            Assert.NotNull(CSharpPrinter.PrintRaised(function).Output);
+        }
+
+        // The hierarchy merge itself declines in both arm orders and returns
+        // promptly; the chain walk is what looped.
+        var imported = IrImporter.Import(source, "M.P", "K")!;
+        var a = imported.Signature.Parameters[1].Type;
+        var c = imported.Signature.Parameters[2].Type;
+        foreach (var (x, y) in new[] { (a, c), (c, a) })
+        {
+            TypeRef? merged = null;
+            var worker = new Thread(() => merged = source.MergeReferenceTypes(x, y)) { IsBackground = true };
+            worker.Start();
+            Assert.True(worker.Join(TimeSpan.FromSeconds(30)), $"MergeReferenceTypes({x.ToDisplayString()}, {y.ToDisplayString()}) did not return");
+            Assert.Null(merged);
+        }
+    }
+
+    [Fact]
+    public void ReferenceJoin_SameModuleBaseCycle_TerminatesWithAnHonestUnknownJoin()
+    {
+        // Malformed but readable metadata: a TypeDef's Extends column pointing
+        // back down its own chain closes `A : B : A` inside one module. No
+        // compiler emits it and the runtime would refuse it, but the decompiler
+        // reads untrusted assemblies without loading them, so every base-chain
+        // walk it runs must still end — including the shared InterfacesOf walk
+        // that ImplementsForMerge runs first when the other arm is an interface
+        // (adversarial review of #9266, round 4: that walk pushed A, B, A, B...
+        // until the process ran out of memory). The same module also carries
+        // two growing interface cycles through rewritten InterfaceImpl rows,
+        // whose instances never repeat: the doubling `IA<T> : IA<Tuple<T,T>>`
+        // (round 6: a yield-count cap never arrives, because the k-th instance
+        // costs 2^k to hash) and the linear `IL<T> : IL<List<T>>` (round 5: it
+        // overflowed the stack). The platform-aware context makes the
+        // IDisposable arm a recognized interface, so AID reaches the
+        // implementation walk.
+        var deployment = CompileSameModuleCycleDeployment();
+        _disposables.Push(deployment);
+        var metadata = ILInspector.DecompilerHarness.CorpusMetadata.Create([deployment.ConsumerPath]);
+        _disposables.Push(metadata);
+        var source = MetadataSource.Open(deployment.ConsumerPath, context: metadata);
+        _disposables.Push(source);
+
+        foreach (var method in new[] { "AC", "CA", "AI", "IA", "AID", "CQ", "QC", "EQ", "QE" })
+        {
+            IrFunction? function = null;
+            var worker = new Thread(() => function = IrImporter.Import(source, "S.P", method)) { IsBackground = true };
+            worker.Start();
+            Assert.True(worker.Join(TimeSpan.FromSeconds(60)), $"IrImporter.Import of S.P::{method} did not return within 60 seconds");
+            Assert.NotNull(function);
+            Assert.Contains(function!.Diagnostics, d => (d.Message ?? "").Contains("(join-type)"));
+            Assert.Empty(function.ProvenReferenceWidenings);
+            Assert.NotNull(CSharpPrinter.PrintRaised(function).Output);
+        }
+    }
+
+    /// <summary>
+    /// Compiles one module in which `A : B` and `B : object`, then rewrites B's
+    /// TypeDef <c>Extends</c> column to A so the chain reads `A : B : A`, and
+    /// rewrites `IA&lt;T&gt;`'s InterfaceImpl row to the module's existing
+    /// `IA&lt;Tuple&lt;T,T&gt;&gt;` TypeSpec (declared by `IY&lt;T&gt;`) and
+    /// `IL&lt;T&gt;`'s to `IL&lt;List&lt;T&gt;&gt;` (declared by `IZ&lt;T&gt;`)
+    /// so each interface extends a growing instance of itself. The patches are
+    /// the case under test (malformed metadata from an untrusted source), so
+    /// they are test-local rather than a cataloged fixture binary.
+    /// </summary>
+    static SkewCycleDeployment CompileSameModuleCycleDeployment()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), $"same-module-cycle-{Guid.NewGuid():N}");
+        System.IO.Directory.CreateDirectory(directory);
+        var compilation = CSharpCompilation.Create(
+            "Cyc",
+            [CSharpSyntaxTree.ParseText(
+                "namespace S; public class A : B {} public class B {} public class C {} public interface I {}" +
+                " public interface IA<T> : IB<System.Tuple<T, T>> {} public interface IB<T> {}" +
+                " public interface IY<T> : IA<System.Tuple<T, T>> {} public class D : IA<int> {} public interface Q {}" +
+                " public interface IL<T> : IB<System.Collections.Generic.List<T>> {}" +
+                " public interface IZ<T> : IL<System.Collections.Generic.List<T>> {} public class E : IL<int> {}" +
+                " public static class P {" +
+                " public static string AC(bool c, A a, C cc) => (c ? (object)a : cc).ToString();" +
+                " public static string CA(bool c, A a, C cc) => (c ? (object)cc : a).ToString();" +
+                " public static string AI(bool c, A a, I i) => (c ? (object)a : i).ToString();" +
+                " public static string IA(bool c, A a, I i) => (c ? (object)i : a).ToString();" +
+                " public static string AID(bool c, A a, System.IDisposable d) => (c ? (object)a : d).ToString();" +
+                " public static string CQ(bool c, D d, Q q) => (c ? (object)d : q).ToString();" +
+                " public static string QC(bool c, D d, Q q) => (c ? (object)q : d).ToString();" +
+                " public static string EQ(bool c, E e, Q q) => (c ? (object)e : q).ToString();" +
+                " public static string QE(bool c, E e, Q q) => (c ? (object)q : e).ToString(); }",
+                new CSharpParseOptions(LanguageVersion.Preview))],
+            RoslynTestReferences.TrustedPlatform,
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, optimizationLevel: OptimizationLevel.Release));
+        using var stream = new MemoryStream();
+        var emit = compilation.Emit(stream);
+        Assert.True(emit.Success, string.Join(Environment.NewLine, emit.Diagnostics));
+        byte[] bytes = stream.ToArray();
+
+        // Locate B's Extends column: TypeDef row layout is Flags (4), Name
+        // (string index), Namespace (string index), Extends (TypeDefOrRef coded
+        // index), then the field and method list indices. Both index sizes are
+        // 2 bytes in an assembly this small; the row size check pins that.
+        int extendsOffset;
+        int aRow;
+        using (var pe = new System.Reflection.PortableExecutable.PEReader(new MemoryStream(bytes)))
+        {
+            var reader = System.Reflection.Metadata.PEReaderExtensions.GetMetadataReader(pe);
+            Assert.True(reader.GetHeapSize(System.Reflection.Metadata.Ecma335.HeapIndex.String) < 0x10000);
+            int rowSize = reader.GetTableRowSize(System.Reflection.Metadata.Ecma335.TableIndex.TypeDef);
+            Assert.Equal(4 + 2 + 2 + 2 + 2 + 2, rowSize);
+            System.Reflection.Metadata.TypeDefinitionHandle a = default, b = default;
+            foreach (var handle in reader.TypeDefinitions)
+            {
+                string name = reader.GetString(reader.GetTypeDefinition(handle).Name);
+                if (name == "A") a = handle;
+                if (name == "B") b = handle;
+            }
+            aRow = System.Reflection.Metadata.Ecma335.MetadataTokens.GetRowNumber(a);
+            int bRow = System.Reflection.Metadata.Ecma335.MetadataTokens.GetRowNumber(b);
+            extendsOffset = pe.PEHeaders.MetadataStartOffset
+                + reader.GetTableMetadataOffset(System.Reflection.Metadata.Ecma335.TableIndex.TypeDef)
+                + (bRow - 1) * rowSize + 4 + 2 + 2;
+            // B currently extends System.Object through a TypeRef (coded tag 1).
+            Assert.Equal(1, BitConverter.ToUInt16(bytes, extendsOffset) & 0x3);
+        }
+        BitConverter.GetBytes((ushort)(aRow << 2)).CopyTo(bytes, extendsOffset);   // TypeDefOrRef tag 0 = TypeDef
+
+        // Rewrite each self-extending interface's one InterfaceImpl row
+        // (IA<T> : IB<Tuple<T,T>>, IL<T> : IB<List<T>>) to point at the
+        // Interface column of its donor's first row (IY<T> : IA<Tuple<T,T>>,
+        // IZ<T> : IL<List<T>>; the compiler also emits the donor's transitive
+        // IB row after it): IA<T> : IA<Tuple<T,T>> and IL<T> : IL<List<T>>.
+        // InterfaceImpl rows are Class (TypeDef index) then Interface
+        // (TypeDefOrRef coded index), 2 bytes each here.
+        foreach (var (target, donor) in new[] { ("IA`1", "IY`1"), ("IL`1", "IZ`1") })
+        {
+            int targetInterfaceOffset = -1;
+            int targetRow = 0;
+            ushort donorInterface = 0;
+            using (var pe = new System.Reflection.PortableExecutable.PEReader(new MemoryStream(bytes)))
+            {
+                var reader = System.Reflection.Metadata.PEReaderExtensions.GetMetadataReader(pe);
+                int rowSize = reader.GetTableRowSize(System.Reflection.Metadata.Ecma335.TableIndex.InterfaceImpl);
+                Assert.Equal(4, rowSize);
+                int tableOffset = pe.PEHeaders.MetadataStartOffset + reader.GetTableMetadataOffset(System.Reflection.Metadata.Ecma335.TableIndex.InterfaceImpl);
+                int rows = reader.GetTableRowCount(System.Reflection.Metadata.Ecma335.TableIndex.InterfaceImpl);
+                for (int row = 1; row <= rows; row++)
+                {
+                    int offset = tableOffset + (row - 1) * rowSize;
+                    int ownerRow = BitConverter.ToUInt16(bytes, offset);
+                    var owner = reader.GetTypeDefinition(System.Reflection.Metadata.Ecma335.MetadataTokens.TypeDefinitionHandle(ownerRow));
+                    string name = reader.GetString(owner.Name);
+                    if (name == target) { Assert.Equal(-1, targetInterfaceOffset); targetInterfaceOffset = offset + 2; targetRow = ownerRow; }
+                    if (name == donor && donorInterface == 0) donorInterface = BitConverter.ToUInt16(bytes, offset + 2);
+                }
+                Assert.True(targetInterfaceOffset > 0 && donorInterface != 0);
+                Assert.Equal(2, donorInterface & 0x3);   // TypeDefOrRef tag 2 = TypeSpec
+                // That TypeSpec is GENERICINST CLASS <target> 1 <arg>: a growing
+                // instance of the target itself.
+                var spec = reader.GetTypeSpecification(System.Reflection.Metadata.Ecma335.MetadataTokens.TypeSpecificationHandle(donorInterface >> 2));
+                var blob = reader.GetBlobReader(spec.Signature);
+                Assert.Equal(0x15, blob.ReadByte());   // GENERICINST
+                Assert.Equal(0x12, blob.ReadByte());   // CLASS
+                Assert.Equal(targetRow << 2, blob.ReadCompressedInteger());   // TypeDefOrRefEncoded: TypeDef target
+            }
+            BitConverter.GetBytes(donorInterface).CopyTo(bytes, targetInterfaceOffset);
+        }
+
+        using (var pe = new System.Reflection.PortableExecutable.PEReader(new MemoryStream(bytes)))
+        {
+            var reader = System.Reflection.Metadata.PEReaderExtensions.GetMetadataReader(pe);
+            var b = reader.TypeDefinitions.Select(reader.GetTypeDefinition).Single(t => reader.GetString(t.Name) == "B");
+            Assert.Equal(System.Reflection.Metadata.HandleKind.TypeDefinition, b.BaseType.Kind);
+            Assert.Equal("A", reader.GetString(reader.GetTypeDefinition((System.Reflection.Metadata.TypeDefinitionHandle)b.BaseType).Name));
+            foreach (var (target, donor) in new[] { ("IA`1", "IY`1"), ("IL`1", "IZ`1") })
+            {
+                var targetType = reader.TypeDefinitions.Select(reader.GetTypeDefinition).Single(t => reader.GetString(t.Name) == target);
+                var donorType = reader.TypeDefinitions.Select(reader.GetTypeDefinition).Single(t => reader.GetString(t.Name) == donor);
+                var targetImpl = reader.GetInterfaceImplementation(targetType.GetInterfaceImplementations().Single());
+                Assert.Equal(System.Reflection.Metadata.HandleKind.TypeSpecification, targetImpl.Interface.Kind);
+                Assert.Contains(targetImpl.Interface, donorType.GetInterfaceImplementations().Select(h => reader.GetInterfaceImplementation(h).Interface));
+            }
+        }
+
+        string consumerPath = Path.Combine(directory, "Cyc.dll");
+        File.WriteAllBytes(consumerPath, bytes);
+        return new SkewCycleDeployment { Directory = directory, ConsumerPath = consumerPath };
+    }
+
+    sealed class SkewCycleDeployment : IDisposable
+    {
+        public required string Directory { get; init; }
+        public required string ConsumerPath { get; init; }
+        public void Dispose()
+        {
+            try { System.IO.Directory.Delete(Directory, recursive: true); } catch (IOException) { }
+        }
+    }
+
+    /// <summary>
+    /// Compiles the four skew assemblies with Roslyn and deploys the consumer
+    /// beside SkewX v2 and SkewY, the shape a package directory takes when two
+    /// packages were each built against the other's earlier version: a plain
+    /// cycle `A : B : A` and a generic doubling cycle `GA<T> : GB<Tuple<T,T>>`
+    /// / `GB<T> : GA<Tuple<T,T>>`, plus an interface `I` for the
+    /// implementation walk. The
+    /// construction is intrinsic to the case (a malformed deployment), so it is
+    /// test-local rather than a cataloged fixture binary.
+    /// </summary>
+    static SkewCycleDeployment CompileSkewCycleDeployment()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), $"skew-cycle-{Guid.NewGuid():N}");
+        System.IO.Directory.CreateDirectory(directory);
+
+        var xReference = Compile("SkewX", "namespace S; public class A {} public class C {} public class GA<T> {} public interface I {}");
+        var yStub = Compile("SkewY", "namespace S; public class B {} public class GB<T> {}");
+        var yDeployed = Compile("SkewY", "namespace S; public class B : A {} public class GB<T> : GA<System.Tuple<T, T>> {}", xReference);
+        var xDeployed = Compile("SkewX", "namespace S; public class A : B {} public class C {} public class GA<T> : GB<System.Tuple<T, T>> {} public interface I {}", yStub);
+        var consumer = Compile(
+            "SkewM",
+            "namespace M; public static class P {" +
+                " public static string K(bool c, S.A a, S.C cc) => (c ? (object)a : cc).ToString();" +
+                " public static string L(bool c, S.A a, S.C cc) => (c ? (object)cc : a).ToString();" +
+                " public static int H(bool c, S.A a, S.C cc) => (c ? (object)a : cc).GetHashCode();" +
+                " public static int G(bool c, S.A a, S.C cc) => (c ? (object)cc : a).GetHashCode();" +
+                " public static string GD(bool c, S.GA<int> g, S.C cc) => (c ? (object)cc : g).ToString();" +
+                " public static string DG(bool c, S.GA<int> g, S.C cc) => (c ? (object)g : cc).ToString();" +
+                " public static string GI(bool c, S.I i, S.GA<int> g) => (c ? (object)i : g).ToString();" +
+                " public static string IG(bool c, S.I i, S.GA<int> g) => (c ? (object)g : i).ToString(); }",
+            xReference);
+
+        File.WriteAllBytes(Path.Combine(directory, "SkewX.dll"), xDeployed);
+        File.WriteAllBytes(Path.Combine(directory, "SkewY.dll"), yDeployed);
+        string consumerPath = Path.Combine(directory, "SkewM.dll");
+        File.WriteAllBytes(consumerPath, consumer);
+        return new SkewCycleDeployment { Directory = directory, ConsumerPath = consumerPath };
+
+        static byte[] Compile(string assemblyName, string code, params byte[][] references)
+        {
+            var compilation = CSharpCompilation.Create(
+                assemblyName,
+                [CSharpSyntaxTree.ParseText(code, new CSharpParseOptions(LanguageVersion.Preview))],
+                [.. RoslynTestReferences.TrustedPlatform, .. references.Select(image => MetadataReference.CreateFromImage(image))],
+                new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, optimizationLevel: OptimizationLevel.Release));
+            using var stream = new MemoryStream();
+            var emit = compilation.Emit(stream);
+            Assert.True(emit.Success, string.Join(Environment.NewLine, emit.Diagnostics));
+            return stream.ToArray();
+        }
+    }
+
+    [Fact]
     public void ReferenceJoin_NullLiteralAdoptsCrossAssemblyReferenceType()
     {
         // The null arm of a ?. lowering is the null literal, not a hard object
@@ -195,6 +637,9 @@ public class JoinTypeConflictTests : IDisposable
 
         Assert.DoesNotContain(function.Diagnostics, d => (d.Message ?? "").Contains("(join-type)"));
         Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        // The ldnull arm adopts System.Type; adoption proves nothing about
+        // System.Object, so the real null-literal join publishes no widening.
+        Assert.Empty(function.ProvenReferenceWidenings);
         function.CheckInvariant();
     }
 }

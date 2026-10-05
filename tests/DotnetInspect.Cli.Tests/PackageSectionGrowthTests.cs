@@ -92,8 +92,11 @@ public sealed class PackageSectionGrowthTests
     }
 
     [Fact]
-    public async Task PackageBaseInventory_NuspecPathsCanExceedInformativeRange()
+    public async Task PackageNuspecSection_SelectsOnlyTheRootManifest()
     {
+        // The nuspec section is one Text payload: the root manifest, which the
+        // package format places exactly once. Nested .nuspec paths stay in the
+        // whole-package listing (docs/design/section-shapes.md#text).
         (string packagePath, string tempDirectory) = await CreatePackageAsync(
             "Nuspec.Growth",
             archive =>
@@ -110,6 +113,10 @@ public sealed class PackageSectionGrowthTests
             await AssertCountAsync(
                 packagePath,
                 "Package nuspec file",
+                1);
+            await AssertCountAsync(
+                packagePath,
+                "Package files",
                 31);
         }
         finally

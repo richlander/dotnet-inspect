@@ -86,6 +86,24 @@
       ]
     },
     {
+      "id": "browser-hosts-never-reference-local-adapters",
+      "source": "docs/design/platform-house-reference-processing.md#assembly-reference-processing; consolidation tracker #9240 slice 3",
+      "graphs": [
+        "project",
+        "assembly"
+      ],
+      "targets": [
+        "DotnetInspect.Web*"
+      ],
+      "projectPaths": [
+        "src/DotnetInspect.Web*/*.csproj"
+      ],
+      "deny": [
+        "DotnetInspector.PlatformHouse.Local",
+        "DotnetInspector.Sections.Local"
+      ]
+    },
+    {
       "id": "dotnet-inspect-cli-project-dependencies-stay-within-host-ratchet",
       "source": "docs/design/inspection-layers.md#the-layers; composition tracker #8843",
       "graphs": [
@@ -109,20 +127,16 @@
         "DotnetInspector.PackageQueries",
         "DotnetInspector.Packages",
         "DotnetInspector.PlatformHouse",
-        "DotnetInspector.PlatformHouse.Execution.Installed",
-        "DotnetInspector.PlatformHouse.Execution.Packages",
-        "DotnetInspector.PlatformHouse.Installed",
+        "DotnetInspector.PlatformHouse.Local",
         "DotnetInspector.PlatformHouse.Packages",
         "DotnetInspector.PlatformQueries",
         "DotnetInspector.Platforms",
-        "DotnetInspector.Platforms.Installed",
-        "DotnetInspector.Platforms.Packages",
         "DotnetInspector.Presentation",
         "DotnetInspector.Queries",
         "DotnetInspector.ResearchQueries",
         "DotnetInspector.ResearchSections",
         "DotnetInspector.Sections",
-        "DotnetInspector.Sections.Installed",
+        "DotnetInspector.Sections.Local",
         "DotnetInspector.Services",
         "DotnetInspector.SourceSelection",
         "DotnetInspector.Vocabulary",
@@ -171,21 +185,16 @@
         "DotnetInspector.PackageQueries",
         "DotnetInspector.Packages",
         "DotnetInspector.PlatformHouse",
-        "DotnetInspector.PlatformHouse.Execution",
-        "DotnetInspector.PlatformHouse.Execution.Installed",
-        "DotnetInspector.PlatformHouse.Execution.Packages",
-        "DotnetInspector.PlatformHouse.Installed",
+        "DotnetInspector.PlatformHouse.Local",
         "DotnetInspector.PlatformHouse.Packages",
         "DotnetInspector.PlatformQueries",
         "DotnetInspector.Platforms",
-        "DotnetInspector.Platforms.Installed",
-        "DotnetInspector.Platforms.Packages",
         "DotnetInspector.Presentation",
         "DotnetInspector.Queries",
         "DotnetInspector.ResearchQueries",
         "DotnetInspector.ResearchSections",
         "DotnetInspector.Sections",
-        "DotnetInspector.Sections.Installed",
+        "DotnetInspector.Sections.Local",
         "DotnetInspector.Services",
         "DotnetInspector.SourceHouse",
         "DotnetInspector.SourceSelection",

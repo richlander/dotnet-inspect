@@ -29,7 +29,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="../../src/DotnetInspector.Sections.Installed/DotnetInspector.Sections.Installed.csproj" />
+    <ProjectReference Include="../../src/DotnetInspector.Sections.Local/DotnetInspector.Sections.Local.csproj" />
     <ProjectReference Include="../../src/DotnetInspector.Sections/DotnetInspector.Sections.csproj" />
     <ProjectReference Include="../../src/DotnetInspector.ResearchSections/DotnetInspector.ResearchSections.csproj" />
     <ProjectReference Include="../../src/Inspector.Artifacts.Workspaces/Inspector.Artifacts.Workspaces.csproj" />

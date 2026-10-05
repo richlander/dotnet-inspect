@@ -56,6 +56,42 @@ public sealed class OutputCapabilityCatalog
         ];
     }
 
+    /// <summary>
+    /// The formats a declared <see cref="SectionShape"/> can carry, per
+    /// <c>docs/design/section-shapes.md</c>: Table and Text sections carry the
+    /// standard set (Text through its fact row); a Hierarchy adds the tree.
+    /// </summary>
+    public static ImmutableArray<DiscoveryOutputMode> FormatsForShape(
+        SectionShape shape) =>
+        shape switch
+        {
+            SectionShape.Table or SectionShape.Text => StandardSectionFormats,
+            SectionShape.Hierarchy =>
+                [.. StandardSectionFormats, DiscoveryOutputMode.Tree],
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(shape),
+                shape,
+                "Unknown section shape."),
+        };
+
+    /// <summary>
+    /// Derives a catalog from declared shapes instead of hand-declared format
+    /// lists, as Section shapes requires of an adopting command.
+    /// </summary>
+    public static OutputCapabilityCatalog FromShapes(
+        IReadOnlyDictionary<string, SectionShape> shapes,
+        IEnumerable<IEnumerable<string>>? homogeneousRowFamilies = null)
+    {
+        ArgumentNullException.ThrowIfNull(shapes);
+        return new OutputCapabilityCatalog(
+            shapes.ToDictionary(
+                static pair => pair.Key,
+                static pair => SectionOutputCapabilities.Create(
+                    FormatsForShape(pair.Value)),
+                StringComparer.OrdinalIgnoreCase),
+            homogeneousRowFamilies);
+    }
+
     public ImmutableArray<DiscoveryOutputMode> FormatsForSection(
         string section) =>
         _sections.TryGetValue(section, out SectionOutputCapabilities? capability)
