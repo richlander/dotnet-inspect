@@ -1386,8 +1386,15 @@ declaration-document contract over that route: one Metadata declaration
 session establishes the detached exact-Type subject and optionally executes
 declared Member-group population. Subject-only requests issue no population
 demand, and requested population rejection, incompleteness, or failure remains
-independently typed without discarding the available Type subject. CLI and
-Browser adoption remains step 9; no production host uses this route yet.
+independently typed without discarding the available Type subject.
+
+Step 9 now binds CLI minimal native Type navigation and Inspect Web declared
+Member navigation to one shared `TypeDocument` request. CLI renders the
+lightweight Member-group Rows and nested exact-Member Counts directly; richer
+Type views remain on their explicit signature-bearing route. Inspect Web
+mechanically transports the same envelope and opens `MemberGroupDocument` only
+when a group is selected, rather than embedding exact Member rows in the Type
+response. The superseded Browser Type-member population exports are removed.
 
 ## Required evidence
 

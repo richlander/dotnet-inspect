@@ -70,6 +70,29 @@ internal sealed class ExactLibraryInspectionSession(
             cancellationToken);
     }
 
+    public InspectionEnvelope<TypeDocumentInspectionOutcome>?
+        ExecuteTypeDocument(
+            TypeDocumentInspectionPlan plan,
+            CancellationToken cancellationToken)
+    {
+        LibraryOperationLeaseIssueOutcome leaseIssue =
+            owner.IssueOperationLease(reference);
+        if (leaseIssue
+            is not LibraryOperationLeaseIssueOutcome.Issued issued)
+        {
+            CommandError.Write(
+                "The exact Library owner could not issue the Type document "
+                    + "inspection operation lease.");
+            return null;
+        }
+
+        using LibraryOperationLease lease = issued.Lease;
+        return TypeDocumentInspectionOperation.Execute(
+            new(reference, plan),
+            lease,
+            cancellationToken);
+    }
+
     public InspectionEnvelope<MemberDocumentInspectionOutcome>?
         ExecuteMemberDocument(
             MemberDocumentInspectionPlan plan,

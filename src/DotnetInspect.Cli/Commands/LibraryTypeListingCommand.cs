@@ -218,7 +218,8 @@ internal static class LibraryTypeListingCommand
         CancellationToken cancellationToken,
         string? @namespace = null,
         MetadataNamespaceMatch namespaceMatch =
-            MetadataNamespaceMatch.Exact)
+            MetadataNamespaceMatch.Exact,
+        bool includeMemberCount = true)
     {
         var rows = ImmutableArray.CreateBuilder<LibraryTypeShape>();
         LibraryDocument? firstDocument = null;
@@ -235,8 +236,9 @@ internal static class LibraryTypeListingCommand
                         count: null,
                         new LibraryTypePopulationRowsRequest(
                             SegmentSize,
-                            memberCount:
-                                new LibraryTypeMemberCountRequest(),
+                            memberCount: includeMemberCount
+                                ? new LibraryTypeMemberCountRequest()
+                                : null,
                             continuation: continuation),
                         selection.Declarations,
                         selection.DefinitionKinds,

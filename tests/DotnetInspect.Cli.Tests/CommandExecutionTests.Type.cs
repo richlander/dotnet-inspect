@@ -500,9 +500,15 @@ public partial class CommandExecutionTests
             () => TypeCommand.ExecuteAsync(options));
 
         Assert.Equal(0, exit);
-        // Default single-type invocation renders the tree shape.
+        // Default single-Type navigation uses compact group rows and nested
+        // exact-member Counts rather than the eager rich API graph.
         Assert.Contains("├─", output);
-        Assert.Contains("Inherits", output);
+        Assert.Contains("Properties (1)", output);
+        Assert.Contains("Methods", output);
+        Assert.DoesNotContain("Inherits", output);
+        Assert.DoesNotContain(
+            "bool IsReflectionEnabledByDefault",
+            output);
     }
 
     [Fact]

@@ -1494,7 +1494,7 @@ async function installFacades(
             },
             { once: true }));
       }
-      export async function queryTypeMemberPopulation(
+      export async function queryTypeDocument(
         id, version, framework, assembly, typeIdentity, spelling, accessibility) {
         document.documentElement.dataset.typeMemberPopulationRequest =
           JSON.stringify([
@@ -1508,7 +1508,7 @@ async function installFacades(
           spelling,
           accessibility);
       }
-      export async function queryPlatformTypeMemberPopulation(
+      export async function queryPlatformTypeDocument(
         framework, version, assembly, pack, typeIdentity, spelling, accessibility) {
         document.documentElement.dataset.platformTypeMemberPopulationRequest =
           JSON.stringify([
@@ -1522,7 +1522,7 @@ async function installFacades(
           spelling,
           accessibility);
       }
-      export async function queryUploadedLibraryTypeMemberPopulation(
+      export async function queryUploadedLibraryTypeDocument(
         declaredName, content, typeIdentity, spelling, accessibility) {
         document.documentElement.dataset.uploadedTypeMemberPopulationRequest =
           JSON.stringify([

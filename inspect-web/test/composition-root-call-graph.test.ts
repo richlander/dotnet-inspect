@@ -1032,7 +1032,7 @@ test("fallback ordinary families load the shared document", () => {
     ?? "";
   assert.match(
     overview,
-    /ordinaryMethodGroup\(selectedMember\(selectedType\(\)\)\)[\s\S]*memberGroupUsesFamilySurface\(selectedMember\(selectedType\(\)\)\)[\s\S]*state\.selectedOverloadIndex === null[\s\S]*loadSelectedMemberGroupDocument\(\)[\s\S]*loadSelectedMemberDocumentation\(\)/);
+    /const member = selectedMember\(selectedType\(\)\)[\s\S]*!member\.overloads\.some\(overload => overload\.graphOnly\)[\s\S]*state\.selectedOverloadIndex === null[\s\S]*member\.overloads\.length === 0[\s\S]*memberGroupUsesFamilySurface\(member\)[\s\S]*loadSelectedMemberGroupDocument\(\)[\s\S]*loadSelectedMemberDocumentation\(\)/);
 
   const applyView =
     appSource.match(/function applyView\([\s\S]*?\n}\n\nasync function restorePlatformHistoryView/)?.[0]
@@ -1052,9 +1052,12 @@ test("fallback ordinary families load the shared document", () => {
   const groupDocument =
     appSource.match(/async function loadSelectedMemberGroupDocument\([\s\S]*?\n}\n\nasync function loadSelectedMemberSource/)?.[0]
     ?? "";
+  assert.doesNotMatch(
+    groupDocument,
+    /member\.completeCountStatus === "available"/);
   assert.match(
     groupDocument,
-    /member\.completeCountStatus === "available"[\s\S]*renderPreservingMemberFocus\(\);[\s\S]*return;/);
+    /member\.overloads\.some\(overload => overload\.graphOnly\)[\s\S]*memberGroupDocumentRequestKey\(type, member\)[\s\S]*inspectUploadedLibraryMemberGroupDocument[\s\S]*inspectPlatformMemberGroupDocument[\s\S]*inspectMemberGroupDocument/);
 
   const drillOut =
     appSource.match(/function drillOut\(\)[\s\S]*?\n}\n\nfunction exitMemberScope/)?.[0]
@@ -1248,23 +1251,28 @@ test("unavailable exact Member populations omit selector counts", () => {
     typeMemberPopulationKey: "csharp/public",
     typeMemberPopulation: {
       outcome: "Available",
-      population: {
-        groups: [],
-        composition: {
-          public: 0,
-          protected: 0,
-          internal: 0,
-          private: 0,
-        },
-        selectorCounts: {
-          kinds: [],
-          traits: {
-            all: 0,
-            static: 0,
-            instance: 0,
-            virtual: 0,
-            interface: 0,
-            extensions: 0,
+      document: {
+        declarations: {
+          outcome: "Available",
+          population: {
+            groups: [],
+            composition: {
+              public: 0,
+              protected: 0,
+              internal: 0,
+              private: 0,
+            },
+            selectorCounts: {
+              kinds: [],
+              traits: {
+                all: 0,
+                static: 0,
+                instance: 0,
+                virtual: 0,
+                interface: 0,
+                extensions: 0,
+              },
+            },
           },
         },
       },
@@ -1355,6 +1363,10 @@ test("member API uses full-area overload and selected-member surfaces", () => {
     appSource.match(
       /function renderMember\([\s\S]*?\n}\n\nfunction memberReceiverPrefix/)?.[0]
     ?? "";
+  const renderDeferredMemberGroup =
+    appSource.match(
+      /function renderDeferredMemberGroup\([\s\S]*?\n}\n\nfunction renderMember/)?.[0]
+    ?? "";
   const memberOverview =
     renderMember.match(/if \(state\.memberSection === "overview"\) \{[\s\S]*?\n  \} else if \(state\.memberSection === "call-graph"\)/)?.[0]
     ?? "";
@@ -1369,14 +1381,17 @@ test("member API uses full-area overload and selected-member surfaces", () => {
     renderMember,
     /member\.kind === "method"[\s\S]*memberGroupUsesFamilySurface\(member\)[\s\S]*member\.completeCountStatus === "available"[\s\S]*completeMemberGroupHasBaselineOrdinals\(member\)[\s\S]*member\.overloads\.map\(\(overload, index\) =>[\s\S]*memberNavOverloadSourceIndex\(member, index\)[\s\S]*highlight\(overload\.signature\)/);
   assert.match(
-    renderMember,
+    renderDeferredMemberGroup,
     /memberGroupDocumentLoading[\s\S]*Building the shared MemberGroup document/);
   assert.match(
-    renderMember,
-    /memberGroupDocumentError[\s\S]*Overload query failed/);
+    renderDeferredMemberGroup,
+    /memberGroupDocumentError[\s\S]*query failed/);
+  assert.match(
+    renderDeferredMemberGroup,
+    /document\.rows\.map\(row =>[\s\S]*findIndex\(overload =>[\s\S]*row\.metadataToken[\s\S]*memberNavOverloadSourceIndex\(member, visibleIndex\)[\s\S]*data-overload="\$\{sourceIndex}"/);
   assert.match(
     renderMember,
-    /document\.rows\.map\(row =>[\s\S]*findIndex\(overload =>[\s\S]*row\.metadataToken[\s\S]*memberNavOverloadSourceIndex\(member, visibleIndex\)[\s\S]*data-overload="\$\{sourceIndex}"/);
+    /member\.overloads\.length === 0 && member\.kind !== "method"[\s\S]*renderDeferredMemberGroup\(type, member\)/);
   assert.doesNotMatch(
     renderMember,
     /Exact Member document|Resolving the shared Member document/);
@@ -1401,8 +1416,8 @@ test("member API uses full-area overload and selected-member surfaces", () => {
     renderMember,
     /class="member-surface-scroll"[\s\S]*?class="api-list api-surface-list member-surface-list"/);
   assert.match(
-    renderMember,
-    /class="api-surface-footer member-surface-footer"[\s\S]*?id="member-back"[\s\S]*?Choose an overload to inspect/);
+    renderDeferredMemberGroup,
+    /class="api-surface-footer member-surface-footer"[\s\S]*?id="member-back"[\s\S]*?Choose a \$\{unit\} to inspect/);
   assert.match(
     renderMember,
     /if \(!memberSectionUsesWorkingSurface\(state\.memberSection\)\) return content;/);

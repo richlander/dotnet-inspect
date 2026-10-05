@@ -11,6 +11,33 @@ namespace DotnetInspector.Sections;
 
 public sealed record TypeDocumentInspectionPlan
 {
+    public static TypeDocumentInspectionPlan
+        CreateDeclaredMemberNavigation(
+            MetadataTypeDefinitionName type,
+            ApiSurfaceExtractionBounds bounds,
+            TypeMemberGroupSpelling spelling =
+                TypeMemberGroupSpelling.CSharp,
+            TypeMemberGroupAccessibilityFilter accessibility =
+                TypeMemberGroupAccessibilityFilter.Public)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+        ArgumentNullException.ThrowIfNull(bounds);
+        return new(
+            type,
+            bounds,
+            new TypeMemberGroupPopulationRequest(
+                count: null,
+                rows: new(
+                    bounds.MaxMembers,
+                    includeExactMemberCount: true),
+                composition: new(),
+                selectorCounts: new(),
+                spelling: spelling,
+                accessibility: accessibility,
+                receiver: TypeMemberGroupReceiverFilter.All,
+                includeHidden: false));
+    }
+
     public TypeDocumentInspectionPlan(
         MetadataTypeDefinitionName type,
         ApiSurfaceExtractionBounds bounds,

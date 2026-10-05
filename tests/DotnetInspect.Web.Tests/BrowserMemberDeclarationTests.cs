@@ -430,9 +430,9 @@ public sealed class BrowserMemberDeclarationTests
             uploadedDocument.Rows,
             static row => Assert.Equal("Extension", row.Receiver));
 
-        BrowserTypeMemberPopulationInspection packagePopulation =
-            TypeMemberPopulation(
-                await MetadataExports.QueryTypeMemberPopulation(
+        BrowserTypeDocumentInspection packagePopulation =
+            TypeDocument(
+                await MetadataExports.QueryTypeDocument(
                     PackageId,
                     Version,
                     Framework,
@@ -441,23 +441,29 @@ public sealed class BrowserMemberDeclarationTests
                     "csharp",
                     "public"));
         Assert.Equal(
-            BrowserTypeMemberPopulationOutcome.Available,
+            BrowserTypeDocumentOutcome.Available,
             packagePopulation.Outcome);
         BrowserTypeMemberPopulation packageMembers =
-            Assert.IsType<BrowserTypeMemberPopulation>(
-                packagePopulation.Population);
+            AvailablePopulation(packagePopulation);
+        BrowserTypeDocument packageDocument =
+            Assert.IsType<BrowserTypeDocument>(
+                packagePopulation.Document);
+        Assert.Equal(SpellingType, packageDocument.TypeIdentity);
+        Assert.True(packageDocument.TypeDefinitionToken > 0);
+        Assert.IsType<InspectionShare.NonProjectable>(
+            packagePopulation.Share);
         Assert.Equal(
             packageMembers.Composition.Public,
-            packageMembers.Groups.Sum(group => group.Members.Length));
+            packageMembers.Groups.Sum(group => group.CompleteCount));
         Assert.Equal(
             packageMembers.SelectorCounts.Traits.All,
-            packageMembers.Groups.Sum(group => group.Members.Length));
+            packageMembers.Groups.Sum(group => group.CompleteCount));
         Assert.Equal(
             packageMembers.SelectorCounts.Traits.All,
             packageMembers.SelectorCounts.Kinds.Sum(count => count.Count));
-        BrowserTypeMemberPopulationInspection metadataPopulation =
-            TypeMemberPopulation(
-                await MetadataExports.QueryTypeMemberPopulation(
+        BrowserTypeDocumentInspection metadataPopulation =
+            TypeDocument(
+                await MetadataExports.QueryTypeDocument(
                     PackageId,
                     Version,
                     Framework,
@@ -466,23 +472,20 @@ public sealed class BrowserMemberDeclarationTests
                     "metadata",
                     "public"));
         BrowserTypeMemberPopulation metadataMembers =
-            Assert.IsType<BrowserTypeMemberPopulation>(
-                metadataPopulation.Population);
+            AvailablePopulation(metadataPopulation);
         BrowserTypeMemberPopulationGroup getter = Assert.Single(
             metadataMembers.Groups,
             group => group.Name == "get_Type");
-        Assert.All(
-            getter.Members,
-            static member => Assert.Null(member.BaselineOrdinal));
+        Assert.True(getter.BaselineOrdinal > 0);
+        Assert.Equal(1, getter.CompleteCount);
         BrowserTypeMemberPopulationGroup metadataMethod = Assert.Single(
             metadataMembers.Groups,
             group => group.Name == "PointerFreeUnsafeMethod");
-        Assert.Equal<int?>(
-            [1],
-            metadataMethod.Members.Select(member => member.BaselineOrdinal));
-        BrowserTypeMemberPopulationInspection privatePopulation =
-            TypeMemberPopulation(
-                await MetadataExports.QueryTypeMemberPopulation(
+        Assert.True(metadataMethod.BaselineOrdinal > 0);
+        Assert.Equal(1, metadataMethod.CompleteCount);
+        BrowserTypeDocumentInspection privatePopulation =
+            TypeDocument(
+                await MetadataExports.QueryTypeDocument(
                     PackageId,
                     Version,
                     Framework,
@@ -491,18 +494,16 @@ public sealed class BrowserMemberDeclarationTests
                     "metadata",
                     "private"));
         BrowserTypeMemberPopulation privateMembers =
-            Assert.IsType<BrowserTypeMemberPopulation>(
-                privatePopulation.Population);
-        BrowserMemberSurface[] privateRows =
-            [.. privateMembers.Groups.SelectMany(group => group.Members)];
-        Assert.NotEmpty(privateRows);
+            AvailablePopulation(privatePopulation);
+        Assert.NotEmpty(privateMembers.Groups);
         Assert.All(
-            privateRows,
-            static member => Assert.Null(member.BaselineOrdinal));
+            privateMembers.Groups,
+            static group =>
+                Assert.True(group.BaselineOrdinal > 0));
 
-        BrowserTypeMemberPopulationInspection allPopulation =
-            TypeMemberPopulation(
-                await MetadataExports.QueryTypeMemberPopulation(
+        BrowserTypeDocumentInspection allPopulation =
+            TypeDocument(
+                await MetadataExports.QueryTypeDocument(
                     PackageId,
                     Version,
                     Framework,
@@ -511,39 +512,35 @@ public sealed class BrowserMemberDeclarationTests
                     "metadata",
                     "all"));
         BrowserTypeMemberPopulation allMembers =
-            Assert.IsType<BrowserTypeMemberPopulation>(
-                allPopulation.Population);
+            AvailablePopulation(allPopulation);
         Assert.Equal("All", allMembers.Accessibility);
         Assert.Equal(
             allMembers.Composition.Public
                 + allMembers.Composition.Protected
                 + allMembers.Composition.Internal
                 + allMembers.Composition.Private,
-            allMembers.Groups.Sum(group => group.Members.Length));
+            allMembers.Groups.Sum(group => group.CompleteCount));
 
-        BrowserTypeMemberPopulationInspection uploadedPopulation =
-            TypeMemberPopulation(
+        BrowserTypeDocumentInspection uploadedPopulation =
+            TypeDocument(
                 await MetadataExports
-                    .QueryUploadedLibraryTypeMemberPopulation(
+                    .QueryUploadedLibraryTypeDocument(
                         AssemblyFileName,
                         image,
                         ExtensionType,
                         "csharp",
                         "public"));
         Assert.Equal(
-            BrowserTypeMemberPopulationOutcome.Available,
+            BrowserTypeDocumentOutcome.Available,
             uploadedPopulation.Outcome);
         BrowserTypeMemberPopulation uploadedMembers =
-            Assert.IsType<BrowserTypeMemberPopulation>(
-                uploadedPopulation.Population);
+            AvailablePopulation(uploadedPopulation);
         BrowserTypeMemberPopulationGroup examine = Assert.Single(
             uploadedMembers.Groups,
             group => group.Name == "Examine");
-        Assert.Equal(5, examine.Members.Length);
         Assert.Equal(5, examine.CompleteCount);
-        Assert.Equal<int?>(
-            [1, 2, 3, 4, 5],
-            examine.Members.Select(member => member.BaselineOrdinal));
+        Assert.True(examine.BaselineOrdinal > 0);
+        Assert.Contains("extension", examine.Receivers);
 
         BrowserMemberGroupDocumentInspection missingGroup =
             MemberGroupDocument(
@@ -833,10 +830,10 @@ public sealed class BrowserMemberDeclarationTests
                 document.Rows,
                 static row => Assert.Equal("Extension", row.Receiver));
 
-            BrowserTypeMemberPopulationInspection population =
-                TypeMemberPopulation(
+            BrowserTypeDocumentInspection population =
+                TypeDocument(
                     await MetadataExports
-                        .QueryPlatformTypeMemberPopulation(
+                        .QueryPlatformTypeDocument(
                             framework,
                             version,
                             AssemblyFileName,
@@ -845,14 +842,13 @@ public sealed class BrowserMemberDeclarationTests
                             "csharp",
                             "public"));
             Assert.Equal(
-                BrowserTypeMemberPopulationOutcome.Available,
+                BrowserTypeDocumentOutcome.Available,
                 population.Outcome);
             BrowserTypeMemberPopulation members =
-                Assert.IsType<BrowserTypeMemberPopulation>(
-                    population.Population);
+                AvailablePopulation(population);
             Assert.Equal(
                 members.Composition.Public,
-                members.Groups.Sum(candidate => candidate.Members.Length));
+                members.Groups.Sum(candidate => candidate.CompleteCount));
             Assert.Equal(requests, handler.Requests);
         }
         finally
@@ -1311,14 +1307,27 @@ public sealed class BrowserMemberDeclarationTests
         ?? throw new InvalidOperationException(
             "The browser Member export returned null.");
 
-    static BrowserTypeMemberPopulationInspection TypeMemberPopulation(
+    static BrowserTypeDocumentInspection TypeDocument(
         string json) =>
         JsonSerializer.Deserialize(
             json,
             BrowserMetadataJsonContext.Default
-                .BrowserTypeMemberPopulationInspection)
+                .BrowserTypeDocumentInspection)
         ?? throw new InvalidOperationException(
-            "The browser Type Member population export returned null.");
+            "The browser Type document export returned null.");
+
+    static BrowserTypeMemberPopulation AvailablePopulation(
+        BrowserTypeDocumentInspection inspection)
+    {
+        BrowserTypeDocument document =
+            Assert.IsType<BrowserTypeDocument>(
+                inspection.Document);
+        Assert.Equal(
+            BrowserTypeDocumentDeclarationsOutcome.Available,
+            document.Declarations.Outcome);
+        return Assert.IsType<BrowserTypeMemberPopulation>(
+            document.Declarations.Population);
+    }
 
     static byte[] PackagePair(byte[] image)
     {

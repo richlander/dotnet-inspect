@@ -86,9 +86,17 @@ public class OfflineVerbosityTests : IDisposable
             "type", "JsonSerializer", "--platform", "System.Text.Json", "-v:m", "--offline");
 
         Assert.Equal(0, exit);
+        Assert.Contains(
+            "static class System.Text.Json.JsonSerializer",
+            output);
+        Assert.Contains("Properties (1)", output);
+        Assert.Contains("IsReflectionEnabledByDefault", output);
         Assert.Contains("Deserialize", output);
         // Minimal type shape keeps logical method groups bounded.
         Assert.Contains("Methods", output);
+        Assert.DoesNotContain(
+            "bool IsReflectionEnabledByDefault",
+            output);
         Assert.DoesNotContain("# System.Text.Json.JsonSerializer", output);
     }
 

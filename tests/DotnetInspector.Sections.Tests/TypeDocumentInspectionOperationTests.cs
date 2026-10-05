@@ -545,6 +545,43 @@ public sealed class TypeDocumentInspectionOperationTests
         await library.RetireAsync();
     }
 
+    [Fact]
+    public void DeclaredMemberNavigationRequest_IsCanonicalAcrossHosts()
+    {
+        MetadataTypeDefinitionName type =
+            Name("System.Text.Json", "JsonSerializer");
+
+        TypeDocumentInspectionPlan plan =
+            TypeDocumentInspectionPlan
+                .CreateDeclaredMemberNavigation(
+                    type,
+                    s_bounds);
+
+        Assert.Same(type, plan.Type);
+        Assert.Same(s_bounds, plan.Bounds);
+        TypeMemberGroupPopulationRequest declarations =
+            Assert.IsType<TypeMemberGroupPopulationRequest>(
+                plan.Declarations);
+        Assert.Null(declarations.Count);
+        Assert.Equal(
+            s_bounds.MaxMembers,
+            declarations.Rows!.MaximumRows);
+        Assert.True(
+            declarations.Rows.IncludeExactMemberCount);
+        Assert.NotNull(declarations.Composition);
+        Assert.NotNull(declarations.SelectorCounts);
+        Assert.Equal(
+            TypeMemberGroupSpelling.CSharp,
+            declarations.Spelling);
+        Assert.Equal(
+            TypeMemberGroupAccessibilityFilter.Public,
+            declarations.Accessibility);
+        Assert.Equal(
+            TypeMemberGroupReceiverFilter.All,
+            declarations.Receiver);
+        Assert.False(declarations.IncludeHidden);
+    }
+
     private static InspectionEnvelope<TypeDocumentInspectionOutcome>
         Execute(
             LibraryInspectionTestLibrary library,

@@ -432,6 +432,18 @@ public static class TypeCommand
             }
             else
             {
+                if (loadedSurface is null
+                    && preselectedType is null
+                    && await TypeDocumentTreeCommand.TryExecuteAsync(
+                            source,
+                            options,
+                            cancellationToken)
+                        .ConfigureAwait(false)
+                        is int typeDocumentExitCode)
+                {
+                    return typeDocumentExitCode;
+                }
+
                 var loaded = loadedSurface
                     ?? ApiServices.LoadTypeApi(source, options);
                 if (loaded == null)
@@ -829,7 +841,8 @@ public static class TypeCommand
         out ExactTypeInspectionRequest? request)
     {
         request = null;
-        if (string.IsNullOrWhiteSpace(options.PackagePath)
+        if (TypeDocumentTreeCommand.CanExecute(options)
+            || string.IsNullOrWhiteSpace(options.PackagePath)
             || File.Exists(options.PackagePath)
             || options.PackagePath.Contains("::", StringComparison.Ordinal)
             || options.PackageRangeAddress is not null
@@ -2101,14 +2114,14 @@ public static class TypeCommand
                 ? new AssemblyDependencyResolver(
                     new AssemblyDependencyResolutionOptions(
                         definingAssemblyPath)
-                {
-                    ProjectAssetsPath = options.ProjectAssetsPath,
-                    TargetFramework = options.Tfm,
-                    IncludeDepsJsonAssets = false,
-                    IncludeAspNetCoreSharedFramework = false,
-                    PreferImplementationAssemblies = true,
-                    AllowPlatformAssemblyVersionRollForward = true,
-                })
+                    {
+                        ProjectAssetsPath = options.ProjectAssetsPath,
+                        TargetFramework = options.Tfm,
+                        IncludeDepsJsonAssets = false,
+                        IncludeAspNetCoreSharedFramework = false,
+                        PreferImplementationAssemblies = true,
+                        AllowPlatformAssemblyVersionRollForward = true,
+                    })
                 : throw new InvalidOperationException(
                     "A pathless selected API participant requires its "
                         + "authoritative binding policy."));

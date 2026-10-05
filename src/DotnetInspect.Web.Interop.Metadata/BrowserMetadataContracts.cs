@@ -296,9 +296,20 @@ public enum BrowserMemberDocumentOutcome
     Failed,
 }
 
-[JsonConverter(typeof(JsonStringEnumConverter<BrowserTypeMemberPopulationOutcome>))]
-public enum BrowserTypeMemberPopulationOutcome
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserTypeDocumentOutcome>))]
+public enum BrowserTypeDocumentOutcome
 {
+    Available,
+    Rejected,
+    Incomplete,
+    Failed,
+}
+
+[JsonConverter(
+    typeof(JsonStringEnumConverter<BrowserTypeDocumentDeclarationsOutcome>))]
+public enum BrowserTypeDocumentDeclarationsOutcome
+{
+    NotRequested,
     Available,
     Rejected,
     Incomplete,
@@ -323,14 +334,33 @@ public sealed record BrowserMemberDocument(
     string Receiver,
     Wire.DocumentationQueryOutcome? Documentation);
 
-public sealed record BrowserTypeMemberPopulationInspection(
-    BrowserTypeMemberPopulationOutcome Outcome,
+public sealed record BrowserTypeDocumentInspection(
+    BrowserTypeDocumentOutcome Outcome,
     string? Detail,
-    BrowserTypeMemberPopulation? Population,
+    BrowserTypeDocument? Document,
+    InspectionShare Share,
     string[] Diagnostics);
 
-public sealed record BrowserTypeMemberPopulation(
+public sealed record BrowserTypeDocument(
     string TypeIdentity,
+    int TypeDefinitionToken,
+    string Category,
+    bool IsByRefLike,
+    BrowserTypeDocumentGenericParameter[] GenericParameters,
+    BrowserTypeDocumentDeclarations Declarations);
+
+public sealed record BrowserTypeDocumentGenericParameter(
+    string Name,
+    int MetadataIndex,
+    int DefinitionSegmentIndex,
+    string Attributes);
+
+public sealed record BrowserTypeDocumentDeclarations(
+    BrowserTypeDocumentDeclarationsOutcome Outcome,
+    string? Detail,
+    BrowserTypeMemberPopulation? Population);
+
+public sealed record BrowserTypeMemberPopulation(
     string Spelling,
     string Accessibility,
     BrowserTypeMemberComposition Composition,
@@ -366,8 +396,9 @@ public sealed record BrowserTypeMemberPopulationGroup(
     string Key,
     string Name,
     string Kind,
-    int CompleteCount,
-    BrowserMemberSurface[] Members);
+    int BaselineOrdinal,
+    string[] Receivers,
+    int CompleteCount);
 
 /// <summary>
 /// One type row projected for a graph target. See the package facade's declaration for the
@@ -521,7 +552,7 @@ public sealed record BrowserExceptionSurface(
 [JsonSerializable(
     typeof(Wire.AuthoredDocumentationOutcome.Incomplete),
     TypeInfoPropertyName = "AuthoredDocumentationIncomplete")]
-[JsonSerializable(typeof(BrowserTypeMemberPopulationInspection))]
+[JsonSerializable(typeof(BrowserTypeDocumentInspection))]
 [JsonSerializable(typeof(BrowserWorkspacePackage[]))]
 [JsonSerializable(
     typeof(InspectionEnvelope<JsonElement>),
