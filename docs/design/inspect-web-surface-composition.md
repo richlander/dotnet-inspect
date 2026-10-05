@@ -1060,23 +1060,23 @@ separate work.
 
 The Library inspector order is **Overview**, **References**, **Compare**,
 **Analysis**, and **Metadata**. Analysis contains direct **Relationships**,
-**Complexity**, **Performance**, **Unsafe**, **Integrations**, and
-**Opportunities** tabs, following Compare's single-inspector mode composition.
-Integrations is not a separate persistent inspector.
+**Complexity**, **Performance**, **Unsafe**, and **Integrations** tabs, following
+Compare's single-inspector mode composition. These modes are not separate
+persistent inspectors.
 
 Relationships is the default. The selected tab is session-local Browser
 presentation state and preserves the selected Library. Only the selected tab
-starts its existing query; cached results retain their existing
+starts its existing query work; cached results retain their existing
 Library/coordinate freshness checks. Each mode keeps its own loading, failure,
-partial, empty, and available outcomes. No mode combines evidence or infers an
-outcome from another.
+partial, empty, and available outcomes. Integrations presents its detected and
+suggested evidence together while preserving the independent completion and
+failure state of each source.
 
 Tabs use manual activation: Left/Right and Home/End move focus, Enter/Space
 select, and rerenders preserve focused-tab identity. The selected tab labels the
 shared results panel. Full labels remain available at narrow widths, where the
 tabs occupy a second header row rather than clipping or introducing page-level
-horizontal scrolling. At extra-narrow widths, that tab area wraps into two
-three-tab rows so every full label remains visible.
+horizontal scrolling.
 
 The shared frame uses a quiet count/state header, an optional platform Library
 selector, one full-area results scroller, and bottom assembly context. At wide
@@ -1085,7 +1085,7 @@ existing Types control occupies the title's place and the tabs use the second
 header row.
 
 ```text
-Analysis  count/state   [Relationships]  Complexity  Performance  Unsafe  Integrations  Opportunities
+Analysis  count/state   [Relationships]  Complexity  Performance  Unsafe  Integrations
 optional platform Library selector
 mode-owned content
 Library asset and assembly identity              TFM · package@version
@@ -1102,13 +1102,16 @@ rank, compliance verdict, remediation, or recommendation; unsafe code can be
 intentional and legitimate. A complete empty result states only that no
 navigable public-member findings were produced by this analysis, while partial
 results retain their findings and surface the diagnostic without claiming
-absence. Integrations retains category order, type-first signal sorting,
-badges, and counts.
-Opportunities retains Type navigation, suggested-package loading, "look for"
-search actions, and source identity. Complexity and Relationships retain the
-Research-issued Complexity Explorer and Relationship Crossing views.
-Structural salience does not render in those tabs; its Browser presentation
-belongs to the ordinary Type inventory defined by
+absence. Integrations
+merges detected signals and suggested integrations into one category-ordered
+list. It retains type-first signal sorting, badges, and counts together with
+Type navigation, suggested-package loading, "look for" search actions, and
+source identity. Either evidence source may populate independently, and a
+failure or partial result from one remains visible without hiding results from
+the other. Complexity and Relationships retain the Research-issued Complexity
+Explorer and Relationship Crossing views. Structural salience does not render
+in these modes; its Browser presentation belongs to the ordinary Type inventory
+defined by
 [Library structural report](library-structural-report.md#browserwasm).
 
 The platform selector stays above scrolling results and keeps its existing
@@ -1117,9 +1120,9 @@ and package/version/framework context. Browser HTML lowering consumes the
 existing typed mode results; no producer, query, acquisition, CLI section, or
 result contract changes.
 
-Focused renderer and production-composition browser gates cover all six direct
-tabs, lazy loading, focus retention across asynchronous completion, wide/narrow
-layout, Library switching, row actions, and platform controls.
+Focused renderer and production-composition browser gates cover all five
+direct tabs, lazy loading, focus retention across asynchronous completion,
+wide/narrow layout, Library switching, row actions, and platform controls.
 
 ### Package Metadata
 

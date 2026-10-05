@@ -3,8 +3,7 @@ export type AnalysisMode =
   | "relationships"
   | "performance"
   | "unsafe"
-  | "integrations"
-  | "opportunities";
+  | "integrations";
 
 export const defaultAnalysisMode: AnalysisMode = "relationships";
 
@@ -15,8 +14,7 @@ export function isAnalysisMode(
     || value === "relationships"
     || value === "performance"
     || value === "unsafe"
-    || value === "integrations"
-    || value === "opportunities";
+    || value === "integrations";
 }
 
 export interface AnalysisInspectorContext {
@@ -33,7 +31,6 @@ const modes = [
   ["performance", "Performance"],
   ["unsafe", "Unsafe"],
   ["integrations", "Integrations"],
-  ["opportunities", "Opportunities"],
 ] as const satisfies readonly (readonly [AnalysisMode, string])[];
 
 export function renderAnalysisInspector(
