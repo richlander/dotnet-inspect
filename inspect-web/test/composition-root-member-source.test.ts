@@ -738,8 +738,9 @@ test("MethodDef-only member sections are hidden for bodiless APIs", () => {
     ["overview", "call-graph", "source"]);
 });
 
-// Arrowing between members keeps ordinary sections sticky.
-test("moving between members keeps sections sticky without section-driven profile activation", () => {
+// Compare follows cross-Member navigation; exact method sections return to the
+// new family's Overview until an overload is selected.
+test("moving between members keeps Compare sticky without carrying exact method sections", () => {
   const openMemberGroupBody =
     appSource.match(/function openMemberGroup\(key: string\) \{[\s\S]*?\n}\n/)?.[0] ?? "";
   assert.match(openMemberGroupBody, /clearMemberContentCache\(\)/);
@@ -749,7 +750,10 @@ test("moving between members keeps sections sticky without section-driven profil
     /const preserveSection =\s*state\.memberBrowseTypeId === type\?\.id && Boolean\(state\.selectedMemberKey\)/);
   assert.match(
     openMemberGroupBody,
-    /state\.selectedBodyTarget = graphOnlyTarget;[\s\S]*if \(methodGroup \|\| !preserveSection\) \{\s*state\.memberSection = "overview"/);
+    /state\.selectedBodyTarget = graphOnlyTarget;[\s\S]*if \(resetMethodSection \|\| !preserveSection\) \{\s*state\.memberSection = "overview"/);
+  assert.match(
+    openMemberGroupBody,
+    /const resetMethodSection =\s*ordinaryMethodGroup\(group\) && state\.memberSection !== "compare"/);
   assert.doesNotMatch(
     openMemberGroupBody,
     /openMemberDocument|memberBaselineOrdinal/);
