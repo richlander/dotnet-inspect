@@ -15,26 +15,26 @@ using QuerySpace.Rows;
 
 namespace DotnetInspector.PerformanceOracles;
 
-public sealed record LibraryFamilyRoleScorecardAsset(
-    LibraryFamilyRoleCompositionDocument Document,
-    LibraryFamilyRolePopulation Population,
-    LibraryFamilyRoleQueryPlan Operation);
+public sealed record LibraryArchitecturalFamilyScorecardAsset(
+    LibraryArchitecturalFamilyCompositionDocument Document,
+    LibraryArchitecturalFamilyPopulation Population,
+    LibraryArchitecturalFamilyQueryPlan Operation);
 
-public static class LibraryFamilyRolePopulationScorecard
+public static class LibraryArchitecturalFamilyPopulationScorecard
 {
     public static IReadOnlyList<
-        ScorecardAsset<LibraryFamilyRoleScorecardAsset>> LoadAssets(
+        ScorecardAsset<LibraryArchitecturalFamilyScorecardAsset>> LoadAssets(
             IReadOnlyList<string> paths)
     {
         IReadOnlyList<string> names =
             ScorecardAssetNames.FromPaths(paths);
         var assets = new List<
-            ScorecardAsset<LibraryFamilyRoleScorecardAsset>>(
+            ScorecardAsset<LibraryArchitecturalFamilyScorecardAsset>>(
                 paths.Count);
         for (int i = 0; i < paths.Count; i++)
         {
-            LibraryFamilyRoleQueryPlan operation =
-                LibraryFamilyRoleQuery.CreatePlan(
+            LibraryArchitecturalFamilyQueryPlan operation =
+                LibraryArchitecturalFamilyQuery.CreatePlan(
                     LibraryNameFamilyPopulationKind.AllTypes);
             ResolvedAssemblyReference assembly =
                 ArtifactBackedReference(paths[i]);
@@ -43,18 +43,18 @@ public static class LibraryFamilyRolePopulationScorecard
             using AssemblyInspectionSession session =
                 AssemblyInspectionSession.Borrow(context);
             QuerySpaceRequest request =
-                LibraryFamilyRoleQuery.CreateFamilyRequest(
+                LibraryArchitecturalFamilyQuery.CreateFamilyRequest(
                     operation,
                     RowSelectionIntent<string>.Empty,
                     QuerySpaceTerminalRequirement.Rows);
             var available =
-                LibraryFamilyRoleInspection.Execute(
+                LibraryArchitecturalFamilyInspection.Execute(
                     assembly,
                     session,
                     provenance: null,
                     operation,
                     request)
-                as LibraryFamilyRoleQueryResult.Available
+                as LibraryArchitecturalFamilyQueryResult.Available
                 ?? throw new InvalidOperationException(
                     $"Family-role composition failed for '{paths[i]}'.");
             assets.Add(
@@ -70,8 +70,8 @@ public static class LibraryFamilyRolePopulationScorecard
     }
 
     public static ScorecardColumn<
-        LibraryFamilyRoleScorecardAsset,
-        LibraryFamilyRoleRow> LinqColumn(
+        LibraryArchitecturalFamilyScorecardAsset,
+        LibraryArchitecturalFamilyRow> LinqColumn(
             ScorecardShape shape) =>
         new(
             "LINQ",
@@ -79,8 +79,8 @@ public static class LibraryFamilyRolePopulationScorecard
                 LinqAnswer(shape, closing, asset));
 
     public static ScorecardColumn<
-        LibraryFamilyRoleScorecardAsset,
-        LibraryFamilyRoleRow> NLinqColumn(
+        LibraryArchitecturalFamilyScorecardAsset,
+        LibraryArchitecturalFamilyRow> NLinqColumn(
             ScorecardShape shape) =>
         new(
             "NLinq",
@@ -88,8 +88,8 @@ public static class LibraryFamilyRolePopulationScorecard
                 NLinqAnswer(shape, closing, asset));
 
     public static ScorecardColumn<
-        LibraryFamilyRoleScorecardAsset,
-        LibraryFamilyRoleRow> QuerySpaceColumn(
+        LibraryArchitecturalFamilyScorecardAsset,
+        LibraryArchitecturalFamilyRow> QuerySpaceColumn(
             ScorecardShape shape) =>
         new(
             "QuerySpace",
@@ -97,152 +97,152 @@ public static class LibraryFamilyRolePopulationScorecard
                 QuerySpaceAnswer(shape, closing, asset));
 
     public static string RowText(
-        LibraryFamilyRoleRow row) =>
+        LibraryArchitecturalFamilyRow row) =>
         $"{row.Identity.Kind}|"
             + $"{string.Join(row.Identity.Separator, row.Identity.Words)}|"
             + $"{row.TypeCount}|{row.DistinctNamespaceCount}";
 
     [MethodImpl(MethodImplOptions.NoInlining)]
-    private static ScorecardAnswer<LibraryFamilyRoleRow> LinqAnswer(
+    private static ScorecardAnswer<LibraryArchitecturalFamilyRow> LinqAnswer(
         ScorecardShape shape,
         ScorecardClosing closing,
-        LibraryFamilyRoleScorecardAsset asset)
+        LibraryArchitecturalFamilyScorecardAsset asset)
     {
-        IReadOnlyList<LibraryFamilyRoleRow> rows =
+        IReadOnlyList<LibraryArchitecturalFamilyRow> rows =
             asset.Population.Families;
         return closing switch
         {
             ScorecardClosing.Count =>
-                ScorecardAnswer<LibraryFamilyRoleRow>.OfCount(
+                ScorecardAnswer<LibraryArchitecturalFamilyRow>.OfCount(
                     Enumerable.Count(rows)),
             ScorecardClosing.Head =>
-                ScorecardAnswer<LibraryFamilyRoleRow>.OfRows(
+                ScorecardAnswer<LibraryArchitecturalFamilyRow>.OfRows(
                     [.. rows.Take(shape.N)]),
             ScorecardClosing.Tail =>
-                ScorecardAnswer<LibraryFamilyRoleRow>.OfRows(
+                ScorecardAnswer<LibraryArchitecturalFamilyRow>.OfRows(
                     [.. rows.TakeLast(shape.N)]),
             ScorecardClosing.Rows =>
-                ScorecardAnswer<LibraryFamilyRoleRow>.OfRows(
+                ScorecardAnswer<LibraryArchitecturalFamilyRow>.OfRows(
                     Enumerable.ToArray(rows)),
             ScorecardClosing.Window =>
                 rows.Count >= shape.WindowLast
-                    ? ScorecardAnswer<LibraryFamilyRoleRow>.OfRows(
+                    ? ScorecardAnswer<LibraryArchitecturalFamilyRow>.OfRows(
                         [
                             .. rows.Skip(shape.WindowSkip)
                                 .Take(shape.WindowTake),
                         ])
-                    : ScorecardAnswer<LibraryFamilyRoleRow>
+                    : ScorecardAnswer<LibraryArchitecturalFamilyRow>
                         .OfWindowFailure(),
             _ => throw Unsupported(closing),
         };
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
-    private static ScorecardAnswer<LibraryFamilyRoleRow> NLinqAnswer(
+    private static ScorecardAnswer<LibraryArchitecturalFamilyRow> NLinqAnswer(
         ScorecardShape shape,
         ScorecardClosing closing,
-        LibraryFamilyRoleScorecardAsset asset)
+        LibraryArchitecturalFamilyScorecardAsset asset)
     {
-        IReadOnlyList<LibraryFamilyRoleRow> rows =
+        IReadOnlyList<LibraryArchitecturalFamilyRow> rows =
             asset.Population.Families;
         return closing switch
         {
             ScorecardClosing.Count =>
-                ScorecardAnswer<LibraryFamilyRoleRow>.OfCount(
+                ScorecardAnswer<LibraryArchitecturalFamilyRow>.OfCount(
                     CountNLinq(rows)),
             ScorecardClosing.Head =>
-                ScorecardAnswer<LibraryFamilyRoleRow>.OfRows(
+                ScorecardAnswer<LibraryArchitecturalFamilyRow>.OfRows(
                     HeadNLinq(rows, shape.N)),
             ScorecardClosing.Tail =>
-                ScorecardAnswer<LibraryFamilyRoleRow>.OfRows(
+                ScorecardAnswer<LibraryArchitecturalFamilyRow>.OfRows(
                     TailNLinq(rows, shape.N)),
             ScorecardClosing.Rows =>
-                ScorecardAnswer<LibraryFamilyRoleRow>.OfRows(
+                ScorecardAnswer<LibraryArchitecturalFamilyRow>.OfRows(
                     RowsNLinq(rows)),
             ScorecardClosing.Window =>
                 WindowNLinq(
                     rows,
                     shape.WindowSkip,
                     shape.WindowTake,
-                    out List<LibraryFamilyRoleRow> window)
-                    ? ScorecardAnswer<LibraryFamilyRoleRow>.OfRows(
+                    out List<LibraryArchitecturalFamilyRow> window)
+                    ? ScorecardAnswer<LibraryArchitecturalFamilyRow>.OfRows(
                         window)
-                    : ScorecardAnswer<LibraryFamilyRoleRow>
+                    : ScorecardAnswer<LibraryArchitecturalFamilyRow>
                         .OfWindowFailure(),
             _ => throw Unsupported(closing),
         };
     }
 
     private static int CountNLinq(
-        IReadOnlyList<LibraryFamilyRoleRow> rows) =>
+        IReadOnlyList<LibraryArchitecturalFamilyRow> rows) =>
         NLinqExtensions.Count<
-            ReadOnlyListEnumerator<LibraryFamilyRoleRow>,
-            LibraryFamilyRoleRow>(rows.AsNLinq());
+            ReadOnlyListEnumerator<LibraryArchitecturalFamilyRow>,
+            LibraryArchitecturalFamilyRow>(rows.AsNLinq());
 
-    private static List<LibraryFamilyRoleRow> HeadNLinq(
-        IReadOnlyList<LibraryFamilyRoleRow> rows,
+    private static List<LibraryArchitecturalFamilyRow> HeadNLinq(
+        IReadOnlyList<LibraryArchitecturalFamilyRow> rows,
         int count)
     {
         TakeEnumerator<
-            ReadOnlyListEnumerator<LibraryFamilyRoleRow>,
-            LibraryFamilyRoleRow> taken =
+            ReadOnlyListEnumerator<LibraryArchitecturalFamilyRow>,
+            LibraryArchitecturalFamilyRow> taken =
                 OracleOperators.Take<
-                    ReadOnlyListEnumerator<LibraryFamilyRoleRow>,
-                    LibraryFamilyRoleRow>(
+                    ReadOnlyListEnumerator<LibraryArchitecturalFamilyRow>,
+                    LibraryArchitecturalFamilyRow>(
                         rows.AsNLinq(),
                         count);
         return NLinqExtensions.ToList<
             TakeEnumerator<
-                ReadOnlyListEnumerator<LibraryFamilyRoleRow>,
-                LibraryFamilyRoleRow>,
-            LibraryFamilyRoleRow>(taken);
+                ReadOnlyListEnumerator<LibraryArchitecturalFamilyRow>,
+                LibraryArchitecturalFamilyRow>,
+            LibraryArchitecturalFamilyRow>(taken);
     }
 
-    private static List<LibraryFamilyRoleRow> TailNLinq(
-        IReadOnlyList<LibraryFamilyRoleRow> rows,
+    private static List<LibraryArchitecturalFamilyRow> TailNLinq(
+        IReadOnlyList<LibraryArchitecturalFamilyRow> rows,
         int count) =>
         OracleOperators.TakeLast<
-            ReadOnlyListEnumerator<LibraryFamilyRoleRow>,
-            LibraryFamilyRoleRow>(
+            ReadOnlyListEnumerator<LibraryArchitecturalFamilyRow>,
+            LibraryArchitecturalFamilyRow>(
                 rows.AsNLinq(),
                 count);
 
-    private static List<LibraryFamilyRoleRow> RowsNLinq(
-        IReadOnlyList<LibraryFamilyRoleRow> rows) =>
+    private static List<LibraryArchitecturalFamilyRow> RowsNLinq(
+        IReadOnlyList<LibraryArchitecturalFamilyRow> rows) =>
         NLinqExtensions.ToList<
-            ReadOnlyListEnumerator<LibraryFamilyRoleRow>,
-            LibraryFamilyRoleRow>(rows.AsNLinq());
+            ReadOnlyListEnumerator<LibraryArchitecturalFamilyRow>,
+            LibraryArchitecturalFamilyRow>(rows.AsNLinq());
 
     private static bool WindowNLinq(
-        IReadOnlyList<LibraryFamilyRoleRow> rows,
+        IReadOnlyList<LibraryArchitecturalFamilyRow> rows,
         int skip,
         int take,
-        out List<LibraryFamilyRoleRow> window)
+        out List<LibraryArchitecturalFamilyRow> window)
     {
         SkipEnumerator<
-            ReadOnlyListEnumerator<LibraryFamilyRoleRow>,
-            LibraryFamilyRoleRow> skipped =
+            ReadOnlyListEnumerator<LibraryArchitecturalFamilyRow>,
+            LibraryArchitecturalFamilyRow> skipped =
                 OracleOperators.Skip<
-                    ReadOnlyListEnumerator<LibraryFamilyRoleRow>,
-                    LibraryFamilyRoleRow>(
+                    ReadOnlyListEnumerator<LibraryArchitecturalFamilyRow>,
+                    LibraryArchitecturalFamilyRow>(
                         rows.AsNLinq(),
                         skip);
         return OracleOperators.TryTakeExactly<
             SkipEnumerator<
-                ReadOnlyListEnumerator<LibraryFamilyRoleRow>,
-                LibraryFamilyRoleRow>,
-            LibraryFamilyRoleRow>(
+                ReadOnlyListEnumerator<LibraryArchitecturalFamilyRow>,
+                LibraryArchitecturalFamilyRow>,
+            LibraryArchitecturalFamilyRow>(
                 skipped,
                 take,
                 out window);
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
-    private static ScorecardAnswer<LibraryFamilyRoleRow>
+    private static ScorecardAnswer<LibraryArchitecturalFamilyRow>
         QuerySpaceAnswer(
             ScorecardShape shape,
             ScorecardClosing closing,
-            LibraryFamilyRoleScorecardAsset asset)
+            LibraryArchitecturalFamilyScorecardAsset asset)
     {
         QuerySpaceTerminalRequirement terminal =
             closing == ScorecardClosing.Count
@@ -274,31 +274,31 @@ public static class LibraryFamilyRolePopulationScorecard
             _ => throw Unsupported(closing),
         };
         QuerySpaceRequest request =
-            LibraryFamilyRoleQuery.CreateFamilyRequest(
+            LibraryArchitecturalFamilyQuery.CreateFamilyRequest(
                 asset.Operation,
                 rows,
                 terminal);
-        return LibraryFamilyRoleInspection.Execute(
+        return LibraryArchitecturalFamilyInspection.Execute(
             asset.Document,
             asset.Operation,
             request) switch
         {
-            LibraryFamilyRoleQueryResult.Available available
+            LibraryArchitecturalFamilyQueryResult.Available available
                 when available.Count is int count =>
-                    ScorecardAnswer<LibraryFamilyRoleRow>
+                    ScorecardAnswer<LibraryArchitecturalFamilyRow>
                         .OfCount(count),
-            LibraryFamilyRoleQueryResult.Available available =>
-                ScorecardAnswer<LibraryFamilyRoleRow>.OfRows(
+            LibraryArchitecturalFamilyQueryResult.Available available =>
+                ScorecardAnswer<LibraryArchitecturalFamilyRow>.OfRows(
                     available.FamilyRows),
-            LibraryFamilyRoleQueryResult.SelectionFailed
+            LibraryArchitecturalFamilyQueryResult.SelectionFailed
                 {
                     SemanticFailure: not null,
                 } when closing == ScorecardClosing.Window =>
-                    ScorecardAnswer<LibraryFamilyRoleRow>
+                    ScorecardAnswer<LibraryArchitecturalFamilyRow>
                         .OfWindowFailure(),
-            LibraryFamilyRoleQueryResult result =>
+            LibraryArchitecturalFamilyQueryResult result =>
                 throw new InvalidOperationException(
-                    "QuerySpace family-role scorecard failed with "
+                    "QuerySpace architectural-family scorecard failed with "
                         + result.GetType().Name),
         };
     }
@@ -328,7 +328,7 @@ public static class LibraryFamilyRolePopulationScorecard
                 fullPath,
                 () => File.OpenRead(fullPath),
                 AssemblyResolutionProvenance.Local(
-                    "family-role-scorecard"))
+                    "architectural-family-scorecard"))
             ?? throw new BadImageFormatException(
                 $"'{path}' has no managed metadata.");
     }
@@ -338,7 +338,7 @@ public static class LibraryFamilyRolePopulationScorecard
         new(
             nameof(closing),
             closing,
-            "The family-role operation does not expose this terminal.");
+            "The architectural-family operation does not expose this terminal.");
 
     private sealed class ScorecardArtifactProvenance
         : IArtifactProvenance

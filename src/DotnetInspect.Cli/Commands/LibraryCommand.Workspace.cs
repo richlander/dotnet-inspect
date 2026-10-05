@@ -176,8 +176,8 @@ public partial class LibraryCommand
                 options.EcosystemDependencyRowSelection,
             NameFamilyPopulation = options.NameFamilyPopulation,
             NameFamilyRowSelection = options.NameFamilyRowSelection,
-            NameFamilyRoleTypeRows =
-                options.NameFamilyRoleTypeRows,
+            ArchitecturalFamilyTypeRows =
+                options.ArchitecturalFamilyTypeRows,
             DependencyStructureRowSelection =
                 options.DependencyStructureRowSelection,
             PerformanceTriage = options.PerformanceTriage,
