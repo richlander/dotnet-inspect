@@ -147,7 +147,6 @@
         "DotnetInspector.Ecosystems",
         "DotnetInspector.Queries",
         "DotnetInspector.Sections",
-        "DotnetInspector.Vocabulary",
         "ILInspector.Metadata"
       ]
     },
@@ -172,7 +171,7 @@
         "DotnetInspector.Queries",
         "DotnetInspector.Sections",
         "DotnetInspector.SourceSelection",
-        "DotnetInspector.Vocabulary",
+        "ILInspector.Decompiler",
         "ILInspector.Metadata",
         "InertText",
         "NuGetFetch",

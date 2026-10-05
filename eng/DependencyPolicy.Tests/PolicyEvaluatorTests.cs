@@ -1306,7 +1306,6 @@ public sealed class PolicyEvaluatorTests
                 "DotnetInspector.Ecosystems",
                 "DotnetInspector.Queries",
                 "DotnetInspector.Sections",
-                "DotnetInspector.Vocabulary",
                 "ILInspector.Metadata",
             ],
             Assert.IsType<string[]>(projectRule.AllowOnly));
@@ -1328,7 +1327,7 @@ public sealed class PolicyEvaluatorTests
                 "DotnetInspector.Queries",
                 "DotnetInspector.Sections",
                 "DotnetInspector.SourceSelection",
-                "DotnetInspector.Vocabulary",
+                "ILInspector.Decompiler",
                 "ILInspector.Metadata",
                 "InertText",
                 "NuGetFetch",
