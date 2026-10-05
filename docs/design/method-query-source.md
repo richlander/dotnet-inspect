@@ -504,11 +504,13 @@ Migration is incremental:
    implemented: exact-Type `Unsafe Members` includes authenticated state-machine
    and lifted execution bodies under finite candidate, generated-method, probe,
    IL-byte, and relationship bounds. Scoped lifted-owner evidence settles once
-   per owner group, state-machine authentication remains targeted, and nested
-   TypeDef indexing and lifted declaring-chain authentication are included in
-   relationship-node work. Both targeted paths retain their acquired
-   relationship evidence per TypeDef, so sibling sources reuse it without
-   hiding the work charged by the first lookup.
+   per owner group, and state-machine authentication remains targeted.
+   State-machine claimant attributes settle once per source declaring-Type
+   chain. Nested TypeDef indexing, lifted declaring-chain authentication, and
+   every examined state-machine InterfaceImpl and MethodImpl row are included
+   in relationship-node work. Both targeted paths retain their acquired
+   evidence per TypeDef, so sibling sources reuse it without hiding the work
+   charged by the first lookup.
 6. Add referenced-body expansion only with a consumer that requires it.
 7. Let the host-neutral request-set planner from #8574 group compatible
    requests. Method Classification implements the first mixed-terminal CLI
@@ -562,6 +564,9 @@ Generated expansion is gated in Release:
 - `MethodQuerySource_GeneratedExpansionBoundsLiftedDeclaringTypeTraversal`
 - `MethodQuerySource_GeneratedExpansionBoundsNestedTypeTraversal`
 - `MethodQuerySource_GeneratedExpansionBoundsTargetedStateMachineLookup`
+- `MethodQuerySource_GeneratedExpansionSettlesTargetedStateMachineClaimsOnce`
+- `MethodQuerySource_GeneratedExpansionBoundsStateMachineInterfaceTraversal`
+- `MethodQuerySource_GeneratedExpansionBoundsStateMachineMethodImplementationTraversal`
 - `MethodQuerySource_GeneratedExpansionReusesTargetedStateMachineLookup`
 - `MethodQuerySource_GeneratedExpansionBoundPublishesSourceIncomplete`
 

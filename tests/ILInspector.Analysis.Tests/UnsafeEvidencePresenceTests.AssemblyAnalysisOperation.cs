@@ -706,6 +706,150 @@ public partial class UnsafeEvidencePresenceTests
 
     [Fact]
     public void
+        MethodQuerySource_GeneratedExpansionSettlesTargetedStateMachineClaimsOnce()
+    {
+        string path =
+            FixtureCatalog.AnalysisStringLiterals.AssemblyPath();
+        TypeDefinitionHandle type = FindFixtureType(
+            path,
+            "ILInspector.Analysis.ImplementationProfileFixtures",
+            "GeneratedExpansionAsyncSiblingSample");
+        MethodDefinitionHandle first = FindFixtureMethod(
+            path,
+            type,
+            "FirstAsync");
+        MethodDefinitionHandle second = FindFixtureMethod(
+            path,
+            type,
+            "SecondAsync");
+        var work = new MethodDefinitionGeneratedExpansionWork(
+            MethodDefinitionGeneratedExpansionLimits.Default);
+        int claimIndexesBuilt = 0;
+
+        using FileStream stream = File.OpenRead(path);
+        using var peReader = new PEReader(
+            stream,
+            PEStreamOptions.PrefetchEntireImage);
+        MetadataReader reader = peReader.GetMetadataReader();
+        using var builder = new LibraryBodyAnalysisBuilder(
+            path,
+            reader,
+            peReader,
+            targetedStateMachineClaimsBuilt:
+                () => claimIndexesBuilt++,
+            generatedExpansionWork: work);
+
+        MethodDefinitionGeneratedExpansionResult expansion =
+            builder.ExpandGeneratedExecutionBodies([first, second]);
+
+        Assert.Equal(1, claimIndexesBuilt);
+        Assert.Equal(
+            2,
+            expansion.Coverage.Origins.Count(origin => origin.Kind
+                == MethodDefinitionGeneratedExpansionOriginKind
+                    .StateMachineExecutionBody));
+    }
+
+    [Fact]
+    public void
+        MethodQuerySource_GeneratedExpansionBoundsStateMachineInterfaceTraversal()
+    {
+        string path =
+            FixtureCatalog.AnalysisStringLiterals.AssemblyPath();
+        TypeDefinitionHandle type = FindFixtureType(
+            path,
+            "ILInspector.Analysis.ImplementationProfileFixtures",
+            "GeneratedExpansionAsyncSiblingSample");
+        MethodDefinitionHandle method = FindFixtureMethod(
+            path,
+            type,
+            "FirstAsync");
+        var limits = new MethodDefinitionGeneratedExpansionLimits(
+            maximumCandidateDefinitions: 100,
+            maximumGeneratedMethods: 100,
+            maximumProbeBodies: 100,
+            maximumProbeEncodedIlBytes: 1_000_000,
+            maximumRelationshipNodes: 2);
+        AssemblyAnalysisOperation<int> operation = CreateOperation(
+            path,
+            MethodDefinitionSourceBreadth
+                .ExactMethods(method)
+                .IncludeGeneratedExecutionBodies(limits),
+            CompleteUnsafeEvidenceDescription());
+
+        using PdbContext context = PdbContext.OpenMetadataOnly(path);
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Borrow(context);
+        AssemblyAnalysisExecution<int> execution =
+            Execute(session, operation);
+
+        Assert.Equal(
+            MethodDefinitionSourceCompletion.SourceIncomplete,
+            execution.SourceReceipt.Completion);
+        MethodDefinitionSourceFailure failure =
+            Assert.IsType<MethodDefinitionSourceFailure>(
+                execution.SourceReceipt.SourceFailure);
+        Assert.Contains(
+            "relationship-node limit",
+            failure.Message,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            3,
+            execution.SourceReceipt.Coverage.GeneratedExpansion
+                .RelationshipNodes);
+    }
+
+    [Fact]
+    public void
+        MethodQuerySource_GeneratedExpansionBoundsStateMachineMethodImplementationTraversal()
+    {
+        string path =
+            FixtureCatalog.AnalysisStringLiterals.AssemblyPath();
+        TypeDefinitionHandle type = FindFixtureType(
+            path,
+            "ILInspector.Analysis.ImplementationProfileFixtures",
+            "GeneratedExpansionAsyncSiblingSample");
+        MethodDefinitionHandle method = FindFixtureMethod(
+            path,
+            type,
+            "FirstAsync");
+        var limits = new MethodDefinitionGeneratedExpansionLimits(
+            maximumCandidateDefinitions: 100,
+            maximumGeneratedMethods: 100,
+            maximumProbeBodies: 100,
+            maximumProbeEncodedIlBytes: 1_000_000,
+            maximumRelationshipNodes: 3);
+        AssemblyAnalysisOperation<int> operation = CreateOperation(
+            path,
+            MethodDefinitionSourceBreadth
+                .ExactMethods(method)
+                .IncludeGeneratedExecutionBodies(limits),
+            CompleteUnsafeEvidenceDescription());
+
+        using PdbContext context = PdbContext.OpenMetadataOnly(path);
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Borrow(context);
+        AssemblyAnalysisExecution<int> execution =
+            Execute(session, operation);
+
+        Assert.Equal(
+            MethodDefinitionSourceCompletion.SourceIncomplete,
+            execution.SourceReceipt.Completion);
+        MethodDefinitionSourceFailure failure =
+            Assert.IsType<MethodDefinitionSourceFailure>(
+                execution.SourceReceipt.SourceFailure);
+        Assert.Contains(
+            "relationship-node limit",
+            failure.Message,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            4,
+            execution.SourceReceipt.Coverage.GeneratedExpansion
+                .RelationshipNodes);
+    }
+
+    [Fact]
+    public void
         MethodQuerySource_GeneratedExpansionReusesTargetedStateMachineLookup()
     {
         string path =
@@ -729,7 +873,7 @@ public partial class UnsafeEvidencePresenceTests
             ExecuteGeneratedExpansion(path, [first, second]);
 
         Assert.Equal(
-            one.RelationshipNodes + 1,
+            one.RelationshipNodes + 4,
             two.RelationshipNodes);
         Assert.Equal(
             1,

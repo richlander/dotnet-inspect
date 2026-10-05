@@ -57,10 +57,17 @@ internal sealed class LibraryBodyAsyncSourceResolver
         _typeDefinitionIndex;
     readonly Action? _typeDefinitionIndexBuilt;
     readonly Action? _stateMachineExecutionMethodsBuilt;
+    readonly Action? _targetedStateMachineClaimsBuilt;
     readonly ConcurrentDictionary<
         TypeDefinitionHandle,
         Lazy<TargetedSourceTypeChain>>
         _targetedSourceTypeChains = new();
+    readonly ConcurrentDictionary<
+        TypeDefinitionHandle,
+        Lazy<IReadOnlyDictionary<
+            MetadataTypeDefinitionName,
+            MethodDefinitionHandle>>>
+        _targetedStateMachineClaimsBySourceType = new();
     readonly ConcurrentDictionary<
         TypeDefinitionHandle,
         Lazy<IReadOnlyDictionary<string, TypeDefinitionHandle>>>
@@ -79,7 +86,8 @@ internal sealed class LibraryBodyAsyncSourceResolver
             localTypeDefinitions,
         Func<EntityHandle, TypeRef> typeFromEntity,
         Action? typeDefinitionIndexBuilt = null,
-        Action? stateMachineExecutionMethodsBuilt = null)
+        Action? stateMachineExecutionMethodsBuilt = null,
+        Action? targetedStateMachineClaimsBuilt = null)
     {
         _reader = reader;
         _assemblyIdentity = assemblyIdentity;
@@ -91,6 +99,8 @@ internal sealed class LibraryBodyAsyncSourceResolver
         _typeDefinitionIndexBuilt = typeDefinitionIndexBuilt;
         _stateMachineExecutionMethodsBuilt =
             stateMachineExecutionMethodsBuilt;
+        _targetedStateMachineClaimsBuilt =
+            targetedStateMachineClaimsBuilt;
         _classicAsyncExecutionMethods = new(
             BuildClassicAsyncExecutionMethods,
             LazyThreadSafetyMode.ExecutionAndPublication);
@@ -897,11 +907,13 @@ internal sealed class LibraryBodyAsyncSourceResolver
                     work),
             StateMachineKind.AsyncIterator =>
                 ImplementsAsyncIteratorStateMachine(
-                    _reader.GetTypeDefinition(stateMachineHandle))
+                    _reader.GetTypeDefinition(stateMachineHandle),
+                    work)
                 && TryGetAsyncStateMachineMoveNext(
                     stateMachineHandle,
                     out executionMethod,
-                    work),
+                    work,
+                    stateMachineInterfaceVerified: true),
             StateMachineKind.Iterator =>
                 TryGetIteratorStateMachineMoveNext(
                     stateMachineHandle,
@@ -924,51 +936,12 @@ internal sealed class LibraryBodyAsyncSourceResolver
         MetadataTypeDefinitionName stateMachineType,
         MethodDefinitionGeneratedExpansionWork work)
     {
-        TargetedSourceTypeChain sourceChain =
-            GetTargetedSourceTypeChain(sourceType, work);
-        if (!sourceChain.Complete)
-        {
-            return false;
-        }
-
-        MethodDefinitionHandle claimant = default;
-        foreach (TypeDefinitionHandle typeHandle in sourceChain.Types)
-        {
-            TypeDefinition type = _reader.GetTypeDefinition(typeHandle);
-            foreach (MethodDefinitionHandle methodHandle
-                in type.GetMethods())
-            {
-                work.RecordCandidateDefinition(methodHandle);
-                MethodDefinition method =
-                    _reader.GetMethodDefinition(methodHandle);
-                if (MethodClassificationScanner.ClassifyAsyncMethod(
-                        _reader,
-                        method)
-                    == MethodClassification.RuntimeAsync)
-                {
-                    continue;
-                }
-
-                StateMachineAttributeInfo candidate =
-                    StateMachineExecutionAttribute(
-                        method.GetCustomAttributes());
-                bool claimsTarget = candidate.ClaimedSerializedTypes.Any(
-                    claim => StateMachineTypeDefinitionName(claim)
-                        ?.Equals(stateMachineType)
-                        == true);
-                if (!claimsTarget)
-                    continue;
-                if (candidate.Rejected
-                    || candidate.SerializedType is null
-                    || !claimant.IsNil)
-                {
-                    return false;
-                }
-                claimant = methodHandle;
-            }
-        }
-
-        return claimant == sourceHandle;
+        IReadOnlyDictionary<
+            MetadataTypeDefinitionName,
+            MethodDefinitionHandle> claims =
+                GetTargetedStateMachineClaims(sourceType, work);
+        return claims.TryGetValue(stateMachineType, out var claimant)
+            && claimant == sourceHandle;
     }
 
     bool TryResolveTargetedStateMachineType(
@@ -1058,6 +1031,87 @@ internal sealed class LibraryBodyAsyncSourceResolver
         for (int index = 1; index < count; index++)
             work.RecordRelationshipNode(chain[index]);
         return new([.. chain[..count]], complete);
+    }
+
+    IReadOnlyDictionary<
+        MetadataTypeDefinitionName,
+        MethodDefinitionHandle> GetTargetedStateMachineClaims(
+            TypeDefinitionHandle sourceType,
+            MethodDefinitionGeneratedExpansionWork work) =>
+        _targetedStateMachineClaimsBySourceType.GetOrAdd(
+            sourceType,
+            handle => new Lazy<IReadOnlyDictionary<
+                MetadataTypeDefinitionName,
+                MethodDefinitionHandle>>(
+                () => BuildTargetedStateMachineClaims(handle, work),
+                LazyThreadSafetyMode.ExecutionAndPublication)).Value;
+
+    IReadOnlyDictionary<
+        MetadataTypeDefinitionName,
+        MethodDefinitionHandle> BuildTargetedStateMachineClaims(
+            TypeDefinitionHandle sourceType,
+            MethodDefinitionGeneratedExpansionWork work)
+    {
+        _targetedStateMachineClaimsBuilt?.Invoke();
+        TargetedSourceTypeChain sourceChain =
+            GetTargetedSourceTypeChain(sourceType, work);
+        if (!sourceChain.Complete)
+        {
+            return new Dictionary<
+                MetadataTypeDefinitionName,
+                MethodDefinitionHandle>();
+        }
+
+        var claims = new Dictionary<
+            MetadataTypeDefinitionName,
+            MethodDefinitionHandle>();
+        foreach (TypeDefinitionHandle typeHandle in sourceChain.Types)
+        {
+            TypeDefinition type = _reader.GetTypeDefinition(typeHandle);
+            foreach (MethodDefinitionHandle methodHandle
+                in type.GetMethods())
+            {
+                work.RecordCandidateDefinition(methodHandle);
+                MethodDefinition method =
+                    _reader.GetMethodDefinition(methodHandle);
+                if (MethodClassificationScanner.ClassifyAsyncMethod(
+                        _reader,
+                        method)
+                    == MethodClassification.RuntimeAsync)
+                {
+                    continue;
+                }
+
+                StateMachineAttributeInfo candidate =
+                    StateMachineExecutionAttribute(
+                        method.GetCustomAttributes());
+                var claimedTypes =
+                    new HashSet<MetadataTypeDefinitionName>();
+                foreach (string claim
+                    in candidate.ClaimedSerializedTypes)
+                {
+                    if (StateMachineTypeDefinitionName(claim)
+                        is { } claimedType)
+                    {
+                        claimedTypes.Add(claimedType);
+                    }
+                }
+
+                foreach (MetadataTypeDefinitionName claimedType
+                    in claimedTypes)
+                {
+                    if (candidate.Rejected
+                        || candidate.SerializedType is null
+                        || !claims.TryAdd(
+                            claimedType,
+                            methodHandle))
+                    {
+                        claims[claimedType] = default;
+                    }
+                }
+            }
+        }
+        return claims;
     }
 
     IReadOnlyDictionary<string, TypeDefinitionHandle>
@@ -1245,7 +1299,8 @@ internal sealed class LibraryBodyAsyncSourceResolver
                             stateMachineHandle))
                     && TryGetAsyncStateMachineMoveNext(
                         stateMachineHandle,
-                        out executionMethod);
+                        out executionMethod,
+                        stateMachineInterfaceVerified: true);
             case StateMachineKind.Iterator:
                 return TryGetIteratorStateMachineMoveNext(
                     stateMachineHandle,
@@ -1547,16 +1602,19 @@ internal sealed class LibraryBodyAsyncSourceResolver
     bool TryGetAsyncStateMachineMoveNext(
         TypeDefinitionHandle typeHandle,
         out MethodDefinitionHandle moveNext,
-        MethodDefinitionGeneratedExpansionWork? work = null)
+        MethodDefinitionGeneratedExpansionWork? work = null,
+        bool stateMachineInterfaceVerified = false)
     {
         moveNext = default;
         var type = _reader.GetTypeDefinition(typeHandle);
-        if (!ImplementsAsyncStateMachine(type))
+        if (!stateMachineInterfaceVerified
+            && !ImplementsAsyncStateMachine(type, work))
             return false;
 
         foreach (var handle
             in type.GetMethodImplementations())
         {
+            work?.RecordRelationshipNode(handle);
             var implementation =
                 _reader.GetMethodImplementation(handle);
             MemberRef declaration =
@@ -1623,12 +1681,13 @@ internal sealed class LibraryBodyAsyncSourceResolver
         moveNext = default;
         TypeDefinition type =
             _reader.GetTypeDefinition(typeHandle);
-        if (!ImplementsIteratorStateMachine(type))
+        if (!ImplementsIteratorStateMachine(type, work))
             return false;
 
         foreach (MethodImplementationHandle handle
             in type.GetMethodImplementations())
         {
+            work?.RecordRelationshipNode(handle);
             MethodImplementation implementation =
                 _reader.GetMethodImplementation(handle);
             MemberRef declaration =
@@ -1701,11 +1760,13 @@ internal sealed class LibraryBodyAsyncSourceResolver
                 == MethodImplAttributes.IL;
 
     bool ImplementsAsyncStateMachine(
-        TypeDefinition type)
+        TypeDefinition type,
+        MethodDefinitionGeneratedExpansionWork? work = null)
     {
         foreach (var handle
             in type.GetInterfaceImplementations())
         {
+            work?.RecordRelationshipNode(handle);
             TypeRef interfaceType = _typeFromEntity(
                 _reader.GetInterfaceImplementation(
                     handle).Interface);
@@ -1722,12 +1783,15 @@ internal sealed class LibraryBodyAsyncSourceResolver
     }
 
     bool ImplementsAsyncIteratorStateMachine(
-        TypeDefinition type)
+        TypeDefinition type,
+        MethodDefinitionGeneratedExpansionWork? work = null)
     {
         bool enumerator = false;
+        bool stateMachine = false;
         foreach (InterfaceImplementationHandle handle
             in type.GetInterfaceImplementations())
         {
+            work?.RecordRelationshipNode(handle);
             TypeRef interfaceType = DefinitionType(
                 _typeFromEntity(
                     _reader.GetInterfaceImplementation(
@@ -1737,17 +1801,23 @@ internal sealed class LibraryBodyAsyncSourceResolver
                 "System.Runtime",
                 "System.Collections.Generic",
                 "IAsyncEnumerator`1");
+            stateMachine |= FrameworkIdentity.IsKnownFrameworkType(
+                interfaceType,
+                "System.Threading.Tasks",
+                "System.Runtime.CompilerServices",
+                "IAsyncStateMachine");
         }
-        return enumerator
-            && ImplementsAsyncStateMachine(type);
+        return enumerator && stateMachine;
     }
 
     bool ImplementsIteratorStateMachine(
-        TypeDefinition type)
+        TypeDefinition type,
+        MethodDefinitionGeneratedExpansionWork? work = null)
     {
         foreach (InterfaceImplementationHandle handle
             in type.GetInterfaceImplementations())
         {
+            work?.RecordRelationshipNode(handle);
             TypeRef interfaceType = _typeFromEntity(
                 _reader.GetInterfaceImplementation(
                     handle).Interface);

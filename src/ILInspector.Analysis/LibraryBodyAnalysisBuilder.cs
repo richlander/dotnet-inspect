@@ -75,6 +75,7 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         Action<TypeDefinitionHandle>? sourceGeneratedTypeClassified = null,
         Action? typeDefinitionIndexBuilt = null,
         Action? stateMachineExecutionMethodsBuilt = null,
+        Action? targetedStateMachineClaimsBuilt = null,
         Action? liftedDeclaringTypeChainWalked = null,
         Action? asyncStateMachineTypesBuilt = null,
         Action? parallelBuildStarting = null,
@@ -150,7 +151,8 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                 LocalTypeDefinitions,
                 TypeFromEntity,
                 typeDefinitionIndexBuilt,
-                stateMachineExecutionMethodsBuilt);
+                stateMachineExecutionMethodsBuilt,
+                targetedStateMachineClaimsBuilt);
         var liftedSourceOwnerResolver =
             new LibraryBodyLiftedSourceOwnerResolver(
                 reader,
