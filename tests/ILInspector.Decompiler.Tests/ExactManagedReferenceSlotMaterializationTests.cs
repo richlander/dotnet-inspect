@@ -501,12 +501,15 @@ public class ExactManagedReferenceSlotMaterializationTests
         Assert.True(
             managedReference.WillMaterialize,
             managedReference.Vetoes.ToString());
-        var neighboringResidual = Assert.Single(
+        // The neighbouring slot-1 web is read only as an `object` argument of
+        // AppendFormatted<object>; since the argument-sink testimony slice
+        // (#9371) that parameter type decides it, so it materializes beside the
+        // managed reference instead of staying an underivable residual.
+        var neighboringWeb = Assert.Single(
             decisions,
             decision => decision.Slot == 1);
-        Assert.Equal(
-            SlotMaterializationVeto.UnderivableTypeTestimony,
-            neighboringResidual.Vetoes);
+        Assert.Equal(SlotMaterializationVeto.None, neighboringWeb.Vetoes);
+        Assert.True(neighboringWeb.WillMaterialize);
 
         foreach (var pass in passes.Skip(materializationIndex))
             pass.Run(function, context);
@@ -521,25 +524,20 @@ public class ExactManagedReferenceSlotMaterializationTests
                 {
                     Type.Kind: TypeRefKind.ByRef,
                 });
-        // The neighboring residual web is bound by ResidualSlotBindingPass at
-        // the end of the pipeline, so no slot node reaches the printer and the
-        // bound local carries the web's veto as provenance.
+        // Both webs are materialized, so no slot node reaches the printer and
+        // ResidualSlotBindingPass has nothing left to bind in this body.
         Assert.DoesNotContain(
             function.DescendantsOutsideNestedFunctions,
             node => node is StoreStackSlot or LoadStackSlot);
-        var bound = Assert.Single(
+        Assert.DoesNotContain(
             function.ResidualSlotBindings.Values,
             binding => binding.Slot == 1);
-        Assert.Equal(ResidualSlotBindingKind.Unified, bound.Kind);
-        Assert.Equal(
-            SlotMaterializationVeto.UnderivableTypeTestimony,
-            bound.Vetoes);
         string output = CSharpPrinter.Print(function).Output!;
         Assert.Contains(
             "ref DefaultInterpolatedStringHandler S_0 = ref V_0;",
             output);
         Assert.Contains(
-            "ITypeSymbol S_1 = Type is not null ? Type : \"null\";",
+            "object S_1 = Type is not null ? Type : \"null\";",
             output);
         Assert.Contains("S_0.AppendFormatted(S_1, 0, null);", output);
         function.CheckInvariant(includeSemantics: true);

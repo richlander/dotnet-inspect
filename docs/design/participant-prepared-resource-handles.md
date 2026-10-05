@@ -8,10 +8,9 @@
 
 ## Status
 
-This document defines the target boundary. The raw producer-facing lifetime
-surfaces remain until the staged adoptions in
-[#9321](https://github.com/richlander/dotnet-inspect/issues/9321) and
-[#9322](https://github.com/richlander/dotnet-inspect/issues/9322) complete.
+This boundary is implemented for the declared-Method and hierarchy-index
+prepared producers. The raw participant-resource registration, borrowing, and
+retirement surfaces are private InspectionSpace implementation details.
 
 ## Question
 
@@ -20,14 +19,13 @@ retain that state for repeated execution without separately composing resource
 registration, participant validation, snapshot access, lease accounting, and
 retirement?
 
-The two existing adopters demonstrate why the construction boundary matters.
-Hierarchy-index preparation admits a participant-resource borrow before using
-its lease-bound snapshot operation. Declared-Method preparation instead uses
-ordinary snapshot admission and first borrows the resource for terminal
-execution. A concurrent participant release may therefore begin resource
-retirement while that preparation is still deriving or publishing state. Both
-adopters intend the same lifetime, but the raw API permits different safety
-properties.
+The two original adopters demonstrated why the construction boundary matters.
+Hierarchy-index preparation admitted a participant-resource borrow before
+using its lease-bound snapshot operation. Declared-Method preparation instead
+used ordinary snapshot admission and first borrowed the resource for terminal
+execution. A concurrent participant release could therefore begin resource
+retirement while that preparation was still deriving or publishing state.
+Both now use the same typed preparation and reusable-execution boundary.
 
 ## Claim
 
@@ -128,12 +126,12 @@ The names are illustrative; the ownership and capability boundaries are
 normative.
 
 ```csharp
-AssemblyContextParticipantResource<TState>
-    AssemblyContextGroup.GetOrCreateParticipantResource<TState, TInput>(
-        TInput input,
-        Func<TInput, TState> create);
+AssemblyContextGroup.ParticipantResource<TState>
+    AssemblyContextGroup.GetOrCreateParticipantResource<TState>(
+        Func<TState> create);
 
-TResult AssemblyContextParticipantResource<TState>.Prepare<TInput, TResult>(
+TResult AssemblyContextGroup.ParticipantResource<TState>
+    .Prepare<TInput, TResult>(
         AssemblyContextParticipant participant,
         CancellationToken cancellationToken,
         TInput input,
@@ -149,8 +147,8 @@ abstract record AssemblyContextParticipantPreparationAccess
     sealed record Rejected(CandidateOpenFailure Failure);
 }
 
-AssemblyContextParticipantResourceBorrow<TState>
-    AssemblyContextParticipantResource<TState>.Borrow(
+AssemblyContextGroup.ParticipantResourceBorrow<TState>
+    AssemblyContextGroup.ParticipantResource<TState>.Borrow(
         AssemblyAcquisitionRegistration registration);
 ```
 
@@ -189,14 +187,14 @@ an unreadable-image rejection with participant release while a sibling keeps
 the group alive, proving that rejection publication finishes before retirement
 and that no settled outcome can publish after participant cleanup.
 
-The pattern rollout is three independently mergeable slices: this design, then
-the two implementation stages:
+The pattern rollout used three independently mergeable slices: this design,
+then the two implementation stages:
 
 1. [#9321](https://github.com/richlander/dotnet-inspect/issues/9321)
-   adds the typed handle and direct gates while migrating the declared-Method
+   added the typed handle and direct gates while migrating the declared-Method
    producer as the bounded first adopter;
 2. [#9322](https://github.com/richlander/dotnet-inspect/issues/9322)
-   migrates the hierarchy-index producer and makes the raw
+   migrated the hierarchy-index producer and made the raw
    participant-resource registration, borrowing, and retirement surfaces
    inaccessible to producers.
 

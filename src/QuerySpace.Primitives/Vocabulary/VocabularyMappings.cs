@@ -301,6 +301,18 @@ public abstract record VocabularyMapValue
 
     public sealed record Term(VocabularyTermIdentity Identity)
         : VocabularyMapValue;
+
+    /// <summary>One text scalar value.</summary>
+    public static VocabularyMapValue Text(string value) =>
+        new Scalar(VocabularyScalarValue.FromText(value));
+
+    /// <summary>One integer scalar value.</summary>
+    public static VocabularyMapValue Integer(long value) =>
+        new Scalar(VocabularyScalarValue.FromInteger(value));
+
+    /// <summary>One boolean scalar value.</summary>
+    public static VocabularyMapValue Boolean(bool value) =>
+        new Scalar(VocabularyScalarValue.FromBoolean(value));
 }
 
 /// <summary>The declared contract of one map on a source vocabulary.</summary>
@@ -340,6 +352,25 @@ public sealed record VocabularyMapDefinition
     public VocabularyMapCardinality Cardinality { get; }
 
     public VocabularyMapCoverage Coverage { get; }
+
+    /// <summary>
+    /// Declares one complete-coverage scalar map on <paramref name="source"/>.
+    /// </summary>
+    public static VocabularyMapDefinition Scalar(
+        VocabularyIdentity source,
+        string identity,
+        string displayLabel,
+        string summary,
+        VocabularyScalarKind kind,
+        VocabularyMapCardinality cardinality =
+            VocabularyMapCardinality.ExactlyOne) =>
+        new(
+            new(source, identity),
+            displayLabel,
+            summary,
+            new VocabularyMapTarget.Scalar(kind),
+            cardinality,
+            VocabularyMapCoverage.Complete);
 }
 
 /// <summary>The values one source term declares for one map.</summary>
@@ -353,6 +384,16 @@ public sealed record VocabularyMapEntry
         ArgumentNullException.ThrowIfNull(values);
         Map = map;
         Values = [.. values];
+    }
+
+    /// <summary>The values one term declares for <paramref name="map"/>.</summary>
+    public VocabularyMapEntry(
+        VocabularyMapDefinition map,
+        params VocabularyMapValue[] values)
+        : this(
+            (map ?? throw new ArgumentNullException(nameof(map))).Identity,
+            values)
+    {
     }
 
     public VocabularyMapIdentity Map { get; }
@@ -466,7 +507,7 @@ public sealed record VocabularyDefinition
 /// <summary>One complete immutable vocabulary catalog snapshot.</summary>
 public sealed class VocabularySnapshot
 {
-    private readonly Lazy<VocabularySnapshotIdentity> _identity;
+    private readonly VocabularySnapshotIdentity _identity;
     private readonly IReadOnlyDictionary<
         VocabularyIdentity,
         VocabularyDefinition> _vocabularies;
@@ -485,8 +526,8 @@ public sealed class VocabularySnapshot
     {
         FormatVersion = formatVersion;
         Catalog = catalog;
-        _identity = new(() => suppliedIdentity
-            ?? ComputeIdentity(formatVersion, catalog, vocabularies));
+        _identity = suppliedIdentity
+            ?? ComputeIdentity(formatVersion, catalog, vocabularies);
         Vocabularies = vocabularies;
         _vocabularies = vocabularies.ToDictionary(
             vocabulary => vocabulary.Identity);
@@ -502,7 +543,7 @@ public sealed class VocabularySnapshot
 
     public VocabularyCatalogIdentity Catalog { get; }
 
-    public VocabularySnapshotIdentity Identity => _identity.Value;
+    public VocabularySnapshotIdentity Identity => _identity;
 
     public ImmutableArray<VocabularyDefinition> Vocabularies { get; }
 

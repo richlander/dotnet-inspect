@@ -194,7 +194,8 @@ public sealed class AnalysisParticipationRegistrationTests
         Assert.Equal(
             catalog.Analyses.Select(registration => $"analyses/{registration.Analysis.Id.Value}"),
             explanation.Resources
-                .Where(resource => resource.ResourceKind == ResourceExplanationResourceKind.Analysis)
+                .Where(resource =>
+                    resource.ResourceType.Value == "analysis")
                 .Select(resource => resource.Path.Value));
         var resolved = Assert.IsType<ResourcePathResolution.Resolved>(
             explanation.Resolve("analyses/call-site"));
@@ -203,13 +204,15 @@ public sealed class AnalysisParticipationRegistrationTests
             new ResourceExplanationRequest(0, 16, 16)).Content;
         Assert.Contains(
             document.Relationships,
-            relationship => relationship.RelationshipKind == ResourceExplanationRelationshipKind.Issues
-                && relationship.Target is ResourceExplanationIdentity.IssuedFinding
-                {
-                    Operation: "Compare",
-                    Surface: "Member",
-                    Descriptor: "analysis.call-site",
-                });
+            relationship =>
+                relationship.Relationship.Value == "issues"
+                && relationship.Targets.Any(target =>
+                    target.Resource.IdentityValue
+                        is QuerySpace.Explanation.ExplanationValue.Scalar
+                        {
+                            Value.Text:
+                                "Compare / Member / analysis.call-site",
+                        }));
 
         // Validation and dispatch use the same descriptor instances.
         var accepted = Assert.IsType<AnalysisSetValidationResult.Accepted>(

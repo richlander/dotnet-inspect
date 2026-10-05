@@ -1,5 +1,6 @@
 using System.Reflection;
 using QuerySpace.Composition;
+using QuerySpace.Explanation;
 using QuerySpace.Operations;
 using QuerySpace.Rows;
 using QuerySpace.Vocabulary;
@@ -9,10 +10,11 @@ namespace DotnetInspector.PortableQueries.Tests;
 /// <summary>
 /// Gates the assembly line that
 /// <c>docs/design/query-space-library.md#two-assemblies-and-two-participation-tiers</c>
-/// draws: <c>QuerySpace.Primitives</c> carries Declaration and Portable-request
-/// types only. The content rule is judged over every exported type's members,
-/// and the design's explicit disposition table is pinned by name so a type
-/// cannot drift across the line silently.
+/// draws: <c>QuerySpace.Primitives</c> carries Declaration, Portable-request,
+/// and Detached typed data only. The content rule is judged over exported
+/// members and every assembly-owned implementation field reachable from them.
+/// The design's explicit disposition table is pinned by name so a type cannot
+/// drift across the line silently.
 /// </summary>
 public sealed class QuerySpacePrimitivesSurfaceTests
 {
@@ -31,9 +33,10 @@ public sealed class QuerySpacePrimitivesSurfaceTests
     }
 
     [Fact]
-    public void PrimitivesCarriesOnlyDeclarationAndRequestTypes()
+    public void PrimitivesCarriesOnlyFloorTypes()
     {
         var violations = new List<string>();
+        var inspectedStorage = new HashSet<Type>();
 
         foreach (Type type in Primitives.GetExportedTypes())
         {
@@ -58,6 +61,15 @@ public sealed class QuerySpacePrimitivesSurfaceTests
                     string? reason = Forbidden(member, role, carried);
                     if (reason is not null)
                         violations.Add($"{type.FullName}.{member.Name} {role}: {reason}");
+
+                    if (member is FieldInfo)
+                    {
+                        InspectAssemblyStorage(
+                            type,
+                            carried,
+                            inspectedStorage,
+                            violations);
+                    }
                 }
             }
         }
@@ -97,6 +109,42 @@ public sealed class QuerySpacePrimitivesSurfaceTests
     [InlineData(typeof(VocabularyMapDefinition))]
     [InlineData(typeof(VocabularySnapshot))]
     [InlineData(typeof(VocabularySnapshotIdentity))]
+    [InlineData(typeof(ExplanationOwnerIdentity))]
+    [InlineData(typeof(ExplanationSchemaIdentity))]
+    [InlineData(typeof(ExplanationSchemaVersion))]
+    [InlineData(typeof(ExplanationDataShapeIdentity))]
+    [InlineData(typeof(ExplanationResourceTypeIdentity))]
+    [InlineData(typeof(ExplanationFactIdentity))]
+    [InlineData(typeof(ExplanationRelationshipIdentity))]
+    [InlineData(typeof(ExplanationFieldIdentity))]
+    [InlineData(typeof(ExplanationChoiceCaseIdentity))]
+    [InlineData(typeof(ExplanationPublicAddressKindIdentity))]
+    [InlineData(typeof(ExplanationScalarKind))]
+    [InlineData(typeof(ExplanationDataShapeKind))]
+    [InlineData(typeof(ExplanationCardinality))]
+    [InlineData(typeof(ExplanationObservationState))]
+    [InlineData(typeof(ExplanationObservationStates))]
+    [InlineData(typeof(ExplanationSnapshotScope))]
+    [InlineData(typeof(ExplanationValueBudget))]
+    [InlineData(typeof(ExplanationRecordFieldDeclaration))]
+    [InlineData(typeof(ExplanationChoiceCaseDeclaration))]
+    [InlineData(typeof(ExplanationDataShapeDeclaration))]
+    [InlineData(typeof(ExplanationFactDeclaration))]
+    [InlineData(typeof(ExplanationRelationshipDeclaration))]
+    [InlineData(typeof(ExplanationPublicAddressKindDeclaration))]
+    [InlineData(typeof(ExplanationResourceTypeDeclaration))]
+    [InlineData(typeof(ExplanationSchema))]
+    [InlineData(typeof(ExplanationScalarValue))]
+    [InlineData(typeof(ExplanationRecordFieldValue))]
+    [InlineData(typeof(ExplanationValue))]
+    [InlineData(typeof(ExplanationValueMeasurement))]
+    [InlineData(typeof(ExplanationResourceKey))]
+    [InlineData(typeof(ExplanationPublicAddress))]
+    [InlineData(typeof(ExplanationFactObservation))]
+    [InlineData(typeof(ExplanationRelationshipTarget))]
+    [InlineData(typeof(ExplanationRelationshipObservation))]
+    [InlineData(typeof(ExplanationResourceSnapshot))]
+    [InlineData(typeof(ExplanationConformance))]
     public void DispositionTablePlacesDeclarationsInPrimitives(Type type) =>
         Assert.Same(Primitives, type.Assembly);
 
@@ -174,6 +222,16 @@ public sealed class QuerySpacePrimitivesSurfaceTests
         {
             if (typeof(Delegate).IsAssignableFrom(type))
                 return $"carries delegate {Describe(type)}";
+            if (type.IsGenericType
+                && type.GetGenericTypeDefinition() == typeof(Lazy<>))
+            {
+                return $"retains deferred value {Describe(type)}";
+            }
+            if (member is FieldInfo
+                && IsDeferredEnumerableContract(type))
+            {
+                return $"retains deferred enumeration {Describe(type)}";
+            }
 
             if (IsComparerContract(type))
             {
@@ -196,6 +254,46 @@ public sealed class QuerySpacePrimitivesSurfaceTests
         }
 
         return null;
+    }
+
+    private static void InspectAssemblyStorage(
+        Type owner,
+        Type carried,
+        ISet<Type> inspected,
+        ICollection<string> violations)
+    {
+        foreach (Type candidate in Flatten(carried))
+        {
+            if (candidate.Assembly != Primitives
+                || candidate.IsGenericParameter
+                || candidate.IsEnum
+                || candidate.IsPrimitive
+                || !inspected.Add(candidate))
+            {
+                continue;
+            }
+
+            foreach (FieldInfo field in candidate.GetFields(
+                BindingFlags.Public
+                | BindingFlags.NonPublic
+                | BindingFlags.Instance
+                | BindingFlags.Static
+                | BindingFlags.DeclaredOnly))
+            {
+                string? reason = Forbidden(field, "field", field.FieldType);
+                if (reason is not null)
+                {
+                    violations.Add(
+                        $"{owner.FullName} storage "
+                        + $"{candidate.FullName}.{field.Name}: {reason}");
+                }
+                InspectAssemblyStorage(
+                    owner,
+                    field.FieldType,
+                    inspected,
+                    violations);
+            }
+        }
     }
 
     private static IEnumerable<Type> Flatten(Type type)
@@ -226,6 +324,16 @@ public sealed class QuerySpacePrimitivesSurfaceTests
             || definition == typeof(IEqualityComparer<>)
             || definition == typeof(Comparer<>)
             || definition == typeof(EqualityComparer<>);
+    }
+
+    private static bool IsDeferredEnumerableContract(Type type)
+    {
+        if (!type.IsGenericType)
+            return false;
+        Type definition = type.GetGenericTypeDefinition();
+        return definition == typeof(IEnumerable<>)
+            || definition == typeof(IAsyncEnumerable<>)
+            || definition == typeof(IQueryable<>);
     }
 
     private static string Describe(Type type) =>

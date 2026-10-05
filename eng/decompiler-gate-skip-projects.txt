@@ -133,9 +133,6 @@ src/DotnetInspector.InspectionContracts
 src/DotnetInspector.JsonSchema
 src/DotnetInspector.MetadataRendering
 src/DotnetInspector.PlatformHouse.Local
-src/DotnetInspector.Presentation
-src/DotnetInspector.ResearchSections
-src/DotnetInspector.Sections
 src/DotnetInspector.Sections.Local
 src/DotnetInspector.SourceDelegation
 src/DotnetInspector.Vocabulary
@@ -244,6 +241,7 @@ tools/MethodClassificationScorecard
 tools/OwnershipIncidenceScorecard
 tools/PackageHouse.CliBenchmarks
 tools/QuerySpaceScorecard
+tools/ReturnToSenderTargetScorecard
 tools/SectionRegistrySpike
 tools/SourceCorpusCensus
 tools/StructuralSaliencePerformance

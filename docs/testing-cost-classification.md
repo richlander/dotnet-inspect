@@ -1,7 +1,6 @@
 # Classifying test cost
 
-[AGENTS.md](../AGENTS.md#building-and-testing) states the binding rule:
-classify every new or materially expanded test as PR-fast or
+Classify every new or materially expanded test as PR-fast or
 `[Trait("Speed", "Slow")]`. Exhaustive and whole-assembly tests are slow by
 policy; otherwise measure suspected slow tests in isolation. A slow
 classification is complete only when daily Deep Inspect or a focused

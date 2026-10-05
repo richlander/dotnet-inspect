@@ -685,4 +685,95 @@ public partial class CommandExecutionTests
         Assert.Equal(1, bogusExit);
         Assert.Contains("Select value 'Zzznosuchsection' not found", bogusError, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public async Task Type_DiscoverDetails_ReportsDeclaredShapeAndCardinality()
+    {
+        // Type adopts Section shapes: -D --details is a structural view that
+        // carries each section's declared shape beside its cardinality, for
+        // the type listing (type/...) and the single-type catalog (member/...).
+        var (listingExit, listing, listingError) = await RunAppAsync(
+            "type", "--library", TestAssemblyPath, "-D", "--details");
+
+        Assert.Equal(0, listingExit);
+        Assert.Empty(listingError);
+        Assert.Contains(
+            "| Name | Kind | Path | Formats | Shape | Cardinality | Terminals |",
+            listing);
+        Assert.Contains(
+            "| Classes | section | type/sections/classes "
+            + "| --markdown, --plaintext, --json, --table, --tsv, --jsonl "
+            + "| table | inventory | rows, count |",
+            listing);
+        Assert.Contains(
+            "| API Info | section | type/sections/api-info "
+            + "| --markdown, --plaintext, --json, --table, --tsv, --jsonl "
+            + "| table | scalar |  |",
+            listing);
+
+        var (typeExit, type, typeError) = await RunAppAsync(
+            "type", "Command", "--library", TestAssemblyPath, "-D", "--details");
+
+        Assert.Equal(0, typeExit);
+        Assert.Empty(typeError);
+        Assert.Contains(
+            "| Type Info | section | member/sections/type-info "
+            + "| --markdown, --plaintext, --json, --table, --tsv, --jsonl "
+            + "| table | scalar |  |",
+            type);
+        Assert.Contains(
+            "| Methods | section | member/sections/methods "
+            + "| --markdown, --plaintext, --json, --table, --tsv, --jsonl "
+            + "| table | inventory | rows, count |",
+            type);
+
+        // --details is structural: it does not probe the type, so it lists
+        // the catalog rather than the sections with data, and JSON rows carry
+        // the same declared facts.
+        var (jsonExit, json, jsonError) = await RunAppAsync(
+            "type", "Command", "--library", TestAssemblyPath,
+            "-D", SectionNames.DecompiledSource, "--details", "--json");
+
+        Assert.Equal(0, jsonExit);
+        Assert.Empty(jsonError);
+        using JsonDocument document = JsonDocument.Parse(json);
+        JsonElement row = Assert.Single(document.RootElement.EnumerateArray());
+        Assert.Equal("text", row.GetProperty("shape").GetString());
+        Assert.Equal("scalar", row.GetProperty("cardinality").GetString());
+        Assert.Equal("member/sections/decompiled-source", row.GetProperty("path").GetString());
+
+        // Target-free: --details is structural, so it needs no type or source
+        // and reports the type listing catalog with the same declared facts
+        // (round-2 finding: this path used to fall back to the Name/Kind view).
+        var (freeExit, free, freeError) = await RunAppAsync(
+            "type", "-D", "--details", "--json");
+
+        Assert.Equal(0, freeExit);
+        Assert.Empty(freeError);
+        using JsonDocument freeDocument = JsonDocument.Parse(free);
+        JsonElement classes = freeDocument.RootElement.EnumerateArray()
+            .Single(static r => r.GetProperty("name").GetString() == "Classes");
+        Assert.Equal("type/sections/classes", classes.GetProperty("path").GetString());
+        Assert.Equal("table", classes.GetProperty("shape").GetString());
+        Assert.Equal("inventory", classes.GetProperty("cardinality").GetString());
+
+        var (bareExit, bare, bareError) = await RunAppAsync("type", "-D", "--json");
+
+        Assert.Equal(0, bareExit);
+        Assert.Empty(bareError);
+        Assert.DoesNotContain("\"shape\"", bare);
+
+        // Source-less qualified type: --details follows the same target
+        // resolution as bare -D (the platform type's member catalog), not the
+        // parser-level --schema ambiguity rule (round-3 finding).
+        var (platformExit, platform, platformError) = await RunAppAsync(
+            "type", "System.String", "-D", SectionNames.Methods, "--details", "--json");
+
+        Assert.Equal(0, platformExit);
+        Assert.Empty(platformError);
+        using JsonDocument platformDocument = JsonDocument.Parse(platform);
+        JsonElement platformRow = Assert.Single(platformDocument.RootElement.EnumerateArray());
+        Assert.Equal("member/sections/methods", platformRow.GetProperty("path").GetString());
+        Assert.Equal("table", platformRow.GetProperty("shape").GetString());
+    }
 }

@@ -76,8 +76,9 @@ Build from source:
 dotnet build dotnet-inspect.slnx -c Release
 ```
 
-See [AGENTS.md](../AGENTS.md) for contributor workflow, targeted test commands,
-and repository-specific guidance.
+See [AGENTS.md](../AGENTS.md) for launch guidance,
+[Repository workflow](repository-workflow.md) for contributor rules, and
+[Local development](dev-environment.md) for targeted test commands.
 
 ## What it inspects
 
@@ -623,7 +624,7 @@ not adopted this transport.
 | Goal | Flags |
 | ---- | ----- |
 | Discover available sections and fields | `-D`, `-D --schema` |
-| Add Library format details | `-D --details`, `-D <exact-name> --details` |
+| Add structural format, shape, and cardinality details | `-D --details`, `-D <exact-name> --details` (library, package, type, member) |
 | Discover query facets and operators | `-Q` on library/type/member/package/find; e.g. `library -Q @Performance` or `type -Q "Body Shapes"` |
 | Select sections or categories | `-S`, wildcards such as `-S "Async*"`, authored categories such as `-S @Source` or `-S @Audit` |
 | Project columns/fields | `--columns`, `--fields` |
@@ -692,23 +693,29 @@ dotnet-inspect package Newtonsoft.Json -S "Package Info" --fields Version --valu
 dotnet-inspect project ./src/DotnetInspect.Cli -S Skills --jsonl
 ```
 
-Library and Package `-D --details` are structural and do not acquire the
-target. They add the owner-issued section properties to the top-level catalog,
-or report one exact category or section in detail: `Formats`, and, where the
-owner declares them, `Shape` (`table`, `hierarchy`, or `text`, per
-[Section shapes](design/section-shapes.md)), `Cardinality` (`scalar` or
-`inventory`), and `Terminals`. Package declares all of them; Library declares
+Library, Package, Type, and Member `-D --details` are structural and do not
+acquire the target. They add the owner-issued section properties to the
+top-level catalog, or report one exact category or section in detail:
+`Formats`, and, where the owner declares them, `Shape` (`table`, `hierarchy`,
+or `text`, per [Section shapes](design/section-shapes.md)), `Cardinality`
+(`scalar` or `inventory`), and `Terminals`. Package, Type, and Member declare
+all of them (`Call Graph` is a graph and declares no shape); Library declares
 cardinality for `Library Info`. A category reports the formats supported by its
 complete expansion plus the formats of each member; it never selects or drops
 members to satisfy a format. Use the result to choose an exact section before
 requesting a single-result projection such as `--tree` or `--mermaid`.
-`explain package/sections/<section>` reports the same shape and cardinality
-for one package section, beside its formats and members.
+`explain <catalog>/sections/<section>` reports the same shape and cardinality
+for one section, beside its formats and members. The catalogs are `library`,
+`package`, `type` (the type listing), `member` (one type's members),
+`member-overload`, and `member-detail` (one exact member).
 
 ```bash
 dotnet-inspect package System.Text.Json -D --details
 dotnet-inspect package System.Text.Json -D Files --details --json
+dotnet-inspect type System.String -D --details
+dotnet-inspect member System.String.Trim:1 -D --details
 dotnet-inspect explain package/sections/files
+dotnet-inspect explain member-detail/sections/source
 ```
 
 ## Common examples
@@ -2333,8 +2340,9 @@ The embedded skill (`dotnet-inspect skill`) is also distributed through the
 
 ## Contributor and agent docs
 
-Start with [AGENTS.md](../AGENTS.md) for repository-wide engineering and workflow
-rules. Use [overview.md](overview.md) when a change crosses subsystem
+Start with [AGENTS.md](../AGENTS.md), then use
+[Repository workflow](repository-workflow.md) for contributor rules. Use
+[overview.md](overview.md) when a change crosses subsystem
 ownership boundaries, and [taste/skill-guidance.md](../taste/skill-guidance.md)
 when maintaining the embedded skill.
 

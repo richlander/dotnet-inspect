@@ -352,8 +352,8 @@ milestone.
 Use a separate **Decompiler Adversarial Reviewer** role when the concern is not
 "is the queue metadata honest?" but "is this raise actually sound?" The curator
 keeps the map current; the adversarial reviewer tries to falsify the map's
-claims. Staff it with the reviewers the AGENTS.md
-[Adversarial review](../AGENTS.md#adversarial-review) tier table requires.
+claims. Staff it with the reviewers the
+[Reviewer roster](round-orchestration.md#reviewer-roster) requires.
 
 This is different from simply "creating adversarial fixtures." A fixture is one
 artifact the review may produce; the role is the upstream proof audit that
@@ -941,10 +941,10 @@ issue per library forces one agent to span several pass families, or several
 agents to edit the same library's many patterns and conflict. Pivoting on the
 pattern gives each agent an exclusive, conflict-light raise and keeps the
 "do not start a raise in a pass family that already has active branches" rule
-(see [AGENTS.md](../AGENTS.md)) easy to honour — the issue *is* the claim on that
-family. Library-pivoted reporting stays useful for portfolio triage ("which
-libraries are worst"), but the **issues** that drive raise work are
-pattern-pivoted.
+(see [Repository workflow](repository-workflow.md)) easy to honour — the issue
+*is* the claim on that family. Library-pivoted reporting stays useful for
+portfolio triage ("which libraries are worst"), but the **issues** that drive
+raise work are pattern-pivoted.
 
 ## The quality loop: detect, then diagnose
 

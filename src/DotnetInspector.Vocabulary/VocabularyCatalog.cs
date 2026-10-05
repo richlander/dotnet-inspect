@@ -1,29 +1,32 @@
+using DotnetInspector.Queries;
 using DotnetInspector.Sections;
+using ILInspector.Decompiler;
+using ILInspector.Decompiler.Pipeline;
 using QuerySpace.Vocabulary;
 
 namespace DotnetInspector.Vocabulary;
 
-/// <summary>Composes product-owned query vocabularies without reclassifying their values.</summary>
+/// <summary>Composes the owner-declared product vocabularies without reclassifying their values.</summary>
 public static class VocabularyCatalog
 {
     /// <summary>The section that describes the vocabulary sections themselves.</summary>
     public const string SectionsSection = "Vocabulary Sections";
 
     /// <summary>The API accessibility vocabulary section.</summary>
-    public const string AccessibilitySection = "Accessibility";
+    public const string AccessibilitySection = ApiAccessibilityVocabulary.AccessibilityLabel;
 
     /// <summary>The C# style-tier vocabulary section.</summary>
-    public const string StyleTiersSection = "C# Style Tiers";
+    public const string StyleTiersSection = StyleOptionVocabularies.StyleTiersLabel;
 
     /// <summary>The selectable C# style-choice vocabulary section.</summary>
-    public const string StyleChoicesSection = "C# Style Choices";
+    public const string StyleChoicesSection = StyleOptionVocabularies.StyleChoicesLabel;
 
     /// <summary>The exact rendered C# body-kind vocabulary section.</summary>
-    public const string BodyKindsSection = "C# Body Kinds";
+    public const string BodyKindsSection = BodyShapeVocabulary.BodyKindsLabel;
 
     /// <summary>The Package Query durable-row field vocabulary section.</summary>
     public const string PackageQueryDurableRowSection =
-        "Package Query Durable Row";
+        PackageQueryDurableRowContract.VocabularyLabel;
 
     /// <summary>The exact immutable product vocabulary snapshot.</summary>
     public static VocabularySnapshot Snapshot { get; } =
