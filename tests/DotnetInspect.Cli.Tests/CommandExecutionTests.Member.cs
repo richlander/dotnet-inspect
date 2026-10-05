@@ -725,9 +725,10 @@ public partial class CommandExecutionTests
             + "| --markdown, --plaintext, --json, --table, --tsv, --jsonl "
             + "| table | scalar |  |",
             output);
+        // A Text advertises only the formats it executes (no fact row yet).
         Assert.Contains(
             "| Decompiled Source | section | member-detail/sections/decompiled-source "
-            + "| --markdown, --plaintext, --json, --table, --tsv, --jsonl "
+            + "| --markdown, --plaintext, --json "
             + "| text | scalar |  |",
             output);
 
