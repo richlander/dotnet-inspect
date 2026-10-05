@@ -3,6 +3,7 @@ using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using System.Runtime.InteropServices;
 
+using ILInspector.Analysis;
 using ILInspector.Metadata;
 
 namespace DotnetInspector.Queries.Tests;
@@ -50,6 +51,18 @@ public sealed class AssemblyContextUnsafeFindingsQueryTests
         Assert.StartsWith(
             $"{nameof(ResearchProjectionProbe.InvokeFunctionPointer)}~",
             publicFinding.PublicMember.StableSelector);
+        Assert.Equal(
+            nameof(ResearchProjectionProbe.InvokeFunctionPointer),
+            publicFinding.PublicMember.BodyMember);
+        Assert.False(
+            string.IsNullOrWhiteSpace(
+                publicFinding.PublicMember.BodySelector));
+        Assert.Equal(
+            publicFinding.Finding.Method.MetadataToken,
+            publicFinding.PublicMember.BodyToken);
+        Assert.Equal(
+            SafetyFactLocation.Declaration,
+            publicFinding.Finding.Location);
         Assert.Equal(
             typeof(ResearchProjectionProbe)
                 .GetMethod(

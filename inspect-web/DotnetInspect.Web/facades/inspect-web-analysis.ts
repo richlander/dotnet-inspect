@@ -864,7 +864,11 @@ export interface BrowserUnsafeFinding {
   readonly typeId: string;
   readonly memberName: string;
   readonly stableSelector: string;
+  readonly bodyMember: string;
+  readonly bodySelector: string;
+  readonly bodyToken: number;
   readonly kind: string;
+  readonly location: string;
   readonly offset: string | null;
   readonly operation: string;
   readonly evidence: string;
@@ -893,6 +897,7 @@ type $ManagedExports = {
             readonly "QueryPlatformLibraryDependencyStructure.1579276339": (targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string) => Promise<string>;
             readonly "QueryPlatformLibraryMetrics.1579276339": (targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string) => Promise<string>;
             readonly "QueryPlatformLibraryStructuralSalience.1579276339": (targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string) => Promise<string>;
+            readonly "QueryPlatformMemberFacts.1730045911": (targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string, typeIdentity: string, memberName: string, memberSignature: string, selectorKey: string, metadataToken: number, implementationBodySelected: boolean, contextId: string | null) => Promise<string>;
             readonly "QueryPlatformOpportunities.1579276339": (targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string) => Promise<string>;
             readonly "QueryPlatformPerformance.1579276339": (targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string) => Promise<string>;
             readonly "QueryPlatformTypeImplementationHeat.1330709314": (targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string, typeDefinitionId: string) => Promise<string>;
@@ -1158,6 +1163,18 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "Interop");
     value = $ownDataProperty(value, "Analysis");
     value = $ownDataProperty(value, "AnalysisExports");
+    value = $ownDataProperty(value, "QueryPlatformMemberFacts.1730045911");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Analysis.AnalysisExports.QueryPlatformMemberFacts.1730045911\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "DotnetInspect");
+    value = $ownDataProperty(value, "Web");
+    value = $ownDataProperty(value, "Interop");
+    value = $ownDataProperty(value, "Analysis");
+    value = $ownDataProperty(value, "AnalysisExports");
     value = $ownDataProperty(value, "QueryPlatformOpportunities.1579276339");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Analysis.AnalysisExports.QueryPlatformOpportunities.1579276339\u0027 is not callable.");
@@ -1362,6 +1379,12 @@ export async function queryPlatformLibraryStructuralSalience(targetFramework: st
   const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Analysis"]["AnalysisExports"]["QueryPlatformLibraryStructuralSalience.1579276339"](targetFramework, platformVersion, assemblyFileName, pack);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserLibraryStructuralSalience;
+}
+
+export async function queryPlatformMemberFacts(targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string, typeIdentity: string, memberName: string, memberSignature: string, selectorKey: string, metadataToken: number, implementationBodySelected: boolean, contextId: string | null): Promise<BrowserMemberFacts> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Analysis"]["AnalysisExports"]["QueryPlatformMemberFacts.1730045911"](targetFramework, platformVersion, assemblyFileName, pack, typeIdentity, memberName, memberSignature, selectorKey, metadataToken, implementationBodySelected, contextId);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserMemberFacts;
 }
 
 export async function queryPlatformOpportunities(targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string): Promise<BrowserPackageOpportunities> {

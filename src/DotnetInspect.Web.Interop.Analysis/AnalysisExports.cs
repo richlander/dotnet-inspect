@@ -102,7 +102,12 @@ public static partial class AnalysisExports
                         resolution.BodyToken)),
             $"Facts for '{typeIdentity}.{memberName}'");
 
-        var result = new BrowserMemberFacts(
+        return ProjectMemberFacts(analysis);
+    }
+
+    internal static BrowserMemberFacts ProjectMemberFacts(
+        AssemblyMethodAnalysis analysis) =>
+        new(
             analysis.Method.MetadataToken,
             new BrowserMethodSignals(
                 analysis.Signals.Allocations,
@@ -238,9 +243,6 @@ public static partial class AnalysisExports
                     diagnostic =>
                         $"{diagnostic.Method}: {diagnostic.Message}"),
             ]);
-
-        return result;
-    }
 
     static string FormatOffset(int offset) => $"IL_{offset:X4}";
 
@@ -1698,7 +1700,12 @@ public static partial class AnalysisExports
                             publicMember.TypeDefinitionId,
                             publicMember.Member,
                             publicMember.StableSelector,
+                            publicMember.BodyMember,
+                            publicMember.BodySelector,
+                            publicMember.BodyToken,
                             finding.Finding.SafetyKind,
+                            FormatSafetyLocation(
+                                finding.Finding.Location),
                             finding.Finding.ILOffset is int offset
                                 ? FormatOffset(offset)
                                 : null,
@@ -1716,6 +1723,18 @@ public static partial class AnalysisExports
             available?.TotalFindings ?? 0,
             compileLibrary);
     }
+
+    static string FormatSafetyLocation(
+        ILAnalysis.SafetyFactLocation location) =>
+        location switch
+        {
+            ILAnalysis.SafetyFactLocation.Declaration =>
+                "declaration",
+            ILAnalysis.SafetyFactLocation.MethodBody =>
+                "method body",
+            _ => throw new InvalidOperationException(
+                $"Unknown safety fact location '{location}'."),
+        };
 
     internal static BrowserUnsafeFinding[] ApplyUnsafeFindingLimit(
         IEnumerable<BrowserUnsafeFinding> candidates,

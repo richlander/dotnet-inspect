@@ -7,6 +7,7 @@ import {
 } from "../src/package-view.ts";
 import type {
   PackageAnalysisMemberTarget,
+  PackageUnsafeMemberTarget,
   PackageViewBindingActions,
 } from "../src/package-view.ts";
 import { fakeDom } from "./fake-dom.ts";
@@ -69,9 +70,10 @@ function recordingActions(calls: string[]): PackageViewBindingActions {
     onPerformanceMemberSelect: (target: PackageAnalysisMemberTarget) =>
       calls.push(
         `performance:${target.stableSelector}:${target.assembly}:${target.typeId}`),
-    onUnsafeMemberSelect: (target: PackageAnalysisMemberTarget) =>
+    onUnsafeMemberSelect: (target: PackageUnsafeMemberTarget) =>
       calls.push(
-        `unsafe:${target.stableSelector}:${target.assembly}:${target.typeId}`),
+        `unsafe:${target.stableSelector}:${target.assembly}:${target.typeId}:`
+        + `${target.bodyMember}:${target.bodySelector}:${target.bodyToken}`),
   };
 }
 
@@ -111,6 +113,9 @@ test("package view bindings decode navigation controls without eager work", () =
     unsafeSelector: "M:Example.Type.Pin",
     unsafeAssembly: "Example.dll",
     unsafeType: "Example.Type",
+    unsafeBodyMember: "Pin",
+    unsafeBodySelector: "Pin~0~instance~()->System.Void",
+    unsafeBodyToken: "100663297",
   });
   const defaultUnsafe = new FakeElement();
   const packageLibrary = new FakeElement({
@@ -186,8 +191,9 @@ test("package view bindings decode navigation controls without eager work", () =
     "graph-type:",
     "performance:M:Example.Type.Run:Example.dll:Example.Type",
     "performance:::",
-    "unsafe:M:Example.Type.Pin:Example.dll:Example.Type",
-    "unsafe:::",
+    "unsafe:M:Example.Type.Pin:Example.dll:Example.Type:Pin:"
+      + "Pin~0~instance~()->System.Void:100663297",
+    "unsafe::::::0",
   ]);
 });
 

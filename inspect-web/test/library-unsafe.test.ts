@@ -37,7 +37,11 @@ function finding(
     typeId: "Test.Namespace.Widget",
     memberName: "Pin",
     stableSelector: "M:Test.Namespace.Widget.Pin",
+    bodyMember: "Pin",
+    bodySelector: "Pin~0~instance~()->System.Void",
+    bodyToken: 100663297,
     kind: "Pinned local",
+    location: "method body",
     offset: "IL_0004",
     operation: "Pinned local",
     evidence: "Pinned local V_0",
@@ -72,6 +76,7 @@ test("unsafe rows are ungraded evidence with stable member navigation", () => {
           stableSelector: "F:Test.Namespace.Widget.Pointer",
           memberName: "Pointer",
           kind: "Unsafe signature",
+          location: "declaration",
           offset: null,
           operation: "System.Int32*",
           evidence: "Field type contains a pointer",
@@ -84,6 +89,9 @@ test("unsafe rows are ungraded evidence with stable member navigation", () => {
   assert.match(html, /data-unsafe-selector="M:Test\.Namespace\.Widget\.Pin"/);
   assert.match(html, /data-unsafe-assembly="Test\.Assembly\.dll"/);
   assert.match(html, /data-unsafe-type="Test\.Namespace\.Widget"/);
+  assert.match(html, /data-unsafe-body-member="Pin"/);
+  assert.match(html, /data-unsafe-body-selector="Pin~0~instance~/);
+  assert.match(html, /data-unsafe-body-token="100663297"/);
   assert.match(html, /Widget\.Pin/);
   assert.match(html, /IL_0004/);
   assert.match(html, /declaration/);
@@ -101,6 +109,8 @@ test("unsafe content and failures are escaped", () => {
         operation: "<operation>",
         evidence: "<evidence>",
         kind: "<kind>",
+        location: "<location>",
+        offset: null,
       })],
     }),
   });
@@ -113,8 +123,24 @@ test("unsafe content and failures are escaped", () => {
   assert.match(row, /&lt;operation&gt;/);
   assert.match(row, /&lt;evidence&gt;/);
   assert.match(row, /&lt;kind&gt;/);
-  assert.doesNotMatch(row, /<Pin>|<operation>|<evidence>|<kind>/);
+  assert.match(row, /&lt;location&gt;/);
+  assert.doesNotMatch(row, /<Pin>|<operation>|<evidence>|<kind>|<location>/);
   assert.match(failure, /&lt;boom&gt; failed/);
+});
+
+test("offset-less method-body evidence is not labeled as a declaration", () => {
+  const html = renderLibraryUnsafeSurface({
+    ...baseOptions,
+    data: result({
+      findings: [finding({
+        offset: null,
+        location: "method body",
+      })],
+    }),
+  });
+
+  assert.match(html, /method body/);
+  assert.doesNotMatch(html, /unsafe-location-label">declaration/);
 });
 
 test("loading and library-selection states remain distinct", () => {

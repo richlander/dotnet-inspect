@@ -25,6 +25,8 @@ using ILInspector.Metadata;
 using NuGetFetch;
 
 using DotnetInspect.Web.Interop.Package;
+using BrowserMemberFacts = DotnetInspect.Web.Interop.Analysis.BrowserMemberFacts;
+using BrowserUnsafeFinding = DotnetInspect.Web.Interop.Analysis.BrowserUnsafeFinding;
 using BrowserMetadataJsonContext = DotnetInspect.Web.Interop.Metadata.BrowserMetadataJsonContext;
 using BrowserAnalysisJsonContext = DotnetInspect.Web.Interop.Analysis.BrowserAnalysisJsonContext;
 using BrowserSourceJsonContext = DotnetInspect.Web.Interop.Source.BrowserSourceJsonContext;
@@ -1076,14 +1078,37 @@ public sealed partial class BrowserEngineBoundaryTests
                     BrowserAnalysisJsonContext.Default
                         .BrowserPackageUnsafeFindings));
         Assert.True(unsafeFindings.TotalFindings > 0);
-        Assert.Contains(
-            unsafeFindings.Findings,
-            finding =>
-                finding.MemberName == nameof(PerformanceStackAllocProbe)
-                && finding.Kind == "stackalloc");
+        BrowserUnsafeFinding stackAllocation =
+            Assert.Single(
+                unsafeFindings.Findings,
+                finding =>
+                    finding.MemberName
+                        == nameof(PerformanceStackAllocProbe)
+                    && finding.Kind == "stackalloc");
         Assert.Equal(
             BrowserAnalysisCompileLibraryStatus.Selected,
             unsafeFindings.CompileLibrary.Status);
+        BrowserMemberFacts memberFacts =
+            Assert.IsType<BrowserMemberFacts>(
+                JsonSerializer.Deserialize(
+                    await DotnetInspect.Web.Interop.Analysis.AnalysisExports
+                        .QueryPlatformMemberFacts(
+                            "net11.0",
+                            version,
+                            "DotnetInspect.Web.Tests.dll",
+                            "netcore.app",
+                            stackAllocation.TypeId,
+                            stackAllocation.BodyMember,
+                            memberSignature: "",
+                            stackAllocation.BodySelector,
+                            stackAllocation.BodyToken,
+                            implementationBodySelected: true,
+                            contextId: null),
+                    BrowserAnalysisJsonContext.Default
+                        .BrowserMemberFacts));
+        Assert.Contains(
+            memberFacts.Safety,
+            fact => fact.Kind == "stackalloc");
         BrowserPackageMetadata metadata =
             Assert.IsType<BrowserPackageMetadata>(
                 JsonSerializer.Deserialize(

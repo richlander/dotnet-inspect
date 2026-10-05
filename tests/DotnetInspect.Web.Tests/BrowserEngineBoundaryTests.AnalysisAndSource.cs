@@ -131,6 +131,10 @@ public sealed partial class BrowserEngineBoundaryTests
                 finding.MemberName
                     == nameof(PerformanceStackAllocProbe)
                 && finding.Kind == "stackalloc"
+                && finding.Location == "method body"
+                && finding.BodyToken > 0
+                && !string.IsNullOrWhiteSpace(
+                    finding.BodySelector)
                 && finding.Offset is not null);
         using JsonDocument document = JsonDocument.Parse(json);
         JsonElement finding = Assert.Single(
@@ -161,7 +165,11 @@ public sealed partial class BrowserEngineBoundaryTests
                                 "Probe.Type",
                                 $"Method{index}",
                                 $"Method{index}",
+                                $"Method{index}",
+                                $"Method{index}~0~static~()->System.Void",
+                                0x06000001 + index,
                                 "Unsafe call",
+                                "method body",
                                 $"IL_{index:X4}",
                                 "Unsafe.Operation",
                                 "Unsafe call")),

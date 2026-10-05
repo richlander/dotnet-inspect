@@ -136,13 +136,13 @@ test("platform type and member navigation hides package-only operations", () => 
     ["api"]);
   assert.deepEqual(
     memberSectionIdsFor({ kind: "method" }, true),
-    ["overview", "call-graph", "source"]);
+    ["overview", "call-graph", "facts", "source"]);
   assert.deepEqual(
     memberSectionIdsFor({ kind: "method" }, false),
     ["overview", "call-graph", "facts", "source", "compare"]);
   assert.deepEqual(
     memberSectionIdsFor({ kind: "method", overloads: [{}, {}] }, true),
-    ["overview", "call-graph", "source"]);
+    ["overview", "call-graph", "facts", "source"]);
   assert.deepEqual(
     memberSectionIdsFor({ kind: "method", overloads: [{}, {}] }, false),
     [
@@ -814,13 +814,13 @@ test("typed package view owns package navigation bindings", () => {
   assert.equal(libraryJump.match(/\brender\(\)/g)?.length, 1);
   assert.match(
     binding,
-    /onPerformanceMemberSelect: target => \{[\s\S]*drillToAnalysisMember\(\s*target\.stableSelector,\s*target\.assembly,\s*target\.typeId\)/);
+    /onPerformanceMemberSelect: target => \{[\s\S]*drillToAnalysisMember\(\s*target\.stableSelector,\s*target\.assembly,\s*target\.typeId,\s*"overview"\)/);
   assert.match(
     binding,
-    /onUnsafeMemberSelect: target => \{[\s\S]*drillToAnalysisMember\(\s*target\.stableSelector,\s*target\.assembly,\s*target\.typeId\)/);
+    /onUnsafeMemberSelect: target => \{[\s\S]*drillToAnalysisMember\(\s*target\.stableSelector,\s*target\.assembly,\s*target\.typeId,\s*"facts",\s*\{[\s\S]*memberName: target\.bodyMember,[\s\S]*selectorKey: target\.bodySelector,[\s\S]*metadataToken: target\.bodyToken/);
   assert.match(
     appSource,
-    /function drillToAnalysisMember\([\s\S]*setTypeMemberPopulationIntent\("public", "csharp"\);[\s\S]*render\(\);[\s\S]*const expectedPopulationKey = typeMemberPopulationKey\(targetType\);[\s\S]*const expectedPopulationIntent = typeMemberPopulationIntentGeneration;[\s\S]*selectAnalysisMember\(\s*stableSelector,\s*expectedView,\s*expectedPopulationKey,\s*expectedPopulationIntent\)/);
+    /function drillToAnalysisMember\([\s\S]*setTypeMemberPopulationIntent\("public", "csharp"\);[\s\S]*render\(\);[\s\S]*const expectedPopulationKey = typeMemberPopulationKey\(targetType\);[\s\S]*const expectedPopulationIntent = typeMemberPopulationIntentGeneration;[\s\S]*selectAnalysisMember\(\s*stableSelector,\s*expectedView,\s*expectedPopulationKey,\s*expectedPopulationIntent,\s*section,\s*bodyTarget\)/);
   const drillToAnalysisMember =
     appSource.match(/function drillToAnalysisMember\([\s\S]*?\n}/)?.[0] ?? "";
   const selectAnalysisMember =
@@ -828,16 +828,13 @@ test("typed package view owns package navigation bindings", () => {
     ?? "";
   assert.match(
     selectAnalysisMember,
-    /const populationReceipt = await loadSelectedTypeMemberPopulation\(\);[\s\S]*viewSignature\(\) !== expectedView[\s\S]*typeMemberPopulationReceipt !== populationReceipt[\s\S]*typeMemberPopulationIntentGeneration !== expectedPopulationIntent[\s\S]*typeMemberPopulationKey\(type\) !== expectedPopulationKey[\s\S]*state\.typeMemberPopulationKey !== expectedPopulationKey[\s\S]*overload\.stableSelector === stableSelector[\s\S]*state\.selectedMemberKey = group\.key[\s\S]*await loadSelectedMemberDocumentation\(\)/);
+    /const populationReceipt = await loadSelectedTypeMemberPopulation\(\);[\s\S]*viewSignature\(\) !== expectedView[\s\S]*typeMemberPopulationReceipt !== populationReceipt[\s\S]*typeMemberPopulationIntentGeneration !== expectedPopulationIntent[\s\S]*typeMemberPopulationKey\(type\) !== expectedPopulationKey[\s\S]*state\.typeMemberPopulationKey !== expectedPopulationKey[\s\S]*overload\.stableSelector === stableSelector[\s\S]*state\.selectedMemberKey = group\.key[\s\S]*state\.selectedBodyTarget = bodyTarget;[\s\S]*state\.memberSection = section;[\s\S]*section === "facts"[\s\S]*loadSelectedMemberFactsSurface\(\)[\s\S]*loadSelectedMemberDocumentation\(\)/);
   assert.match(
     appSource,
     /const receipt: TypeMemberPopulationReceipt = \{[\s\S]*generation: \+\+typeMemberPopulationGeneration,[\s\S]*typeMemberPopulationReceipt = receipt;[\s\S]*return receipt;/);
   assert.doesNotMatch(
     drillToAnalysisMember,
     /group\.overloads\.length > 1/);
-  assert.doesNotMatch(
-    drillToAnalysisMember,
-    /memberSection = "facts"|loadSelectedMemberFacts\(\)/);
   assert.doesNotMatch(
     appSource,
     /document\.querySelectorAll<HTMLElement>\("\[data-(?:dep-group|dep-open|dep-load|kind-jump|namespace-jump|lib-scope|graph-type|perf-selector|unsafe-selector)\]"\)/);

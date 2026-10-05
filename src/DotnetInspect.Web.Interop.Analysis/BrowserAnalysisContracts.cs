@@ -270,7 +270,11 @@ public sealed record BrowserUnsafeFinding(
     string TypeId,
     string MemberName,
     string StableSelector,
+    string BodyMember,
+    string BodySelector,
+    int BodyToken,
     string Kind,
+    string Location,
     string? Offset,
     string Operation,
     string Evidence);

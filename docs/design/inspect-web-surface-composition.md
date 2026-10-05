@@ -1081,14 +1081,16 @@ Library asset and assembly identity              TFM · package@version
 Performance retains product triage order, opportunity and loop counts, shape
 and confidence labels, and stable-selector Member navigation. Unsafe is an
 ungraded list of product-issued findings from compiled declarations and IL.
-It preserves category, operation, evidence, and optional IL offset, and uses
-stable-selector navigation to the Member Safety Facts view. Unsafe assigns no
-severity, confidence, rank, compliance verdict, remediation, or recommendation;
-unsafe code can be intentional and legitimate. A complete empty result states
-only that no navigable public-member findings were produced by this analysis,
-while partial results retain their findings and surface the diagnostic without
-claiming absence. Integrations retains category order, type-first signal
-sorting, badges, and counts.
+It preserves category, operation, evidence, Analysis-issued declaration or
+method-body location, and optional IL offset. Package and Platform rows retain
+both the public navigation identity and exact physical body identity, then
+select the Member Safety Facts view. Unsafe assigns no severity, confidence,
+rank, compliance verdict, remediation, or recommendation; unsafe code can be
+intentional and legitimate. A complete empty result states only that no
+navigable public-member findings were produced by this analysis, while partial
+results retain their findings and surface the diagnostic without claiming
+absence. Integrations retains category order, type-first signal sorting,
+badges, and counts.
 Opportunities retains Type navigation, suggested-package loading, "look for"
 search actions, and source identity. Complexity and Relationships retain the
 Research-issued Complexity Explorer and Relationship Crossing views.

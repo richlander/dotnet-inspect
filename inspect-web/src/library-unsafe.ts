@@ -66,9 +66,9 @@ export function renderLibraryUnsafeSurface(options: LibraryUnsafeOptions): strin
         const display =
           `${shortTypeName(finding.typeId)}.${finding.memberName}`;
         const offset = finding.offset == null
-          ? '<span class="unsafe-declaration">declaration</span>'
+          ? `<span class="unsafe-location-label">${escapeHtml(finding.location)}</span>`
           : `<code>${escapeHtml(finding.offset)}</code>`;
-        return `<button class="unsafe-row" data-unsafe-selector="${escapeHtml(finding.stableSelector)}" data-unsafe-assembly="${escapeHtml(finding.assembly)}" data-unsafe-type="${escapeHtml(finding.typeId)}" title="${escapeHtml(finding.typeId)}.${escapeHtml(finding.memberName)} &mdash; open member">
+        return `<button class="unsafe-row" data-unsafe-selector="${escapeHtml(finding.stableSelector)}" data-unsafe-assembly="${escapeHtml(finding.assembly)}" data-unsafe-type="${escapeHtml(finding.typeId)}" data-unsafe-body-member="${escapeHtml(finding.bodyMember)}" data-unsafe-body-selector="${escapeHtml(finding.bodySelector)}" data-unsafe-body-token="${finding.bodyToken}" title="${escapeHtml(finding.typeId)}.${escapeHtml(finding.memberName)} &mdash; open member safety facts">
           <span class="unsafe-location">${offset}</span>
           <span class="unsafe-main"><span class="unsafe-name">${escapeHtml(display)}</span><code class="unsafe-operation">${escapeHtml(finding.operation)}</code><span class="unsafe-evidence">${escapeHtml(finding.evidence)}</span></span>
           <span class="unsafe-kind">${escapeHtml(finding.kind)}</span>

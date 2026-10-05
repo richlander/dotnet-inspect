@@ -915,6 +915,8 @@ let inspectLibraryApiDiff:
 let inspectCloneCandidates:
   EngineClient["analysis"]["queryCloneCandidates"];
 let inspectMemberFacts: EngineClient["analysis"]["queryMemberFacts"];
+let inspectPlatformMemberFacts:
+  EngineClient["analysis"]["queryPlatformMemberFacts"];
 let inspectPackageIntegrations:
   EngineClient["analysis"]["queryPackageIntegrations"];
 let inspectPackageOpportunities:
@@ -1120,6 +1122,7 @@ async function loadEngineModule() {
     ({
       queryCloneCandidates: inspectCloneCandidates,
       queryMemberFacts: inspectMemberFacts,
+      queryPlatformMemberFacts: inspectPlatformMemberFacts,
       queryPackageIntegrations: inspectPackageIntegrations,
       queryPackageOpportunities: inspectPackageOpportunities,
       queryPackagePerformance: inspectPackagePerformance,
@@ -3865,18 +3868,30 @@ const memberDetailInspection = createMemberDetailInspectionCoordinator({
       },
     };
   },
-  queryFacts: request =>
-    inspectMemberFacts(
-      request.packageId,
-      request.version,
-      request.framework,
-      request.assembly,
-      request.typeIdentity,
-      request.member,
-      request.memberSignature,
-      request.selectorKey,
-      request.metadataToken,
-      request.implementationBodySelected),
+  queryFacts: request => request.isRuntimePack
+    ? inspectPlatformMemberFacts(
+        request.framework,
+        request.version,
+        request.assembly,
+        request.platformPack,
+        request.typeIdentity,
+        request.member,
+        request.memberSignature,
+        request.selectorKey,
+        request.metadataToken,
+        request.implementationBodySelected,
+        request.contextId)
+    : inspectMemberFacts(
+        request.packageId,
+        request.version,
+        request.framework,
+        request.assembly,
+        request.typeIdentity,
+        request.member,
+        request.memberSignature,
+        request.selectorKey,
+        request.metadataToken,
+        request.implementationBodySelected),
   describeError: errorMessage,
   render,
   renderPreservingMemberFocus,
@@ -11682,6 +11697,8 @@ function drillToAnalysisMember(
   stableSelector: string,
   assembly: string,
   typeId: string,
+  section: "overview" | "facts",
+  bodyTarget: BodyTarget | null = null,
 ) {
   const pkg = currentPackage();
   const target = resolvePackageAnalysisMember(pkg, {
@@ -11714,7 +11731,9 @@ function drillToAnalysisMember(
       stableSelector,
       expectedView,
       expectedPopulationKey,
-      expectedPopulationIntent),
+      expectedPopulationIntent,
+      section,
+      bodyTarget),
     "Loading the selected Member");
 }
 
@@ -11723,6 +11742,8 @@ async function selectAnalysisMember(
   expectedView: string,
   expectedPopulationKey: string,
   expectedPopulationIntent: number,
+  section: "overview" | "facts",
+  bodyTarget: BodyTarget | null,
 ) {
   const populationReceipt = await loadSelectedTypeMemberPopulation();
   if (viewSignature() !== expectedView) return;
@@ -11742,8 +11763,14 @@ async function selectAnalysisMember(
     state.memberBrowseTypeId = type.id;
     state.selectedMemberKey = group.key;
     state.selectedOverloadIndex = overloadIndex;
+    state.selectedBodyTarget = bodyTarget;
+    state.memberSection = section;
     render();
-    await loadSelectedMemberDocumentation();
+    if (section === "facts") {
+      await loadSelectedMemberFactsSurface();
+    } else {
+      await loadSelectedMemberDocumentation();
+    }
     return;
   }
   showToast("That Member is no longer loaded in the selected Type.");
@@ -13060,13 +13087,20 @@ const packageViewActions: PackageViewBindingActions = {
     drillToAnalysisMember(
       target.stableSelector,
       target.assembly,
-      target.typeId);
+      target.typeId,
+      "overview");
   },
   onUnsafeMemberSelect: target => {
     drillToAnalysisMember(
       target.stableSelector,
       target.assembly,
-      target.typeId);
+      target.typeId,
+      "facts",
+      {
+        memberName: target.bodyMember,
+        selectorKey: target.bodySelector,
+        metadataToken: target.bodyToken,
+      });
   },
 };
 
@@ -23772,15 +23806,26 @@ async function loadSelectedMemberFacts() {
   }
   const signature = memberRequestSignature(type, overload, true);
   const pkg = currentPackage();
+  const platformLibrary = pkg.isRuntimePack
+    ? platformLibraryForRequest(pkg, type.assemblyId)
+    : null;
   const implementationBody = graphOnlyImplementationBody(overload);
-  const implementationMetadataToken = implementationBody?.token ?? 0;
+  const implementationMetadataToken =
+    implementationBody?.token
+      ?? state.selectedBodyTarget?.metadataToken
+      ?? 0;
   const implementationBodySelected = implementationMetadataToken !== 0;
   return memberDetailInspection.loadFacts({
     signature,
     packageId: pkg.id,
     version: pkg.version,
     framework: pkg.activeFramework,
-    assembly: type.assembly,
+    assembly: platformLibrary
+      ? platformAssemblyRequest(platformLibrary)
+      : type.assembly,
+    isRuntimePack: pkg.isRuntimePack,
+    platformPack: platformLibrary?.pack ?? "",
+    contextId: platformDemoContextIdFor(pkg),
     type: type.queryId ?? type.id,
     typeIdentity: type.definitionId ?? type.id,
     member: implementationBody?.memberName

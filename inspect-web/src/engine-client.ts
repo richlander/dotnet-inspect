@@ -82,6 +82,7 @@ type MetadataOperations =
 type AnalysisOperations =
   | "queryCloneCandidates"
   | "queryMemberFacts"
+  | "queryPlatformMemberFacts"
   | "queryPackageTypeImplementationHeat"
   | "queryPackageTypeMethodLeverage"
   | "queryPackageIntegrations"

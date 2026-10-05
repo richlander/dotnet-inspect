@@ -8,7 +8,10 @@ namespace DotnetInspector.Queries;
 public sealed record UnsafeFindingPublicMember(
     string TypeDefinitionId,
     string Member,
-    string StableSelector);
+    string StableSelector,
+    string BodyMember,
+    string BodySelector,
+    int BodyToken);
 
 public sealed record AssemblyUnsafeFinding(
     SafetyFact Finding,
@@ -182,7 +185,10 @@ public static class AssemblyContextUnsafeFindingsQuery
             ? new(
                 publicMember.TypeDefinitionId,
                 publicMember.Member,
-                publicMember.StableSelector)
+                publicMember.StableSelector,
+                publicMember.BodyMember,
+                publicMember.BodySelector,
+                publicMember.BodyToken)
             : null;
 
     static void EnsureSameSubject(

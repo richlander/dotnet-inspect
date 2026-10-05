@@ -100,6 +100,7 @@ type MetadataFacadeOperationName =
 type AnalysisOperationName =
   | "queryCloneCandidates"
   | "queryMemberFacts"
+  | "queryPlatformMemberFacts"
   | "queryPackageIntegrations"
   | "queryPlatformIntegrations"
   | "queryPackageOpportunities"
@@ -1548,6 +1549,14 @@ export const engineWorkerOrdinaryOperations = {
         ...args: Parameters<AnalysisFacade["queryMemberFacts"]>
       ) => facades.analysis.queryMemberFacts(...args),
     ),
+    queryPlatformMemberFacts: valueOperation(
+      "ordinary-analysis-query-platform-member-facts",
+      11,
+      (
+        facades,
+        ...args: Parameters<AnalysisFacade["queryPlatformMemberFacts"]>
+      ) => facades.analysis.queryPlatformMemberFacts(...args),
+    ),
     queryPackageIntegrations: valueOperation(
       "ordinary-analysis-query-package-integrations",
       4,
@@ -2403,6 +2412,9 @@ export function bindEngineWorkerOrdinaryClient(
       ),
       queryMemberFacts: bind(
         engineWorkerOrdinaryOperations.analysis.queryMemberFacts,
+      ),
+      queryPlatformMemberFacts: bind(
+        engineWorkerOrdinaryOperations.analysis.queryPlatformMemberFacts,
       ),
       queryPackageIntegrations: bind(
         engineWorkerOrdinaryOperations.analysis

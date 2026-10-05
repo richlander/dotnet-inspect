@@ -8,7 +8,10 @@ namespace DotnetInspector.Queries;
 internal sealed record AssemblyContextPublicMember(
     string TypeDefinitionId,
     string Member,
-    string StableSelector);
+    string StableSelector,
+    string BodyMember,
+    string BodySelector,
+    int BodyToken);
 
 internal sealed record AssemblyContextPublicMemberInventory(
     IReadOnlyDictionary<int, AssemblyContextPublicMember> ByBodyToken,
@@ -37,20 +40,21 @@ internal static class AssemblyContextPublicMemberAttribution
                 if (selectors.Length == 0)
                     continue;
 
-                var publicMember =
-                    new AssemblyContextPublicMember(
-                        AssemblyContextApiSurfaceQuery
-                            .MetadataTypeIdentity(type),
-                        member.Name,
-                        ApiMemberIdentity
-                            .GetMemberAnchor(type, member)
-                            .StableSelector);
                 foreach (CallGraphMemberBodySelector selector
                     in selectors)
                 {
                     members.TryAdd(
                         selector.BodyToken,
-                        publicMember);
+                        new AssemblyContextPublicMember(
+                            AssemblyContextApiSurfaceQuery
+                                .MetadataTypeIdentity(type),
+                            member.Name,
+                            ApiMemberIdentity
+                                .GetMemberAnchor(type, member)
+                                .StableSelector,
+                            selector.MemberName,
+                            selector.SelectorKey,
+                            selector.BodyToken));
                 }
             }
         }

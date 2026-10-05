@@ -2693,7 +2693,7 @@ kbd {
 .unsafe-row { display: grid; grid-template-columns: 88px minmax(0, 1fr) auto; align-items: center; gap: 12px; width: 100%; text-align: left; padding: 12px 16px; border: 0; border-bottom: 1px solid var(--line); background: transparent; color: var(--fg); cursor: pointer; }
 .unsafe-row:hover { background: var(--panel-active); }
 .unsafe-location { color: var(--muted); font-size: 11px; }
-.unsafe-declaration { font-style: italic; }
+.unsafe-location-label { font-style: italic; }
 .unsafe-main { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .unsafe-name { font-size: 13px; overflow-wrap: anywhere; }
 .unsafe-operation { width: fit-content; max-width: 100%; overflow-wrap: anywhere; }

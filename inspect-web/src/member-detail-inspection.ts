@@ -87,6 +87,9 @@ export type MemberFindingCensusRequest =
 
 export interface MemberFactsRequest extends MemberCoordinates {
   signature: string;
+  isRuntimePack: boolean;
+  platformPack: string;
+  contextId: string | null;
   typeIdentity: string;
   selectorKey: string;
   metadataToken: number;

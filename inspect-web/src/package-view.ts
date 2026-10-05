@@ -14,6 +14,13 @@ export interface PackageAnalysisMemberTarget {
   typeId: string;
 }
 
+export interface PackageUnsafeMemberTarget
+  extends PackageAnalysisMemberTarget {
+  bodyMember: string;
+  bodySelector: string;
+  bodyToken: number;
+}
+
 export interface PackageViewBindingActions
   extends PackageDependencyBindingActions {
   onPackageChildLibrarySelect: (assetId: string) => void;
@@ -32,7 +39,7 @@ export interface PackageViewBindingActions
   ) => void;
   onNamespaceJump: (namespace: string) => void;
   onPerformanceMemberSelect: (target: PackageAnalysisMemberTarget) => void;
-  onUnsafeMemberSelect: (target: PackageAnalysisMemberTarget) => void;
+  onUnsafeMemberSelect: (target: PackageUnsafeMemberTarget) => void;
 }
 
 export interface PackageNavOptions {
@@ -139,5 +146,8 @@ export function bindPackageView(
       stableSelector: button.dataset.unsafeSelector ?? "",
       assembly: button.dataset.unsafeAssembly ?? "",
       typeId: button.dataset.unsafeType ?? "",
+      bodyMember: button.dataset.unsafeBodyMember ?? "",
+      bodySelector: button.dataset.unsafeBodySelector ?? "",
+      bodyToken: Number(button.dataset.unsafeBodyToken ?? "0"),
     })));
 }
