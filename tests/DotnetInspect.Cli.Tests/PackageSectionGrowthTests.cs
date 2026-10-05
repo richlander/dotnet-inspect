@@ -30,7 +30,7 @@ public sealed class PackageSectionGrowthTests
         44)]
     [InlineData(
         "crestapps.agentskills.mcp.orchardcore.1.2.0.nupkg",
-        "Package skill files",
+        "Skills",
         172)]
     public async Task PackageBaseInventory_RealPackagePreservesMeasuredRows(
         string archive,
@@ -116,7 +116,7 @@ public sealed class PackageSectionGrowthTests
                 "package",
                 packagePath,
                 "-S",
-                "Package nuspec file",
+                "Nuspec",
                 "--tsv");
             Assert.True(nuspec.ExitCode == 0, nuspec.Error);
             Assert.Equal(
@@ -124,7 +124,7 @@ public sealed class PackageSectionGrowthTests
                 nuspec.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries).Length);
             await AssertCountAsync(
                 packagePath,
-                "Package files",
+                "Files",
                 31);
         }
         finally
