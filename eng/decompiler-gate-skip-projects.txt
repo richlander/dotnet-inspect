@@ -126,7 +126,6 @@ src/DotnetInspect.Web.Interop.Library
 src/DotnetInspect.Web.Interop.Metadata
 src/DotnetInspect.Web.Interop.Package
 src/DotnetInspect.Web.Interop.Source
-src/DotnetInspector.DocumentationHouse.Direct
 src/DotnetInspector.EcosystemLoading
 src/DotnetInspector.Ecosystems
 src/DotnetInspector.JsonSchema

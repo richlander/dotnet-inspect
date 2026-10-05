@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { isLibraryLens, libraryLenses } from "../src/data.ts";
 import {
+  defaultAnalysisMode,
   isAnalysisMode,
   renderAnalysisInspector,
   type AnalysisMode,
@@ -18,25 +19,25 @@ test("Library exposes one ordered Analysis inspector", () => {
   assert.equal(isAnalysisMode("metrics"), false);
 });
 
-test("Complexity and Relationships precede Performance in the Analysis tab order", () => {
+test("Relationships is the first and default Analysis mode", () => {
+  assert.equal(defaultAnalysisMode, "relationships");
   const html = renderAnalysisInspector({
     assemblyIdentity: "Microsoft.Extensions.AI, Version=10.0.0.0",
     assetPath: "lib/net10.0/Microsoft.Extensions.AI.dll",
     coordinate: "Microsoft.Extensions.AI@10.0.0",
     pickerHtml: "",
     escapeHtml: value => String(value),
-  }, "complexity", "Ready", "<p>Complexity</p>");
+  }, defaultAnalysisMode, "Ready", "<p>Relationships</p>");
   const modes = [...html.matchAll(/data-analysis-mode="([^"]+)"/g)]
     .map(match => match[1]);
 
   assert.deepEqual(
     modes,
     [
-      "complexity",
       "relationships",
+      "complexity",
       "performance",
       "integrations",
-      "opportunities",
     ],
   );
 });
@@ -46,7 +47,6 @@ for (const mode of [
   "relationships",
   "performance",
   "integrations",
-  "opportunities",
 ] as const satisfies readonly AnalysisMode[]) {
   test(`${mode} has one stable Analysis frame with an accessible mode panel`, () => {
     const html = renderAnalysisInspector({
@@ -59,9 +59,9 @@ for (const mode of [
     assert.equal(html.match(/<h1\b/g)?.length, 1);
     assert.match(html, /<h1 id="library-analysis-title">Analysis<\/h1>/);
     const header = html.match(/<header\b[^>]*>[\s\S]*?<\/header>/)?.[0] ?? "";
-    assert.equal(header.match(/role="tab"/g)?.length, 5);
+    assert.equal(header.match(/role="tab"/g)?.length, 4);
     assert.match(header, /<p title="Loading">Loading<\/p>[\s\S]*role="tablist"/);
-    assert.equal(html.match(/role="tab"/g)?.length, 5);
+    assert.equal(html.match(/role="tab"/g)?.length, 4);
     assert.equal(html.match(/aria-selected="true"/g)?.length, 1);
     assert.match(html, new RegExp(`data-analysis-mode="${mode}" aria-selected="true"`));
     assert.match(html, new RegExp(`role="tabpanel" aria-labelledby="analysis-mode-${mode}"`));

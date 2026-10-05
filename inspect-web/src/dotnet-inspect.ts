@@ -337,9 +337,9 @@ import { renderLibraryReferencesSurface } from "./library-references.ts";
 import { renderLibraryIntegrationsSurface } from "./library-integrations.ts";
 import {
   bindAnalysisTabs,
+  defaultAnalysisMode,
   isAnalysisMode,
   restoreAnalysisTabFocus,
-  type AnalysisMode,
 } from "./analysis-inspector.ts";
 import { renderLibraryAnalysisSurface } from "./library-analysis.ts";
 import {
@@ -356,6 +356,7 @@ import {
 } from "./member-focus.ts";
 import {
   buildAnnotatedRelationshipGraphMermaid,
+  buildAssemblyReferenceGraphMermaid,
   buildDependencyGraphMermaid,
   buildTypeGraphMermaid,
   resolveMermaidCssVariables,
@@ -457,7 +458,6 @@ import {
 } from "./annotated-source.ts";
 import {
   bindPackageOpportunities,
-  renderPackageOpportunities as renderPackageOpportunitiesPure,
 } from "./package-opportunities.ts";
 import {
   bindContentFrame,
@@ -989,6 +989,7 @@ async function loadEngineModule() {
       await worker.ready;
       return;
     }
+
     worker = workerModule.createProductionEngineWorkerClient(origin, {
       callbacks: {
         failure: failure => {
@@ -1502,7 +1503,7 @@ const initialState = {
   libraryApiDiff: { status: "idle" as const },
   compareClone: { status: "idle" as const } as CompareCloneState,
   compareCloneSelectedRank: null as number | null,
-  analysisMode: "performance" as AnalysisMode,
+  analysisMode: defaultAnalysisMode,
   workspaceOccurrences: null,
   workspaceOccurrenceSignature: "",
   workspaceOccurrenceLoading: false,
@@ -4699,6 +4700,8 @@ const loadMarkdownModules =
   retainSuccessfulImport<[MarkedModule, DomPurifyModule]>(
     () => Promise.all([import("marked"), import("dompurify")]));
 const depGraphRenderSequence = createDependencyGraphRenderSequence();
+const libraryReferenceGraphRenderSequence =
+  createDependencyGraphRenderSequence();
 let mermaidRenderSequence = 0;
 let callGraphRenderSeq = 0;
 type CallGraphRenderResult =
@@ -6108,7 +6111,7 @@ function clearWorkspacePackages() {
   state.platformPresentedAsRoot = false;
   state.platformSlot = -1;
   state.rootKind = "package";
-  state.analysisMode = "performance";
+  state.analysisMode = defaultAnalysisMode;
   for (const packageModel of discarded) {
     packageModel.platformContextId = null;
     releasePackageModelCaches(packageModel);
@@ -9251,7 +9254,6 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
     maybeAutoLoadLibraryEnablements();
     maybeAutoLoadPackageDependencies();
     maybeAutoLoadPackageIntegrations();
-    maybeAutoLoadPackageOpportunities();
     maybeAutoLoadPackagePerformance();
     maybeAutoLoadPackageLibraryMetrics();
     maybeAutoLoadTypeLeverage();
@@ -10357,7 +10359,6 @@ function libraryLensBody() {
           return renderPackageLibraryMetrics("relationships");
         case "performance": return renderPackagePerformance();
         case "integrations": return renderPackageIntegrations();
-        case "opportunities": return renderPackageOpportunities();
         default: return assertNever(state.analysisMode, "analysis mode");
       }
     case "metadata": return renderPackageMetadata();
@@ -10898,6 +10899,10 @@ function maybeAutoLoadPackageDependencies() {
       observeAsync(renderPackageDependencyList(), "Matching dependency packages");
       observeAsync(renderDependencyGraph(), "Rendering the dependency graph");
       observeAsync(ensureWorkspaceDependencies(), "Loading workspace dependencies");
+    } else if (libraryReferences && state.packageDependencies) {
+      observeAsync(
+        renderLibraryReferenceGraph(),
+        "Rendering the assembly-reference graph");
     }
     return;
   }
@@ -10931,6 +10936,8 @@ function packageIntegrationsSignature() {
   return `${pkg.id}@${pkg.version}/${pkg.activeFramework}${lib ? `#${lib}` : ""}`;
 }
 
+let startingPackageIntegrations = false;
+
 function renderPackageIntegrations() {
   const pkg = currentPackage();
   const library = selectedLibrary();
@@ -10943,12 +10950,17 @@ function renderPackageIntegrations() {
     assetPath: library?.asset ?? "",
     coordinate: `${pkg.activeFramework} · ${pkg.id}@${pkg.version}`,
     requireLibrary: pkg.isRuntimePack && !scopedLib,
-    pickerHtml: pkg.isRuntimePack && state.rootKind !== "platform"
+    pickerHtml: pkg.isRuntimePack
       ? platformLibrarySelectHtml({ dataAttr: "data-platform-analysis-library", selected: scopedLib || "" })
       : "",
-    loading: state.packageIntegrationsLoading && fresh,
-    error: fresh ? state.packageIntegrationsError : "",
-    data: fresh ? state.packageIntegrations : null,
+    integrationsFresh: fresh,
+    integrationsLoading: state.packageIntegrationsLoading,
+    integrationsError: state.packageIntegrationsError,
+    integrationsData: state.packageIntegrations,
+    suggestionsFresh: state.packageOpportunitiesKey === current,
+    suggestionsLoading: state.packageOpportunitiesLoading,
+    suggestionsError: state.packageOpportunitiesError,
+    suggestionsData: state.packageOpportunities,
     escapeHtml,
   });
 }
@@ -10956,17 +10968,32 @@ function renderPackageIntegrations() {
 async function loadPackageIntegrations() {
   const pkg = currentPackage();
   const scopedLib = selectedLibraryRequest() || null;
-  return packageInspection.loadIntegrations(
-    pkg,
-    packageIntegrationsSignature(),
-    scopedLib);
+  const signature = packageIntegrationsSignature();
+  if (startingPackageIntegrations
+    || (state.packageIntegrationsKey === signature
+      && state.packageOpportunitiesKey === signature)) return;
+  let integrationsLoad: Promise<void>;
+  let suggestionsLoad: Promise<void>;
+  startingPackageIntegrations = true;
+  try {
+    integrationsLoad =
+      packageInspection.loadIntegrations(pkg, signature, scopedLib);
+    suggestionsLoad =
+      packageInspection.loadOpportunities(pkg, signature, scopedLib);
+  } finally {
+    startingPackageIntegrations = false;
+  }
+  await Promise.all([integrationsLoad, suggestionsLoad]);
 }
 
 function maybeAutoLoadPackageIntegrations() {
   if (!state.atLibraryRoot || state.libraryLens !== "analysis") return;
   if (aggregateLibrarySubjectIsActive()) return;
   if (state.analysisMode !== "integrations") return;
-  if (state.packageIntegrationsKey === packageIntegrationsSignature()) return;
+  const signature = packageIntegrationsSignature();
+  if (startingPackageIntegrations) return;
+  if (state.packageIntegrationsKey === signature
+    && state.packageOpportunitiesKey === signature) return;
   observeAsync(loadPackageIntegrations(), "Loading package integrations");
 }
 
@@ -10974,46 +11001,6 @@ function packageScopeSignature() {
   const pkg = currentPackage();
   const lib = selectedLibraryShareKey();
   return `${pkg.id}@${pkg.version}/${pkg.activeFramework}${lib ? `#${lib}` : ""}`;
-}
-
-function renderPackageOpportunities() {
-  const pkg = currentPackage();
-  const library = selectedLibrary();
-  const scopedLib = scopedPlatformLibrary();
-  const current = packageScopeSignature();
-  return renderPackageOpportunitiesPure({
-    libraryName: library?.name ?? "",
-    assemblyIdentity: library ? libraryIdentity(library) : "No library selected",
-    assetPath: library?.asset ?? "",
-    coordinate: `${pkg.activeFramework} · ${pkg.id}@${pkg.version}`,
-    requireLibrary: pkg.isRuntimePack && !scopedLib,
-    pickerHtml: pkg.isRuntimePack
-      ? platformLibrarySelectHtml({ dataAttr: "data-platform-analysis-library", selected: scopedLib || "" })
-      : "",
-    fresh: state.packageOpportunitiesKey === current,
-    loading: state.packageOpportunitiesLoading,
-    error: state.packageOpportunitiesError,
-    data: state.packageOpportunities,
-    escapeHtml,
-  });
-}
-
-async function loadPackageOpportunities() {
-  const pkg = currentPackage();
-  const scopedLib = selectedLibraryRequest() || null;
-  return packageInspection.loadOpportunities(
-    pkg,
-    packageScopeSignature(),
-    scopedLib);
-}
-
-function maybeAutoLoadPackageOpportunities() {
-  if (!state.atLibraryRoot || state.libraryLens !== "analysis") return;
-  if (aggregateLibrarySubjectIsActive()) return;
-  if (state.analysisMode !== "opportunities") return;
-  if (Boolean(state.package?.isRuntimePack) && !scopedPlatformLibrary()) return;
-  if (state.packageOpportunitiesKey === packageScopeSignature()) return;
-  observeAsync(loadPackageOpportunities(), "Loading package opportunities");
 }
 
 function renderPackagePerformance() {
@@ -13125,8 +13112,6 @@ async function openPlatformLensLibrary(
     if (state.analysisMode === "performance") await loadPackagePerformance();
     else if (state.analysisMode === "integrations")
       await loadPackageIntegrations();
-    else if (state.analysisMode === "opportunities")
-      await loadPackageOpportunities();
     else if (state.analysisMode === "complexity"
       || state.analysisMode === "relationships")
       await loadPackageLibraryMetrics();
@@ -14266,6 +14251,14 @@ function setTheme(theme: "light" | "dark", renderView = true) {
   if (depGraph) {
     depGraph.dataset.graphDef = "";
     observeAsync(renderDependencyGraph(), "Rendering the dependency graph");
+  }
+  const referenceGraph =
+    document.querySelector<HTMLElement>("#library-reference-graph-diagram");
+  if (referenceGraph) {
+    referenceGraph.dataset.graphDef = "";
+    observeAsync(
+      renderLibraryReferenceGraph(),
+      "Rendering the assembly-reference graph");
   }
 }
 
@@ -21593,6 +21586,79 @@ async function renderDependencyGraph() {
     }
   } finally {
     pending.complete(requestSignature, seq);
+  }
+}
+
+async function renderLibraryReferenceGraph() {
+  const container =
+    document.querySelector<HTMLElement>("#library-reference-graph-diagram");
+  if (!container) return;
+  const assemblyReferences = state.packageDependencies?.assemblyReferences;
+  if (!assemblyReferences || typeof assemblyReferences === "string") {
+    libraryReferenceGraphRenderSequence.invalidate();
+    return;
+  }
+  const assemblyName = selectedLibrary()?.name ?? "Selected assembly";
+  const built = buildAssemblyReferenceGraphMermaid(
+    assemblyName,
+    assemblyReferences);
+  if (!built) {
+    libraryReferenceGraphRenderSequence.invalidate();
+    return;
+  }
+  const signature = built.definition;
+  if (container.dataset.graphDef === signature
+    && container.querySelector(".graph-viewport")) {
+    container.querySelector(".graph-render-error")?.remove();
+    return;
+  }
+  const pending = createDependencyGraphPendingState(container.dataset);
+  if (pending.isPending(signature)) return;
+  const seq = libraryReferenceGraphRenderSequence.begin();
+  pending.begin(signature, seq);
+  try {
+    const { default: mermaid } = await loadMermaidModule();
+    if (!libraryReferenceGraphRenderSequence.isCurrent(seq)) return;
+    mermaid.initialize({
+      startOnLoad: false,
+      securityLevel: "strict",
+      theme: state.theme === "light" ? "default" : "dark",
+      themeVariables: { fontSize: "16px" },
+      flowchart: { htmlLabels: false, curve: "basis" }
+    });
+    const id =
+      `reference-graph-${seq.toString(36)}-${Date.now().toString(36)}`;
+    const rootStyle = getComputedStyle(document.documentElement);
+    const resolved = resolveMermaidCssVariables(
+      built.definition,
+      name => rootStyle.getPropertyValue(name));
+    const { svg } = await mermaid.render(id, resolved);
+    if (!libraryReferenceGraphRenderSequence.isCurrent(seq)
+      || document.querySelector("#library-reference-graph-diagram")
+        !== container) return;
+    container.innerHTML =
+      '<div class="dependency-graph-stage"><div class="graph-viewport"></div>'
+      + graphControlsHtml()
+      + "</div>"
+      + (built.truncated
+        ? `<div class="graph-drill-error graph-diagnostics" role="status">Reference graph shows ${built.shownReferenceCount.toLocaleString()} of ${built.referenceCount.toLocaleString()} direct references. The complete list follows.</div>`
+        : "");
+    const viewport =
+      container.querySelector<HTMLElement>(".graph-viewport");
+    if (!viewport) return;
+    viewport.innerHTML = svg;
+    container.dataset.graphDef = signature;
+    bindGraphPanZoom(container, viewport, { keybindings });
+  } catch (error) {
+    if (libraryReferenceGraphRenderSequence.isCurrent(seq)
+      && document.querySelector("#library-reference-graph-diagram")
+        === container) {
+      container.dataset.graphDef = "";
+      container.innerHTML =
+        `<div class="graph-render-error" role="alert"><strong>Diagram rendering failed</strong><p>${escapeHtml(errorMessage(error))}</p></div>`;
+    }
+  } finally {
+    pending.complete(signature, seq);
   }
 }
 

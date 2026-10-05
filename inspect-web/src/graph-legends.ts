@@ -36,3 +36,10 @@ export function dependencyGraphLegendHtml(): string {
     <span><i class="legend-swatch external-package"></i>external</span>
   </div>`;
 }
+
+export function assemblyReferenceGraphLegendHtml(): string {
+  return `<div class="graph-legend" aria-label="Graph legend">
+    <span><i class="legend-swatch target"></i>inspected assembly</span>
+    <span><i class="legend-swatch reference"></i>direct reference</span>
+  </div>`;
+}
