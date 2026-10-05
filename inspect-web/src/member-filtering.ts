@@ -324,6 +324,7 @@ export interface BodyTarget {
   memberName: string | null;
   selectorKey: string | null;
   metadataToken: number | null;
+  ownerSelectorKey?: string | null;
 }
 
 interface BodySelectorLike {
@@ -335,11 +336,16 @@ interface BodySelectorLike {
 export interface BodyTargetOverload {
   metadataToken?: number | null;
   graphSelectorKey?: string;
+  stableSelector?: string;
   bodySelectors?: readonly BodySelectorLike[] | null;
 }
 
 export interface BodyTargetMember {
   name: string;
+}
+
+export interface BodyTargetMemberGroup extends BodyTargetMember {
+  overloads: readonly BodyTargetOverload[];
 }
 
 export function bodyTargetMatchesOverload(
@@ -350,6 +356,9 @@ export function bodyTargetMatchesOverload(
   if (!target || !overload || !member
     || (target.metadataToken == null && !target.selectorKey && !target.memberName)) {
     return false;
+  }
+  if (target.ownerSelectorKey != null) {
+    return target.ownerSelectorKey === overload.stableSelector;
   }
   const candidates = [{
     memberName: member.name,
@@ -366,7 +375,21 @@ export function bodyTargetMatchesOverload(
     && (target.metadataToken == null || target.metadataToken === candidate.metadataToken));
 }
 
-export type EncodedBodyTarget = [string | null, string | null, number | null];
+export function bodyTargetMatchesMember(
+  target: Partial<BodyTarget> | null | undefined,
+  member: BodyTargetMemberGroup | null | undefined,
+  selectedOverloadIndex: number | null | undefined,
+): boolean {
+  if (!member) return false;
+  const overload = member.overloads[
+    selectedOverloadIndex
+      ?? (member.overloads.length === 1 ? 0 : -1)];
+  return bodyTargetMatchesOverload(target, member, overload);
+}
+
+export type EncodedBodyTarget =
+  | [string | null, string | null, number | null]
+  | [string | null, string | null, number | null, string];
 
 export function encodeBodyTarget(target: BodyTarget | null | undefined): EncodedBodyTarget | null {
   if (!target) return null;
@@ -375,24 +398,38 @@ export function encodeBodyTarget(target: BodyTarget | null | undefined): Encoded
     target.selectorKey ?? null,
     target.metadataToken ?? null,
   ];
-  return encoded.some(value => value != null) ? encoded : null;
+  if (!encoded.some(value => value != null)) return null;
+  return target.ownerSelectorKey
+    ? [...encoded, target.ownerSelectorKey]
+    : encoded;
 }
 
 export function decodeBodyTarget(value: unknown): BodyTarget | null {
-  if (!Array.isArray(value) || value.length !== 3) return null;
+  if (!Array.isArray(value)
+    || (value.length !== 3 && value.length !== 4)) return null;
   const values: unknown[] = value;
-  const [memberNameValue, selectorKeyValue, metadataTokenValue] = values;
+  const [
+    memberNameValue,
+    selectorKeyValue,
+    metadataTokenValue,
+    ownerSelectorKeyValue,
+  ] = values;
   if ((memberNameValue != null && typeof memberNameValue !== "string")
     || (selectorKeyValue != null && typeof selectorKeyValue !== "string")
     || (metadataTokenValue != null
       && (typeof metadataTokenValue !== "number"
-        || !Number.isInteger(metadataTokenValue)))) {
+        || !Number.isInteger(metadataTokenValue)))
+    || (ownerSelectorKeyValue != null
+      && typeof ownerSelectorKeyValue !== "string")) {
     return null;
   }
   const target: BodyTarget = {
     memberName: memberNameValue || null,
     selectorKey: selectorKeyValue || null,
     metadataToken: metadataTokenValue ?? null,
+    ...(ownerSelectorKeyValue
+      ? { ownerSelectorKey: ownerSelectorKeyValue }
+      : {}),
   };
   return target.memberName || target.selectorKey || target.metadataToken != null
     ? target

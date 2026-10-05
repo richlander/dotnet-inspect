@@ -82,6 +82,7 @@ import type {
 } from "./data.ts";
 import type { CommandPaletteResult } from "./command-bar.ts";
 import {
+  bodyTargetMatchesMember,
   bodyTargetMatchesOverload,
   captureLibraryScope,
   filterMemberGroups,
@@ -4516,9 +4517,15 @@ function memberHasSelectedBody(member: AppMemberGroup) {
   const type = selectedType();
   if (!type || !state.selectedBodyTarget) return false;
   const selection = findGraphMemberSelection(type, state.selectedBodyTarget);
-  return selection?.group.key === member.key
+  if (selection?.group.key === member.key
     && (state.selectedOverloadIndex == null
-      || selection.overloadIndex === state.selectedOverloadIndex);
+      || selection.overloadIndex === state.selectedOverloadIndex)) {
+    return true;
+  }
+  return bodyTargetMatchesMember(
+    state.selectedBodyTarget,
+    member,
+    state.selectedOverloadIndex);
 }
 
 const workspaceLocation = createAsyncWorkspaceLocationPersistence({
@@ -13089,6 +13096,7 @@ const packageViewActions: PackageViewBindingActions = {
         memberName: target.bodyMember,
         selectorKey: target.bodySelector,
         metadataToken: target.bodyToken,
+        ownerSelectorKey: target.stableSelector,
       });
   },
 };

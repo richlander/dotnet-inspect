@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  bodyTargetMatchesMember,
   bodyTargetMatchesOverload,
   captureLibraryScope,
   decodeBodyTarget,
@@ -22,12 +23,14 @@ import {
   selectedConcreteOverload,
   selectedSourceOverload,
 } from "../src/member-filtering.ts";
+import { memberSectionIdsFor } from "../src/data.ts";
 
 test("body targets must identify the selected overload or one of its accessor bodies", () => {
   const member = { name: "Value" };
   const overload = {
     metadataToken: 10,
     graphSelectorKey: "property",
+    stableSelector: "public-property",
     bodySelectors: [
       { token: 11, memberName: "get_Value", selectorKey: "getter" },
       { token: 12, memberName: "set_Value", selectorKey: "setter" },
@@ -52,6 +55,28 @@ test("body targets must identify the selected overload or one of its accessor bo
       member,
       overload),
     false);
+  assert.equal(
+    bodyTargetMatchesOverload(
+      {
+        metadataToken: 99,
+        memberName: "<get_Value>g__Local|0_0",
+        selectorKey: "generated",
+        ownerSelectorKey: "public-property",
+      },
+      member,
+      overload),
+    true);
+  assert.equal(
+    bodyTargetMatchesOverload(
+      {
+        metadataToken: 99,
+        memberName: "<get_Value>g__Local|0_0",
+        selectorKey: "generated",
+        ownerSelectorKey: "other-property",
+      },
+      member,
+      overload),
+    false);
   assert.equal(bodyTargetMatchesOverload({}, member, overload), false);
 });
 
@@ -60,6 +85,7 @@ test("body targets round-trip through the compact rich-packet tuple", () => {
     memberName: "get_Value",
     selectorKey: "getter",
     metadataToken: 11,
+    ownerSelectorKey: "public-property",
   };
   assert.deepEqual(decodeBodyTarget(encodeBodyTarget(target)), target);
   assert.equal(encodeBodyTarget({
@@ -72,6 +98,30 @@ test("body targets round-trip through the compact rich-packet tuple", () => {
     { memberName: "get_Value", selectorKey: "getter", metadataToken: null });
   assert.equal(decodeBodyTarget([null, null, null]), null);
   assert.equal(decodeBodyTarget(["get_Value", "getter", "11"]), null);
+  assert.equal(
+    decodeBodyTarget(["get_Value", "getter", 11, 42]),
+    null);
+});
+
+test("generated property bodies retain Facts through their public owner", () => {
+  const member = {
+    kind: "property",
+    name: "LiftedStackAllocation",
+    overloads: [{
+      stableSelector: "public-property",
+    }],
+  };
+  const target = decodeBodyTarget(encodeBodyTarget({
+    metadataToken: 99,
+    memberName: "<get_LiftedStackAllocation>g__Local|0_0",
+    selectorKey: "generated",
+    ownerSelectorKey: "public-property",
+  }));
+
+  const hasSelectedBody = bodyTargetMatchesMember(target, member, null);
+
+  assert.equal(hasSelectedBody, true);
+  assert.ok(memberSectionIdsFor(member, false, hasSelectedBody).includes("facts"));
 });
 
 test("history restores type filters independently of Member browse scope", () => {

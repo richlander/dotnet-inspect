@@ -55,6 +55,21 @@ public sealed class MemorySafetySpellingFixture
 
     public int InitOnly { get; init; }
 
+    public static int LiftedStackAllocation
+    {
+        get
+        {
+            return Local();
+
+            static int Local()
+            {
+                Span<int> values = stackalloc int[1];
+                values[0] = 42;
+                return values[0];
+            }
+        }
+    }
+
     [DllImport("__dotnet_inspect_memory_safety_fixture__")]
     public static safe extern int SafeExtern();
 }

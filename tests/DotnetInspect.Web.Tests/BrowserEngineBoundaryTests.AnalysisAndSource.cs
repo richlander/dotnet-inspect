@@ -365,6 +365,50 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public async Task PackageUnsafeFindings_RetainLiftedPropertyOwner()
+    {
+        const string PackageId =
+            "Browser.Unsafe.LiftedProperty.Findings";
+        byte[] image = File.ReadAllBytes(
+            FixtureCatalog.DecompilerUnsafeNew.AssemblyPath());
+        await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
+            new BrowserPackage(
+                PackageId,
+                "1.0.0",
+                PackagePair(
+                    image,
+                    image,
+                    $"{PackageId}.dll"),
+                fromCache: false));
+
+        BrowserPackageUnsafeFindings findings =
+            Assert.IsType<BrowserPackageUnsafeFindings>(
+                JsonSerializer.Deserialize(
+                    await DotnetInspect.Web.Interop.Analysis
+                        .AnalysisExports.QueryPackageUnsafeFindings(
+                            PackageId,
+                            "1.0.0",
+                            "net11.0",
+                            $"{PackageId}.dll"),
+                    BrowserAnalysisJsonContext.Default
+                        .BrowserPackageUnsafeFindings));
+        BrowserUnsafeFinding propertyFinding =
+            Assert.Single(
+                findings.Findings,
+                finding =>
+                    finding.MemberName == "LiftedStackAllocation"
+                    && finding.Kind == "stackalloc");
+
+        Assert.Contains(
+            "g__Local",
+            propertyFinding.BodyMember,
+            StringComparison.Ordinal);
+        Assert.NotEqual(
+            propertyFinding.StableSelector,
+            propertyFinding.BodySelector);
+    }
+
+    [Fact]
     public async Task PackageUnsafeFindings_ReferenceOnlyLibraryFailsBeforeRows()
     {
         const string PackageId = "Browser.Unsafe.ReferenceOnly";
