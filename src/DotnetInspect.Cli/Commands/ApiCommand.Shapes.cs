@@ -60,9 +60,9 @@ public partial class ApiCommand
     }
 
     /// <summary>
-    /// A lone scalar section (a field-set record such as <c>Type Info</c>,
-    /// <c>API Info</c>, or <c>Signature</c>, or a Text payload with no declared
-    /// inventory) has no rows under <c>docs/design/section-cardinality.md</c>,
+    /// A lone scalar section (a field-set record such as <c>Type Info</c> or
+    /// <c>API Info</c>, or a Text payload with no declared inventory) has no
+    /// rows under <c>docs/design/section-cardinality.md</c>,
     /// so <c>--count</c> and the <c>--rows</c> window are rejected before
     /// acquisition. A bare <c>-n</c> stays the rendered-line window. Count maps
     /// over several sections keep their per-section meaning.
