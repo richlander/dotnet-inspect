@@ -603,7 +603,7 @@ public class LibraryInspection
     { get; set; } = [];
 
     [JsonIgnore]
-    public OptimizationOpportunityCounts? PerformanceTriageCounts
+    internal OptimizationOpportunityCounts? PerformanceTriageCounts
     { get; set; }
 
     /// <summary>
