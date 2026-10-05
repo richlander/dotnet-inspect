@@ -1,4 +1,5 @@
 using DotnetInspector.Sections;
+using QuerySpace.Explanation;
 using QuerySpace.Vocabulary;
 
 namespace DotnetInspector.Sections.Tests;
@@ -32,8 +33,8 @@ public sealed class ProductVocabularyCompositionTests
         Assert.Equal(
             ["test.paint", "test.cut"],
             sizes.GetRequiredValues(index.GetMap("accepted_by").Identity)
-                .Select(value => ((VocabularyMapValue.Scalar)value).Value.Text));
-        var count = Assert.IsType<VocabularyMapValue.Scalar>(
+                .Select(value => ((ExplanationValue.Scalar)value).Value.Text));
+        var count = Assert.IsType<ExplanationValue.Scalar>(
             Assert.Single(sizes.GetRequiredValues(index.GetMap("values").Identity)));
         Assert.Equal(1, count.Value.Integer);
     }

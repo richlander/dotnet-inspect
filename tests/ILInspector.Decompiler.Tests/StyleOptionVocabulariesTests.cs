@@ -3,6 +3,7 @@ using System.Linq;
 
 using ILInspector.Decompiler.Pipeline;
 
+using QuerySpace.Explanation;
 using QuerySpace.Vocabulary;
 
 namespace ILInspector.Decompiler.Tests;
@@ -34,7 +35,7 @@ public class StyleOptionVocabulariesTests
         {
             Assert.Equal(tier.Title, term.DisplayLabel);
             Assert.Equal(tier.Summary, term.Summary);
-            var order = Assert.IsType<VocabularyMapValue.Scalar>(
+            var order = Assert.IsType<ExplanationValue.Scalar>(
                 Assert.Single(term.GetRequiredValues(tiers.GetMap("order").Identity)));
             Assert.Equal(tier.Order, order.Value.Integer);
         }
@@ -60,7 +61,7 @@ public class StyleOptionVocabulariesTests
         foreach ((StyleOptionChoice choice, VocabularyTerm term) in
             StyleOptionCatalog.Choices.Zip(choices.Terms))
         {
-            var value = Assert.IsType<VocabularyMapValue.Term>(
+            var value = Assert.IsType<ExplanationValue.VocabularyTerm>(
                 Assert.Single(term.GetRequiredValues(tier.Identity)));
             Assert.Equal(choice.Tier.ToString(), snapshot.GetTerm(value.Identity).Identity.Value);
             Assert.Equal(
