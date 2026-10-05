@@ -1376,7 +1376,7 @@ public partial class CommandExecutionTests
         // --print names the section whose rows carry the document, like every other payload
         // projection. There is no per-document flag to disagree with the selection.
         var (exit, output, _) = await RunAppAsync(
-            "package", "Newtonsoft.Json@13.0.4", "-S", "Package README file", "--print");
+            "package", "Newtonsoft.Json@13.0.4", "-S", "README", "--print");
 
         Assert.Equal(0, exit);
         Assert.NotEmpty(output);
@@ -1814,7 +1814,7 @@ public partial class CommandExecutionTests
         {
             var (exit, output, error) = await RunAppAsync(
                 "package", packagePath, packagePath,
-                "-S", "Package files",
+                "-S", "Files",
                 "--roots", "--json");
 
             Assert.Equal(1, exit);
@@ -1835,7 +1835,7 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             "--offline",
             "package", "Package.That.Must.Not.Resolve",
-            "-D", "-S", "Package files",
+            "-D", "-S", "Files",
             "--roots");
 
         Assert.Equal(1, exit);
@@ -1922,7 +1922,7 @@ public partial class CommandExecutionTests
 
             var (readmeExit, readmeStdout, readmeError) = await RunProjectFixtureAsync(
                 projectPath,
-                "-S", "Package README file",
+                "-S", "README",
                 "--print",
                 "--jsonl",
                 "--out", readmeOutput);
