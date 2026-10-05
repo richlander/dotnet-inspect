@@ -1,21 +1,23 @@
 using System.Collections.Immutable;
 
 using DotnetInspector.Queries;
-using DotnetInspector.Sections;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
 using QuerySpace.Vocabulary;
 
-namespace DotnetInspector.Vocabulary;
+namespace DotnetInspector.Sections;
 
 /// <summary>
-/// Projects a composed product vocabulary snapshot to the CLI-compatible
-/// Product Vocabulary document: fields, operators, and rows per section.
+/// Projects a host-composed product vocabulary snapshot to the Product
+/// Vocabulary document: fields, operators, and rows per section. A snapshot
+/// that lacks a product section fails visibly.
 /// </summary>
-internal static class ProductVocabularyCompatibility
+public static class ProductVocabularyProjection
 {
-    internal static VocabularyDocument Create(VocabularySnapshot snapshot)
+    /// <summary>Projects <paramref name="snapshot"/> to the Product Vocabulary document.</summary>
+    public static VocabularyDocument ToDocument(VocabularySnapshot snapshot)
     {
+        ArgumentNullException.ThrowIfNull(snapshot);
         VocabularyDefinition index = Get(
             snapshot,
             ProductVocabularyComposition.SectionsId);
