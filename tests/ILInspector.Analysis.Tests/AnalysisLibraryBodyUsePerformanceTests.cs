@@ -62,7 +62,9 @@ public sealed class AnalysisLibraryBodyUsePerformanceTests(
                         [allocatedBytes]));
         }
 
-        string report = BodyUseScorecard.Report(cells);
+        string report = BodyUseScorecard.Report(
+            cells,
+            WorkShapes());
 
         Assert.Contains(
             "Implementation ratios to Planner",
@@ -103,7 +105,9 @@ public sealed class AnalysisLibraryBodyUsePerformanceTests(
                    [0]),
         ];
 
-        string report = BodyUseScorecard.Report(cells);
+        string report = BodyUseScorecard.Report(
+            cells,
+            WorkShapes());
 
         Assert.DoesNotContain(
             "NaN",
@@ -473,6 +477,42 @@ public sealed class AnalysisLibraryBodyUsePerformanceTests(
                 CultureInfo.InvariantCulture),
             measurement.LookupUses.ToString(
                 CultureInfo.InvariantCulture));
+
+    static BodyUseScorecardWorkShape[] WorkShapes() =>
+    [
+        Shape(
+            BodyUseScorecardClosing.Exists,
+            1,
+            BodyUseScorecardDisposition.Settled),
+        Shape(
+            BodyUseScorecardClosing.Count,
+            42,
+            BodyUseScorecardDisposition.Complete),
+        Shape(
+            BodyUseScorecardClosing.Rows,
+            42,
+            BodyUseScorecardDisposition.Complete),
+    ];
+
+    static BodyUseScorecardWorkShape Shape(
+        BodyUseScorecardClosing closing,
+        int value,
+        BodyUseScorecardDisposition disposition) =>
+        new(
+            "asset",
+            closing,
+            value,
+            disposition,
+            new(
+                10,
+                10,
+                0,
+                0,
+                0,
+                100,
+                100,
+                0,
+                0));
 
     sealed record ReferenceResult(
         int Types,

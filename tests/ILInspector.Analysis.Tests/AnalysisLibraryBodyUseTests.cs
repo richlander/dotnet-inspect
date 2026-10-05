@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using System.Collections.Immutable;
+using System.Globalization;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
@@ -770,21 +771,158 @@ public sealed class AnalysisLibraryBodyUseTests
     [Fact]
     public void Scorecard_ChecksEveryClosing()
     {
+        BodyUseScorecardAsset[] assets =
+        [
+            new(
+                "empty",
+                "Empty.dll",
+                BuildIndependentImage([(byte)ILOpCode.Ret])),
+        ];
         BodyUseScorecardCheck check = BodyUseScorecard.Check(
-            [
-                new(
-                    "empty",
-                    "Empty.dll",
-                    BuildIndependentImage([(byte)ILOpCode.Ret])),
-            ],
+            assets,
             cancellationToken:
                 TestContext.Current.CancellationToken);
+        IReadOnlyList<BodyUseScorecardWorkShape> workShapes =
+            BodyUseScorecardWorkShapes.Capture(
+                assets,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
 
         Assert.True(check.Agrees);
         Assert.Equal(9, check.Compared);
         Assert.Equal(
             Enum.GetValues<BodyUseScorecardClosing>(),
             check.AnswerHashes.Select(static answer => answer.Closing));
+        Assert.Equal(
+            Enum.GetValues<BodyUseScorecardClosing>(),
+            workShapes.Select(static shape => shape.Closing));
+    }
+
+    [Fact]
+    public void Scorecard_ReportMakesEndToEndWorkVisible()
+    {
+        BodyUseScorecardCell[] cells =
+        [
+            .. Enum.GetValues<BodyUseScorecardClosing>()
+                .SelectMany(closing =>
+                    Enum.GetValues<BodyUseScorecardColumn>()
+                        .Select(column =>
+                            new BodyUseScorecardCell(
+                                0,
+                                "Asset",
+                                closing,
+                                column,
+                                [column switch
+                                {
+                                    BodyUseScorecardColumn.Direct => 90,
+                                    BodyUseScorecardColumn.Linq => 125,
+                                    BodyUseScorecardColumn.NLinq => 100,
+                                    BodyUseScorecardColumn.Planner => 95,
+                                    _ => throw new ArgumentOutOfRangeException(
+                                        nameof(column)),
+                                }],
+                                [column switch
+                                {
+                                    BodyUseScorecardColumn.Direct => 900,
+                                    BodyUseScorecardColumn.Linq => 1300,
+                                    BodyUseScorecardColumn.NLinq => 1000,
+                                    BodyUseScorecardColumn.Planner => 950,
+                                    _ => throw new ArgumentOutOfRangeException(
+                                        nameof(column)),
+                                }]))),
+        ];
+        BodyUseScorecardWorkShape[] workShapes =
+        [
+            Shape(
+                BodyUseScorecardClosing.Exists,
+                1,
+                BodyUseScorecardDisposition.Settled,
+                bodies: 1,
+                operands: 2),
+            Shape(
+                BodyUseScorecardClosing.Count,
+                42,
+                BodyUseScorecardDisposition.Complete,
+                bodies: 10,
+                operands: 100),
+            Shape(
+                BodyUseScorecardClosing.Rows,
+                42,
+                BodyUseScorecardDisposition.Complete,
+                bodies: 10,
+                operands: 100),
+        ];
+
+        string report = BodyUseScorecard.Report(
+            cells,
+            workShapes);
+        Assert.Contains(
+            "End-to-end work shape.",
+            report,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "| Asset | Count | 42 | Complete | 10 | 100 |",
+            report,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Implementation ratios to Planner:",
+            report,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Terminal ratios to Count:",
+            report,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Absolute end-to-end deltas from Planner;",
+            report,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "| Asset | Count | LINQ | +30.0 | +350 |",
+            report,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Absolute end-to-end medians.",
+            report,
+            StringComparison.Ordinal);
+
+        using var tsv = new StringWriter(
+            CultureInfo.InvariantCulture);
+        BodyUseScorecard.WriteTsv(
+            cells,
+            workShapes,
+            tsv);
+        Assert.Contains(
+            "terminal_value\tdisposition"
+                + "\tbodies_considered\toperands_considered",
+            tsv.ToString(),
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Asset\tCount\tLINQ\t125\t1300"
+                + "\t42\tComplete\t10\t100",
+            tsv.ToString(),
+            StringComparison.Ordinal);
+
+        static BodyUseScorecardWorkShape Shape(
+            BodyUseScorecardClosing closing,
+            int value,
+            BodyUseScorecardDisposition disposition,
+            int bodies,
+            int operands) =>
+            new(
+                "Asset",
+                closing,
+                value,
+                disposition,
+                new(
+                    bodies,
+                    bodies,
+                    0,
+                    0,
+                    0,
+                    operands,
+                    operands,
+                    0,
+                    0));
     }
 
     [Fact]
