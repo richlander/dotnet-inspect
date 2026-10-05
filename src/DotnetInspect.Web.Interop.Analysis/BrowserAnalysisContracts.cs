@@ -551,6 +551,8 @@ public sealed record BrowserTypeMethodLeverageRank(
 public sealed record BrowserTypeMethodLeverageWinner(
     string TypeDefinitionId,
     string StableSelector,
+    string MemberName,
+    string MemberKind,
     int[] MethodTokens);
 
 public sealed record BrowserTypeImplementationHeatContent(

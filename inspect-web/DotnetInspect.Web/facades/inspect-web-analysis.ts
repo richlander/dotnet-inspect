@@ -848,6 +848,8 @@ export interface BrowserTypeMethodLeverageRank {
 export interface BrowserTypeMethodLeverageWinner {
   readonly typeDefinitionId: string;
   readonly stableSelector: string;
+  readonly memberName: string;
+  readonly memberKind: string;
   readonly methodTokens: ReadonlyArray<number>;
 }
 

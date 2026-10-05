@@ -103,6 +103,8 @@ internal static partial class BrowserImplementationProfileWireProjection
                         new BrowserTypeMethodLeverageWinner(
                             winner.TypeDefinitionId,
                             winner.StableSelector,
+                            winner.MemberName,
+                            winner.MemberKind,
                             [.. winner.MethodTokens])),
             ],
             [.. inspection.Diagnostics.Select(Project)],

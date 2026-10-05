@@ -288,6 +288,7 @@ import {
 import {
   createTypeMethodLeverageCoordinator,
   methodLeverageFor,
+  methodLeverageForGroup,
   type PackageTypeMethodLeverageRequest,
   type PlatformTypeMethodLeverageRequest,
   type TypeMethodLeverageRequest,
@@ -6820,17 +6821,20 @@ function visibleMemberGroups(type: AppTypeSurface) {
 
 function methodLeverageAchievements(
   group: {
+    readonly key: string;
     readonly overloads: readonly {
       readonly stableSelector?: string | null;
     }[];
   },
   index: number | null,
 ) {
-  if (index === null) return [];
-  const stableSelector = group.overloads[index]?.stableSelector;
-  const cue = stableSelector
-    ? methodLeverageFor(currentTypeMethodLeverageState(), stableSelector)
-    : null;
+  const cue = index === null
+    ? methodLeverageForGroup(
+        currentTypeMethodLeverageState(),
+        group.key)
+    : methodLeverageFor(
+        currentTypeMethodLeverageState(),
+        group.overloads[index]?.stableSelector);
   return cue
     ? [{ kind: "top-leverage" as const, description: cue.description }]
     : [];

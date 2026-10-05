@@ -7,6 +7,7 @@ import type {
 import {
   createTypeMethodLeverageCoordinator,
   methodLeverageFor,
+  methodLeverageForGroup,
   projectTypeMethodLeverage,
   typeMethodLeverageCacheKey,
   type PackageTypeMethodLeverageRequest,
@@ -28,6 +29,8 @@ function available(
   anchoredWinners: ReadonlyArray<BrowserTypeMethodLeverageWinner> = [{
       typeDefinitionId: request.typeDefinitionId,
       stableSelector: "HiddenWinner~1234567890",
+      memberName: "HiddenWinner",
+      memberKind: "method",
       methodTokens: [0x06000003],
     }],
 ): BrowserTypeMethodLeverage {
@@ -106,6 +109,11 @@ test("method leverage projects exact anchors without visible fallback", () => {
     presentation.byStableSelector.has("PublicRunnerUp~0987654321"),
     false,
   );
+  assert.match(
+    presentation.byMemberGroupKey.get("method:HiddenWinner")
+      ?.description ?? "",
+    /Top Leverage; 3 direct callers; 4 roots/,
+  );
 });
 
 test("method leverage counts tied accessors by winning method token", () => {
@@ -113,6 +121,8 @@ test("method leverage counts tied accessors by winning method token", () => {
     available([{
       typeDefinitionId: request.typeDefinitionId,
       stableSelector: "Value~1234567890",
+      memberName: "Value",
+      memberKind: "property",
       methodTokens: [0x06000003, 0x06000004],
     }]),
     request,
@@ -129,11 +139,15 @@ test("method leverage rejects duplicate winner correspondence", () => {
         {
           typeDefinitionId: request.typeDefinitionId,
           stableSelector: "Winner~1234567890",
+          memberName: "Winner",
+          memberKind: "method",
           methodTokens: [0x06000001],
         },
         {
           typeDefinitionId: request.typeDefinitionId,
           stableSelector: "Winner~1234567890",
+          memberName: "Winner",
+          memberKind: "method",
           methodTokens: [0x06000002],
         },
       ]),
@@ -167,6 +181,10 @@ test("method leverage coordinator caches one exact Type result", async () => {
   assert.ok(methodLeverageFor(
     state.typeMethodLeverage,
     "HiddenWinner~1234567890",
+  ));
+  assert.ok(methodLeverageForGroup(
+    state.typeMethodLeverage,
+    "method:HiddenWinner",
   ));
 
   coordinator.request(request, () => true);

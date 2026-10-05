@@ -45,6 +45,7 @@ export interface MethodLeverageCue {
 
 export interface TypeMethodLeveragePresentation {
   readonly byStableSelector: ReadonlyMap<string, MethodLeverageCue>;
+  readonly byMemberGroupKey: ReadonlyMap<string, MethodLeverageCue>;
   readonly methodCount: number;
   readonly winnerCount: number;
   readonly anchoredWinnerCount: number;
@@ -156,6 +157,8 @@ function validateAvailable(
   for (const winner of content.anchoredWinners) {
     if (winner.typeDefinitionId !== request.typeDefinitionId
       || winner.stableSelector.length === 0
+      || winner.memberName.length === 0
+      || winner.memberKind.length === 0
       || winner.methodTokens.length === 0
       || selectors.has(winner.stableSelector)) {
       throw new Error("Type method-leverage winner identity is inconsistent.");
@@ -221,6 +224,12 @@ export function projectTypeMethodLeverage(
         { description },
       ]),
     ),
+    byMemberGroupKey: new Map(
+      result.content.anchoredWinners.map(winner => [
+        `${winner.memberKind}:${winner.memberName}`,
+        { description },
+      ]),
+    ),
     methodCount: result.content.methodCount,
     winnerCount: result.content.winnerCount,
     anchoredWinnerCount: result.content.anchoredWinners.length,
@@ -266,6 +275,15 @@ export function methodLeverageFor(
 ): MethodLeverageCue | null {
   return state.status === "ready" && stableSelector
     ? state.presentation.byStableSelector.get(stableSelector) ?? null
+    : null;
+}
+
+export function methodLeverageForGroup(
+  state: TypeMethodLeverageState,
+  groupKey: string | null | undefined,
+): MethodLeverageCue | null {
+  return state.status === "ready" && groupKey
+    ? state.presentation.byMemberGroupKey.get(groupKey) ?? null
     : null;
 }
 

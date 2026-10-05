@@ -104,6 +104,8 @@ public sealed class AssemblyContextTypeMethodLeverageQueryTests
             ApiMemberIdentity.GetMemberAnchor(type, verifyMutable)
                 .StableSelector,
             winner.StableSelector);
+        Assert.Equal(verifyMutable.Name, winner.MemberName);
+        Assert.Equal(verifyMutable.Kind, winner.MemberKind);
         Assert.True(
             verifyMutable.MetadataToken is { } verifyMutableToken
             && winner.MethodTokens.Contains(verifyMutableToken));

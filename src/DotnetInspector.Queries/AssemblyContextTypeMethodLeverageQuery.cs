@@ -20,6 +20,8 @@ public sealed record TypeMethodLeverageRank(
 public sealed record TypeMethodLeverageWinner(
     string TypeDefinitionId,
     string StableSelector,
+    string MemberName,
+    string MemberKind,
     ImmutableArray<int> MethodTokens);
 
 /// <summary>
@@ -236,6 +238,8 @@ public static class AssemblyContextTypeMethodLeverageQuery
                 .Select(group => new TypeMethodLeverageWinner(
                     typeDefinitionId,
                     group.Key,
+                    group.First().Member.Name,
+                    group.First().Member.Kind,
                     [
                         .. group.Select(item => item.Token)
                             .Distinct()
@@ -276,7 +280,9 @@ public static class AssemblyContextTypeMethodLeverageQuery
                 typeTokens.Add(memberToken);
             var selectedMember = new SelectedMember(
                 ApiMemberIdentity.GetMemberAnchor(type, member)
-                    .StableSelector);
+                    .StableSelector,
+                member.Name,
+                member.Kind);
             foreach (int bodyToken
                 in CallGraphMemberResolver.CreateBodySelectors(type, member)
                     .Select(selector => selector.BodyToken)
@@ -318,5 +324,8 @@ public static class AssemblyContextTypeMethodLeverageQuery
             MembersByBodyToken,
         ImmutableArray<ApiSurfaceInspectionFailure> InspectionFailures);
 
-    sealed record SelectedMember(string StableSelector);
+    sealed record SelectedMember(
+        string StableSelector,
+        string Name,
+        string Kind);
 }
