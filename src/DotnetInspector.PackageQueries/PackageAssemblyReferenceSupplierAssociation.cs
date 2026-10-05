@@ -231,7 +231,8 @@ public sealed record PackageAssemblyReferenceSupplierAssociationRequest
         int rootOccurrenceIndex,
         ImmutableArray<PackageDependencyEdgeRealizationExecution>
             edgeExecutions,
-        PackageAssemblyReferenceSupplierLimits? limits = null)
+        PackageAssemblyReferenceSupplierLimits? limits = null,
+        int? originProjectionIndex = null)
     {
         ArgumentNullException.ThrowIfNull(generation);
         ArgumentNullException.ThrowIfNull(focalScope);
@@ -255,7 +256,8 @@ public sealed record PackageAssemblyReferenceSupplierAssociationRequest
                     focalScope,
                     traversal,
                     rootOccurrenceIndex,
-                    edgeExecutions));
+                    edgeExecutions,
+                    originProjectionIndex));
         Limits = limits ?? new();
         Limits.Validate();
     }

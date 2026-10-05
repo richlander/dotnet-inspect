@@ -1531,6 +1531,15 @@ public sealed partial class PackageHouseExecutionTests
     private static PackageRootBinding CallGraphRootBinding(
         Func<InMemoryPackageContent, IPackageContent> contentFactory,
         params (string PackageId, string Version)[] dependencies)
+        => CallGraphRootBinding(
+            contentFactory,
+            CallGraphCallerPath,
+            dependencies);
+
+    private static PackageRootBinding CallGraphRootBinding(
+        Func<InMemoryPackageContent, IPackageContent> contentFactory,
+        string assemblyPath,
+        params (string PackageId, string Version)[] dependencies)
     {
         ArgumentNullException.ThrowIfNull(contentFactory);
         string dependencyXml = string.Join(
@@ -1566,9 +1575,9 @@ public sealed partial class PackageHouseExecutionTests
                 nuspec.Write(manifest);
             }
             using Stream assembly = archive.CreateEntry(
-                "lib/netstandard2.0/ILInspector.Analysis.CallerGraphCaller.dll")
+                $"lib/netstandard2.0/{Path.GetFileName(assemblyPath)}")
                 .Open();
-            assembly.Write(File.ReadAllBytes(CallGraphCallerPath));
+            assembly.Write(File.ReadAllBytes(assemblyPath));
         }
 
         var content = new InMemoryPackageContent(

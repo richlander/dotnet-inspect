@@ -362,16 +362,20 @@ public sealed class PackageDependencyMemberCallGraphPreparation
 {
     internal PackageDependencyMemberCallGraphPreparation(
         PackageDependencyWorkspaceRouteOutcome.Completed routes,
+        PackageDependencyTraversalOutcome traversal,
         ImmutableArray<PackageRootBinding> graphBindings,
         PackageRootIdentity root)
     {
         Routes = routes;
+        Traversal = traversal;
         GraphBindings = graphBindings;
         Root = root;
     }
 
     internal PackageDependencyWorkspaceRouteOutcome.Completed Routes
     { get; }
+
+    internal PackageDependencyTraversalOutcome Traversal { get; }
 
     public WorkspaceScopeSnapshot Scope => Routes.Scope;
 
@@ -416,6 +420,68 @@ public sealed class PackageDependencyMemberCallGraphPreparation
                 "A selected dependency supplier must retain its exact contributed Package binding.");
         }
         return selected.Binding;
+    }
+
+    public int ResolveReferencingProjection(
+        PackageDependencyMemberCallGraphRequest request,
+        PackageRootIdentity originPackage)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(originPackage);
+        if (!ReferenceEquals(
+                Traversal,
+                request.Traversal))
+        {
+            throw new ArgumentException(
+                "The referencing Package must belong to the prepared traversal.",
+                nameof(request));
+        }
+        int? projectionIndex = null;
+        for (int rootIndex = 0;
+            rootIndex < request.RootBindings.Length;
+            rootIndex++)
+        {
+            if (ReferenceEquals(
+                    request.RootBindings[rootIndex].Root.Identity,
+                    originPackage))
+            {
+                int rootProjection =
+                    request.Traversal.Roots[rootIndex].ProjectionIndex;
+                if (projectionIndex is not null
+                    && projectionIndex != rootProjection)
+                {
+                    throw new InvalidOperationException(
+                        "The referencing Package identifies multiple traversal projections.");
+                }
+                projectionIndex = rootProjection;
+            }
+        }
+
+        foreach (PackageDependencyWorkspaceDestination.Package package
+            in Routes.Destinations.OfType<
+                PackageDependencyWorkspaceDestination.Package>())
+        {
+            if (!ReferenceEquals(
+                    package.Binding.Root.Identity,
+                    originPackage))
+                continue;
+            if (package.Subject.Edge.Target
+                is not PackageDependencyTraversalEdgeTarget.Node node)
+            {
+                throw new InvalidOperationException(
+                    "The referencing Package does not retain an exact traversal projection.");
+            }
+            if (projectionIndex is not null
+                && projectionIndex != node.ProjectionIndex)
+            {
+                throw new InvalidOperationException(
+                    "The referencing Package identifies multiple traversal projections.");
+            }
+            projectionIndex = node.ProjectionIndex;
+        }
+        return projectionIndex
+            ?? throw new InvalidOperationException(
+                "The referencing Package is not an exact traversal participant.");
     }
 }
 
@@ -616,6 +682,7 @@ public static class PackageDependencyMemberCallGraphOperation
             .Prepared(
                 new(
                     completedRoutes,
+                    request.Traversal,
                     graphBindings,
                     root));
     }

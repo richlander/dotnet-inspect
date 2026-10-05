@@ -137,7 +137,10 @@ public sealed class PackageDependencyMemberCallGraphContinuation :
         var attempted =
             new HashSet<AssemblyReferenceOccurrenceKey>();
         PackageDependencyMemberCallGraphGeneration? generation = null;
-        PackageAssemblyReferenceSupplierAssociation association;
+        var associations =
+            new Dictionary<
+                int,
+                PackageAssemblyReferenceSupplierAssociation>();
         try
         {
             generation = await CreateGenerationAsync(
@@ -148,10 +151,6 @@ public sealed class PackageDependencyMemberCallGraphContinuation :
                     platformLibraries: [],
                     cancellationToken)
                 .ConfigureAwait(false);
-            association = CreateSupplierAssociation(
-                lowerRequest,
-                generation);
-
             while (generation.Outcome
                 is PackageRoleMemberCallGraphOutcome.Available available)
             {
@@ -162,15 +161,20 @@ public sealed class PackageDependencyMemberCallGraphContinuation :
                     break;
 
                 attempted.Add(Key(occurrence));
+                PackageAssemblyReferenceSupplierAssociation association =
+                    SupplierAssociation(
+                        lowerRequest,
+                        graphPreparation,
+                        generation,
+                        occurrence,
+                        associations);
                 AssemblyReferenceResolutionRequest resolution =
-                    await CreateResolutionRequestAsync(
-                            lowerRequest,
-                            generation,
-                            occurrence,
-                            association,
-                            work,
-                            cancellationToken)
-                        .ConfigureAwait(false);
+                    CreateResolutionRequest(
+                        occurrence.Request,
+                        occurrence.Context,
+                        association,
+                        work,
+                        _source);
                 AssemblyReferenceResolutionOutcome outcome =
                     await AssemblyReferenceResolutionLadder.ExecuteAsync(
                             resolution,
@@ -195,8 +199,10 @@ public sealed class PackageDependencyMemberCallGraphContinuation :
                         acquisition.OwnerEvidence;
                 PackageDependencyMemberCallGraphGeneration?
                     successorGeneration = null;
-                PackageAssemblyReferenceSupplierAssociation?
-                    successorAssociation = null;
+                var successorAssociations =
+                    new Dictionary<
+                        int,
+                        PackageAssemblyReferenceSupplierAssociation>();
                 ImmutableArray<
                     PackageAssemblyContextPlatformLibrary>
                     successorPlatformLibraries = [];
@@ -301,23 +307,25 @@ public sealed class PackageDependencyMemberCallGraphContinuation :
                                             successorPlatformLibraries,
                                             token)
                                         .ConfigureAwait(false);
-                                successorAssociation =
-                                    CreateSupplierAssociation(
-                                        lowerRequest,
-                                        successorGeneration);
                                 PackageAssemblyReferenceBindingEvidence
                                     successorEvidence =
                                         successorGeneration
                                             .CreateAssemblyReferenceContinuationEvidence(
                                                 occurrence);
-                                return await CreateResolutionRequestAsync(
-                                        lowerRequest,
-                                        successorGeneration,
-                                        successorEvidence,
-                                        successorAssociation,
-                                        work,
-                                        token)
-                                    .ConfigureAwait(false);
+                                PackageAssemblyReferenceSupplierAssociation
+                                    successorAssociation =
+                                        SupplierAssociation(
+                                            lowerRequest,
+                                            graphPreparation,
+                                            successorGeneration,
+                                            successorEvidence,
+                                            successorAssociations);
+                                return CreateResolutionRequest(
+                                    successorEvidence.Request,
+                                    successorEvidence.Context,
+                                    successorAssociation,
+                                    work,
+                                    _source);
                             },
                             ReleaseConstructedSuccessorAsync,
                             cancellationToken)
@@ -370,9 +378,7 @@ public sealed class PackageDependencyMemberCallGraphContinuation :
                 operation.Dispose();
                 operation = successorOperation;
                 await predecessor.DisposeAsync();
-                association = successorAssociation
-                    ?? throw new InvalidOperationException(
-                        "A published continuation did not retain its successor Package supplier association.");
+                associations = successorAssociations;
                 InspectionEnvelope<
                     PackageDependencyMemberCallGraphInspectionOutcome>?
                     continuationTerminal =
@@ -404,127 +410,132 @@ public sealed class PackageDependencyMemberCallGraphContinuation :
         }
     }
 
-    async ValueTask<AssemblyReferenceResolutionRequest>
-        CreateResolutionRequestAsync(
-        PackageDependencyMemberCallGraphRequest lowerRequest,
-        PackageDependencyMemberCallGraphGeneration generation,
-        PackageAssemblyReferenceBindingEvidence occurrence,
+    static AssemblyReferenceResolutionRequest
+        CreateResolutionRequest(
+        AssemblyBindingRequest request,
+        AssemblyBindingSelectionSnapshot context,
         PackageAssemblyReferenceSupplierAssociation association,
         AssemblyReferenceResolutionWorkLedger work,
-        CancellationToken cancellationToken)
+        PackageDependencyMemberCallGraphExternalContinuationSource source)
     {
-        if (association.RouteProjection
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(association);
+        ArgumentNullException.ThrowIfNull(work);
+        ArgumentNullException.ThrowIfNull(source);
+        PackageAssemblyReferenceRouteProjectionOutcome projection =
+            association.RouteProjection;
+        if (projection
             is PackageAssemblyReferenceRouteProjectionOutcome
                 .Incomplete incomplete)
         {
             return CreateIncompleteResolutionRequest(
-                generation,
-                occurrence,
+                request,
+                context,
+                projection.Generation,
+                projection.FocalScope,
                 incomplete,
                 work,
                 Math.Max(1, incomplete.Routes.Length));
         }
         var completed =
             (PackageAssemblyReferenceRouteProjectionOutcome.Completed)
-                association.RouteProjection;
+                projection;
 
         var packageRoute = new PackageAssemblyReferenceExternalRoute(
-            occurrence.Request,
+            request,
             association,
             completed.Receipt);
-        PackageDependencyMemberCallGraphPlatformRouteFormationOutcome
-            platformFormation =
-            await _source.FormPlatformRouteAsync(
-                    occurrence.Request,
-                    generation.Generation,
-                    generation.FocalScope,
-                    completed.Receipt,
-                    work,
-                    cancellationToken)
-                .ConfigureAwait(false);
-        if (platformFormation
-            is PackageDependencyMemberCallGraphPlatformRouteFormationOutcome
-                .Incomplete platformIncomplete)
-        {
-            return CreateIncompleteResolutionRequest(
-                generation,
-                occurrence,
-                platformIncomplete.Evidence,
-                work,
-                packageRouteOccurrences: 0);
-        }
-        PlatformAssemblyReferenceExternalRoute platformRoute =
-            ((PackageDependencyMemberCallGraphPlatformRouteFormationOutcome
-                .Completed)platformFormation).Route;
-        AssemblyReferenceExternalRouteSet? routeSet = null;
         var plan = new AssemblyReferenceResolutionRoutePlan(
-            occurrence.Request,
-            generation.Generation,
-            generation.FocalScope,
-            occurrence.BindingPolicyVersion,
+            request,
+            projection.Generation,
+            projection.FocalScope,
+            context.Version,
             (_, token) =>
             {
                 token.ThrowIfCancellationRequested();
                 return ValueTask.FromResult<
                     AssemblyReferenceResolutionContextOutcome>(
                     new AssemblyReferenceResolutionContextOutcome.Selected(
-                        occurrence.Request,
-                        generation.Generation,
-                        occurrence.Context));
+                        request,
+                        projection.Generation,
+                        context));
             },
-            (advancement, _, token) =>
+            async (advancement, ledger, token) =>
             {
                 token.ThrowIfCancellationRequested();
+                PackageDependencyMemberCallGraphPlatformRouteFormationOutcome
+                    platformFormation =
+                    await source.FormPlatformRouteAsync(
+                            request,
+                            projection.Generation,
+                            projection.FocalScope,
+                            completed.Receipt,
+                            ledger,
+                            token)
+                        .ConfigureAwait(false);
+                if (platformFormation
+                    is PackageDependencyMemberCallGraphPlatformRouteFormationOutcome
+                        .Incomplete platformIncomplete)
+                {
+                    return new AssemblyReferenceExternalRouteSetFormationOutcome
+                        .Incomplete(platformIncomplete.Evidence);
+                }
+                PlatformAssemblyReferenceExternalRoute platformRoute =
+                    ((PackageDependencyMemberCallGraphPlatformRouteFormationOutcome
+                        .Completed)platformFormation).Route;
+                AssemblyReferenceExternalRouteSet? routeSet = null;
                 routeSet = new AssemblyReferenceExternalRouteSet(
-                    occurrence.Request,
-                    generation.Generation,
+                    request,
+                    projection.Generation,
                     advancement,
                     [packageRoute, platformRoute],
                     async (ledger, executeToken) =>
                     {
                         ExternalAssemblyReferenceSupplierOutcome supplier =
-                            await _source.ResolveAsync(
+                            await source.ResolveAsync(
                                     packageRoute,
                                     platformRoute,
-                                    occurrence.Context.Selection,
+                                    context.Selection,
                                     ledger,
                                     executeToken)
                                 .ConfigureAwait(false);
                         return SupplierOutcome(
-                            occurrence,
+                            request,
+                            context.Version,
                             routeSet!,
                             supplier);
                     });
-                return ValueTask.FromResult<
-                    AssemblyReferenceExternalRouteSetFormationOutcome>(
-                    new AssemblyReferenceExternalRouteSetFormationOutcome
-                        .Completed(routeSet));
+                return new AssemblyReferenceExternalRouteSetFormationOutcome
+                    .Completed(routeSet);
             });
         return new(plan, work);
     }
 
     static AssemblyReferenceResolutionRequest
         CreateIncompleteResolutionRequest(
-        PackageDependencyMemberCallGraphGeneration generation,
-        PackageAssemblyReferenceBindingEvidence occurrence,
+        AssemblyBindingRequest request,
+        AssemblyBindingSelectionSnapshot context,
+        AssemblyReferenceResolutionGenerationReceipt generation,
+        MemberCallGraphFocalScopeReceipt focalScope,
         object incomplete,
         AssemblyReferenceResolutionWorkLedger work,
         int packageRouteOccurrences)
     {
         var plan = new AssemblyReferenceResolutionRoutePlan(
-            occurrence.Request,
-            generation.Generation,
-            generation.FocalScope,
-            occurrence.BindingPolicyVersion,
+            request,
+            generation,
+            focalScope,
+            context.Version,
             (_, token) =>
             {
                 token.ThrowIfCancellationRequested();
                 return ValueTask.FromResult<
                     AssemblyReferenceResolutionContextOutcome>(
                     new AssemblyReferenceResolutionContextOutcome.Selected(
-                        occurrence.Request,
-                        generation.Generation,
-                        occurrence.Context));
+                        request,
+                        generation,
+                        context));
             },
             (_, _, token) =>
             {
@@ -545,19 +556,55 @@ public sealed class PackageDependencyMemberCallGraphContinuation :
     }
 
     static PackageAssemblyReferenceSupplierAssociation
-        CreateSupplierAssociation(
+        SupplierAssociation(
         PackageDependencyMemberCallGraphRequest lowerRequest,
-        PackageDependencyMemberCallGraphGeneration generation) =>
-        PackageAssemblyReferenceSupplierAssociation.Create(
-            new(
-                generation.Generation,
-                generation.FocalScope,
-                lowerRequest.Traversal,
-                lowerRequest.Focus.RootOccurrenceIndex,
-                lowerRequest.EdgeExecutions));
+        PackageDependencyMemberCallGraphPreparation preparation,
+        PackageDependencyMemberCallGraphGeneration generation,
+        PackageAssemblyReferenceBindingEvidence occurrence,
+        IDictionary<int, PackageAssemblyReferenceSupplierAssociation>
+            associations)
+    {
+        int projectionIndex =
+            preparation.ResolveReferencingProjection(
+                lowerRequest,
+                occurrence.Origin.Package);
+        if (associations.TryGetValue(
+                projectionIndex,
+                out PackageAssemblyReferenceSupplierAssociation? cached))
+        {
+            return cached;
+        }
+
+        PackageDependencyTraversalOutcome traversal =
+            lowerRequest.Traversal;
+        int rootIndex = lowerRequest.Focus.RootOccurrenceIndex;
+        ImmutableDictionary<int, int> edges =
+            traversal.ReachableEdgesFromProjection(
+                rootIndex,
+                projectionIndex);
+        ImmutableArray<PackageDependencyEdgeRealizationExecution>
+            executions =
+            [
+                .. lowerRequest.EdgeExecutions.Where(execution =>
+                    execution.Subject.RootOccurrenceIndex == rootIndex
+                    && edges.ContainsKey(execution.Subject.EdgeIndex)),
+            ];
+        PackageAssemblyReferenceSupplierAssociation created =
+            PackageAssemblyReferenceSupplierAssociation.Create(
+                new(
+                    generation.Generation,
+                    generation.FocalScope,
+                    traversal,
+                    rootIndex,
+                    executions,
+                    originProjectionIndex: projectionIndex));
+        associations.Add(projectionIndex, created);
+        return created;
+    }
 
     static AssemblyReferenceExternalRouteOutcome SupplierOutcome(
-        PackageAssemblyReferenceBindingEvidence occurrence,
+        AssemblyBindingRequest request,
+        AssemblyBindingPolicyVersion version,
         AssemblyReferenceExternalRouteSet routes,
         ExternalAssemblyReferenceSupplierOutcome supplier) =>
         supplier switch
@@ -565,7 +612,7 @@ public sealed class PackageDependencyMemberCallGraphContinuation :
             ExternalAssemblyReferenceSupplierOutcome.PackageOwned package =>
                 new AssemblyReferenceExternalRouteOutcome
                     .AcquisitionRequired(
-                        occurrence.Request,
+                        request,
                         routes.Generation,
                         routes,
                         package.Route,
@@ -573,50 +620,53 @@ public sealed class PackageDependencyMemberCallGraphContinuation :
             ExternalAssemblyReferenceSupplierOutcome.PlatformOwned platform =>
                 new AssemblyReferenceExternalRouteOutcome
                     .AcquisitionRequired(
-                        occurrence.Request,
+                        request,
                         routes.Generation,
                         routes,
                         platform.Platform.Route,
                         supplier),
             ExternalAssemblyReferenceSupplierOutcome.NameOwnedNoMatch =>
                 CompletedMissing(
-                    occurrence,
+                    request,
+                    version,
                     routes,
                     AssemblyBindingSelection.NameOwnedButNoMatch()),
             ExternalAssemblyReferenceSupplierOutcome.NoSupplier =>
                 CompletedMissing(
-                    occurrence,
+                    request,
+                    version,
                     routes,
                     AssemblyBindingSelection.NameNotOwned()),
             ExternalAssemblyReferenceSupplierOutcome.Unavailable =>
                 new AssemblyReferenceExternalRouteOutcome.Unavailable(
-                    occurrence.Request,
+                    request,
                     routes.Generation,
                     routes,
                     supplier),
             ExternalAssemblyReferenceSupplierOutcome.Incomplete =>
                 new AssemblyReferenceExternalRouteOutcome.Incomplete(
-                    occurrence.Request,
+                    request,
                     routes.Generation,
                     routes,
                     supplier),
             _ => new AssemblyReferenceExternalRouteOutcome.Rejected(
-                occurrence.Request,
+                request,
                 routes.Generation,
                 routes,
                 supplier),
         };
 
     static AssemblyReferenceExternalRouteOutcome.Completed CompletedMissing(
-        PackageAssemblyReferenceBindingEvidence occurrence,
+        AssemblyBindingRequest request,
+        AssemblyBindingPolicyVersion version,
         AssemblyReferenceExternalRouteSet routes,
         AssemblyBindingSelection selection) =>
         new(
-            occurrence.Request,
+            request,
             routes.Generation,
             routes,
             new(
-                occurrence.BindingPolicyVersion,
+                version,
                 selection));
 
     static InspectionEnvelope<
