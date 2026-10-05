@@ -1443,9 +1443,11 @@ as their base Type or an implemented interface? The target is a structured
 Metadata definition name, including namespace, nesting, and generic arity.
 The request may select one relation kind, public-only versus non-public
 declarations, hidden-declaration policy, an operation policy, row
-materialization, and a forward candidate bound. It does not accept display
-text, resolve Workspace focus, acquire another image, or perform transitive
-hierarchy traversal.
+materialization, and an optional forward candidate window identified by start
+ordinal and maximum candidate count. Candidates before the start ordinal are
+matched but do not decode or retain source row names. It does not accept
+display text, resolve Workspace focus, acquire another image, or perform
+transitive hierarchy traversal.
 
 The fidelity domain is the `TypeDef`, `TypeRef`, and canonical generic
 `TypeSpec` hierarchy shapes emitted by Roslyn. The producer gives exact answers
@@ -1561,8 +1563,11 @@ uses the following Release gates:
   and compiled fixture assemblies.
 - `HierarchyAnalysisForwardPlanStopsOnlyAfterItsBound` and
   `HierarchyAnalysisContainsProjectionBudgetFailure` in
-  `MetadataRelationInspectionTests` gate forward stopping, non-materializing
-  Count, typed partial coverage, and retained diagnostics.
+  `MetadataRelationInspectionTests`, and
+  `IndexedForwardPlanStartsAtTheRequestedOrdinal` in
+  `HierarchyRelationOracleTests` gate forward stopping, start-ordinal row
+  materialization, non-materializing Count, typed partial coverage, and
+  retained diagnostics.
 - `HierarchyAnalysisContainsMalformedGenericTypeSpecifications` and
   `HierarchyAnalysisRejectsCyclicVisibilityBeforeCandidateScan` in
   `MetadataRelationInspectionTests` gate bounded malformed-`TypeSpec` and

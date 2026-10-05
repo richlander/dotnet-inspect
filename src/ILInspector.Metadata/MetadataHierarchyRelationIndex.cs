@@ -410,6 +410,11 @@ internal static partial class MetadataRelationInspection
         int matched = 0;
         bool limited = false;
         bool stopped = false;
+        int startOrdinal = request.ForwardPlan?.StartOrdinal ?? 0;
+        long endOrdinal = request.ForwardPlan is null
+            ? long.MaxValue
+            : (long)startOrdinal
+                + request.ForwardPlan.MaximumCandidates;
 
         try
         {
@@ -459,7 +464,10 @@ internal static partial class MetadataRelationInspection
                     }
                 }
 
-                if (request.MaterializeRows)
+                int ordinal = matched;
+                if (request.MaterializeRows
+                    && ordinal >= startOrdinal
+                    && ordinal < endOrdinal)
                 {
                     MetadataTypeDefinitionNameReadResult read =
                         MetadataTypeDefinitionNameReader.Read(
@@ -506,12 +514,13 @@ internal static partial class MetadataRelationInspection
                             candidate.OccurrenceTokens));
                 }
 
+                matched = checked(matched + 1);
                 examined++;
-                matched++;
-                if (request.ForwardPlan is { } forward
-                    && matched >= forward.MaximumCandidates
+                if (request.ForwardPlan is not null
+                    && matched >= endOrdinal
                     && considered < candidates.Length)
                 {
+                    matched = checked((int)endOrdinal);
                     stopped = true;
                     break;
                 }

@@ -16,17 +16,28 @@ public readonly record struct MetadataHierarchyRelationAnalysisRow(
     ImmutableArray<int> MetadataTokens);
 
 /// <summary>
-/// A resolved forward closing that may stop hierarchy analysis after enough
-/// exact-kind candidates have been produced.
+/// A resolved forward closing that skips an exact-kind candidate prefix and
+/// may stop after the requested candidate window has been produced.
 /// </summary>
 public sealed record MetadataHierarchyRelationForwardPlan
 {
     public MetadataHierarchyRelationForwardPlan(int maximumCandidates)
+        : this(startOrdinal: 0, maximumCandidates)
     {
+    }
+
+    public MetadataHierarchyRelationForwardPlan(
+        int startOrdinal,
+        int maximumCandidates)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(startOrdinal);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
             maximumCandidates);
+        StartOrdinal = startOrdinal;
         MaximumCandidates = maximumCandidates;
     }
+
+    public int StartOrdinal { get; }
 
     public int MaximumCandidates { get; }
 }
@@ -100,6 +111,8 @@ internal readonly record struct MetadataHierarchyRelationAnalysisUnit(
     bool IsExcluded,
     bool BaseMatched,
     bool InterfaceMatched,
+    int BaseToken,
+    ImmutableArray<int> InterfaceTokens,
     MetadataHierarchyRelationAnalysisRow? BaseRelation,
     MetadataHierarchyRelationAnalysisRow? InterfaceRelation,
     MetadataRelationDiagnostic? Diagnostic)
@@ -182,7 +195,13 @@ internal sealed class MetadataHierarchyRelationAnalysisPass : IDisposable
         _reader.TypeDefinitions;
 
     public MetadataHierarchyRelationAnalysisUnit Analyze(
-        TypeDefinitionHandle handle)
+        TypeDefinitionHandle handle) =>
+        Analyze(handle, _request.MaterializeRows);
+
+    internal MetadataHierarchyRelationAnalysisUnit Analyze(
+        TypeDefinitionHandle handle,
+        bool materializeRows,
+        bool retainOccurrenceTokens = false)
     {
         _operation.Charge(
             MetadataOperationDimension.DeclarationCandidates);
@@ -205,6 +224,8 @@ internal sealed class MetadataHierarchyRelationAnalysisPass : IDisposable
                     IsExcluded: true,
                     BaseMatched: false,
                     InterfaceMatched: false,
+                    BaseToken: 0,
+                    InterfaceTokens: [],
                     BaseRelation: null,
                     InterfaceRelation: null,
                     Diagnostic: null);
@@ -258,10 +279,8 @@ internal sealed class MetadataHierarchyRelationAnalysisPass : IDisposable
                         continue;
 
                     interfaceMatched = true;
-                    if (_request.MaterializeRows)
+                    if (materializeRows || retainOccurrenceTokens)
                     {
-                        _operation.Charge(
-                            MetadataOperationDimension.StructuredNodes);
                         (interfaceTokens ??=
                             ImmutableArray.CreateBuilder<int>())
                             .Add(token);
@@ -275,22 +294,66 @@ internal sealed class MetadataHierarchyRelationAnalysisPass : IDisposable
                     IsExcluded: false,
                     BaseMatched: false,
                     InterfaceMatched: false,
+                    BaseToken: 0,
+                    InterfaceTokens: [],
                     BaseRelation: null,
                     InterfaceRelation: null,
                     Diagnostic: null);
             }
 
-            if (!_request.MaterializeRows)
-            {
-                return new(
-                    IsExcluded: false,
+            var matchedUnit = new MetadataHierarchyRelationAnalysisUnit(
+                IsExcluded: false,
+                baseMatched,
+                interfaceMatched,
+                baseToken,
+                interfaceTokens?.ToImmutable() ?? [],
+                BaseRelation: null,
+                InterfaceRelation: null,
+                Diagnostic: null);
+            return materializeRows
+                ? Materialize(
+                    handle,
+                    matchedUnit,
                     baseMatched,
-                    interfaceMatched,
-                    BaseRelation: null,
-                    InterfaceRelation: null,
-                    Diagnostic: null);
-            }
+                    interfaceMatched)
+                : matchedUnit;
+        }
+        catch (Exception exception)
+            when (exception
+                    is not MetadataVisibilityGraphException
+                && exception is
+                    (BadImageFormatException
+                        or ArgumentException
+                        or InvalidOperationException
+                        or OverflowException))
+        {
+            return Unavailable(
+                new(
+                    MetadataRelationFamily.Hierarchy,
+                    MetadataRelationDiagnosticKind.MalformedMetadata,
+                    MetadataTokens.GetToken(handle),
+                    exception.Message));
+        }
+    }
 
+    internal MetadataHierarchyRelationAnalysisUnit Materialize(
+        TypeDefinitionHandle handle,
+        MetadataHierarchyRelationAnalysisUnit unit,
+        bool materializeBase,
+        bool materializeInterface)
+    {
+        if (!materializeBase && !materializeInterface)
+            return unit;
+        if (materializeBase && !unit.BaseMatched
+            || materializeInterface && !unit.InterfaceMatched)
+        {
+            throw new ArgumentException(
+                "Only matched hierarchy relations can be materialized.",
+                nameof(unit));
+        }
+
+        try
+        {
             MetadataTypeDefinitionNameReadResult read =
                 MetadataTypeDefinitionNameReader.Read(
                     _reader,
@@ -328,28 +391,36 @@ internal sealed class MetadataHierarchyRelationAnalysisPass : IDisposable
                 MetadataTypeDefinitionAddress.FromHandle(
                     _reader,
                     handle);
-            if (baseMatched)
+            if (materializeBase)
             {
                 _operation.Charge(
                     MetadataOperationDimension.StructuredNodes);
             }
+            if (materializeInterface)
+            {
+                _operation.Charge(
+                    MetadataOperationDimension.StructuredNodes,
+                    unit.InterfaceTokens.Length);
+            }
             return new(
                 IsExcluded: false,
-                baseMatched,
-                interfaceMatched,
-                baseMatched
+                unit.BaseMatched,
+                unit.InterfaceMatched,
+                unit.BaseToken,
+                unit.InterfaceTokens,
+                materializeBase
                     ? new(
                         address,
                         source.Name,
                         MetadataHierarchyRelationKind.BaseType,
-                        [baseToken])
+                        [unit.BaseToken])
                     : null,
-                interfaceMatched
+                materializeInterface
                     ? new(
                         address,
                         source.Name,
                         MetadataHierarchyRelationKind.Interface,
-                        interfaceTokens!.ToImmutable())
+                        unit.InterfaceTokens)
                     : null,
                 Diagnostic: null);
         }
@@ -405,6 +476,8 @@ internal sealed class MetadataHierarchyRelationAnalysisPass : IDisposable
             IsExcluded: false,
             BaseMatched: false,
             InterfaceMatched: false,
+            BaseToken: 0,
+            InterfaceTokens: [],
             BaseRelation: null,
             InterfaceRelation: null,
             diagnostic);
@@ -644,6 +717,10 @@ internal static partial class MetadataRelationInspection
         int unavailable = 0;
         bool limited = false;
         bool stopped = false;
+        int startOrdinal = forwardPlan?.StartOrdinal ?? 0;
+        long endOrdinal = forwardPlan is null
+            ? long.MaxValue
+            : (long)startOrdinal + forwardPlan.MaximumCandidates;
         int sourceCandidateCount = request.TypeScope.IsEmpty
             ? reader.TypeDefinitions.Count
             : request.TypeScope.Length;
@@ -662,7 +739,10 @@ internal static partial class MetadataRelationInspection
                     continue;
                 considered++;
                 MetadataHierarchyRelationAnalysisUnit unit =
-                    pass.Analyze(handle);
+                    pass.Analyze(
+                        handle,
+                        materializeRows: false,
+                        retainOccurrenceTokens: materializeRows);
                 if (unit.IsExcluded)
                 {
                     excluded++;
@@ -679,16 +759,66 @@ internal static partial class MetadataRelationInspection
                     continue;
                 }
 
-                examined++;
-                matched = checked(matched + unit.CandidateCount);
-                if (unit.BaseRelation is { } baseRelation)
-                    rows.Add(baseRelation);
-                if (unit.InterfaceRelation is { } interfaceRelation)
-                    rows.Add(interfaceRelation);
-                if (analysisRequest.ForwardPlan is { } forward
-                    && matched >= forward.MaximumCandidates
-                    && considered < sourceCandidateCount)
+                int baseOrdinal = matched;
+                int interfaceOrdinal =
+                    matched + (unit.BaseMatched ? 1 : 0);
+                bool materializeBase =
+                    materializeRows
+                    && unit.BaseMatched
+                    && baseOrdinal >= startOrdinal
+                    && baseOrdinal < endOrdinal;
+                bool materializeInterface =
+                    materializeRows
+                    && unit.InterfaceMatched
+                    && interfaceOrdinal >= startOrdinal
+                    && interfaceOrdinal < endOrdinal;
+                if (materializeBase || materializeInterface)
                 {
+                    unit = pass.Materialize(
+                        handle,
+                        unit,
+                        materializeBase,
+                        materializeInterface);
+                    if (unit.IsUnavailable)
+                    {
+                        unavailable++;
+                        diagnostics.Add(
+                            unit.Diagnostic
+                            ?? throw new InvalidOperationException(
+                                "Unavailable hierarchy materialization requires a diagnostic."));
+                        continue;
+                    }
+                }
+
+                examined++;
+                if (unit.BaseMatched)
+                {
+                    int ordinal = matched;
+                    matched = checked(matched + 1);
+                    if (ordinal >= startOrdinal
+                        && ordinal < endOrdinal
+                        && unit.BaseRelation is { } baseRelation)
+                    {
+                        rows.Add(baseRelation);
+                    }
+                }
+                if (unit.InterfaceMatched)
+                {
+                    int ordinal = matched;
+                    matched = checked(matched + 1);
+                    if (ordinal >= startOrdinal
+                        && ordinal < endOrdinal
+                        && unit.InterfaceRelation is { } interfaceRelation)
+                    {
+                        rows.Add(interfaceRelation);
+                    }
+                }
+                if (analysisRequest.ForwardPlan is not null
+                    && matched >= endOrdinal
+                    && (matched > endOrdinal
+                        || considered < sourceCandidateCount))
+                {
+                    matched = checked((int)endOrdinal);
                     stopped = true;
                     break;
                 }

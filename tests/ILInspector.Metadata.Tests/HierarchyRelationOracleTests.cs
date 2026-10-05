@@ -126,6 +126,55 @@ public sealed class HierarchyRelationOracleTests
         Assert.Empty(result.Relations.Evidence);
     }
 
+    [Fact]
+    public void IndexedForwardPlanStartsAtTheRequestedOrdinal()
+    {
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Open(
+                Path.Combine(
+                    AppContext.BaseDirectory,
+                    "PinnedArtifacts",
+                    "System.Private.CoreLib.dll"));
+        MetadataHierarchyRelationIndex index =
+            RequireIndex(
+                session.PrepareHierarchyRelationIndex(
+                    MetadataOperationPolicy.Unbounded,
+                    TestContext.Current.CancellationToken));
+        var target =
+            new MetadataHierarchyTargetSelection(
+                TypeName(
+                    "System.Collections.Generic",
+                    "IEnumerable`1"),
+                MetadataHierarchyRelationKind.Interface);
+        MetadataHierarchyRelationAnalysisResult complete =
+            RequireAvailable(
+                index.Analyze(
+                    new(target, MetadataOperationPolicy.Unbounded),
+                    TestContext.Current.CancellationToken));
+        MetadataHierarchyRelationAnalysisResult continued =
+            RequireAvailable(
+                index.Analyze(
+                    new(
+                        target,
+                        MetadataOperationPolicy.Unbounded,
+                        forwardPlan:
+                            new(
+                                startOrdinal: 2,
+                                maximumCandidates: 4)),
+                    TestContext.Current.CancellationToken));
+
+        Assert.True(complete.CandidateCount > 6);
+        Assert.True(continued.WasStopped);
+        Assert.Equal(6, continued.CandidateCount);
+        Assert.Equal(
+            complete.Relations.Evidence
+                .Skip(2)
+                .Take(4)
+                .Select(static row => row.Source),
+            continued.Relations.Evidence
+                .Select(static row => row.Source));
+    }
+
     [Theory]
     [InlineData(MetadataOperationDimension.StructuredNodes)]
     [InlineData(MetadataOperationDimension.RetainedText)]
