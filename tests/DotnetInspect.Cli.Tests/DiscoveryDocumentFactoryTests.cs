@@ -34,8 +34,8 @@ public class DiscoveryDocumentFactoryTests
         DiscoveryResource scalar = projection.Document.GetResource(
             Section("Scalar"));
         Assert.Equal(
-            SectionSemanticShape.Scalar,
-            scalar.Cardinality?.Shape);
+            SectionCardinalityKind.Scalar,
+            scalar.Cardinality?.Kind);
         Assert.Empty(scalar.Cardinality!.Terminals);
         Assert.Equal(
             [DiscoveryOutputMode.Markdown],
@@ -44,8 +44,8 @@ public class DiscoveryDocumentFactoryTests
         DiscoveryResource inventory = projection.Document.GetResource(
             Section("Inventory"));
         Assert.Equal(
-            SectionSemanticShape.Inventory,
-            inventory.Cardinality?.Shape);
+            SectionCardinalityKind.Inventory,
+            inventory.Cardinality?.Kind);
         Assert.Equal(
             [
                 SectionTerminalCapability.Rows,
@@ -79,7 +79,7 @@ public class DiscoveryDocumentFactoryTests
                 row => row.GetProperty("name").GetString() == "Scalar");
             Assert.Equal(
                 "scalar",
-                scalarRow.GetProperty("shape").GetString());
+                scalarRow.GetProperty("cardinality").GetString());
             Assert.Empty(
                 scalarRow.GetProperty("terminals").EnumerateArray());
             Assert.Equal(
@@ -93,7 +93,7 @@ public class DiscoveryDocumentFactoryTests
                 row => row.GetProperty("name").GetString() == "Inventory");
             Assert.Equal(
                 "inventory",
-                inventoryRow.GetProperty("shape").GetString());
+                inventoryRow.GetProperty("cardinality").GetString());
             Assert.Equal(
                 ["rows", "count"],
                 inventoryRow.GetProperty("terminals")

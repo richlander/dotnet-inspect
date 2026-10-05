@@ -98,13 +98,14 @@ evaluation-stack or reaching-definition value flow: most Analysis consumers
 need call identities, not each call's argument provenance or result sinks.
 `LibraryBodyAnalysisFeatures.JsonWireContractFlow` is the explicit,
 tsbindgen-owned opt-in for that narrower evidence. It adds the existing
-call-only `DirectCall.ArgumentSources` and `LibraryBodyIndex.ResultSinks`,
-alongside resolved-value, block-reachability, field-access, and recognized
-compiler span-lowering facts. `ILInspector.JsExportSurface` uses those facts to
-authenticate generated runtime registrations and `JsonTypeInfo<T>` flows and
-to prove a JSON string reaches an export envelope. The resolved-value union does
-not reinterpret the older call-only completeness contract, add an
-Analysis-wide value-flow default, or change ordinary MethodEvidence behavior.
+call-only `DirectCall.ArgumentSources` and
+`LibraryJsonWireContractAnalysisResult.ResultSinks`, alongside resolved-value,
+block-reachability, field-access, and recognized compiler span-lowering facts.
+`ILInspector.JsExportSurface` uses those facts to authenticate generated
+runtime registrations and `JsonTypeInfo<T>` flows and to prove a JSON string
+reaches an export envelope. The resolved-value union does not reinterpret the
+older call-only completeness contract, add an Analysis-wide value-flow
+default, or change ordinary MethodEvidence behavior.
 
 `LibraryBodyIndexTests.MethodEvidence_OmitsCallValueFlowUntilJsonWireContractFlowIsRequested`
 is the non-vacuity gate: it proves plain MethodEvidence retains calls with no

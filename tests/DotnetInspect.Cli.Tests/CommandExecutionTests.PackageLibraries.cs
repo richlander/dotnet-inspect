@@ -1445,7 +1445,7 @@ public partial class CommandExecutionTests
             row.GetProperty("name").GetString());
         Assert.Equal(
             "inventory",
-            row.GetProperty("shape").GetString());
+            row.GetProperty("cardinality").GetString());
         Assert.Equal(
             ["rows", "count"],
             row.GetProperty("terminals")
@@ -1478,7 +1478,7 @@ public partial class CommandExecutionTests
             Assert.Single(document.RootElement.EnumerateArray());
         Assert.Equal(
             "scalar",
-            row.GetProperty("shape").GetString());
+            row.GetProperty("cardinality").GetString());
         Assert.Empty(
             row.GetProperty("terminals").EnumerateArray());
     }
