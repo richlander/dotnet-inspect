@@ -346,9 +346,14 @@ test("uploaded Library method family renders owner-backed receiver kinds", async
       "public",
     ]),
   );
-  await expect(page.locator("html")).not.toHaveAttribute(
+  await expect(page.locator("html")).toHaveAttribute(
     "data-uploaded-library-member-group-document-request",
-    /.+/,
+    JSON.stringify([
+      "Uploaded.Library.dll",
+      4,
+      "Example.Widget",
+      "Run",
+    ]),
   );
 });
 
