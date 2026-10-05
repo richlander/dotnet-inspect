@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Globalization;
 using System.Security.Cryptography;
@@ -90,6 +91,71 @@ public sealed class LibraryStructuralTypeLeveragePerformanceTests(
         Assert.Equal(
             LibraryStructuralEvidenceDisposition.Qualified,
             shard.RoleDisposition);
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void CoreLibBodyTypeLeverageBatchMatchesIndependentShards()
+    {
+        string path = Path.Combine(
+            AppContext.BaseDirectory,
+            "PinnedArtifacts",
+            "System.Private.CoreLib.dll");
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Open(path);
+        LibraryStructuralNamespaceLeverageIndex index =
+            LibraryStructuralReport.CreateNamespaceLeverageIndex(
+                Signature(
+                    session,
+                    exactNamespace: null,
+                    cancellationToken));
+        MetadataLibrarySignatureUseBatchOutcome inventoryOutcome =
+            session.LibrarySignatureUseBatch(
+                new(
+                    MetadataOperationPolicy.Unbounded,
+                    [.. index.Rows.Select(
+                        static row => row.Namespace)]),
+                cancellationToken);
+        ImmutableArray<MetadataLibrarySignatureUseResult> inventories =
+            Assert.IsType<
+                MetadataLibrarySignatureUseBatchOutcome.Available>(
+                    inventoryOutcome).Result.Results;
+        AnalysisLibraryBodyUseOutcome bodyOutcome =
+            AnalysisLibraryBodyUseService.ExecutePath(
+                path,
+                new(),
+                cancellationToken);
+        AnalysisLibraryBodyUseResult bodyUse =
+            Assert.IsType<AnalysisLibraryBodyUseOutcome.Available>(
+                bodyOutcome).Result;
+
+        LibraryStructuralBodyTypeLeverageShard[] independent =
+        [
+            .. inventories.Select(inventory =>
+                LibraryStructuralReport.CreateBodyTypeLeverageShard(
+                    inventory,
+                    bodyUse)),
+        ];
+        ImmutableArray<LibraryStructuralBodyTypeLeverageShard> batch =
+            LibraryStructuralReport.CreateBodyTypeLeverageShards(
+                inventories,
+                bodyUse);
+
+        Assert.Equal(61, batch.Length);
+        Assert.Equal(1_907, batch.Sum(
+            static shard => shard.Rows.Length));
+        Assert.Equal(independent.Length, batch.Length);
+        for (var shardIndex = 0;
+            shardIndex < batch.Length;
+            shardIndex++)
+        {
+            Assert.Equivalent(
+                independent[shardIndex],
+                batch[shardIndex],
+                strict: true);
+        }
     }
 
     [Fact]
