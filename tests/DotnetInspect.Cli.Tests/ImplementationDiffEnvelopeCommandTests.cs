@@ -39,7 +39,7 @@ public sealed class ImplementationDiffEnvelopeCommandTests
         using JsonDocument contentJson = JsonDocument.Parse(content.Output);
         using JsonDocument envelopeJson = JsonDocument.Parse(envelope.Output);
         JsonElement root = envelopeJson.RootElement;
-        Assert.Equal(2, root.GetProperty("schema_version").GetInt32());
+        Assert.Equal(3, root.GetProperty("schema_version").GetInt32());
         Assert.Equal(
             "implementation-diff",
             root.GetProperty("result_kind").GetString());
@@ -53,6 +53,16 @@ public sealed class ImplementationDiffEnvelopeCommandTests
         Assert.Equal(
             "ExactLibraryPair",
             document.GetProperty("request").GetProperty("scope").GetString());
+        Assert.Equal(
+            ["CSharp", "IlBody", "Complexity"],
+            document.GetProperty("request")
+                .GetProperty("mechanisms")
+                .EnumerateArray()
+                .Select(static mechanism => mechanism.GetString()));
+        JsonElement population = document.GetProperty("request")
+            .GetProperty("population");
+        Assert.Equal("All", population.GetProperty("kind").GetString());
+        Assert.Empty(population.GetProperty("selections").EnumerateArray());
         Assert.Equal(
             "DiffSample",
             Assert.Single(
@@ -208,8 +218,12 @@ public sealed class ImplementationDiffEnvelopeCommandTests
         Assert.True(result.Exit == 0, result.Error);
         using JsonDocument json = JsonDocument.Parse(result.Output);
         JsonElement request = json.RootElement.GetProperty("request");
+        JsonElement population = request.GetProperty("population");
+        Assert.Equal(
+            "Selected",
+            population.GetProperty("kind").GetString());
         JsonElement selection = Assert.Single(
-            request.GetProperty("memberSelections").EnumerateArray());
+            population.GetProperty("selections").EnumerateArray());
         Assert.Equal(
             "DiffFixtureSample.DiffSample",
             selection.GetProperty("declaringType").GetString());
@@ -334,11 +348,13 @@ public sealed class ImplementationDiffEnvelopeCommandTests
                 new[] { firstId, secondId }.Order(StringComparer.Ordinal));
             JsonElement firstSelection = Assert.Single(
                 firstJson.RootElement.GetProperty("request")
-                    .GetProperty("memberSelections")
+                    .GetProperty("population")
+                    .GetProperty("selections")
                     .EnumerateArray());
             JsonElement secondSelection = Assert.Single(
                 secondJson.RootElement.GetProperty("request")
-                    .GetProperty("memberSelections")
+                    .GetProperty("population")
+                    .GetProperty("selections")
                     .EnumerateArray());
             Assert.Equal(
                 "Changed:1",

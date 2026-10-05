@@ -31,9 +31,8 @@ public partial class PackageCommand
         InspectionOptions options,
         PackageSectionCatalog catalog)
     {
-        if (!options.SelectExplicitlySet
-            || options.IncludeSections is not { Count: 1 } sections
-            || options.FormatExplicitlySet
+        bool hasExplicitOutputIntent =
+            options.FormatExplicitlySet
             || options.Print
             || options.Raw
             || options.Tree
@@ -49,30 +48,25 @@ public partial class PackageCommand
             || options.Discover is not null
             || options.Schema
             || options.Fields is { Length: > 0 }
-            || options.Columns is { Length: > 0 })
-        {
-            return options;
-        }
+            || options.Columns is { Length: > 0 };
+        SectionNativeOutput? nativeOutput =
+            SectionShapeOutputPolicy.ResolveNativeOutput(
+                options.SelectExplicitlySet,
+                options.IncludeSections,
+                catalog.Sections.SectionShapes,
+                hasExplicitOutputIntent);
 
-        string section = sections.Single();
-        if (!catalog.Sections.SectionShapes.TryGetValue(
-                section,
-                out SectionShape shape))
+        return nativeOutput switch
         {
-            return options;
-        }
-
-        return shape switch
-        {
-            SectionShape.Table => options with
+            SectionNativeOutput.TabularRows => options with
             {
                 Format = OutputFormat.Tsv,
                 Tabular = true,
                 Tsv = true,
                 Jsonl = false,
             },
-            SectionShape.Hierarchy => options with { Tree = true },
-            SectionShape.Text => options with { Print = true },
+            SectionNativeOutput.HierarchyTree => options with { Tree = true },
+            SectionNativeOutput.TextPayload => options with { Print = true },
             _ => options,
         };
     }
@@ -89,27 +83,17 @@ public partial class PackageCommand
     private static string? ValidatePackageScalarTerminals(
         InspectionOptions options)
     {
-        bool rows = options.Rows is not null;
-        if (!options.Count && !rows)
-            return null;
-        if (options.Discover is not null
-            || options.IncludeSections is not { Count: 1 } sections)
-        {
-            return null;
-        }
-
-        string section = sections.Single();
-        if (!PackageSectionCardinality.Declarations.TryGetValue(
-                section,
-                out SectionCardinalityDeclaration? declaration)
-            || declaration.Kind != SectionCardinalityKind.Scalar)
-        {
-            return null;
-        }
-
-        string terminal = options.Count ? "--count" : "--rows";
-        return $"Section '{section}' is scalar and does not support "
-            + $"{terminal}. Select an inventory section.";
+        SectionTerminalCapability? terminal =
+            options.Count
+                ? SectionTerminalCapability.Count
+                : options.Rows is not null
+                    ? SectionTerminalCapability.Rows
+                    : null;
+        return SectionShapeOutputPolicy.ValidateScalarTerminal(
+            options.IncludeSections,
+            PackageSectionCardinality.Declarations,
+            terminal,
+            discovery: options.Discover is not null);
     }
 
     /// <summary>
@@ -129,21 +113,15 @@ public partial class PackageCommand
     private static string DescribeSectionShape(string section)
     {
         PackageSectionCatalog catalog = PackageSectionDescriptors.CreateCatalog();
-        return catalog.Sections.SectionShapes.TryGetValue(section, out SectionShape shape)
-            ? $"'{section}' ({shape})"
-            : $"'{section}'";
+        return SectionShapeOutputPolicy.DescribeSection(
+            section,
+            catalog.Sections.SectionShapes);
     }
 
-    private static string FormatsForSection(string section)
-    {
-        PackageSectionCatalog catalog = PackageSectionDescriptors.CreateCatalog();
-        return catalog.Sections.SectionShapes.TryGetValue(section, out SectionShape shape)
-            ? string.Join(
-                ", ",
-                OutputCapabilityCatalog.FormatsForShape(shape)
-                    .Select(OutputCapabilityCatalog.CliOption))
-            : "--markdown, --json";
-    }
+    private static string FormatsForSection(string section) =>
+        SectionShapeOutputPolicy.DescribeFormats(
+            section,
+            PackageOutputCapabilities.Catalog);
 
     /// <summary>
     /// Explicit <c>--tree</c> on a lone section that is not a Hierarchy fails

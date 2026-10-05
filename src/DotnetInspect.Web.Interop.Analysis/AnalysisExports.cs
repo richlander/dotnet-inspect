@@ -28,7 +28,7 @@ namespace DotnetInspect.Web.Interop.Analysis;
 [SupportedOSPlatform("browser")]
 public static partial class AnalysisExports
 {
-    private const int BrowserLibraryStructuralSalienceSchemaVersion = 1;
+    private const int BrowserLibraryStructuralSalienceSchemaVersion = 2;
     private const int BrowserDependencyStructureEdgeLimit = 64;
 
     /// <summary>
@@ -1007,7 +1007,20 @@ public static partial class AnalysisExports
 
         BrowserWorkspaceParticipant participant =
             scope.LibraryParticipant(coordinate, assemblyName);
-        AssemblyContextEntry<LibrarySurfaceLeverageResult> entry =
+        if (scope.ImplementationParticipants.Contains(participant))
+        {
+            AssemblyContextEntry<LibraryTypeLeverageResult> entry =
+                scope.UseImplementationParticipant(
+                    participant,
+                    static (group, selectedParticipant) =>
+                        AssemblyContextLibraryTypeLeverageQuery
+                            .ExecuteParticipant(
+                                group,
+                                selectedParticipant));
+            return ProjectLibraryStructuralSalience(entry, compileLibrary);
+        }
+
+        AssemblyContextEntry<LibrarySurfaceLeverageResult> surface =
             scope.UseMetadataParticipant(
                 participant,
                 static (group, selectedParticipant) =>
@@ -1015,18 +1028,38 @@ public static partial class AnalysisExports
                         .ExecuteExhaustiveParticipant(
                             group,
                             selectedParticipant));
-        return ProjectLibraryStructuralSalience(entry, compileLibrary);
+        return ProjectLibraryStructuralSalience(
+            surface,
+            UnavailableTypeLeverageChannel(
+                "body-use",
+                "NoImplementationAssembly",
+                "The selected library has no managed implementation assembly."),
+            compileLibrary);
     }
 
     internal static BrowserLibraryStructuralSalience
         ProjectLibraryStructuralSalience(
             AssemblyContextEntry<LibrarySurfaceLeverageResult> entry,
             BrowserCompileLibraryAvailability compileLibrary) =>
+        ProjectLibraryStructuralSalience(
+            entry,
+            UnavailableTypeLeverageChannel(
+                "body-use",
+                "NotRequested",
+                "Implementation Type leverage was not requested."),
+            compileLibrary);
+
+    private static BrowserLibraryStructuralSalience
+        ProjectLibraryStructuralSalience(
+            AssemblyContextEntry<LibrarySurfaceLeverageResult> entry,
+            BrowserLibraryTypeLeverageChannel implementation,
+            BrowserCompileLibraryAvailability compileLibrary) =>
         entry switch
         {
             AssemblyContextEntry<LibrarySurfaceLeverageResult>.Available
                 available => ProjectLibraryStructuralSalience(
                     available.Value,
+                    implementation,
                     compileLibrary),
             AssemblyContextEntry<LibrarySurfaceLeverageResult>.Rejected
                 rejected => UnavailableLibraryStructuralSalience(
@@ -1047,12 +1080,14 @@ public static partial class AnalysisExports
     internal static BrowserLibraryStructuralSalience
         ProjectLibraryStructuralSalience(
             LibrarySurfaceLeverageResult result,
+            BrowserLibraryTypeLeverageChannel implementation,
             BrowserCompileLibraryAvailability compileLibrary) =>
         result switch
         {
             LibrarySurfaceLeverageResult.AvailableExhaustive available =>
                 ProjectLibraryStructuralSalience(
                     available.Document,
+                    implementation,
                     compileLibrary),
             LibrarySurfaceLeverageResult.Rejected rejected =>
                 UnavailableLibraryStructuralSalience(
@@ -1064,22 +1099,105 @@ public static partial class AnalysisExports
                 "Expected exhaustive structural salience result."),
         };
 
+    internal static BrowserLibraryStructuralSalience
+        ProjectLibraryStructuralSalience(
+            AssemblyContextEntry<LibraryTypeLeverageResult> entry,
+            BrowserCompileLibraryAvailability compileLibrary)
+        => entry switch
+        {
+            AssemblyContextEntry<LibraryTypeLeverageResult>.Available
+                available => ProjectLibraryStructuralSalience(
+                    available.Value,
+                    compileLibrary),
+            AssemblyContextEntry<LibraryTypeLeverageResult>.Rejected
+                rejected => UnavailableLibraryStructuralSalience(
+                    "unavailable",
+                    $"{rejected.Subject.Identity.Name}: "
+                        + $"{rejected.Failure.Kind} "
+                        + $"({rejected.Failure.Detail})",
+                    compileLibrary),
+            AssemblyContextEntry<LibraryTypeLeverageResult>.Failed failed =>
+                UnavailableLibraryStructuralSalience(
+                    "failed",
+                    $"{failed.Subject.Identity.Name}: {failed.Error.Message}",
+                    compileLibrary),
+            _ => throw new InvalidOperationException(
+                "Unknown Library Type-leverage assembly-context result."),
+        };
+
+    internal static BrowserLibraryStructuralSalience
+        ProjectLibraryStructuralSalience(
+            LibraryTypeLeverageResult result,
+            BrowserCompileLibraryAvailability compileLibrary) =>
+        result switch
+        {
+            LibraryTypeLeverageResult.Available available => new(
+                BrowserLibraryStructuralSalienceSchemaVersion,
+                ProjectSurfaceTypeLeverageChannel(
+                    available.Document.Surface),
+                ProjectImplementationTypeLeverageChannel(
+                    available.Document.Implementation),
+                compileLibrary),
+            LibraryTypeLeverageResult.Rejected rejected =>
+                UnavailableLibraryStructuralSalience(
+                    "unavailable",
+                    $"Signature-use acquisition was rejected "
+                        + $"({rejected.Kind}): {rejected.Detail}",
+                    compileLibrary),
+            _ => throw new InvalidOperationException(
+                "Unknown Library Type-leverage result."),
+        };
+
     private static BrowserLibraryStructuralSalience
         ProjectLibraryStructuralSalience(
             LibraryStructuralSalienceDocument document,
+            BrowserLibraryTypeLeverageChannel implementation,
             BrowserCompileLibraryAvailability compileLibrary)
         => new(
             BrowserLibraryStructuralSalienceSchemaVersion,
+            ProjectSurfaceTypeLeverageChannel(document),
+            implementation,
+            compileLibrary);
+
+    private static BrowserLibraryTypeLeverageChannel
+        ProjectSurfaceTypeLeverageChannel(
+            LibraryStructuralSalienceDocument document) =>
+        new(
             "available",
             document.MethodologyVersion,
-            document.EvidenceMode.ToString().ToLowerInvariant(),
+            "signature",
             ProjectLibraryNamespaceLeverage(document.NamespaceIndex),
             [
                 .. document.TypeLeverageShards.Select(
                     ProjectLibraryTypeLeverageShard),
             ],
             null,
-            compileLibrary);
+            null);
+
+    private static BrowserLibraryTypeLeverageChannel
+        ProjectImplementationTypeLeverageChannel(
+            LibraryBodyTypeLeverageResult result) =>
+        result switch
+        {
+            LibraryBodyTypeLeverageResult.Available available => new(
+                "available",
+                LibraryStructuralSalience.CurrentMethodologyVersion,
+                "body-use",
+                null,
+                [
+                    .. available.Shards.Select(
+                        ProjectLibraryBodyTypeLeverageShard),
+                ],
+                null,
+                null),
+            LibraryBodyTypeLeverageResult.Rejected rejected =>
+                UnavailableTypeLeverageChannel(
+                    "body-use",
+                    rejected.Kind.ToString(),
+                    rejected.Detail),
+            _ => throw new InvalidOperationException(
+                "Unknown body Type-leverage result."),
+        };
 
     private static BrowserLibraryNamespaceLeverageIndex
         ProjectLibraryNamespaceLeverage(
@@ -1122,6 +1240,7 @@ public static partial class AnalysisExports
                 document.SignatureUse.Coverage.Examined,
                 document.SignatureUse.Coverage.Unavailable,
                 document.SignatureUse.Coverage.Limited),
+            null,
             [
                 .. document.Rows.Select(row =>
                     new BrowserLibraryTypeLeverageRow(
@@ -1154,6 +1273,85 @@ public static partial class AnalysisExports
             ]);
     }
 
+    private static BrowserLibraryTypeLeverageShard
+        ProjectLibraryBodyTypeLeverageShard(
+            LibraryStructuralBodyTypeLeverageShard document)
+    {
+        Dictionary<
+            ILInspector.Metadata.MetadataTypeDefinitionAddress,
+            string> ids =
+                document.Rows.ToDictionary(
+                    static row => row.Type,
+                    static row => row.Name.ToEscapedFullName());
+        ILAnalysis.AnalysisLibraryBodyUseCoverage coverage =
+            document.BodyUse.Coverage;
+        return new(
+            document.Namespace,
+            document.RoleDisposition.ToString().ToLowerInvariant(),
+            new(
+                document.TypeInventory.Coverage.Considered,
+                document.TypeInventory.Coverage.Examined,
+                document.TypeInventory.Coverage.Unavailable,
+                document.TypeInventory.Coverage.Limited),
+            new(
+                coverage.BodiesConsidered,
+                coverage.BodiesExamined,
+                coverage.BodiesPhysicalOnly,
+                coverage.BodiesUnavailable,
+                coverage.BodiesLimited,
+                coverage.OperandsConsidered,
+                coverage.OperandsExamined,
+                coverage.OperandsUnavailable,
+                coverage.OperandsLimited),
+            [
+                .. document.Rows.Select(row =>
+                    new BrowserLibraryTypeLeverageRow(
+                        ids[row.Type],
+                        row.Name.ToMetadataFullName(),
+                        row.DesignationEligible,
+                        row.BodyIncomingDegree,
+                        row.BodyOutgoingDegree,
+                        row.Role.ToString().ToLowerInvariant(),
+                        row.Pole switch
+                        {
+                            LibraryStructuralTypePole.SeaLevel =>
+                                BrowserLibraryStructuralTypePole.SeaLevel,
+                            LibraryStructuralTypePole.MountainPeak =>
+                                BrowserLibraryStructuralTypePole.MountainPeak,
+                            null => null,
+                            _ => throw new InvalidOperationException(
+                                "Unknown structural Type pole."),
+                        })),
+            ],
+            [
+                .. document.SeaLevel.Types.Select(type => ids[type]),
+            ],
+            [
+                .. document.MountainPeak.Types.Select(type => ids[type]),
+            ],
+            [
+                .. document.TypeInventory.Diagnostics
+                    .Select(static diagnostic => diagnostic.Detail)
+                    .Concat(
+                        document.BodyUse.Diagnostics.Select(
+                            static diagnostic => diagnostic.Detail)),
+            ]);
+    }
+
+    private static BrowserLibraryTypeLeverageChannel
+        UnavailableTypeLeverageChannel(
+            string evidenceMode,
+            string kind,
+            string failure) =>
+        new(
+            "unavailable",
+            null,
+            evidenceMode,
+            null,
+            [],
+            failure,
+            kind);
+
     internal static BrowserLibraryStructuralSalience
         UnavailableLibraryStructuralSalience(
             string outcome,
@@ -1161,12 +1359,22 @@ public static partial class AnalysisExports
             BrowserCompileLibraryAvailability compileLibrary) =>
         new(
             BrowserLibraryStructuralSalienceSchemaVersion,
-            outcome,
-            null,
-            null,
-            null,
-            [],
-            failure,
+            new(
+                outcome,
+                null,
+                "signature",
+                null,
+                [],
+                failure,
+                "SurfaceUnavailable"),
+            new(
+                outcome,
+                null,
+                "body-use",
+                null,
+                [],
+                failure,
+                "SurfaceUnavailable"),
             compileLibrary);
 
     static BrowserLibraryMetrics ProjectLibraryMetrics(

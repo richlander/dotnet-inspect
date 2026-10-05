@@ -705,6 +705,165 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_DiscoverDetails_ReportsDeclaredShapeAndCardinality()
+    {
+        // Member adopts Section shapes: the exact-member catalog is published
+        // as member-detail and the overload catalog as member-overload, each
+        // section with its declared shape and cardinality. Every Text payload
+        // is scalar, Source included until its Lines inventory is executed;
+        // Call Graph is a Graph with no shape but its own tree and Mermaid
+        // formats.
+        var (exit, output, error) = await RunAppAsync(
+            "member", "DotnetInspect.Cli.Tests.CommandExecutionTests+ConstructorChainTarget", ".ctor:1",
+            "--library", TestAssemblyPath,
+            "-D", "--details");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        // Formats are the executed set: Signature is a Table the type document's
+        // JSON does not carry, Decompiled Source a Text with no fact row and no
+        // dedicated JSON, Source a Text with a dedicated JSON document.
+        Assert.Contains(
+            "| Signature | section | member-detail/sections/signature "
+            + "| --markdown, --plaintext, --table, --tsv, --jsonl "
+            + "| table | scalar |  |",
+            output);
+        Assert.Contains(
+            "| Decompiled Source | section | member-detail/sections/decompiled-source "
+            + "| --markdown, --plaintext "
+            + "| text | scalar |  |",
+            output);
+
+
+        var (sourceExit, source, sourceError) = await RunAppAsync(
+            "member", "DotnetInspect.Cli.Tests.CommandExecutionTests+ConstructorChainTarget", ".ctor:1",
+            "--library", TestAssemblyPath,
+            "-D", SectionNames.Source, "--details", "--json");
+
+        Assert.Equal(0, sourceExit);
+        Assert.Empty(sourceError);
+        using JsonDocument sourceDocument = JsonDocument.Parse(source);
+        JsonElement sourceRow = Assert.Single(sourceDocument.RootElement.EnumerateArray());
+        Assert.Equal("text", sourceRow.GetProperty("shape").GetString());
+        Assert.Equal("scalar", sourceRow.GetProperty("cardinality").GetString());
+        Assert.Empty(sourceRow.GetProperty("terminals").EnumerateArray());
+        // Source is a Text with a dedicated JSON document and no fact row.
+        Assert.Equal(
+            ["--markdown", "--plaintext", "--json"],
+            sourceRow.GetProperty("formats").EnumerateArray().Select(static f => f.GetString()));
+
+        var (graphExit, graph, graphError) = await RunAppAsync(
+            "member", "DotnetInspect.Cli.Tests.CommandExecutionTests+ConstructorChainTarget", ".ctor:1",
+            "--library", TestAssemblyPath,
+            "-D", SectionNames.CallGraph, "--details", "--json");
+
+        Assert.Equal(0, graphExit);
+        Assert.Empty(graphError);
+        using JsonDocument graphDocument = JsonDocument.Parse(graph);
+        JsonElement graphRow = Assert.Single(graphDocument.RootElement.EnumerateArray());
+        Assert.False(graphRow.TryGetProperty("shape", out _));
+        string[] formats =
+            [.. graphRow.GetProperty("formats").EnumerateArray().Select(static f => f.GetString()!)];
+        Assert.Contains("--tree", formats);
+        Assert.Contains("--mermaid", formats);
+
+        var (overloadExit, overload, overloadError) = await RunAppAsync(
+            "member", "DotnetInspect.Cli.Tests.CommandExecutionTests+ConstructorChainTarget", ".ctor",
+            "--library", TestAssemblyPath,
+            "-D", "--details");
+
+        Assert.Equal(0, overloadExit);
+        Assert.Empty(overloadError);
+        Assert.Contains(
+            "| Methods | section | member-overload/sections/methods "
+            + "| --markdown, --plaintext, --json, --table, --tsv, --jsonl "
+            + "| table | inventory | rows, count |",
+            overload);
+
+        // Target-free: --details is structural and reports the single-type
+        // member catalog without a target (round-2 finding).
+        var (freeExit, free, freeError) = await RunAppAsync(
+            "member", "-D", "--details", "--json");
+
+        Assert.Equal(0, freeExit);
+        Assert.Empty(freeError);
+        using JsonDocument freeDocument = JsonDocument.Parse(free);
+        JsonElement methods = freeDocument.RootElement.EnumerateArray()
+            .Single(static r => r.GetProperty("name").GetString() == SectionNames.Methods);
+        Assert.Equal("member/sections/methods", methods.GetProperty("path").GetString());
+        Assert.Equal("table", methods.GetProperty("shape").GetString());
+        Assert.Equal("inventory", methods.GetProperty("cardinality").GetString());
+
+        // Source-less member target: --details follows the same target
+        // resolution as bare -D (the platform overload catalog), never the
+        // parser-level --schema ambiguity rule (round-3 finding).
+        var (platformExit, platform, platformError) = await RunAppAsync(
+            "member", "System.String.Trim", "-D", SectionNames.Methods, "--details", "--json");
+
+        Assert.Equal(0, platformExit);
+        Assert.Empty(platformError);
+        using JsonDocument platformDocument = JsonDocument.Parse(platform);
+        JsonElement platformRow = Assert.Single(platformDocument.RootElement.EnumerateArray());
+        Assert.Equal("member-overload/sections/methods", platformRow.GetProperty("path").GetString());
+        Assert.Equal("table", platformRow.GetProperty("shape").GetString());
+    }
+
+    [Fact]
+    public async Task Member_AdvertisedFormats_ExecuteOnTheFixtureMember()
+    {
+        // The executed-format contract: every format -D --details advertises
+        // for the exact-member catalog runs to exit 0 on a real member, and
+        // --json parses. Sections that need an input the gesture does not
+        // carry (Body Shapes' --where) are reported as such, not as a format
+        // defect. Rounds 4 and 5 of PR 9388 found advertised formats that
+        // returned nothing or were rejected; this gate pins the catalog to
+        // what executes.
+        string[] target =
+        [
+            "member", "DotnetInspect.Cli.Tests.CommandExecutionTests+ConstructorChainTarget", ".ctor:1",
+            "--library", TestAssemblyPath, "--all",
+        ];
+        var (discoverExit, discover, discoverError) = await RunAppAsync(
+            [.. target, "-D", "--details", "--json"]);
+
+        Assert.Equal(0, discoverExit);
+        Assert.Empty(discoverError);
+        using JsonDocument catalog = JsonDocument.Parse(discover);
+        var failures = new List<string>();
+        foreach (JsonElement row in catalog.RootElement.EnumerateArray())
+        {
+            if (row.GetProperty("kind").GetString() != "section")
+                continue;
+            string section = row.GetProperty("name").GetString()!;
+            foreach (JsonElement format in row.GetProperty("formats").EnumerateArray())
+            {
+                string flag = format.GetString()!;
+                var (exit, output, error) = await RunAppAsync([.. target, "-S", section, flag]);
+                if (exit != 0 && error.Contains("requires --where", StringComparison.Ordinal))
+                    continue;
+                if (exit != 0)
+                {
+                    failures.Add($"{section} {flag}: exit {exit}: {error.Trim()}");
+                    continue;
+                }
+                if (flag == "--json")
+                {
+                    try
+                    {
+                        JsonDocument.Parse(output).Dispose();
+                    }
+                    catch (JsonException exception)
+                    {
+                        failures.Add($"{section} {flag}: not JSON: {exception.Message}");
+                    }
+                }
+            }
+        }
+
+        Assert.True(failures.Count == 0, string.Join(Environment.NewLine, failures));
+    }
+
+    [Fact]
     public async Task MemberCommand_PlacesTypedConstructorChainOnDeclaration()
     {
         var (exit, output, error) = await RunAppAsync(

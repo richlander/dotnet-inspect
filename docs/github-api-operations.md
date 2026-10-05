@@ -1,8 +1,8 @@
 # GitHub API operations
 
-Practical notes for using `gh` and `gh api` correctly when administering PRs
-and issues. [PR and CI discipline](../AGENTS.md#pr-and-ci-discipline) states
-the binding summary; this document owns the exact commands.
+This document owns the repository's exact `gh` and `gh api` rules for
+administering pull requests and issues. [Repository workflow](repository-workflow.md#pull-requests)
+routes publication through these operations.
 
 ## Passing file content as a field
 

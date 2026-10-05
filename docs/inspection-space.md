@@ -453,21 +453,24 @@ borrows, and dispatches participant cleanup. Raw participant-resource
 registration, borrowing, and retirement remain InspectionSpace implementation
 details rather than producer-facing composition points.
 
-The underlying lease contract's first production adoption migrates the
+The underlying lease contract's first production adoption migrated the
 prepared declared-Method source from
 [#9143](https://github.com/richlander/dotnet-inspect/pull/9143) through
-[#9321](https://github.com/richlander/dotnet-inspect/issues/9321). Its live
+[#9321](https://github.com/richlander/dotnet-inspect/issues/9321). Its
+preparation and reusable execution now pass through the typed handle. Live
 execution, stale-ready rejection, retained-image accounting, cleanup order,
 and sibling-independence outcomes remain unchanged while producer-local lease
 coordination is retired.
 
 The second production adoption binds Metadata's target-independent hierarchy
-reverse index to the same participant lifetime. One settled preparation per
-exact participant and preparation policy may serve repeated target analyses;
-each reusable execution retains the group-issued borrow, and the resource
-retires its session and indexes before the participant snapshot. Metadata
-continues to own hierarchy facts, diagnostics, budgets, and terminal
-materialization. QuerySpace provision selection remains separate. Tracks
+reverse index to the same typed participant lifetime. Available and rejected
+preparation outcomes settle and publish while the preparation borrow is live.
+One settled preparation per exact participant and preparation policy may serve
+repeated target analyses; each reusable execution retains the group-issued
+borrow, and the resource retires its session and indexes before the participant
+snapshot. Metadata continues to own hierarchy facts, diagnostics, budgets, and
+terminal materialization. QuerySpace provision selection remains separate.
+Tracks
 [#9300](https://github.com/richlander/dotnet-inspect/issues/9300) and
 [#9322](https://github.com/richlander/dotnet-inspect/issues/9322).
 

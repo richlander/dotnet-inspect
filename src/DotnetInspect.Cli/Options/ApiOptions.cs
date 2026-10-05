@@ -199,6 +199,9 @@ public partial record ApiOptions : IProjectionOptions
         => ExactIncludeSectionsOverride ?? IncludeSections;
 
     public string[]? Discover { get; init; }
+
+    /// <summary><c>-D --details</c>: structural discovery with formats, shape, and cardinality.</summary>
+    public bool DiscoverDetails { get; init; }
     public bool Tree { get; init; }
 
     /// <summary>
@@ -260,7 +263,12 @@ public partial record ApiOptions : IProjectionOptions
     /// queries this is the default; <c>--schema</c> opts out to the cheap, offline static
     /// schema listing.
     /// </summary>
-    public bool EffectiveDiscovery => Discover != null && !Schema;
+    /// <summary>
+    /// <c>-D</c> that probes the real target. <c>--schema</c> and <c>--details</c> both opt out:
+    /// each is a structural, offline view of the catalog (formats, shape, and cardinality for
+    /// <c>--details</c>), exactly as for the package and library commands.
+    /// </summary>
+    public bool EffectiveDiscovery => Discover != null && !Schema && !DiscoverDetails;
 
     /// <summary>
     /// True when the user has opted into rich markdown output (via --markdown or -v:*).

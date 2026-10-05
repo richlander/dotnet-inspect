@@ -354,12 +354,18 @@ public class ResidualSlotBindingPassTests
     }
 
     [Fact]
-    public void RealNestedBodyBindingCarriesProvenance()
+    public void RealNestedBodyWebIsDecidedByItsArgumentSink()
     {
         // Microsoft.CodeAnalysis.CSharp, NullableWalker.VisitUnaryOperator: the
-        // local function adjustForLifting binds one web inside its own pipeline
-        // tail; the raised node carries that provenance for hosts and the
-        // census, and the printed body declares the bound local.
+        // local function adjustForLifting's slot-1 web was the corpus's one
+        // nested residual-bound web until the argument-sink testimony slice
+        // (#9371) let TypeWithState.Create's NullableFlowState parameter decide
+        // it; the nested body now materializes it inside its own pipeline run,
+        // so the raised node carries no residual provenance and the printed body
+        // still declares the local. Provenance carrying for a nested web that
+        // does stay residual is gated synthetically by
+        // NestedSplitPieceReadWithoutReachingStoreDeclaresBare and by
+        // NestedSlotMaterializationTests' CreateQueue binding.
         string path = typeof(Microsoft.CodeAnalysis.CSharp.CSharpSyntaxTree).Assembly.Location;
         using var source = MetadataSource.Open(path);
         var function = IrImporter.Import(source, "Microsoft.CodeAnalysis.CSharp.NullableWalker", "VisitUnaryOperator");
@@ -367,10 +373,7 @@ public class ResidualSlotBindingPassTests
 
         IrPasses.Run(function, IrPasses.Default, PassContext.ForImport(reference => IrImporter.Import(source, reference), source.AreProvablyDisjoint));
         var adjustForLifting = Assert.Single(function.Descendants.OfType<LocalFunctionStatement>(), static local => local.Name == "adjustForLifting");
-        var (index, binding) = Assert.Single(adjustForLifting.ResidualSlotBindings);
-        Assert.Equal(1, binding.Slot);
-        Assert.Equal(ResidualSlotBindingKind.Unified, binding.Kind);
-        Assert.Equal("S_1", adjustForLifting.SynthesizedLocalNames[index - (adjustForLifting.Locals.Length - adjustForLifting.SynthesizedLocalNames.Length)]);
+        Assert.Empty(adjustForLifting.ResidualSlotBindings);
         Assert.Empty(function.ResidualSlotBindings);
 
         string output = CSharpPrinter.Print(function).Output!;

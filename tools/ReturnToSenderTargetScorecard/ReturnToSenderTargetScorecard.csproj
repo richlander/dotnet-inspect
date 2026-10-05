@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Checks and times exact pre-cap ReturnToSender target Count through the old
+    eager-row path, LINQ, pinned NLinq, and the shipping QuerySpace Planner.
+    Publish NativeAOT to time:
+      dotnet publish tools/ReturnToSenderTargetScorecard -c Release -r <rid> -p:PublishAot=true -p:IsPublishable=true -o <dir>
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <LangVersion>preview</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <IsPackable>false</IsPackable>
+    <IsAotCompatible>true</IsAotCompatible>
+    <AssemblyName>return-to-sender-target-scorecard</AssemblyName>
+    <RootNamespace>ReturnToSenderTargetScorecard</RootNamespace>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <OptimizationPreference>Speed</OptimizationPreference>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\DotnetInspector.ResearchSections\DotnetInspector.ResearchSections.csproj" />
+    <ProjectReference Include="..\..\tests\DotnetInspector.PerformanceOracles\DotnetInspector.PerformanceOracles.csproj" />
+    <ProjectReference Include="..\..\tests\NLinq.Oracle\NLinq.Oracle.csproj" />
+  </ItemGroup>
+
+</Project>
