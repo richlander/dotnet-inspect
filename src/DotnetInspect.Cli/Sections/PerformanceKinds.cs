@@ -58,6 +58,11 @@ public static class PerformanceKinds
             _ => throw new ArgumentOutOfRangeException(nameof(section)),
         };
 
+    public static OptimizationOpportunityKind KindForSection(
+        string section) =>
+        QueryForSection(section).Kind
+        ?? throw new ArgumentOutOfRangeException(nameof(section));
+
     public static ImmutableArray<OptimizationOpportunity> Select(
         string section,
         IEnumerable<OptimizationOpportunity> opportunities) =>

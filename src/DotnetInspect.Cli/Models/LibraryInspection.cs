@@ -602,6 +602,10 @@ public class LibraryInspection
         PerformanceTriageOpportunities
     { get; set; } = [];
 
+    [JsonIgnore]
+    internal OptimizationOpportunityCounts? PerformanceTriageCounts
+    { get; set; }
+
     /// <summary>
     /// Nested performance projection: the optimization opportunities bucketed by kind, mirroring
     /// the kind-scoped sections and the il-offset nested model. Null (absent) when the scan did
