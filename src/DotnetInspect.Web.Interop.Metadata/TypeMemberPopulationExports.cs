@@ -98,9 +98,7 @@ public static partial class MetadataExports
                 coordinate,
                 coordinate.CompileAsset(assemblyName));
         BrowserWorkspaceParticipant projectionParticipant = implementation
-            ? scope.SurfaceParticipant(
-                coordinate,
-                coordinate.CompileAsset(assemblyName))
+            ? scope.TryGetSurfaceParticipant(participant) ?? participant
             : participant;
         AssemblyContextLibraryRole role =
             scope.ImplementationParticipants.Contains(participant)

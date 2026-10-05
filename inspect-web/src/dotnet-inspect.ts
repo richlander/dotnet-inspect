@@ -16654,7 +16654,8 @@ function captureWorkspaceUrlState(): WorkspaceUrlState | null {
         "The selected dependency group differs from the package target framework and cannot be shared.");
     }
   }
-  const type = structuralRootOpen
+  const forwarder = structuralRootOpen ? null : selectedForwarder();
+  const type = structuralRootOpen || forwarder
     ? null
     : selectedType();
   const member = structuralRootOpen
@@ -16697,13 +16698,29 @@ function captureWorkspaceUrlState(): WorkspaceUrlState | null {
     workspaceSubjectOpen || platformRoot || packageSubjectOpen || !library
       ? []
       : [library];
-  const declarationSource = type
-    ? ((memberOverload
-        && memberDeclarationUsesImplementation(type, memberOverload))
-      || type.graphOnly
-      || typeMemberPopulationSource(type) === "implementation")
+  const sharedType =
+    type?.definitionId
+      ?? type?.id
+      ?? forwarder?.name
+      ?? null;
+  const surfaceMember = memberOverload
+    ? type?.api.find(candidate =>
+      !candidate.graphOnly
+      && (memberAnchor
+        ? candidate.anchorDigest === memberAnchor
+        : candidate.canonicalSignature === memberSignature))
+    : null;
+  const declarationSource = sharedType
+    ? (type?.graphOnly || (memberOverload && !surfaceMember)
       ? "implementation"
-      : "surface"
+      : "surface")
+    : null;
+  const declarationLibraryAsset = sharedType
+    ? type?.assemblyId
+      ?? (forwarder
+        ? currentPlatformForwarderView()?.surface.defaultAssemblyId
+        : library)
+      ?? null
     : null;
   return {
     package: state.rootKind === "platform" ? "" : state.package?.id ?? "",
@@ -16722,7 +16739,7 @@ function captureWorkspaceUrlState(): WorkspaceUrlState | null {
             : state.lens,
       type: structuralRootOpen
         ? null
-        : type?.definitionId ?? type?.id ?? null,
+        : sharedType,
       memberAnchor,
       memberSignature,
       section: member && state.memberSection !== "overview"
@@ -16734,11 +16751,11 @@ function captureWorkspaceUrlState(): WorkspaceUrlState | null {
         && state.memberSourceRequestedView === "decompiler-source"
           ? "decompiler-source"
           : null,
-      memberAccessibility: type
+      memberAccessibility: sharedType
         ? state.memberAccessibilityFilter
         : null,
       declarationSource,
-      declarationLibraryAsset: type?.assemblyId ?? null,
+      declarationLibraryAsset,
     },
   };
 }
@@ -16957,6 +16974,11 @@ function sharedTypeCandidates(
       || type.assemblyId === deep.declarationLibraryAsset));
 }
 
+function sharedForwarderCandidate(type: string | null | undefined) {
+  return currentPlatformForwarderView()?.forwarders.find(
+    row => row.id === type || row.name === type);
+}
+
 async function prepareSharedSymbolRequest(
   pkg: AppPackage,
   deep: DeepLink,
@@ -16976,9 +16998,9 @@ async function prepareSharedSymbolRequest(
   if (!library) {
     return `The shared declaration library '${deep.declarationLibraryAsset}' is not uniquely available in ${pkg.id}.`;
   }
-
   if (deep.declarationSource === "surface") {
-    if (sharedTypeCandidates(pkg, deep, false).length !== 1) {
+    const forwarder = sharedForwarderCandidate(deep.type);
+    if (sharedTypeCandidates(pkg, deep, false).length !== 1 && !forwarder) {
       return `The shared surface type '${deep.type}' is no longer available in '${library.name}'.`;
     }
     setTypeMemberPopulationIntent(
@@ -17077,8 +17099,7 @@ function canonicalViewRestorationFailure(
     return null;
   }
   const lens = requestedLens ?? "api";
-  const forwarder = currentPlatformForwarderView()?.forwarders.find(
-    row => row.id === deep.type);
+  const forwarder = sharedForwarderCandidate(deep.type);
   if (!typeLensesFor(pkg, Boolean(forwarder)).some(([id]) => id === lens)) {
     return `The shared '${lens}' lens is not available for ${pkg.id}.`;
   }
@@ -17180,8 +17201,7 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
   state.platformStack = [];
   state.platformDrillLoading = false;
   state.platformDrillError = "";
-  const forwarder = currentPlatformForwarderView()?.forwarders.find(
-    row => row.id === deep?.type);
+  const forwarder = sharedForwarderCandidate(deep?.type);
   const requestedTypes = deep
     ? sharedTypeCandidates(pkg, deep, true)
     : [];
