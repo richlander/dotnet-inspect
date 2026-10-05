@@ -1690,7 +1690,8 @@ public sealed partial class InspectionWorkspace
             asset.Package.PackageId,
             asset.Package.PackageVersion,
             asset.Asset.TargetFramework,
-            rid: null);
+            rid: null,
+            assetPath: asset.Asset.Path);
 
     static AssemblyReferenceIdentity RejectionCarrierIdentity(
         int roleIndex) =>

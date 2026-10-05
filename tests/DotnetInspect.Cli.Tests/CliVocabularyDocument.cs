@@ -1,6 +1,5 @@
 using DotnetInspect.Cli.Commands;
 using DotnetInspector.Sections;
-using DotnetInspector.Vocabulary;
 
 namespace DotnetInspect.Cli.Tests;
 
@@ -8,7 +7,7 @@ namespace DotnetInspect.Cli.Tests;
 internal static class CliVocabularyDocument
 {
     private static readonly Lazy<VocabularyDocument> Source =
-        new(() => VocabularyCatalog.ProjectDocument(CliVocabularyComposition.Snapshot));
+        new(() => ProductVocabularyProjection.ToDocument(CliVocabularyComposition.Snapshot));
 
     public static VocabularyDocument Document => Source.Value;
 

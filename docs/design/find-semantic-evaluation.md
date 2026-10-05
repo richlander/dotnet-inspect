@@ -187,7 +187,8 @@ FindSourceEvaluation
 Every variant retains:
 
 - the exact normalized question value and pattern ordinals;
-- the source owner's exact source coordinate and source order;
+- the source owner's exact source coordinate, detached request and selection
+  evidence, and source order;
 - selected Library and assembly identity when the source owner established
   them; and
 - participant realization and evaluation coverage.
@@ -199,7 +200,10 @@ The source owner supplies identity and coverage. The evaluator never derives a
 package, platform family, Library, assembly, or acquisition origin from display
 text. Two source requests that differ in authority, selected version, target
 framework, runtime identifier, platform generation, or selected asset remain
-different sources even when their labels match.
+different sources even when their exact Library coordinate and labels match.
+The source identity therefore retains owner-issued request evidence separately
+from selected-asset evidence, and retains both beside, but separately from, its
+exact Library coordinate.
 
 A Type source evaluation retains:
 

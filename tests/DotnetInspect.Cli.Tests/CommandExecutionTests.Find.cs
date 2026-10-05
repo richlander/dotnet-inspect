@@ -32,6 +32,36 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Find_EcosystemRuntimeMemberUsesSemanticProjection()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "find", ".WriteLine", "--ecosystem", "runtime",
+            "--type", "System.Console",
+            "-n", "3", "--json", "--compact");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using JsonDocument document = JsonDocument.Parse(output);
+        JsonElement[] rows =
+            [.. document.RootElement.EnumerateArray()];
+        Assert.Equal(3, rows.Length);
+        Assert.All(
+            rows,
+            row =>
+            {
+                Assert.Equal(
+                    "WriteLine",
+                    row.GetProperty("member").GetString());
+                Assert.Equal(
+                    "System.Console",
+                    row.GetProperty("declaring_type").GetString());
+                Assert.Equal(
+                    "runtime",
+                    row.GetProperty("source").GetString());
+            });
+    }
+
+    [Fact]
     public async Task Find_EcosystemAspNetCoreSearchesRuntimeWithoutWindow()
     {
         var (exit, output, error) = await RunAppAsync(

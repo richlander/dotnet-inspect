@@ -2,7 +2,6 @@ using DotnetInspect.Cli.Commands;
 using DotnetInspect.ProductVocabularyTesting;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
-using DotnetInspector.Vocabulary;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
 using QuerySpace.Vocabulary;
@@ -105,7 +104,7 @@ public sealed class ProductVocabularySnapshotTests
             ]);
 
         KeyNotFoundException error = Assert.Throws<KeyNotFoundException>(
-            () => VocabularyCatalog.ProjectDocument(partial));
+            () => ProductVocabularyProjection.ToDocument(partial));
         Assert.Contains("csharp.style-tiers", error.Message, StringComparison.Ordinal);
     }
 
