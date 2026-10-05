@@ -1435,6 +1435,43 @@ facts into a presentation view does not move into the query merely to reduce
 adapter code. This keeps the assembly owner from regressing into formatter
 logic without making view types the currency of the service boundary.
 
+### Extension relation population producer contract
+
+Assembly Inspection owns the direct extension question over one admitted
+image: which physical extension declarations name one exact structured
+receiver assembly and Type identity? The request independently selects exact
+Count and/or one bounded Rows segment, visibility, operation policy, and an
+optional source MVID for continuation. It does not resolve receiver
+definitions, infer identity from display text, acquire another image, or claim
+complete C# applicability.
+
+One forward declaration-candidate walk owns discovery order, visibility,
+coverage, diagnostics, and operation charging. Each included declaration is
+decoded far enough to establish its exact receiver identity. A nonmatching
+declaration does not require rich display projection or canonical Member
+construction; matching declarations retain canonical physical Member identity,
+structured receiver evidence, declaring and receiver-context addresses, and
+declaration tokens. Unsupported or malformed candidate evidence remains a
+typed incomplete or failed outcome rather than exact absence.
+
+Count requires complete candidate coverage. Bounded Rows retains only the
+requested logical-row segment, but the direct producer may finish the walk to
+establish exact completion and a source-bound continuation ordinal. Logical
+row and occurrence order remain Metadata discovery order; presentation sorting
+is downstream. Repeated physical declarations with the same exact logical
+identity remain occurrences inside one row.
+
+`ExtensionPopulationPushesCountAndBoundedRowsForHttpClient`,
+`ExtensionPopulationMatchesRuntimeCensusInMetadataOrder`,
+`ExtensionPopulationPreservesMixedDeclarationDiscoveryOrder`,
+`ExtensionPopulationPreservesConstructedReceiverContext`, and
+`ExtensionAndReferenceProducersRetainExactEvidence` gate the result contract.
+The NativeAOT scorecard for #9284 gates equivalent cardinality and logical-row
+identity against the prior rich census/filter reference over zero, small, and
+dense real runtime receiver populations. Kernel diagnostics report retained-
+session latency and allocation; exact base/head apphosts gate end-to-end
+latency, RSS, startup, and generated-code cost.
+
 ### Hierarchy relation producer and oracle contract
 
 Assembly Inspection owns the direct hierarchy question over one admitted
@@ -1443,9 +1480,11 @@ as their base Type or an implemented interface? The target is a structured
 Metadata definition name, including namespace, nesting, and generic arity.
 The request may select one relation kind, public-only versus non-public
 declarations, hidden-declaration policy, an operation policy, row
-materialization, and a forward candidate bound. It does not accept display
-text, resolve Workspace focus, acquire another image, or perform transitive
-hierarchy traversal.
+materialization, and an optional forward candidate window identified by start
+ordinal and maximum candidate count. Candidates before the start ordinal are
+matched but do not decode or retain source row names. It does not accept
+display text, resolve Workspace focus, acquire another image, or perform
+transitive hierarchy traversal.
 
 The fidelity domain is the `TypeDef`, `TypeRef`, and canonical generic
 `TypeSpec` hierarchy shapes emitted by Roslyn. The producer gives exact answers
@@ -1464,8 +1503,10 @@ and occurrence tokens. The result also carries the admitted-image receipt,
 candidate count, coverage, ordered diagnostics, disposition, applied forward
 plan, and whether production stopped early. Candidate count is an observed
 count unless complete coverage or an owner-issued exact witness establishes
-cardinality; consumers must not infer exact absence or Count from a partial
-zero.
+cardinality. A matched candidate consumes its producer ordinal even when source
+row-name projection is unavailable, so a continued window cannot revisit a
+later materialized row. Consumers must not infer exact absence or Count from a
+partial zero.
 
 The producer may avoid work required only by an unrequested closing:
 
@@ -1561,8 +1602,11 @@ uses the following Release gates:
   and compiled fixture assemblies.
 - `HierarchyAnalysisForwardPlanStopsOnlyAfterItsBound` and
   `HierarchyAnalysisContainsProjectionBudgetFailure` in
-  `MetadataRelationInspectionTests` gate forward stopping, non-materializing
-  Count, typed partial coverage, and retained diagnostics.
+  `MetadataRelationInspectionTests`, and
+  `IndexedForwardPlanStartsAtTheRequestedOrdinal` in
+  `HierarchyRelationOracleTests` gate forward stopping, start-ordinal row
+  materialization, non-materializing Count, typed partial coverage, and
+  retained diagnostics.
 - `HierarchyAnalysisContainsMalformedGenericTypeSpecifications` and
   `HierarchyAnalysisRejectsCyclicVisibilityBeforeCandidateScan` in
   `MetadataRelationInspectionTests` gate bounded malformed-`TypeSpec` and

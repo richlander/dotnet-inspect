@@ -135,6 +135,8 @@ internal static class NativePasses
     public static ResidualSlotBindingPass ResidualSlotBinding => new();
     [Native(NativeCategory.IlErasure, "missing Param-row names assigned final collision-free presentation spellings after exact nested binders are known")]
     public static ParameterNameAllocationPass ParameterNameAllocation => new();
+    [Native(NativeCategory.IlErasure, "up-front locals' zero-initializers decided by definite assignment on the final tree, residual-bound locals excluded, issued for the function and each raised nested body")]
+    public static DefiniteAssignmentPass DefiniteAssignment => new();
     [Native(NativeCategory.EmitArtifact, "decided synthetic stack slots (one testified type, every store exact, coercion-renderable, or covered by issued assignment testimony) materialized as typed locals, retiring their slot nodes from the printer")]
     public static SlotMaterializationPass SlotMaterialization => new();
     [Native(NativeCategory.EmitArtifact, "reference assignment testimony refreshed immediately before stack-slot storage consumes it")]
