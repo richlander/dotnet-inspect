@@ -1526,6 +1526,7 @@ kbd {
 .library-analysis-surface,
 .library-references-surface,
 .metadata-surface { min-width: 0; min-height: 0; height: 100%; display: grid; grid-template-rows: 40px minmax(0, 1fr) 34px; background: var(--bg); }
+.library-references-surface { container: library-references / inline-size; }
 .library-integrations-scroll,
 .library-opportunities-scroll,
 .library-analysis-scroll,
@@ -2223,9 +2224,11 @@ kbd {
 .call-graph-diagram { position: relative; min-height: 360px; display: grid; place-items: center; overflow: hidden; padding: 0; border-top: 1px solid var(--line); background: var(--bg); }
 .graph-viewport { position: relative; width: 100%; height: 540px; overflow: hidden; cursor: grab; touch-action: none; }
 .package-dependencies-surface .dependency-graph-section .call-graph-diagram { min-height: 230px; }
-.package-dependencies-surface .dependency-graph-section .graph-viewport {
+.package-dependencies-surface .dependency-graph-section .graph-viewport,
+.library-references-surface .reference-graph-section .graph-viewport {
   height: clamp(230px, calc(100dvh - 538px), 360px);
 }
+.library-references-surface .reference-graph-section .call-graph-diagram { min-height: 230px; }
 .graph-viewport.panning { cursor: grabbing; }
 .graph-viewport:focus-visible { outline: 2px solid var(--blue); outline-offset: -2px; }
 .graph-viewport g.node.nav-node { cursor: pointer; }
@@ -2265,6 +2268,7 @@ kbd {
 .legend-swatch.unavailable-node { background: transparent; border-color: var(--line-strong); border-style: dashed; }
 .legend-swatch.same-prefix-package { background: var(--graph-package-same-prefix-fill); border-color: var(--graph-package-same-prefix-stroke); }
 .legend-swatch.external-package { background: var(--graph-package-external-fill); border-color: var(--graph-package-external-stroke); }
+.legend-swatch.reference { background: var(--graph-package-external-fill); border-color: var(--graph-package-external-stroke); }
 .legend-swatch.loaded-node,
 .legend-swatch.platform-node { background: var(--panel); border-color: var(--line-strong); }
 .legend-swatch.platform-node { border-style: dashed; }
@@ -2458,6 +2462,10 @@ kbd {
 @container package-dependencies (max-width: 580px) {
   .package-dependencies-surface .dependency-graph-section .call-graph-diagram { min-height: 220px; }
   .package-dependencies-surface .dependency-graph-section .graph-viewport { height: 240px; }
+}
+@container library-references (max-width: 580px) {
+  .library-references-surface .reference-graph-section .call-graph-diagram { min-height: 220px; }
+  .library-references-surface .reference-graph-section .graph-viewport { height: 240px; }
 }
 .caller-list { margin: 0; padding: 0; border: 1px solid var(--line); list-style: none; }
 .caller-list li { min-height: 48px; display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 9px 13px; border-bottom: 1px solid var(--line); background: var(--panel); }
@@ -2670,7 +2678,9 @@ kbd {
 .package-pruning-table td:last-child { min-width: 180px; }
 .package-pruning-table td small { display: block; margin-top: 3px; color: var(--muted); font-size: 11px; font-weight: 400; }
 .library-references-scroll { overflow-wrap: anywhere; }
-.library-references-scroll > .dep-list { border-top: 0; }
+.library-references-scroll > .reference-graph-section { padding-bottom: 0; }
+.library-references-scroll > .reference-list-section { padding-top: 24px; }
+.library-references-scroll .reference-list-section > .dep-list { border-top: 0; }
 .library-references-scroll .dep-list li { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); padding-inline: 16px; }
 .library-references-scroll .dep-name { overflow: visible; white-space: normal; }
 .library-references-scroll .dep-version { min-width: 0; white-space: normal; text-align: right; }
