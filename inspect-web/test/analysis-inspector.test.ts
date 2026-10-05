@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { isLibraryLens, libraryLenses } from "../src/data.ts";
 import {
+  defaultAnalysisMode,
   isAnalysisMode,
   renderAnalysisInspector,
   type AnalysisMode,
@@ -18,22 +19,23 @@ test("Library exposes one ordered Analysis inspector", () => {
   assert.equal(isAnalysisMode("metrics"), false);
 });
 
-test("Complexity and Relationships precede Performance in the Analysis tab order", () => {
+test("Relationships is the first and default Analysis mode", () => {
+  assert.equal(defaultAnalysisMode, "relationships");
   const html = renderAnalysisInspector({
     assemblyIdentity: "Microsoft.Extensions.AI, Version=10.0.0.0",
     assetPath: "lib/net10.0/Microsoft.Extensions.AI.dll",
     coordinate: "Microsoft.Extensions.AI@10.0.0",
     pickerHtml: "",
     escapeHtml: value => String(value),
-  }, "complexity", "Ready", "<p>Complexity</p>");
+  }, defaultAnalysisMode, "Ready", "<p>Relationships</p>");
   const modes = [...html.matchAll(/data-analysis-mode="([^"]+)"/g)]
     .map(match => match[1]);
 
   assert.deepEqual(
     modes,
     [
-      "complexity",
       "relationships",
+      "complexity",
       "performance",
       "integrations",
     ],

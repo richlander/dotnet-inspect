@@ -57,7 +57,6 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\DotnetInspector.Cache\DotnetInspector.Cache.csproj" />
     <ProjectReference Include="..\..\src\DotnetInspector.DocumentationHouse\DotnetInspector.DocumentationHouse.csproj" />
-    <ProjectReference Include="..\..\src\DotnetInspector.DocumentationHouse.Packages\DotnetInspector.DocumentationHouse.Packages.csproj" />
     <ProjectReference Include="..\..\src\DotnetInspector.LibraryMetadata\DotnetInspector.LibraryMetadata.csproj" />
     <ProjectReference Include="..\..\src\DotnetInspector.PackageQueries\DotnetInspector.PackageQueries.csproj" />
     <ProjectReference Include="..\..\src\DotnetInspector.Sections\DotnetInspector.Sections.csproj" />

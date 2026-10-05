@@ -62,15 +62,12 @@ public sealed partial class CSharpPrinter
     readonly HashSet<string> _capturedScopeNames;
     readonly List<DecompilerDecision> _decisions;
     readonly HashSet<DecisionKey> _decisionKeys;
-    readonly IrNode _stackSlotTelemetryScope;
     readonly List<ConsumedMemberEvidence> _consumedMembers = [];
 
     CSharpPrinter(
         IrFunction function,
         PrinterOptions? options = null,
         IEnumerable<string>? reservedScopeNames = null,
-        StackSlotUnifierTelemetryBuilder? stackSlotTelemetry = null,
-        IrNode? stackSlotTelemetryScope = null,
         List<DecompilerDecision>? decisions = null,
         HashSet<DecisionKey>? decisionKeys = null,
         bool fullyQualifyTypeNames = false)
@@ -93,8 +90,6 @@ public sealed partial class CSharpPrinter
                     function.Signature.Parameters)
                 .Where(_reservedScopeNames.Contains),
             StringComparer.Ordinal);
-        _stackSlotTelemetry = stackSlotTelemetry;
-        _stackSlotTelemetryScope = stackSlotTelemetryScope ?? function.Body;
         _decisions = decisions ?? [];
         _decisionKeys = decisionKeys ?? [];
     }
@@ -628,7 +623,6 @@ public sealed partial class CSharpPrinter
 
     /// <summary>Stores that double as declarations: the local's first program-order reference, at statement level in the entry block.</summary>
     readonly HashSet<IrNode> _declaringStores = [];
-    readonly HashSet<IrNode> _legacyAwaitScopedDeclarations = [];
     LocalDeclarationPlan? _localDeclarationPlan;
 
     /// <summary>Locals that may be read before they are definitely assigned, so their declaration must keep its `= default` zero-initializer (a bare declaration would be CS0165).</summary>
@@ -688,7 +682,6 @@ public sealed partial class CSharpPrinter
     readonly HashSet<int> _fixedLocals = [];
 
     /// <summary>Synthesized stack-slot names a <see cref="Fixed"/> statement owns and declares in its header.</summary>
-    readonly HashSet<string> _fixedStackSlotNames = [];
 
     /// <summary>Resource local slots a <see cref="UsingStatement"/> owns: declared by the using header, not up front.</summary>
     readonly HashSet<int> _usingLocals = [];
@@ -755,33 +748,6 @@ public sealed partial class CSharpPrinter
         IrExpression Operand,
         string Text);
 
-    readonly record struct StackSlotRenderKey(int Slot, string TypeKey);
-
-    internal sealed record StackSlotUnifierTelemetry(
-        int StoreNodes,
-        int LoadNodes,
-        int DirectCopyStores,
-        int DistinctSlots,
-        int CandidateSlots,
-        int SingleCandidateSlots,
-        int MultiCandidateUnifiedSlots,
-        int UnunifiedSplitSlots,
-        int EmittedDeclarationNames);
-
-    readonly Dictionary<StackSlotRenderKey, string> _stackSlotNames = [];
-    readonly Dictionary<StoreStackSlot, TypeRef?> _stackSlotStoreTypes = [];
-    readonly Dictionary<int, TypeRef> _stackSlotUnifiedTypes = [];
-    readonly SortedDictionary<(int Slot, int Ordinal), (string Name, TypeRef? Type)> _stackSlotDeclarations = [];
-    readonly StackSlotUnifierTelemetryBuilder? _stackSlotTelemetry;
-
-    internal static StackSlotUnifierTelemetry CollectStackSlotUnifierTelemetry(IrFunction function)
-    {
-        var telemetry = new StackSlotUnifierTelemetryBuilder();
-        var printer = new CSharpPrinter(function, stackSlotTelemetry: telemetry);
-        _ = printer.PrintBody(function);
-        return telemetry.ToTelemetry();
-    }
-
     string PrintBody(IrFunction function)
     {
         var sb = new StringBuilder();
@@ -831,7 +797,7 @@ public sealed partial class CSharpPrinter
 
     void PrepareBody(IrFunction function)
     {
-        EnsureNoResidualManagedReferenceSlots(function);
+        EnsureNoResidualStackSlots(function);
         _labelTargets = CollectBranchTargets(function);
         _localDeclarationPlan =
             LocalDeclarationPlan.Create(
@@ -873,13 +839,6 @@ public sealed partial class CSharpPrinter
                 dedupDiscriminator:
                     $"{_labelScopeSuffix}\0{binding.LocalIndex.ToString(CultureInfo.InvariantCulture)}");
         }
-        CollectResidualStackSlotDeclaringStores(function);
-        CollectStackSlotNames(function);
-        foreach (var fixedNode in function.DescendantsOutsideNestedFunctions.OfType<Fixed>())
-        {
-            if (fixedNode.LocalIsStackSlot)
-                _fixedStackSlotNames.Add(FixedLocalName(fixedNode));
-        }
         _readBeforeAssign = DefiniteAssignment.Compute(function, _labelTargets, _facts);
         if (_facts is not null)
             _facts.LocalNames = [
@@ -888,20 +847,27 @@ public sealed partial class CSharpPrinter
             ];
     }
 
-    static void EnsureNoResidualManagedReferenceSlots(IrFunction function)
+    /// <summary>
+    /// The thin-writer boundary for storage: every stack-slot web is a
+    /// pipeline-issued local before presentation (materialized, or bound by
+    /// <see cref="ResidualSlotBindingPass"/>). Unconditional in Release and
+    /// independent of <see cref="IrInvariants"/>: a surviving slot node is a
+    /// pipeline failure, never success-shaped output.
+    /// </summary>
+    static void EnsureNoResidualStackSlots(IrFunction function)
     {
         foreach (var node in function.DescendantsOutsideNestedFunctions)
         {
             int? slot = node switch
             {
-                StoreStackSlot { Value.ResultType.Kind: TypeRefKind.ByRef } store => store.Slot,
-                LoadStackSlot { Type.Kind: TypeRefKind.ByRef } load => load.Slot,
+                StoreStackSlot store => store.Slot,
+                LoadStackSlot load => load.Slot,
                 _ => null,
             };
             if (slot is { } residual)
             {
                 throw new InvalidOperationException(
-                    $"Managed-reference stack slot {residual} reached C# emission after slot materialization.");
+                    $"Stack slot {residual} reached C# emission without residual storage binding.");
             }
         }
     }
@@ -1138,20 +1104,6 @@ public sealed partial class CSharpPrinter
             }
         }
 
-        foreach (var (key, (name, type)) in _stackSlotDeclarations)
-        {
-            if (_fixedStackSlotNames.Contains(name))
-                continue;
-            if (_declaringStores
-                .OfType<StoreStackSlot>()
-                .Any(s => StackSlotName(s) == name))
-            {
-                continue;
-            }
-            materializedSlotDeclarations.Add(
-                key,
-                $"{(type is null ? "var" : TypeText(type))} {name};");
-        }
         foreach (string declaration in materializedSlotDeclarations.Values)
             yield return declaration;
     }
@@ -1160,314 +1112,30 @@ public sealed partial class CSharpPrinter
     {
         var type = function.Locals[index];
         string scoped = _scopedLocals.Contains(index) ? "scoped " : "";
+        // A residual-bound local (value-typed-emission.md, "Residual storage
+        // binding") is never zero-initialised: a piece read with no reaching
+        // store is a binding gap, and `= default` would turn that gap into
+        // compiling C# that silently drops the term. The bare declaration
+        // keeps it CS0165-visible.
         return type.Kind == TypeRefKind.ByRef
             ? $"{TypeText(type)} {LocalName(index)} = ref System.Runtime.CompilerServices.Unsafe.NullRef<{TypeText(type.ElementType!)}>();"
             : _readBeforeAssign.Contains(index)
+                && !function.ResidualSlotBindings.ContainsKey(index)
                 ? $"{scoped}{TypeText(type)} {LocalName(index)} = default;"
                 : $"{scoped}{TypeText(type)} {LocalName(index)};";
     }
 
-    void CollectStackSlotNames(IrFunction function)
-    {
-        _stackSlotNames.Clear();
-        _stackSlotStoreTypes.Clear();
-        _stackSlotUnifiedTypes.Clear();
-        _stackSlotDeclarations.Clear();
-
-        var nodes = function.DescendantsOutsideNestedFunctions.ToList();
-        var storesBySlot = new Dictionary<int, List<IrExpression>>();
-        var loadsBySlot = new Dictionary<int, List<LoadStackSlot>>();
-        var extraLoadTargetsBySlot = new Dictionary<int, List<TypeRef>>();
-        foreach (var node in nodes)
-        {
-            switch (node)
-            {
-                case StoreStackSlot store:
-                    (storesBySlot.TryGetValue(store.Slot, out var stores) ? stores : storesBySlot[store.Slot] = []).Add(store.Value);
-                    break;
-                case LoadStackSlot load:
-                    (loadsBySlot.TryGetValue(load.Slot, out var loads) ? loads : loadsBySlot[load.Slot] = []).Add(load);
-                    break;
-            }
-        }
-        var telemetry = _stackSlotTelemetry is { } collector
-            && collector.TryBeginScope(_stackSlotTelemetryScope)
-                ? collector
-                : null;
-        telemetry?.RecordNodes(
-            storesBySlot.Values.Sum(stores => stores.Count),
-            loadsBySlot.Values.Sum(loads => loads.Count),
-            storesBySlot.Values.Sum(stores => stores.Count(store => store is LoadStackSlot)));
-
-        foreach (var storeElement in nodes.OfType<StoreElement>())
-        {
-            if (storeElement is not { Value: LoadStackSlot load, ElementType: { } elementType })
-                continue;
-            if (!storesBySlot.TryGetValue(load.Slot, out var stores)
-                || stores.Count == 0
-                || !stores.All(store => store is Conditional conditional && CanRenderConditionalForTarget(conditional, elementType)))
-            {
-                continue;
-            }
-            (extraLoadTargetsBySlot.TryGetValue(load.Slot, out var targets) ? targets : extraLoadTargetsBySlot[load.Slot] = []).Add(elementType);
-        }
-
-        foreach (int slot in storesBySlot.Keys.Concat(loadsBySlot.Keys).Distinct())
-        {
-            if (telemetry is not null)
-            {
-                telemetry.RecordCandidate(
-                    CandidateCount(
-                        storesBySlot.GetValueOrDefault(slot) ?? [],
-                        loadsBySlot.GetValueOrDefault(slot) ?? [],
-                        extraLoadTargetsBySlot.GetValueOrDefault(slot) ?? []));
-            }
-            if (TryChooseUnifiedStackSlotType(
-                storesBySlot.GetValueOrDefault(slot) ?? [],
-                loadsBySlot.GetValueOrDefault(slot) ?? [],
-                extraLoadTargetsBySlot.GetValueOrDefault(slot) ?? [],
-                out var unifiedType))
-            {
-                _stackSlotUnifiedTypes[slot] = unifiedType;
-                telemetry?.RecordUnified(unifiedType);
-            }
-            else
-            {
-                telemetry?.RecordUnunifiedSplit();
-            }
-        }
-
-        foreach (var store in nodes.OfType<StoreStackSlot>())
-            _stackSlotStoreTypes[store] = StackSlotRenderType(store.Slot, store.Value.ResultType);
-
-        var ordinals = new Dictionary<int, int>();
-        var takenNames = new HashSet<string>(
-            CurrentScopeNames(),
-            StringComparer.Ordinal);
-
-        string NameFor(int slot, TypeRef? type)
-        {
-            var key = new StackSlotRenderKey(slot, StackSlotTypeKey(type));
-            if (_stackSlotNames.TryGetValue(key, out var existing))
-                return existing;
-
-            int ordinal = ordinals.GetValueOrDefault(slot);
-            ordinals[slot] = ordinal + 1;
-            string baseName = ordinal == 0 ? $"S_{slot}" : $"S_{slot}_{ordinal}";
-            string name = ReserveName(baseName, takenNames);
-            _stackSlotNames[key] = name;
-            _stackSlotDeclarations[(slot, ordinal)] = (name, type);
-            return name;
-        }
-
-        foreach (var node in nodes)
-        {
-            switch (node)
-            {
-                case LoadStackSlot load:
-                    NameFor(load.Slot, StackSlotRenderType(load.Slot, load.Type));
-                    break;
-                case StoreStackSlot store:
-                    NameFor(store.Slot, StackSlotTargetType(store));
-                    break;
-            }
-        }
-        telemetry?.RecordEmittedDeclarations(EmittedStackSlotDeclarationCount());
-
-        static int CandidateCount(
-            IReadOnlyList<IrExpression> stores,
-            IReadOnlyList<LoadStackSlot> loads,
-            IReadOnlyList<TypeRef> extraLoadTargets)
-            => loads.Select(load => load.Type)
-                .Concat(extraLoadTargets)
-                .Concat(stores.Select(store => store.ResultType))
-                .Where(type => type is not null)
-                .Cast<TypeRef>()
-                .Distinct()
-                .Count();
-    }
-
-    int EmittedStackSlotDeclarationCount()
-    {
-        int count = 0;
-        foreach (var (_, (name, _)) in _stackSlotDeclarations)
-        {
-            if (_declaringStores.OfType<StoreStackSlot>().Any(s => StackSlotName(s) == name))
-                continue;
-            count++;
-        }
-        return count;
-    }
-
-    sealed class StackSlotUnifierTelemetryBuilder
-    {
-        int _lastCandidateCount;
-        readonly HashSet<IrNode> _recordedScopes = [];
-
-        public int StoreNodes { get; private set; }
-        public int LoadNodes { get; private set; }
-        public int DirectCopyStores { get; private set; }
-        public int CandidateSlots { get; private set; }
-        public int SingleCandidateSlots { get; private set; }
-        public int MultiCandidateUnifiedSlots { get; private set; }
-        public int UnunifiedSplitSlots { get; private set; }
-        public int EmittedDeclarationNames { get; private set; }
-
-        public bool TryBeginScope(IrNode scope) => _recordedScopes.Add(scope);
-
-        public void RecordNodes(int stores, int loads, int directCopyStores)
-        {
-            StoreNodes += stores;
-            LoadNodes += loads;
-            DirectCopyStores += directCopyStores;
-        }
-
-        public void RecordCandidate(int candidateCount)
-        {
-            CandidateSlots++;
-            _lastCandidateCount = candidateCount;
-            if (candidateCount == 1)
-                SingleCandidateSlots++;
-        }
-
-        public void RecordUnified(TypeRef _)
-        {
-            if (_lastCandidateCount > 1)
-                MultiCandidateUnifiedSlots++;
-        }
-
-        public void RecordUnunifiedSplit() => UnunifiedSplitSlots++;
-
-        public void RecordEmittedDeclarations(int count) => EmittedDeclarationNames += count;
-
-        public StackSlotUnifierTelemetry ToTelemetry()
-            => new(
-                StoreNodes,
-                LoadNodes,
-                DirectCopyStores,
-                DistinctSlots: CandidateSlots,
-                CandidateSlots,
-                SingleCandidateSlots,
-                MultiCandidateUnifiedSlots,
-                UnunifiedSplitSlots,
-                EmittedDeclarationNames);
-    }
-
-    bool TryChooseUnifiedStackSlotType(
-        IReadOnlyList<IrExpression> stores,
-        IReadOnlyList<LoadStackSlot> loads,
-        IReadOnlyList<TypeRef> extraLoadTargets,
-        out TypeRef unifiedType)
-    {
-        var candidates = loads.Select(load => load.Type)
-            .Concat(extraLoadTargets)
-            .Concat(stores.Select(store => store.ResultType))
-            .Where(type => type is not null)
-            .Cast<TypeRef>()
-            .Distinct()
-            .ToList();
-        foreach (var candidate in candidates)
-        {
-            if (stores.All(store => CanAssignTo(store, candidate))
-                && loads.All(load => CanLoadAsType(candidate, load))
-                && extraLoadTargets.All(target => CanAssignType(candidate, target) && !StrictlyNarrowsReference(candidate, target)))
-            {
-                unifiedType = candidate;
-                return true;
-            }
-        }
-
-        unifiedType = TypeRef.CoreLib("System", "Object");
-        return false;
-    }
-
-    /// <summary>True when naming the slot <paramref name="candidate"/> would give a load site a narrower reference type than its own (e.g. picking <c>string</c> for an <c>object</c> load), which can silently rebind an overloaded call. Equal or wider candidates are fine.</summary>
-    bool StrictlyNarrowsReference(TypeRef candidate, TypeRef load)
-        => IsReferenceLike(candidate)
-            && !candidate.Equals(load)
-            && CanAssignForNarrowing(candidate, load)
-            && !CanAssignForNarrowing(load, candidate);
-
-    bool CanAssignForNarrowing(TypeRef source, TypeRef target)
-        => CanAssignType(source, target)
-            || IsCoreObject(target) && IsReferenceLike(source);
-
-    bool CanLoadAsType(TypeRef source, LoadStackSlot load)
-    {
-        if (load.Type is null)
-            return true;
-        if (CanAssignType(source, load.Type))
-            return !StrictlyNarrowsReference(source, load.Type);
-        return TypeFamilies.IsBoolean(source)
-            && CoercionSinks.BooleanSlotLoadType(load, CurrentReturnType, _function.TypeShapes) is not null;
-    }
-
-    bool CanAssignTo(IrExpression value, TypeRef target)
-    {
-        if (value is Conditional conditional)
-            return CanRenderValueConditionalForTarget(conditional, target)
-                || (conditional.ResultType is { } condType && CanAssignType(condType, target));
-        if (value is Coalesce)
-            return false;
-        if (value is Constant { Value: int or long } constant
-            && target.DeclaredValueTypeHint == ValueTypeHint.ValueType
-            && CoercionRendering.CanSpellUnknownEnumConstant(constant.ResultType, target, _function.TypeShapes))
-            return true;
-        return value.AssignmentType is { } source && CanAssignType(source, target);
-    }
-
-    bool CanAssignType(TypeRef source, TypeRef target)
-    {
-        if (source.Equals(target))
-            return true;
-        if (CSharpConversionRules.IsImplicitNumericAssignment(source, target))
-            return true;
-        return false;
-    }
+    string FixedLocalName(Fixed fixedStatement)
+        => LocalName(fixedStatement.LocalIndex);
 
     bool IsReferenceLike(TypeRef type)
         => CoercionRendering.IsReferenceLike(type, _function.TypeShapes);
-
-    static bool IsCoreObject(TypeRef type)
-        => type is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "Object" };
-
-    TypeRef? StackSlotRenderType(int slot, TypeRef? type)
-        => _stackSlotUnifiedTypes.TryGetValue(slot, out var unifiedType) ? unifiedType : type;
-
-    static string StackSlotTypeKey(TypeRef? type) => type?.ToDisplayString() ?? "<unknown>";
-
-    TypeRef? StackSlotTargetType(StoreStackSlot store)
-        => _stackSlotStoreTypes.TryGetValue(store, out var type) ? type : store.Value.ResultType;
-
-    string StackSlotName(LoadStackSlot load)
-        => _stackSlotNames.TryGetValue(new StackSlotRenderKey(load.Slot, StackSlotTypeKey(StackSlotRenderType(load.Slot, load.Type))), out var name)
-            ? name
-            : $"S_{load.Slot}";
-
-    string StackSlotName(StoreStackSlot store)
-    {
-        var type = StackSlotTargetType(store);
-        return _stackSlotNames.TryGetValue(new StackSlotRenderKey(store.Slot, StackSlotTypeKey(type)), out var name)
-            ? name
-            : $"S_{store.Slot}";
-    }
-
-    string FixedLocalName(Fixed fixedStatement)
-        => fixedStatement.LocalIsStackSlot
-            ? _stackSlotNames.TryGetValue(new StackSlotRenderKey(
-                    fixedStatement.LocalIndex,
-                    StackSlotTypeKey(StackSlotRenderType(fixedStatement.LocalIndex, fixedStatement.LocalStackSlotType))), out var name)
-                ? name
-                : $"S_{fixedStatement.LocalIndex}"
-            : LocalName(fixedStatement.LocalIndex);
 
     IReadOnlySet<string> CurrentScopeNames()
     {
         var names = CurrentReservedNames(includeLocals: true);
         names.UnionWith(_reservedScopeNames);
         AddDescendantBinderNames(names);
-        foreach (var (_, (name, _)) in _stackSlotDeclarations)
-            names.Add(name);
         foreach (var name in _switchTemps.Values)
             names.Add(name);
         // Synthetic locals (e.g. __stackalloc) are in scope for this body and for
@@ -1508,100 +1176,6 @@ public sealed partial class CSharpPrinter
         }
     }
 
-    void CollectResidualStackSlotDeclaringStores(IrFunction function)
-    {
-        if (function.Body.Blocks.Count == 0)
-            return;
-        var entryStatements = new HashSet<IrNode>(function.Body.Blocks[0].Children);
-        var seenSlots = new HashSet<int>();
-        // A slot stored on more than one path is a join slot: it must declare
-        // once, up front, with its merged type — declaring it at one store would
-        // type it from that branch's value and strand the other branch's store.
-        var slotStoreCounts = new Dictionary<int, int>();
-        foreach (var store in function.DescendantsOutsideNestedFunctions.OfType<StoreStackSlot>())
-            slotStoreCounts[store.Slot] = slotStoreCounts.GetValueOrDefault(store.Slot) + 1;
-        foreach (var node in function.DescendantsOutsideNestedFunctions)
-        {
-            switch (node)
-            {
-                case StoreStackSlot slotStore when !seenSlots.Contains(slotStore.Slot):
-                    seenSlots.Add(slotStore.Slot);
-                    if (entryStatements.Contains(slotStore) && slotStore.Value.ResultType is not null
-                        && slotStoreCounts[slotStore.Slot] == 1)
-                    {
-                        _declaringStores.Add(slotStore);
-                    }
-                    else if (!_newMemorySafetyRules
-                        && _containsAwaitSyntax
-                        && ContainsPointer(StackSlotTargetType(slotStore))
-                        && UnsafeAwaitOperand.CanScopeLegacyPointerStackSlot(
-                            function,
-                            slotStore))
-                    {
-                        _declaringStores.Add(slotStore);
-                        _legacyAwaitScopedDeclarations.Add(slotStore);
-                    }
-                    break;
-                case LoadStackSlot slotLoad: seenSlots.Add(slotLoad.Slot); break;
-            }
-        }
-
-        if (EmitsExplicitUnsafeContexts)
-        {
-            foreach (var store in _declaringStores.OfType<StoreStackSlot>().ToList())
-            {
-                if (_legacyAwaitScopedDeclarations.Contains(store))
-                    continue;
-                if (!NeedsUnsafeBlock(store)
-                    || StackSlotReferencesStayInBlockAfterStore(function, store)
-                        && !StackSlotUnsafeRunContainsAwait(store))
-                    continue;
-                _declaringStores.Remove(store);
-            }
-        }
-    }
-
-    bool StackSlotReferencesStayInBlockAfterStore(IrFunction function, StoreStackSlot store)
-    {
-        if (store.Parent is not Block block || store.ChildIndex < 0)
-            return false;
-        if (ReferencesStackSlot(store.Value, store.Slot))
-            return false;
-        var allowed = block.Children.Skip(store.ChildIndex).ToList();
-        if (HasBranchTargetAfterStatement(store))
-            return false;
-        bool sawLoad = false;
-        foreach (var node in function.DescendantsOutsideNestedFunctions)
-        {
-            if (node is StoreStackSlot s && s.Slot == store.Slot
-                || node is LoadStackSlot l && l.Slot == store.Slot)
-            {
-                if (!allowed.Any(statement => IsDescendantOrSelf(node, statement)))
-                    return false;
-                sawLoad |= node is LoadStackSlot;
-            }
-        }
-        return sawLoad;
-    }
-
-    bool StackSlotUnsafeRunContainsAwait(StoreStackSlot store)
-    {
-        if (store.Parent is not Block block || store.ChildIndex < 0)
-            return false;
-
-        int lastReference = store.ChildIndex;
-        for (int i = store.ChildIndex + 1; i < block.Children.Count; i++)
-        {
-            if (ReferencesStackSlot(block.Children[i], store.Slot))
-                lastReference = i;
-        }
-
-        return block.Children
-            .Skip(store.ChildIndex)
-            .Take(lastReference - store.ChildIndex + 1)
-            .Any(UnsafeAwaitOperand.ContainsAwait);
-    }
-
     bool HasBranchTargetAfterStatement(IrNode statement)
     {
         if (statement.Parent is not Block block || statement.ChildIndex < 0)
@@ -1633,21 +1207,10 @@ public sealed partial class CSharpPrinter
         return false;
     }
 
-    static bool ReferencesStackSlot(IrNode node, int slot)
-    {
-        if (IsStackSlotReference(node, slot))
-            return true;
-        return node.DescendantsOutsideNestedFunctions.Any(n => IsStackSlotReference(n, slot));
-    }
-
     static bool IsLocalReference(IrNode node, int index)
         => node is StoreLocal store && store.Index == index
             || node is LoadLocal load && load.Index == index
             || node is LoadLocalAddress address && address.Index == index;
-
-    static bool IsStackSlotReference(IrNode node, int slot)
-        => node is LoadStackSlot load && load.Slot == slot
-            || node is StoreStackSlot store && store.Slot == slot;
 
     static bool IsDescendantOrSelf(IrNode node, IrNode ancestor)
     {
@@ -1695,14 +1258,14 @@ public sealed partial class CSharpPrinter
             };
             function.RestoreMaterializedStackSlotLocals(
                 localFunction.MaterializedStackSlotLocals);
+            function.RestoreResidualSlotBindings(
+                localFunction.ResidualSlotBindings);
             function.CopyTypeFactsFrom(_function);
 
             var nestedPrinter = new CSharpPrinter(
                 function,
                 _options,
                 CurrentScopeNames(),
-                _stackSlotTelemetry,
-                stackSlotTelemetryScope: localFunction,
                 decisions: _decisions,
                 decisionKeys: _decisionKeys,
                 fullyQualifyTypeNames: _fullyQualifyTypeNames)
@@ -2032,11 +1595,6 @@ public sealed partial class CSharpPrinter
                     || !UnsafeExpressionCompilerSupports(expressionBody!));
             if (localFunction.ExpressionBody is { } body && !expressionNeedsUnsafeBlock)
             {
-                if (_stackSlotTelemetry is not null
-                    && localFunction.NeedsIsolatedLocalScope)
-                {
-                    _ = NestedLocalFunctionBodyText(localFunction);
-                }
                 string expressionText = localFunction.ReturnType.Kind == TypeRefKind.ByRef
                     && ArgumentLvalue(body) is { } place
                         ? $"ref {UnsafeExpressionText(
@@ -2225,32 +1783,6 @@ public sealed partial class CSharpPrinter
             string cast = storeType.Equals(stackAllocType) ? "" : $"({TypeText(storeType)})";
 
             sb.Append(LocalName(store.Index))
-                .Append(" = ")
-                .Append(cast)
-                .Append(localName)
-                .AppendLf(";");
-            return;
-        }
-        if (node is StoreStackSlot { Value: StackAllocate slotStackAllocate } slotStore
-            && StackSlotTargetType(slotStore) is { Kind: TypeRefKind.Pointer } slotType
-            && slotStackAllocate.ResultType is { } slotAllocType)
-        {
-            string localName = FreshSyntheticLocalName("__stackalloc");
-            sb.Append(pad)
-                .Append(TypeText(slotAllocType))
-                .Append(' ')
-                .Append(localName)
-                .Append(" = ")
-                .Append(Expression(slotStackAllocate))
-                .AppendLf(";");
-            statementStartOverride = sb.Length;
-            sb.Append(pad);
-            if (_declaringStores.Contains(slotStore))
-                sb.Append(TypeText(slotType)).Append(' ');
-
-            string cast = slotType.Equals(slotAllocType) ? "" : $"({TypeText(slotType)})";
-
-            sb.Append(StackSlotName(slotStore))
                 .Append(" = ")
                 .Append(cast)
                 .Append(localName)
@@ -2816,8 +2348,6 @@ public sealed partial class CSharpPrinter
     {
         return statements[declarationIndex] switch
         {
-            StoreStackSlot store when _declaringStores.Contains(store)
-                => LastReferenceEnd(statements, searchStart, node => ReferencesStackSlot(node, store.Slot)),
             StoreLocal store when _declaringStores.Contains(store) && NeedsUnsafeBlock(store)
                 => LastReferenceEnd(statements, searchStart, node => ReferencesLocalIncludingSharedNestedScopes(node, store.Index)),
             _ => searchStart,
@@ -2925,11 +2455,6 @@ public sealed partial class CSharpPrinter
             case ScalarStore { Value: not StackAllocate } store:
                 return AssignmentUnsafeExpressionRoot(store.Value, store.UpdateKind) is { } root
                     && UnsafeRequirementsAreWithin(store, store is StoreLocal { Type.Kind: TypeRefKind.ByRef }, root);
-            case StoreStackSlot { Value: not StackAllocate } store:
-                return AssignmentUnsafeExpressionRoot(
-                        store.Value,
-                        ResidualSlotUpdateKind(store)) is { } slotRoot
-                    && UnsafeRequirementsAreWithin(store, slotRoot);
             case StoreElement store
                 when !store.ReceiverTempInlined:
                 return UnsafeRequirementsAreWithin(store, store.Value);
@@ -3099,7 +2624,6 @@ public sealed partial class CSharpPrinter
         => node switch
         {
             StoreLocal store => store.Type,
-            StoreStackSlot store => StackSlotTargetType(store),
             Return => CurrentReturnType,
             _ => null,
         };
@@ -3120,10 +2644,8 @@ public sealed partial class CSharpPrinter
     bool MethodsRequireUnsafe(IEnumerable<MethodRef?> methods)
         => methods.Any(MethodRequiresUnsafe);
 
-    bool IsLegacyPointerOperation(IrNode node)
-        => node is StoreStackSlot store
-            ? ContainsPointer(StackSlotTargetType(store))
-            : UnsafeAwaitOperand.IsLegacyPointerOperation(node);
+    static bool IsLegacyPointerOperation(IrNode node)
+        => UnsafeAwaitOperand.IsLegacyPointerOperation(node);
 
     static bool ContainsPointer(TypeRef? type)
         => OperationMemorySafetyContract.ContainsPointer(type);
@@ -3192,7 +2714,7 @@ public sealed partial class CSharpPrinter
     {
         foreach (var node in (IEnumerable<IrNode>)[value, .. value.Descendants])
         {
-            if (node is LoadArgument or LoadLocal or LoadStackSlot or LoadLocalAddress or LoadArgumentAddress)
+            if (node is LoadArgument or LoadLocal or LoadLocalAddress or LoadArgumentAddress)
                 return true;
         }
         return false;
@@ -3258,14 +2780,6 @@ public sealed partial class CSharpPrinter
                 prefix = _declaringStores.Contains(store)
                     ? $"{DeclarationTypeText(store.Type, store.Value)} {LocalName(store.Index)} = "
                     : $"{LocalName(store.Index)} = ";
-                return true;
-            case StoreStackSlot store
-                when store.Value is Call call
-                    && StackSlotTargetType(store) is not null:
-                root = call;
-                prefix = _declaringStores.Contains(store)
-                    ? $"{DeclarationTypeText(StackSlotTargetType(store)!, store.Value)} {StackSlotName(store)} = "
-                    : $"{StackSlotName(store)} = ";
                 return true;
             default:
                 root = null!;
@@ -3337,17 +2851,6 @@ public sealed partial class CSharpPrinter
                 prefix = _declaringStores.Contains(store)
                     ? $"{DeclarationTypeText(store.Type, store.Value)} {LocalName(store.Index)} = "
                     : $"{LocalName(store.Index)} = ";
-                return true;
-            case StoreStackSlot store
-                when store.Value is
-                    (ObjectInitializerExpression
-                        or WithExpression
-                        or AnonymousObject)
-                    && StackSlotTargetType(store) is not null:
-                value = store.Value;
-                prefix = _declaringStores.Contains(store)
-                    ? $"{DeclarationTypeText(StackSlotTargetType(store)!, store.Value)} {StackSlotName(store)} = "
-                    : $"{StackSlotName(store)} = ";
                 return true;
             default:
                 value = null!;
@@ -3432,9 +2935,6 @@ public sealed partial class CSharpPrinter
         {
             Return { Value: { } returned } => returned,
             StoreLocal { Type.Kind: not TypeRefKind.ByRef, Value: { } stored } => stored,
-            StoreStackSlot store
-                when StackSlotTargetType(store) is not null
-                => store.Value,
             _ => null,
         };
         while (value is Convert convert)
@@ -3464,14 +2964,6 @@ public sealed partial class CSharpPrinter
                 prefix = _declaringStores.Contains(store)
                     ? $"{DeclarationTypeText(store.Type, store.Value)} {LocalName(store.Index)} = "
                     : $"{LocalName(store.Index)} = ";
-                return true;
-            case StoreStackSlot store
-                when store.Value is LogicalBinary logical
-                    && StackSlotTargetType(store) is not null:
-                root = logical;
-                prefix = _declaringStores.Contains(store)
-                    ? $"{DeclarationTypeText(StackSlotTargetType(store)!, store.Value)} {StackSlotName(store)} = "
-                    : $"{StackSlotName(store)} = ";
                 return true;
             default:
                 root = null!;
@@ -3528,9 +3020,6 @@ public sealed partial class CSharpPrinter
             s.Value,
             s.UpdateKind,
             s.Type, forHeader: forHeader),
-        StoreStackSlot s => _declaringStores.Contains(s)
-            ? $"{DeclarationTypeText(StackSlotTargetType(s)!, s.Value)} {StackSlotName(s)} = {UnsafeExpressionText(s.Value, DeclarationInitializerText(StackSlotTargetType(s)!, s.Value))};"
-            : AssignmentText(s, s.Value, ResidualSlotUpdateKind(s), StackSlotTargetType(s), forHeader: forHeader),
         StoreField s => AssignmentText(
             s,
             s.Value,
@@ -3992,7 +3481,6 @@ public sealed partial class CSharpPrinter
         LoadArgument { Index: 0, Name: "this" } => "this",
         LoadArgument a => CSharpNaming.ContainedIdentifier(a.Name),
         LoadLocal l => $"{LocalName(l.Index)}",
-        LoadStackSlot s => StackSlotName(s),
         Constant { Value: int or long } c when EnumSymbolicConstant(c) is { } symbolic
             => WithNodeKind(c, symbolic.Text, symbolic.Kind),
         // A retyped enum constant is still that enum whether or not a single
@@ -4501,15 +3989,6 @@ public sealed partial class CSharpPrinter
         {
             case IsInstance:
                 return operand;
-            case LoadStackSlot load:
-            {
-                // Scope to the current function body: stack-slot numbers are
-                // per-imported-function, so a nested local function / lambda can
-                // reuse this slot independently and must not count as a second
-                // definition (that would disable the provenance and reprint `!x`).
-                var stores = _function.DescendantsOutsideNestedFunctions.OfType<StoreStackSlot>().Where(s => s.Slot == load.Slot).ToList();
-                return stores.Count == 1 ? stores[0].Value : null;
-            }
             case LoadLocal load:
             {
                 var stores = _function.DescendantsOutsideNestedFunctions.OfType<StoreLocal>().Where(s => s.Index == load.Index).ToList();
@@ -4579,10 +4058,7 @@ public sealed partial class CSharpPrinter
     /// </summary>
     bool RendersAsBoolean(IrExpression operand)
         => operand is LoadIndirect { Address.ResultType: { Kind: TypeRefKind.ByRef or TypeRefKind.Pointer, ElementType: { Namespace: "System", Name: "Boolean", Assembly: TypeRef.CoreLibrary } } }
-            // A bool-in-int-slot load whose slot unified to bool (its declaration is
-            // `bool S = …`) renders as a bool place: spelling `S == 0`/`S != 0`
-            // would be `bool == int` (CS0019), so it is its own truth value (#2377).
-            || (operand is LoadStackSlot load && TypeFamilies.IsBoolean(StackSlotRenderType(load.Slot, load.Type)));
+            ;
 
     Rendered RenderedExpression(IrExpression node)
     {
@@ -4610,7 +4086,7 @@ public sealed partial class CSharpPrinter
         // `-x`) renders as a compound expression, so it must parenthesize like
         // any other binary/unary — otherwise an enclosing `!`/`-`/binary
         // misbinds to its first operand (e.g. `!a != b`, CS0023).
-        bool atomic = node is LoadArgument or LoadLocal or LoadStackSlot or LoadField
+        bool atomic = node is LoadArgument or LoadLocal or LoadField
             or NewObject or ArrayLength or LoadElement or FixedBufferElementAddress or SliceExpression or RangeExpression or CaughtException or SizeOf or DefaultValue or LoadToken
             or LoadProperty or TypeOf or DelegateCreation or InterpolatedStringExpression or TupleExpression or AnonymousObject or ObjectInitializerExpression or WithExpression or InitializerBlock or IndexFromEnd or CallIndirect or AddressOfMethod or NullConditional
             or IncrementDecrement or SpanLiteral or ArrayLiteral or CollectionExpression or CollectionSpreadElement
@@ -5505,13 +4981,6 @@ public sealed partial class CSharpPrinter
         }
         && element.Name.StartsWith("ValueTuple`", StringComparison.Ordinal);
 
-    ScalarUpdateKind? ResidualSlotUpdateKind(StoreStackSlot store)
-        => StackSlotTargetType(store)?.Kind != TypeRefKind.Pointer
-            && store.Value is Binary { Left: LoadStackSlot read } binary
-            && StackSlotName(read) == StackSlotName(store)
-                ? ScalarSelfUpdatePass.Classify(binary)
-                : null;
-
     string AssignmentText(
         IrNode owner,
         IrExpression value,
@@ -5561,7 +5030,6 @@ public sealed partial class CSharpPrinter
     {
         StoreLocal s => LocalName(s.Index),
         StoreArgument s => CSharpNaming.ContainedIdentifier(s.Name),
-        StoreStackSlot s => StackSlotName(s),
         StoreField s => FieldTarget(s.Field, s.Instance),
         StoreProperty s => PropertyTarget(s.Accessor, s.HasInstance ? s.Instance : null, s.IndexArguments, s.PropertyName, s.IsVirtual),
         StoreIndirect s => IndirectTarget(s.Address, IndirectStoreType(s.Address, s.Type)),

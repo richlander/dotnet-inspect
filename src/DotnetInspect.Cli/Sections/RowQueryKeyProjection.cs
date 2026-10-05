@@ -16,7 +16,8 @@ internal static class RowQueryKeyProjection
         Func<
             RowQueryKey<TRow>,
             RowQueryKeyValuePresentation> valuePresentation,
-        IReadOnlyList<RowQueryNamedOrder<TRow>> namedOrders)
+        IReadOnlyList<RowQueryNamedOrder<TRow>> namedOrders,
+        Func<RowQueryKey<TRow>, bool>? includeKey = null)
     {
         ArgumentNullException.ThrowIfNull(vocabulary);
         ArgumentNullException.ThrowIfNull(valuePresentation);
@@ -26,6 +27,9 @@ internal static class RowQueryKeyProjection
         var keys = new HashSet<string>(StringComparer.Ordinal);
         foreach (RowQueryKey<TRow> key in vocabulary.Keys)
         {
+            if (includeKey is not null && !includeKey(key))
+                continue;
+
             bool filterable = key.Operators.Count > 0;
             if (!filterable && !key.SupportsOrdering)
                 continue;
