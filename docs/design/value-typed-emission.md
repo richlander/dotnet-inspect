@@ -1529,6 +1529,33 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    unspellable or out-of-scope constructions remain deferred. Admission
    consumes existing metadata facts; it does not acquire dependencies or
    infer assignability, boxing, covariance, or generic constraints.
+   **Generated-name reference storage.** A compiler-generated metadata type
+   name — a closure display class, a lambda holder, a state machine, an
+   anonymous type, a collection-expression type, or any other `<`-prefixed
+   generated name, at any depth of the complete type — is not a defect for
+   named reference storage, for the reason the managed-reference rule below
+   states: the residual path and the typed local render the same `TypeText`,
+   and the existing fidelity diagnostic reports the name either way, so the
+   name cannot make one path more valid than the other. Every other spelling
+   check still applies (shape and arity, contextual names, shadowing and
+   collisions, unsupported constituents, generated generic-parameter and
+   function-pointer constituent names), the definition must still be a proven
+   reference type, and producers must still be exact. Value storage keeps the
+   full gate: a struct's `this` spilled to a slot is a managed pointer the
+   importer types as the value, so admitting a generated struct state machine
+   as value storage would turn the spill into a copy that loses writes
+   ([#9395](https://github.com/richlander/dotnet-inspect/issues/9395)), the
+   defect that already ships for speakable struct names. The motivating
+   witnesses are Newtonsoft.Json 13.0.4
+   `ReflectionUtils.GetChildPrivateProperties` (a display class) and
+   `ArraySliceFilter.<ExecuteFilter>d__12.MoveNext` (a reference iterator), and
+   dotnet-inspect 0.14.0 `PackageCommand.AppendAggregatedSection` (a
+   `<>z__ReadOnlyArray<string>` and a `List<>` of an anonymous type);
+   `GeneratedNameReferenceStorageTests` gates them, the generated struct
+   decline, the real struct-state-machine `this` that stays residual, and the
+   defects a generated name does not excuse. Output stays invalid where the
+   generated name is printed — the methods were and remain `Partial` — so this
+   rule retires residual bindings without claiming validity.
    Named value storage follows the same exact-type rule when the imported
    definition is a known value type, the complete type is spellable, and the
    type is not byref-like. This includes ordinary structs and their
