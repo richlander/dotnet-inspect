@@ -81,7 +81,7 @@ internal static class ChangePlanTestSuite
             ("src/DotnetInspector.Cache/PersistentCache.cs",
                 "code,decompiler,ilroundtrip,shipped,web"),
             ("src/DotnetInspector.Sections/InspectionEnvelope.cs",
-                "code,ilroundtrip,shipped,web"),
+                "code,decompiler,ilroundtrip,shipped,web"),
             ("src/UntrustedDocuments/HardenedJson.cs",
                 "code,decompiler,ilroundtrip,shipped,web"),
             ("src/DotnetInspect.Cli/DotnetInspect.Cli.csproj",
