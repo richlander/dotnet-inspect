@@ -264,6 +264,44 @@ public sealed class LibraryOptimizationAnalysisResult
     public ImmutableHashSet<TypeRef> GeneratedFrameworkTypes
         => _generatedFrameworkTypes.Types;
 
+    public OptimizationOpportunityCounts CountPerformanceCandidates()
+    {
+        if (!WasRequested)
+        {
+            throw new InvalidOperationException(
+                "Optimization opportunities were not requested for this "
+                + "Analysis execution.");
+        }
+
+        var byKind =
+            new Dictionary<OptimizationOpportunityKind, int>();
+        int total = 0;
+        foreach (OptimizationOpportunity opportunity in
+            CountableOpportunities())
+        {
+            if (opportunity.Shape
+                    != AnalysisFindings.StringMaterializationShape
+                && !OptimizationOpportunityRanking
+                    .IncludePerformanceOpportunity(
+                        opportunity,
+                        GeneratedFrameworkTypes))
+            {
+                continue;
+            }
+
+            total++;
+            OptimizationOpportunityKind kind =
+                OptimizationOpportunityRowSpace.KindForShape(
+                    opportunity.Shape);
+            byKind[kind] =
+                byKind.GetValueOrDefault(kind) + 1;
+        }
+
+        return new(
+            total,
+            byKind.ToImmutableDictionary());
+    }
+
     private ImmutableArray<DirectCall> PhysicalDirectCalls
         => _callGraph.PhysicalDirectCalls;
 
@@ -654,6 +692,54 @@ public sealed class LibraryOptimizationAnalysisResult
                         .FormatMultiplicity(
                             occurrence.Multiplicity),
             };
+        }
+    }
+
+    private IEnumerable<OptimizationOpportunity>
+        CountableOpportunities()
+    {
+        foreach (OptimizationOpportunity opportunity in
+            _rawOpportunities)
+        {
+            yield return opportunity;
+        }
+
+        if (!_allocationOpportunitiesComputed)
+            yield break;
+
+        var emptyReach = new Dictionary<int, int>();
+        var methodsWithSpecificShape = new HashSet<int>(
+            _rawOpportunities
+                .Where(opportunity =>
+                    opportunity.Shape != "sync-call-in-async"
+                    && !(opportunity.Shape == "async-state-machine"
+                        && opportunity.Amortized))
+                .Select(opportunity =>
+                    opportunity.Method.MetadataToken));
+        foreach (OptimizationOpportunity opportunity in
+            AllocationHotspots(
+                emptyReach,
+                methodsWithSpecificShape))
+        {
+            yield return opportunity;
+        }
+
+        foreach (OptimizationOpportunity opportunity in
+            RepeatedScanAnalysis.Collect(
+                _methods,
+                PhysicalDirectCalls,
+                _rawOpportunities,
+                _suppressedOpportunityTokens,
+                emptyReach,
+                DeclaredMethodMap))
+        {
+            yield return opportunity;
+        }
+
+        foreach (OptimizationOpportunity opportunity in
+            StringMaterializationOpportunities(emptyReach))
+        {
+            yield return opportunity;
         }
     }
 
