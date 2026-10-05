@@ -12128,7 +12128,8 @@ function renderLibraryCompositionOverview(
   const kinds = new Map<string, number>();
   const nsCounts = new Map<string, number>();
   for (const type of pkg.types) {
-    if (!isDefaultAccessibility(type)
+    if (type.graphOnly
+      || !isDefaultAccessibility(type)
       || (library && libraryKey(type) !== library.id)) {
       continue;
     }
@@ -14417,6 +14418,7 @@ function spotlightPool() {
   for (const pkg of pkgs) {
     if (!pkg?.types) continue;
     for (const type of pkg.types) {
+      if (type.graphOnly) continue;
       const key = spotlightCandidateKey(pkg, type.id);
       if (seen.has(key)) continue;
       seen.add(key);
@@ -14604,6 +14606,7 @@ function spotlightMemberCandidates() {
   for (const pkg of [state.package, ...state.packages.filter(item => item !== state.package)]) {
     if (!pkg?.types) continue;
     for (const type of pkg.types) {
+      if (type.graphOnly) continue;
       for (const group of searchableMemberGroups(groupMembers(type.api))) {
         pool.push({ pkg, type, memberKey: group.key, name: group.name, kind: group.kind });
       }

@@ -378,6 +378,26 @@ test("ranked Analysis projects an implementation-only Type before following its 
   await expect(page.locator(
     '#type-list [data-type="asset:core:Example.ImplementationOnly"]',
   )).toHaveCount(0);
+
+  await page.locator("#open-search").dispatchEvent("click");
+  await page.locator("#spotlight-input").fill("ImplementationOnly");
+  await expect(page.locator(
+    '[data-sl-type*="Example.ImplementationOnly"]:not([data-sl-member])',
+  )).toHaveCount(0);
+  await page.locator("#spotlight-input").fill("Hidden");
+  await expect(page.locator(
+    '[data-sl-member][data-sl-type*="Example.ImplementationOnly"]',
+  )).toHaveCount(0);
+  await page.keyboard.press("Escape");
+
+  await chooseSubject(page, "library", "Library");
+  await chooseInspector(page, "data-library-lens", "overview", "Overview");
+  await expect(page.locator(
+    '[data-kind-jump="api.type-kind.class"] .ns-count',
+  )).toHaveText("1");
+  await expect(page.locator(
+    '[data-namespace-jump="Example"] .ns-count',
+  )).toHaveText("1");
 });
 
 test("newer ranked Analysis navigation supersedes an older pending projection", async ({
