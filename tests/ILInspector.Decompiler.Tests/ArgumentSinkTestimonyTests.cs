@@ -25,6 +25,7 @@ public class ArgumentSinkTestimonyTests
     static readonly TypeRef Int32 = TypeRef.CoreLib("System", "Int32");
     static readonly TypeRef Int64 = TypeRef.CoreLib("System", "Int64");
     static readonly TypeRef Byte = TypeRef.CoreLib("System", "Byte");
+    static readonly TypeRef UInt32 = TypeRef.CoreLib("System", "UInt32");
     static readonly TypeRef ByteEnum = TypeRef.Definition("Synthetic", "Samples", "ByteEnum", ValueTypeHint.ValueType);
 
     [Fact]
@@ -51,6 +52,26 @@ public class ArgumentSinkTestimonyTests
         Assert.Empty(function.ResidualSlotBindings);
         Assert.Contains("object S_0;", output);
         Assert.Contains("Consume(S_0);", output);
+    }
+
+    [Fact]
+    public void HasThisReceiverIsNotAnArgumentSink()
+    {
+        // The receiver position of an instance call is not an argument: the
+        // parameter list starts after it, so a load there has no parameter
+        // type to testify and the web stays underivable.
+        var instance = new MethodRef(Holder, "Consume", Void, [Object], HasThis: true);
+        var block = new Block(0);
+        block.Add(new IfStatement(
+            new LoadArgument(0, "choose", Bool),
+            BlockOf(new StoreStackSlot(0, new LoadArgument(1, "alpha", Alpha))),
+            BlockOf(new StoreStackSlot(0, new LoadArgument(2, "beta", Beta)))));
+        block.Add(new ExpressionStatement(new Call(instance, isVirtual: false, [new LoadStackSlot(0, type: null), new LoadArgument(1, "alpha", Alpha)])));
+        block.Add(new Return(null));
+        var function = Function(Void, block, [new Parameter("choose", Bool), new Parameter("alpha", Alpha), new Parameter("beta", Beta)]);
+
+        var testimony = CoercionSinks.AnalyzeSlotTypeTestimony(function.Body, function.Signature.ReturnType, function.TypeShapes);
+        Assert.Equal(CoercionSinks.SlotTypeTestimonyStatus.Underivable, testimony[0].Status);
     }
 
     [Fact]
@@ -188,6 +209,54 @@ public class ArgumentSinkTestimonyTests
         var testimony = CoercionSinks.AnalyzeSlotTypeTestimony(function.Body, function.Signature.ReturnType, function.TypeShapes);
         Assert.Equal(Int32, testimony[0].Type);
         Assert.Equal(Alpha, testimony[1].Type);
+    }
+
+    [Theory]
+    [InlineData("UInt32", false)]
+    [InlineData("Int32", true)]
+    [InlineData("UInt64", false)]
+    [InlineData("Int64", true)]
+    public void OrderingComparisonSiblingOfTheOtherSignednessDoesNotTestify(string siblingName, bool isUnsigned)
+    {
+        // `(int)u < (c ? (int)be : x)` with `uint u`: Roslyn emits no IL for
+        // the cast, so the sibling is `uint` while the IL is a signed `clt`.
+        // Taking it would declare `uint S_1 = c ? (uint)be : (uint)x;` and
+        // the printer, seeing two uint operands, would spell an unsigned `<`
+        // (#9390 round 2, F1). The sibling testifies only when its signedness
+        // matches the comparison's; the all-int web binds at int otherwise.
+        var sibling = TypeRef.CoreLib("System", siblingName);
+        var block = new Block(0);
+        block.Add(new IfStatement(
+            new LoadArgument(0, "choose", Bool),
+            BlockOf(new StoreStackSlot(0, new Constant(1, Int32))),
+            BlockOf(new StoreStackSlot(0, new LoadArgument(1, "value", Int32)))));
+        block.Add(new Return(new Comparison(ComparisonKind.LessThan, isUnsigned, new LoadArgument(2, "u", sibling), new LoadStackSlot(0, type: null))));
+        var function = Function(Bool, block, [new Parameter("choose", Bool), new Parameter("value", Int32), new Parameter("u", sibling)]);
+
+        var testimony = CoercionSinks.AnalyzeSlotTypeTestimony(function.Body, function.Signature.ReturnType, function.TypeShapes);
+        Assert.Equal(CoercionSinks.SlotTypeTestimonyStatus.Underivable, testimony[0].Status);
+    }
+
+    [Theory]
+    [InlineData(ComparisonKind.LessThan, true)]
+    [InlineData(ComparisonKind.Equal, false)]
+    [InlineData(ComparisonKind.NotEqual, false)]
+    public void ComparisonSiblingOfMatchingSignednessOrAtEqualityTestifies(ComparisonKind kind, bool isUnsigned)
+    {
+        // `uint` on an unsigned ordering comparison, or on either equality
+        // kind (where signedness does not change the answer), is the IL's
+        // operand type and testifies.
+        var block = new Block(0);
+        block.Add(new IfStatement(
+            new LoadArgument(0, "choose", Bool),
+            BlockOf(new StoreStackSlot(0, new Constant(1, Int32))),
+            BlockOf(new StoreStackSlot(0, new LoadArgument(1, "value", Int32)))));
+        block.Add(new Return(new Comparison(kind, isUnsigned, new LoadStackSlot(0, type: null), new LoadArgument(2, "u", UInt32))));
+        var function = Function(Bool, block, [new Parameter("choose", Bool), new Parameter("value", Int32), new Parameter("u", UInt32)]);
+
+        var testimony = CoercionSinks.AnalyzeSlotTypeTestimony(function.Body, function.Signature.ReturnType, function.TypeShapes);
+        Assert.Equal(CoercionSinks.SlotTypeTestimonyStatus.Decided, testimony[0].Status);
+        Assert.Equal(UInt32, testimony[0].Type);
     }
 
     [Fact]

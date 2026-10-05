@@ -886,15 +886,21 @@ testimony and failed visibly at residual storage binding. An open generic
 parameter never testifies, and a constant comparison operand never does: it
 carries only its stack width, and `c ? CfgFlags.Top : e` compared against
 `0` keeps the enum naming route (`EnumCastPrinterTests`). A comparison operand
-testifies only when the IL comparison binds the load to exactly its type: an
-I4-family operand is compared at int32 width (ECMA-335 III.1.5), so `int` and
-`uint` testify while `byte`, `short`, `char`, `bool`, and enums (whose backing
-width the derivation does not see) decline; `long`, floats, native ints, and
-proven references are width-exact and testify. Taking a narrow sibling would
-declare the slot narrower than the comparison and truncate its other stores
-(`b == (c ? (int)e : x)` as `byte S = c ? (byte)e : (byte)x`), output that
-compiles and changes the result; `ArgumentSinkTestimonyTests` gates the
-decline. A declined narrow or enum sibling leaves the load underivable, so the
+testifies only when its static type is exactly the operand type the IL
+comparison itself fixes — by stack family, by width, and, for an ordering
+comparison, by signedness (ECMA-335 III.1.5; `clt` versus `clt.un`). Width: an
+I4-family operand is compared at int32 width, so `int` and `uint` testify while
+`byte`, `short`, `char`, `bool`, and enums (whose backing width the derivation
+does not see) decline; `long`, floats, native ints, and proven references are
+width-exact. Signedness: on an ordering comparison an integer sibling testifies
+only when it is unsigned exactly when the comparison is, because the printer
+spells signedness from the operand types; equality ignores signedness. Taking
+a narrow sibling would declare the slot narrower than the comparison and
+truncate its other stores (`b == (c ? (int)e : x)` as
+`byte S = c ? (byte)e : (byte)x`); taking a `uint` sibling on a signed `clt`
+would turn `(int)u < (c ? (int)be : x)` into the unsigned
+`uint S = c ? (uint)be : (uint)x; return S_0 < S;`. Both compile and change
+the result; `ArgumentSinkTestimonyTests` gates both declines. A declined narrow or enum sibling leaves the load underivable, so the
 web fails visibly as before, and widening the rule to enum siblings once the
 derivation carries enum backing widths is a named follow-up on the #9371
 docket. For a raised lambda body

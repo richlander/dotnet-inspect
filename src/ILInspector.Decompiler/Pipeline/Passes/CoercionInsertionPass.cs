@@ -221,33 +221,50 @@ public static class CoercionSinks
             Return ret when ReferenceEquals(ret.Value, load) => returnType,
             Call call => ArgumentParameterType(call.Callee.ParameterTypes, call.Callee.HasThis ? 1 : 0, call.Arguments, load),
             NewObject ctor => ArgumentParameterType(ctor.Constructor.ParameterTypes, 0, ctor.Arguments, load),
-            Comparison { Right: not Constant } comparison when ReferenceEquals(comparison.Left, load) => ComparisonSiblingType(comparison.Right.ResultType, shapes),
-            Comparison { Left: not Constant } comparison when ReferenceEquals(comparison.Right, load) => ComparisonSiblingType(comparison.Left.ResultType, shapes),
+            Comparison { Right: not Constant } comparison when ReferenceEquals(comparison.Left, load) => ComparisonSiblingType(comparison, comparison.Right.ResultType, shapes),
+            Comparison { Left: not Constant } comparison when ReferenceEquals(comparison.Right, load) => ComparisonSiblingType(comparison, comparison.Left.ResultType, shapes),
             _ => null,
         };
 
     /// <summary>
-    /// The other comparison operand's type when the IL comparison binds the
-    /// load to exactly that type, else null. An I4-family operand is compared
-    /// at int32 width (ECMA-335 III.1.5), so only <c>int</c>/<c>uint</c>
-    /// witness it: a narrower primitive (<c>byte</c>, <c>short</c>,
-    /// <c>char</c>, <c>bool</c>) or an enum, whose backing width this
-    /// derivation cannot see, would type the slot narrower than the comparison
-    /// and make its other stores truncate (<c>b == (c ? (int)e : x)</c> must
-    /// not become <c>byte S = c ? (byte)e : (byte)x</c>; #9390 round 1). The
-    /// wider families (<c>long</c>, floats, native ints) and proven references
-    /// are width-exact and testify.
+    /// The other comparison operand's type when it is exactly the operand type
+    /// the IL comparison itself fixes, else null. The comparison fixes its
+    /// operand type by stack family, width, and — for an ordering kind — by
+    /// signedness (ECMA-335 III.1.5, <c>clt</c>/<c>clt.un</c>); the sibling's
+    /// static type is only a witness of that type when it agrees on all three.
+    /// Width: an I4-family operand is compared at int32 width, so only
+    /// <c>int</c>/<c>uint</c> witness it; a narrower primitive (<c>byte</c>,
+    /// <c>short</c>, <c>char</c>, <c>bool</c>) or an enum, whose backing width
+    /// this derivation cannot see, would type the slot narrower than the
+    /// comparison and make its other stores truncate (<c>b == (c ? (int)e : x)</c>
+    /// must not become <c>byte S = c ? (byte)e : (byte)x</c>; #9390 round 1).
+    /// Signedness: on an ordering comparison an integer sibling testifies only
+    /// when it is unsigned exactly when the comparison is, because the printer
+    /// spells signedness from the operand types (<c>(int)u &lt; (c ? (int)be : x)</c>,
+    /// a signed <c>clt</c> with a <c>uint</c> sibling, must not become
+    /// <c>uint S = c ? (uint)be : (uint)x; return S_0 &lt; S;</c>, an unsigned
+    /// comparison; round 2). Equality ignores signedness. Floats and proven
+    /// references are compared at their own type and testify.
     /// </summary>
-    static TypeRef? ComparisonSiblingType(TypeRef? sibling, IReadOnlyDictionary<TypeRef, TypeShape> shapes)
-        => ClosedType(sibling) is { } type
-            && (TypeFamilies.Of(type) switch
-            {
-                StackFamily.I4 => TypeFamilies.HasInt32Width(type),
-                StackFamily.I8 or StackFamily.F or StackFamily.I or StackFamily.O => true,
-                _ => CoercionRendering.IsProvenReference(type, shapes),
-            })
-            ? type
-            : null;
+    static TypeRef? ComparisonSiblingType(Comparison comparison, TypeRef? sibling, IReadOnlyDictionary<TypeRef, TypeShape> shapes)
+    {
+        if (ClosedType(sibling) is not { } type)
+            return null;
+        var family = TypeFamilies.Of(type);
+        bool widthExact = family switch
+        {
+            StackFamily.I4 => TypeFamilies.HasInt32Width(type),
+            StackFamily.I8 or StackFamily.F or StackFamily.I or StackFamily.O => true,
+            _ => CoercionRendering.IsProvenReference(type, shapes),
+        };
+        if (!widthExact)
+            return null;
+        bool ordering = comparison.Kind is not (ComparisonKind.Equal or ComparisonKind.NotEqual);
+        bool integer = family is StackFamily.I4 or StackFamily.I8 or StackFamily.I;
+        if (ordering && integer && TypeFamilies.IsUnsignedIntegerPrimitive(type) != comparison.IsUnsigned)
+            return null;
+        return type;
+    }
 
     /// <summary>The declared parameter type behind <paramref name="argument"/>, or null when it is open or unmatched.</summary>
     static TypeRef? ArgumentParameterType(
