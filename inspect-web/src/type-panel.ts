@@ -225,6 +225,7 @@ export interface MemberGroup {
   completeCountStatus?: "available" | "pending" | "failed";
   sourceOverloadCount?: number;
   receivers?: readonly string[];
+  summaryTraitCounts?: Readonly<Record<string, number>>;
   detailsPending?: boolean;
 }
 

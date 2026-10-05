@@ -1054,7 +1054,10 @@ test("fallback ordinary families load the shared document", () => {
     /member\.completeCountStatus === "available"/);
   assert.match(
     groupDocument,
-    /member\.overloads\.some\(overload => overload\.graphOnly\)[\s\S]*memberGroupDocumentRequestKey\(type, member\)[\s\S]*inspectUploadedLibraryMemberGroupDocument[\s\S]*inspectPlatformMemberGroupDocument[\s\S]*inspectMemberGroupDocument/);
+    /member\.kind !== "method"[\s\S]*member\.overloads\.some\(overload => overload\.graphOnly\)[\s\S]*memberGroupDocumentRequestKey\(type, member\)[\s\S]*inspectUploadedLibraryMemberGroupDocument[\s\S]*state\.memberAccessibilityFilter[\s\S]*memberGroupReceiverIntent\(\)[\s\S]*inspectPlatformMemberGroupDocument[\s\S]*inspectMemberGroupDocument/);
+  assert.match(
+    appSource,
+    /function memberGroupDocumentRequestKey[\s\S]*state\.memberSpelling[\s\S]*state\.memberAccessibilityFilter[\s\S]*state\.memberTraitFilter/);
 
   const drillOut =
     appSource.match(/function drillOut\(\)[\s\S]*?\n}\n\nfunction exitMemberScope/)?.[0]

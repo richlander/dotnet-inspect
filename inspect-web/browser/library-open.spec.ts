@@ -353,8 +353,189 @@ test("uploaded Library method family renders owner-backed receiver kinds", async
       4,
       "Example.Widget",
       "Run",
+      "public",
+      "all",
+      false,
     ]),
   );
+});
+
+test("uploaded Library singleton property opens from resident exact rows", async ({
+  page,
+}) => {
+  const widget = surface.types.find(
+    candidate => candidate.definitionId === "Example.Widget",
+  );
+  if (!widget) throw new Error("The upload fixture has no Widget Type.");
+  const rootElement = {
+    ...run,
+    kind: "property",
+    name: "RootElement",
+    signature: "JsonElement RootElement { get; }",
+    isStatic: false,
+    metadataToken: 0x17000001,
+    declarationMetadataToken: 0x17000001,
+    stableSelector: "RootElement",
+    anchorDigest: "widget-root-element",
+    canonicalSignature: "P:Example.Widget.RootElement",
+    bodySelectors: [],
+  };
+  const uploadedSurface = {
+    ...surface,
+    assemblies: [{
+      ...surface.assemblies[0]!,
+      publicTypes: 1,
+      publicMembers: 1,
+    }],
+    types: [{
+      ...widget,
+      members: 1,
+      api: [rootElement],
+    }],
+    accessibility: [{
+      id: "public",
+      label: "Public",
+      order: 0,
+      isDefault: true,
+      count: 1,
+    }],
+    totalMembers: 1,
+  };
+  await installLibraryUploadFacades(
+    page,
+    "available",
+    {},
+    uploadedSurface,
+  );
+  await page.goto(root);
+  await waitForExamplePackageReady(page);
+
+  await dropLibrary(page, "Uploaded.Library.dll", [1, 2, 3, 4]);
+  await chooseSubject(page, "type", "Type");
+  await page.locator(
+    `#type-list [data-type="${widget.id}"]`,
+  ).click();
+  await page.locator(
+    '[data-member="property:RootElement"]',
+  ).click();
+
+  await expect(page.locator("#member-surface-title"))
+    .toHaveText("RootElement");
+  await expect(page.locator(".signature-code"))
+    .toContainText("RootElement");
+  await expect(page.locator("html")).not.toHaveAttribute(
+    "data-uploaded-library-member-group-document-request",
+    /RootElement/);
+});
+
+test("uploaded Library private method family renders private exact rows", async ({
+    page,
+}) => {
+    const widget = surface.types.find(
+      candidate => candidate.definitionId === "Example.Widget",
+    );
+    if (!widget) throw new Error("The upload fixture has no Widget Type.");
+    const publicParse = {
+      ...run,
+      name: "Parse",
+      signature: "public static Widget Parse(string json)",
+      isStatic: true,
+      metadataToken: 0x06000011,
+      declarationMetadataToken: 0x06000011,
+      stableSelector: "Parse:public",
+      anchorDigest: "widget-parse-public",
+      canonicalSignature: "M:Example.Widget.Parse(System.String)",
+    };
+    const privateParseString = {
+      ...publicParse,
+      signature: "private static Widget Parse(ReadOnlySpan<char> json)",
+      accessibility: "private",
+      metadataToken: 0x06000012,
+      declarationMetadataToken: 0x06000012,
+      stableSelector: "Parse:private-string",
+      anchorDigest: "widget-parse-private-string",
+      canonicalSignature:
+        "M:Example.Widget.Parse(System.ReadOnlySpan{System.Char})",
+    };
+    const privateParseBytes = {
+      ...privateParseString,
+      signature: "private static Widget Parse(ReadOnlySpan<byte> utf8Json)",
+      metadataToken: 0x06000013,
+      declarationMetadataToken: 0x06000013,
+      stableSelector: "Parse:private-bytes",
+      anchorDigest: "widget-parse-private-bytes",
+      canonicalSignature:
+        "M:Example.Widget.Parse(System.ReadOnlySpan{System.Byte})",
+    };
+    const privateParses = [privateParseString, privateParseBytes];
+    const uploadedSurface = {
+      ...surface,
+      assemblies: [{
+        ...surface.assemblies[0]!,
+        publicTypes: 1,
+        publicMembers: 1,
+      }],
+      types: [{
+        ...widget,
+        members: 3,
+        api: [publicParse, ...privateParses],
+      }],
+      accessibility: [
+        {
+          id: "public",
+          label: "Public",
+          order: 0,
+          isDefault: true,
+          count: 1,
+        },
+        {
+          id: "private",
+          label: "Private",
+          order: 3,
+          isDefault: false,
+          count: 2,
+        },
+      ],
+      totalMembers: 3,
+    };
+    await installLibraryUploadFacades(
+      page,
+      "available",
+      {},
+      uploadedSurface,
+    );
+    await page.goto(root);
+    await waitForExamplePackageReady(page);
+
+    await dropLibrary(page, "Uploaded.Library.dll", [1, 2, 3, 4]);
+    await chooseSubject(page, "type", "Type");
+    await page.locator(
+      `#type-list [data-type="${widget.id}"]`,
+    ).click();
+    await page.locator("#member-filter-summary").click();
+    await page.locator("[data-member-access-filter]")
+      .selectOption("private");
+    await page.locator('[data-member="method:Parse"]').click();
+
+    await expect(page.locator("#member-surface-title")).toHaveText("Parse");
+    await expect(page.locator(".member-surface-list"))
+      .toContainText("private static Widget Parse(ReadOnlySpan<char> json)");
+    await expect(page.locator(".member-surface-list"))
+      .toContainText("private static Widget Parse(ReadOnlySpan<byte> utf8Json)");
+    await expect(page.locator(".member-surface-list"))
+      .not.toContainText("public static");
+    await expect(page.locator("html")).toHaveAttribute(
+      "data-uploaded-library-member-group-document-request",
+      JSON.stringify([
+        "Uploaded.Library.dll",
+        4,
+        "Example.Widget",
+        "Parse",
+        "private",
+        "all",
+        false,
+      ]),
+    );
 });
 
 test("successful upload is excluded from retained Workspace restoration", async ({

@@ -472,7 +472,10 @@ public sealed class BrowserMethodBodyOperationTests
                             Framework,
                             AssemblyName,
                             typeof(Left).FullName!,
-                            nameof(Left.Compute)),
+                            nameof(Left.Compute),
+                            "public",
+                            "all",
+                            includeHidden: false),
                     BrowserMetadataJsonContext.Default
                         .BrowserMemberGroupDocumentInspection)!;
             BrowserMemberGroupDocumentRow documentRow =

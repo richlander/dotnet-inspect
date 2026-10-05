@@ -328,7 +328,10 @@ public sealed class BrowserMemberDeclarationTests
                     Framework,
                     AssemblyFileName,
                     SpellingType,
-                    "PointerFreeUnsafeMethod"));
+                    "PointerFreeUnsafeMethod",
+                    "public",
+                    "all",
+                    includeHidden: false));
         Assert.Equal(
             BrowserMemberGroupDocumentOutcome.Available,
             singletonGroup.Outcome);
@@ -416,7 +419,10 @@ public sealed class BrowserMemberDeclarationTests
                     AssemblyFileName,
                     image,
                     ExtensionType,
-                    "Examine"));
+                    "Examine",
+                    "public",
+                    "extension",
+                    includeHidden: false));
         Assert.Equal(
             BrowserMemberGroupDocumentOutcome.Available,
             uploadedGroup.Outcome);
@@ -429,6 +435,30 @@ public sealed class BrowserMemberDeclarationTests
         Assert.All(
             uploadedDocument.Rows,
             static row => Assert.Equal("Extension", row.Receiver));
+
+        byte[] runtimeImage =
+            File.ReadAllBytes(typeof(JsonDocument).Assembly.Location);
+        BrowserMemberGroupDocumentInspection privateGroup =
+            MemberGroupDocument(
+                await MetadataExports.QueryUploadedLibraryMemberGroupDocument(
+                    Path.GetFileName(
+                        typeof(JsonDocument).Assembly.Location),
+                    runtimeImage,
+                    typeof(JsonDocument).FullName!,
+                    "Parse",
+                    "private",
+                    "all",
+                    includeHidden: false));
+        Assert.Equal(
+            BrowserMemberGroupDocumentOutcome.Available,
+            privateGroup.Outcome);
+        BrowserMemberGroupDocument privateDocument =
+            Assert.IsType<BrowserMemberGroupDocument>(
+                privateGroup.Document);
+        Assert.NotEmpty(privateDocument.Rows);
+        Assert.All(
+            privateDocument.Rows,
+            static row => Assert.Equal("private", row.Accessibility));
 
         BrowserTypeDocumentInspection packagePopulation =
             TypeDocument(
@@ -550,7 +580,10 @@ public sealed class BrowserMemberDeclarationTests
                     Framework,
                     AssemblyFileName,
                     SpellingType,
-                    "MissingMethod"));
+                    "MissingMethod",
+                    "public",
+                    "all",
+                    includeHidden: false));
         Assert.Equal(
             BrowserMemberGroupDocumentOutcome.Rejected,
             missingGroup.Outcome);
@@ -808,7 +841,10 @@ public sealed class BrowserMemberDeclarationTests
                         AssemblyFileName,
                         "netcore.app",
                         ExtensionType,
-                        "Examine"));
+                        "Examine",
+                        "public",
+                        "extension",
+                        includeHidden: false));
             Assert.Equal(
                 BrowserMemberGroupDocumentOutcome.Available,
                 group.Outcome);

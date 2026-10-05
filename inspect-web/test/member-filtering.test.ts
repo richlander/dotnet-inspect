@@ -212,7 +212,7 @@ test("member filters compose locally after managed accessibility selection", () 
   const staticGroup = staticGroups[0];
   assert.ok(staticGroup);
   assert.equal(staticGroup.overloads.length, 1);
-  assert.equal(staticGroup.sourceOverloadCount, 2);
+  assert.equal(staticGroup.sourceOverloadCount, 1);
   assert.match(staticGroup.overloads[0]?.signature ?? "", /static/);
 
   const instanceGroups = filterMemberGroups(groups, {
@@ -225,7 +225,7 @@ test("member filters compose locally after managed accessibility selection", () 
   const instanceGroup = instanceGroups[0];
   assert.ok(instanceGroup);
   assert.equal(instanceGroup.overloads.length, 1);
-  assert.equal(instanceGroup.sourceOverloadCount, 2);
+  assert.equal(instanceGroup.sourceOverloadCount, 1);
   assert.doesNotMatch(instanceGroup.overloads[0]?.signature ?? "", /static/);
 });
 
@@ -328,6 +328,39 @@ test("compact summary groups filter before exact declarations load", () => {
       query: "",
     }),
     [summary]);
+});
+
+test("compact mixed receiver summaries retain truthful trait counts", () => {
+  const summary = {
+    key: "method:Deserialize",
+    name: "Deserialize",
+    kind: "method",
+    overloads: [],
+    completeCount: 40,
+    sourceOverloadCount: 40,
+    detailsPending: true,
+    receivers: ["static", "extension"],
+    summaryTraitCounts: {
+      static: 25,
+      extensions: 15,
+    },
+  };
+
+  const staticGroups = filterMemberGroups([summary], {
+    kind: "method",
+    trait: "static",
+    query: "",
+  });
+  assert.equal(staticGroups.length, 1);
+  assert.equal(staticGroups[0]?.sourceOverloadCount, 25);
+
+  const extensionGroups = filterMemberGroups([summary], {
+    kind: "method",
+    trait: "extensions",
+    query: "",
+  });
+  assert.equal(extensionGroups.length, 1);
+  assert.equal(extensionGroups[0]?.sourceOverloadCount, 15);
 });
 
 test("member traits use the complete selector vocabulary", () => {

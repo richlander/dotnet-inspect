@@ -106,11 +106,16 @@ export function filterMemberGroups<TGroup extends FilterableMemberGroup>(
         || query && !group.name.toLowerCase().includes(query)) {
         return [];
       }
+      const summaryTraitCount =
+        group.summaryTraitCounts?.[filters.trait ?? ""];
       return [{
         ...group,
         overloads,
         sourceOverloadCount:
-          group.sourceOverloadCount ?? group.completeCount ?? 0,
+          summaryTraitCount
+            ?? group.sourceOverloadCount
+            ?? group.completeCount
+            ?? 0,
       }];
     }
     if (overloads.length === 0 || (
@@ -126,7 +131,9 @@ export function filterMemberGroups<TGroup extends FilterableMemberGroup>(
       ...group,
       overloads,
       sourceOverloadCount:
-        group.sourceOverloadCount ?? group.overloads.length,
+        filters.trait
+          ? overloads.length
+          : group.sourceOverloadCount ?? group.overloads.length,
     }];
   });
 }
@@ -135,13 +142,16 @@ function groupMatchesSummaryTrait(
   group: FilterableMemberGroup,
   trait: string,
 ): boolean {
+  const summaryTraitCount = group.summaryTraitCounts?.[trait];
+  if (summaryTraitCount !== undefined) {
+    return summaryTraitCount > 0;
+  }
   const receivers = group.receivers ?? [];
   switch (trait) {
     case "":
       return true;
     case "static":
-      return receivers.includes("static")
-        && !receivers.includes("extension");
+      return receivers.includes("static");
     case "instance":
       return receivers.includes("this");
     case "extensions":
