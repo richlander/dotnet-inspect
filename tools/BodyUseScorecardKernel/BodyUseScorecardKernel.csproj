@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Stable NativeAOT timing kernel for the body-use scorecard. The assembly
+    identity reuses the established Analysis harness friend boundary.
+  -->
+  <PropertyGroup>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <LangVersion>preview</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <IsPackable>false</IsPackable>
+    <AssemblyName>analysis-harness</AssemblyName>
+    <RootNamespace>ILInspector.AnalysisHarness</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="../AnalysisHarness/BodyUseScorecardKernel.cs"
+             Link="BodyUseScorecardKernel.cs" />
+    <Compile Include="../AnalysisHarness/BodyUseScorecardTypes.cs"
+             Link="BodyUseScorecardTypes.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/ILInspector.Analysis/ILInspector.Analysis.csproj" />
+    <ProjectReference Include="../../tests/DotnetInspector.PerformanceOracles/DotnetInspector.PerformanceOracles.csproj" />
+  </ItemGroup>
+
+</Project>

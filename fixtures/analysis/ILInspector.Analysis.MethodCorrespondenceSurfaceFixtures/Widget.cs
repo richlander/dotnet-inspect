@@ -18,6 +18,8 @@ public static unsafe class Widget
         callback(value);
 
     public static int UseHelper(Helper helper) => helper.Value;
+
+    public static int SurfaceOnly(int value) => value - 1;
 }
 
 public sealed class Helper
