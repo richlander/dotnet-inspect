@@ -441,7 +441,7 @@ public static class LibraryBodyRootPathAnalysis
             if (!methods.ContainsKey(call.Caller.MetadataToken))
             {
                 throw new InvalidOperationException(
-                    $"Body index call at IL_0x{call.ILOffset:X4} names "
+                    $"Body-analysis call at IL_0x{call.ILOffset:X4} names "
                         + $"undeclared caller 0x{call.Caller.MetadataToken:X8}.");
             }
 
