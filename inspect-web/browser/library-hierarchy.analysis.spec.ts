@@ -388,6 +388,18 @@ test("ranked Analysis projects an implementation-only Type before following its 
   await expect(page.locator(
     '[data-sl-member][data-sl-type*="Example.ImplementationOnly"]',
   )).toHaveCount(0);
+  await page.locator('[data-sl-scope="commands"]').click();
+  await page.locator("#spotlight-input").fill("type Widget");
+  await expect(page.locator("#spotlight-results"))
+    .toContainText("type Widget");
+  await page.locator("#spotlight-input").fill("type ImplementationOnly");
+  await expect(page.locator("#spotlight-results [role=option]", {
+    hasText: "type ImplementationOnly",
+  })).toHaveCount(0);
+  await page.keyboard.press("Enter");
+  await expect(subjectTab(page, "member"))
+    .toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("#member-surface-title")).toHaveText("Hidden");
   await page.keyboard.press("Escape");
 
   await chooseSubject(page, "library", "Library");

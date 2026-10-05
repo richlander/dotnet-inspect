@@ -16376,10 +16376,12 @@ async function executeTypeCommand(
     await loadPackageSurface(pkg);
   }
   if (!navigationSequence.isCurrent(navigationSeq)) return;
+  const ordinaryTypes = pkg.types.filter(item => !item.graphOnly);
   const match = result?.targetTypeId
-    ? pkg.types.find(item => item.id === result.targetTypeId)
-    : pkg.types.find(item => item.name.toLowerCase() === argument.toLowerCase())
-      || pkg.types.find(item =>
+    ? ordinaryTypes.find(item => item.id === result.targetTypeId)
+    : ordinaryTypes.find(item =>
+        item.name.toLowerCase() === argument.toLowerCase())
+      || ordinaryTypes.find(item =>
         item.name.toLowerCase().includes(argument.toLowerCase()));
   if (!match) return;
   enterTypeSubject(match);

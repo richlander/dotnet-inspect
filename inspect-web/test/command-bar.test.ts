@@ -76,6 +76,34 @@ test("type completion filters package types and caps an open argument list", () 
   );
 });
 
+test("type completion excludes graph-only navigation context", () => {
+  const types = [{
+    id: "Example.Widget",
+    name: "Widget",
+    namespace: "Example",
+    kind: "class",
+  }, {
+    id: "Example.ImplementationOnly",
+    name: "ImplementationOnly",
+    namespace: "Example",
+    kind: "class",
+    graphOnly: true,
+  }];
+
+  assert.deepEqual(
+    commandPaletteResults(commandContext("type ", types), lenses)
+      .map(item => item.command),
+    ["type Widget"],
+  );
+  assert.deepEqual(
+    commandPaletteResults(
+      commandContext("type ImplementationOnly", types),
+      lenses,
+    ),
+    [],
+  );
+});
+
 test("an exact type match sorts ahead of capped partial matches", () => {
   const types = [
     ...Array.from({ length: 8 }, (_, index) => ({
