@@ -1127,8 +1127,7 @@ public static class MemberCommand
                     apiType,
                     locationDllPath,
                     sourceAssembly,
-                    packageName,
-                    packageVersion,
+                    source,
                     effectiveOptions,
                     context.HttpClient,
                     logger);

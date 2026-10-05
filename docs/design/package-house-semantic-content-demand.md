@@ -86,8 +86,9 @@ needs the raw package-entry inventory. Both observe the same TFM-wide
 narrowing; neither repeats or independently interprets it.
 
 One implementation slice adds a narrowing form or terminal only with a
-production caller. Until one lands, its place in this vocabulary is an
-adoption commitment, not a supported API.
+production caller. `GetLibraryAndInventoryForTarget` is supported by package
+member Source Locations, which consumes its exact implementation and PDB
+references through later retained Files queries.
 
 Package-wide and TFM-wide Files and File List are implemented. Their results
 retain the exact acquired generation and, for TFM-wide narrowing, the existing
@@ -426,6 +427,12 @@ implementation PDB is Listed, Absent, or Not applicable and supplies exact
 references for later Files requests. A later PDB operation may request the
 listed implementation/PDB files or skip to an external provider. The
 neighboring multi-library case uses deterministic alphabetical selection.
+
+The production consumer demo is member Source Locations over
+`NodaTime@3.3.5`. Its single selected `lib/net8.0/NodaTime.dll` Library row
+issues `lib/net8.0/NodaTime.pdb`; Portable PDB settlement requests only that
+entry, validates its complete identity in Metadata, and loads the admitted
+content into the existing SourceLink context.
 
 ## Pathological cases and gates
 
