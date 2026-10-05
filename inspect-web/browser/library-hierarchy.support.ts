@@ -578,6 +578,7 @@ async function installFacades(
     "root-request",
     "owners",
     "manifest",
+    "ecosystem-admission",
   ];
   const durableRowSnapshotIdentity = `sha256:${"0".repeat(64)}`;
   const durableRowDescriptor = {

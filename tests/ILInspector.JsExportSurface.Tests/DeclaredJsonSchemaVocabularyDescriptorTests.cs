@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Reflection.PortableExecutable;
 using DotnetInspect.Web.Interop.Package;
 using DotnetInspector.JsonSchema;
+using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspector.Vocabulary;
 using ILInspector.JsExportSurface;
@@ -167,10 +168,10 @@ public sealed class DeclaredJsonSchemaVocabularyDescriptorTests
                 .GetProperty("vocabularySnapshotIdentity")
                 .GetString());
         Assert.Equal(
-            12,
+            PackageQueryDurableRowContract.SlotCount,
             descriptor.GetProperty("bindings").GetArrayLength());
         Assert.Equal(
-            Enumerable.Range(0, 12)
+            Enumerable.Range(0, PackageQueryDurableRowContract.SlotCount)
                 .Select(index => $"/prefixItems/{index}"),
             descriptor.GetProperty("bindings")
                 .EnumerateArray()
@@ -178,7 +179,7 @@ public sealed class DeclaredJsonSchemaVocabularyDescriptorTests
                     binding.GetProperty("schemaLocation")
                         .GetString()));
         Assert.Equal(
-            12,
+            PackageQueryDurableRowContract.SlotCount,
             descriptor.GetProperty("schema")
                 .GetProperty("prefixItems")
                 .GetArrayLength());

@@ -19,6 +19,7 @@ const TERMS: readonly [
   ["root-request", "Root Request"],
   ["owners", "Owners"],
   ["manifest", "Manifest"],
+  ["ecosystem-admission", "Ecosystem Admission"],
 ];
 
 export const packageQueryDurableRowLayoutFixture:

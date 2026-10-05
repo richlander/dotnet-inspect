@@ -13,10 +13,9 @@ public sealed class ProductVocabularySnapshotTests
         VocabularyDefinition choices = snapshot.GetVocabulary(
             new(snapshot.Catalog, "csharp.style-choices"));
         VocabularyMapDefinition tier = choices.GetMap("tier");
-
         Assert.Equal(1, snapshot.FormatVersion);
         Assert.Equal(
-            "sha256:738fb458557d93aa6681947f43cc9ba9315260177f7bbe8af83c02d49b437f36",
+            "sha256:f0527bd80f85c7683fcf3797da980ef38b3266116f375cc44323796775d884df",
             snapshot.Identity.Value);
         Assert.Equal(
             VocabularyMapCardinality.ExactlyOne,

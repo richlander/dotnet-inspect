@@ -63,10 +63,10 @@ test("Package Query resolves generated positional bindings through Vocabulary", 
     values,
     vocabulary(values));
 
-  assert.equal(layout.fields.length, 12);
+  assert.equal(layout.fields.length, 13);
   assert.deepEqual(
     layout.fields.map(field => field.ordinal),
-    Array.from({ length: 12 }, (_value, index) => index));
+    Array.from({ length: 13 }, (_value, index) => index));
   assert.equal(
     packageQueryDurableRowField(layout, "total-downloads")
       .term.displayLabel,

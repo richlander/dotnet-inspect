@@ -580,6 +580,11 @@ public sealed record BrowserPackageQueryRow(
         PackageQueryDurableRowContract.Manifest)]
     public BrowserPackageQueryManifest? Manifest { get; init; }
 
+    [JsExportJsonSchemaSlot(
+        12,
+        PackageQueryDurableRowContract.EcosystemAdmission,
+        PackageQueryDurableRowContract.Vocabulary,
+        PackageQueryDurableRowContract.EcosystemAdmission)]
     public BrowserPackageQueryEcosystemAdmission? EcosystemAdmission
     {
         get;

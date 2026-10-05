@@ -142,6 +142,11 @@ internal static class ProductVocabularySnapshot
                     PackageQueryDurableRowContract.Manifest,
                     "Manifest",
                     "Acquired package-manifest facts when available."),
+                Term(
+                    identity,
+                    PackageQueryDurableRowContract.EcosystemAdmission,
+                    "Ecosystem Admission",
+                    "Exact ecosystem registration evidence that admitted the package result."),
             ]);
 
     private static VocabularyTerm Term(
