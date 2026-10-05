@@ -755,14 +755,18 @@ public static class LibrarySections
         => ExecuteOptimizationOpportunitiesQuery(
             context.MetadataContext?.HasMetadata != false,
             () => context.BodyAnalysis().Optimization,
-            context.Model.PerformanceTriageOptions.IncludesAllocationFanout);
+            context.Model.PerformanceTriageOptions.IncludesAllocationFanout,
+            countOnly:
+                context.CountOnly
+                && !context.Model.PerformanceTriageOptions.HasFilters);
 
     internal static OptimizationOpportunitiesResult
         ExecuteOptimizationOpportunitiesQuery(
             bool hasMetadata,
             Func<ILInspector.Analysis.LibraryOptimizationAnalysisResult>
                 acquireAnalysis,
-            bool includeAllocationFanout)
+            bool includeAllocationFanout,
+            bool countOnly = false)
     {
         ArgumentNullException.ThrowIfNull(acquireAnalysis);
 
@@ -771,9 +775,13 @@ public static class LibrarySections
 
         try
         {
-            return OptimizationOpportunitiesQuery.Execute(
-                acquireAnalysis(),
-                includeAllocationFanout);
+            ILInspector.Analysis.LibraryOptimizationAnalysisResult analysis =
+                acquireAnalysis();
+            return countOnly
+                ? OptimizationOpportunitiesQuery.ExecuteCount(analysis)
+                : OptimizationOpportunitiesQuery.Execute(
+                    analysis,
+                    includeAllocationFanout);
         }
         catch (CostDeclarationException)
         {
@@ -1378,9 +1386,12 @@ public static class LibrarySections
     // Registration supplies the pre-scan method-body applicability gate; these predicates report
     // actual post-scan row effectiveness.
     private static bool HasPerformanceKind(LibraryInspection model, string section)
-        => PerformanceKinds.Any(
-            section,
-            model.PerformanceTriageOpportunities);
+        => model.PerformanceTriageCounts is { } counts
+            ? counts.Count(
+                PerformanceKinds.KindForSection(section)) > 0
+            : PerformanceKinds.Any(
+                section,
+                model.PerformanceTriageOpportunities);
 
     public sealed class PerformanceBoxing : ISectionDescriptor<LibraryInspection>
     {

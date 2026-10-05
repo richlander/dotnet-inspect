@@ -2910,9 +2910,8 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "address", "0x06000001+0x0",
-            "--platform", "System.Text.Json",
+            "--platform", "System.Private.CoreLib",
             "-S", "Context: Member,Performance: Boxing",
-            "--columns", "Member",
             "--count", "--json");
 
         Assert.Equal(0, exit);
@@ -2923,7 +2922,7 @@ public partial class CommandExecutionTests
             .ToDictionary(
                 row => row.GetProperty("section").GetString()!,
                 row => row.GetProperty("count").GetInt32());
-        Assert.Equal(0, counts["Context: Member"]);
+        Assert.Equal(1, counts["Context: Member"]);
         Assert.True(counts["Performance: Boxing"] > 0);
     }
 
