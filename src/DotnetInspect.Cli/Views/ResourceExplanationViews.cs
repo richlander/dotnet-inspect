@@ -1,5 +1,7 @@
+using System.Collections.Immutable;
 using DotnetInspector.Sections;
 using Markout;
+using QuerySpace.Explanation;
 
 namespace DotnetInspect.Cli.Views;
 
@@ -187,6 +189,9 @@ public sealed class ResourceExplanationView
     [MarkoutIgnoreColumnWhen(
         nameof(SourcesUniform),
         nameof(ResourceExplanationRelationshipRow.Source))]
+    [MarkoutIgnoreColumnWhen(
+        nameof(TargetOwnersEmpty),
+        nameof(ResourceExplanationRelationshipRow.TargetOwner))]
     public List<ResourceExplanationRelationshipRow> Relationships
     {
         get;
@@ -267,12 +272,12 @@ public sealed class ResourceExplanationView
         ArgumentNullException.ThrowIfNull(document);
         var pathsByIdentity =
             document.Resources.ToDictionary(
-                static resource => resource.Identity,
+                static resource => resource.Key,
                 static resource => resource.Path.Value);
         ResourceExplanationResource root = document.Resources[0];
         ResourceExplanationResourceRow rootRow =
             ResourceExplanationResourceRow.Create(root);
-        RootDetails details = RootDetails.Create(root.Details);
+        RootDetails details = RootDetails.Create(root);
         return new ResourceExplanationView
         {
             Title =
@@ -316,8 +321,9 @@ public sealed class ResourceExplanationView
                     ? []
                     :
                     [
-                        .. document.Relationships.Select(relationship =>
+                        .. document.Relationships.SelectMany(relationship =>
                             ResourceExplanationRelationshipRow.Create(
+                                document.Schemas,
                                 relationship,
                                 pathsByIdentity.GetValueOrDefault(
                                     relationship.Source))),
@@ -360,6 +366,11 @@ public sealed class ResourceExplanationView
             .Distinct(StringComparer.Ordinal)
             .Count() <= 1;
 
+    public static bool TargetOwnersEmpty(
+        List<ResourceExplanationRelationshipRow>? rows) =>
+        rows is null
+        || rows.All(static row => row.TargetOwner.Length == 0);
+
     private sealed record RootDetails(
         string? Identity,
         string? Summary,
@@ -379,63 +390,84 @@ public sealed class ResourceExplanationView
         string? Cardinality = null)
     {
         internal static RootDetails Create(
-            ResourceExplanationDetail details) =>
-            details switch
+            ResourceExplanationResource resource)
+        {
+            string? summary =
+                ResourceExplanationFactView.OptionalText(
+                    resource,
+                    "summary");
+            if (resource.ResourceType.Value == "analysis")
             {
-                ResourceExplanationDetail.StructuralSectionDetails value =>
-                    Empty() with
-                    {
-                        Shape = value.Shape?.ToString().ToLowerInvariant(),
-                        Cardinality =
-                            value.Cardinality?.ToString().ToLowerInvariant(),
-                    },
-                ResourceExplanationDetail.InspectionDocumentDetails value =>
-                    Empty(
-                        value.Identity,
-                        value.Summary,
-                        resultContract: value.ResultContract),
-                ResourceExplanationDetail.HostNeutralRouteDetails value =>
-                    Empty(
-                        value.Identity,
-                        value.Summary,
-                        subjectRole: value.SubjectRole,
-                        resultGrain: value.ResultGrain,
-                        profile: value.Profile,
-                        resultContract: value.ResultContract),
-                ResourceExplanationDetail.QuerySpaceDetails value =>
-                    Empty(
-                        value.Identity,
-                        value.Summary),
-                ResourceExplanationDetail.QueryFacetDetails value =>
-                    new(
-                        value.Identity,
-                        value.Summary,
-                        value.Key,
-                        null,
-                        null,
-                        null,
-                        null,
-                        [.. value.Operators],
-                        value.ValueKind,
-                        [.. value.Values],
-                        [.. value.Examples],
-                        [.. value.Effects],
-                        null,
-                        null),
-                ResourceExplanationDetail.ConsumerBindingDetails value =>
-                    Empty(
-                        value.Identity,
-                        value.Summary,
-                        consumerKind: Display(value.ConsumerKind),
-                        gesture: value.Gesture),
-                ResourceExplanationDetail.AnalysisDetails value =>
-                    Empty(
-                        value.Identity,
-                        $"Revision {value.Revision}; cost {value.Cost}. "
-                        + string.Join("; ", value.Participations)
-                        + "."),
-                _ => Empty(),
-            };
+                summary =
+                    $"Revision "
+                    + $"{ResourceExplanationFactView.OptionalInteger(
+                        resource,
+                        "revision")}; cost "
+                    + $"{ResourceExplanationFactView.OptionalText(
+                        resource,
+                        "cost")}. "
+                    + string.Join(
+                        "; ",
+                        ResourceExplanationFactView.Texts(
+                            resource,
+                            "participations"))
+                    + ".";
+            }
+
+            return new(
+                ResourceExplanationFactView.OptionalText(
+                    resource,
+                    "identity"),
+                summary,
+                ResourceExplanationFactView.OptionalText(resource, "key"),
+                ResourceExplanationFactView.OptionalText(
+                    resource,
+                    "subject-role"),
+                ResourceExplanationFactView.OptionalText(
+                    resource,
+                    "result-grain"),
+                ResourceExplanationFactView.OptionalText(
+                    resource,
+                    "profile"),
+                ResourceExplanationFactView.OptionalText(
+                    resource,
+                    "result-contract"),
+                [
+                    .. ResourceExplanationFactView.Texts(
+                        resource,
+                        "operators"),
+                ],
+                ResourceExplanationFactView.OptionalText(
+                    resource,
+                    "value-kind"),
+                [
+                    .. ResourceExplanationFactView.Texts(
+                        resource,
+                        "values"),
+                ],
+                [
+                    .. ResourceExplanationFactView.Texts(
+                        resource,
+                        "examples"),
+                ],
+                [
+                    .. ResourceExplanationFactView.Texts(
+                        resource,
+                        "effects"),
+                ],
+                ResourceExplanationFactView.OptionalText(
+                    resource,
+                    "consumer-kind"),
+                ResourceExplanationFactView.OptionalText(
+                    resource,
+                    "gesture"),
+                ResourceExplanationFactView.OptionalText(
+                    resource,
+                    "shape"),
+                ResourceExplanationFactView.OptionalText(
+                    resource,
+                    "cardinality"));
+        }
 
         private static RootDetails Empty(
             string? identity = null,
@@ -462,9 +494,6 @@ public sealed class ResourceExplanationView
                 consumerKind,
                 gesture);
 
-        private static string Display<T>(T value)
-            where T : struct, Enum =>
-            value.ToString();
     }
 
 }
@@ -515,146 +544,58 @@ public sealed record ResourceExplanationResourceRow(
     public static ResourceExplanationResourceRow Create(
         ResourceExplanationResource resource)
     {
-        string name;
-        string? itemKind = null;
-        IEnumerable<DiscoveryOutputMode> outputModes = [];
-        int? memberCount;
-        switch (resource.Details)
-        {
-            case ResourceExplanationDetail.CatalogDetails details:
-                name = details.Name;
-                memberCount = details.EntryCount;
-                break;
-            case ResourceExplanationDetail.NavigationCollectionDetails details:
-                name = details.Name;
-                memberCount = details.MemberCount;
-                break;
-            case ResourceExplanationDetail.StructuralCategoryDetails details:
-                name = details.Name;
-                outputModes = details.OutputModes;
-                memberCount = details.MemberCount;
-                break;
-            case ResourceExplanationDetail.StructuralSectionDetails details:
-                name = details.Name;
-                outputModes = details.OutputModes;
-                memberCount = details.MemberCount;
-                break;
-            case ResourceExplanationDetail.StructuralItemDetails details:
-                name = details.Name;
-                itemKind = details.ItemKind;
-                memberCount = null;
-                break;
-            case ResourceExplanationDetail.InspectionDocumentDetails details:
-                name = details.Name;
-                memberCount = null;
-                break;
-            case ResourceExplanationDetail.HostNeutralRouteDetails details:
-                name = details.Name;
-                memberCount = null;
-                break;
-            case ResourceExplanationDetail.QuerySpaceDetails details:
-                name = details.Name;
-                memberCount = details.FacetCount;
-                break;
-            case ResourceExplanationDetail.QueryFacetDetails details:
-                name = details.Name;
-                memberCount = null;
-                break;
-            case ResourceExplanationDetail.ConsumerBindingDetails details:
-                name = details.Name;
-                memberCount = details.ExposedFacetCount;
-                break;
-            case ResourceExplanationDetail.AnalysisDetails details:
-                name = details.Name;
-                memberCount = null;
-                break;
-            default:
-                throw new InvalidOperationException(
-                    "Unknown Resource Explanation detail variant.");
-        }
-
         return new(
             resource.Path.Value,
-            Display(resource.ResourceKind),
-            name,
-            Display(resource.Owner),
-            itemKind,
-            [.. outputModes.Select(Display)],
-            memberCount);
+            DisplayType(resource.ResourceType.Value),
+            ResourceExplanationFactView.RequiredText(resource, "name"),
+            DisplayOwner(resource.Owner.Value),
+            ResourceExplanationFactView.OptionalText(
+                resource,
+                "item-kind"),
+            [
+                .. ResourceExplanationFactView.Texts(
+                    resource,
+                    "formats"),
+            ],
+            ResourceExplanationFactView.OptionalInteger(
+                resource,
+                "members"));
     }
 
-    private static string Display<T>(T value)
-        where T : struct, Enum =>
-        value.ToString()
-            .Replace(
-                nameof(ResourceExplanationResourceKind.NavigationCollection),
-                "Navigation collection",
-                StringComparison.Ordinal)
-            .Replace(
-                nameof(ResourceExplanationResourceKind.StructuralCategory),
-                "Structural category",
-                StringComparison.Ordinal)
-            .Replace(
-                nameof(ResourceExplanationResourceKind.StructuralSection),
-                "Structural section",
-                StringComparison.Ordinal)
-            .Replace(
-                nameof(ResourceExplanationResourceKind.StructuralItem),
-                "Structural item",
-                StringComparison.Ordinal)
-            .Replace(
-                nameof(ResourceExplanationResourceKind.InspectionDocument),
-                "Inspection document",
-                StringComparison.Ordinal)
-            .Replace(
-                nameof(ResourceExplanationResourceKind.HostNeutralRoute),
-                "Host-neutral route",
-                StringComparison.Ordinal)
-            .Replace(
-                nameof(ResourceExplanationResourceKind.QuerySpace),
-                "Query Space",
-                StringComparison.Ordinal)
-            .Replace(
-                nameof(ResourceExplanationResourceKind.QueryFacet),
-                "Query facet",
-                StringComparison.Ordinal)
-            .Replace(
-                nameof(ResourceExplanationResourceKind.ConsumerBinding),
-                "Consumer binding",
-                StringComparison.Ordinal)
-            .Replace(
-                nameof(ResourceExplanationOwner.ResourceExplanation),
-                "Resource Explanation",
-                StringComparison.Ordinal)
-            .Replace(
-                nameof(ResourceExplanationOwner.SchemaQuery),
-                "Schema Query",
-                StringComparison.Ordinal)
-            .Replace(
-                nameof(ResourceExplanationOwner
-                    .InspectionCapabilityComposition),
+    private static string DisplayType(string value) =>
+        value == "query-space"
+            ? "Query Space"
+            : string.Join(
+                ' ',
+                value.Split('-').Select((segment, index) =>
+                    index == 0
+                        ? char.ToUpperInvariant(segment[0])
+                            + segment[1..]
+                        : segment));
+
+    internal static string DisplayOwner(string value) =>
+        value switch
+        {
+            "resource-explanation" => "Resource Explanation",
+            "schema-query" => "Schema Query",
+            "inspection-capability-composition" =>
                 "Inspection Capability Composition",
-                StringComparison.Ordinal)
-            .Replace(
-                nameof(ResourceExplanationOwner.QuerySpace),
-                "Query Space",
-                StringComparison.Ordinal)
-            .Replace(
-                nameof(ResourceExplanationOwner.Consumer),
-                "Consumer",
-                StringComparison.Ordinal)
-            .Replace(
-                nameof(ResourceExplanationOwner.AnalysisRequests),
-                "Analysis Requests",
-                StringComparison.Ordinal);
+            "query-space" => "Query Space",
+            "consumer" => "Consumer",
+            "analysis-requests" => "Analysis Requests",
+            "findings" => "Findings",
+            _ => value,
+        };
 }
 
 [MarkoutSerializable]
 public sealed record ResourceExplanationRelationshipRow(
     string Source,
     string Relationship,
+    string State,
     string Target,
-    string TargetOwner)
+    string TargetOwner,
+    string TargetProjection)
 {
     public string Source { get; init; } =
         LibraryViewText.Contain(Source);
@@ -662,58 +603,84 @@ public sealed record ResourceExplanationRelationshipRow(
     public string Relationship { get; init; } =
         LibraryViewText.Contain(Relationship);
 
+    public string State { get; init; } =
+        LibraryViewText.Contain(State);
+
     public string Target { get; init; } =
         LibraryViewText.Contain(Target);
 
     public string TargetOwner { get; init; } =
         LibraryViewText.Contain(TargetOwner);
 
-    public static ResourceExplanationRelationshipRow Create(
-        ResourceExplanationRelationship relationship,
-        string? sourcePath) =>
-        new(
-            sourcePath ?? "(external)",
-            Display(relationship.RelationshipKind),
-            relationship.TargetPath?.Value
-                ?? relationship.Target switch
-                {
-                    ResourceExplanationIdentity.OperationSurface target =>
-                        $"{target.Operation} / {target.Surface}",
-                    ResourceExplanationIdentity.IssuedFinding target =>
-                        $"{target.Operation} / {target.Surface} / {target.Descriptor}",
-                    _ => "(not navigable)",
-                },
-            relationship.TargetOwner switch
-            {
-                ResourceExplanationOwner.ResourceExplanation =>
-                    "Resource Explanation",
-                ResourceExplanationOwner.SchemaQuery => "Schema Query",
-                ResourceExplanationOwner
-                    .InspectionCapabilityComposition =>
-                    "Inspection Capability Composition",
-                ResourceExplanationOwner.QuerySpace => "Query Space",
-                ResourceExplanationOwner.Consumer => "Consumer",
-                ResourceExplanationOwner.AnalysisRequests =>
-                    "Analysis Requests",
-                _ => relationship.TargetOwner.ToString(),
-            });
+    public string TargetProjection { get; init; } =
+        LibraryViewText.Contain(TargetProjection);
 
-    private static string Display<T>(T value)
-        where T : struct, Enum
+    public static IEnumerable<ResourceExplanationRelationshipRow> Create(
+        IEnumerable<ExplanationSchema> schemas,
+        ResourceExplanationRelationship relationship,
+        string? sourcePath)
     {
-        string text = value.ToString();
-        var result = new System.Text.StringBuilder(text.Length + 4);
-        for (int index = 0; index < text.Length; index++)
+        ExplanationRelationshipDeclaration declaration =
+            schemas.SelectMany(static schema => schema.ResourceTypes)
+                .SelectMany(static resource => resource.Relationships)
+                .Single(candidate =>
+                    candidate.Identity == relationship.Relationship);
+        string relationshipDisplay =
+            $"{declaration.DisplayName} "
+            + $"({relationship.Relationship.Value})";
+        if (relationship.Targets.IsEmpty)
         {
-            char character = text[index];
-            if (index > 0 && char.IsUpper(character))
-                result.Append(' ');
-            result.Append(
-                index == 0
-                    ? char.ToUpperInvariant(character)
-                    : char.ToLowerInvariant(character));
+            yield return CreateRow(target: null);
+            yield break;
         }
-        return result.ToString();
+
+        foreach (ResourceExplanationRelationshipTarget target
+                 in relationship.Targets)
+        {
+            yield return CreateRow(target);
+        }
+
+        ResourceExplanationRelationshipRow CreateRow(
+            ResourceExplanationRelationshipTarget? target) =>
+            new(
+                sourcePath ?? "(external)",
+                relationshipDisplay,
+                relationship.State.ToString(),
+                target is null ? "(none)" : TargetDisplay(target),
+                target is null
+                    ? ""
+                    : ResourceExplanationResourceRow.DisplayOwner(
+                        target.Resource.Owner.Value),
+                relationship.TargetCompleteness.ToString());
+    }
+
+    private static string TargetDisplay(
+        ResourceExplanationRelationshipTarget target)
+    {
+        ExplanationPublicAddress? address = target.Addresses.FirstOrDefault(
+            static candidate =>
+                candidate.Kind.Value == "resource-path");
+        if (address?.Value is ExplanationValue.Scalar
+            {
+                Value:
+                {
+                    Kind: ExplanationScalarKind.Text,
+                    Text: { } path,
+                },
+            })
+        {
+            return path;
+        }
+        return target.Resource.IdentityValue is ExplanationValue.Scalar
+        {
+            Value:
+            {
+                Kind: ExplanationScalarKind.Text,
+                Text: { } identity,
+            },
+        }
+            ? identity
+            : "(not navigable)";
     }
 }
 
@@ -750,6 +717,105 @@ public sealed record ResourceExplanationTraversalRow(
                         "relationship limit",
                     _ => reason.ToString().ToLowerInvariant(),
                 })]);
+}
+
+internal static class ResourceExplanationFactView
+{
+    internal static string RequiredText(
+        ResourceExplanationResource resource,
+        string identity) =>
+        AvailableValues(resource, identity).Single()
+            is ExplanationValue.Scalar
+            {
+                Value:
+                {
+                    Kind: ExplanationScalarKind.Text,
+                    Text: { } text,
+                },
+            }
+                ? text
+                : throw new InvalidOperationException(
+                    $"Explanation fact '{identity}' is not text.");
+
+    internal static string? OptionalText(
+        ResourceExplanationResource resource,
+        string identity)
+    {
+        ExplanationFactObservation? fact = resource.Facts.FirstOrDefault(
+            candidate => candidate.Fact.Value == identity);
+        if (fact is null
+            || fact.State == ExplanationObservationState.Absent)
+        {
+            return null;
+        }
+        return RequiredText(resource, identity);
+    }
+
+    internal static int? OptionalInteger(
+        ResourceExplanationResource resource,
+        string identity)
+    {
+        ExplanationFactObservation? fact = resource.Facts.FirstOrDefault(
+            candidate => candidate.Fact.Value == identity);
+        if (fact is null
+            || fact.State == ExplanationObservationState.Absent)
+        {
+            return null;
+        }
+        return AvailableValues(resource, identity).Single()
+            is ExplanationValue.Scalar
+            {
+                Value:
+                {
+                    Kind: ExplanationScalarKind.Integer,
+                    Integer: { } integer,
+                },
+            }
+                && integer >= int.MinValue
+                && integer <= int.MaxValue
+                ? (int)integer
+                : throw new InvalidOperationException(
+                    $"Explanation fact '{identity}' is not an Int32.");
+    }
+
+    internal static IEnumerable<string> Texts(
+        ResourceExplanationResource resource,
+        string identity)
+    {
+        ExplanationFactObservation? fact = resource.Facts.FirstOrDefault(
+            candidate => candidate.Fact.Value == identity);
+        if (fact is null
+            || fact.State == ExplanationObservationState.Absent)
+        {
+            return [];
+        }
+        return AvailableValues(resource, identity).Select(value =>
+            value is ExplanationValue.Scalar
+            {
+                Value:
+                {
+                    Kind: ExplanationScalarKind.Text,
+                    Text: { } text,
+                },
+            }
+                ? text
+                : throw new InvalidOperationException(
+                    $"Explanation fact '{identity}' contains non-text."));
+    }
+
+    private static ImmutableArray<ExplanationValue> AvailableValues(
+        ResourceExplanationResource resource,
+        string identity)
+    {
+        ExplanationFactObservation fact = resource.Facts.Single(
+            candidate => candidate.Fact.Value == identity);
+        if (fact.State != ExplanationObservationState.Available)
+        {
+            throw new InvalidOperationException(
+                $"Explanation fact '{identity}' is '{fact.State}'.");
+        }
+        return fact.Values;
+    }
 }
 
 [MarkoutContext(typeof(ResourceExplanationView))]

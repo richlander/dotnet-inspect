@@ -17,16 +17,23 @@ test("item achievement rail preserves zero to three ordered glyph slots", () => 
   assert.doesNotMatch(empty, /item-achievement-glyph/);
 
   const full = renderItemAchievementRail([
-    { kind: "mountain-peak", description: "mountain peak Type" },
-    { kind: "sea-level", description: "sea level Type" },
+    {
+      kind: "surface-mountain-peak",
+      description: "surface mountain peak Type",
+    },
+    {
+      kind: "implementation-sea-level",
+      description: "implementation sea level Type",
+    },
   ], escapeHtml);
   assert.ok(
-    full.indexOf("mountain-peak") < full.indexOf("sea-level"),
+    full.indexOf("surface-mountain-peak")
+      < full.indexOf("implementation-sea-level"),
     "caller-issued achievement order must be preserved",
   );
   assert.match(
     full,
-    /aria-label="mountain peak Type; sea level Type"/,
+    /aria-label="surface mountain peak Type; implementation sea level Type"/,
   );
 
   const member = renderItemAchievementRail([
@@ -61,8 +68,8 @@ test("item achievement rail preserves zero to three ordered glyph slots", () => 
 test("item achievement rail rejects overflow and duplicate slots", () => {
   assert.throws(
     () => renderItemAchievementRail([
-      { kind: "sea-level", description: "first" },
-      { kind: "mountain-peak", description: "second" },
+      { kind: "surface-sea-level", description: "first" },
+      { kind: "implementation-mountain-peak", description: "second" },
       { kind: "top-leverage", description: "third" },
       { kind: "api-diff", description: "fourth" },
     ], escapeHtml),
@@ -70,8 +77,8 @@ test("item achievement rail rejects overflow and duplicate slots", () => {
   );
   assert.throws(
     () => renderItemAchievementRail([
-      { kind: "sea-level", description: "first" },
-      { kind: "sea-level", description: "second" },
+      { kind: "surface-sea-level", description: "first" },
+      { kind: "surface-sea-level", description: "second" },
     ], escapeHtml),
     /distinct glyph kinds/,
   );

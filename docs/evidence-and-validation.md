@@ -1,9 +1,9 @@
 # Evidence and validation
 
-[`AGENTS.md`](../AGENTS.md#evidence-and-validation) states the binding rule:
-use the smallest sufficient set of claims and gates, inherit existing contracts
-unless the change calls them into question, and add only evidence needed by the
-resulting claims. This document owns the detailed practices.
+This document owns the repository's evidence contract: use the smallest
+sufficient set of claims and gates, inherit existing contracts unless the
+change calls them into question, and add only evidence needed by the resulting
+claims.
 
 For section-system changes, [Section test evidence](design/section-test-evidence.md)
 defines the three-layer split between synthetic mechanism tests, product
@@ -40,7 +40,7 @@ insufficient. If there is no such trigger, omit the extra claim and gate.
 - Do not serialize independent evidence. After the focused pre-push gate is
   green, start broader local suites, current-head CI, and eligible fixed-head
   review concurrently. Eligibility includes the per-round CI and conflict
-  rules under [Adversarial review](../AGENTS.md#adversarial-review). A long
+  rules under [Candidate lifecycle](round-orchestration.md#candidate-lifecycle). A long
   suite is not a reason to delay an independent gate.
 - Run broad local suites once per authored head, not once per elapsed base
   update. After a conflict-free base-only merge, inspect the integrated range
@@ -285,6 +285,13 @@ than an inspected artifact:
   `type-find-population-scorecard <pattern> <check|time> <assembly>...`.
   The shipping column is `Selector`, not `Planner`, because it settles an
   already materialized population rather than executing a QuerySpace plan.
+- `tools/ReturnToSenderTargetScorecard` checks exact pre-cap RTS target Count
+  through the old eager selector, LINQ, pinned NLinq, and the shipping
+  QuerySpace Planner. Its evidence reports scanned bodies, declaration
+  candidates, eager rows, and Planner rows. Publish it for the target RID and
+  run `return-to-sender-target-scorecard <check|time> <assembly>...`;
+  `repeat-one` records exact base/head repeated terminal evidence, while
+  `once` supports process-start measurements.
 
 **The scorecard** scores QuerySpace (Base), LINQ, NLinq, and QuerySpace for
 Exists, Count,

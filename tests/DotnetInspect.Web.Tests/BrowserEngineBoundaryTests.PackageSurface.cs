@@ -2789,16 +2789,21 @@ public sealed partial class BrowserEngineBoundaryTests
                             surface.Asset.Id),
                     BrowserAnalysisJsonContext.Default
                         .BrowserLibraryStructuralSalience));
-        Assert.Equal("available", salience.Outcome);
+        Assert.Equal("available", salience.Surface.Outcome);
         Assert.Equal(
             "structural-salience.v3",
-            salience.MethodologyVersion);
-        Assert.True(salience.NamespaceIndex?.Coverage.Considered > 0);
-        Assert.NotEmpty(salience.NamespaceIndex!.Namespaces);
+            salience.Surface.MethodologyVersion);
+        Assert.True(
+            salience.Surface.NamespaceIndex?.Coverage.Considered > 0);
+        Assert.NotEmpty(salience.Surface.NamespaceIndex!.Namespaces);
         Assert.Equal(
-            salience.NamespaceIndex.Namespaces.Length,
-            salience.TypeLeverageShards.Length);
-        Assert.Null(salience.Failure);
+            salience.Surface.NamespaceIndex.Namespaces.Length,
+            salience.Surface.TypeLeverageShards.Length);
+        Assert.Null(salience.Surface.Failure);
+        Assert.Equal("unavailable", salience.Implementation.Outcome);
+        Assert.Equal(
+            "NoImplementationAssembly",
+            salience.Implementation.FailureKind);
         Assert.Equal(
             BrowserAnalysisCompileLibraryStatus.Selected,
             salience.CompileLibrary.Status);
@@ -2919,10 +2924,11 @@ public sealed partial class BrowserEngineBoundaryTests
                     BrowserAnalysisJsonContext.Default
                         .BrowserLibraryStructuralSalience));
 
-        Assert.Equal("available", salience.Outcome);
+        Assert.Equal("available", salience.Surface.Outcome);
+        Assert.Equal("available", salience.Implementation.Outcome);
         BrowserLibraryTypeLeverageShard leverage =
             Assert.Single(
-                salience.TypeLeverageShards,
+                salience.Surface.TypeLeverageShards,
                 shard => shard.Namespace == "Target");
         Assert.Contains(
             leverage.Types,
@@ -2935,6 +2941,9 @@ public sealed partial class BrowserEngineBoundaryTests
             id => Assert.Contains(
                 leverage.Types,
                 type => type.TypeDefinitionId == id));
+        Assert.Contains(
+            salience.Implementation.TypeLeverageShards,
+            shard => shard.Namespace == "Target");
         Assert.All(
             leverage.MountainPeakOrder,
             id => Assert.Contains(

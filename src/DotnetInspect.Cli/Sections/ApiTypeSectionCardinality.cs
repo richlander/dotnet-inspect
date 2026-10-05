@@ -10,6 +10,9 @@ internal static class ApiTypeSectionCardinality
         new Dictionary<string, SectionCardinalityDeclaration>(
             StringComparer.OrdinalIgnoreCase)
         {
+            // API Info is the listing's identity fact table: one record, no rows.
+            [SectionNames.ApiInfo] =
+                SectionCardinalityDeclaration.Scalar,
             [SectionNames.Classes] =
                 SectionCardinalityDeclaration.Inventory,
             [SectionNames.Structs] =

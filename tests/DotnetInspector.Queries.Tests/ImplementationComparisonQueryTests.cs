@@ -284,6 +284,258 @@ public sealed class ImplementationComparisonQueryTests
     }
 
     [Fact]
+    public void DocumentQuery_SelectedEmptyRunsNoMemberWork()
+    {
+        var input = new ImplementationComparisonInput(
+            [
+                StreamBackedInput(
+                    FixtureCatalog.DiffPair.OldAssemblyPath(),
+                    "before.dll"),
+            ],
+            [
+                StreamBackedInput(
+                    FixtureCatalog.DiffPair.NewAssemblyPath(),
+                    "after.dll"),
+            ],
+            MemberSelections: []);
+
+        var compared = Assert.IsType<ImplementationComparisonResult.Compared>(
+            ImplementationComparisonQuery.Execute(
+                input,
+                TestContext.Current.CancellationToken));
+        Assert.Empty(compared.Comparison.Members);
+        Assert.Null(compared.Resolution);
+        Assert.Null(compared.ProducerCompletion);
+
+        ImplementationDiffDocument document =
+            ImplementationDiffDocumentQuery.Execute(input);
+        Assert.Empty(document.Members);
+        Assert.Equal(
+            ImplementationDiffDocumentPopulationKind.Selected,
+            document.Request.Population.Kind);
+        Assert.Empty(document.Request.Population.Selections);
+        Assert.Equal(
+            [
+                ImplementationDiffDocumentMechanism.CSharp,
+                ImplementationDiffDocumentMechanism.IlBody,
+                ImplementationDiffDocumentMechanism.Complexity,
+            ],
+            document.Request.Mechanisms);
+        Assert.NotNull(document.Complexity);
+        Assert.True(document.Coverage.IsComplete);
+        Assert.Collection(
+            document.Coverage.Mechanisms,
+            coverage =>
+            {
+                Assert.Equal(
+                    ImplementationDiffDocumentMechanism.CSharp,
+                    coverage.Mechanism);
+                Assert.True(coverage.Requested);
+                Assert.True(coverage.IsAvailable);
+                Assert.Equal(0, coverage.EvaluatedSubjectCount);
+            },
+            coverage =>
+            {
+                Assert.Equal(
+                    ImplementationDiffDocumentMechanism.IlBody,
+                    coverage.Mechanism);
+                Assert.True(coverage.Requested);
+                Assert.True(coverage.IsAvailable);
+                Assert.Equal(0, coverage.EvaluatedSubjectCount);
+            },
+            coverage =>
+            {
+                Assert.Equal(
+                    ImplementationDiffDocumentMechanism.Complexity,
+                    coverage.Mechanism);
+                Assert.True(coverage.Requested);
+                Assert.True(coverage.IsAvailable);
+                Assert.Equal(0, coverage.EvaluatedSubjectCount);
+            });
+        string json = JsonSerializer.Serialize(
+            document,
+            ImplementationDiffJsonContext.Default.ImplementationDiffDocument);
+        ImplementationDiffDocument roundTripped = Assert.IsType<
+            ImplementationDiffDocument>(
+                JsonSerializer.Deserialize(
+                    json,
+                    ImplementationDiffJsonContext.Default
+                        .ImplementationDiffDocument));
+        Assert.Equal(
+            ImplementationDiffDocumentPopulationKind.Selected,
+            roundTripped.Request.Population.Kind);
+        Assert.Empty(roundTripped.Request.Population.Selections);
+    }
+
+    [Fact]
+    public void DocumentQuery_SelectedMemberRunsOnlyRequestedMechanisms()
+    {
+        ImplementationDiffDocument document =
+            ImplementationDiffDocumentQuery.Execute(
+                new ImplementationComparisonInput(
+                    [
+                        StreamBackedInput(
+                            FixtureCatalog.DiffPair.OldAssemblyPath(),
+                            "before.dll"),
+                    ],
+                    [
+                        StreamBackedInput(
+                            FixtureCatalog.DiffPair.NewAssemblyPath(),
+                            "after.dll"),
+                    ],
+                    typeFilters: null,
+                    new ImplementationComparisonPopulation.Selected(
+                    [
+                        new ComparisonMemberSelection(
+                            TypeName(
+                                "DiffFixtureSample.MethodRemovalSample"),
+                            MemberTargetSelector.Parse("Removed:1")),
+                    ]),
+                    ImplementationDiffMechanism.CSharp
+                        | ImplementationDiffMechanism.IlBody));
+
+        Assert.Equal(
+            ImplementationDiffDocumentPopulationKind.Selected,
+            document.Request.Population.Kind);
+        Assert.Single(document.Request.Population.Selections);
+        Assert.Equal(2, document.Request.Mechanisms.Count);
+        Assert.DoesNotContain(
+            ImplementationDiffDocumentMechanism.Complexity,
+            document.Request.Mechanisms);
+        Assert.Null(document.Complexity);
+        Assert.DoesNotContain(
+            document.Coverage.Mechanisms,
+            coverage => coverage.Mechanism
+                == ImplementationDiffDocumentMechanism.Complexity);
+        string json = JsonSerializer.Serialize(
+            document,
+            ImplementationDiffJsonContext.Default.ImplementationDiffDocument);
+        Assert.DoesNotContain(
+            "\"complexity\":",
+            json,
+            StringComparison.Ordinal);
+        ImplementationDiffDocumentMember member =
+            Assert.Single(document.Members);
+        Assert.Contains(
+            member.Evidence,
+            evidence => evidence.Mechanism
+                == ResearchChangeMechanism.CSharp);
+        Assert.Contains(
+            member.Evidence,
+            evidence => evidence.Mechanism
+                == ResearchChangeMechanism.IlBody);
+    }
+
+    [Fact]
+    public void DocumentQuery_ComplexityOnlySkipsLocalProducers()
+    {
+        var input = new ImplementationComparisonInput(
+            [
+                StreamBackedInput(
+                    FixtureCatalog.DiffPair.OldAssemblyPath(),
+                    "before.dll"),
+            ],
+            [
+                StreamBackedInput(
+                    FixtureCatalog.DiffPair.NewAssemblyPath(),
+                    "after.dll"),
+            ],
+            typeFilters: null,
+            new ImplementationComparisonPopulation.Selected(
+            [
+                new ComparisonMemberSelection(
+                    TypeName("DiffFixtureSample.MethodRemovalSample"),
+                    MemberTargetSelector.Parse("Removed:1")),
+            ]),
+            ImplementationDiffMechanism.Complexity);
+
+        var compared = Assert.IsType<ImplementationComparisonResult.Compared>(
+            ImplementationComparisonQuery.Execute(
+                input,
+                TestContext.Current.CancellationToken));
+        Assert.NotNull(compared.Resolution);
+        Assert.Null(compared.ProducerCompletion);
+        Assert.Empty(compared.Comparison.Members);
+
+        ImplementationDiffDocument document =
+            ImplementationDiffDocumentQuery.Execute(input);
+        Assert.Equal(
+            [ImplementationDiffDocumentMechanism.Complexity],
+            document.Request.Mechanisms);
+        Assert.NotNull(document.Complexity);
+        ImplementationDiffMechanismCoverage coverage =
+            Assert.Single(document.Coverage.Mechanisms);
+        Assert.Equal(
+            ImplementationDiffDocumentMechanism.Complexity,
+            coverage.Mechanism);
+        Assert.True(coverage.Requested);
+    }
+
+    [Fact]
+    public void DocumentQuery_WholePopulationComplexityOnlySkipsResearchDiff()
+    {
+        var input = new ImplementationComparisonInput(
+            [
+                StreamBackedInput(
+                    FixtureCatalog.DiffPair.OldAssemblyPath(),
+                    "before.dll"),
+            ],
+            [
+                StreamBackedInput(
+                    FixtureCatalog.DiffPair.NewAssemblyPath(),
+                    "after.dll"),
+            ],
+            typeFilters: null,
+            new ImplementationComparisonPopulation.All(),
+            ImplementationDiffMechanism.Complexity);
+
+        var compared = Assert.IsType<ImplementationComparisonResult.Compared>(
+            ImplementationComparisonQuery.Execute(
+                input,
+                TestContext.Current.CancellationToken));
+        Assert.Null(compared.Resolution);
+        Assert.Null(compared.ProducerCompletion);
+        Assert.Empty(compared.Comparison.Members);
+        Assert.Empty(compared.Comparison.Research.Changes);
+
+        ImplementationDiffDocument document =
+            ImplementationDiffDocumentQuery.Execute(input);
+        Assert.Equal(
+            ImplementationDiffDocumentPopulationKind.All,
+            document.Request.Population.Kind);
+        Assert.Equal(
+            [ImplementationDiffDocumentMechanism.Complexity],
+            document.Request.Mechanisms);
+        Assert.NotNull(document.Complexity);
+    }
+
+    [Fact]
+    public void ComparisonInput_RejectsEmptyAndUnknownMechanisms()
+    {
+        ImplementationAssemblyInput before = StreamBackedInput(
+            FixtureCatalog.DiffPair.OldAssemblyPath(),
+            "before.dll");
+        ImplementationAssemblyInput after = StreamBackedInput(
+            FixtureCatalog.DiffPair.NewAssemblyPath(),
+            "after.dll");
+
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new ImplementationComparisonInput(
+                [before],
+                [after],
+                typeFilters: null,
+                new ImplementationComparisonPopulation.All(),
+                ImplementationDiffMechanism.None));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new ImplementationComparisonInput(
+                [before],
+                [after],
+                typeFilters: null,
+                new ImplementationComparisonPopulation.All(),
+                (ImplementationDiffMechanism)8));
+    }
+
+    [Fact]
     public void DocumentQuery_TargetedOneSidedNativeResultsRemainVisible()
     {
         ImplementationDiffDocument document =
@@ -377,7 +629,10 @@ public sealed class ImplementationComparisonQueryTests
                             MemberTargetSelector.Parse("Removed:1")),
                     ]));
 
-        Assert.Equal(2, repeated.Request.MemberSelections.Count);
+        Assert.Equal(
+            ImplementationDiffDocumentPopulationKind.Selected,
+            repeated.Request.Population.Kind);
+        Assert.Equal(2, repeated.Request.Population.Selections.Count);
         ImplementationDiffDocumentMember baselineMember =
             Assert.Single(baseline.Members);
         ImplementationDiffDocumentMember repeatedMember =
@@ -505,14 +760,14 @@ public sealed class ImplementationComparisonQueryTests
                     "MemberTargetIdentit",
                     StringComparison.Ordinal)));
         Assert.Equal(
-            typeof(IReadOnlyList<ComparisonMemberSelection>),
+            typeof(ImplementationComparisonPopulation),
             typeof(ImplementationComparisonInput)
-                .GetProperty(nameof(ImplementationComparisonInput.MemberSelections))!
+                .GetProperty(nameof(ImplementationComparisonInput.Population))!
                 .PropertyType);
         Assert.Equal(
-            typeof(IReadOnlyList<ImplementationDiffDocumentMemberSelection>),
+            typeof(ImplementationDiffDocumentPopulation),
             typeof(ImplementationDiffDocumentRequest)
-                .GetProperty(nameof(ImplementationDiffDocumentRequest.MemberSelections))!
+                .GetProperty(nameof(ImplementationDiffDocumentRequest.Population))!
                 .PropertyType);
         Assert.Equal(
             typeof(ImplementationComplexityTargetContext),
@@ -574,6 +829,17 @@ public sealed class ImplementationComparisonQueryTests
         Assert.Equal(
             ImplementationDiffDocumentScope.ExactLibraryPair,
             document.Request.Scope);
+        Assert.Equal(
+            ImplementationDiffDocumentPopulationKind.All,
+            document.Request.Population.Kind);
+        Assert.Empty(document.Request.Population.Selections);
+        Assert.Equal(
+            [
+                ImplementationDiffDocumentMechanism.CSharp,
+                ImplementationDiffDocumentMechanism.IlBody,
+                ImplementationDiffDocumentMechanism.Complexity,
+            ],
+            document.Request.Mechanisms);
         Assert.Equal(["DiffSample"], document.Request.TypeFilters);
         Assert.Equal(
             oldInput.Assembly.Identity,
@@ -652,9 +918,19 @@ public sealed class ImplementationComparisonQueryTests
             new ImplementationDiffEndpointProvenance(
                 ImplementationDiffEndpointProvenanceKind.Local),
             document.After.Provenance);
-        string json = JsonSerializer.Serialize(document);
+        string json = JsonSerializer.Serialize(
+            document,
+            ImplementationDiffJsonContext.Default.ImplementationDiffDocument);
         Assert.DoesNotContain(oldPath, json, StringComparison.Ordinal);
         Assert.DoesNotContain(newPath, json, StringComparison.Ordinal);
+        Assert.Contains(
+            "\"population\": {",
+            json,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "\"kind\": \"All\"",
+            json,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -958,6 +1234,7 @@ public sealed class ImplementationComparisonQueryTests
             coverage => coverage.Mechanism
                 == ImplementationDiffDocumentMechanism.Complexity);
         Assert.False(complexity.IsAvailable);
+        Assert.NotNull(document.Complexity);
         Assert.False(document.Complexity.IsAvailable);
         Assert.False(string.IsNullOrWhiteSpace(
             document.Complexity.UnavailableReason));
@@ -1122,8 +1399,11 @@ public sealed class ImplementationComparisonQueryTests
 
         ImplementationDiffDocumentMember member =
             Assert.Single(document.Members);
+        ImplementationDiffDocumentComplexity complexityDocument =
+            Assert.IsType<ImplementationDiffDocumentComplexity>(
+                document.Complexity);
         ImplementationDiffDocumentComplexityChange complexity =
-            Assert.Single(document.Complexity.Changes);
+            Assert.Single(complexityDocument.Changes);
         Assert.Equal(member.Subject, complexity.Subject);
         Assert.Equal("SelectedMixed", member.Subject.MemberName);
     }
@@ -1136,8 +1416,11 @@ public sealed class ImplementationComparisonQueryTests
 
         ImplementationDiffDocumentMember member =
             Assert.Single(document.Members);
+        ImplementationDiffDocumentComplexity complexityDocument =
+            Assert.IsType<ImplementationDiffDocumentComplexity>(
+                document.Complexity);
         ImplementationDiffDocumentComplexityChange complexity =
-            Assert.Single(document.Complexity.Changes);
+            Assert.Single(complexityDocument.Changes);
         Assert.Equal(member.Subject, complexity.Subject);
         Assert.Equal("Changed", member.Subject.MemberName);
     }
@@ -1150,8 +1433,11 @@ public sealed class ImplementationComparisonQueryTests
 
         ImplementationDiffDocumentMember member =
             Assert.Single(document.Members);
+        ImplementationDiffDocumentComplexity complexityDocument =
+            Assert.IsType<ImplementationDiffDocumentComplexity>(
+                document.Complexity);
         ImplementationDiffDocumentComplexityChange complexity =
-            Assert.Single(document.Complexity.Changes);
+            Assert.Single(complexityDocument.Changes);
         Assert.Equal(member.Subject, complexity.Subject);
         Assert.Equal(
             ImplementationComplexityChangeKind.Unchanged,
@@ -1435,10 +1721,13 @@ public sealed class ImplementationComparisonQueryTests
                     evidence => evidence.Mechanism
                         == ResearchChangeMechanism.IlBody);
             });
-        Assert.False(unfiltered.Complexity.IsAvailable);
-        Assert.Empty(unfiltered.Complexity.Changes);
+        ImplementationDiffDocumentComplexity complexity =
+            Assert.IsType<ImplementationDiffDocumentComplexity>(
+                unfiltered.Complexity);
+        Assert.False(complexity.IsAvailable);
+        Assert.Empty(complexity.Changes);
         Assert.False(string.IsNullOrWhiteSpace(
-            unfiltered.Complexity.UnavailableReason));
+            complexity.UnavailableReason));
         Assert.Contains(
             members,
             member => member.Evidence.Any(evidence =>
