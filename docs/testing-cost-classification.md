@@ -98,6 +98,9 @@ public void SomeExpensiveTheory(string assemblyName)
   its full suite on the exhaustive Linux lane and the Windows/macOS platform
   lane, including the pinned custom-attribute package gate, and retains that
   gate's per-platform evidence report.
+- Inspect Web keeps platform, engine, frontend, browser, and managed API
+  checks in PR CI. Its daily Deep Inspect lane owns complete facade and
+  canary checks, browser coverage, and published-application validation.
 - The decompiler suite uses the same MTP trait options behind discoverable
   presets: `dotnet run --project tests/ILInspector.Decompiler.Tests -c Release
   -- --gate fast` expands to `--filter-not-trait "Speed=Slow"`, while `--gate

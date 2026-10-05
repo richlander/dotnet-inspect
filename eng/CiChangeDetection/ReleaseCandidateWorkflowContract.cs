@@ -268,6 +268,9 @@ internal static class ReleaseCandidateWorkflowContract
         if (!crons.Contains("30 11 * * *", StringComparer.Ordinal))
             throw new InvalidOperationException(
                 "Deep Inspect must schedule the full Linux test lane daily.");
+        if (!crons.Contains("0 13 * * *", StringComparer.Ordinal))
+            throw new InvalidOperationException(
+                "Deep Inspect must schedule full inspect-web coverage daily.");
 
         YamlMappingNode jobs = GetRequiredMapping(root, "jobs", "Deep Inspect workflow");
         YamlMappingNode testJob =
@@ -295,6 +298,43 @@ internal static class ReleaseCandidateWorkflowContract
             "run",
             "dotnet run --project tests/DotnetInspector.Queries.Tests -c Release",
             "Deep Inspect query step");
+        YamlMappingNode inspectWebJob =
+            GetRequiredMapping(jobs, "inspect-web", "Deep Inspect jobs");
+        RequireContains(
+            GetRequiredScalar(inspectWebJob, "if", "Deep Inspect inspect-web lane"),
+            "github.event_name == 'schedule' && github.event.schedule == '0 13 * * *'");
+        YamlSequenceNode inspectWebSteps = GetRequiredSequence(
+            inspectWebJob,
+            "steps",
+            "Deep Inspect inspect-web lane");
+        foreach ((string name, string command) in new[]
+        {
+            ("Check complete generated facade contract", "eng/generate-inspect-web-engine-facade.sh --check"),
+            ("Test complete shared-runtime multi-facade canary", "eng/test-inspect-web-multi-facade-canary.sh"),
+            ("Test complete managed-operation bridge canary", "eng/test-inspect-web-managed-operation-bridge-canary.sh"),
+            ("Typecheck generated ts-jsexport facade", "eng/test-ts-jsexport-typescript.sh"),
+            ("Test browser UI in Firefox", "npm run test:browser"),
+            ("Publish browser application", "src/DotnetInspect.Web/DotnetInspect.Web.csproj"),
+            ("Publish Inspect Web managed API", "src/MsdlProxy/MsdlProxy.csproj"),
+            ("Verify published site artifact", "eng/verify-inspect-web-site-artifact.sh"),
+            ("Test published browser application", "eng/test-inspect-web-published-application.sh"),
+        })
+        {
+            YamlMappingNode[] matches = inspectWebSteps.Children
+                .Select(node => RequireMapping(node, "Deep Inspect inspect-web step"))
+                .Where(step => GetOptionalScalar(step, "name") == name)
+                .ToArray();
+            if (matches.Length != 1 || !GetRequiredScalar(
+                    matches[0],
+                    "run",
+                    $"Deep Inspect {name}").Contains(
+                        command,
+                        StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException(
+                    $"Deep Inspect inspect-web must run {name} once.");
+            }
+        }
         YamlMappingNode platformTest =
             GetRequiredMapping(jobs, "platform-test", "Deep Inspect jobs");
         RequireScalarValue(

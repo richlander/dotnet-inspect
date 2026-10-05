@@ -283,11 +283,10 @@ jobs:
           export TLA_CHECK_TIMEOUT_SECONDS=120
           eng/run-tla-checks.sh --changed-files0 < "$scope_file"
 
-  # The inspect-web selection fans out into independent jobs. The leaf jobs
-  # remain small enough to protect a PR directly; the terminal inspect-web job
-  # preserves one visible result for the complete Browser/Wasm validation.
+  # Keep focused Browser/Wasm coverage in PR CI. Deep Inspect owns complete
+  # facade, canary, and published-application checks on its daily web lane.
   inspect-web-platform:
-    name: inspect-web platform probes
+    name: inspect-web platform and engine
     needs: changes
     if: fromJSON(needs.changes.outputs.plan).validations.inspectWeb
     runs-on: ubuntu-26.04
@@ -308,8 +307,13 @@ jobs:
       - name: Run local-path admission Browser/Wasm platform probe
         run: eng/run-local-path-admission-platform-probe.sh browser
 
+      - name: Test browser engine
+        env:
+          MSBuildEnableWorkloadResolver: 'false'
+        run: dotnet run --project tests/DotnetInspect.Web.Tests -c Release
+
   inspect-web-frontend:
-    name: inspect-web frontend
+    name: inspect-web frontend and browser
     needs: changes
     if: fromJSON(needs.changes.outputs.plan).validations.inspectWeb
     runs-on: ubuntu-24.04
@@ -348,112 +352,13 @@ jobs:
         working-directory: prototypes/annotated-source-viewer
         run: npm test
 
-  inspect-web-facades:
-    name: inspect-web generated facades
-    needs: changes
-    if: fromJSON(needs.changes.outputs.plan).validations.inspectWeb
-    runs-on: ubuntu-26.04
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Setup Node
-        uses: actions/setup-node@v7
-        with:
-          node-version: '24'
-          cache: npm
-          cache-dependency-path: inspect-web/package-lock.json
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v6
-        with:
-          dotnet-version: '11.0.100-rc.1.26425.128'
-
-      - name: Install browser Wasm workload
-        run: dotnet workload install wasm-experimental
-
-      - name: Build browser frontend
+      - name: Install Firefox
         working-directory: inspect-web
-        run: |
-          npm ci
-          npm run build
+        run: npx playwright install --with-deps firefox
 
-      - name: Check generated inspect-web TypeScript facade for drift
-        env:
-          COMPREHENSIVE: ${{ fromJSON(needs.changes.outputs.plan).validations.inspectWebComprehensive }}
-        run: |
-          if [ "$COMPREHENSIVE" = true ]; then
-            eng/generate-inspect-web-engine-facade.sh --check
-          else
-            eng/generate-inspect-web-engine-facade.sh --fast-check
-          fi
-
-  inspect-web-canaries:
-    name: inspect-web facade and bridge canaries
-    needs: changes
-    if: fromJSON(needs.changes.outputs.plan).validations.inspectWeb
-    runs-on: ubuntu-26.04
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Setup Node
-        uses: actions/setup-node@v7
-        with:
-          node-version: '24'
-          cache: npm
-          cache-dependency-path: inspect-web/package-lock.json
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v6
-        with:
-          dotnet-version: '11.0.100-rc.1.26425.128'
-
-      - name: Install browser Wasm workload
-        run: dotnet workload install wasm-experimental
-
-      - name: Install browser dependencies
+      - name: Test browser UI in Firefox
         working-directory: inspect-web
-        run: npm ci
-
-      - name: Test shared-runtime multi-facade canary
-        env:
-          COMPREHENSIVE: ${{ fromJSON(needs.changes.outputs.plan).validations.inspectWebComprehensive }}
-        run: |
-          if [ "$COMPREHENSIVE" = true ]; then
-            eng/test-inspect-web-multi-facade-canary.sh
-          else
-            eng/test-inspect-web-multi-facade-canary.sh --fast
-          fi
-
-      - name: Test managed-operation bridge Browser/Wasm canary
-        env:
-          COMPREHENSIVE: ${{ fromJSON(needs.changes.outputs.plan).validations.inspectWebComprehensive }}
-        run: |
-          if [ "$COMPREHENSIVE" = true ]; then
-            eng/test-inspect-web-managed-operation-bridge-canary.sh
-          else
-            eng/test-inspect-web-managed-operation-bridge-canary.sh --fast
-          fi
-
-      - name: Typecheck generated ts-jsexport facade
-        run: eng/test-ts-jsexport-typescript.sh
-
-  inspect-web-managed-tests:
-    name: inspect-web engine tests
-    needs: changes
-    if: fromJSON(needs.changes.outputs.plan).validations.inspectWeb
-    runs-on: ubuntu-26.04
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v6
-        with:
-          dotnet-version: '11.0.100-rc.1.26425.128'
-
-      - name: Test browser engine
-        env:
-          MSBuildEnableWorkloadResolver: 'false'
-        run: dotnet run --project tests/DotnetInspect.Web.Tests -c Release
+        run: npm run test:browser
 
   inspect-web-msdl-tests:
     name: inspect-web managed API tests
@@ -503,163 +408,13 @@ jobs:
           test -f "$api/.azurefunctions/Microsoft.Azure.WebJobs.Extensions.FunctionMetadataLoader.dll"
           jq -e 'any(.[]; .name == "MsdlProxy" and .language == "dotnet-isolated" and any(.bindings[]; .type == "httpTrigger" and .authLevel == "Anonymous" and .methods == ["get"] and .route == "msdl/{pdbFileName}/{symbolKey}"))' "$api/functions.metadata" >/dev/null
 
-  inspect-web-browser:
-    name: inspect-web browser
-    needs: changes
-    if: fromJSON(needs.changes.outputs.plan).validations.inspectWeb
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Setup Node
-        uses: actions/setup-node@v7
-        with:
-          node-version: '24'
-          cache: npm
-          cache-dependency-path: inspect-web/package-lock.json
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v6
-        with:
-          dotnet-version: '11.0.100-rc.1.26425.128'
-
-      - name: Install browser Wasm workload
-        run: dotnet workload install wasm-experimental
-
-      - name: Build browser frontend and install dependencies
-        working-directory: inspect-web
-        run: |
-          npm ci
-          npm run build
-          npx playwright install --with-deps firefox
-
-      - name: Test browser UI in Firefox
-        working-directory: inspect-web
-        run: npm run test:browser
-
-  inspect-web-published:
-    name: inspect-web published application
-    needs: changes
-    if: fromJSON(needs.changes.outputs.plan).validations.inspectWeb
-    runs-on: ubuntu-26.04
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Setup Node
-        uses: actions/setup-node@v7
-        with:
-          node-version: '24'
-          cache: npm
-          cache-dependency-path: inspect-web/package-lock.json
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v6
-        with:
-          dotnet-version: '11.0.100-rc.1.26425.128'
-
-      - name: Install browser Wasm workload
-        run: dotnet workload install wasm-experimental
-
-      - name: Build browser frontend
-        working-directory: inspect-web
-        run: |
-          npm ci
-          npm run build
-
-      - name: Publish browser app and install Firefox
-        shell: bash
-        run: |
-          set -uo pipefail
-          dotnet publish \
-            src/DotnetInspect.Web/DotnetInspect.Web.csproj \
-            -c Release \
-            --output artifacts/inspect-web-publish \
-            -p:InspectWebIncludeFrontend=true &
-          publish_pid=$!
-          (
-            cd inspect-web
-            npx playwright install --with-deps firefox
-          ) &
-          firefox_pid=$!
-
-          failed=0
-          if ! wait "$publish_pid"; then
-            echo "::error::Publishing the browser application failed."
-            failed=1
-          fi
-          if ! wait "$firefox_pid"; then
-            echo "::error::Installing Firefox failed."
-            failed=1
-          fi
-          exit "$failed"
-
-      - name: Verify browser site artifact
-        shell: bash
-        run: |
-          set -euo pipefail
-          site=artifacts/inspect-web-publish/wwwroot
-          index="$site/index.html"
-          test -f "$index"
-          test -f "$site/staticwebapp.config.json"
-          expected_modules=$(
-            printf '%s\n' \
-              inspect-web-host.js \
-              inspect-web-package.js \
-              inspect-web-library.js \
-              inspect-web-metadata.js \
-              inspect-web-analysis.js \
-              inspect-web-source.js \
-              inspect-web-call-graph.js \
-              inspect-web-catalog.js |
-              sort
-          )
-          published_modules=$(
-            find "$site" -maxdepth 1 -type f -name 'inspect-web-*.js' \
-              -printf '%f\n' |
-              sort
-          )
-          test "$published_modules" = "$expected_modules"
-          while IFS= read -r module; do
-            cmp \
-              "inspect-web/DotnetInspect.Web/wwwroot/$module" \
-              "$site/$module"
-          done <<< "$expected_modules"
-          test ! -f "$site/inspect-web-engine.js"
-          test ! -f "$site/inspect-web-engine.ts"
-          jq -e '(.globalHeaders | del(."Content-Security-Policy")) == {
-              "X-Content-Type-Options": "nosniff",
-              "Referrer-Policy": "no-referrer",
-              "X-Frame-Options": "DENY",
-              "Strict-Transport-Security": "max-age=63072000; includeSubDomains"
-            }' "$site/staticwebapp.config.json" >/dev/null
-          node inspect-web/scripts/verify-site-artifact.ts "$site"
-          for host_only in \
-            ILInspector.JsExportSurface \
-            ILInspector.TypeScriptGeneration \
-            ts-jsexport \
-            tsbindgen; do
-            if find "$site/_framework" -maxdepth 1 -type f \
-              -iname "$host_only.*" -print -quit | grep -q .; then
-              echo "Host-only generator artifact reached the browser: $host_only" >&2
-              exit 1
-            fi
-          done
-
-      - name: Test published browser application
-        run: eng/test-inspect-web-published-application.sh
-
   inspect-web:
     name: inspect-web
     needs:
       - changes
       - inspect-web-platform
       - inspect-web-frontend
-      - inspect-web-facades
-      - inspect-web-canaries
-      - inspect-web-managed-tests
       - inspect-web-msdl-tests
-      - inspect-web-browser
-      - inspect-web-published
     if: >-
       always() &&
       fromJSON(needs.changes.outputs.plan).validations.inspectWeb
@@ -672,7 +427,7 @@ jobs:
         run: |
           jq -e '
             [to_entries[] | select(.key != "changes") | .value.result] as $results
-            | ($results | length) == 8
+            | ($results | length) == 3
             and all($results[]; . == "success")
           ' <<< "$RESULTS"
 
@@ -1963,12 +1718,7 @@ jobs:
       - markdownlint
       - inspect-web-platform
       - inspect-web-frontend
-      - inspect-web-facades
-      - inspect-web-canaries
-      - inspect-web-managed-tests
       - inspect-web-msdl-tests
-      - inspect-web-browser
-      - inspect-web-published
       - inspect-web
       - skill-gate
       - repository-guards
