@@ -50,9 +50,11 @@ public class AnnotatedSourceDiffDocumentTests
                 Assert.Equal(
                     [
                         new AnnotatedSourceDiffLineMapEntry(0, 0, 9),
-                        new AnnotatedSourceDiffLineMapEntry(1, 10, 0),
                     ],
                     csharp.BeforeLines);
+                Assert.Equal(
+                    csharp.Comparison.Analysis.Before.Length,
+                    csharp.BeforeLines.Count);
             },
             il =>
             {
@@ -168,6 +170,38 @@ public class AnnotatedSourceDiffDocumentTests
                 lineCount,
                 AnnotatedSourceDiffDocument.MaximumEndpointLines),
             medium.TooComplex);
+    }
+
+    [Fact]
+    public void Create_FinalTerminatorDoesNotCreateAnExtraSequenceLine()
+    {
+        const int lineCount =
+            AnnotatedSourceDiffDocument.MaximumEndpointLines;
+        string text =
+            string.Join('\n', Enumerable.Repeat("x", lineCount)) + '\n';
+        Guid beforeMvid =
+            new("00112233-4455-6677-8899-AABBCCDDEEFF");
+        Guid afterMvid =
+            new("10213243-5465-7687-98A9-BACBDCEDFE0F");
+
+        AnnotatedSourceDiffDocument document =
+            AnnotatedSourceDiffDocument.Create(
+                new("Tests.C", "M"),
+                AnnotatedSourceDiffSide.Present(
+                    Endpoint(beforeMvid),
+                    CSharpDocument(text, beforeMvid)),
+                AnnotatedSourceDiffSide.Present(
+                    Endpoint(afterMvid),
+                    CSharpDocument(text, afterMvid)),
+                [],
+                includeIl: false);
+
+        AnnotatedSourceDiffMedium medium = Assert.Single(document.Media);
+        Assert.Null(medium.TooComplex);
+        Assert.Equal(lineCount, medium.BeforeLines.Count);
+        Assert.Equal(
+            medium.Comparison!.Analysis.Before.Length,
+            medium.BeforeLines.Count);
     }
 
     [Fact]

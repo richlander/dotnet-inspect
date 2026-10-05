@@ -163,7 +163,7 @@ public class CSharpAnnotatedSourceProjectionTests
     public void Create_CSharpOnlyDocumentPreservesDocumentAndIdentity()
     {
         var document = new AnnotatedSourceDocument(
-            "return;",
+            "return;\n",
             [
                 new AnnotatedSourceNode(
                     0,

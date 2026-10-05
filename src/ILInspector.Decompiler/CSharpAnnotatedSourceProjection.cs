@@ -59,11 +59,13 @@ public sealed class CSharpAnnotatedSourceProjection
         {
             ImmutableArray<CSharpAnnotatedSourceLine> identityLines =
             [
-                .. SplitLines(source.Text).Select(static line =>
-                    new CSharpAnnotatedSourceLine(
-                        line.Start,
-                        line.Start,
-                        line.ContentLength)),
+                .. SplitLines(source.Text)
+                    .Where(static line => line.TotalLength > 0)
+                    .Select(static line =>
+                        new CSharpAnnotatedSourceLine(
+                            line.Start,
+                            line.Start,
+                            line.ContentLength)),
             ];
             return new(
                 source,
@@ -212,32 +214,22 @@ public sealed class CSharpAnnotatedSourceProjection
                 targets,
                 source.Source),
             nodeIds.ToImmutable(),
-            ProjectLines(segments, text.Length));
+            ProjectLines(segments));
     }
 
     static ImmutableArray<CSharpAnnotatedSourceLine> ProjectLines(
-        IReadOnlyList<ProjectedSegment> segments,
-        int projectedLength)
+        IReadOnlyList<ProjectedSegment> segments)
     {
         var lines =
             ImmutableArray.CreateBuilder<CSharpAnnotatedSourceLine>(
-                segments.Count + 1);
-        foreach (ProjectedSegment segment in segments)
+                segments.Count);
+        foreach (ProjectedSegment segment in segments.Where(
+            static segment => segment.Length > 0))
         {
             lines.Add(new(
                 segment.SourceStart,
                 segment.ProjectedStart,
                 segment.ContentLength));
-        }
-        if (segments.Count > 0
-            && segments[^1].ContentLength < segments[^1].Length
-            && segments[^1].ProjectedStart + segments[^1].Length
-                == projectedLength)
-        {
-            lines.Add(new(
-                segments[^1].SourceStart + segments[^1].Length,
-                projectedLength,
-                ContentLength: 0));
         }
         return lines.ToImmutable();
     }

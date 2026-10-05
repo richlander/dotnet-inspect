@@ -838,7 +838,8 @@ public sealed record AnnotatedSourceDiffDocument
     static string Text(
         AnnotatedSourceDocument document,
         IReadOnlyList<AnnotatedSourceDiffLineMapEntry> lines)
-        => string.Join(
+    {
+        string text = string.Join(
             '\n',
             lines.Select(line =>
             {
@@ -852,6 +853,16 @@ public sealed record AnnotatedSourceDiffDocument
                 }
                 return document.Text.Substring(line.Start, line.Length);
             }));
+        if (lines.Count == 0)
+            return text;
+
+        AnnotatedSourceDiffLineMapEntry final = lines[^1];
+        int end = final.Start + final.Length;
+        return end < document.Text.Length
+            && document.Text[end] is '\r' or '\n'
+                ? text + '\n'
+                : text;
+    }
 
     static bool Equivalent(
         TextDiffCharacterization left,

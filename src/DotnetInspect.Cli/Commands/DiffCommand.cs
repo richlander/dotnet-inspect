@@ -3233,8 +3233,7 @@ public partial class DiffCommand
                 return 1;
             case AnnotatedSourceDiffDocumentQueryResult.Unavailable unavailable:
                 CommandError.Write(
-                    "Annotated Source Diff is unavailable: "
-                        + unavailable.Reason + ".");
+                    DescribeAnnotatedSourceDiffUnavailability(unavailable));
                 return 1;
             case AnnotatedSourceDiffDocumentQueryResult.PreparationFailed failed:
                 CommandError.Write(
@@ -3249,6 +3248,35 @@ public partial class DiffCommand
                 throw new InvalidOperationException(
                     "Unknown Annotated Source diff query result.");
         }
+    }
+
+    internal static string DescribeAnnotatedSourceDiffUnavailability(
+        AnnotatedSourceDiffDocumentQueryResult.Unavailable unavailable)
+    {
+        ArgumentNullException.ThrowIfNull(unavailable);
+        string evidence = string.Join(
+            ", ",
+            unavailable.Correspondences.Select(
+                static outcome => outcome switch
+                {
+                    ResearchTargetCorrespondenceOutcome.Paired => "Paired",
+                    ResearchTargetCorrespondenceOutcome.BeforeOnly =>
+                        "BeforeOnly",
+                    ResearchTargetCorrespondenceOutcome.AfterOnly =>
+                        "AfterOnly",
+                    ResearchTargetCorrespondenceOutcome.Absent => "Absent",
+                    ResearchTargetCorrespondenceOutcome.CounterpartUnavailable =>
+                        "CounterpartUnavailable",
+                    ResearchTargetCorrespondenceOutcome.DomainUnavailable =>
+                        "DomainUnavailable",
+                    _ => throw new InvalidOperationException(
+                        "Unknown Research correspondence outcome."),
+                }));
+        return "Annotated Source Diff is unavailable: "
+            + unavailable.Reason
+            + (evidence.Length == 0
+                ? "."
+                : $"; correspondence outcomes: {evidence}.");
     }
 
     static string DescribePreparationFailure(

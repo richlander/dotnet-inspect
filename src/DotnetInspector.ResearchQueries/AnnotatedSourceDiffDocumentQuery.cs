@@ -157,23 +157,23 @@ public static class AnnotatedSourceDiffDocumentQuery
                 && afterComposition.Domain is { } afterDomain
                 && !ReferenceEquals(beforeDomain, afterDomain))
             {
+                ImmutableArray<ResearchTargetCorrespondenceOutcome>
+                    divergentCorrespondences =
+                [
+                    .. Correspondences(plan, beforeDomain),
+                    .. Correspondences(plan, afterDomain),
+                ];
                 return Unavailable(
                     AnnotatedSourceDiffDocumentQueryUnavailability
                         .DivergentTerminalDomains,
                     beforeComposition,
                     afterComposition,
                     forwarders,
-                    []);
+                    divergentCorrespondences);
             }
 
             ImmutableArray<ResearchTargetCorrespondenceOutcome> correspondences =
-            [
-                .. plan.Resolution.Correspondences.Where(
-                    item => ReferenceEquals(item.Scope, plan.Scope.Id)
-                        && ReferenceEquals(
-                            item.DomainId,
-                            terminalDomain)),
-            ];
+                Correspondences(plan, terminalDomain);
             if (correspondences.IsEmpty)
             {
                 return Unavailable(
@@ -345,6 +345,17 @@ public static class AnnotatedSourceDiffDocumentQuery
             after.Receipt,
             correspondences,
             forwarders);
+
+    static ImmutableArray<ResearchTargetCorrespondenceOutcome>
+        Correspondences(
+            WorkspaceResearchTargetPlan plan,
+            ResearchTargetDomainId domain)
+        =>
+        [
+            .. plan.Resolution.Correspondences.Where(
+                item => ReferenceEquals(item.Scope, plan.Scope.Id)
+                    && ReferenceEquals(item.DomainId, domain)),
+        ];
 
     static SideComposition Compose(
         WorkspaceImplementationComparisonSide side,

@@ -699,6 +699,36 @@ public sealed class WorkspaceImplementationComparisonRunnerTests
             static medium => Assert.NotNull(medium.Comparison));
     }
 
+    [Fact]
+    public async Task PackageCommand_ReportsDivergentDomainOutcomes()
+    {
+        _ = CreateForwardedSide(
+            "1.0.0",
+            methodResult: 1,
+            terminalName: "BeforeTerminal");
+        _ = CreateForwardedSide(
+            "2.0.0",
+            methodResult: 2,
+            terminalName: "AfterTerminal");
+
+        var (exitCode, output, error) =
+            await RunPackageCommandAsync(
+                type: "N.Type",
+                member: "Value",
+                sections: "Annotated Source Diff");
+
+        Assert.NotEqual(0, exitCode);
+        Assert.Empty(output);
+        Assert.Contains(
+            "DivergentTerminalDomains",
+            error,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "BeforeOnly, AfterOnly",
+            error,
+            StringComparison.Ordinal);
+    }
+
     Task<(int ExitCode, string Output, string Error)>
         RunPackageCommandAsync(
         string type,
@@ -775,6 +805,14 @@ public sealed class WorkspaceImplementationComparisonRunnerTests
         AddPackage(
             packages,
             Terminal,
+            "2.0.0");
+        AddPackage(
+            packages,
+            "BeforeTerminal",
+            "1.0.0");
+        AddPackage(
+            packages,
+            "AfterTerminal",
             "2.0.0");
         return packages;
     }
