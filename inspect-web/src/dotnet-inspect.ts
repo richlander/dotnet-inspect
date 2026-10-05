@@ -11590,28 +11590,52 @@ async function resolvePackagePerformanceTypeForNavigation(
       `The ranked member '${target.typeId}' has no implementation body identity.`);
   }
 
-  const projection = await inspectGraphMemberSurface(
+  const inspection = await inspectImplementationTypeMemberPopulation(
     pkg.id,
     pkg.version,
     pkg.activeFramework,
     target.assembly,
     target.typeId,
-    target.memberName,
-    target.stableSelector,
-    target.metadataToken);
+    "csharp",
+    "all");
   if (!navigationSequence.isCurrent(navigationSeq)
     || state.package !== pkg
     || viewSignature() !== expectedView) {
     return null;
   }
 
-  const projected = createAppTypeSurface(projection.type);
-  const selected = projected.api.find(member =>
-    member.stableSelector === target.stableSelector);
-  if ((projected.definitionId ?? projected.id) !== target.typeId || !selected) {
+  const population = inspection.outcome === "Available"
+    ? inspection.population
+    : null;
+  if (!population) {
+    throw new Error(
+      inspection.detail
+        ?? "The implementation Type population is unavailable.");
+  }
+  if (population.declarationSource !== "Implementation") {
+    throw new Error(
+      "The required implementation declaration resolved only to surface evidence.");
+  }
+  if (!population.type) {
+    throw new Error(
+      "The implementation Type could not be projected for navigation.");
+  }
+  const projected = createAppTypeSurface(population.type);
+  const matches = population.groups.flatMap(group =>
+    group.members.filter(member =>
+      member.stableSelector === target.stableSelector
+      && member.bodySelectors.some(selector =>
+        selector.token === target.metadataToken)));
+  if ((projected.definitionId ?? projected.id) !== target.typeId
+    || projected.assembly !== target.assembly
+    || matches.length !== 1) {
     throw new Error(
       "The implementation projection did not retain the ranked member identity.");
   }
+  projected.api.push({
+    ...createAppMemberSurface(matches[0]!),
+    graphOnly: true,
+  });
 
   const concurrent = resolvePackagePerformanceType(pkg, target);
   if (concurrent) return concurrent;
@@ -16974,8 +16998,17 @@ function sharedTypeCandidates(
       || type.assemblyId === deep.declarationLibraryAsset));
 }
 
-function sharedForwarderCandidate(type: string | null | undefined) {
-  return currentPlatformForwarderView()?.forwarders.find(
+function sharedForwarderCandidate(
+  type: string | null | undefined,
+  declarationLibraryAsset: string | null | undefined = null,
+) {
+  const view = currentPlatformForwarderView();
+  if (!view
+    || (declarationLibraryAsset
+      && view.surface.defaultAssemblyId !== declarationLibraryAsset)) {
+    return undefined;
+  }
+  return view.forwarders.find(
     row => row.id === type || row.name === type);
 }
 
@@ -16999,9 +17032,37 @@ async function prepareSharedSymbolRequest(
     return `The shared declaration library '${deep.declarationLibraryAsset}' is not uniquely available in ${pkg.id}.`;
   }
   if (deep.declarationSource === "surface") {
-    const forwarder = sharedForwarderCandidate(deep.type);
-    if (sharedTypeCandidates(pkg, deep, false).length !== 1 && !forwarder) {
+    const forwarder = sharedForwarderCandidate(
+      deep.type,
+      deep.declarationLibraryAsset);
+    const requestedTypes = sharedTypeCandidates(pkg, deep, false);
+    if (requestedTypes.length !== 1 && !forwarder) {
       return `The shared surface type '${deep.type}' is no longer available in '${library.name}'.`;
+    }
+    const requestedType = requestedTypes[0] ?? null;
+    if (requestedType && (deep.memberAnchor || deep.memberSignature)) {
+      const matches = requestedType.api.filter(member =>
+        !member.graphOnly
+        && (deep.memberAnchor
+          ? member.anchorDigest === deep.memberAnchor
+          : member.canonicalSignature === deep.memberSignature));
+      if (matches.length === 0) {
+        return "The shared surface Member is no longer available.";
+      }
+      if (matches.length > 1) {
+        return "The shared surface Member identity is ambiguous.";
+      }
+      const alreadyStaged = requestedType.api.some(member =>
+        member.graphOnly
+        && (deep.memberAnchor
+          ? member.anchorDigest === deep.memberAnchor
+          : member.canonicalSignature === deep.memberSignature));
+      if (!alreadyStaged) {
+        requestedType.api.push({
+          ...matches[0]!,
+          graphOnly: true,
+        });
+      }
     }
     setTypeMemberPopulationIntent(
       memberAccessibility,
@@ -17026,6 +17087,9 @@ async function prepareSharedSymbolRequest(
       ?? `The implementation declaration '${deep.type}' is unavailable.`;
   }
   const population = inspection.population;
+  if (population.declarationSource !== "Implementation") {
+    return "The required implementation declaration resolved only to surface evidence.";
+  }
   let type = sharedTypeCandidates(pkg, deep, true)[0] ?? null;
   if (!type) {
     if (!population.type) {
@@ -17099,7 +17163,9 @@ function canonicalViewRestorationFailure(
     return null;
   }
   const lens = requestedLens ?? "api";
-  const forwarder = sharedForwarderCandidate(deep.type);
+  const forwarder = sharedForwarderCandidate(
+    deep.type,
+    deep.declarationLibraryAsset);
   if (!typeLensesFor(pkg, Boolean(forwarder)).some(([id]) => id === lens)) {
     return `The shared '${lens}' lens is not available for ${pkg.id}.`;
   }
@@ -17201,7 +17267,9 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
   state.platformStack = [];
   state.platformDrillLoading = false;
   state.platformDrillError = "";
-  const forwarder = sharedForwarderCandidate(deep?.type);
+  const forwarder = sharedForwarderCandidate(
+    deep?.type,
+    deep?.declarationLibraryAsset);
   const requestedTypes = deep
     ? sharedTypeCandidates(pkg, deep, true)
     : [];
@@ -21128,9 +21196,19 @@ function loadSelectedTypeMemberPopulation():
         || state.typeMemberPopulationKey !== key) {
         return receipt;
       }
-      state.typeMemberPopulation = inspection;
-      state.typeMemberPopulationError =
+      const expectedDeclarationSource =
+        typeMemberPopulationSource(type) === "implementation"
+          ? "Implementation"
+          : "Surface";
+      const sourceMismatch =
         inspection.outcome === "Available"
+        && inspection.population
+        && inspection.population.declarationSource
+          !== expectedDeclarationSource;
+      state.typeMemberPopulation = sourceMismatch ? null : inspection;
+      state.typeMemberPopulationError = sourceMismatch
+        ? `The required ${expectedDeclarationSource.toLowerCase()} declaration resolved to ${String(inspection.population.declarationSource).toLowerCase()} evidence.`
+        : inspection.outcome === "Available"
           ? ""
           : inspection.detail
             ?? `Type Member population returned ${inspection.outcome}.`;

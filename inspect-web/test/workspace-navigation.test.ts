@@ -439,6 +439,30 @@ test("legacy workspace transport treats an omitted source view as authored", () 
   assert.equal(parsed.workspaceNotice, "");
   assert.equal(parsed.memberSourceView, null);
 });
+
+test("format-one symbol state restores without format-six declaration fields", () => {
+  const baseline = workspaceState();
+  const legacyState = workspaceState({
+    view: {
+      ...baseline.view,
+      memberAccessibility: null,
+      declarationSource: null,
+      declarationLibraryAsset: null,
+    },
+  });
+
+  const parsed = parseWorkspaceLocation(
+    locationSnapshot("https://inspect.example/?w=legacy"),
+    () => decoded(legacyState));
+
+  assert.equal(parsed.workspaceNotice, "");
+  assert.equal(parsed.type, "Example.Widget");
+  assert.equal(parsed.memberAnchor, "0123456789");
+  assert.equal(parsed.memberAccessibilityFilter, "public");
+  assert.equal(parsed.declarationSource, null);
+  assert.equal(parsed.declarationLibraryAsset, null);
+});
+
 test("workspace-subject URLs preserve retained coordinates and restore Workspace", () => {
   const state = workspaceState({
     subject: "workspace",

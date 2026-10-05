@@ -843,10 +843,18 @@ function decodeWorkspaceShareResult(
       error: `The shared declaration source '${declarationSource}' is not supported by this browser.`,
     };
   }
-  if ((state.view.type !== null)
-    !== (memberAccessibilityFilter !== null
-      && declarationSource !== null
-      && declarationLibraryAsset !== null)) {
+  const hasExactSymbolState =
+    memberAccessibilityFilter !== null
+    || declarationSource !== null
+    || declarationLibraryAsset !== null;
+  const hasCompleteExactSymbolState =
+    memberAccessibilityFilter !== null
+    && declarationSource !== null
+    && declarationLibraryAsset !== null;
+  if ((!state.view.type && hasExactSymbolState)
+    || (state.view.type !== null
+      && hasExactSymbolState
+      && !hasCompleteExactSymbolState)) {
     return {
       error: "The shared exact symbol request has incomplete view or declaration-source state.",
     };

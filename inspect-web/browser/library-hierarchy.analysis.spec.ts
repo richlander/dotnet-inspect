@@ -376,6 +376,32 @@ test("production Analysis rows open the exact ranked member", async ({ page }) =
     "Runs the widget.");
 });
 
+test("shared public surface Member reopens inside an all-access view", async ({
+  page,
+}) => {
+  await installFacades(page);
+  await openAnalysis(page);
+  await page.locator(".library-analysis-surface .perf-row").first().click();
+  await expect.poll(() => {
+    const packet = new URL(page.url()).searchParams.get("w");
+    if (!packet) return null;
+    return workspaceShareState(packet).view;
+  }).toMatchObject({
+    type: "Example.Widget",
+    memberAnchor: "widget-run",
+    memberAccessibility: "all",
+    declarationSource: "surface",
+    declarationLibraryAsset: "asset:core",
+  });
+
+  await page.reload();
+
+  await expect(subjectTab(page, "member"))
+    .toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("#member-surface-title")).toHaveText("Run");
+  await expect(page.locator("[data-member-access-filter]")).toHaveValue("all");
+});
+
 test("ranked Analysis members replace sticky private intent with all access", async ({
   page,
 }) => {
@@ -568,6 +594,29 @@ test("shared implementation requirement fails visibly without surface fallback",
     "The required implementation declaration is unavailable.",
   );
   await rejectedContext.close();
+
+  const surfaceContext = await browser.newContext();
+  const surfacePage = await surfaceContext.newPage();
+  await installFacades(
+    surfacePage,
+    surface,
+    [],
+    "ready",
+    "ready",
+    undefined,
+    "ready",
+    "ready",
+    undefined,
+    { implementationTypeMemberDeclarationSource: "Surface" },
+  );
+  await surfacePage.goto(sharedUrl);
+
+  await expect(surfacePage.getByText("Workspace restore failed"))
+    .toBeVisible();
+  await expect(surfacePage.locator("#app")).toContainText(
+    "The required implementation declaration resolved only to surface evidence.",
+  );
+  await surfaceContext.close();
 });
 
 test("shared implementation request rejects a mismatched declaration Library", async ({
@@ -626,8 +675,8 @@ test("ranked Analysis projects an implementation-only Type before following its 
     .click();
 
   await expect(page.locator("html")).toHaveAttribute(
-    "data-graph-member-surface-request",
-    /"Example.ImplementationOnly","Hidden","Hidden",100663399\]$/,
+    "data-implementation-type-member-population-request",
+    /"Example.ImplementationOnly","csharp","all"\]$/,
   );
   await expect(subjectTab(page, "member"))
     .toHaveAttribute("aria-selected", "true");
@@ -684,7 +733,7 @@ test("newer ranked Analysis navigation supersedes an older pending projection", 
     "ready",
     "implementation-race",
     undefined,
-    { deferGraphMemberSurface: true },
+    { deferImplementationTypeMemberPopulation: true },
   );
   await openAnalysis(page);
 
@@ -695,20 +744,20 @@ test("newer ranked Analysis navigation supersedes an older pending projection", 
     .filter({ hasText: "SecondOnly.Hidden" })
     .click();
   await expect(page.locator("html")).toHaveAttribute(
-    "data-graph-member-surface-request",
-    /"Example.SecondOnly","Hidden","Hidden",100663399\]$/,
+    "data-implementation-type-member-population-request",
+    /"Example.SecondOnly","csharp","all"\]$/,
   );
 
   await releaseFacade(
     page,
-    "finish-graph-member-surface:Example.FirstOnly",
+    "finish-implementation-type-member-population:Example.FirstOnly",
   );
   await expect(subjectTab(page, "library"))
     .toHaveAttribute("aria-selected", "true");
 
   await releaseFacade(
     page,
-    "finish-graph-member-surface:Example.SecondOnly",
+    "finish-implementation-type-member-population:Example.SecondOnly",
   );
   await expect(subjectTab(page, "member"))
     .toHaveAttribute("aria-selected", "true");

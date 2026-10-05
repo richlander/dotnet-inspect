@@ -263,6 +263,7 @@ interface PlatformFixture {
   forwarderInternalType?: boolean;
   forwarderFailure?: boolean;
   forwarderPending?: boolean;
+  forwarderAdditionalLibrary?: string;
   warmup?: "pending" | "fail-once";
   discoveryFailure?: boolean;
   catalogFailure?: boolean;
@@ -292,7 +293,9 @@ interface DiagnosticsFixture {
   libraryApiIncomplete?: boolean;
   deferGraphMemberSurface?: boolean;
   deferTypeMemberPopulation?: boolean;
+  deferImplementationTypeMemberPopulation?: boolean;
   rejectImplementationTypeMemberPopulation?: boolean;
+  implementationTypeMemberDeclarationSource?: "Implementation" | "Surface";
   qualifiedStructuralSalience?: boolean;
   slowStructuralSalience?: boolean;
 }
@@ -732,6 +735,29 @@ async function installFacades(
         if (!surface) {
           surface = JSON.parse(await loadRuntimePackAssembly(
             tfm, version, file, pack, catalogRow?.file ?? file));
+          if (platformOptions.forwarderAdditionalLibrary) {
+            const additionalRow = platformTarget.rows.find(row =>
+              row.assembly === platformOptions.forwarderAdditionalLibrary);
+            if (additionalRow) {
+              surface = {
+                ...surface,
+                assemblies: [
+                  ...surface.assemblies,
+                  {
+                    id: additionalRow.assembly,
+                    name: additionalRow.assembly,
+                    version: "11.0.0.0",
+                    culture: null,
+                    publicKeyToken: null,
+                    asset: additionalRow.file,
+                    publicTypes: additionalRow.publicTypes,
+                    publicMembers: additionalRow.publicTypes,
+                    platformPack: additionalRow.pack,
+                  },
+                ],
+              };
+            }
+          }
           forwarderSurfaces.set(key, surface);
         }
         const assembly = surface.assemblies.find(row => row.id === surface.defaultAssemblyId);
@@ -1580,6 +1606,7 @@ async function installFacades(
       }
       let typeMemberPopulationReleased =
         ${JSON.stringify(diagnostics.deferTypeMemberPopulation !== true)};
+      const deferredImplementationTypePopulations = new Set();
       async function waitForTypeMemberPopulationGate() {
         if (typeMemberPopulationReleased) return;
         await new Promise(resolve =>
@@ -1614,6 +1641,16 @@ async function installFacades(
             id, version, framework, assembly, typeIdentity, spelling,
             accessibility,
           ]);
+        if (${JSON.stringify(
+          diagnostics.deferImplementationTypeMemberPopulation === true)}
+          && !deferredImplementationTypePopulations.has(typeIdentity)) {
+          deferredImplementationTypePopulations.add(typeIdentity);
+          await new Promise(resolve =>
+            document.addEventListener(
+              "finish-implementation-type-member-population:" + typeIdentity,
+              resolve,
+              { once: true }));
+        }
         await waitForTypeMemberPopulationGate();
         if (${JSON.stringify(
           diagnostics.rejectImplementationTypeMemberPopulation === true)}) {
@@ -1631,7 +1668,9 @@ async function installFacades(
           typeIdentity,
           spelling,
           accessibility,
-          "Implementation",
+          ${JSON.stringify(
+            diagnostics.implementationTypeMemberDeclarationSource
+              ?? "Implementation")},
           true);
       }
       export async function queryGraphMemberSurface(
