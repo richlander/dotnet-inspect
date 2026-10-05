@@ -50,10 +50,21 @@ internal static class CSharpSpellability
         => type.Kind == TypeRefKind.Pointer
             && CanSpellExplicitParameterType(type, host, ArgumentRefKind.Value);
 
+    /// <summary>
+    /// Named reference storage: a proven reference definition whose complete
+    /// type passes the explicit-type spelling rules, where a compiler-generated
+    /// metadata type name (display class, lambda holder, state machine,
+    /// anonymous type, or other <c>&lt;</c>-prefixed generated name, at any
+    /// depth) is not a storage defect (value-typed-emission.md, "Metadata-name
+    /// spellability is not a storage gate"): the residual path and the typed
+    /// local render the same <c>TypeText</c>, and the fidelity diagnostic
+    /// reports the name either way. Value storage keeps the full gate — a
+    /// struct <c>this</c> spill typed as a value would become a copy (#9395).
+    /// </summary>
     public static bool CanSpellNamedReferenceStorageType(TypeRef type, IrFunction host)
         => type.Kind is TypeRefKind.Definition or TypeRefKind.GenericInstance
             && host.TypeShapes.GetValueOrDefault(CoercionRendering.NamedDefinition(type)) == TypeShape.Reference
-            && CanSpellExplicitParameterType(type, host, ArgumentRefKind.Value);
+            && CanSpellExplicitType(type, host, ArgumentRefKind.Value, isDynamic: false, toleratesGeneratedTypeNames: true);
 
     public static bool CanSpellNamedValueStorageType(TypeRef type, IrFunction host)
         => type.Kind is TypeRefKind.Definition or TypeRefKind.GenericInstance
@@ -86,11 +97,19 @@ internal static class CSharpSpellability
         IrFunction host,
         ArgumentRefKind refKind,
         bool isDynamic = false)
+        => CanSpellExplicitType(type, host, refKind, isDynamic, toleratesGeneratedTypeNames: false);
+
+    static bool CanSpellExplicitType(
+        TypeRef type,
+        IrFunction host,
+        ArgumentRefKind refKind,
+        bool isDynamic,
+        bool toleratesGeneratedTypeNames)
         => !type.ContainsUnsupported
             && (!isDynamic || IsDynamicParameterType(type, host))
             && type.ExplicitParameterModifiersAreExact(refKind)
-            && HasExplicitParameterTypeShape(type, ExplicitTypeContext.Parameter, host)
-            && TypeIssue(type) is null
+            && HasExplicitParameterTypeShape(type, ExplicitTypeContext.Parameter, host, toleratesGeneratedTypeNames)
+            && TypeIssue(type, toleratesGeneratedTypeNames) is null
             && !AnyDeclarationContextualNamePrintedBare(type)
             && !AnyConstituentLeadingSegmentShadowed(type, host, [type])
             && !AnyPrintedAliasInTypeShadowed(type, isDynamic, host, [type])
@@ -661,7 +680,14 @@ internal static class CSharpSpellability
             _ => null,
         };
 
-    static NameIssue? TypeIssue(TypeRef type)
+    /// <summary>
+    /// The first unspellable-name defect in <paramref name="type"/>; with
+    /// <paramref name="toleratesGeneratedTypeNames"/>, a type-name segment
+    /// classified as compiler-generated (<see cref="IsGeneratedTypeNameDiscriminator"/>)
+    /// is skipped, so only other defects (arity mismatches, unspellable
+    /// non-generated names, generated generic-parameter names) are reported.
+    /// </summary>
+    static NameIssue? TypeIssue(TypeRef type, bool toleratesGeneratedTypeNames = false)
     {
         switch (type.Kind)
         {
@@ -685,8 +711,11 @@ internal static class CSharpSpellability
                     string simpleSegment = StripArity(segment);
                     if (!CSharpNaming.IsEscapableIdentifier(simpleSegment))
                     {
+                        string discriminator = TypeNameDiscriminator(simpleSegment);
+                        if (toleratesGeneratedTypeNames && IsGeneratedTypeNameDiscriminator(discriminator))
+                            continue;
                         return Issue(
-                            TypeNameDiscriminator(simpleSegment),
+                            discriminator,
                             $"type name '{simpleSegment}' has no C# spelling");
                     }
                 }
@@ -699,10 +728,10 @@ internal static class CSharpSpellability
                         "generic-arity-mismatch",
                         $"generic type '{type.ElementType}' has an argument-count mismatch");
                 }
-                if (type.ElementType is { } definition && TypeIssue(definition) is { } definitionIssue)
+                if (type.ElementType is { } definition && TypeIssue(definition, toleratesGeneratedTypeNames) is { } definitionIssue)
                     return definitionIssue;
                 foreach (var argument in type.TypeArguments)
-                    if (TypeIssue(argument) is { } argumentIssue)
+                    if (TypeIssue(argument, toleratesGeneratedTypeNames) is { } argumentIssue)
                         return argumentIssue;
                 return null;
 
@@ -711,7 +740,7 @@ internal static class CSharpSpellability
             case TypeRefKind.ByRef:
             case TypeRefKind.Pointer:
             case TypeRefKind.Pinned:
-                return type.ElementType is { } element ? TypeIssue(element) : null;
+                return type.ElementType is { } element ? TypeIssue(element, toleratesGeneratedTypeNames) : null;
 
             case TypeRefKind.GenericParameter:
             case TypeRefKind.MethodGenericParameter:
@@ -739,7 +768,8 @@ internal static class CSharpSpellability
     static bool HasExplicitParameterTypeShape(
         TypeRef type,
         ExplicitTypeContext context,
-        IrFunction host)
+        IrFunction host,
+        bool toleratesGeneratedTypeNames = false)
     {
         if (context is ExplicitTypeContext.ArrayElement
                 or ExplicitTypeContext.GenericArgument
@@ -767,20 +797,22 @@ internal static class CSharpSpellability
                     && TryGetTotalGenericArity(definitionName, out int genericArity)
                     && genericArity > 0
                     && type.TypeArguments.Length == genericArity
-                    && TypeIssue(definition) is null
+                    && TypeIssue(definition, toleratesGeneratedTypeNames) is null
                     && !CollidesWithInScopeName(type, host)
                     && type.TypeArguments.All(
                         argument => HasExplicitParameterTypeShape(
                             argument,
                             ExplicitTypeContext.GenericArgument,
-                            host));
+                            host,
+                            toleratesGeneratedTypeNames));
 
             case TypeRefKind.SzArray:
                 return type.ElementType is { } arrayElement
                     && HasExplicitParameterTypeShape(
                         arrayElement,
                         ExplicitTypeContext.ArrayElement,
-                        host);
+                        host,
+                        toleratesGeneratedTypeNames);
 
             case TypeRefKind.Array:
                 return type.ArrayShapeIsExact
@@ -789,7 +821,8 @@ internal static class CSharpSpellability
                     && HasExplicitParameterTypeShape(
                         mdArrayElement,
                         ExplicitTypeContext.ArrayElement,
-                        host);
+                        host,
+                        toleratesGeneratedTypeNames);
 
             case TypeRefKind.ByRef:
                 return AllowsByRef(context)
@@ -797,7 +830,8 @@ internal static class CSharpSpellability
                     && HasExplicitParameterTypeShape(
                         byRefElement,
                         ExplicitTypeContext.Element,
-                        host);
+                        host,
+                        toleratesGeneratedTypeNames);
 
             case TypeRefKind.Pointer:
                 return context != ExplicitTypeContext.GenericArgument
@@ -805,7 +839,8 @@ internal static class CSharpSpellability
                     && HasExplicitParameterTypeShape(
                         pointerElement,
                         ExplicitTypeContext.PointerElement,
-                        host);
+                        host,
+                        toleratesGeneratedTypeNames);
 
             case TypeRefKind.Pinned:
             case TypeRefKind.Unsupported:
@@ -1008,6 +1043,12 @@ internal static class CSharpSpellability
 
     static bool IsGeneratedNameShape(string name)
         => name.StartsWith("<", StringComparison.Ordinal);
+
+    static bool IsGeneratedTypeNameDiscriminator(string discriminator)
+        => discriminator == DecompilerFidelityDiscriminators.DisplayClassTypeName
+            || discriminator == DecompilerFidelityDiscriminators.LambdaHolderTypeName
+            || discriminator == DecompilerFidelityDiscriminators.StateMachineTypeName
+            || discriminator == DecompilerFidelityDiscriminators.GeneratedTypeName;
 
     static NameIssue Issue(string discriminator, string reason)
         => new(discriminator, reason);
