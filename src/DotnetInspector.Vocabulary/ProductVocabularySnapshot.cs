@@ -8,35 +8,36 @@ using QuerySpace.Vocabulary;
 
 namespace DotnetInspector.Vocabulary;
 
+/// <summary>
+/// Composes the product vocabulary snapshot from the declarations its owners
+/// publish. The owners declare values, labels, order, and maps; this composition
+/// adds only the product catalog identity and the section index that records
+/// which typed inputs accept each vocabulary.
+/// </summary>
 internal static class ProductVocabularySnapshot
 {
     internal const string CatalogId = "dotnet-inspect.product";
     internal const string SectionsId = "vocabulary.sections";
-    internal const string AccessibilityId = "api.accessibility";
-    internal const string StyleTiersId = "csharp.style-tiers";
-    internal const string StyleChoicesId = "csharp.style-choices";
-    internal const string BodyKindsId = "csharp.body-kinds";
+    internal const string AccessibilityId = ApiAccessibilityVocabulary.AccessibilityId;
+    internal const string StyleTiersId = StyleOptionVocabularies.StyleTiersId;
+    internal const string StyleChoicesId = StyleOptionVocabularies.StyleChoicesId;
+    internal const string BodyKindsId = BodyShapeVocabulary.BodyKindsId;
 
     internal static VocabularySnapshot Create()
     {
         var catalog = new VocabularyCatalogIdentity(CatalogId);
-        var accessibility = new VocabularyIdentity(catalog, AccessibilityId);
-        var styleTiers = new VocabularyIdentity(catalog, StyleTiersId);
-        var styleChoices = new VocabularyIdentity(catalog, StyleChoicesId);
-        var bodyKinds = new VocabularyIdentity(catalog, BodyKindsId);
-        var sections = new VocabularyIdentity(catalog, SectionsId);
 
         VocabularyDefinition accessibilityVocabulary =
-            CreateAccessibility(accessibility);
+            ApiAccessibilityVocabulary.Declare(catalog);
         VocabularyDefinition styleTiersVocabulary =
-            CreateStyleTiers(styleTiers);
+            StyleOptionVocabularies.DeclareStyleTiers(catalog);
         VocabularyDefinition styleChoicesVocabulary =
-            CreateStyleChoices(styleChoices, styleTiers);
+            StyleOptionVocabularies.DeclareStyleChoices(catalog);
         VocabularyDefinition bodyKindsVocabulary =
-            CreateBodyKinds(bodyKinds);
+            BodyShapeVocabulary.Declare(catalog);
 
         VocabularyDefinition sectionIndex = CreateSectionIndex(
-            sections,
+            new VocabularyIdentity(catalog, SectionsId),
             [
                 (
                     accessibilityVocabulary,
@@ -70,14 +71,14 @@ internal static class ProductVocabularySnapshot
             VocabularyDefinition Vocabulary,
             ImmutableArray<string> AcceptedBy)> vocabularies)
     {
-        VocabularyMapDefinition acceptedBy = ScalarMap(
+        VocabularyMapDefinition acceptedBy = VocabularyMapDefinition.Scalar(
             identity,
             "accepted_by",
             "Accepted By",
             "Typed query inputs that consume these values.",
             VocabularyScalarKind.Text,
             VocabularyMapCardinality.OneOrMore);
-        VocabularyMapDefinition values = ScalarMap(
+        VocabularyMapDefinition values = VocabularyMapDefinition.Scalar(
             identity,
             "values",
             "Values",
@@ -94,211 +95,14 @@ internal static class ProductVocabularySnapshot
                 item.Vocabulary.DisplayLabel,
                 item.Vocabulary.Summary,
                 [
-                    Entry(
-                        acceptedBy,
-                        item.AcceptedBy.Select(Text)),
-                    Entry(
+                    new(
+                        acceptedBy.Identity,
+                        item.AcceptedBy.Select(VocabularyMapValue.Text)),
+                    new(
                         values,
-                        Integer(item.Vocabulary.Terms.Length)),
+                        VocabularyMapValue.Integer(item.Vocabulary.Terms.Length)),
                 ])));
     }
-
-    private static VocabularyDefinition CreateAccessibility(
-        VocabularyIdentity identity)
-    {
-        VocabularyMapDefinition order = ScalarMap(
-            identity,
-            "order",
-            "Order",
-            "Product-owned presentation order.",
-            VocabularyScalarKind.Integer);
-        VocabularyMapDefinition defaultMap = ScalarMap(
-            identity,
-            "default",
-            "Default",
-            "Whether this value participates without an explicit selection.",
-            VocabularyScalarKind.Boolean);
-
-        return new(
-            identity,
-            VocabularyCatalog.AccessibilitySection,
-            "Accessibility facets accepted by API type and member inventory queries.",
-            [order, defaultMap],
-            ApiAccessibility.Values.Select(bucket => new VocabularyTerm(
-                new(identity, bucket.Id),
-                bucket.Label,
-                summary: null,
-                [
-                    Entry(order, Integer(bucket.Order)),
-                    Entry(defaultMap, Boolean(bucket.IsDefault)),
-                ])));
-    }
-
-    private static VocabularyDefinition CreateStyleTiers(
-        VocabularyIdentity identity)
-    {
-        VocabularyMapDefinition order = ScalarMap(
-            identity,
-            "order",
-            "Order",
-            "Product-owned presentation order.",
-            VocabularyScalarKind.Integer);
-        VocabularyMapDefinition byteDivergent = ScalarMap(
-            identity,
-            "byte_divergent",
-            "Byte Divergent",
-            "Whether every choice in the tier may change emitted IL bytes.",
-            VocabularyScalarKind.Boolean);
-
-        return new(
-            identity,
-            VocabularyCatalog.StyleTiersSection,
-            "Fidelity and presentation tiers used to group C# style choices.",
-            [order, byteDivergent],
-            StyleOptionCatalog.Tiers.Select(tier => new VocabularyTerm(
-                new(identity, tier.Id.ToString()),
-                tier.Title,
-                tier.Summary,
-                [
-                    Entry(order, Integer(tier.Order)),
-                    Entry(byteDivergent, Boolean(tier.ByteDivergent)),
-                ])));
-    }
-
-    private static VocabularyDefinition CreateStyleChoices(
-        VocabularyIdentity identity,
-        VocabularyIdentity styleTiers)
-    {
-        VocabularyMapDefinition option = ScalarMap(
-            identity,
-            "option",
-            "Option",
-            "Owning style option identity.",
-            VocabularyScalarKind.Text);
-        VocabularyMapDefinition value = ScalarMap(
-            identity,
-            "value",
-            "Value",
-            "Selected value token on the owning option axis.",
-            VocabularyScalarKind.Text);
-        var tier = new VocabularyMapDefinition(
-            new(identity, "tier"),
-            "Tier",
-            "Owning fidelity/presentation tier.",
-            new VocabularyMapTarget.Terms(
-                new VocabularyTermSetReference.Local(styleTiers)),
-            VocabularyMapCardinality.ExactlyOne,
-            VocabularyMapCoverage.Complete);
-        VocabularyMapDefinition byteDivergent = ScalarMap(
-            identity,
-            "byte_divergent",
-            "Byte Divergent",
-            "Whether this choice may change emitted IL bytes.",
-            VocabularyScalarKind.Boolean);
-        VocabularyMapDefinition oracleEndorsed = ScalarMap(
-            identity,
-            "oracle_endorsed",
-            "Oracle Endorsed",
-            "Whether the declared runtime style oracle endorses this choice.",
-            VocabularyScalarKind.Boolean);
-        VocabularyMapDefinition corpusEndorsed = ScalarMap(
-            identity,
-            "corpus_endorsed",
-            "Corpus Endorsed",
-            "Whether the runtime source corpus endorses this choice.",
-            VocabularyScalarKind.Boolean);
-        VocabularyMapDefinition conflictGroup = ScalarMap(
-            identity,
-            "conflict_group",
-            "Conflict Group",
-            "Product-owned mutually-exclusive selection group.",
-            VocabularyScalarKind.Text,
-            VocabularyMapCardinality.OptionalOne);
-
-        return new(
-            identity,
-            VocabularyCatalog.StyleChoicesSection,
-            "Selectable product-owned C# rendering choices.",
-            [
-                option,
-                value,
-                tier,
-                byteDivergent,
-                oracleEndorsed,
-                corpusEndorsed,
-                conflictGroup,
-            ],
-            StyleOptionCatalog.Choices.Select(choice => new VocabularyTerm(
-                new(identity, choice.Id),
-                choice.Title,
-                choice.Summary,
-                [
-                    Entry(option, Text(choice.OptionId)),
-                    Entry(value, Text(choice.ValueToken)),
-                    Entry(
-                        tier,
-                        new VocabularyMapValue.Term(
-                            new(styleTiers, choice.Tier.ToString()))),
-                    Entry(byteDivergent, Boolean(choice.ByteDivergent)),
-                    Entry(oracleEndorsed, Boolean(choice.OracleEndorsed)),
-                    Entry(corpusEndorsed, Boolean(choice.CorpusEndorsed)),
-                    Entry(
-                        conflictGroup,
-                        choice.ConflictGroup is null
-                            ? []
-                            : [Text(choice.ConflictGroup)]),
-                ])));
-    }
-
-    private static VocabularyDefinition CreateBodyKinds(
-        VocabularyIdentity identity) =>
-        new(
-            identity,
-            VocabularyCatalog.BodyKindsSection,
-            "Exact rendered C# syntax kinds accepted by body queries.",
-            maps: [],
-            BodyShapeSearch.SupportedKinds.Select(kind => new VocabularyTerm(
-                new(identity, kind),
-                AnnotatedSourceNodeKinds.GetDisplayLabel(kind),
-                summary: null)));
-
-    private static VocabularyMapDefinition ScalarMap(
-        VocabularyIdentity source,
-        string identity,
-        string label,
-        string summary,
-        VocabularyScalarKind kind,
-        VocabularyMapCardinality cardinality =
-            VocabularyMapCardinality.ExactlyOne) =>
-        new(
-            new(source, identity),
-            label,
-            summary,
-            new VocabularyMapTarget.Scalar(kind),
-            cardinality,
-            VocabularyMapCoverage.Complete);
-
-    private static VocabularyMapEntry Entry(
-        VocabularyMapDefinition map,
-        params VocabularyMapValue[] values) =>
-        new(map.Identity, values);
-
-    private static VocabularyMapEntry Entry(
-        VocabularyMapDefinition map,
-        IEnumerable<VocabularyMapValue> values) =>
-        new(map.Identity, values);
-
-    private static VocabularyMapValue Text(string value) =>
-        new VocabularyMapValue.Scalar(
-            VocabularyScalarValue.FromText(value));
-
-    private static VocabularyMapValue Integer(long value) =>
-        new VocabularyMapValue.Scalar(
-            VocabularyScalarValue.FromInteger(value));
-
-    private static VocabularyMapValue Boolean(bool value) =>
-        new VocabularyMapValue.Scalar(
-            VocabularyScalarValue.FromBoolean(value));
 }
 
 internal static class ProductVocabularyCompatibility
