@@ -2,6 +2,7 @@ using System.Text.Json;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
+using DotnetInspector.Ecosystems;
 using NuGetFetch;
 using Catalog = DotnetInspect.Web.Interop.Catalog;
 using Source = DotnetInspect.Web.Interop.Source;
@@ -150,6 +151,123 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
         Assert.Single(definition.Workspace.Registrations);
         Assert.Null(definition.Navigation.Focus);
         Assert.Null(definition.Scenario.Context);
+    }
+
+    [Fact]
+    public async Task EcosystemPackageAdmission_PreservesSubjectAndAddsExactScopePackages()
+    {
+        CompleteRestorationExecutionOptions options =
+            await EcosystemAdmissionOptionsAsync();
+        await using var owner =
+            new BrowserRetainedWorkspaceActivationOwner(() => options);
+        WorkspacePlan plan = EcosystemPackCatalog.CreateWorkspacePlan(
+            [EcosystemPackIds.Aspire]);
+        WorkspaceRegistration.Ecosystem registration =
+            Assert.Single(
+                plan.Registrations.OfType<WorkspaceRegistration.Ecosystem>(),
+                candidate =>
+                    candidate.Declaration.Id.Value
+                        == EcosystemPackIds.Aspire.Value);
+        var request = new BrowserRetainedWorkspaceActivationRequest(
+            "aspire",
+            "Aspire",
+            "/ecosystems/ecosystem.aspire",
+            new CompleteRestorationRequestBasis
+                .RegistrationOnlyEcosystemInput(
+                    plan,
+                    registration.Declaration.Id,
+                    new ViewFacetId("ecosystem.overview")));
+        BrowserRetainedWorkspacePosting initial =
+            Assert.IsType<BrowserRetainedWorkspaceActivationResult.Activated>(
+                await owner.ActivateAsync(
+                    request,
+                    TestContext.Current.CancellationToken)).Posting;
+        SettleNavigation(initial.NavigationState, initial.Navigation);
+
+        var invalid = Assert.IsType<
+            BrowserEcosystemPackageAdmissionResult.Failed>(
+                await owner.AdmitEcosystemPackageAsync(
+                    "aspire",
+                    initial.RealizationId,
+                    "Aspire.Hosting",
+                    "9.0.0",
+                    new(
+                        WorkspaceEcosystemRegistrationId.Create(
+                            EcosystemPackIds.Runtime.Value),
+                        PackageQueryEcosystemMembershipBasis.ExactPackage,
+                        "Aspire.Hosting"),
+                    TestContext.Current.CancellationToken));
+        Assert.Contains(
+            "instead of",
+            invalid.Message,
+            StringComparison.Ordinal);
+        Assert.Empty(initial.Packages);
+
+        var exact = Assert.IsType<
+            BrowserEcosystemPackageAdmissionResult.Admitted>(
+                await owner.AdmitEcosystemPackageAsync(
+                    "aspire",
+                    initial.RealizationId,
+                    "Aspire.Hosting",
+                    "9.0.0",
+                    new(
+                        registration.Declaration.Id,
+                        PackageQueryEcosystemMembershipBasis.ExactPackage,
+                        "Aspire.Hosting"),
+                    TestContext.Current.CancellationToken));
+        Assert.Equal(
+            StructuralSubjectKind.Ecosystem,
+            exact.Posting.Navigation.Snapshot.ActiveSubject.Kind);
+        Assert.Equal(
+            registration.Declaration.Id.Value,
+            exact.Posting.Navigation.Snapshot.ActiveSubject.Label);
+        SettleNavigation(
+            exact.Posting.NavigationState,
+            exact.Navigation.Consumer);
+
+        var prefix = Assert.IsType<
+            BrowserEcosystemPackageAdmissionResult.Admitted>(
+                await owner.AdmitEcosystemPackageAsync(
+                    "aspire",
+                    initial.RealizationId,
+                    "Aspire.Example",
+                    "9.0.0",
+                    new(
+                        registration.Declaration.Id,
+                        PackageQueryEcosystemMembershipBasis.PackagePrefix,
+                        "Aspire."),
+                    TestContext.Current.CancellationToken));
+        SettleNavigation(
+            prefix.Posting.NavigationState,
+            prefix.Navigation.Consumer);
+
+        Assert.Equal(
+            ["Aspire.Example", "Aspire.Hosting"],
+            [.. prefix.Posting.Packages
+                .Select(package => package.Inventory.Package.PackageId)
+                .Order(StringComparer.Ordinal)]);
+        using WorkspaceRealizationOperationLease operation =
+            await EnterAsync(owner, "aspire");
+        Assert.Equal(
+            ["Aspire.Example", "Aspire.Hosting"],
+            [.. operation.Scope.Packages
+                .Select(package =>
+                    package.Occurrence.Package.PackageId)
+                .Order(StringComparer.Ordinal)]);
+
+        var duplicate = Assert.IsType<
+            BrowserEcosystemPackageAdmissionResult.NoEffect>(
+                await owner.AdmitEcosystemPackageAsync(
+                    "aspire",
+                    initial.RealizationId,
+                    "Aspire.Hosting",
+                    "9.0.0",
+                    new(
+                        registration.Declaration.Id,
+                        PackageQueryEcosystemMembershipBasis.ExactPackage,
+                        "Aspire.Hosting"),
+                    TestContext.Current.CancellationToken));
+        Assert.Same(prefix.Posting, duplicate.Posting);
     }
 
     [Fact]
@@ -870,6 +988,55 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
         {
             await Catalog.BrowserRetainedWorkspaceActivationService.ResetForTestsAsync();
         }
+    }
+
+    static void SettleNavigation(
+        BrowserNavigationStateSlot state,
+        NavigationConsumerResult result)
+    {
+        NavigationEffectAuthority authority =
+            Assert.IsType<NavigationEffectAuthority>(result.Authority);
+        Assert.Equal(
+            NavigationAuthorityResult.Accepted,
+            state.RecordConsumerPosting(authority));
+        Assert.Equal(
+            NavigationAuthorityResult.Accepted,
+            state.Acknowledge(authority));
+    }
+
+    static async Task<CompleteRestorationExecutionOptions>
+        EcosystemAdmissionOptionsAsync()
+    {
+        CompleteRestorationExecutionOptions options = await OptionsAsync();
+        const string sourceUrl = "https://api.nuget.org/v3/index.json";
+        string framework =
+            TraversalTargetFrameworkPolicy.ProductDefault.TargetFramework;
+        (string PackageId, string AssemblyPath)[] packages =
+        [
+            (
+                "Aspire.Hosting",
+                typeof(BrowserRetainedWorkspaceActivationTests)
+                    .Assembly.Location),
+            (
+                "Aspire.Example",
+                typeof(BrowserPackageWorkspace).Assembly.Location),
+        ];
+        foreach ((string packageId, string assemblyPath) in packages)
+        {
+            byte[] assembly = await File.ReadAllBytesAsync(
+                assemblyPath,
+                TestContext.Current.CancellationToken);
+            string assemblyName = Path.GetFileName(assemblyPath);
+            await BrowserPackageWorkspace.RegisterGalleryPackageAsync(
+                new BrowserPackage(
+                    packageId,
+                    "9.0.0",
+                    Archive(
+                        ($"lib/{framework}/{assemblyName}.dll", assembly)),
+                    fromCache: false,
+                    producerKey: NuGetCache.GetSourceKey(sourceUrl)));
+        }
+        return options;
     }
 
     static void AssertPackagePresentation(

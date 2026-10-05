@@ -22,7 +22,8 @@ streaming Browser engine source,
 explicitly bounded package-content acquisition, cancellation, honest partial
 and bounded completion states, package-grain decoded library-literal
 qualification, typed Workspace handoff, and the active Ecosystem Overview's
-curated 24/48/96 package-discovery consumer. The controller,
+curated 24/48/96 package-discovery consumer with explicit current-Workspace
+Package admission. The controller,
 adapter, route, renderer, and engine projection are enforced by the
 package-query frontend and Browser engine test suites. Visualization,
 persistence, sharing, outcome caching, and additional assembly-pattern
@@ -437,8 +438,33 @@ When the producer completes below the active capacity, the Overview reports the
 exact observed package count and removes larger capacities because they cannot
 reveal another row. Leaving the active Ecosystem cancels that operation;
 returning starts a new operation for the newly selected Browser entry rather
-than reviving hidden work. Selecting a row uses the existing exact
-package-ID/version Workspace handoff.
+than reviving hidden work. Each row exposes separate **Open** and
+**Add to workspace** actions. Open uses the existing exact package-ID/version
+subject handoff and does not mutate the active Workspace.
+
+Every Ecosystem result row carries typed admission evidence naming the exact
+Ecosystem identity, membership basis (`ExactPackage` or `PackagePrefix`), and
+authored registration that admitted it. **Add to workspace** is valid only
+while that exact Ecosystem registration and retained realization remain
+active. The managed host validates the row's Package ID against the exact
+core-Package declaration or prefix declaration before acquisition; display
+text and generic evidence strings are not admission authority.
+
+Successful admission acquires the explicitly selected Package ID and version
+for the Workspace traversal target, submits one publication-base-guarded
+targetless Scope Add, and preserves the active Ecosystem subject. The admitted
+Package then uses the ordinary Package evaluation and detached inventory path,
+is appended to the same retained realization, and participates in existing
+Workspace-scope consumers such as call-graph traversal without an
+Ecosystem-specific graph path. The Browser installs the returned posting and
+settles the exact Navigation effect authority before enabling later mutations.
+
+An already projected exact Package ID/version is a no-effect result and does
+not reacquire content. A stale realization or changed Ecosystem registration
+is superseded. Acquisition, Scope, Navigation, and Package-projection failures
+remain explicit; they do not become an empty or successful posting. Row-local
+presentation distinguishes Adding, Added, and visible failure while discovery
+progress and 24/48/96 capacity remain unchanged.
 
 The generic `/query` surface retains its 20-initial/10-near-end-scroll policy.
 The Ecosystem consumer changes only work authorization and presentation: it
