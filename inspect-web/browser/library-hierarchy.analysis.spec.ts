@@ -86,7 +86,7 @@ async function expectCompactAnalysisHeader(page: Page) {
   const resultsBox = await frame.getByRole("tabpanel").boundingBox();
   const width = page.viewportSize()?.width ?? 0;
   const narrow = width <= 600;
-  expect(headerBox!.height).toBe(width <= 360 ? 108 : narrow ? 72 : 40);
+  expect(headerBox!.height).toBe(narrow ? 72 : 40);
   if (narrow) {
     expect(tabsBox!.y - headerBox!.y).toBeGreaterThanOrEqual(20);
   } else {
@@ -108,6 +108,7 @@ for (const width of [1440, 390, 320]) {
     const frame = page.locator(".analysis-inspector");
     const integrations = frame.getByRole("tab", { name: "Integrations", exact: true });
     const performance = frame.getByRole("tab", { name: "Performance", exact: true });
+    const unsafe = frame.getByRole("tab", { name: "Unsafe", exact: true });
     await expect(page.locator('[data-library-lens="opportunities"]')).toHaveCount(0);
     await expect(frame.getByRole("tab", { name: "Opportunities", exact: true }))
       .toHaveCount(0);
@@ -117,6 +118,8 @@ for (const width of [1440, 390, 320]) {
     await expectCompactAnalysisHeader(page);
     await integrations.focus();
     await integrations.press("ArrowLeft");
+    await expect(unsafe).toBeFocused();
+    await unsafe.press("ArrowLeft");
     await expect(performance).toBeFocused();
     await expect(integrations).toHaveAttribute("aria-selected", "true");
     await performance.press("Enter");
@@ -129,6 +132,8 @@ for (const width of [1440, 390, 320]) {
     await page.screenshot({ path: testInfo.outputPath("analysis-tabs-performance.png") });
 
     await performance.press("ArrowRight");
+    await expect(unsafe).toBeFocused();
+    await unsafe.press("ArrowRight");
     await expect(integrations).toBeFocused();
     await integrations.press("Space");
     await expect(integrations).toHaveAttribute("aria-selected", "true");
