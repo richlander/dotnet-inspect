@@ -110,7 +110,16 @@ const durableRowLayout: PackageQueryDurableRowPresentationLayout = {
   schemaIdentity: "sha256:schema",
   descriptorIdentity: "sha256:descriptor",
   vocabularySnapshotIdentity: "sha256:vocabulary",
-  fields: [],
+  fields: [{
+    ordinal: 0,
+    schemaLocation: "/prefixItems/0",
+    term: {
+      identity: { value: "package-id" },
+      displayLabel: "Package",
+      summary: "Exact package identity.",
+      mapEntries: [],
+    },
+  }],
 };
 const cases = [
   { operation: engineStartupOperations.buildIdentity, expected: identity, field: "version",

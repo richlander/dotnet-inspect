@@ -85,6 +85,8 @@ test("Package Query resolves generated positional bindings through Vocabulary", 
   assert.deepEqual(
     layout.fields.map(field => field.ordinal),
     Array.from({ length: 13 }, (_value, index) => index));
+  assert.doesNotThrow(() => JSON.stringify(layout));
+  assert.equal("schema" in layout.fields[0]!, false);
   assert.equal(
     packageQueryDurableRowField(layout, "total-downloads")
       .term.displayLabel,

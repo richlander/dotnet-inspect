@@ -15,7 +15,6 @@ export type PackageQueryDurableRowTerm = Binding["term"];
 export interface PackageQueryDurableRowPresentationField {
   readonly ordinal: number;
   readonly schemaLocation: string;
-  readonly schema: unknown;
   readonly term: BrowserVocabularyTerm;
 }
 
@@ -129,7 +128,6 @@ export async function resolvePackageQueryDurableRowLayout(
     return {
       ordinal,
       schemaLocation: binding.schemaLocation,
-      schema: prefixItems[ordinal],
       term: termMatches[0]!,
     };
   }).sort((left, right) => left.ordinal - right.ordinal);

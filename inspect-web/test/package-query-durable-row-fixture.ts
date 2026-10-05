@@ -31,7 +31,6 @@ export const packageQueryDurableRowLayoutFixture:
     fields: TERMS.map(([term, displayLabel], ordinal) => ({
       ordinal,
       schemaLocation: `/prefixItems/${ordinal}`,
-      schema: {},
       term: {
         identity: { value: term },
         displayLabel,

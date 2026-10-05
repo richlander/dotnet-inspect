@@ -504,7 +504,12 @@ Inspect Web is the first Browser/Wasm host. It obtains the generated
 `package-query.durable-row` output descriptor, resolves every binding against
 the named Vocabulary Mappings snapshot, and uses those terms for column
 identity and display metadata. It does not define a handwritten row interface,
-schema, or display-column table.
+schema, or display-column table. The Worker verifies the full in-memory
+descriptor and schema before lowering only ordinal, schema location, and
+resolved Vocabulary terms into the JSON-serializable startup projection. The
+verified schema itself does not cross that JSON boundary: exact unsafe integer
+values are represented as `bigint` in TypeScript and cannot be serialized by
+`JSON.stringify`.
 
 The schema is descriptive. Neither host is required to run a general JSON
 Schema validator on every trusted product-produced value. Runtime probes and

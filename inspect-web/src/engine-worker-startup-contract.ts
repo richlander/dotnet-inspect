@@ -325,7 +325,6 @@ function packageQueryDurableRowLayout(
         ...field,
         ordinal,
         schemaLocation: text(field.schemaLocation),
-        schema: record(field.schema),
         term: vocabularyTerm(field.term),
       };
     }),
