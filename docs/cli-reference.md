@@ -1635,6 +1635,48 @@ field, column, Count, discovery, print, and shape projection. Markdown, table,
 TSV, and JSONL lower only the already selected family rows and show at most
 five labeled Type examples per family.
 
+Exact `-S "Name Family Roles"` composes those suffix families with the
+Library's exhaustive signature-only structural evidence. Each family row
+reports foundation, hub, orchestrator, unclassified-role, sea-level, and
+mountain-peak Type counts together with its population, source provenance, and
+structural-evidence disposition:
+
+```bash
+dotnet-inspect library FluentValidation.dll \
+  --package FluentValidation@12.1.1 --tfm net8.0 \
+  -S "Name Family Roles" -n 10 --head
+dotnet-inspect library FluentValidation.dll \
+  --package FluentValidation@12.1.1 --tfm net8.0 \
+  -S "Name Family Roles" --name-family-population ordinary --count
+```
+
+Exact `-S "Name Family Role Types"` exposes the supporting Type rows from the
+same managed operation. Each row retains its artifact-scoped Type identity,
+one- and two-word families, source disposition, signature degrees, issued
+structural role and pole, and structural-evidence disposition:
+
+```bash
+dotnet-inspect library FluentValidation.dll \
+  --package FluentValidation@12.1.1 --tfm net8.0 \
+  -S "Name Family Role Types" -n 20 --head
+```
+
+Both sections are explicit-only. `-n`, `--head`, `--tail`, and `--rows`
+select the chosen family or Type rows before Markout lowering; `--count`
+counts that row set. `--name-family-population` applies to either exact
+section. The operation reuses the complete name-family population and one
+exhaustive signature-only structural acquisition; it does not request method
+bodies or Library Metrics implementation profiles.
+
+Exact `--json` from either section emits the same complete family-role
+composition document rather than only the selected presentation rows. It
+contains every exact Type row, every population and family support address,
+both owners' methodology and work receipts, structural qualifications, and
+composition accounting. `--envelope` emits identical Content plus a currently
+`nonProjectable` Share. Complete transports require one exact Library and
+target framework and reject row, field, column, Count, discovery, print,
+shape, and competing presentation projections.
+
 See [API and implementation population scope](design/api-population-scope.md)
 for the distinction between API visibility, implementation completeness, and
 package-library selection.
