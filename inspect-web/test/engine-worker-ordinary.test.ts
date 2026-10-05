@@ -27,6 +27,7 @@ import {
   WorkerRuntimeHost,
 } from "../src/worker-runtime-core.ts";
 import { WorkerOperationCatalog } from "../src/worker-runtime-realm.ts";
+import { dateTimeOffsetString } from "./date-time-offset-string-fixture.ts";
 import { inertStringFixture } from "./inert-string-fixture.ts";
 import type {
   BrowserEcosystemPackageWorkspaceAdmissionResult,
@@ -125,8 +126,8 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("queryPlatformMemberDocumentation"),
     queryPackageDependencies: () =>
       unexpected("queryPackageDependencies"),
-    queryPackagePruning: () =>
-      unexpected("queryPackagePruning"),
+    queryPackageVulnerabilities: () =>
+      unexpected("queryPackageVulnerabilities"),
     queryPackageVersions: () => unexpected("queryPackageVersions"),
     queryWorkspacePackageOccurrences: () =>
       unexpected("queryWorkspacePackageOccurrences"),
@@ -1165,7 +1166,7 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
   let cleared = 0;
   let classificationArguments: readonly unknown[] = [];
   let matchArguments: readonly unknown[] = [];
-  let pruningArguments: readonly unknown[] = [];
+  let vulnerabilityArguments: readonly unknown[] = [];
   let cloneArguments: readonly unknown[] = [];
   let libraryDiffArguments: readonly unknown[] = [];
   let libraryDiffCancelArguments: readonly unknown[] = [];
@@ -1227,29 +1228,16 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
         matchArguments = args;
         return { outcome: "Unique", candidateKey: "candidate" };
       },
-      queryPackagePruning: (...args) => {
-        pruningArguments = args;
+      queryPackageVulnerabilities: (...args) => {
+        vulnerabilityArguments = args;
         return Promise.resolve({
-          schemaVersion: 1,
-          package: "Example",
+          package: "example",
           version: "1.0.0",
-          targetFramework: "net10.0",
-          selectedFramework: "net10.0",
-          family: "Microsoft.NETCore.App",
-          platformVersion: "10.0.0",
-          completion: "Complete",
-          rows: [],
-          declarationFailures: [],
-          summary: {
-            declarations: 0,
-            evaluated: 0,
-            delegated: 0,
-            retained: 0,
-            notEvaluated: 0,
-            failed: 0,
-            declarationFailures: 0,
-          },
-          message: null,
+          availability: "Complete",
+          advisories: [],
+          failures: [],
+          advisoryProducer: "https://api.github.com/advisories",
+          observedAt: dateTimeOffsetString("2026-10-05T00:00:00Z"),
         });
       },
     },
@@ -1320,17 +1308,9 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
       targetFramework: "net11.0",
     }],
   );
-  const pruning = state.client.package.queryPackagePruning(
+  const vulnerabilities = state.client.package.queryPackageVulnerabilities(
     "Example",
     "1.0.0",
-    "net10.0",
-    {
-      schemaVersion: 1,
-      family: "netcoreapp",
-      targetFramework: "net10.0",
-      platformVersion: "10.0.0",
-      supplies: [],
-    },
   );
   const cloneRequest = {
     schemaVersion: 1,
@@ -1424,18 +1404,10 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
       targetFramework: "net11.0",
     }],
   ]);
-  assert.equal((await pruning).completion, "Complete");
-  assert.deepEqual(pruningArguments, [
+  assert.equal((await vulnerabilities).availability, "Complete");
+  assert.deepEqual(vulnerabilityArguments, [
     "Example",
     "1.0.0",
-    "net10.0",
-    {
-      schemaVersion: 1,
-      family: "netcoreapp",
-      targetFramework: "net10.0",
-      platformVersion: "10.0.0",
-      supplies: [],
-    },
   ]);
   assert.deepEqual(await clone, {
     schemaVersion: 1,
@@ -1583,6 +1555,7 @@ test("ordinary package transport preserves settled and NotSettled baselines", as
       },
       diagnostics: [],
     },
+    documents: surface.documents,
     surface,
   } satisfies BrowserPackageLoadResult;
   const notSettled = {
@@ -1617,6 +1590,7 @@ test("ordinary package transport preserves settled and NotSettled baselines", as
     },
     packageInfo: null,
     packageChildren: null,
+    documents: [],
     surface: null,
   } satisfies BrowserPackageLoadResult;
   const state = fixture({
@@ -2343,7 +2317,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryPlatformMemberDocumentation",
       "queryPackage",
       "queryPackageDependencies",
-      "queryPackagePruning",
+      "queryPackageVulnerabilities",
       "queryPackageRoot",
       "queryPackageSummary",
       "queryPackageVersions",

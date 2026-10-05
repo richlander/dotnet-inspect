@@ -331,6 +331,7 @@ function packageLoadResult(
       },
       diagnostics: [],
     },
+    documents: surface.documents,
     surface,
   };
 }

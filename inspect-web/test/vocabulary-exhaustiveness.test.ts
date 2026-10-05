@@ -46,8 +46,8 @@ const widenings = [
   {
     vocabulary: "PackageLens",
     file: "data.ts",
-    find: '  ["dependencies", "Dependencies"]\n] as const;',
-    replace: '  ["dependencies", "Dependencies"],\n  ["probe-package-lens", "Probe"]\n] as const;',
+    find: '  ["vulnerabilities", "Vulnerabilities"],\n] as const;',
+    replace: '  ["vulnerabilities", "Vulnerabilities"],\n  ["probe-package-lens", "Probe"],\n] as const;',
     token: "probe-package-lens",
     dispatches: ["packageLensBody"],
   },

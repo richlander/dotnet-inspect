@@ -853,32 +853,6 @@ public sealed partial class BrowserEngineBoundaryTests
                 OperationTimeout = TimeSpan.FromMinutes(1),
             });
 
-    sealed class IncompletePinnedCandidateSource :
-        IPackageDependencyCandidateSource
-    {
-        public ValueTask<PackageAcquisitionCandidateResult>
-            ResolvePinnedCandidateAsync(
-            PackageSourceCoordinate coordinate,
-            CancellationToken cancellationToken = default,
-            NuGetOperationContext? operationContext = null)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            return ValueTask.FromResult(
-                new PackageAcquisitionCandidateResult(
-                    PackageAcquisitionCandidateResultState.Incomplete,
-                    null,
-                    []));
-        }
-
-        public Task<PackageVersionDiscoveryResult>
-            DiscoverDependencyVersionsAsync(
-            string packageId,
-            CancellationToken cancellationToken = default,
-            NuGetOperationContext? operationContext = null) =>
-            throw new InvalidOperationException(
-                "Pinned candidate resolution must not discover versions.");
-    }
-
     sealed class PlatformVersionHandler(
         string packageId,
         string version,
@@ -1487,6 +1461,26 @@ public sealed partial class BrowserEngineBoundaryTests
             return Task.FromResult(
                 new HttpResponseMessage(
                     System.Net.HttpStatusCode.NotFound));
+        }
+    }
+
+    sealed class JsonResponseHandler(string content) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var response =
+                new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+                {
+                    Content = new StringContent(
+                        content,
+                        Encoding.UTF8,
+                        "application/json"),
+                    RequestMessage = request,
+                };
+            return Task.FromResult(response);
         }
     }
 
