@@ -292,13 +292,27 @@ internal static class NavigationScopeEvaluation
                 : null;
         if (selected is null)
         {
-            if (initialization?.Context is not null
-                || initialization?.Subject is not null
-                    && initialization.Subject != request.Basis.Workspace)
+            if (initialization?.Context is not null)
             {
                 throw new ArgumentException(
                     "Workspace fallback cannot retain a Package descendant.",
                     nameof(initialization));
+            }
+            if (initialization?.Subject is { } subject
+                && subject != request.Basis.Workspace)
+            {
+                if (subject.Kind != StructuralSubjectKind.Ecosystem
+                    || subject != request.Basis.ActiveSubject)
+                {
+                    throw new ArgumentException(
+                        "A targetless Scope operation can retain only the "
+                            + "exact active Ecosystem subject.",
+                        nameof(initialization));
+                }
+                return initialization with
+                {
+                    Lens = initialization.Lens ?? retainedLens,
+                };
             }
             NavigationLensIdentity? workspaceLens = initialization?.Lens;
             if (initialization is null

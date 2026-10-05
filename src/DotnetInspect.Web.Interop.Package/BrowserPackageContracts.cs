@@ -458,6 +458,11 @@ public sealed record BrowserPackageQueryEvidence(
     long? Number,
     BrowserPackageQueryTerm? Term = null);
 
+public sealed record BrowserPackageQueryEcosystemAdmission(
+    string EcosystemId,
+    string Basis,
+    string Registration);
+
 public sealed record BrowserPackageQueryDeclaredDependency(
     string Id,
     string VersionRange);
@@ -508,6 +513,12 @@ public sealed record BrowserPackageQueryRow(
     public string[] Owners { get; init; } = [];
 
     public BrowserPackageQueryManifest? Manifest { get; init; }
+
+    public BrowserPackageQueryEcosystemAdmission? EcosystemAdmission
+    {
+        get;
+        init;
+    }
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter<BrowserPackageQueryFailureKind>))]
@@ -773,14 +784,9 @@ public enum BrowserCapabilityResourceKind
     ConsumerBinding,
 }
 
-[JsonConverter(typeof(JsonStringEnumConverter<BrowserResourceExplanationResourceKind>))]
-public enum BrowserResourceExplanationResourceKind
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserCapabilityCatalogSearchResourceKind>))]
+public enum BrowserCapabilityCatalogSearchResourceKind
 {
-    Catalog,
-    NavigationCollection,
-    StructuralCategory,
-    StructuralSection,
-    StructuralItem,
     InspectionDocument,
     HostNeutralRoute,
     QuerySpace,
@@ -819,7 +825,7 @@ public sealed record BrowserCapabilityCatalogSearchResult(
     BrowserCapabilityCatalogSearchMatchSource MatchSource,
     bool IsSegment,
     BrowserCapabilityResourceIdentity ResourceIdentity,
-    BrowserResourceExplanationResourceKind ResourceKind,
+    BrowserCapabilityCatalogSearchResourceKind ResourceKind,
     string ResourceName,
     string[] CanonicalKeys,
     string ResourcePath,

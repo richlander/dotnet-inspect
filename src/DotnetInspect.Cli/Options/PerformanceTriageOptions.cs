@@ -98,29 +98,8 @@ public sealed record PerformanceTriageOptions
         return segment;
     }
 
-    public static readonly string[] KnownShapes =
-    [
-        "allocation-hotspot",
-        "allocation-fanout",
-        "async-state-machine",
-        "box-value-type",
-        "cache-lookup-factory-delegate",
-        "capturing-delegate",
-        "enumerator-allocation",
-        "generic-parameter-object-box",
-        "instance-method-group-delegate",
-        "linq-scan-in-loop",
-        "materialize-in-loop",
-        "scan-method-in-loop-call",
-        "scan-method-in-recursive-traversal",
-        "small-array",
-        "span-to-array-copy",
-        "stackalloc-candidate",
-        "string-build-in-loop",
-        "string-materialization",
-        "sync-call-in-async",
-        "temporary-byte-array-copy",
-    ];
+    public static IReadOnlyList<string> KnownShapes =>
+        ILInspector.Analysis.OptimizationOpportunityRowSpace.KnownShapes;
 
     public bool LoopOnly { get; init; }
     public string? MinConfidence { get; init; }

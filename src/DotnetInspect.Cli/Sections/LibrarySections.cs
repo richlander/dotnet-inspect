@@ -1,5 +1,6 @@
 using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Models;
+using DotnetInspect.Cli.Options;
 using DotnetInspector.Ecosystems;
 using DotnetInspector.Queries;
 using DotnetInspector.ResearchSections;
@@ -748,7 +749,7 @@ public static class LibrarySections
             {
                 case OptimizationOpportunitiesResult.Available available:
                     methodTokens = LibraryMetadataService.PerformanceSourceMethods(
-                            LibraryMetadataService.SelectPerformanceTriageOpportunities(
+                            PerformanceTriageRowQuery.Select(
                                 available,
                                 context.Model.PerformanceTriageOptions))
                         .Select(static method => method.MetadataToken)
@@ -1285,9 +1286,9 @@ public static class LibrarySections
     // Registration supplies the pre-scan method-body applicability gate; these predicates report
     // actual post-scan row effectiveness.
     private static bool HasPerformanceKind(LibraryInspection model, string section)
-        => model.PerformanceTriageOpportunities.Any(
-            opportunity =>
-                PerformanceKinds.SectionForShape(opportunity.Shape) == section);
+        => PerformanceKinds.Any(
+            section,
+            model.PerformanceTriageOpportunities);
 
     public sealed class PerformanceBoxing : ISectionDescriptor<LibraryInspection>
     {

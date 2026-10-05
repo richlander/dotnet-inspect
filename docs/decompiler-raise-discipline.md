@@ -133,7 +133,7 @@ review prompt so evidence construction receives its own ownership audit.
 - **Trace every card verdict.** "Regressions; review before merging" from the
   corpus sensor is frequently a sampling-cap artifact (PR-recipe caps vs the
   daily baseline's); state the artifact in the PR rather than papering over
-  the verdict — and never re-key card numbers by hand (AGENTS.md).
+  the verdict — and never re-key card numbers by hand.
 - **A false positive in a sensor is still a lead.** The #2157 render-A/B
   surrogate false positive, byte-audited instead of waved off, exposed one
   real product bug (raw lone-surrogate literals) and one real sensor bug

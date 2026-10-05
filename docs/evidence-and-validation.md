@@ -1,9 +1,9 @@
 # Evidence and validation
 
-[`AGENTS.md`](../AGENTS.md#evidence-and-validation) states the binding rule:
-use the smallest sufficient set of claims and gates, inherit existing contracts
-unless the change calls them into question, and add only evidence needed by the
-resulting claims. This document owns the detailed practices.
+This document owns the repository's evidence contract: use the smallest
+sufficient set of claims and gates, inherit existing contracts unless the
+change calls them into question, and add only evidence needed by the resulting
+claims.
 
 For section-system changes, [Section test evidence](design/section-test-evidence.md)
 defines the three-layer split between synthetic mechanism tests, product
@@ -40,7 +40,7 @@ insufficient. If there is no such trigger, omit the extra claim and gate.
 - Do not serialize independent evidence. After the focused pre-push gate is
   green, start broader local suites, current-head CI, and eligible fixed-head
   review concurrently. Eligibility includes the per-round CI and conflict
-  rules under [Adversarial review](../AGENTS.md#adversarial-review). A long
+  rules under [Candidate lifecycle](round-orchestration.md#candidate-lifecycle). A long
   suite is not a reason to delay an independent gate.
 - Run broad local suites once per authored head, not once per elapsed base
   update. After a conflict-free base-only merge, inspect the integrated range
@@ -261,6 +261,14 @@ than an inspected artifact:
   Publish it for the target RID and run
   `membergroup-scorecard <check|time|exact-check|exact-time>
   <System.Text.Json.dll>`.
+- `tools/AddressTerminalScorecard` checks and times admitted Address
+  populations through LINQ, a standard NLinq query, NLinq's source-native
+  cardinality ceiling, and the shipping
+  `LibraryAddressPopulationQuery` planner. It reports prepared terminal-kernel
+  and composed IL-projection phases separately and preserves one output row
+  per admitted record, including unresolved records. Publish it for the target
+  RID and run
+  `address-terminal-scorecard <check|time> <population> <assembly>...`.
 - `tools/MemberBodySizeScorecard` checks the current focused Analysis route
   against LINQ, NLinq, and an explicitly experimental #8577 breadth-limited
   Planner over the same prepared logical-to-physical body population. It
@@ -286,6 +294,8 @@ assets:
 - Report each cell as a ratio to NLinq, measured by the same binary in the
   same run. Give the geometric mean across assets and the range, with
   absolute medians alongside.
+- Calibrate repeated invocations for sub-microsecond cells so timer
+  quantization cannot collapse source-native or planner medians to zero.
 - On the owner-named Roslyn fidelity corpus, check that every column gives the
   same Boolean, count, or row identity for every closing and asset. Report a
   strict window's failure as a failure, never as a success.

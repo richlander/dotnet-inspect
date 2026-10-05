@@ -60,6 +60,7 @@ public class SlotStoreDiamondPassTests
         var coerce = Assert.IsType<Coerce>(conditional.WhenFalse);
         Assert.Equal(UInt32, coerce.Target);
         Assert.Equal(-1, Assert.IsType<Constant>(coerce.Operand).Value);
+        new ResidualSlotBindingPass().Run(function, PassContext.None);
         Assert.Contains("unchecked((uint)(-1))", CSharpPrinter.Print(function).Output);
     }
 
@@ -75,6 +76,7 @@ public class SlotStoreDiamondPassTests
         var conditional = Assert.Single(function.Descendants.OfType<Conditional>());
         var coerce = Assert.IsType<Coerce>(conditional.WhenFalse);
         Assert.Equal(UInt32, coerce.Target);
+        new ResidualSlotBindingPass().Run(function, PassContext.None);
         Assert.Contains("(uint)x", CSharpPrinter.Print(function).Output);
     }
 

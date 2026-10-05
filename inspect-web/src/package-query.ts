@@ -331,6 +331,11 @@ export interface QueryResultRow {
   description?: string | null;
   producer?: string;
   rootRequest?: string;
+  ecosystemAdmission?: {
+    ecosystemId: string;
+    basis: string;
+    registration: string;
+  } | null;
 }
 
 export interface QueryAssemblyAssessment {

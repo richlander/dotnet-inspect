@@ -90,7 +90,9 @@ public static class PdbAcquisitionService
         IPdbStore? pdbStore,
         IPackageSourceAuthorization? sourceAuthorization,
         SymbolAcquisitionLimits? limits = null,
-        PortablePdbAcquisitionEvidenceCollector? evidence = null)
+        PortablePdbAcquisitionEvidenceCollector? evidence = null,
+        bool allowMicrosoftPackageNameHeuristic = true,
+        bool? nuGetOrgPackageProducer = null)
     {
         PortablePdbAcquisitionResult result =
             await AcquireContentCoreAsync(
@@ -107,7 +109,9 @@ public static class PdbAcquisitionService
                 pdbStore,
                 sourceAuthorization,
                 limits,
-                evidence).ConfigureAwait(false);
+                evidence,
+                allowMicrosoftPackageNameHeuristic)
+            .ConfigureAwait(false);
 
         if (result is PortablePdbAcquisitionResult.Acquired acquired)
         {
@@ -169,8 +173,16 @@ public static class PdbAcquisitionService
         IPdbStore? pdbStore,
         IPackageSourceAuthorization? sourceAuthorization,
         SymbolAcquisitionLimits? limits = null,
-        PortablePdbAcquisitionEvidenceCollector? evidence = null)
+        PortablePdbAcquisitionEvidenceCollector? evidence = null,
+        bool allowMicrosoftPackageNameHeuristic = true,
+        bool? nuGetOrgPackageProducer = null)
     {
+        MicrosoftSymbolServerPackagePolicy packagePolicy =
+            allowMicrosoftPackageNameHeuristic
+                ? MicrosoftSymbolServerPackagePolicy
+                    .CompatibilityNamePrefix
+                : MicrosoftSymbolServerPackagePolicy
+                    .TypedPlatformOnly;
         var downloader = pdbStore is null
             ? new SymbolPackageDownloader(httpClient)
             : sourceAuthorization is null
@@ -182,11 +194,13 @@ public static class PdbAcquisitionService
                         httpClient,
                         pdbStore,
                         sourceAuthorization,
-                        limits)
+                        limits,
+                        packagePolicy)
                 : new SymbolPackageDownloader(
                     httpClient,
                     pdbStore,
-                    sourceAuthorization);
+                    sourceAuthorization,
+                    packagePolicy);
         return await downloader.AcquirePdbAsync(
                 context.PdbId!.Guid,
                 context.PdbId.Age,
@@ -201,7 +215,8 @@ public static class PdbAcquisitionService
                 sourceOptions,
                 cancellationToken,
                 context.PdbId.Stamp,
-                evidence)
+                evidence,
+                nuGetOrgPackageProducer)
             .ConfigureAwait(false);
     }
 
@@ -320,7 +335,8 @@ public static class PdbAcquisitionService
         NuGetSourceOptions? sourceOptions = null,
         CancellationToken cancellationToken = default,
         SymbolAcquisitionLimits? limits = null,
-        PortablePdbAcquisitionEvidenceCollector? evidence = null)
+        PortablePdbAcquisitionEvidenceCollector? evidence = null,
+        bool? nuGetOrgPackageProducer = null)
     {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(assembly);
@@ -358,7 +374,10 @@ public static class PdbAcquisitionService
                         pdbStore,
                         sourceAuthorization,
                         limits,
-                        evidence)
+                        evidence,
+                        allowMicrosoftPackageNameHeuristic: false,
+                        nuGetOrgPackageProducer:
+                            nuGetOrgPackageProducer)
                     .ConfigureAwait(false);
     }
 

@@ -407,7 +407,7 @@ public class PackageFileListerTests
 
     /// <summary>
     /// README.md then PACKAGE.md. AGENTS.md is deliberately not in the chain: agent-facing
-    /// package documentation is carried by skills/**/SKILL.md ("Package skill files"), so an
+    /// package documentation is carried by skills/**/SKILL.md ("Skills"), so an
     /// AGENTS.md in the package must not displace the human-readable README.
     /// </summary>
     [Fact]

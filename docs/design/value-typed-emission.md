@@ -237,7 +237,12 @@ either:
 - a coalesce has a proven assignment type accepted by
   `ReferenceAssignmentTargets`; or
 - an ordinary expression has a proven reference assignment type and the
-  storage target is nominal core-library `System.Object`.
+  storage target is nominal core-library `System.Object`; or
+- a coalesce of two proven references with no assignment type of its own is
+  stored to a slot whose every load testifies nominal `System.Object`: the
+  slot-target binding pass issues the one reference-conversion witness C#
+  needs on the left operand (`(object)left ?? right`), after which the
+  coalesce carries the `object` assignment type the first bullet accepts.
 
 This combines the already bounded coalesce assignment decision with the
 ordinary C# reference-to-`object` conversion. It does not infer a class or
@@ -708,6 +713,45 @@ residual identity. The seven removed identities are the package
 `GetEffectiveParametersInNormalForm`, `ShouldMethodDisplayReadOnly`,
 `MakeParameters`, and `VisitLock`.
 
+### Loop-contained entry-reset ranges
+
+A block contained in a structured loop supplies another bounded proof when
+every reference to one reused slot remains in that block and the first
+reference on every block entry is a direct store. If that store does not read
+the same slot, each execution resets the carrier before any load. A later
+store-to-load range therefore cannot feed an earlier load on the next loop
+iteration and may receive a distinct identity under the ordinary block-local
+proof.
+
+The proof admits the block inside structured exception handling because no
+handler or sibling block references the carrier. It declines when a reference
+escapes the block, the first reference is a load or nested store, the entry
+store reads the prior carrier, or the block retains a label or unraised
+transfer. It does not construct a loop CFG, infer exception flow, or treat a
+PDB lexical block as execution evidence.
+
+The motivating dotnet-inspect.any 0.14.0 method is
+`DiffCommand.BuildAnalysisDiff`. Its raised `foreach` body directly stores and
+consumes two `MethodSignals` ranges before directly storing and consuming one
+`List<OptimizationOpportunity>` range in the same reused carriers. The first
+`MethodSignals` stores reset those carriers on every iteration, so the
+opportunity ranges cannot reach the earlier signal loads. The product output
+now declares those types separately instead of asking the printer to create
+`S_6_1` and `S_8_1`.
+
+`PublishedLoopEntryResetRangesResolveBeforePrinting` pins that package witness.
+Synthetic cases gate the positive reset, a self-reading entry store, a retained
+label, read-before-write, and nested structured-EH ownership. On the fixed
+14-assembly corpus the proof performs three range rewrites with zero collection
+failures, reduces residual split slots from 131 to 129 as the printer's
+unifier counted them at that base (after [Residual storage
+binding](#residual-storage-binding) the same effect reads as two fewer
+residual-bound split webs in `--residual-binding-census`), removes exactly
+the `BuildAnalysisDiff` `S_6` and `S_8` identities, and introduces none. The
+third rewrite is a compatible `string`/`object` carrier in
+`ApiOutputFormatter.BuildMemberDrillMap`; it is disclosed separately because it
+was not a residual split.
+
 ### Residual storage binding
 
 The focused claim:
@@ -738,9 +782,10 @@ rules to the pass.
 local function — immediately after `CoercionInsertionPass` and before
 `ScalarSelfUpdatePass`, in every pipeline that includes
 `SlotMaterializationPass` (`Default`, `Lowered`, and the capturing-lambda
-completion split) and in none that excludes it: the `ForReconstruction` pipelines leave
-their slot nodes for the host's tail, which binds the transplanted body. It is
-the last pass that may observe a stack-slot node. The position is chosen so
+completion split) and in none that excludes it: the `ForReconstruction`
+pipelines and the intermediate re-runs of a reconstructed body
+(`ForIntermediateBody`) leave their slot nodes for the host's tail, which binds
+the transplanted body. It is the last pass that may observe a stack-slot node. The position is chosen so
 the pass sees exactly the tree the printer sees today in that pipeline: the
 slot-consuming raises present in it (`SwapIdiomPass`,
 `PointerCompoundAssignmentPass`, `UnsafeAwaitBoundaryPass`) have run;
@@ -809,7 +854,7 @@ residual policy `CSharpPrinter.CollectStackSlotNames` and
    No producer at this head sets `Fixed.LocalIsStackSlot`, so the printer's
    slot-keyed `FixedLocalName` branch is dead; the flag and every reader branch
    (`UnsafeAwaitBoundaryPass`, `ArrayLiteralFromStoresPass`,
-   `LocalDeclarationPlan`, `IrNode.NodeBindsLocalSlot`, both printer sites)
+   `LocalDeclarationPlan`, `IrFunction.NodeBindsLocalSlot`, both printer sites)
    are deleted as unreachable in the same
    slice, with that evidence stated, rather than rebound by this pass.
 3. **Untyped.** Any local that steps 1 and 2 would issue without a type — a
@@ -828,8 +873,41 @@ primitive targets as the binding passes have just bound them; for the Boolean
 sink rule, each load's parent shape and the consuming sink target
 `CoercionSinks.SemanticLoadSinkTargetType` derives (field type, setter
 parameter, `Box` type, `StoreLocal` type, argument store type, indirect store
-type, element target, or the body's return type); and the function's type
-shapes and enum backing. That inventory is closed. The pass does not read materialization
+type, element target, the body's return type, a call or object-creation
+argument's declared parameter type after MethodSpec substitution when that
+type is closed, or the other operand of a comparison when that operand is not
+a constant and its type is width-exact for the comparison); and the function's type
+shapes and enum backing. That inventory is closed. The argument and comparison
+sinks are the same "consuming sink's target type" the one slot-evidence rule
+(`TestifiedSlotTypes`) has always stated for an untyped load; they joined its
+derivation for the #9248 remainder, where a reference `??` join or an
+enum/constant join spilled to a slot and consumed only by such a sink had no
+testimony and failed visibly at residual storage binding. An open generic
+parameter never testifies, and a constant comparison operand never does: it
+carries only its stack width, and `c ? CfgFlags.Top : e` compared against
+`0` keeps the enum naming route (`EnumCastPrinterTests`). A comparison operand
+testifies only when its static type is exactly the operand type the IL
+comparison itself fixes — by stack family, by width, and, for an ordering
+comparison, by signedness (ECMA-335 III.1.5; `clt` versus `clt.un`). Width: an
+I4-family operand is compared at int32 width, so `int` and `uint` testify while
+`byte`, `short`, `char`, `bool`, and enums (whose backing width the derivation
+does not see) decline; `long`, floats, native ints, and proven references are
+width-exact. Signedness: on an ordering comparison an integer sibling testifies
+only when it is unsigned exactly when the comparison is, because the printer
+spells signedness from the operand types; equality ignores signedness. Taking
+a narrow sibling would declare the slot narrower than the comparison and
+truncate its other stores (`b == (c ? (int)e : x)` as
+`byte S = c ? (byte)e : (byte)x`); taking a `uint` sibling on a signed `clt`
+would turn `(int)u < (c ? (int)be : x)` into the unsigned
+`uint S = c ? (uint)be : (uint)x; return S_0 < S;`. Both compile and change
+the result; `ArgumentSinkTestimonyTests` gates both declines. A declined narrow or enum sibling leaves the load underivable, so the
+web fails visibly as before, and widening the rule to enum siblings once the
+derivation carries enum backing widths is a named follow-up on the #9371
+docket. For a raised lambda body
+the return type is the body's own signature, the closure method's; the deleted
+printer read it from the delegate's shape and fell back to `void`, so a
+delegate it could not read (`Predicate<T>`, for example) is a named, expected
+delta from the verbatim port: the input is more exact and no rule changed. The pass does not read materialization
 testimony to choose a type (the testimony reaches it only through the
 `Coerce` wrappers insertion owns), does not infer a join, hierarchy, or
 variance conversion, and does not gain an admission rule when a class fails
@@ -848,13 +926,38 @@ grouped as *late-decidable*; that group's owner is materialization's position,
 not this pass.
 Provenance is a typed side fact keyed by local index, available to hosts and
 to the census; it is not display text, it does not widen the local declaration
-shape, and it never upgrades fidelity or identity. Bound locals keep their
-`S_n` and `S_n_k` names so render A/B stays comparable; readable naming
+shape, and it never upgrades fidelity or identity. A raised `Lambda` or
+`LocalFunctionStatement` carries its body's provenance the way it carries the
+body's materialized slot locals, and a host re-entering the body restores it,
+so nested bindings stay visible to hosts and to the census. Bound locals keep
+their `S_n` and `S_n_k` names so render A/B stays comparable; readable naming
 remains owned by the declaration plan and
 [Readable local names](readable-local-names.md). Because bound locals are
 ordinary appended locals, the declaration plan owns their placement; the
 plan's current statement that residual slots stay outside it is updated by the
 implementation slice.
+
+**A bound local is never zero-initialised.** The policy binds by type only; it
+proves no live range and no reaching store, so a split piece can be read on a
+path no store of that piece reaches. Such a read is a binding gap, not a
+definitely unassigned local, and `= default` would turn it into compiling C#
+that silently drops the term. The printer therefore declares every
+residual-bound local bare, outside its definite-assignment initializer rule,
+and the gap stays visible as CS0165 exactly as it did before the move. Gate:
+`ResidualSlotBindingPassTests` on a synthetic split piece and on
+`Microsoft.CodeAnalysis.Operations.ForEachLoopOperation.get_ChildOperationsCount`
+(Microsoft.CodeAnalysis 5.0.0).
+
+**A decided type retires the untyped-load diagnostic; provenance does not.**
+The printer reported `DEC0008` for a slot load it could not type even when
+its policy unified the web, so the method was labelled `Partial` and stayed
+out of compile-back. The pass issues that same decided type as a typed local,
+so the diagnostic has nothing to report and the method is labelled by its
+remaining diagnostics alone; the fidelity change is the type, not the
+provenance record. The corpus methods that moved `Partial`→`Full` this way
+(`GetArgArray` among them) entered compile-back, where their pre-existing
+structural gaps are visible (#9249) rather than hidden behind a slot-type
+label.
 
 **The printer deletes its slot machinery in the same slice.**
 `TryChooseUnifiedStackSlotType`, `CanAssignTo`, `CanLoadAsType`,
@@ -901,7 +1004,7 @@ visible-failure tests), and a compiler-produced boundary where a surviving
 slot must fail visibly.
 
 **Measurement replaces the printer census.** The harness's
-`--slot-unifier-census` retires with the unifier. A residual-binding census
+`--slot-unifier-census` retires with the unifier. `--residual-binding-census`
 over the fixed 14-assembly, 89,065-method corpus reports bound webs grouped by
 binding kind and veto flags, with one example per group, and
 `--slot-residual-census` continues to report materialization's own
@@ -935,8 +1038,9 @@ compound-assignment operands, merge-node arms, event and `using` values), so
 an implicit IL narrowing such as an `int` carrier stored to a `short` field
 gains its explicit cast, and a sibling operand whose checked-operand or
 element-store target the bound occurrence completed gains the same wrapper;
-multi-dimensional index text for two split pieces of one slot, which the
-printer's slot-keyed `HasRepeatedStackSlot` rule spells today; and untyped
+multi-dimensional index text where one slot occurred more than once,
+top-level or nested or as split pieces, which the printer's slot-keyed
+`HasRepeatedStackSlot` rule spelled as a pseudo-member; and untyped
 webs and managed-reference
 webs moving from invalid or renderer-fallback output to visible failure. The
 pass moves no expression; the only nodes it adds are the discharge's `Coerce`

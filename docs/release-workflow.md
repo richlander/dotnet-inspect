@@ -2,8 +2,9 @@
 
 This document explains how one retained nightly candidate becomes a coordinated
 dotnet-inspect release: seven NuGet packages, one GitHub release, and the
-production site at `https://dotnet-inspect.net`. Repository development,
-worktree, build, and test rules live in [AGENTS.md](../AGENTS.md). The
+production site at `https://dotnet-inspect.net`. Repository development and
+worktree rules live in [Repository workflow](repository-workflow.md); build and
+test rules live in [Local development](dev-environment.md). The
 executable sources of truth are
 [release-candidate.yml](../.github/workflows/release-candidate.yml) and
 [release.yml](../.github/workflows/release.yml). The repo-local

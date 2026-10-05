@@ -4034,13 +4034,15 @@ public partial class CommandExecutionTests
             "Newtonsoft.Json@13.0.4",
             "-S",
             "Package Info",
+            "--markdown",
         ];
 
         var direct = await RunAppAsync(
             "package",
             "Newtonsoft.Json@13.0.4",
             "-S",
-            "Package Info");
+            "Package Info",
+            "--markdown");
         var routed = await RunAppAsync(arguments);
 
         Assert.Equal(direct, routed);
@@ -4093,13 +4095,15 @@ public partial class CommandExecutionTests
             "--package:Newtonsoft.Json@13.0.4",
             "-S",
             "Package Info",
+            "--markdown",
         ];
 
         var direct = await RunAppAsync(
             "package",
             "Newtonsoft.Json@13.0.4",
             "-S",
-            "Package Info");
+            "Package Info",
+            "--markdown");
         var routed = await RunAppAsync(arguments);
 
         Assert.Equal(direct, routed);

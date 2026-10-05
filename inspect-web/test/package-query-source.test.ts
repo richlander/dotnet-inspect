@@ -200,6 +200,7 @@ function semanticSucceeded(): BrowserPackageQueryResult {
           rootRequest: "opaque-root",
           owners: [],
           manifest: null,
+          ecosystemAdmission: null,
         }],
         failures: [],
         completion: {
@@ -941,6 +942,7 @@ test("V3 metadata rows preserve unknown downloads and source-authored evidence",
         totalDownloads,
         description: null,
         producer: "nuget.org",
+        ecosystemAdmission: null,
         rootRequest: "V3 rows must continue opening by ID and version.",
         answers: [],
         evidence: [{
@@ -1165,6 +1167,7 @@ const toolMatchEvent: BrowserPackageQueryEvent = {
     producer: "nuget.org",
     rootRequest: null,
     owners: ["Contoso"],
+    ecosystemAdmission: null,
     manifest: {
       packageId: "contoso.tool",
       version: "2.0.0",
@@ -1435,6 +1438,7 @@ test("Browser data source streams matches and failures before terminal completio
       rootRequest: null,
       owners: ["Microsoft"],
       manifest: null,
+      ecosystemAdmission: null,
     },
   };
   const failureEvent: BrowserPackageQueryEvent = {
@@ -1579,6 +1583,68 @@ test("Browser source dispatches Ecosystem planning with 24 initial credit", asyn
     false,
     24,
   ]);
+});
+
+test("Browser source preserves exact and prefix Ecosystem admission evidence", async () => {
+  for (const [basis, registration, packageId] of [
+    ["ExactPackage", "Aspire.Hosting", "Aspire.Hosting"],
+    ["PackagePrefix", "Aspire.", "Aspire.Example"],
+  ] as const) {
+    const rows: QueryResultRow[] = [];
+    const event: BrowserPackageQueryEvent = {
+      kind: "Match",
+      failure: null,
+      progress: null,
+      completion: null,
+      assessment: null,
+      row: {
+        packageId,
+        version: "9.0.0",
+        tier: "Nuspec",
+        answers: [],
+        evidence: [],
+        totalDownloads: 12,
+        description: null,
+        verified: false,
+        producer: "nuget.org",
+        rootRequest: null,
+        owners: [],
+        manifest: null,
+        ecosystemAdmission: {
+          ecosystemId: "ecosystem.aspire",
+          basis,
+          registration,
+        },
+      },
+    };
+    const engine: BrowserPackageQueryEngine = {
+      ...defaultControls,
+      async run() {
+        throw new Error("Generic Package Query should not run.");
+      },
+      async runEcosystem(...args) {
+        assert.ok(typeof args[6] === "object" && args[6] !== null);
+        Reflect.set(args[6], "event", JSON.stringify(event));
+        return succeeded(completionEvent);
+      },
+    };
+
+    await createBrowserPackageQueryDataSource(engine, {
+      createOperationId: () => `ecosystem-${basis}`,
+      initialMatchCredit: 24,
+    }).run(
+      createEcosystemQueryRequest("ecosystem.aspire"),
+      page => rows.push(...page),
+      () => {},
+      () => {},
+      new AbortController().signal);
+
+    assert.deepEqual(rows[0]?.ecosystemAdmission, {
+      ecosystemId: "ecosystem.aspire",
+      basis,
+      registration,
+    });
+  }
 });
 
 test("old-run controls cannot target the replacement operation", async () => {

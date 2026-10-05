@@ -36,18 +36,21 @@ function render(overrides: Partial<LibraryReferencesOptions> = {}) {
   });
 }
 
-test("References uses a single compact heading, direct list, and complete bottom context", () => {
+test("References uses a compact heading, graph followed by list, and complete bottom context", () => {
   const html = render();
   assert.equal(html.match(/<h1\b/g)?.length, 1);
   assert.match(html, /<h1 id="library-references-title">References<\/h1>/);
   assert.match(html, /2 direct references/);
-  assert.match(html, /library-references-scroll"><ul class="dep-list"/);
+  assert.match(html, /<h2>Reference graph<\/h2>/);
+  assert.match(html, /id="library-reference-graph-diagram"/);
+  assert.match(html, /<h2>Assembly references<\/h2>/);
+  assert.ok(html.indexOf("Reference graph") < html.indexOf("Assembly references"));
   assert.match(html, /System\.Runtime[\s\S]*10\.0\.0\.0.*neutral.*pkt b03f5f7f11d50a3a/);
   assert.match(html, /Example\.Other[\s\S]*1\.2\.3\.4.*fr.*unsigned/);
   assert.ok(html.indexOf("System.Runtime") < html.indexOf("Example.Other"));
   assert.match(html, /<footer[\s\S]*lib\/net10\.0\/Example.Core.dll.*Example.Core, Version=1.0.0.0/);
   assert.match(html, /<footer[\s\S]*net10.0 \/ Example.Package@1.0.0/);
-  assert.doesNotMatch(html, /type-heading|section-title|<h2>/);
+  assert.doesNotMatch(html, /type-heading/);
 });
 
 test("a single direct reference uses a singular count", () => {

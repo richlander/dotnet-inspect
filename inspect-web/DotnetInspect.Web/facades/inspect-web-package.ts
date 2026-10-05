@@ -18,6 +18,8 @@ export type AuthoredDocumentationUnavailableReason = "OperationUnavailable" | "S
 
 export type BrowserCapabilityCatalogSearchMatchSource = "CanonicalKey" | "OwnerIdentity" | "ExampleValue" | "ResourcePath" | "ResourceName" | "Summary" | "RelatedRoute" | "ProductionBinding" | number;
 
+export type BrowserCapabilityCatalogSearchResourceKind = "InspectionDocument" | "HostNeutralRoute" | "QuerySpace" | "QueryFacet" | "ConsumerBinding" | number;
+
 export type BrowserCapabilityCatalogSearchShareKind = "available" | "nonProjectable" | number;
 
 export type BrowserCapabilityResourceKind = "Document" | "Route" | "QuerySpace" | "QueryFacet" | "ConsumerBinding" | number;
@@ -95,8 +97,6 @@ export type BrowserPackageQueryResultKind = "Succeeded" | "Failed" | "Canceled" 
 export type BrowserPackageVersionSettlementOutcomeKind = "Settled" | "NotSettled" | number;
 
 export type BrowserPlatformForwarderStatus = "opened" | "unavailable" | "stale" | "ambiguous" | "refused" | "failed" | "incomplete" | "canceled" | number;
-
-export type BrowserResourceExplanationResourceKind = "Catalog" | "NavigationCollection" | "StructuralCategory" | "StructuralSection" | "StructuralItem" | "InspectionDocument" | "HostNeutralRoute" | "QuerySpace" | "QueryFacet" | "ConsumerBinding" | number;
 
 export type CompiledDocumentationIncompleteReason = "Deadline" | "ContributionLimit" | "CompanionSelectionPartial" | "CompiledXmlByteLimit" | number;
 
@@ -192,7 +192,7 @@ export interface BrowserCapabilityCatalogSearchResult {
   readonly matchSource: BrowserCapabilityCatalogSearchMatchSource;
   readonly isSegment: boolean;
   readonly resourceIdentity: BrowserCapabilityResourceIdentity;
-  readonly resourceKind: BrowserResourceExplanationResourceKind;
+  readonly resourceKind: BrowserCapabilityCatalogSearchResourceKind;
   readonly resourceName: string;
   readonly canonicalKeys: ReadonlyArray<string>;
   readonly resourcePath: string;
@@ -912,6 +912,12 @@ export interface BrowserPackageQueryDocument {
   readonly libraryLiteralAssessments: ReadonlyArray<BrowserPackageAssemblySemanticCandidateOutcome>;
 }
 
+export interface BrowserPackageQueryEcosystemAdmission {
+  readonly ecosystemId: string;
+  readonly basis: string;
+  readonly registration: string;
+}
+
 export interface BrowserPackageQueryEvent {
   readonly kind: BrowserPackageQueryEventKind;
   readonly row: BrowserPackageQueryRow | null;
@@ -1026,6 +1032,7 @@ export interface BrowserPackageQueryRow {
   readonly rootRequest: string | null;
   readonly owners: ReadonlyArray<string>;
   readonly manifest: BrowserPackageQueryManifest | null;
+  readonly ecosystemAdmission: BrowserPackageQueryEcosystemAdmission | null;
 }
 
 export interface BrowserPackageQueryTerm {

@@ -598,7 +598,7 @@ public partial class OutputFormatterTests
     }
 
     [Fact]
-    public void FilterAndOrderTriageOpportunities_AppliesPaydirtPredicatesAfterRanking()
+    public void PerformanceTriageRowQuery_AppliesPaydirtPredicatesAfterRanking()
     {
         var opportunities = new[]
         {
@@ -608,7 +608,7 @@ public partial class OutputFormatterTests
             Opp("NoLoopHighDelegate", inLoop: false, confidence: "high", rootReach: 500, shape: "capturing-delegate"),
         };
 
-        var filtered = LibraryMetadataService.FilterAndOrderTriageOpportunities(
+        var filtered = PerformanceTriageRowQuery.Apply(
                 opportunities,
                 new PerformanceTriageOptions
                 {
@@ -624,7 +624,7 @@ public partial class OutputFormatterTests
     }
 
     [Fact]
-    public void FilterAndOrderTriageOpportunities_AppliesWherePredicates()
+    public void PerformanceTriageRowQuery_AppliesWherePredicates()
     {
         var opportunities = new[]
         {
@@ -645,7 +645,7 @@ public partial class OutputFormatterTests
             },
         };
 
-        var filtered = LibraryMetadataService.FilterAndOrderTriageOpportunities(
+        var filtered = PerformanceTriageRowQuery.Apply(
                 opportunities,
                 new PerformanceTriageOptions
                 {
@@ -663,7 +663,7 @@ public partial class OutputFormatterTests
     }
 
     [Fact]
-    public void FilterAndOrderTriageOpportunities_DoesNotMatchMissingNumericFields()
+    public void PerformanceTriageRowQuery_DoesNotMatchMissingNumericFields()
     {
         var opportunities = new[]
         {
@@ -674,7 +674,7 @@ public partial class OutputFormatterTests
             Opp("Local", inLoop: false, confidence: "high", rootReach: 1, shape: "allocation-hotspot"),
         };
 
-        var filtered = LibraryMetadataService.FilterAndOrderTriageOpportunities(
+        var filtered = PerformanceTriageRowQuery.Apply(
                 opportunities,
                 new PerformanceTriageOptions { Where = ["OncePaths!=5"] })
             .Select(opportunity => opportunity.Method.Name)
@@ -684,7 +684,7 @@ public partial class OutputFormatterTests
     }
 
     [Fact]
-    public void FilterAndOrderTriageOpportunities_FiltersByWeight()
+    public void PerformanceTriageRowQuery_FiltersByWeight()
     {
         var opportunities = new[]
         {
@@ -693,7 +693,7 @@ public partial class OutputFormatterTests
             Opp("NoWeight", inLoop: false, confidence: "medium", rootReach: 1000, shape: "linq-scan-in-loop"),
         };
 
-        var filtered = LibraryMetadataService.FilterAndOrderTriageOpportunities(
+        var filtered = PerformanceTriageRowQuery.Apply(
                 opportunities,
                 new PerformanceTriageOptions
                 {
@@ -709,7 +709,7 @@ public partial class OutputFormatterTests
     }
 
     [Fact]
-    public void FilterAndOrderTriageOpportunities_FiltersPrioritySeparatelyFromConfidence()
+    public void PerformanceTriageRowQuery_FiltersPrioritySeparatelyFromConfidence()
     {
         var opportunities = new[]
         {
@@ -719,7 +719,7 @@ public partial class OutputFormatterTests
             Opp("OneShotHighConfidence", inLoop: false, confidence: "high", rootReach: 100, shape: "stackalloc-candidate"),
         };
 
-        var filtered = LibraryMetadataService.FilterAndOrderTriageOpportunities(
+        var filtered = PerformanceTriageRowQuery.Apply(
                 opportunities,
                 new PerformanceTriageOptions { Where = ["Priority>=medium"] })
             .Select(opportunity => opportunity.Method.Name)
@@ -811,7 +811,7 @@ public partial class OutputFormatterTests
     }
 
     [Fact]
-    public void FilterAndOrderTriageOpportunities_AllowsOperatorsInsidePredicateValues()
+    public void PerformanceTriageRowQuery_AllowsOperatorsInsidePredicateValues()
     {
         var opportunities = new[]
         {
@@ -825,7 +825,7 @@ public partial class OutputFormatterTests
             },
         };
 
-        var filtered = LibraryMetadataService.FilterAndOrderTriageOpportunities(
+        var filtered = PerformanceTriageRowQuery.Apply(
                 opportunities,
                 new PerformanceTriageOptions
                 {
@@ -838,7 +838,7 @@ public partial class OutputFormatterTests
     }
 
     [Fact]
-    public void FilterAndOrderTriageOpportunities_AppliesExplicitOrderBeforeTop()
+    public void PerformanceTriageRowQuery_AppliesExplicitOrderBeforeTop()
     {
         var opportunities = new[]
         {
@@ -847,7 +847,7 @@ public partial class OutputFormatterTests
             Opp("MediumReach", inLoop: true, confidence: "medium", rootReach: 50, shape: "small-array"),
         };
 
-        var filtered = LibraryMetadataService.FilterAndOrderTriageOpportunities(
+        var filtered = PerformanceTriageRowQuery.Apply(
                 opportunities,
                 new PerformanceTriageOptions
                 {
@@ -862,7 +862,7 @@ public partial class OutputFormatterTests
     }
 
     [Fact]
-    public void FilterAndOrderTriageOpportunities_OrdersByWeight()
+    public void PerformanceTriageRowQuery_OrdersByWeight()
     {
         var opportunities = new[]
         {
@@ -872,7 +872,7 @@ public partial class OutputFormatterTests
             Opp("NoWeight", inLoop: false, confidence: "medium", rootReach: 1000, shape: "linq-scan-in-loop"),
         };
 
-        var filtered = LibraryMetadataService.FilterAndOrderTriageOpportunities(
+        var filtered = PerformanceTriageRowQuery.Apply(
                 opportunities,
                 new PerformanceTriageOptions
                 {
@@ -885,7 +885,7 @@ public partial class OutputFormatterTests
     }
 
     [Fact]
-    public void FilterAndOrderTriageOpportunities_OrdersIlNumerically()
+    public void PerformanceTriageRowQuery_OrdersIlNumerically()
     {
         var opportunities = new[]
         {
@@ -893,7 +893,7 @@ public partial class OutputFormatterTests
             Opp("OffsetSmall", inLoop: false, confidence: "medium", rootReach: 1, shape: "small-array") with { ILOffset = 0x2000 },
         };
 
-        var filtered = LibraryMetadataService.FilterAndOrderTriageOpportunities(
+        var filtered = PerformanceTriageRowQuery.Apply(
                 opportunities,
                 new PerformanceTriageOptions
                 {
@@ -906,7 +906,7 @@ public partial class OutputFormatterTests
     }
 
     [Fact]
-    public void FilterAndOrderTriageOpportunities_TriageAscendingPreservesStableTies()
+    public void PerformanceTriageRowQuery_TriageAscendingPreservesStableTies()
     {
         var opportunities = new[]
         {
@@ -915,7 +915,7 @@ public partial class OutputFormatterTests
             Opp("High", inLoop: false, confidence: "high", rootReach: 1, shape: "capturing-delegate"),
         };
 
-        var ordered = LibraryMetadataService.FilterAndOrderTriageOpportunities(
+        var ordered = PerformanceTriageRowQuery.Apply(
                 opportunities,
                 new PerformanceTriageOptions
                 {
@@ -928,7 +928,7 @@ public partial class OutputFormatterTests
     }
 
     [Fact]
-    public void FilterAndOrderTriageOpportunities_ExplicitEqualOrderPreservesInputOrder()
+    public void PerformanceTriageRowQuery_ExplicitEqualOrderPreservesInputOrder()
     {
         var opportunities = new[]
         {
@@ -943,7 +943,7 @@ public partial class OutputFormatterTests
             Opp("First", inLoop: false, confidence: "medium", rootReach: 1, shape: "capturing-delegate"),
         };
 
-        var ordered = LibraryMetadataService.FilterAndOrderTriageOpportunities(
+        var ordered = PerformanceTriageRowQuery.Apply(
                 opportunities,
                 new PerformanceTriageOptions
                 {
@@ -970,7 +970,7 @@ public partial class OutputFormatterTests
             RowSelectionStageKind.Top,
             Assert.Single(plan.SelectionPlan.Stages).Kind);
 
-        var selected = LibraryMetadataService.FilterAndOrderTriageOpportunities(
+        var selected = PerformanceTriageRowQuery.Apply(
                 [
                     Opp("Low", inLoop: false, confidence: "low", rootReach: 1, shape: "capturing-delegate"),
                     Opp("High", inLoop: false, confidence: "high", rootReach: 1, shape: "capturing-delegate"),
@@ -984,7 +984,7 @@ public partial class OutputFormatterTests
     }
 
     [Fact]
-    public void FilterAndOrderTriageOpportunities_PreservesAllocationFanoutRanking()
+    public void PerformanceTriageRowQuery_PreservesAllocationFanoutRanking()
     {
         var opportunities = new[]
         {
@@ -1012,12 +1012,12 @@ public partial class OutputFormatterTests
             Shapes = ["allocation-fanout"],
         };
 
-        var ordered = LibraryMetadataService.FilterAndOrderTriageOpportunities(
+        var ordered = PerformanceTriageRowQuery.Apply(
                 opportunities,
                 options)
             .Select(opportunity => opportunity.Method.Name)
             .ToList();
-        var top = LibraryMetadataService.FilterAndOrderTriageOpportunities(
+        var top = PerformanceTriageRowQuery.Apply(
                 opportunities,
                 options with { Top = 1 })
             .Select(opportunity => opportunity.Method.Name)
@@ -1028,7 +1028,7 @@ public partial class OutputFormatterTests
     }
 
     [Fact]
-    public void FilterAndOrderTriageOpportunities_PreservesTokenAndMemberPredicates()
+    public void PerformanceTriageRowQuery_PreservesTokenAndMemberPredicates()
     {
         var target = Opp(
             "Target",
@@ -1059,7 +1059,7 @@ public partial class OutputFormatterTests
         })
         {
             var selected =
-                LibraryMetadataService.FilterAndOrderTriageOpportunities(
+                PerformanceTriageRowQuery.Apply(
                         [target, other],
                         new PerformanceTriageOptions
                         {
@@ -1071,7 +1071,7 @@ public partial class OutputFormatterTests
         }
 
         Assert.Empty(
-            LibraryMetadataService.FilterAndOrderTriageOpportunities(
+            PerformanceTriageRowQuery.Apply(
                 [target, other],
                 new PerformanceTriageOptions
                 {
@@ -1093,7 +1093,7 @@ public partial class OutputFormatterTests
             IEnumerable<ILInspector.Analysis.OptimizationOpportunity> rows,
             PerformanceTriageOptions options) =>
             [
-                .. LibraryMetadataService.FilterAndOrderTriageOpportunities(
+                .. PerformanceTriageRowQuery.Apply(
                         rows,
                         options)
                     .Select(opportunity => opportunity.Method.Name),
@@ -1122,7 +1122,7 @@ public partial class OutputFormatterTests
     }
 
     [Fact]
-    public void FilterAndOrderTriageOpportunities_PreservesNullableNumericOrdering()
+    public void PerformanceTriageRowQuery_PreservesNullableNumericOrdering()
     {
         var missing = Opp(
             "Missing",
@@ -1142,7 +1142,7 @@ public partial class OutputFormatterTests
 
         string[] Ascending() =>
         [
-            .. LibraryMetadataService.FilterAndOrderTriageOpportunities(
+            .. PerformanceTriageRowQuery.Apply(
                     [present, missing],
                     new PerformanceTriageOptions
                     {
@@ -1152,7 +1152,7 @@ public partial class OutputFormatterTests
         ];
         string[] Descending() =>
         [
-            .. LibraryMetadataService.FilterAndOrderTriageOpportunities(
+            .. PerformanceTriageRowQuery.Apply(
                     [missing, present],
                     new PerformanceTriageOptions
                     {
@@ -1283,7 +1283,7 @@ public partial class OutputFormatterTests
         Assert.Equal(["GenuineLoop", "LoopEarlyExit"], ordered);
 
         // --loop keeps only genuine loops.
-        var loopOnly = LibraryMetadataService.FilterAndOrderTriageOpportunities(
+        var loopOnly = PerformanceTriageRowQuery.Apply(
             [loopEarlyExit, genuineLoop],
             new PerformanceTriageOptions { LoopOnly = true })
             .Select(o => o.Method.Name).ToList();
@@ -1338,7 +1338,7 @@ public partial class OutputFormatterTests
     }
 
     [Fact]
-    public void SelectPerformanceTriageOpportunities_PreservesGeneratedStringCensusOnly()
+    public void PerformanceTriageRowQuery_PreservesGeneratedStringCensusOnly()
     {
         var stringOccurrence = Opp(
             "<Main>$",
@@ -1360,7 +1360,7 @@ public partial class OutputFormatterTests
 
         Assert.Equal(
             [stringOccurrence],
-            LibraryMetadataService.SelectPerformanceTriageOpportunities(
+            PerformanceTriageRowQuery.Select(
                 available,
                 PerformanceTriageOptions.Default));
     }
