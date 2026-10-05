@@ -4,7 +4,7 @@ using ILInspector.Metadata;
 
 namespace ILInspector.Research;
 
-public enum LibraryFamilyRoleCompositionRejection
+public enum LibraryArchitecturalFamilyCompositionRejection
 {
     NameFamilyBindingMismatch,
     StructuralMethodologyMismatch,
@@ -25,12 +25,12 @@ public enum LibraryFamilyRoleCompositionRejection
     PopulationFamilyMismatch,
 }
 
-public sealed record LibraryFamilyRoleBinding(
+public sealed record LibraryArchitecturalFamilyBinding(
     AssemblyArtifactIdentity Artifact,
     AssemblyReferenceIdentity Assembly,
     Guid ModuleVersionId);
 
-public sealed record LibraryFamilyRoleTypeRow(
+public sealed record LibraryArchitecturalFamilyTypeRow(
     MetadataTypeDefinitionAddress Type,
     MetadataTypeDefinitionName Name,
     AssemblyTypeDefinitionKind DefinitionKind,
@@ -47,7 +47,7 @@ public sealed record LibraryFamilyRoleTypeRow(
     LibraryStructuralTypePole? StructuralPole,
     LibraryStructuralEvidenceDisposition StructuralDisposition);
 
-public sealed record LibraryFamilyRoleRow(
+public sealed record LibraryArchitecturalFamilyRow(
     LibraryNameFamilyIdentity Identity,
     int TypeCount,
     int FoundationCount,
@@ -66,14 +66,14 @@ public sealed record LibraryFamilyRoleRow(
     ImmutableArray<MetadataTypeDefinitionAddress> MountainPeaks,
     ImmutableArray<MetadataTypeDefinitionAddress> NoIssuedStructuralRoles);
 
-public static class LibraryFamilyRoleOrder
+public static class LibraryArchitecturalFamilyOrder
 {
-    public static IComparer<LibraryFamilyRoleRow> Prevalence { get; } =
-        Comparer<LibraryFamilyRoleRow>.Create(ComparePrevalence);
+    public static IComparer<LibraryArchitecturalFamilyRow> Prevalence { get; } =
+        Comparer<LibraryArchitecturalFamilyRow>.Create(ComparePrevalence);
 
     private static int ComparePrevalence(
-        LibraryFamilyRoleRow? left,
-        LibraryFamilyRoleRow? right)
+        LibraryArchitecturalFamilyRow? left,
+        LibraryArchitecturalFamilyRow? right)
     {
         if (ReferenceEquals(left, right))
             return 0;
@@ -96,7 +96,7 @@ public static class LibraryFamilyRoleOrder
     }
 }
 
-public sealed record LibraryFamilyRolePopulation(
+public sealed record LibraryArchitecturalFamilyPopulation(
     LibraryNameFamilyPopulationKind Kind,
     int TypeCount,
     int FoundationCount,
@@ -107,9 +107,9 @@ public sealed record LibraryFamilyRolePopulation(
     int NoIssuedStructuralRoleCount,
     LibraryNameFamilyProvenanceQualification Provenance,
     LibraryStructuralEvidenceDisposition StructuralDisposition,
-    ImmutableArray<LibraryFamilyRoleRow> Families);
+    ImmutableArray<LibraryArchitecturalFamilyRow> Families);
 
-public sealed record LibraryFamilyRoleStructuralShardReceipt(
+public sealed record LibraryArchitecturalFamilyStructuralShardReceipt(
     string Namespace,
     LibraryStructuralEvidenceDisposition RoleDisposition,
     LibraryStructuralSignatureUseQualification SignatureUse,
@@ -117,14 +117,14 @@ public sealed record LibraryFamilyRoleStructuralShardReceipt(
     LibraryStructuralEvidenceDisposition SeaLevelDisposition,
     LibraryStructuralEvidenceDisposition MountainPeakDisposition);
 
-public sealed record LibraryFamilyRoleStructuralReceipt(
+public sealed record LibraryArchitecturalFamilyStructuralReceipt(
     string MethodologyVersion,
     LibraryStructuralSalienceEvidenceMode EvidenceMode,
     LibraryStructuralEvidenceDisposition NamespaceDisposition,
     LibraryStructuralSignatureUseQualification SignatureUse,
-    ImmutableArray<LibraryFamilyRoleStructuralShardReceipt> Shards);
+    ImmutableArray<LibraryArchitecturalFamilyStructuralShardReceipt> Shards);
 
-public sealed record LibraryFamilyRolePopulationReceipt(
+public sealed record LibraryArchitecturalFamilyPopulationReceipt(
     LibraryNameFamilyPopulationKind Kind,
     int TypeCount,
     int FoundationCount,
@@ -134,7 +134,7 @@ public sealed record LibraryFamilyRolePopulationReceipt(
     int MountainPeakCount,
     int NoIssuedStructuralRoleCount);
 
-public sealed record LibraryFamilyRoleCompositionReceipt(
+public sealed record LibraryArchitecturalFamilyCompositionReceipt(
     int ExactTypeCount,
     int FoundationCount,
     int HubCount,
@@ -144,42 +144,42 @@ public sealed record LibraryFamilyRoleCompositionReceipt(
     int NoIssuedStructuralRoleCount,
     int OneWordFamilyRowCount,
     int TwoWordFamilyRowCount,
-    ImmutableArray<LibraryFamilyRolePopulationReceipt> Populations,
+    ImmutableArray<LibraryArchitecturalFamilyPopulationReceipt> Populations,
     LibraryNameFamilyReceipt NameFamilies,
-    LibraryFamilyRoleStructuralReceipt StructuralSalience);
+    LibraryArchitecturalFamilyStructuralReceipt StructuralSalience);
 
-public sealed record LibraryFamilyRoleCompositionDocument(
-    LibraryFamilyRoleBinding Binding,
+public sealed record LibraryArchitecturalFamilyCompositionDocument(
+    LibraryArchitecturalFamilyBinding Binding,
     string MethodologyVersion,
     LibraryNameFamilyMethodology NameFamilyMethodology,
     LibraryNameFamilyProvenanceQualification Provenance,
-    LibraryFamilyRoleStructuralReceipt StructuralSalience,
-    ImmutableArray<LibraryFamilyRoleTypeRow> Types,
-    ImmutableArray<LibraryFamilyRolePopulation> Populations,
-    LibraryFamilyRoleCompositionReceipt Receipt);
+    LibraryArchitecturalFamilyStructuralReceipt StructuralSalience,
+    ImmutableArray<LibraryArchitecturalFamilyTypeRow> Types,
+    ImmutableArray<LibraryArchitecturalFamilyPopulation> Populations,
+    LibraryArchitecturalFamilyCompositionReceipt Receipt);
 
-public abstract record LibraryFamilyRoleCompositionOutcome
+public abstract record LibraryArchitecturalFamilyCompositionOutcome
 {
-    private LibraryFamilyRoleCompositionOutcome()
+    private LibraryArchitecturalFamilyCompositionOutcome()
     {
     }
 
-    public sealed record Available(LibraryFamilyRoleCompositionDocument Document)
-        : LibraryFamilyRoleCompositionOutcome;
+    public sealed record Available(LibraryArchitecturalFamilyCompositionDocument Document)
+        : LibraryArchitecturalFamilyCompositionOutcome;
 
     public sealed record Rejected(
-        LibraryFamilyRoleCompositionRejection Reason,
+        LibraryArchitecturalFamilyCompositionRejection Reason,
         string Detail)
-        : LibraryFamilyRoleCompositionOutcome;
+        : LibraryArchitecturalFamilyCompositionOutcome;
 }
 
-public static class LibraryFamilyRoleComposition
+public static class LibraryArchitecturalFamilyComposition
 {
     public const string MethodologyVersion =
-        "library-family-role-composition.v1";
+        "architectural-families-composition.v1";
 
-    public static LibraryFamilyRoleCompositionOutcome Execute(
-        LibraryFamilyRoleBinding binding,
+    public static LibraryArchitecturalFamilyCompositionOutcome Execute(
+        LibraryArchitecturalFamilyBinding binding,
         LibraryNameFamilyDocument nameFamilies,
         LibraryStructuralSalienceDocument structuralSalience)
     {
@@ -190,7 +190,7 @@ public static class LibraryFamilyRoleComposition
         if (!BindingMatches(binding, nameFamilies.Binding))
         {
             return Rejected(
-                LibraryFamilyRoleCompositionRejection
+                LibraryArchitecturalFamilyCompositionRejection
                     .NameFamilyBindingMismatch,
                 "The name-family document does not share the exact "
                     + "composition artifact binding.");
@@ -199,7 +199,7 @@ public static class LibraryFamilyRoleComposition
         if (!StructuralMethodologyMatches(structuralSalience))
         {
             return Rejected(
-                LibraryFamilyRoleCompositionRejection
+                LibraryArchitecturalFamilyCompositionRejection
                     .StructuralMethodologyMismatch,
                 "Structural salience must use one consistent current "
                     + "signature-use methodology.");
@@ -212,7 +212,7 @@ public static class LibraryFamilyRoleComposition
                 .ExactNamespace is not null)
         {
             return Rejected(
-                LibraryFamilyRoleCompositionRejection
+                LibraryArchitecturalFamilyCompositionRejection
                     .StructuralReceiptMismatch,
                 "The structural namespace index does not share the exact "
                     + "assembly and module binding.");
@@ -228,7 +228,7 @@ public static class LibraryFamilyRoleComposition
                 || !nameTypes.TryAdd(type.Type, type))
             {
                 return Rejected(
-                    LibraryFamilyRoleCompositionRejection
+                    LibraryArchitecturalFamilyCompositionRejection
                         .DuplicateNameFamilyType,
                     "Name-family Type rows must contain unique addresses "
                         + "from the bound module.");
@@ -245,7 +245,7 @@ public static class LibraryFamilyRoleComposition
             if (!namespaceRows.TryAdd(row.Namespace, row))
             {
                 return Rejected(
-                    LibraryFamilyRoleCompositionRejection.DuplicateNamespace,
+                    LibraryArchitecturalFamilyCompositionRejection.DuplicateNamespace,
                     $"Structural namespace '{row.Namespace}' is duplicated.");
             }
         }
@@ -254,7 +254,7 @@ public static class LibraryFamilyRoleComposition
             != structuralSalience.NamespaceIndex.Rows.Length)
         {
             return Rejected(
-                LibraryFamilyRoleCompositionRejection
+                LibraryArchitecturalFamilyCompositionRejection
                     .NamespaceShardCountMismatch,
                 "Structural salience requires one Type shard for every "
                     + "namespace-index row.");
@@ -272,7 +272,7 @@ public static class LibraryFamilyRoleComposition
                 || row.TypeCount != pair.Value))
         {
             return Rejected(
-                LibraryFamilyRoleCompositionRejection
+                LibraryArchitecturalFamilyCompositionRejection
                     .NamespaceTypeCountMismatch,
                 "Structural namespace Type counts do not close against the "
                     + "name-family population.");
@@ -295,7 +295,7 @@ public static class LibraryFamilyRoleComposition
                     expectedNamespace))
             {
                 return Rejected(
-                    LibraryFamilyRoleCompositionRejection
+                    LibraryArchitecturalFamilyCompositionRejection
                         .NamespaceShardOrderMismatch,
                     "Structural Type shards do not follow namespace-index "
                         + "order.");
@@ -306,7 +306,7 @@ public static class LibraryFamilyRoleComposition
                     shard.Namespace))
             {
                 return Rejected(
-                    LibraryFamilyRoleCompositionRejection
+                    LibraryArchitecturalFamilyCompositionRejection
                         .StructuralReceiptMismatch,
                     $"Structural namespace '{shard.Namespace}' does not "
                         + "share the exact assembly and module binding.");
@@ -319,7 +319,7 @@ public static class LibraryFamilyRoleComposition
                         new(row, shard.RoleDisposition)))
                 {
                     return Rejected(
-                        LibraryFamilyRoleCompositionRejection
+                        LibraryArchitecturalFamilyCompositionRejection
                             .DuplicateStructuralType,
                         "Structural Type rows must contain unique exact "
                             + "addresses.");
@@ -327,7 +327,7 @@ public static class LibraryFamilyRoleComposition
                 if (!nameTypes.TryGetValue(row.Type, out var nameType))
                 {
                     return Rejected(
-                        LibraryFamilyRoleCompositionRejection
+                        LibraryArchitecturalFamilyCompositionRejection
                             .StructuralTypeNotFound,
                         "A structural Type row has no exact name-family Type.");
                 }
@@ -339,7 +339,7 @@ public static class LibraryFamilyRoleComposition
                         shard.Namespace))
                 {
                     return Rejected(
-                        LibraryFamilyRoleCompositionRejection
+                        LibraryArchitecturalFamilyCompositionRejection
                             .StructuralTypeNamespaceMismatch,
                         "A structural Type row does not belong to its exact "
                             + "namespace shard.");
@@ -347,14 +347,14 @@ public static class LibraryFamilyRoleComposition
                 if (!Equals(row.Name, nameType.Name))
                 {
                     return Rejected(
-                        LibraryFamilyRoleCompositionRejection
+                        LibraryArchitecturalFamilyCompositionRejection
                             .StructuredNameMismatch,
                         "Joined Type rows disagree on their structured "
                             + "metadata name.");
                 }
             }
 
-            LibraryFamilyRoleCompositionOutcome.Rejected? orderFailure =
+            LibraryArchitecturalFamilyCompositionOutcome.Rejected? orderFailure =
                 ValidateOrder(
                     shard,
                     shard.SeaLevel,
@@ -372,7 +372,7 @@ public static class LibraryFamilyRoleComposition
                 static shard => shard.Namespace,
                 static shard => shard.RoleDisposition,
                 StringComparer.Ordinal);
-        LibraryFamilyRoleTypeRow[] typeRows =
+        LibraryArchitecturalFamilyTypeRow[] typeRows =
         [
             .. nameFamilies.Types
                 .OrderBy(static type => type.Type.Definition.Value)
@@ -387,7 +387,7 @@ public static class LibraryFamilyRoleComposition
 
         var seenPopulations = new HashSet<LibraryNameFamilyPopulationKind>();
         var populations =
-            ImmutableArray.CreateBuilder<LibraryFamilyRolePopulation>(
+            ImmutableArray.CreateBuilder<LibraryArchitecturalFamilyPopulation>(
                 nameFamilies.Populations.Length);
         foreach (LibraryNameFamilyPopulation population
             in nameFamilies.Populations.OrderBy(static population =>
@@ -396,7 +396,7 @@ public static class LibraryFamilyRoleComposition
             if (!seenPopulations.Add(population.Kind))
             {
                 return Rejected(
-                    LibraryFamilyRoleCompositionRejection
+                    LibraryArchitecturalFamilyCompositionRejection
                         .DuplicatePopulation,
                     $"Name-family population '{population.Kind}' is duplicated.");
             }
@@ -408,14 +408,14 @@ public static class LibraryFamilyRoleComposition
             if (populationTypes.Length != population.TypeCount)
             {
                 return Rejected(
-                    LibraryFamilyRoleCompositionRejection
+                    LibraryArchitecturalFamilyCompositionRejection
                         .PopulationTypeCountMismatch,
                     $"Population '{population.Kind}' does not close against "
                         + "its exact Type rows.");
             }
 
             var families =
-                ImmutableArray.CreateBuilder<LibraryFamilyRoleRow>(
+                ImmutableArray.CreateBuilder<LibraryArchitecturalFamilyRow>(
                     population.Families.Length);
             foreach (LibraryNameFamilyRow family
                 in population.Families.Order(
@@ -430,7 +430,7 @@ public static class LibraryFamilyRoleComposition
                         || !HasFamily(composed, family.Identity)))
                 {
                     return Rejected(
-                        LibraryFamilyRoleCompositionRejection
+                        LibraryArchitecturalFamilyCompositionRejection
                             .PopulationFamilyMismatch,
                         $"Family '{FamilyDisplay(family.Identity)}' does not "
                             + "match its exact source population.");
@@ -457,19 +457,19 @@ public static class LibraryFamilyRoleComposition
                 LibraryNameFamilyPopulationKind.AllTypes))
         {
             return Rejected(
-                LibraryFamilyRoleCompositionRejection
+                LibraryArchitecturalFamilyCompositionRejection
                     .PopulationTypeCountMismatch,
                 "The name-family document does not contain its all-Types "
                     + "population.");
         }
 
-        ImmutableArray<LibraryFamilyRolePopulation> populationRows =
+        ImmutableArray<LibraryArchitecturalFamilyPopulation> populationRows =
             populations.MoveToImmutable();
-        LibraryFamilyRolePopulation allTypes = populationRows.Single(
+        LibraryArchitecturalFamilyPopulation allTypes = populationRows.Single(
             static population =>
                 population.Kind
                     == LibraryNameFamilyPopulationKind.AllTypes);
-        LibraryFamilyRoleStructuralReceipt structuralReceipt =
+        LibraryArchitecturalFamilyStructuralReceipt structuralReceipt =
             CreateStructuralReceipt(structuralSalience);
         int oneWordFamilyCount = populationRows.Sum(static population =>
             population.Families.Count(static family =>
@@ -479,7 +479,7 @@ public static class LibraryFamilyRoleComposition
             population.Families.Count(static family =>
                 family.Identity.Kind
                     == LibraryNameFamilyKind.TwoWordSuffix));
-        var receipt = new LibraryFamilyRoleCompositionReceipt(
+        var receipt = new LibraryArchitecturalFamilyCompositionReceipt(
             typeRows.Length,
             allTypes.FoundationCount,
             allTypes.HubCount,
@@ -491,7 +491,7 @@ public static class LibraryFamilyRoleComposition
             twoWordFamilyCount,
             [
                 .. populationRows.Select(static population =>
-                    new LibraryFamilyRolePopulationReceipt(
+                    new LibraryArchitecturalFamilyPopulationReceipt(
                         population.Kind,
                         population.TypeCount,
                         population.FoundationCount,
@@ -504,7 +504,7 @@ public static class LibraryFamilyRoleComposition
             nameFamilies.Receipt,
             structuralReceipt);
 
-        return new LibraryFamilyRoleCompositionOutcome.Available(
+        return new LibraryArchitecturalFamilyCompositionOutcome.Available(
             new(
                 binding,
                 MethodologyVersion,
@@ -517,7 +517,7 @@ public static class LibraryFamilyRoleComposition
     }
 
     private static bool BindingMatches(
-        LibraryFamilyRoleBinding binding,
+        LibraryArchitecturalFamilyBinding binding,
         LibraryNameFamilyBinding nameFamilies) =>
         Equals(binding.Artifact, nameFamilies.Artifact)
         && Equals(binding.Assembly, nameFamilies.Assembly)
@@ -538,11 +538,11 @@ public static class LibraryFamilyRoleComposition
 
     private static bool ReceiptMatches(
         MetadataLibrarySignatureUseReceipt receipt,
-        LibraryFamilyRoleBinding binding) =>
+        LibraryArchitecturalFamilyBinding binding) =>
         receipt.ModuleVersionId == binding.ModuleVersionId
         && Equals(receipt.Assembly, binding.Assembly);
 
-    private static LibraryFamilyRoleCompositionOutcome.Rejected? ValidateOrder(
+    private static LibraryArchitecturalFamilyCompositionOutcome.Rejected? ValidateOrder(
         LibraryStructuralTypeLeverageShard shard,
         LibraryStructuralTypeLeverageOrder order,
         LibraryStructuralTypePole pole)
@@ -554,7 +554,7 @@ public static class LibraryFamilyRoleComposition
             if (!ordered.Add(type) || !rows.TryGetValue(type, out var row))
             {
                 return Rejected(
-                    LibraryFamilyRoleCompositionRejection
+                    LibraryArchitecturalFamilyCompositionRejection
                         .StructuralOrderTypeNotFound,
                     $"Structural {pole} order references an unissued or "
                         + "duplicate Type row.");
@@ -565,7 +565,7 @@ public static class LibraryFamilyRoleComposition
                 row.Pole == pole && !ordered.Contains(row.Type)))
         {
             return Rejected(
-                LibraryFamilyRoleCompositionRejection
+                LibraryArchitecturalFamilyCompositionRejection
                     .StructuralOrderPoleMismatch,
                 $"Structural {pole} order omits an owner-issued pole.");
         }
@@ -573,7 +573,7 @@ public static class LibraryFamilyRoleComposition
         return null;
     }
 
-    private static LibraryFamilyRoleTypeRow CreateTypeRow(
+    private static LibraryArchitecturalFamilyTypeRow CreateTypeRow(
         LibraryNameFamilyTypeRow name,
         StructuralTypeBinding? structural,
         LibraryStructuralEvidenceDisposition disposition) =>
@@ -596,7 +596,7 @@ public static class LibraryFamilyRoleComposition
 
     private static MetadataTypeDefinitionAddress[] PopulationTypes(
         LibraryNameFamilyPopulationKind kind,
-        IEnumerable<LibraryFamilyRoleTypeRow> types)
+        IEnumerable<LibraryArchitecturalFamilyTypeRow> types)
     {
         PdbTypeSourceDisposition? disposition = kind switch
         {
@@ -623,7 +623,7 @@ public static class LibraryFamilyRoleComposition
     }
 
     private static bool HasFamily(
-        LibraryFamilyRoleTypeRow type,
+        LibraryArchitecturalFamilyTypeRow type,
         LibraryNameFamilyIdentity identity) =>
         identity.Kind switch
         {
@@ -634,14 +634,14 @@ public static class LibraryFamilyRoleComposition
             _ => false,
         };
 
-    private static LibraryFamilyRoleRow CreateFamilyRow(
+    private static LibraryArchitecturalFamilyRow CreateFamilyRow(
         LibraryNameFamilyIdentity identity,
         IEnumerable<MetadataTypeDefinitionAddress> types,
         IReadOnlyDictionary<
             MetadataTypeDefinitionAddress,
-            LibraryFamilyRoleTypeRow> rows)
+            LibraryArchitecturalFamilyTypeRow> rows)
     {
-        LibraryFamilyRoleTypeRow[] members =
+        LibraryArchitecturalFamilyTypeRow[] members =
         [
             .. types.Select(type => rows[type])
                 .OrderBy(static row => row.Type.Definition.Value),
@@ -679,17 +679,17 @@ public static class LibraryFamilyRoleComposition
                 row.StructuralRole is null)));
     }
 
-    private static LibraryFamilyRolePopulation CreatePopulation(
+    private static LibraryArchitecturalFamilyPopulation CreatePopulation(
         LibraryNameFamilyPopulationKind kind,
         IReadOnlyCollection<MetadataTypeDefinitionAddress> types,
         LibraryNameFamilyProvenanceQualification provenance,
-        ImmutableArray<LibraryFamilyRoleRow> families,
+        ImmutableArray<LibraryArchitecturalFamilyRow> families,
         IReadOnlyDictionary<
             MetadataTypeDefinitionAddress,
-            LibraryFamilyRoleTypeRow> rows,
+            LibraryArchitecturalFamilyTypeRow> rows,
         LibraryStructuralEvidenceDisposition emptyDisposition)
     {
-        LibraryFamilyRoleTypeRow[] members =
+        LibraryArchitecturalFamilyTypeRow[] members =
         [
             .. types.Select(type => rows[type]),
         ];
@@ -708,17 +708,17 @@ public static class LibraryFamilyRoleComposition
     }
 
     private static int CountRole(
-        IEnumerable<LibraryFamilyRoleTypeRow> rows,
+        IEnumerable<LibraryArchitecturalFamilyTypeRow> rows,
         LibraryStructuralTypeRole role) =>
         rows.Count(row => row.StructuralRole == role);
 
     private static int CountPole(
-        IEnumerable<LibraryFamilyRoleTypeRow> rows,
+        IEnumerable<LibraryArchitecturalFamilyTypeRow> rows,
         LibraryStructuralTypePole pole) =>
         rows.Count(row => row.StructuralPole == pole);
 
     private static LibraryStructuralEvidenceDisposition StructuralDisposition(
-        IReadOnlyCollection<LibraryFamilyRoleTypeRow> rows,
+        IReadOnlyCollection<LibraryArchitecturalFamilyTypeRow> rows,
         LibraryStructuralEvidenceDisposition emptyDisposition =
             LibraryStructuralEvidenceDisposition.Complete)
     {
@@ -732,13 +732,13 @@ public static class LibraryFamilyRoleComposition
     }
 
     private static ImmutableArray<MetadataTypeDefinitionAddress> Addresses(
-        IEnumerable<LibraryFamilyRoleTypeRow> rows) =>
+        IEnumerable<LibraryArchitecturalFamilyTypeRow> rows) =>
     [
         .. rows.Select(static row => row.Type)
             .OrderBy(static type => type.Definition.Value),
     ];
 
-    private static LibraryFamilyRoleStructuralReceipt CreateStructuralReceipt(
+    private static LibraryArchitecturalFamilyStructuralReceipt CreateStructuralReceipt(
         LibraryStructuralSalienceDocument document) =>
         new(
             document.MethodologyVersion,
@@ -747,7 +747,7 @@ public static class LibraryFamilyRoleComposition
             document.NamespaceIndex.SignatureUse,
             [
                 .. document.TypeLeverageShards.Select(static shard =>
-                    new LibraryFamilyRoleStructuralShardReceipt(
+                    new LibraryArchitecturalFamilyStructuralShardReceipt(
                         shard.Namespace,
                         shard.RoleDisposition,
                         shard.SignatureUse,
@@ -760,8 +760,8 @@ public static class LibraryFamilyRoleComposition
         LibraryNameFamilyIdentity identity) =>
         string.Join(identity.Separator ?? string.Empty, identity.Words);
 
-    private static LibraryFamilyRoleCompositionOutcome.Rejected Rejected(
-        LibraryFamilyRoleCompositionRejection reason,
+    private static LibraryArchitecturalFamilyCompositionOutcome.Rejected Rejected(
+        LibraryArchitecturalFamilyCompositionRejection reason,
         string detail) =>
         new(reason, detail);
 

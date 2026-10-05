@@ -1,11 +1,11 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!--
-    Checks and times family-role row selection through LINQ, pinned NLinq, and
+    Checks and times architectural-family row selection through LINQ, pinned NLinq, and
     the shipping QuerySpace path. Publish NativeAOT to time:
-      dotnet publish tools/LibraryFamilyRoleScorecard -c Release -r <rid> -p:PublishAot=true -p:IsPublishable=true -o <dir>
+      dotnet publish tools/LibraryArchitecturalFamilyScorecard -c Release -r <rid> -p:PublishAot=true -p:IsPublishable=true -o <dir>
     Check or time exact assembly assets:
-      dotnet run [project option] tools/LibraryFamilyRoleScorecard
+      dotnet run [project option] tools/LibraryArchitecturalFamilyScorecard
         [configuration option] Release [argument separator]
         check <assembly>...
       Use the time command with rounds 7 for measurement.
@@ -19,8 +19,8 @@
     <Nullable>enable</Nullable>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <IsPackable>false</IsPackable>
-    <AssemblyName>library-family-role-scorecard</AssemblyName>
-    <RootNamespace>LibraryFamilyRoleScorecard</RootNamespace>
+    <AssemblyName>architectural-family-scorecard</AssemblyName>
+    <RootNamespace>LibraryArchitecturalFamilyScorecard</RootNamespace>
     <InvariantGlobalization>true</InvariantGlobalization>
     <OptimizationPreference>Speed</OptimizationPreference>
   </PropertyGroup>
