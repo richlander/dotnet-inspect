@@ -555,6 +555,7 @@ The exact-breadth slice is gated in Release:
 Terminal work bounds are gated in Release:
 
 - `Execute_TerminalBodyBoundIsLaneLocal`
+- `Execute_TerminalBodyBoundInCountKernelIsSourceIncomplete`
 - `Execute_TerminalEncodedIlByteBoundPublishesPartialWork`
 
 The first production adoption is gated in Release:

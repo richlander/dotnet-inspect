@@ -321,6 +321,43 @@ public sealed class MethodDefinitionRequestSetTests
     }
 
     [Fact]
+    public void Execute_TerminalBodyBoundInCountKernelIsSourceIncomplete()
+    {
+        var limits = new MethodDefinitionTerminalWorkLimits(
+            maximumBodies: 1,
+            maximumEncodedIlBytes: long.MaxValue);
+        MethodDefinitionSourceAssociation association =
+            Association(
+                UnsafeEvidencePresenceProducer.Instance,
+                ProducerTerminal.Count,
+                terminalWorkLimits: limits);
+
+        MethodDefinitionSourceRequestSetExecution execution =
+            Execute(AcceptedPlan([association]));
+
+        Assert.Equal(
+            ProducerOutcome.Failed,
+            ResultOf<int>(execution, association).Outcome);
+        MethodDefinitionSourceReceipt receipt =
+            execution.ResultOf(association).SourceReceipt;
+        Assert.Equal(
+            MethodDefinitionSourceCompletion.SourceIncomplete,
+            receipt.Completion);
+        Assert.Contains(
+            "terminal physical-body limit",
+            Assert.IsType<MethodDefinitionSourceFailure>(
+                    receipt.SourceFailure)
+                .Message,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            1,
+            receipt.Coverage.TerminalWork.BodiesAdmitted);
+        Assert.Equal(
+            MethodDefinitionTerminalWorkLimitKind.Bodies,
+            receipt.Coverage.TerminalWork.ReachedLimit);
+    }
+
+    [Fact]
     public void Execute_TerminalEncodedIlByteBoundPublishesPartialWork()
     {
         var limits = new MethodDefinitionTerminalWorkLimits(
