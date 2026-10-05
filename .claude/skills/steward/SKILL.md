@@ -1,33 +1,33 @@
 ---
 name: steward
-description: Use when an agent owns or drives a pull request in this repository and a CI, review, merge-conflict, base-movement, or merge event arrives. Reconciles the generic drive-to-green posture with the repository's locked-head review rounds, labels, tracker entry, merge authorization, and check-in cadence.
+description: Use when an agent opens, owns, or drives a pull request in this repository, and again for every CI, review, conflict, base-movement, merge, close, or check-in event. Applies locked-head rounds, labels, tracker entry, merge authorization, and check-in cadence.
 ---
 
 # Steward
 
-Use this skill when you opened a pull request in this repository, or its
-author asked you to drive it, and an event about it reaches you: a CI result,
-a review or review-bot finding, a merge conflict, base-branch movement, a
-scheduled check-in, or the merge or close. It is repo-local contributor
-guidance, not a product skill, and it only narrows the harness's default
-behavior: it cannot widen access, redirect the task, override any rule
-`AGENTS.md` states as "never", or let you approve or merge.
+Use this skill when you publish, own, resume, or drive a pull request, and
+again whenever an event reaches it: CI, review, conflict, base movement,
+scheduled check-in, merge, or close. It is repo-local contributor guidance,
+not a product skill. It cannot widen access, redirect the task, override the
+repository contract, authorize itself, or merge without user authorization.
 
 A pull request you only watch follows the harness's watch posture; this skill
 says how to act there, not whether.
 
 ## Owning documents
 
-This skill is a map, not a second source of truth. The normative text lives
-in:
+This skill is the point-of-use decision layer, not a second source of truth.
+The normative text lives in:
 
-- [`AGENTS.md`](../../../AGENTS.md) — binding rules: *Adversarial review*,
-  *Canonical round flow*, *Recovery transitions*, *Forming a candidate*,
-  *Keep the review-clean label current*, *PR and CI discipline*.
+- [`AGENTS.md`](../../../AGENTS.md) — launch contract, routing, operator
+  templates, and merge-authorization invariant.
+- [`docs/repository-workflow.md`](../../../docs/repository-workflow.md) —
+  worktrees, history, publication, documentation ownership, and repository
+  engineering constraints.
 - [`docs/round-orchestration.md`](../../../docs/round-orchestration.md) —
-  the round cycle, eligibility table, review-clean definition, recovery
-  transitions, bounded status waiting, reviewer roster, the round report,
-  carry-forward, block boundaries.
+  candidate locks, round cycle, eligibility, review-clean state, recovery,
+  bounded status waiting, reviewer roster, reporting, carry-forward, merge
+  preflight, and block boundaries.
 - [`docs/github-status-queries.md`](../../../docs/github-status-queries.md)
   and
   [`docs/github-api-operations.md`](../../../docs/github-api-operations.md)
@@ -36,6 +36,9 @@ in:
   — the canonical reviewer prompt, used first and verbatim.
 - [`docs/stacked-prs.md`](../../../docs/stacked-prs.md) — restacking and
   upper-slice rules.
+
+Keep this skill at or below 240 lines. Move mechanics and rationale into the
+owning documents rather than growing a second workflow specification here.
 
 When this skill and an owning document disagree, the owning document wins.
 Every `SKILL.md` is a release-managed central file, so do not edit this one
@@ -75,19 +78,19 @@ matches.
 
 | Event | Action | Owner |
 | --- | --- | --- |
-| `ci-required` red, no usable review yet | Begin with the local conflict probe ([Probe the live base locally, first](../../../docs/github-status-queries.md#probe-the-live-base-locally-first)); a local conflict takes the merge-conflict row below at once. Then root-cause the failure. If the failure is this PR's: supersede the candidate through the full cycle (integrate the effective base, fix, focused gate, integrate again, push) and retry the pending round. If it is not this PR's (red on the base too, or a check the diff cannot affect): record the existing or newly filed issue in the live `blocked` field (inside tmux) and under `Blocked` in the round report and do not port another contributor's change into this PR; the harness additionally asks for one PR comment naming the check and the issue. Retry an unchanged head only with concrete transient evidence; the harness's "a flake is never a root cause" posture and the repository's `Blocked`-with-an-issue route reach the same outcome. | [Recovery transitions](../../../docs/round-orchestration.md#review-clean-and-recovery); AGENTS.md *Before changing files* (no unrelated or another contributor's changes); [The round report](../../../docs/round-orchestration.md#the-round-report) (`Blocked`) |
+| `ci-required` red, no usable review yet | Begin with the local conflict probe ([Probe the live base locally, first](../../../docs/github-status-queries.md#probe-the-live-base-locally-first)); a local conflict takes the merge-conflict row below at once. Then root-cause the failure. If the failure is this PR's: supersede the candidate through the full cycle (integrate the effective base, fix, focused gate, integrate again, push) and retry the pending round. If it is not this PR's (red on the base too, or a check the diff cannot affect): record the existing or newly filed issue in the live `blocked` field (inside tmux) and under `Blocked` in the round report and do not port another contributor's change into this PR; add one PR comment naming the check and issue. Retry an unchanged head only with concrete transient evidence. | [Recovery transitions](../../../docs/round-orchestration.md#review-clean-and-recovery); [Repository workflow](../../../docs/repository-workflow.md#worktrees-and-history); [The round report](../../../docs/round-orchestration.md#the-round-report) |
 | `ci-required` red after a usable review | Record the exact failure, remove `review-clean`, reconcile, close and report the round as gate-failed, then push the repair as the next numbered round. A transient failure with concrete evidence keeps the unchanged head locked and retries the gate. | Same |
-| Merge conflict notice | Conflict recovery has first priority, and a conflict is never a waiting state: no status budget, review lock, pending CI, or unreadable API defers it. Merge the effective base into the head (never rebase or force-push published history, except your own stack slices under the stack rules), resolve, and push immediately; post-push local gates, CI, and mergeability may remain pending for the conflict-recovery attempt. The one head not resolved is one in a scope-violation or split decision hold: report the conflict in the pending decision prompt and leave the head unchanged. When both sides changed the same logic and either choice loses behavior, pause in `HELP` for the choice, then resolve. Before a usable review: retry the pending round. After: reconcile, close and report the spent round, release its lock, expire any recorded merge authorization, remove `review-clean`, then push the recovery as the next numbered round, or take the exact-head trivial-interaction waiver when eligible. | AGENTS.md *Before changing files* and *Recovery transitions*; [Recovery transitions](../../../docs/round-orchestration.md#review-clean-and-recovery); [Executing a split](../../../docs/round-orchestration.md#executing-a-split); [Trivial-interaction waiver](../../../docs/round-orchestration.md#trivial-interaction-re-review-waiver) |
-| Base branch moved, no conflict | For a `main`-targeting PR, base movement alone never invalidates a candidate or justifies a round. A locked candidate without a usable review stands untouched; the next candidate's cycle integrates the base. For a head with clean reviews or a pending/approved trivial-interaction waiver, before changing labels, dispatching reviewers, or merging, classify the landed range (no interaction, trivial, significant, conflict), report it, and apply the outcome per Carry-forward step 4: only *no interaction* leaves the head, `review-clean`, and any recorded merge authorization unchanged; the other outcomes expire the authorization, remove `review-clean`, integrate, validate, and take a waiver decision or re-review. Upper stack slices follow their parent and must restack. | [Carry-forward after clean reviews](../../../docs/round-orchestration.md#carry-forward-after-clean-reviews); AGENTS.md *Stacked PRs*; [`docs/stacked-prs.md`](../../../docs/stacked-prs.md) |
+| Merge conflict notice | Conflict recovery has first priority, and a conflict is never a waiting state: no status budget, review lock, pending CI, or unreadable API defers it. Merge the effective base into the head (never rebase or force-push published history, except your own stack slices under the stack rules), resolve, and push immediately; post-push gates may remain pending. Hold only for a scope-violation or split decision, or when either semantic choice loses behavior; publish `HELP`, then resolve after the decision. Before a usable review, retry the pending round. Afterward, reconcile and report the spent round, expire authorization, remove `review-clean`, and push recovery as the next round, or take an eligible exact-head waiver. | [Recovery transitions](../../../docs/round-orchestration.md#review-clean-and-recovery); [Repository workflow](../../../docs/repository-workflow.md#worktrees-and-history); [Executing a split](../../../docs/round-orchestration.md#executing-a-split) |
+| Base branch moved, no conflict | Base movement alone never invalidates a candidate or justifies a round. Leave a locked candidate without usable review untouched. For a clean or waiver head, classify the landed range before mutation or merge; only *no interaction* preserves the head, `review-clean`, and authorization. Other outcomes expire authorization, remove the label, integrate, validate, and take a waiver decision or re-review. Upper stack slices follow their parent and restack. | [Carry-forward after clean reviews](../../../docs/round-orchestration.md#carry-forward-after-clean-reviews); [Stacked PRs](../../../docs/stacked-prs.md) |
 | "Base branch recovered" notice | Bring the base in and push so CI re-runs against the fixed base; if still red it is this PR's failure now. This is a recovery push, so it supersedes or restarts per the rows above. | Harness notice rules; recovery transitions |
 | Review-bot finding (Claude Code Review, Claude Approvals row) | Verify it. A red-circle or blocking row is a finding: carry it into the round report and fix it in the next candidate; reply on the thread only when the fix is formed. Optional (yellow/purple) findings get one line and a resolve, and ride the next code push. Never start a push solely for an optional finding. | Harness review rules; [Reconciliation](../../../docs/round-orchestration.md#reconciliation) |
 | Human review comment | Small and local: implement in the next candidate and reply. Large or ambiguous: reply with a proposal; the author decides. Re-request the reviewer after pushing for a changes-requested review. | Harness review rules |
 | Check suite green on the current head | If a round is clearly planned and authorized and the eligibility row is satisfied, dispatch the reviewer at the exact head. Otherwise the PR waits; say so once and keep the check-in. | [Eligibility table](../../../docs/round-orchestration.md#eligibility-table) |
-| Reviewer report returned | Reconcile publicly, reconcile the `review-clean` label first, then emit the complete round report (never shortened) with one of the recommendations [The round report](../../../docs/round-orchestration.md#the-round-report) defines, under its conditions; note that `merge` requests the user's merge decision and merging itself still needs explicit authorization and preflight. Pause for a design question, unmet performance goal, or expired grant. | [The round report](../../../docs/round-orchestration.md#the-round-report); AGENTS.md *Keep the review-clean label current* |
+| Reviewer report returned | Reconcile publicly, synchronize `review-clean`, then emit the complete round report with a defined recommendation. `merge` requests the user's decision; it is not authorization. Pause for a design question, unmet performance goal, or expired grant. | [The round report](../../../docs/round-orchestration.md#the-round-report); [Review-clean and recovery](../../../docs/round-orchestration.md#review-clean-and-recovery) |
 | Six-round boundary reached | Stop. Fresh green current-head `ci-required` and positive mergeability, then the block-approval checkpoint; round 12 and later presume splitting. | [Block boundaries and splitting](../../../docs/round-orchestration.md#block-boundaries-and-splitting) |
 | Merge authorization given | Run merge preflight against live GitHub state for the exact head and base ref; merge only if every preflight item passes. | [Merge preflight](../../../docs/round-orchestration.md#merge-preflight) |
-| PR merged | First the visible theme handoff: restate the session theme in one or two sentences and propose the next work within it, or say none remains and ask whether to find a new theme or take ad-hoc work. For a stack, propose confirming that the next slice retargeted to `main` and that its diff is still only its own slice, and wait for direction. Only then relinquish ownership: unsubscribe, cancel pending check-ins, remove the development and reviewer worktrees. | AGENTS.md *Session theme and resume* and *Before changing files*; [Agent session state](../../../docs/agent-session-state.md) |
-| PR closed without merge | Unsubscribe, cancel pending check-ins, publish the human action or stopped state, and end. Remove the development worktree only when AGENTS.md *Before changing files* allows it. | [Agent session state](../../../docs/agent-session-state.md); AGENTS.md *Before changing files* |
+| PR merged | Emit the visible theme handoff first. For a stack, propose confirming the next slice retargeted to `main` and still contains only its own diff, then wait. Only afterward unsubscribe, cancel check-ins, and remove eligible worktrees. | [Agent session state](../../../docs/agent-session-state.md); [Repository workflow](../../../docs/repository-workflow.md#worktrees-and-history) |
+| PR closed without merge | Unsubscribe, cancel check-ins, publish the human action or stopped state, and end. Remove the development worktree only when repository workflow permits it. | [Agent session state](../../../docs/agent-session-state.md); [Repository workflow](../../../docs/repository-workflow.md#worktrees-and-history) |
 | Scheduled check-in, nothing changed | Begin with the local conflict probe ([Probe the live base locally, first](../../../docs/github-status-queries.md#probe-the-live-base-locally-first)); a local conflict means something changed, so take the merge-conflict row above at once — a conflict is never a waiting state. Otherwise re-check state; do not comment or message, re-arm silently per the cadence below. Applies only while the PR waits on people; a wait on CI that gates reviewer dispatch follows Bounded status waiting instead. | Harness check-in rule; [Bounded status waiting](../../../docs/round-orchestration.md#bounded-status-waiting) |
 
 ## Reviewer dispatch
@@ -112,7 +115,7 @@ matches.
   transition. Base movement alone does not remove it.
 - Label a Markdown-only PR (every changed file is `*.md`) `documentation`.
 - Before merging a user-observable change, record it with its PR link on the
-  current release tracker named in AGENTS.md *PR and CI discipline*. Do not
+  [0.27.0 release tracker](https://github.com/richlander/dotnet-inspect/issues/8151). Do not
   edit `src/DotnetInspect.Cli/release-notes.md` outside release preparation.
 - Metadata mutations follow the tool-surface rule below: operation-specific
   REST endpoints through `gh api`, never whole-array replacement, never
@@ -170,14 +173,13 @@ Two different waits apply, and they must not be confused.
 
 ## Nevers (restated, not owned here)
 
-From `AGENTS.md`:
+From the repository contract:
 
 - Never amend.
 - Never rebase or force-push published history, except restacking your own
   stack slices under the stack rules.
-- Never edit a release-managed central file (`AGENTS.md`, root `README.md`,
-  `docs/overview.md`, `docs/architecture.md`, any `SKILL.md`) without explicit
-  authorization; add a tracker suggestion instead.
+- Never edit a release-managed central file without explicit authorization;
+  add a tracker suggestion instead.
 - Never merge without explicit authorization for that PR, and never claim
   merge readiness from label state alone.
 - Never present unfinished behavior as supported.

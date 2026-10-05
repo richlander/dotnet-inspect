@@ -3,6 +3,7 @@ import type {
   BrowserLibraryNamespaceLeverageRow,
   BrowserLibrarySignatureUseCoverage,
   BrowserLibraryStructuralSalience,
+  BrowserLibraryTypeLeverageChannel,
   BrowserLibraryTypeLeverageRow,
 } from "./facades/inspect-web-analysis.d.ts";
 import type {
@@ -15,8 +16,10 @@ import type {
 } from "./operation-authority.ts";
 
 type TypeLeveragePole = "sea-level" | "mountain-peak";
+type TypeLeverageEvidenceMode = "surface" | "implementation";
 
 interface TypeLeverageCue {
+  readonly evidenceMode: TypeLeverageEvidenceMode;
   readonly pole: TypeLeveragePole;
   readonly description: string;
 }
@@ -34,7 +37,7 @@ interface TypeLeverageShardPresentation {
 }
 
 export interface TypeLeveragePresentation {
-  readonly byType: ReadonlyMap<string, TypeLeverageCue>;
+  readonly byType: ReadonlyMap<string, readonly TypeLeverageCue[]>;
   readonly byNamespace: ReadonlyMap<string, NamespaceLeverageCue>;
   readonly namespaceOrder: readonly BrowserLibraryNamespaceLeverageRow[];
   readonly shardsByNamespace:
@@ -46,6 +49,7 @@ export interface TypeLeveragePresentation {
   readonly disposition: string;
   readonly coverage: BrowserLibrarySignatureUseCoverage;
   readonly diagnostics: readonly string[];
+  readonly warnings: readonly string[];
 }
 
 export type TypeLeverageLoadState =
@@ -83,21 +87,25 @@ export interface TypeLeverageCoordinator<TRequest> {
   pending(key: string): boolean;
 }
 
-function availableDocument(
+function availableSurface(
   result: BrowserLibraryStructuralSalience,
 ): asserts result is BrowserLibraryStructuralSalience & {
+  readonly surface: BrowserLibraryTypeLeverageChannel & {
   readonly methodologyVersion: string;
-  readonly evidenceMode: string;
   readonly namespaceIndex: BrowserLibraryNamespaceLeverageIndex;
+  };
 } {
-  if (result.schemaVersion !== 1)
+  if (result.schemaVersion !== 2)
     throw new Error("Unsupported structural-salience schema version.");
-  if (result.outcome !== "available"
-    || result.methodologyVersion === null
-    || result.evidenceMode === null
-    || result.namespaceIndex === null
-    || result.failure !== null) {
-    throw new Error(result.failure ?? "Structural salience is unavailable.");
+  const surface = result.surface;
+  if (surface.outcome !== "available"
+    || surface.methodologyVersion === null
+    || surface.evidenceMode !== "signature"
+    || surface.namespaceIndex === null
+    || surface.failure !== null) {
+    throw new Error(
+      surface.failure ?? "Surface Type leverage is unavailable.",
+    );
   }
 }
 
@@ -158,11 +166,11 @@ function sumCoverage(
 export function projectTypeLeverage(
   document: BrowserLibraryStructuralSalience,
 ): TypeLeveragePresentation {
-  availableDocument(document);
-  const methodologyVersion = document.methodologyVersion;
-  const evidenceMode = document.evidenceMode;
-  const index = document.namespaceIndex;
-  const shards = document.typeLeverageShards;
+  availableSurface(document);
+  const methodologyVersion = document.surface.methodologyVersion;
+  const evidenceMode = document.surface.evidenceMode;
+  const index = document.surface.namespaceIndex;
+  const shards = document.surface.typeLeverageShards;
   if (shards.length !== index.namespaces.length)
     throw new Error("Structural salience does not cover every namespace.");
   const byNamespace = new Map<string, NamespaceLeverageCue>();
@@ -179,7 +187,7 @@ export function projectTypeLeverage(
     });
   }
 
-  const byType = new Map<string, TypeLeverageCue>();
+  const byType = new Map<string, TypeLeverageCue[]>();
   const shardsByNamespace =
     new Map<string, TypeLeverageShardPresentation>();
   const seenTypeIds = new Set<string>();
@@ -200,7 +208,12 @@ export function projectTypeLeverage(
       throw new Error(`Unknown Type-leverage namespace '${shard.namespace}'.`);
     if (shard.disposition.toLowerCase() !== "complete")
       disposition = shard.disposition;
-    coverages.push(shard.coverage);
+    if (shard.signatureCoverage === null || shard.bodyCoverage !== null) {
+      throw new Error(
+        `Surface Type-leverage shard '${shard.namespace}' has invalid coverage.`,
+      );
+    }
+    coverages.push(shard.signatureCoverage);
     diagnostics.push(...shard.diagnostics);
 
     const rows = new Map<string, BrowserLibraryTypeLeverageRow>();
@@ -235,19 +248,120 @@ export function projectTypeLeverage(
       const pole = typeLeveragePole(row.pole);
       if (pole === null) continue;
       const parts = [
-        plural(row.signatureIncomingDegree, "incoming Type peer"),
-        plural(row.signatureOutgoingDegree, "outgoing Type peer"),
-        pole === "sea-level" ? "sea-level Type" : "mountain-peak Type",
+        plural(row.incomingDegree, "incoming Type peer"),
+        plural(row.outgoingDegree, "outgoing Type peer"),
+        pole === "sea-level"
+          ? "surface sea-level Type"
+          : "surface mountain-peak Type",
       ];
       if (pole === "sea-level")
         seaLevelCount++;
       else
         mountainPeakCount++;
-      byType.set(id, {
+      byType.set(id, [{
+        evidenceMode: "surface",
         pole,
         description: parts.join("; "),
-      });
+      }]);
     }
+  }
+
+  const warnings: string[] = [];
+  const implementation = document.implementation;
+  if (implementation.evidenceMode !== "body-use") {
+    throw new Error(
+      `Expected body-use implementation evidence; received '${implementation.evidenceMode}'.`,
+    );
+  }
+  if (implementation.outcome === "available") {
+    if (implementation.methodologyVersion !== methodologyVersion)
+      throw new Error("Type-leverage channels use different methodologies.");
+    if (implementation.namespaceIndex !== null
+      || implementation.failure !== null) {
+      throw new Error("Available implementation leverage has invalid state.");
+    }
+    if (implementation.typeLeverageShards.length
+      !== index.namespaces.length) {
+      throw new Error(
+        "Implementation Type leverage does not cover every namespace.",
+      );
+    }
+    const seenImplementationTypes = new Set<string>();
+    for (let position = 0;
+      position < implementation.typeLeverageShards.length;
+      position++) {
+      const bodyShard = implementation.typeLeverageShards[position]!;
+      const expectedNamespace = index.namespaces[position]!.namespace;
+      if (bodyShard.namespace !== expectedNamespace) {
+        throw new Error(
+          `Expected implementation Type-leverage shard '${expectedNamespace}' at index ${position}; received '${bodyShard.namespace}'.`,
+        );
+      }
+      if (bodyShard.signatureCoverage === null
+        || bodyShard.bodyCoverage === null) {
+        throw new Error(
+          `Implementation Type-leverage shard '${bodyShard.namespace}' has invalid coverage.`,
+        );
+      }
+      if (bodyShard.disposition.toLowerCase() !== "complete")
+        disposition = bodyShard.disposition;
+      diagnostics.push(...bodyShard.diagnostics);
+      const rows = new Map<string, BrowserLibraryTypeLeverageRow>();
+      for (const row of bodyShard.types) {
+        if (rows.has(row.typeDefinitionId)
+          || seenImplementationTypes.has(row.typeDefinitionId)) {
+          throw new Error(
+            `Duplicate implementation Type leverage row '${row.typeDefinitionId}'.`,
+          );
+        }
+        rows.set(row.typeDefinitionId, row);
+        seenImplementationTypes.add(row.typeDefinitionId);
+      }
+      validateOrder(
+        rows,
+        bodyShard.seaLevelOrder,
+        row => row.pole === "SeaLevel",
+        "Implementation sea-level",
+      );
+      validateOrder(
+        rows,
+        bodyShard.mountainPeakOrder,
+        row => row.pole === "MountainPeak",
+        "Implementation mountain-peak",
+      );
+      for (const [id, row] of rows) {
+        const pole = typeLeveragePole(row.pole);
+        if (pole === null) continue;
+        if (pole === "sea-level")
+          seaLevelCount++;
+        else
+          mountainPeakCount++;
+        const cue: TypeLeverageCue = {
+          evidenceMode: "implementation",
+          pole,
+          description: [
+            plural(row.incomingDegree, "incoming Type peer"),
+            plural(row.outgoingDegree, "outgoing Type peer"),
+            pole === "sea-level"
+              ? "implementation sea-level Type"
+              : "implementation mountain-peak Type",
+          ].join("; "),
+        };
+        const existing = byType.get(id);
+        if (existing) existing.push(cue);
+        else byType.set(id, [cue]);
+      }
+    }
+  } else {
+    if (implementation.failure === null)
+      throw new Error("Unavailable implementation leverage has no failure.");
+    warnings.push(
+      `Implementation Type leverage is unavailable${
+        implementation.failureKind
+          ? ` (${implementation.failureKind})`
+          : ""
+      }: ${implementation.failure}`,
+    );
   }
 
   return {
@@ -261,7 +375,8 @@ export function projectTypeLeverage(
     evidenceMode,
     disposition,
     coverage: sumCoverage(coverages),
-    diagnostics,
+    diagnostics: [...new Set(diagnostics)],
+    warnings,
   };
 }
 
@@ -329,7 +444,7 @@ export function createTypeLeverageCoordinator<TRequest>(
     const pending = {
       cacheGeneration: input.cacheGeneration,
       promise: dependencies.queryDocument(input.request).then(document => {
-        availableDocument(document);
+        availableSurface(document);
         if (ownsCacheGeneration(input))
           documents.set(input.libraryKey, document);
         if (pendingDocuments.get(input.libraryKey) === pending)

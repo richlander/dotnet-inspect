@@ -35,6 +35,7 @@ test("Relationships is the first and default Analysis mode", () => {
     modes,
     [
       "relationships",
+      "dependencies",
       "complexity",
       "performance",
       "integrations",
@@ -44,6 +45,7 @@ test("Relationships is the first and default Analysis mode", () => {
 
 for (const mode of [
   "complexity",
+  "dependencies",
   "relationships",
   "performance",
   "integrations",
@@ -59,9 +61,9 @@ for (const mode of [
     assert.equal(html.match(/<h1\b/g)?.length, 1);
     assert.match(html, /<h1 id="library-analysis-title">Analysis<\/h1>/);
     const header = html.match(/<header\b[^>]*>[\s\S]*?<\/header>/)?.[0] ?? "";
-    assert.equal(header.match(/role="tab"/g)?.length, 4);
+    assert.equal(header.match(/role="tab"/g)?.length, 5);
     assert.match(header, /<p title="Loading">Loading<\/p>[\s\S]*role="tablist"/);
-    assert.equal(html.match(/role="tab"/g)?.length, 4);
+    assert.equal(html.match(/role="tab"/g)?.length, 5);
     assert.equal(html.match(/aria-selected="true"/g)?.length, 1);
     assert.match(html, new RegExp(`data-analysis-mode="${mode}" aria-selected="true"`));
     assert.match(html, new RegExp(`role="tabpanel" aria-labelledby="analysis-mode-${mode}"`));
