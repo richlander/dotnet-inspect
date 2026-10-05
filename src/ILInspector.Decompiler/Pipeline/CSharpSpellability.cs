@@ -680,8 +680,6 @@ internal static class CSharpSpellability
             _ => null,
         };
 
-    static NameIssue? TypeIssue(TypeRef type) => TypeIssue(type, toleratesGeneratedTypeNames: false);
-
     /// <summary>
     /// The first unspellable-name defect in <paramref name="type"/>; with
     /// <paramref name="toleratesGeneratedTypeNames"/>, a type-name segment
@@ -689,7 +687,7 @@ internal static class CSharpSpellability
     /// is skipped, so only other defects (arity mismatches, unspellable
     /// non-generated names, generated generic-parameter names) are reported.
     /// </summary>
-    static NameIssue? TypeIssue(TypeRef type, bool toleratesGeneratedTypeNames)
+    static NameIssue? TypeIssue(TypeRef type, bool toleratesGeneratedTypeNames = false)
     {
         switch (type.Kind)
         {
