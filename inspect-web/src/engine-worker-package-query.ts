@@ -811,6 +811,7 @@ function parseRow(
     "rootRequest",
     "owners",
     "manifest",
+    "ecosystemAdmission",
   ], "Package Query row");
   const verified = row.verified === null
     ? null
@@ -882,6 +883,28 @@ function parseRow(
       budget,
       maximumOwnerItems),
     manifest: parseManifest(row.manifest, budget),
+    ecosystemAdmission: row.ecosystemAdmission === null
+      ? null
+      : (() => {
+          const admission = dataRecord(
+            row.ecosystemAdmission,
+            ["ecosystemId", "basis", "registration"],
+            "Package Query Ecosystem admission");
+          return {
+            ecosystemId: text(
+              admission.ecosystemId,
+              "Package Query Ecosystem identity",
+              budget),
+            basis: text(
+              admission.basis,
+              "Package Query Ecosystem membership basis",
+              budget),
+            registration: text(
+              admission.registration,
+              "Package Query Ecosystem registration",
+              budget),
+          };
+        })(),
   };
 }
 

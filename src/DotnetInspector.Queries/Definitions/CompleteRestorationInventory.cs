@@ -16,7 +16,47 @@ public sealed record CompleteRestorationPackageInventory(
     PackageCompileAssetSelection Selection,
     ImmutableArray<PackageContentEntry> Entries,
     ImmutableArray<CompleteRestorationPackageLibrary> Libraries,
-    AssemblyContextApiSurfaceResult Surface);
+    AssemblyContextApiSurfaceResult Surface)
+{
+    public static CompleteRestorationPackageInventory Capture(
+        string navigationId,
+        int contextIndex,
+        PackageRootBinding binding,
+        NavigationPackageEvaluation evaluation)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(navigationId);
+        ArgumentNullException.ThrowIfNull(binding);
+        ArgumentNullException.ThrowIfNull(evaluation);
+        if (binding.Root.Content is not IPackageContentEntryManifest manifest)
+        {
+            throw new InvalidOperationException(
+                $"Package '{binding.Root.PackageId}' has no retained entry "
+                    + "manifest for inventory capture.");
+        }
+        if (!evaluation.Occurrence.Occurrence.Package.Matches(binding))
+        {
+            throw new ArgumentException(
+                "The Package evaluation does not correspond to the exact "
+                    + "Package Root binding.",
+                nameof(evaluation));
+        }
+
+        return new(
+            navigationId,
+            contextIndex,
+            evaluation.Occurrence.Occurrence.Package,
+            binding.Root.AssetSelection,
+            [.. manifest.EnumerateEntriesWithLengths()],
+            [
+                .. evaluation.Libraries.Select(static library =>
+                    new CompleteRestorationPackageLibrary(
+                        library.Asset,
+                        new AssemblyContextSubject(
+                            library.Library.Participant.Assembly))),
+            ],
+            evaluation.Surface);
+    }
+}
 
 public sealed record CompleteRestorationPackageLibrary(
     PackageCompileAsset Asset,
@@ -61,30 +101,24 @@ internal static class CompleteRestorationInventories
             PackageRootBinding binding = roots.Single(
                 binding => PackageArtifactRootRequest.From(binding)
                     == requests[navigationId]);
-            if (binding.Root.Content is not IPackageContentEntryManifest manifest)
+            NavigationPackageEvaluation evaluation = evaluations[navigationId];
+            try
+            {
+                packages.Add(
+                    CompleteRestorationPackageInventory.Capture(
+                        navigationId,
+                        source.ContextIndex,
+                        binding,
+                        evaluation));
+            }
+            catch (InvalidOperationException ex)
             {
                 return new(
                     null,
                     new CompleteRestorationFailure.ProjectionFailed(
-                        $"Navigation row '{navigationId}' has no retained "
-                            + "Package entry manifest for inventory capture."));
+                        $"Navigation row '{navigationId}' inventory capture "
+                            + $"failed: {ex.Message}"));
             }
-
-            NavigationPackageEvaluation evaluation = evaluations[navigationId];
-            packages.Add(new(
-                navigationId,
-                source.ContextIndex,
-                evaluation.Occurrence.Occurrence.Package,
-                binding.Root.AssetSelection,
-                [.. manifest.EnumerateEntriesWithLengths()],
-                [
-                    .. evaluation.Libraries.Select(static library =>
-                        new CompleteRestorationPackageLibrary(
-                            library.Asset,
-                            new AssemblyContextSubject(
-                                library.Library.Participant.Assembly))),
-                ],
-                evaluation.Surface));
         }
 
         var platforms =
