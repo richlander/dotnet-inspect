@@ -30,9 +30,11 @@ public class StackSlotReuseRenderingTests
 
         var function = Function(Int32, block);
         new BooleanFoldingPass().Run(function, PassContext.None);
-        var output = CSharpPrinter.Print(function).Output!;
+        var output = PrintBound(function).Output!;
 
-        Assert.Contains("string S_0;", output);
+        // Bound pieces are plan-owned locals: declaration placement and
+        // initializer form follow the local-binding plan.
+        Assert.Contains("string S_0 = S_256;", output);
         Assert.Contains("int S_0_1", output);
         Assert.Contains("S_0_1 = S_256 is not null", output);
         Assert.Contains("S_0.Contains(\"x\") ? 1 : 0", output);
@@ -57,10 +59,10 @@ public class StackSlotReuseRenderingTests
 
         var function = Function(Void, block);
         new BooleanFoldingPass().Run(function, PassContext.None);
-        var output = CSharpPrinter.Print(function).Output!;
+        var output = PrintBound(function).Output!;
 
-        Assert.Contains("object S_0;", output);
-        Assert.Contains("bool S_0_1;", output);
+        Assert.Contains("object S_0 = value;", output);
+        Assert.Contains("bool S_0_1 = false;", output);
         Assert.DoesNotContain("int S_0_1", output);
         Assert.Contains("S_0_1 = false;", output);
         Assert.Contains("S_0_1 = flag;", output);
@@ -80,7 +82,7 @@ public class StackSlotReuseRenderingTests
         block.Add(new StoreField(field, null, new LoadStackSlot(0, Int32)));
         block.Add(new Return(null));
 
-        var output = CSharpPrinter.Print(Function(Void, block)).Output!;
+        var output = PrintBound(Function(Void, block)).Output!;
 
         Assert.Contains("bool S_0", output);
         Assert.Contains("Flag = S_0;", output);
@@ -91,10 +93,13 @@ public class StackSlotReuseRenderingTests
     [Fact]
     public void SubtypeStoresWithoutShapeEvidenceStaySplit()
     {
-        var output = CSharpPrinter.Print(SubtypeStoreSupertypeLoadFunction()).Output!;
+        var output = PrintBound(SubtypeStoreSupertypeLoadFunction()).Output!;
 
         Assert.Contains("string S_0;", output);
+        // The load-only object piece is a residual-bound local, so it is never
+        // zero-initialised: a piece read with no reaching store stays CS0165-visible.
         Assert.Contains("object S_0_1;", output);
+        Assert.DoesNotContain("S_0_1 = default;", output);
         Assert.Contains("Exception S_0_2;", output);
         Assert.Contains("S_0 = s;", output);
         Assert.Contains("S_0_1 = o;", output);
@@ -119,7 +124,7 @@ public class StackSlotReuseRenderingTests
         Assert.Equal(Object, Assert.Single(function.Locals));
         Assert.Empty(function.Descendants.OfType<StoreStackSlot>());
         Assert.Empty(function.Descendants.OfType<LoadStackSlot>());
-        var output = CSharpPrinter.Print(function).Output!;
+        var output = PrintBound(function).Output!;
 
         Assert.Contains("object S_0;", output);
         Assert.DoesNotContain("S_0_1", output);
@@ -144,6 +149,16 @@ public class StackSlotReuseRenderingTests
         block.Add(new ExpressionStatement(new Call(consumeObject, isVirtual: false, [new LoadStackSlot(0, Object)])));
         block.Add(new Return(null));
         return Function(Void, block);
+    }
+
+    /// <summary>
+    /// The printer's residual slot policy now runs as
+    /// <see cref="ResidualSlotBindingPass"/>; bind first, then print.
+    /// </summary>
+    static DecompilerResult PrintBound(IrFunction function)
+    {
+        new ResidualSlotBindingPass().Run(function, PassContext.None);
+        return CSharpPrinter.Print(function);
     }
 
     static Block BlockOf(IrNode statement)

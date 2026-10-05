@@ -56,7 +56,9 @@ public class CrossBlockSlotMaterializationTests
         var expectedType = variant == "integer" ? Int32 : Boolean;
         Assert.True(decision.WillMaterialize);
         Assert.Equal(expectedType, decision.Type);
-        Assert.Contains($"{(variant == "integer" ? "int" : "bool")} S_0", CSharpPrinter.Print(function).Output);
+        var bound = (IrFunction)function.Clone();
+        new ResidualSlotBindingPass().Run(bound, PassContext.None);
+        Assert.Contains($"{(variant == "integer" ? "int" : "bool")} S_0", CSharpPrinter.Print(bound).Output);
         var invariant = SlotMaterializationInvariant.Capture(function);
         new SlotMaterializationPass().Run(function, PassContext.None);
         invariant.Check();

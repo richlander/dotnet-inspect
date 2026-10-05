@@ -131,6 +131,8 @@ internal static class NativePasses
     public static TypedConstantsPass TypedConstants => new();
     [Native(NativeCategory.IlErasure, "typed-sink values wrapped in explicit Coerce nodes — the sink type IL erased, re-established as IR so the printer renders a decided tree")]
     public static CoercionInsertionPass CoercionInsertion => new();
+    [Native(NativeCategory.EmitArtifact, "evaluation-stack webs materialization declined bound to typed locals by the printer's frozen residual policy, then the shared coercion decision re-run to a fixpoint")]
+    public static ResidualSlotBindingPass ResidualSlotBinding => new();
     [Native(NativeCategory.IlErasure, "missing Param-row names assigned final collision-free presentation spellings after exact nested binders are known")]
     public static ParameterNameAllocationPass ParameterNameAllocation => new();
     [Native(NativeCategory.EmitArtifact, "decided synthetic stack slots (one testified type, every store exact, coercion-renderable, or covered by issued assignment testimony) materialized as typed locals, retiring their slot nodes from the printer")]

@@ -338,9 +338,9 @@ import { renderLibraryReferencesSurface } from "./library-references.ts";
 import { renderLibraryIntegrationsSurface } from "./library-integrations.ts";
 import {
   bindAnalysisTabs,
+  defaultAnalysisMode,
   isAnalysisMode,
   restoreAnalysisTabFocus,
-  type AnalysisMode,
 } from "./analysis-inspector.ts";
 import { renderLibraryAnalysisSurface } from "./library-analysis.ts";
 import {
@@ -1501,7 +1501,7 @@ const initialState = {
   libraryApiDiff: { status: "idle" as const },
   compareClone: { status: "idle" as const } as CompareCloneState,
   compareCloneSelectedRank: null as number | null,
-  analysisMode: "performance" as AnalysisMode,
+  analysisMode: defaultAnalysisMode,
   workspaceOccurrences: null,
   workspaceOccurrenceSignature: "",
   workspaceOccurrenceLoading: false,
@@ -6111,7 +6111,7 @@ function clearWorkspacePackages() {
   state.platformPresentedAsRoot = false;
   state.platformSlot = -1;
   state.rootKind = "package";
-  state.analysisMode = "performance";
+  state.analysisMode = defaultAnalysisMode;
   for (const packageModel of discarded) {
     packageModel.platformContextId = null;
     releasePackageModelCaches(packageModel);

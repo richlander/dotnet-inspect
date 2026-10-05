@@ -4,6 +4,7 @@ import { stripTypeScriptTypes } from "node:module";
 import { runInNewContext } from "node:vm";
 import test from "node:test";
 import { parseSync } from "oxc-parser";
+import { defaultAnalysisMode } from "../src/analysis-inspector.ts";
 import { createCatalogRequests } from "../src/catalog-requests.ts";
 import {
   createPackageComparisonTargets,
@@ -552,7 +553,12 @@ function harness() {
     },
   };
   const context = {
-    state, location, history, document, workspaceLocation: asyncWorkspaceLocation,
+    state,
+    location,
+    history,
+    document,
+    defaultAnalysisMode,
+    workspaceLocation: asyncWorkspaceLocation,
     engineClient: {
       catalog: {
         captureCompleteWorkspaceShareState: async (
