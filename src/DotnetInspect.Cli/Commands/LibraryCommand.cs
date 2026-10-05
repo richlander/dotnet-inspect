@@ -1875,6 +1875,28 @@ public partial class LibraryCommand
                         options,
                         rootPackageDirectory: null);
                 }
+                if (subject.AssemblyReference is { } exactAssembly
+                    && CanExecuteDirectLibraryDocumentOnly(
+                        options,
+                        discoveryInspection,
+                        fullEffectiveDiscovery,
+                        sectionPlan,
+                        queries))
+                {
+                    // A complete direct compact context is exactly the
+                    // facts-only Library document plus host provenance.
+                    LibraryDocumentInspection directDocumentInspection =
+                        await LibraryDocumentInspection.ReadExactAsync(
+                            exactAssembly,
+                            AssemblyContextLibraryRole.ApiOnly);
+
+                    OutputFormatter.WriteLibraryDocumentContext(
+                        new LibraryPresentationContext(
+                            Path.GetFileName(assemblyPath),
+                            SourceKind.File),
+                        directDocumentInspection);
+                    return 0;
+                }
 
                 // Network-free SourceLink availability probe (see platform branch).
                 bool sourceLinkAvailable = fullEffectiveDiscovery
@@ -4313,6 +4335,45 @@ public partial class LibraryCommand
         }
         PersistentCache.Set(EffectiveCategory, key, sb.ToString(), extension: "tsv");
     }
+
+    private static bool CanExecuteDirectLibraryDocumentOnly(
+        LibraryOptions options,
+        bool discoveryInspection,
+        bool fullEffectiveDiscovery,
+        SectionQueryPlan sectionPlan,
+        IReadOnlyCollection<InspectionQueryDefinition> queries) =>
+        options.Verbosity == Verbosity.Quiet
+        && options.IncludeSections is not { Count: > 0 }
+        && options.Select is not { Length: > 0 }
+        && !options.SelectDefault
+        && options.Discover is null
+        && !options.Effective
+        && !options.FixedOverview
+        && !discoveryInspection
+        && !fullEffectiveDiscovery
+        && options.AddressRequest is null
+        && sectionPlan.Demands.IsEmpty
+        && queries.Count == 0
+        && !options.IsRawOutput
+        && !options.PlainText
+        && !options.TabularExplicitlySet
+        && !options.Trace
+        && !options.Verbose
+        && options.Columns is null
+        && options.Fields is null
+        && options.Rows is null
+        && !options.Schema
+        && !options.Tree
+        && !options.IncludeReferences
+        && !options.IncludeDependencies
+        && !options.CollectIdentifierConfusionReferenceTree
+        && options.ReferenceHierarchyDepth is null
+        && options.TypeFilter is null
+        && !options.PreferRenderedUrls
+        && string.IsNullOrEmpty(options.ExtractResources)
+        && !options.IntegrationQuery.HasFilter
+        && !options.PerformanceTriage.HasFilters
+        && !options.BodyKindQuery.HasFilter;
 
     /// <summary>
     /// SHA-256 of an assembly's bytes, or <see langword="null"/> when they cannot be read.

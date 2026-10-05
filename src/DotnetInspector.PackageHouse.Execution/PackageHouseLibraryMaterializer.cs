@@ -10,25 +10,57 @@ namespace DotnetInspector.Packages;
 public static class PackageHouseLibraryMaterializer
 {
     public static ValueTask<
+        PackageHouseLibraryMaterializationOutcome>
+        MaterializeSelectionAsync(
+            PackageHouseSettlement.Acquired settlement,
+            PackageHouseLibraryHandoff.Compile handoff,
+            PackageHouseLibraryMaterializationLimits? limits = null,
+            CancellationToken cancellationToken = default) =>
+        MaterializeCoreAsync(
+            settlement,
+            handoff,
+            includeImplementation: false,
+            PackageHouseLibraryOptionalArtifacts.None,
+            limits,
+            cancellationToken);
+
+    public static ValueTask<
         PackageHouseLibraryMaterializationOutcome> MaterializeAsync(
         PackageHouseSettlement.Acquired settlement,
         PackageHouseLibraryHandoff.Compile handoff,
         PackageHouseLibraryMaterializationLimits? limits = null,
         CancellationToken cancellationToken = default) =>
-        MaterializeAsync(
+        MaterializeCoreAsync(
             settlement,
             handoff,
+            includeImplementation: true,
             PackageHouseLibraryOptionalArtifacts.None,
             limits,
             cancellationToken);
 
-    public static async ValueTask<
+    public static ValueTask<
         PackageHouseLibraryMaterializationOutcome> MaterializeAsync(
         PackageHouseSettlement.Acquired settlement,
         PackageHouseLibraryHandoff.Compile handoff,
         PackageHouseLibraryOptionalArtifacts optionalArtifacts,
         PackageHouseLibraryMaterializationLimits? limits = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        MaterializeCoreAsync(
+            settlement,
+            handoff,
+            includeImplementation: true,
+            optionalArtifacts,
+            limits,
+            cancellationToken);
+
+    private static async ValueTask<
+        PackageHouseLibraryMaterializationOutcome> MaterializeCoreAsync(
+        PackageHouseSettlement.Acquired settlement,
+        PackageHouseLibraryHandoff.Compile handoff,
+        bool includeImplementation,
+        PackageHouseLibraryOptionalArtifacts optionalArtifacts,
+        PackageHouseLibraryMaterializationLimits? limits,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(settlement);
         ArgumentNullException.ThrowIfNull(handoff);
@@ -59,7 +91,8 @@ public static class PackageHouseLibraryMaterializer
                 implementationAsset,
                 handoff.Asset);
         string? implementationPath =
-            implementationAsset is null
+            !includeImplementation
+            || implementationAsset is null
             || oneAssemblyServesBothRoles
                 ? null
                 : implementationAsset.Path;
@@ -75,7 +108,8 @@ public static class PackageHouseLibraryMaterializer
         }
 
         string? portablePdbPath =
-            implementationAsset is null
+            !includeImplementation
+            || implementationAsset is null
             || optionalArtifacts
                 != PackageHouseLibraryOptionalArtifacts
                     .ImplementationPortablePdb
@@ -540,10 +574,19 @@ public static class PackageHouseLibraryMaterializer
         }
 
         if (settlement.Result.Evidence.Realization
-                is not PackageHouseRealizationReceipt.Compile realization
-            || !ReferenceEquals(realization.Receipt, handoff.Receipt)
-            || !realization.LibraryHandoffs.Any(candidate =>
+                is PackageHouseRealizationReceipt.Compile realization
+            && ReferenceEquals(realization.Receipt, handoff.Receipt)
+            && realization.LibraryHandoffs.Any(candidate =>
                 ReferenceEquals(candidate, handoff)))
+        {
+            return null;
+        }
+
+        if (settlement.Result.Evidence.LibraryAndInventory
+                is not { } libraryAndInventory
+            || !ReferenceEquals(
+                libraryAndInventory.SelectedLibrary,
+                handoff))
         {
             return PackageHouseLibraryMaterializationFailureKind
                 .InvalidHandoff;

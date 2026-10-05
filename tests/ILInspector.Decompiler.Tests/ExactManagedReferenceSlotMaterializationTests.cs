@@ -130,8 +130,14 @@ public class ExactManagedReferenceSlotMaterializationTests
             body);
 
         new SlotMaterializationPass().Run(function, PassContext.None);
+        new ResidualSlotBindingPass().Run(function, PassContext.None);
         string output = CSharpPrinter.Print(function).Output!;
 
+        // The load-only residual piece is a plan-owned local now, but a
+        // residual-bound local is never zero-initialised (its unreached read
+        // stays CS0165-visible); it still precedes the materialized ref local's
+        // up-front declaration.
+        Assert.DoesNotContain("S_0 = default;", output);
         int residualDeclaration = output.IndexOf(
             "int S_0;",
             StringComparison.Ordinal);
@@ -440,12 +446,19 @@ public class ExactManagedReferenceSlotMaterializationTests
             SlotMaterializationVeto.MissingStore));
         new SlotMaterializationPass().Run(function, PassContext.None);
 
+        // Residual storage binding rejects the managed-reference web first;
+        // the printer's unconditional boundary rejects whatever reaches it.
+        var binding = Assert.Throws<InvalidOperationException>(
+            () => new ResidualSlotBindingPass().Run(function, PassContext.None));
+        Assert.Equal(
+            "M: managed-reference stack slot 0 reached residual storage binding after slot materialization.",
+            binding.Message);
         var result = CSharpPrinter.Print(function);
         Assert.False(result.Succeeded);
         var diagnostic = Assert.Single(result.Diagnostics);
         Assert.Equal(DiagnosticIds.InternalError, diagnostic.Id);
         Assert.Equal(
-            "InvalidOperationException: Managed-reference stack slot 0 reached C# emission after slot materialization.",
+            "InvalidOperationException: Stack slot 0 reached C# emission without residual storage binding.",
             diagnostic.Message);
     }
 
@@ -488,12 +501,15 @@ public class ExactManagedReferenceSlotMaterializationTests
         Assert.True(
             managedReference.WillMaterialize,
             managedReference.Vetoes.ToString());
-        var neighboringResidual = Assert.Single(
+        // The neighbouring slot-1 web is read only as an `object` argument of
+        // AppendFormatted<object>; since the argument-sink testimony slice
+        // (#9371) that parameter type decides it, so it materializes beside the
+        // managed reference instead of staying an underivable residual.
+        var neighboringWeb = Assert.Single(
             decisions,
             decision => decision.Slot == 1);
-        Assert.Equal(
-            SlotMaterializationVeto.UnderivableTypeTestimony,
-            neighboringResidual.Vetoes);
+        Assert.Equal(SlotMaterializationVeto.None, neighboringWeb.Vetoes);
+        Assert.True(neighboringWeb.WillMaterialize);
 
         foreach (var pass in passes.Skip(materializationIndex))
             pass.Run(function, context);
@@ -508,16 +524,20 @@ public class ExactManagedReferenceSlotMaterializationTests
                 {
                     Type.Kind: TypeRefKind.ByRef,
                 });
-        Assert.Contains(
+        // Both webs are materialized, so no slot node reaches the printer and
+        // ResidualSlotBindingPass has nothing left to bind in this body.
+        Assert.DoesNotContain(
             function.DescendantsOutsideNestedFunctions,
-            node => node is StoreStackSlot { Slot: 1 }
-                or LoadStackSlot { Slot: 1 });
+            node => node is StoreStackSlot or LoadStackSlot);
+        Assert.DoesNotContain(
+            function.ResidualSlotBindings.Values,
+            binding => binding.Slot == 1);
         string output = CSharpPrinter.Print(function).Output!;
         Assert.Contains(
             "ref DefaultInterpolatedStringHandler S_0 = ref V_0;",
             output);
         Assert.Contains(
-            "ITypeSymbol S_1 = Type is not null ? Type : \"null\";",
+            "object S_1 = Type is not null ? Type : \"null\";",
             output);
         Assert.Contains("S_0.AppendFormatted(S_1, 0, null);", output);
         function.CheckInvariant(includeSemantics: true);

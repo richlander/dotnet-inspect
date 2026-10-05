@@ -110,9 +110,9 @@ coordinate field views are fixed except for the enclosing exception-region
 inventory. `SourceLink: Missing Files` retains every missing document rather
 than truncating the explicitly requested evidence.
 
-For package inspection, Target Frameworks, Package nuspec file, Dependencies,
+For package inspection, Target Frameworks, Nuspec, Dependencies,
 Ecosystem Dependencies, Vulnerabilities, Manifest, Runtime Dependencies, and
-Package skill files are `Verbose`; they enter automatic output at `-v:d`, not
+Skills are `Verbose`; they enter automatic output at `-v:d`, not
 `-v:n`. Exact section selection and the `@Package`, `@Files`, `@Dependencies`,
 or `@Audit` doors remain available. The explicit-only whole-package and
 license-file listings remain outside every automatic verbosity preset.
@@ -220,7 +220,7 @@ Diff`, and `Implementation Diff` views. Its focused, non-composable
 exact-name sections, as do the `Summary` and `Transitions` views of an
 `--analysis` result.
 Project uses `@Project` as its base category for package-authored `Skills` and
-`Package README file` documents from restored direct dependencies. Selecting
+`README` documents from restored direct dependencies. Selecting
 `@Project` explicitly requests both inventories.
 Vocabulary uses `@Vocabulary` as its base category. `@API` and `@Decompiler`
 select the vocabularies consumed by those query families; bare output retains

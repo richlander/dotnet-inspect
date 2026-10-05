@@ -337,14 +337,17 @@ import { renderLibraryReferencesSurface } from "./library-references.ts";
 import { renderLibraryIntegrationsSurface } from "./library-integrations.ts";
 import {
   bindAnalysisTabs,
+  defaultAnalysisMode,
   isAnalysisMode,
   restoreAnalysisTabFocus,
-  type AnalysisMode,
 } from "./analysis-inspector.ts";
 import { renderLibraryAnalysisSurface } from "./library-analysis.ts";
 import {
   bindLibraryMetricsInteractions,
+  renderLibraryDependencyStructureSurface,
   renderLibraryMetricsSurface,
+  type LibraryAnalysisOptions,
+  type LibraryDependencyStructureState,
   type LibraryMetricsMode,
   type LibraryMetricsRelationshipState,
 } from "./library-metrics.ts";
@@ -356,6 +359,7 @@ import {
 } from "./member-focus.ts";
 import {
   buildAnnotatedRelationshipGraphMermaid,
+  buildAssemblyReferenceGraphMermaid,
   buildDependencyGraphMermaid,
   buildTypeGraphMermaid,
   resolveMermaidCssVariables,
@@ -457,7 +461,6 @@ import {
 } from "./annotated-source.ts";
 import {
   bindPackageOpportunities,
-  renderPackageOpportunities as renderPackageOpportunitiesPure,
 } from "./package-opportunities.ts";
 import {
   bindContentFrame,
@@ -669,6 +672,7 @@ import {
 import {
   bindEcosystemPackageDiscovery,
   renderEcosystemPackageDiscovery,
+  type EcosystemPackageAddState,
   type EcosystemPackageCapacity,
 } from "./ecosystem-package-discovery.ts";
 import {
@@ -811,6 +815,7 @@ import type {
 import type {
   BrowserHomeDemoRunActivation,
   BrowserHomeDemoRunResult,
+  BrowserEcosystemPackageWorkspaceAdmissionResult,
   BrowserPackageSurface as CatalogPackageSurface,
   BrowserRetainedWorkspaceActivationResult,
   BrowserRetainedWorkspacePackage,
@@ -987,6 +992,7 @@ async function loadEngineModule() {
       await worker.ready;
       return;
     }
+
     worker = workerModule.createProductionEngineWorkerClient(origin, {
       callbacks: {
         failure: failure => {
@@ -1455,6 +1461,12 @@ const initialState = {
   packageLibraryMetricsKey: "",
   packageLibraryMetricsRelationshipState:
     null as LibraryMetricsRelationshipState | null,
+  packageLibraryDependencyStructureState: {
+    includeGlobalNamespace: false,
+    selectedSourceNamespace: null,
+    selectedTargetNamespace: null,
+  } as LibraryDependencyStructureState,
+  packageLibraryDependencyStructureStateKey: "",
   packageLibraryDependencyStructure: null,
   packageLibraryDependencyStructureLoading: false,
   packageLibraryDependencyStructureError: "",
@@ -1500,7 +1512,7 @@ const initialState = {
   libraryApiDiff: { status: "idle" as const },
   compareClone: { status: "idle" as const } as CompareCloneState,
   compareCloneSelectedRank: null as number | null,
-  analysisMode: "performance" as AnalysisMode,
+  analysisMode: defaultAnalysisMode,
   workspaceOccurrences: null,
   workspaceOccurrenceSignature: "",
   workspaceOccurrenceLoading: false,
@@ -3561,6 +3573,7 @@ interface EcosystemPackageDiscoveryState {
   capacity: EcosystemPackageCapacity;
   pendingCapacity: EcosystemPackageCapacity | null;
   navigationError: string;
+  packageAddStates: Map<string, EcosystemPackageAddState>;
   query: PackageQueryState;
 }
 
@@ -3569,8 +3582,16 @@ const ecosystemPackageDiscovery: EcosystemPackageDiscoveryState = {
   capacity: 24,
   pendingCapacity: null,
   navigationError: "",
+  packageAddStates: new Map(),
   query: initialQueryState(),
 };
+let ecosystemPackageAdmissionInFlight: {
+  readonly ecosystemId: string;
+  readonly retainedDefinitionId: string;
+  readonly realizationId: string;
+  readonly publicationOrdinal: number;
+  readonly key: string;
+} | null = null;
 let ecosystemPackageQueryRenderFrame: number | null = null;
 
 function scheduleEcosystemPackageQueryRender(): void {
@@ -4688,6 +4709,8 @@ const loadMarkdownModules =
   retainSuccessfulImport<[MarkedModule, DomPurifyModule]>(
     () => Promise.all([import("marked"), import("dompurify")]));
 const depGraphRenderSequence = createDependencyGraphRenderSequence();
+const libraryReferenceGraphRenderSequence =
+  createDependencyGraphRenderSequence();
 let mermaidRenderSequence = 0;
 let callGraphRenderSeq = 0;
 type CallGraphRenderResult =
@@ -5244,9 +5267,10 @@ function createTypeLeverageTarget(
     const row = platformLibraryForRequest(pkg, library.id);
     const assemblyFileName = platformAssemblyRequest(row);
     const salienceLibraryKey = JSON.stringify([
-      "library-structural-salience",
+      "library-type-leverage",
+      2,
       "structural-salience.v3",
-      "signature",
+      "signature+body-use",
       generation,
       "platform",
       pkg.activeFramework,
@@ -5269,9 +5293,10 @@ function createTypeLeverageTarget(
   }
 
   const salienceLibraryKey = JSON.stringify([
-    "library-structural-salience",
+    "library-type-leverage",
+    2,
     "structural-salience.v3",
-    "signature",
+    "signature+body-use",
     generation,
     "package",
     pkg.id,
@@ -6097,7 +6122,7 @@ function clearWorkspacePackages() {
   state.platformPresentedAsRoot = false;
   state.platformSlot = -1;
   state.rootKind = "package";
-  state.analysisMode = "performance";
+  state.analysisMode = defaultAnalysisMode;
   for (const packageModel of discarded) {
     packageModel.platformContextId = null;
     releasePackageModelCaches(packageModel);
@@ -6447,19 +6472,17 @@ function typeLeverageStatus() {
   const qualified = currentTypeLeveragePresentations().filter(
     ({ presentation }) =>
       presentation.disposition.toLowerCase() !== "complete"
-      || presentation.diagnostics.length > 0,
+      || presentation.diagnostics.length > 0
+      || presentation.warnings.length > 0,
   );
   if (qualified.length === 0) return "";
   const diagnostics = qualified.flatMap(
-    ({ presentation }) => presentation.diagnostics);
-  const examined = qualified.reduce(
-    (sum, { presentation }) => sum + presentation.coverage.examined,
-    0);
-  const considered = qualified.reduce(
-    (sum, { presentation }) => sum + presentation.coverage.considered,
-    0);
+    ({ presentation }) => [
+      ...presentation.warnings,
+      ...presentation.diagnostics,
+    ]);
   return `<div class="metadata-warning" aria-live="polite">
-    <small>Structural salience has qualified evidence · ${examined}/${considered} examined${diagnostics.length ? `<br>${diagnostics.map(escapeHtml).join("<br>")}` : ""}</small>
+    <small>Structural salience has qualified evidence${diagnostics.length ? `<br>${diagnostics.map(escapeHtml).join("<br>")}` : ""}</small>
     <button type="button" class="tiny-button" data-type-leverage-retry>Retry</button>
   </div>`;
 }
@@ -9240,7 +9263,6 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
     maybeAutoLoadLibraryEnablements();
     maybeAutoLoadPackageDependencies();
     maybeAutoLoadPackageIntegrations();
-    maybeAutoLoadPackageOpportunities();
     maybeAutoLoadPackagePerformance();
     maybeAutoLoadPackageLibraryMetrics();
     maybeAutoLoadTypeLeverage();
@@ -9354,6 +9376,7 @@ function resetEcosystemPackageDiscovery(): void {
   ecosystemPackageDiscovery.capacity = 24;
   ecosystemPackageDiscovery.pendingCapacity = null;
   ecosystemPackageDiscovery.navigationError = "";
+  ecosystemPackageDiscovery.packageAddStates.clear();
   const initial = initialQueryState();
   ecosystemPackageDiscovery.query.request = initial.request;
   ecosystemPackageDiscovery.query.outcome = initial.outcome;
@@ -9391,6 +9414,253 @@ async function raiseEcosystemPackageCapacity(
   ecosystemPackageDiscovery.pendingCapacity = null;
   if (!granted) ecosystemPackageDiscovery.capacity = previous;
   render();
+}
+
+async function addEcosystemPackageToWorkspace(
+  packageId: string,
+  version: string,
+): Promise<void> {
+  const ecosystemId = ecosystemPackageDiscovery.ecosystemId;
+  const posting = activeRetainedWorkspacePosting;
+  const row = ecosystemPackageDiscovery.query.outcome.rows.find(candidate =>
+    candidate.packageId.toLowerCase() === packageId.toLowerCase()
+    && candidate.version.toLowerCase() === version.toLowerCase());
+  const admission = row?.ecosystemAdmission;
+  if (ecosystemId === null
+    || posting === null
+    || row === undefined
+    || admission === null
+    || admission === undefined) {
+    throw new Error(
+      "The Ecosystem Package admission is no longer available.",
+    );
+  }
+
+  const key = `${row.packageId}\u0000${row.version}`;
+  if (ecosystemPackageAdmissionInFlight !== null) return;
+  const inFlightAdmission = {
+    ecosystemId,
+    retainedDefinitionId: posting.retainedDefinitionId,
+    realizationId: posting.realizationId,
+    publicationOrdinal: posting.publicationOrdinal,
+    key,
+  };
+  ecosystemPackageAdmissionInFlight = inFlightAdmission;
+  ecosystemPackageDiscovery.packageAddStates.set(key, { status: "adding" });
+  render({ synchronizeUrl: false });
+
+  const navigationSeq = navigationSequence.begin();
+  let result: BrowserEcosystemPackageWorkspaceAdmissionResult | null = null;
+  let navigationAuthority:
+    readonly [string, number, string, string, string, string] | null = null;
+  let navigationSettled = false;
+  try {
+    result = await engineClient.catalog.admitEcosystemPackageToWorkspace(
+      posting.retainedDefinitionId,
+      posting.realizationId,
+      row.packageId,
+      row.version,
+      admission.ecosystemId,
+      admission.basis,
+      admission.registration,
+    );
+    const sameRealization = () => {
+      const retained = retainedWorkspacePostings.get(
+        posting.retainedDefinitionId);
+      return retainedWorkspaceActivation?.state.activeDefinitionId
+          === posting.retainedDefinitionId
+        && retained?.realizationId === posting.realizationId
+        && retained.publicationOrdinal === posting.publicationOrdinal;
+    };
+    const current = () =>
+      navigationSequence.isCurrent(navigationSeq)
+      && ecosystemPackageDiscovery.ecosystemId === ecosystemId
+      && sameRealization();
+    if (!current()) {
+      if (result.posting !== null) {
+        if (result.navigation !== null) {
+          navigationAuthority = managedNavigationAuthority(
+            result.posting,
+            result.navigation,
+          );
+          await recordManagedNavigationPosting(
+            result.navigation,
+            navigationAuthority,
+          );
+          const acknowledged = await engineClient.catalog
+            .acknowledgeRetainedWorkspaceNavigation(...navigationAuthority);
+          if (acknowledged !== "accepted") {
+            throw new Error(
+              `Managed Navigation acknowledgement returned '${acknowledged}'.`,
+            );
+          }
+          navigationSettled = true;
+        } else if (!sameRealization()) {
+          return;
+        }
+        if (!sameRealization()) return;
+        activeRetainedWorkspacePosting = result.posting;
+        retainedWorkspacePostings.set(
+          result.posting.retainedDefinitionId,
+          result.posting,
+        );
+        if (ecosystemPackageDiscovery.ecosystemId === ecosystemId) {
+          retainedWorkspacePresentation =
+            createNavigationDescriptorPresentation(result.posting);
+          ecosystemPackageDiscovery.packageAddStates.set(
+            key,
+            result.status === "admitted" || result.status === "noEffect"
+              ? { status: "added" }
+              : {
+                  status: "failed",
+                  message: result.message ?? "Package admission failed.",
+                },
+          );
+          render({ synchronizeUrl: false });
+        }
+      } else if (ecosystemPackageDiscovery.ecosystemId === ecosystemId) {
+        ecosystemPackageDiscovery.packageAddStates.set(key, {
+          status: "failed",
+          message: result.status === "superseded"
+            ? "The active Workspace changed before Package admission."
+            : result.message ?? "Package admission failed.",
+        });
+        render({ synchronizeUrl: false });
+      }
+      return;
+    }
+    if (result.status === "superseded") {
+      ecosystemPackageDiscovery.packageAddStates.set(key, {
+        status: "failed",
+        message: "The active Workspace changed before Package admission.",
+      });
+      render({ synchronizeUrl: false });
+      return;
+    }
+    if (result.posting === null) {
+      if (result.status === "failed") {
+        ecosystemPackageDiscovery.packageAddStates.set(key, {
+          status: "failed",
+          message: result.message ?? "Package admission failed.",
+        });
+        render({ synchronizeUrl: false });
+        return;
+      }
+      throw new Error(
+        `Ecosystem Package admission '${result.status}' omitted its posting.`,
+      );
+    }
+
+    if (result.navigation !== null) {
+      navigationAuthority = managedNavigationAuthority(
+        result.posting,
+        result.navigation,
+      );
+      await recordManagedNavigationPosting(
+        result.navigation,
+        navigationAuthority,
+      );
+    }
+
+    if (!current()) {
+      if (navigationAuthority !== null) {
+        const acknowledged = await engineClient.catalog
+          .acknowledgeRetainedWorkspaceNavigation(...navigationAuthority);
+        if (acknowledged !== "accepted") {
+          throw new Error(
+            `Managed Navigation acknowledgement returned '${acknowledged}'.`,
+          );
+        }
+        navigationSettled = true;
+      } else if (!sameRealization()) {
+        return;
+      }
+      if (!sameRealization()) return;
+      activeRetainedWorkspacePosting = result.posting;
+      retainedWorkspacePostings.set(
+        result.posting.retainedDefinitionId,
+        result.posting,
+      );
+      if (ecosystemPackageDiscovery.ecosystemId === ecosystemId) {
+        retainedWorkspacePresentation =
+          createNavigationDescriptorPresentation(result.posting);
+        ecosystemPackageDiscovery.packageAddStates.set(
+          key,
+          result.status === "admitted" || result.status === "noEffect"
+            ? { status: "added" }
+            : {
+                status: "failed",
+                message: result.message ?? "Package admission failed.",
+              },
+        );
+        render({ synchronizeUrl: false });
+      }
+      return;
+    }
+
+    const authorityToAcknowledge = navigationAuthority;
+    const settlement = await commitManagedSpotlightSelection({
+      isCurrent: current,
+      commit: () => {
+        activeRetainedWorkspacePosting = result!.posting;
+        retainedWorkspacePostings.set(
+          result!.posting!.retainedDefinitionId,
+          result!.posting!,
+        );
+        retainedWorkspacePresentation =
+          createNavigationDescriptorPresentation(result!.posting!);
+        ecosystemPackageDiscovery.packageAddStates.set(
+          key,
+          result!.status === "admitted" || result!.status === "noEffect"
+            ? { status: "added" }
+            : {
+                status: "failed",
+                message: result!.message ?? "Package admission failed.",
+              },
+        );
+        render({ synchronizeUrl: false });
+      },
+      ...(authorityToAcknowledge === null
+        ? {}
+        : {
+            acknowledge: () =>
+              engineClient.catalog
+                .acknowledgeRetainedWorkspaceNavigation(
+                  ...authorityToAcknowledge,
+                ),
+          }),
+    });
+    navigationSettled = settlement.acknowledged;
+    if (!settlement.committed || !settlement.current) return;
+  } catch (error) {
+    if (navigationAuthority !== null && !navigationSettled) {
+      const abandoned = await engineClient.catalog
+        .abandonRetainedWorkspaceNavigation(...navigationAuthority);
+      if (abandoned !== "accepted" && abandoned !== "invalidAuthority") {
+        throw new AggregateError(
+          [error, new Error(
+            `Managed Navigation abandonment returned '${abandoned}'.`,
+          )],
+          "Ecosystem Package admission and Navigation abandonment failed.",
+          { cause: error },
+        );
+      }
+    }
+    if (ecosystemPackageDiscovery.ecosystemId === ecosystemId) {
+      ecosystemPackageDiscovery.packageAddStates.set(key, {
+        status: "failed",
+        message: errorMessage(error) || "Package admission failed.",
+      });
+      render({ synchronizeUrl: false });
+    }
+  } finally {
+    if (ecosystemPackageAdmissionInFlight === inFlightAdmission) {
+      ecosystemPackageAdmissionInFlight = null;
+      if (ecosystemPackageDiscovery.ecosystemId !== null) {
+        render({ synchronizeUrl: false });
+      }
+    }
+  }
 }
 
 function renderRetainedEcosystemView(
@@ -9439,7 +9709,26 @@ function renderRetainedEcosystemView(
               </div>
             </header>
             ${renderEcosystemPackageDiscovery(
-              ecosystemPackageDiscovery,
+              {
+                ...ecosystemPackageDiscovery,
+                admissionPending:
+                  ecosystemPackageAdmissionInFlight !== null,
+                pendingAdmissionKey:
+                  ecosystemPackageAdmissionInFlight?.ecosystemId
+                    === ecosystemPackageDiscovery.ecosystemId
+                  && retainedWorkspaceActivation?.state.activeDefinitionId
+                    === ecosystemPackageAdmissionInFlight.retainedDefinitionId
+                  && retainedWorkspacePostings.get(
+                    ecosystemPackageAdmissionInFlight.retainedDefinitionId)
+                    ?.realizationId
+                    === ecosystemPackageAdmissionInFlight.realizationId
+                  && retainedWorkspacePostings.get(
+                    ecosystemPackageAdmissionInFlight.retainedDefinitionId)
+                    ?.publicationOrdinal
+                    === ecosystemPackageAdmissionInFlight.publicationOrdinal
+                    ? ecosystemPackageAdmissionInFlight.key
+                    : null,
+              },
               escapeHtml)}
           </article>
         </section>
@@ -9474,6 +9763,11 @@ function renderRetainedEcosystemView(
           undefined,
           "ecosystem"),
         "Opening an Ecosystem package");
+    },
+    onPackageAdd: (packageId, version) => {
+      observeAsync(
+        addEcosystemPackageToWorkspace(packageId, version),
+        "Adding an Ecosystem package to the Workspace");
     },
   });
 }
@@ -9777,13 +10071,12 @@ function renderTypeNavPane(
     itemAchievements: (item: TypeInventoryRow) => {
       if (isForwardedType(item)) return [];
       const presentation = currentTypeLeveragePresentation(item);
-      const leverage = presentation?.byType.get(
-        item.definitionId ?? item.id,
-      );
       const achievements: ItemAchievement[] = [];
-      if (leverage) {
+      for (const leverage of presentation?.byType.get(
+        item.definitionId ?? item.id,
+      ) ?? []) {
         achievements.push({
-          kind: leverage.pole,
+          kind: `${leverage.evidenceMode}-${leverage.pole}`,
           description: leverage.description,
         });
       }
@@ -10072,9 +10365,10 @@ function libraryLensBody() {
           return renderPackageLibraryMetrics("complexity");
         case "relationships":
           return renderPackageLibraryMetrics("relationships");
+        case "dependencies":
+          return renderPackageLibraryDependencyStructure();
         case "performance": return renderPackagePerformance();
         case "integrations": return renderPackageIntegrations();
-        case "opportunities": return renderPackageOpportunities();
         default: return assertNever(state.analysisMode, "analysis mode");
       }
     case "metadata": return renderPackageMetadata();
@@ -10615,6 +10909,10 @@ function maybeAutoLoadPackageDependencies() {
       observeAsync(renderPackageDependencyList(), "Matching dependency packages");
       observeAsync(renderDependencyGraph(), "Rendering the dependency graph");
       observeAsync(ensureWorkspaceDependencies(), "Loading workspace dependencies");
+    } else if (libraryReferences && state.packageDependencies) {
+      observeAsync(
+        renderLibraryReferenceGraph(),
+        "Rendering the assembly-reference graph");
     }
     return;
   }
@@ -10648,6 +10946,8 @@ function packageIntegrationsSignature() {
   return `${pkg.id}@${pkg.version}/${pkg.activeFramework}${lib ? `#${lib}` : ""}`;
 }
 
+let startingPackageIntegrations = false;
+
 function renderPackageIntegrations() {
   const pkg = currentPackage();
   const library = selectedLibrary();
@@ -10660,12 +10960,17 @@ function renderPackageIntegrations() {
     assetPath: library?.asset ?? "",
     coordinate: `${pkg.activeFramework} · ${pkg.id}@${pkg.version}`,
     requireLibrary: pkg.isRuntimePack && !scopedLib,
-    pickerHtml: pkg.isRuntimePack && state.rootKind !== "platform"
+    pickerHtml: pkg.isRuntimePack
       ? platformLibrarySelectHtml({ dataAttr: "data-platform-analysis-library", selected: scopedLib || "" })
       : "",
-    loading: state.packageIntegrationsLoading && fresh,
-    error: fresh ? state.packageIntegrationsError : "",
-    data: fresh ? state.packageIntegrations : null,
+    integrationsFresh: fresh,
+    integrationsLoading: state.packageIntegrationsLoading,
+    integrationsError: state.packageIntegrationsError,
+    integrationsData: state.packageIntegrations,
+    suggestionsFresh: state.packageOpportunitiesKey === current,
+    suggestionsLoading: state.packageOpportunitiesLoading,
+    suggestionsError: state.packageOpportunitiesError,
+    suggestionsData: state.packageOpportunities,
     escapeHtml,
   });
 }
@@ -10673,17 +10978,32 @@ function renderPackageIntegrations() {
 async function loadPackageIntegrations() {
   const pkg = currentPackage();
   const scopedLib = selectedLibraryRequest() || null;
-  return packageInspection.loadIntegrations(
-    pkg,
-    packageIntegrationsSignature(),
-    scopedLib);
+  const signature = packageIntegrationsSignature();
+  if (startingPackageIntegrations
+    || (state.packageIntegrationsKey === signature
+      && state.packageOpportunitiesKey === signature)) return;
+  let integrationsLoad: Promise<void>;
+  let suggestionsLoad: Promise<void>;
+  startingPackageIntegrations = true;
+  try {
+    integrationsLoad =
+      packageInspection.loadIntegrations(pkg, signature, scopedLib);
+    suggestionsLoad =
+      packageInspection.loadOpportunities(pkg, signature, scopedLib);
+  } finally {
+    startingPackageIntegrations = false;
+  }
+  await Promise.all([integrationsLoad, suggestionsLoad]);
 }
 
 function maybeAutoLoadPackageIntegrations() {
   if (!state.atLibraryRoot || state.libraryLens !== "analysis") return;
   if (aggregateLibrarySubjectIsActive()) return;
   if (state.analysisMode !== "integrations") return;
-  if (state.packageIntegrationsKey === packageIntegrationsSignature()) return;
+  const signature = packageIntegrationsSignature();
+  if (startingPackageIntegrations) return;
+  if (state.packageIntegrationsKey === signature
+    && state.packageOpportunitiesKey === signature) return;
   observeAsync(loadPackageIntegrations(), "Loading package integrations");
 }
 
@@ -10691,46 +11011,6 @@ function packageScopeSignature() {
   const pkg = currentPackage();
   const lib = selectedLibraryShareKey();
   return `${pkg.id}@${pkg.version}/${pkg.activeFramework}${lib ? `#${lib}` : ""}`;
-}
-
-function renderPackageOpportunities() {
-  const pkg = currentPackage();
-  const library = selectedLibrary();
-  const scopedLib = scopedPlatformLibrary();
-  const current = packageScopeSignature();
-  return renderPackageOpportunitiesPure({
-    libraryName: library?.name ?? "",
-    assemblyIdentity: library ? libraryIdentity(library) : "No library selected",
-    assetPath: library?.asset ?? "",
-    coordinate: `${pkg.activeFramework} · ${pkg.id}@${pkg.version}`,
-    requireLibrary: pkg.isRuntimePack && !scopedLib,
-    pickerHtml: pkg.isRuntimePack
-      ? platformLibrarySelectHtml({ dataAttr: "data-platform-analysis-library", selected: scopedLib || "" })
-      : "",
-    fresh: state.packageOpportunitiesKey === current,
-    loading: state.packageOpportunitiesLoading,
-    error: state.packageOpportunitiesError,
-    data: state.packageOpportunities,
-    escapeHtml,
-  });
-}
-
-async function loadPackageOpportunities() {
-  const pkg = currentPackage();
-  const scopedLib = selectedLibraryRequest() || null;
-  return packageInspection.loadOpportunities(
-    pkg,
-    packageScopeSignature(),
-    scopedLib);
-}
-
-function maybeAutoLoadPackageOpportunities() {
-  if (!state.atLibraryRoot || state.libraryLens !== "analysis") return;
-  if (aggregateLibrarySubjectIsActive()) return;
-  if (state.analysisMode !== "opportunities") return;
-  if (Boolean(state.package?.isRuntimePack) && !scopedPlatformLibrary()) return;
-  if (state.packageOpportunitiesKey === packageScopeSignature()) return;
-  observeAsync(loadPackageOpportunities(), "Loading package opportunities");
 }
 
 function renderPackagePerformance() {
@@ -10758,12 +11038,12 @@ function renderPackagePerformance() {
   });
 }
 
-function renderPackageLibraryMetrics(mode: LibraryMetricsMode) {
+function packageLibraryAnalysisOptions(): LibraryAnalysisOptions {
   const pkg = currentPackage();
   const library = selectedLibrary();
   const scopedLib = scopedPlatformLibrary();
   const current = packageScopeSignature();
-  return renderLibraryMetricsSurface({
+  return {
     libraryName: library?.name ?? "",
     assemblyIdentity: library ? libraryIdentity(library) : "No library selected",
     assetPath: library?.asset ?? "",
@@ -10771,7 +11051,7 @@ function renderPackageLibraryMetrics(mode: LibraryMetricsMode) {
     requireLibrary: pkg.isRuntimePack && !scopedLib,
     pickerHtml: pkg.isRuntimePack
       ? platformLibrarySelectHtml({
-        dataAttr: "data-platform-analysis-library",
+          dataAttr: "data-platform-analysis-library",
           selected: scopedLib || "",
         })
       : "",
@@ -10789,8 +11069,22 @@ function renderPackageLibraryMetrics(mode: LibraryMetricsMode) {
       state.packageLibraryDependencyStructure,
     relationshipState:
       state.packageLibraryMetricsRelationshipState,
+    dependencyState:
+      state.packageLibraryDependencyStructureStateKey === current
+        ? state.packageLibraryDependencyStructureState
+        : null,
     escapeHtml,
-  }, mode);
+  };
+}
+
+function renderPackageLibraryMetrics(mode: LibraryMetricsMode) {
+  return renderLibraryMetricsSurface(packageLibraryAnalysisOptions(), mode);
+}
+
+function renderPackageLibraryDependencyStructure() {
+  return renderLibraryDependencyStructureSurface(
+    packageLibraryAnalysisOptions(),
+  );
 }
 
 function activateLibraryMetricsType(typeKey: string) {
@@ -12842,11 +13136,13 @@ async function openPlatformLensLibrary(
     if (state.analysisMode === "performance") await loadPackagePerformance();
     else if (state.analysisMode === "integrations")
       await loadPackageIntegrations();
-    else if (state.analysisMode === "opportunities")
-      await loadPackageOpportunities();
     else if (state.analysisMode === "complexity"
       || state.analysisMode === "relationships")
       await loadPackageLibraryMetrics();
+    else if (state.analysisMode === "dependencies") {
+      render();
+      return;
+    }
     else assertNever(state.analysisMode, "analysis mode");
   } else await loadPackageMetadata();
 }
@@ -13930,6 +14226,18 @@ function bindEvents() {
     updateRelationshipState: relationshipState => {
       state.packageLibraryMetricsRelationshipState = relationshipState;
     },
+    updateDependencyState: dependencyState => {
+      const current = packageScopeSignature();
+      const presentationChanged =
+        (state.packageLibraryDependencyStructureStateKey === current
+          ? state.packageLibraryDependencyStructureState
+            .includeGlobalNamespace
+          : false)
+          !== dependencyState.includeGlobalNamespace;
+      state.packageLibraryDependencyStructureState = dependencyState;
+      state.packageLibraryDependencyStructureStateKey = current;
+      if (presentationChanged) render();
+    },
   });
   workbenchShellBinding =
     bindWorkbenchShell(document, workbenchShellActions);
@@ -13983,6 +14291,14 @@ function setTheme(theme: "light" | "dark", renderView = true) {
   if (depGraph) {
     depGraph.dataset.graphDef = "";
     observeAsync(renderDependencyGraph(), "Rendering the dependency graph");
+  }
+  const referenceGraph =
+    document.querySelector<HTMLElement>("#library-reference-graph-diagram");
+  if (referenceGraph) {
+    referenceGraph.dataset.graphDef = "";
+    observeAsync(
+      renderLibraryReferenceGraph(),
+      "Rendering the assembly-reference graph");
   }
 }
 
@@ -15774,6 +16090,13 @@ async function recordManagedSpotlightNavigation(
       ?? `Managed Navigation returned '${navigation.outcome.kind}'.`,
     );
   }
+  await recordManagedNavigationPosting(navigation, args);
+}
+
+async function recordManagedNavigationPosting(
+  _navigation: BrowserRetainedNavigationResult,
+  args: readonly [string, number, string, string, string, string],
+): Promise<void> {
   if (!await engineClient.catalog
       .validateRetainedWorkspaceNavigationAuthority(...args)) {
     throw new Error(
@@ -15790,6 +16113,13 @@ async function recordManagedSpotlightNavigation(
 }
 
 function managedSpotlightNavigationAuthority(
+  posting: BrowserRetainedWorkspacePosting,
+  navigation: BrowserRetainedNavigationResult,
+): readonly [string, number, string, string, string, string] {
+  return managedNavigationAuthority(posting, navigation);
+}
+
+function managedNavigationAuthority(
   posting: BrowserRetainedWorkspacePosting,
   navigation: BrowserRetainedNavigationResult,
 ): readonly [string, number, string, string, string, string] {
@@ -15819,9 +16149,16 @@ async function abandonManagedSpotlightNavigation(
     || activation.navigation === null) {
     return;
   }
+  await abandonManagedNavigation(posting, activation.navigation);
+}
+
+async function abandonManagedNavigation(
+  posting: BrowserRetainedWorkspacePosting,
+  navigation: BrowserRetainedNavigationResult,
+): Promise<void> {
   const abandoned = await engineClient.catalog
     .abandonRetainedWorkspaceNavigation(
-      ...managedSpotlightNavigationAuthority(posting, activation.navigation),
+      ...managedNavigationAuthority(posting, navigation),
     );
   if (abandoned !== "accepted" && abandoned !== "invalidAuthority") {
     throw new Error(
@@ -21289,6 +21626,79 @@ async function renderDependencyGraph() {
     }
   } finally {
     pending.complete(requestSignature, seq);
+  }
+}
+
+async function renderLibraryReferenceGraph() {
+  const container =
+    document.querySelector<HTMLElement>("#library-reference-graph-diagram");
+  if (!container) return;
+  const assemblyReferences = state.packageDependencies?.assemblyReferences;
+  if (!assemblyReferences || typeof assemblyReferences === "string") {
+    libraryReferenceGraphRenderSequence.invalidate();
+    return;
+  }
+  const assemblyName = selectedLibrary()?.name ?? "Selected assembly";
+  const built = buildAssemblyReferenceGraphMermaid(
+    assemblyName,
+    assemblyReferences);
+  if (!built) {
+    libraryReferenceGraphRenderSequence.invalidate();
+    return;
+  }
+  const signature = built.definition;
+  if (container.dataset.graphDef === signature
+    && container.querySelector(".graph-viewport")) {
+    container.querySelector(".graph-render-error")?.remove();
+    return;
+  }
+  const pending = createDependencyGraphPendingState(container.dataset);
+  if (pending.isPending(signature)) return;
+  const seq = libraryReferenceGraphRenderSequence.begin();
+  pending.begin(signature, seq);
+  try {
+    const { default: mermaid } = await loadMermaidModule();
+    if (!libraryReferenceGraphRenderSequence.isCurrent(seq)) return;
+    mermaid.initialize({
+      startOnLoad: false,
+      securityLevel: "strict",
+      theme: state.theme === "light" ? "default" : "dark",
+      themeVariables: { fontSize: "16px" },
+      flowchart: { htmlLabels: false, curve: "basis" }
+    });
+    const id =
+      `reference-graph-${seq.toString(36)}-${Date.now().toString(36)}`;
+    const rootStyle = getComputedStyle(document.documentElement);
+    const resolved = resolveMermaidCssVariables(
+      built.definition,
+      name => rootStyle.getPropertyValue(name));
+    const { svg } = await mermaid.render(id, resolved);
+    if (!libraryReferenceGraphRenderSequence.isCurrent(seq)
+      || document.querySelector("#library-reference-graph-diagram")
+        !== container) return;
+    container.innerHTML =
+      '<div class="dependency-graph-stage"><div class="graph-viewport"></div>'
+      + graphControlsHtml()
+      + "</div>"
+      + (built.truncated
+        ? `<div class="graph-drill-error graph-diagnostics" role="status">Reference graph shows ${built.shownReferenceCount.toLocaleString()} of ${built.referenceCount.toLocaleString()} direct references. The complete list follows.</div>`
+        : "");
+    const viewport =
+      container.querySelector<HTMLElement>(".graph-viewport");
+    if (!viewport) return;
+    viewport.innerHTML = svg;
+    container.dataset.graphDef = signature;
+    bindGraphPanZoom(container, viewport, { keybindings });
+  } catch (error) {
+    if (libraryReferenceGraphRenderSequence.isCurrent(seq)
+      && document.querySelector("#library-reference-graph-diagram")
+        === container) {
+      container.dataset.graphDef = "";
+      container.innerHTML =
+        `<div class="graph-render-error" role="alert"><strong>Diagram rendering failed</strong><p>${escapeHtml(errorMessage(error))}</p></div>`;
+    }
+  } finally {
+    pending.complete(signature, seq);
   }
 }
 

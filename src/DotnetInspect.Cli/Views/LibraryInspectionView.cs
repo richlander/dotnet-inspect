@@ -1596,8 +1596,9 @@ public class LibraryInspectionView
     // Each section is absent when its kind has no findings (il-offset context-section model).
     private List<PerformanceRow>? PerformanceRowsFor(string section)
     {
-        var rows = _data.PerformanceTriageOpportunities
-            .Where(o => PerformanceKinds.SectionForShape(o.Shape) == section)
+        var rows = PerformanceKinds.Select(
+                section,
+                _data.PerformanceTriageOpportunities)
             .Select(o => new PerformanceRow(
                 MarkoutInline.CodeText(LibraryViewText.Field(
                     LibraryMetadataService.FormatMethod(o.Method))),

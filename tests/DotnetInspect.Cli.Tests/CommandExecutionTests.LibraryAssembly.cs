@@ -115,7 +115,7 @@ public partial class CommandExecutionTests
             Assert.Equal(1, packageExit);
             Assert.Empty(packageOutput);
             Assert.Contains(
-                "selected section must be exactly '-S \"Dependency Hierarchy\"'",
+                "--tree renders exactly one Hierarchy section",
                 packageError);
         }
         finally

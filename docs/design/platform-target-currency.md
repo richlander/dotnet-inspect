@@ -374,8 +374,11 @@ Moving their implementations into a platform-named assembly does not transfer
 their contracts to the House or make the House an assembly bucket.
 
 The target `DotnetInspector.Platforms` project is reserved for this lower
-contract floor. Packages, Source Selection, Queries, and later platform
-composition may depend on the floor; the floor does not depend on them.
+contract floor and for the
+[platform manifest formats](platform-manifest-formats.md), whose only
+dependency is the hardened-JSON floor `UntrustedDocuments`. Packages, Source
+Selection, Queries, and later platform composition may depend on the floor; the
+floor does not depend on them.
 [#6335](https://github.com/richlander/dotnet-inspect/issues/6335) separately
 chooses operational project boundaries for pack, resolver, type-catalog, and
 House implementations. Those implementations do not enter the contract-floor

@@ -2,12 +2,13 @@ using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Inspectors;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
+using ILInspector.Metadata;
 
 namespace DotnetInspect.Cli.Commands;
 
 internal sealed record LibraryDocumentInspection(
-    LibraryDocument? Document,
-    string? Failure)
+    InspectionEnvelope<LibraryInspectionOutcome>? Envelope,
+    string? ExecutionFailure)
 {
     private static readonly LibraryInspectionPlan s_libraryInfoPlan =
         new(
@@ -40,17 +41,30 @@ internal sealed record LibraryDocumentInspection(
                         packageName,
                         isPlatformAssembly))
                 .ConfigureAwait(false);
-        return envelope?.Content switch
-        {
-            LibraryInspectionOutcome.Available available =>
-                new(available.Document, null),
-            LibraryInspectionOutcome.Rejected rejected =>
-                new(null, rejected.Reason.ToString()),
-            LibraryInspectionOutcome.Failed failed =>
-                new(null, failed.Reason.ToString()),
-            _ => new(null, "LibraryUnavailable"),
-        };
+        return Project(envelope);
     }
+
+    internal static async Task<LibraryDocumentInspection> ReadExactAsync(
+        ResolvedAssemblyReference assembly,
+        AssemblyContextLibraryRole role)
+    {
+        InspectionEnvelope<LibraryInspectionOutcome>? envelope =
+            await ExactLibraryInspectionExecutor.ExecuteAsync(
+                    assembly,
+                    session => session.Execute(
+                        s_libraryInfoPlan,
+                        CancellationToken.None),
+                    CancellationToken.None,
+                    role)
+                .ConfigureAwait(false);
+        return Project(envelope);
+    }
+
+    private static LibraryDocumentInspection Project(
+        InspectionEnvelope<LibraryInspectionOutcome>? envelope) =>
+        envelope is null
+            ? new(null, "LibraryUnavailable")
+            : new(envelope, null);
 }
 
 internal sealed record LibraryInspectionRenderInput(

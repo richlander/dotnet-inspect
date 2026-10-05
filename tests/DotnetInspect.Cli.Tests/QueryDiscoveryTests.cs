@@ -870,8 +870,25 @@ public class QueryDiscoveryTests
             PerformanceTriageRowQuery.QueryKeys;
 
         Assert.Equal(
-            [.. vocabulary.Keys.Select(key => key.Key), "Triage"],
+            [
+                .. vocabulary.Keys
+                    .Where(key => key.Key
+                        != ILInspector.Analysis
+                            .OptimizationOpportunityRowSpace.KindKey)
+                    .Select(key => key.Key),
+                "Triage",
+            ],
             keys.Select(key => key.Name));
+        Assert.Contains(
+            vocabulary.Keys,
+            key => key.Key
+                == ILInspector.Analysis
+                    .OptimizationOpportunityRowSpace.KindKey);
+        Assert.DoesNotContain(
+            keys,
+            key => key.Name
+                == ILInspector.Analysis
+                    .OptimizationOpportunityRowSpace.KindKey);
         Assert.Contains(
             vocabulary.NamedOrders,
             order => order.Key == "AllocationFanout");
@@ -882,6 +899,13 @@ public class QueryDiscoveryTests
         foreach (RowQueryKey<ILInspector.Analysis.OptimizationOpportunity>
             key in vocabulary.Keys)
         {
+            if (key.Key
+                == ILInspector.Analysis
+                    .OptimizationOpportunityRowSpace.KindKey)
+            {
+                continue;
+            }
+
             SectionQueryKey projection = Assert.Single(
                 keys,
                 candidate => candidate.Name == key.Key);

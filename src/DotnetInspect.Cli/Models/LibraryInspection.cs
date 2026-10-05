@@ -52,6 +52,15 @@ internal static class LibraryInspectionDisplay
 
 public class LibraryInspection
 {
+    // Runtime gate for terminals that retire the mutable legacy model.
+    internal static int ConstructionCountForTests;
+
+    public LibraryInspection()
+    {
+        System.Threading.Interlocked.Increment(
+            ref ConstructionCountForTests);
+    }
+
     [JsonIgnore]
     internal IntegrationQueryOptions IntegrationQuery { get; init; } = IntegrationQueryOptions.Default;
 

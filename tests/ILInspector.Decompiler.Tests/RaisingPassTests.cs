@@ -1158,12 +1158,18 @@ public class RaisingPassTests
             [], HasThis: false, GenericParameterCount: 0);
         var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
 
+        // The exclusion now lives in residual storage binding, the last pass
+        // that may see a slot; the printer's general boundary stands behind it.
+        var ex = Assert.Throws<InvalidOperationException>(
+            () => new ResidualSlotBindingPass().Run(function, PassContext.None));
+        Assert.Contains("managed-reference stack slot 0 reached residual storage binding", ex.Message);
+
         var result = CSharpPrinter.Print(function);
         Assert.False(result.Succeeded);
         var diagnostic = Assert.Single(result.Diagnostics);
         Assert.Equal(DiagnosticIds.InternalError, diagnostic.Id);
         Assert.Equal(
-            "InvalidOperationException: Managed-reference stack slot 0 reached C# emission after slot materialization.",
+            "InvalidOperationException: Stack slot 0 reached C# emission without residual storage binding.",
             diagnostic.Message);
     }
 

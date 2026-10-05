@@ -17,7 +17,7 @@ public static class PackageFileInventoryCommandCapability
                 BindingIdentity,
                 InspectionConsumerKind.Cli,
                 "DotnetInspect.Cli package command",
-                "package <id> -S \"Package files\""),
+                "package <id> -S \"Files\""),
             PackageFileInventoryCapability.Route,
             exposedQueryTerms: []);
 

@@ -119,7 +119,7 @@ public static class ArgumentPreprocessor
         // section rather than a lens of its own, so a flag naming one document competed with the
         // section selection for the same question.
         return "'--readme' is no longer valid. Printing a document is a projection over a "
-            + "selected section: use '-S \"Package README file\" --print' for one package, "
+            + "selected section: use '-S \"README\" --print' for one package, "
             + "or '--content --path @readme' to survey several.";
     }
 

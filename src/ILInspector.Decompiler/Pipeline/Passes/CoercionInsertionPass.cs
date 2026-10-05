@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 namespace ILInspector.Decompiler.Pipeline;
 
 /// <summary>
@@ -193,7 +194,22 @@ public static class CoercionSinks
                             constant.Value is int i ? i : (long)constant.Value, underlying!));
     }
 
-    /// <summary>The target type of the sink directly consuming an untyped slot load, where one is derivable.</summary>
+    /// <summary>
+    /// The target type of the sink directly consuming an untyped slot load,
+    /// where one is derivable: a typed store, the body's return, a call or
+    /// object-creation argument's declared parameter type (after MethodSpec
+    /// substitution, so an open generic parameter never testifies), or the
+    /// other operand of a comparison when that operand is not a constant and
+    /// its type is width-exact for the comparison (<see cref="ComparisonSiblingType"/>)
+    /// (value-typed-emission.md, Instance 2: "an untyped load contributes its
+    /// consuming sink's target type"). A constant sibling carries only its IL
+    /// stack width, and taking it would pre-empt the enum naming route the
+    /// way <see cref="BitwiseEnumSinkType"/> already refuses to.
+    /// Argument and comparison sinks joined this list for the #9248 remainder:
+    /// a reference <c>??</c> join or an enum/constant join spilled to a slot and
+    /// consumed only by such a sink had no testimony and failed visibly at
+    /// residual storage binding.
+    /// </summary>
     static TypeRef? LoadSinkTargetType(LoadStackSlot load, TypeRef? returnType, IReadOnlyDictionary<TypeRef, TypeShape> shapes)
         => load.Parent switch
         {
@@ -203,8 +219,78 @@ public static class CoercionSinks
             StoreIndirect store when ReferenceEquals(store.Value, load) => store.Type,
             StoreElement store when ReferenceEquals(store.Value, load) => StoreElementTarget(store, shapes),
             Return ret when ReferenceEquals(ret.Value, load) => returnType,
+            Call call => ArgumentParameterType(call.Callee.ParameterTypes, call.Callee.HasThis ? 1 : 0, call.Arguments, load),
+            NewObject ctor => ArgumentParameterType(ctor.Constructor.ParameterTypes, 0, ctor.Arguments, load),
+            Comparison { Right: not Constant } comparison when ReferenceEquals(comparison.Left, load) => ComparisonSiblingType(comparison, comparison.Right.ResultType, shapes),
+            Comparison { Left: not Constant } comparison when ReferenceEquals(comparison.Right, load) => ComparisonSiblingType(comparison, comparison.Left.ResultType, shapes),
             _ => null,
         };
+
+    /// <summary>
+    /// The other comparison operand's type when it is exactly the operand type
+    /// the IL comparison itself fixes, else null. The comparison fixes its
+    /// operand type by stack family, width, and — for an ordering kind — by
+    /// signedness (ECMA-335 III.1.5, <c>clt</c>/<c>clt.un</c>); the sibling's
+    /// static type is only a witness of that type when it agrees on all three.
+    /// Width: an I4-family operand is compared at int32 width, so only
+    /// <c>int</c>/<c>uint</c> witness it; a narrower primitive (<c>byte</c>,
+    /// <c>short</c>, <c>char</c>, <c>bool</c>) or an enum, whose backing width
+    /// this derivation cannot see, would type the slot narrower than the
+    /// comparison and make its other stores truncate (<c>b == (c ? (int)e : x)</c>
+    /// must not become <c>byte S = c ? (byte)e : (byte)x</c>; #9390 round 1).
+    /// Signedness: on an ordering comparison an integer sibling testifies only
+    /// when it is unsigned exactly when the comparison is, because the printer
+    /// spells signedness from the operand types (<c>(int)u &lt; (c ? (int)be : x)</c>,
+    /// a signed <c>clt</c> with a <c>uint</c> sibling, must not become
+    /// <c>uint S = c ? (uint)be : (uint)x; return S_0 &lt; S;</c>, an unsigned
+    /// comparison; round 2). Equality ignores signedness. Floats and proven
+    /// references are compared at their own type and testify.
+    /// </summary>
+    static TypeRef? ComparisonSiblingType(Comparison comparison, TypeRef? sibling, IReadOnlyDictionary<TypeRef, TypeShape> shapes)
+    {
+        if (ClosedType(sibling) is not { } type)
+            return null;
+        var family = TypeFamilies.Of(type);
+        bool widthExact = family switch
+        {
+            StackFamily.I4 => TypeFamilies.HasInt32Width(type),
+            StackFamily.I8 or StackFamily.F or StackFamily.I or StackFamily.O => true,
+            _ => CoercionRendering.IsProvenReference(type, shapes),
+        };
+        if (!widthExact)
+            return null;
+        bool ordering = comparison.Kind is not (ComparisonKind.Equal or ComparisonKind.NotEqual);
+        bool integer = family is StackFamily.I4 or StackFamily.I8 or StackFamily.I;
+        if (ordering && integer && TypeFamilies.IsUnsignedIntegerPrimitive(type) != comparison.IsUnsigned)
+            return null;
+        return type;
+    }
+
+    /// <summary>The declared parameter type behind <paramref name="argument"/>, or null when it is open or unmatched.</summary>
+    static TypeRef? ArgumentParameterType(
+        ImmutableArray<TypeRef> parameters,
+        int offset,
+        IReadOnlyList<IrExpression> arguments,
+        IrExpression argument)
+    {
+        if (parameters.IsDefault)
+            return null;
+        for (int i = 0; i < parameters.Length && i + offset < arguments.Count; i++)
+        {
+            if (ReferenceEquals(arguments[i + offset], argument))
+                return ClosedType(parameters[i]);
+        }
+        return null;
+    }
+
+    /// <summary>A type with no open generic parameter anywhere in it, else null: an open type is not evidence.</summary>
+    internal static TypeRef? ClosedType(TypeRef? type)
+        => type is null || ContainsOpenGenericParameter(type) ? null : type;
+
+    static bool ContainsOpenGenericParameter(TypeRef type)
+        => type.Kind is TypeRefKind.GenericParameter or TypeRefKind.MethodGenericParameter
+            || type.ElementType is { } element && ContainsOpenGenericParameter(element)
+            || !type.TypeArguments.IsDefaultOrEmpty && type.TypeArguments.Any(ContainsOpenGenericParameter);
 
     /// <summary>
     /// The semantic target that can recover a typed slot load's identity.
@@ -454,8 +540,10 @@ public static class CoercionDomain
 
 /// <summary>
 /// Wraps every typed-sink value that requires coercion in a
-/// <see cref="Coerce"/> node (value-typed-emission.md, slice 3). Runs last: the
-/// tree the printer receives is the decided tree. Output-neutral for sinks that
+/// <see cref="Coerce"/> node (value-typed-emission.md, slice 3). Runs at the
+/// end of the pipeline, before <see cref="ResidualSlotBindingPass"/> re-runs
+/// the same decision over bound locals: the tree the printer receives is the
+/// decided tree. Output-neutral for sinks that
 /// render through CoerceText — the node renders through the same function with
 /// the same target; the render-text corpus A/B is the empirical gate on that
 /// claim.
@@ -464,7 +552,14 @@ public sealed class CoercionInsertionPass : IIrPass
 {
     public string Name => "coercion-insertion";
 
-    public void Run(IrFunction function, PassContext context)
+    public void Run(IrFunction function, PassContext context) => Insert(function, context);
+
+    /// <summary>
+    /// One insertion run over the body's current sinks; returns how many it
+    /// wrapped. <see cref="ResidualSlotBindingPass"/> re-runs it to a fixpoint
+    /// after binding, with the same decision, so the two cannot drift.
+    /// </summary>
+    internal static int Insert(IrFunction function, PassContext context)
     {
         var shapes = function.TypeShapes;
         // Deepest-first: wrapping an outer sink clones its subtree, so a nested
@@ -484,6 +579,7 @@ public sealed class CoercionInsertionPass : IIrPass
             coercion.InheritSourceOffset(value);
             value.ReplaceWith(coercion);
         }
+        return sinks.Count;
     }
 
     static int Depth(IrNode node)
