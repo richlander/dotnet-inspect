@@ -1059,12 +1059,12 @@ separate work.
 ### Library Analysis
 
 The Library inspector order is **Overview**, **References**, **Compare**,
-**Analysis**, and **Metadata**. Analysis contains direct **Complexity**,
-**Relationships**, **Performance**, **Unsafe**, **Integrations**, and
+**Analysis**, and **Metadata**. Analysis contains direct **Relationships**,
+**Complexity**, **Performance**, **Unsafe**, **Integrations**, and
 **Opportunities** tabs, following Compare's single-inspector mode composition.
 Integrations is not a separate persistent inspector.
 
-Performance is the default. The selected tab is session-local Browser
+Relationships is the default. The selected tab is session-local Browser
 presentation state and preserves the selected Library. Only the selected tab
 starts its existing query; cached results retain their existing
 Library/coordinate freshness checks. Each mode keeps its own loading, failure,
@@ -1085,7 +1085,7 @@ existing Types control occupies the title's place and the tabs use the second
 header row.
 
 ```text
-Analysis  count/state   Complexity  Relationships  [Performance]  Unsafe  Integrations  Opportunities
+Analysis  count/state   [Relationships]  Complexity  Performance  Unsafe  Integrations  Opportunities
 optional platform Library selector
 mode-owned content
 Library asset and assembly identity              TFM · package@version
