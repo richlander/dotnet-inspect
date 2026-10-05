@@ -1574,10 +1574,6 @@ public sealed class ResourceExplanationCatalog
             }
         }
 
-        var relationshipIds =
-            relationshipArray.Select(static relationship =>
-                    relationship.Relationship)
-                .ToHashSet();
         var addressKinds =
             resourceArray.SelectMany(static resource =>
                     resource.Snapshot.Addresses)
@@ -1592,37 +1588,18 @@ public sealed class ResourceExplanationCatalog
                 ExplanationResourceTypeIdentity,
                 ExplanationResourceTypeDeclaration>();
 
-        foreach (ExplanationResourceTypeIdentity type in resourceTypes)
+        var pendingResourceTypes =
+            new Queue<ExplanationResourceTypeIdentity>(resourceTypes);
+        while (pendingResourceTypes.TryDequeue(
+                   out ExplanationResourceTypeIdentity type))
         {
+            if (selectedResources.ContainsKey(type))
+                continue;
             ExplanationResourceTypeDeclaration original =
                 ResourceExplanationVocabulary.ResourceType(type);
-            bool emitted = resourceArray.Any(resource =>
-                resource.Snapshot.Key.ResourceType == type);
-            ImmutableArray<ExplanationFactDeclaration> facts =
-                emitted ? original.Facts : [];
-            ImmutableArray<ExplanationRelationshipDeclaration>
-                selectedRelationships =
-            [
-                .. original.Relationships.Where(relationship =>
-                    relationshipIds.Contains(relationship.Identity)),
-            ];
-            ImmutableArray<ExplanationPublicAddressKindIdentity>
-                selectedAddressKinds =
-            [
-                .. original.AddressKinds.Where(addressKinds.Contains),
-            ];
-            var selected =
-                new ExplanationResourceTypeDeclaration(
-                    original.Identity,
-                    original.DisplayName,
-                    original.Meaning,
-                    original.IdentityShape,
-                    facts,
-                    selectedRelationships,
-                    selectedAddressKinds);
-            selectedResources.Add(type, selected);
+            selectedResources.Add(type, original);
             AddShape(original.IdentityShape);
-            foreach (ExplanationFactDeclaration fact in facts)
+            foreach (ExplanationFactDeclaration fact in original.Facts)
             {
                 AddShape(fact.ValueShape);
                 if (fact.UnavailableDataShape is { } unavailable)
@@ -1631,12 +1608,20 @@ public sealed class ResourceExplanationCatalog
                     AddShape(failure);
             }
             foreach (ExplanationRelationshipDeclaration relationship
-                     in selectedRelationships)
+                     in original.Relationships)
             {
+                if (resourceTypes.Add(relationship.TargetResourceType))
+                    pendingResourceTypes.Enqueue(
+                        relationship.TargetResourceType);
                 if (relationship.UnavailableDataShape is { } unavailable)
                     AddShape(unavailable);
                 if (relationship.FailureDataShape is { } failure)
                     AddShape(failure);
+            }
+            foreach (ExplanationPublicAddressKindIdentity address
+                     in original.AddressKinds)
+            {
+                addressKinds.Add(address);
             }
         }
 

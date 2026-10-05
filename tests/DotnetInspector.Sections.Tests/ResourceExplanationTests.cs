@@ -275,11 +275,24 @@ public class ResourceExplanationTests
         Assert.Equal(
             document.Traversal.EmittedSchemaDeclarationCount,
             DeclarationCount(document.Schemas));
+        Assert.Equal(
+            [
+                "resource-explanation",
+                "schema-query",
+                "analysis-requests",
+                "findings",
+            ],
+            document.Schemas.Select(static schema =>
+                schema.Identity.Owner.Value));
         Assert.All(
-            document.Schemas,
-            schema => Assert.Contains(
-                schema.Identity.Owner.Value,
-                new[] { "resource-explanation", "schema-query" }));
+            document.Schemas.SelectMany(static schema =>
+                schema.ResourceTypes),
+            declaration => Assert.Same(
+                catalog.Schemas
+                    .SelectMany(static schema => schema.ResourceTypes)
+                    .Single(candidate =>
+                        candidate.Identity == declaration.Identity),
+                declaration));
     }
 
     [Fact]
@@ -370,7 +383,7 @@ public class ResourceExplanationTests
     }
 
     [Fact]
-    public void SchemaLimit_TruncatesToASelfContainedDeclarationSlice()
+    public void SchemaLimit_RejectsRootClosureThatDoesNotFit()
     {
         ResourceExplanationCatalog catalog = StructuralCatalog();
         var resolved = Assert.IsType<ResourcePathResolution.Resolved>(
@@ -379,41 +392,21 @@ public class ResourceExplanationTests
             catalog.Explain(
                 resolved,
                 new ResourceExplanationRequest(
-                    depth: 2,
-                    resourceLimit: 100,
+                    depth: 0,
+                    resourceLimit: 1,
                     relationshipLimit: 100))
                 .Content;
         int limit =
             complete.Traversal.EmittedSchemaDeclarationCount - 1;
 
-        ResourceExplanationDocument limited =
-            catalog.Explain(
-                resolved,
-                new ResourceExplanationRequest(
-                    depth: 2,
-                    resourceLimit: 100,
-                    relationshipLimit: 100,
-                    schemaDeclarationLimit: limit))
-                .Content;
-
-        Assert.Contains(
-            ResourceExplanationTruncationReason.SchemaDeclarationLimit,
-            limited.Traversal.TruncationReasons);
-        Assert.InRange(
-            limited.Traversal.EmittedSchemaDeclarationCount,
-            1,
-            limit);
-        Assert.Equal(
-            DeclarationCount(limited.Schemas),
-            limited.Traversal.EmittedSchemaDeclarationCount);
         Assert.Throws<InvalidOperationException>(() =>
             catalog.Explain(
                 resolved,
                 new ResourceExplanationRequest(
                     depth: 0,
                     resourceLimit: 1,
-                    relationshipLimit: 1,
-                    schemaDeclarationLimit: 1)));
+                    relationshipLimit: 100,
+                    schemaDeclarationLimit: limit)));
     }
 
     [Fact]
