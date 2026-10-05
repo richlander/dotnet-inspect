@@ -190,16 +190,17 @@ public class MemberContextualExplanationTests
     private static ResourceExplanationDocument ResourceDocument(
         string path)
     {
-        var resourcePath = new ResourcePath(path);
-        var resource = new ResourceExplanationResource(
-            resourcePath,
-            new ResourceExplanationIdentity.Catalog(path),
-            ResourceExplanationResourceKind.Catalog,
-            new ResourceExplanationDetail.CatalogDetails(
-                path,
-                entryCount: 0));
         ResourceExplanationCatalog catalog =
-            ResourceExplanationCatalog.Create([resource], []);
+            ResourceExplanationCatalog.CreateStructural(
+                new DiscoveryDocument(
+                    path,
+                    [],
+                    [],
+                    new DiscoverySelection(
+                        isCatalog: true,
+                        addressedResources: [],
+                        rows: [])),
+                []);
         ResourcePathResolution.Resolved resolved =
             Assert.IsType<ResourcePathResolution.Resolved>(
                 catalog.Resolve(path));
