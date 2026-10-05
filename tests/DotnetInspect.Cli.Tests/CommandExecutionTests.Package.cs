@@ -785,6 +785,17 @@ public partial class CommandExecutionTests
             Assert.Equal(0, markdown.Exit);
             Assert.Contains("## Target Frameworks", markdown.Output);
             Assert.Contains("| TFM |", markdown.Output);
+
+            // A projected row format also honors --out.
+            string projectedPath = Path.Combine(tempDir, "tfms.tsv");
+            var projected = await RunAppAsync(
+                "package", packagePath, "-S", "Target Frameworks", "--tsv", "--columns", "TFM");
+            var redirected = await RunAppAsync(
+                "package", packagePath, "-S", "Target Frameworks", "--tsv", "--columns", "TFM", "--out", projectedPath);
+            Assert.Equal(0, projected.Exit);
+            Assert.Equal(0, redirected.Exit);
+            Assert.Empty(redirected.Output);
+            Assert.Equal(projected.Output, File.ReadAllText(projectedPath));
         }
         finally
         {
@@ -905,6 +916,42 @@ public partial class CommandExecutionTests
             Assert.Equal(
                 3,
                 jsonl.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries).Length);
+
+            // The family is one Table: a column projection keeps the family,
+            // an unknown column is diagnosed, --rows windows its rows, and
+            // --out receives the listing with nothing on stdout.
+            var projected = await RunAppAsync(
+                "package", packagePath, "-S", "@Files", "--tsv", "--columns", "Path");
+            var unknown = await RunAppAsync(
+                "package", packagePath, "-S", "@Files", "--tsv", "--columns", "Bogus");
+            var head = await RunAppAsync(
+                "package", packagePath, "-S", "@Files", "--tsv", "--rows", "1");
+            string listingPath = Path.Combine(tempDir, "family.tsv");
+            var redirected = await RunAppAsync(
+                "package", packagePath, "-S", "@Files", "--tsv", "--columns", "Path", "--out", listingPath);
+
+            Assert.Equal(0, projected.Exit);
+            Assert.Empty(projected.Error);
+            string[] projectedLines = projected.Output.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries);
+            Assert.Equal("path", projectedLines[0]);
+            Assert.Equal(4, projectedLines.Length);
+            Assert.All(projectedLines, line => Assert.DoesNotContain('\t', line));
+
+            Assert.Equal(1, unknown.Exit);
+            Assert.Contains("Bogus", unknown.Error);
+
+            Assert.Equal(0, head.Exit);
+            string[] headLines = head.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+            Assert.Equal(2, headLines.Length);
+            Assert.Equal("path\tsize", headLines[0]);
+            Assert.StartsWith("Test.FamilyListing.nuspec\t", headLines[1], StringComparison.Ordinal);
+
+            Assert.Equal(0, redirected.Exit);
+            Assert.Empty(redirected.Output);
+            Assert.Empty(redirected.Error);
+            Assert.Equal(projected.Output, File.ReadAllText(listingPath));
         }
         finally
         {

@@ -1384,7 +1384,10 @@ public partial class PackageCommand
                         : "column",
                     writerOptions.IncludeSections,
                     fieldSectionsAsColumns: true);
-                Console.Out.Write(rendered);
+                OutputDestination.Write(
+                    options.OutputPath,
+                    null,
+                    output => output.Write(rendered));
             }
             else
             {

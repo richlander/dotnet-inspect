@@ -1734,9 +1734,10 @@ public partial class PackageCommand
                     return PackageIntegrityExitCode(result);
                 }
 
-                if (!hasProjection
-                    && IsPackageFileFamilySelection(options.IncludeSections))
+                if (IsPackageFileFamilySelection(options.IncludeSections))
                 {
+                    if (!ValidatePackageFileFamilyProjection(options))
+                        return 1;
                     OutputDestination.Write(
                         options.OutputPath,
                         null,
@@ -1805,7 +1806,10 @@ public partial class PackageCommand
                         itemKind,
                         writerOpts.IncludeSections,
                         fieldSectionsAsColumns: true);
-                    Console.Out.Write(rendered);
+                    OutputDestination.Write(
+                        options.OutputPath,
+                        null,
+                        output => output.Write(rendered));
                 }
                 else
                 {

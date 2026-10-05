@@ -124,10 +124,34 @@ public partial class PackageCommand
             PackageSections.Files,
             StringComparison.OrdinalIgnoreCase);
 
+    private const string PackageFileFamilyListing = "Package file family";
+
+    private static readonly string[] PackageFileFamilyColumns =
+        ["Path", "Size", "path", "size"];
+
+    /// <summary>
+    /// A family listing is one Table, so a column or field projection names
+    /// its Path/Size columns; an unknown name is diagnosed before any output.
+    /// </summary>
+    private static bool ValidatePackageFileFamilyProjection(InspectionOptions options)
+    {
+        if (options.Fields is not { Length: > 0 } && options.Columns is not { Length: > 0 })
+            return true;
+        var schema = new DocumentSchema();
+        schema.Add(PackageFileFamilyListing, "column", PackageFileFamilyColumns);
+        return ProjectionDiagnostics.ValidateProjection(
+            schema,
+            PackageFileFamilyListing,
+            fields: null,
+            [.. options.Fields ?? [], .. options.Columns ?? []]);
+    }
+
     /// <summary>
     /// Streams the package file family as one Path/Size listing: each member
     /// section's rows in family order, one row per distinct path. Text
     /// members contribute their fact row; Table members their rows.
+    /// <c>--rows</c> windows the rows; a bare <c>-n</c> remains the rendered-line
+    /// window it is for every other lone package Table.
     /// </summary>
     private static void WritePackageFileFamilyTable(
         TextWriter output,
