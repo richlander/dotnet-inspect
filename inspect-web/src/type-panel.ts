@@ -661,7 +661,7 @@ export function renderTypeNav(options: TypeNavOptions): string {
   const namespaceSelectionValue =
     options.namespaceSelectionValue ?? (namespace => namespace);
   return `
-    <aside id="content-navigation-pane" class="type-browser${itemAchievements ? " has-item-achievement-rail" : ""}" aria-label="Public types">
+    <aside id="content-navigation-pane" class="type-browser${parentSubject ? " has-parent-subject" : ""}${statusHtml ? " has-status" : ""}${itemAchievements ? " has-item-achievement-rail" : ""}" aria-label="Public types">
       <div class="browser-head">
         <div>
           <span class="pane-label">PUBLIC TYPES</span>

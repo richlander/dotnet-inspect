@@ -110,6 +110,8 @@ test("qualified structural salience remains visible and retryable", async ({
   await expect(page.locator(".metadata-warning").filter({
     hasText: "Structural salience has qualified evidence",
   })).toHaveCount(1);
+  await expect(page.locator("#type-list .type-row").first())
+    .toBeInViewport({ ratio: 1 });
   await page.locator("[data-type-leverage-retry]").click();
   await expect(page.locator("html")).toHaveAttribute(
     "data-structural-salience-request-count",
