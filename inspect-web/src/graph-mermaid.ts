@@ -16,6 +16,9 @@ import type {
   BrowserAnnotatedSourceCallRelationship,
   BrowserCallGraphTarget,
 } from "./facades/inspect-web-source.d.ts";
+import type {
+  BrowserAssemblyReferenceList,
+} from "./facades/inspect-web-package.d.ts";
 
 export function resolveMermaidCssVariables(
   definition: string,
@@ -43,6 +46,43 @@ export interface AnnotatedRelationshipGraphDestination {
 export interface AnnotatedRelationshipGraph {
   definition: string;
   edges: readonly AnnotatedRelationshipGraphEdge[];
+}
+
+export interface AssemblyReferenceGraph {
+  definition: string;
+  referenceCount: number;
+  shownReferenceCount: number;
+  truncated: boolean;
+}
+
+export function buildAssemblyReferenceGraphMermaid(
+  assemblyName: string,
+  referenceList: BrowserAssemblyReferenceList,
+): AssemblyReferenceGraph | null {
+  const references = referenceList.references;
+  if (!references.length) return null;
+  const maxNodes = 80;
+  const shownReferences = references.slice(0, maxNodes - 1);
+  const lines = [
+    "flowchart TD",
+    `  r0["${mermaidLabel(assemblyName)}"]:::inspected`,
+  ];
+  shownReferences.forEach((reference, index) => {
+    const nodeId = `r${index + 1}`;
+    const version = reference.version ? ` ${reference.version}` : "";
+    lines.push(
+      `  ${nodeId}["${mermaidLabel(`${reference.name}${version}`)}"]:::reference`,
+      `  r0 --> ${nodeId}`,
+    );
+  });
+  lines.push("classDef inspected fill:var(--graph-target-fill),stroke:var(--graph-target-stroke),color:var(--graph-target-text),stroke-width:2px;");
+  lines.push("classDef reference fill:var(--graph-package-external-fill),stroke:var(--graph-package-external-stroke),color:var(--graph-package-external-text);");
+  return {
+    definition: lines.join("\n"),
+    referenceCount: references.length,
+    shownReferenceCount: shownReferences.length,
+    truncated: shownReferences.length < references.length,
+  };
 }
 
 export function annotatedRelationshipTargetLabel(

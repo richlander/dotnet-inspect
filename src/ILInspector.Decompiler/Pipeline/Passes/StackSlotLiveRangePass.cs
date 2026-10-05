@@ -134,11 +134,17 @@ public sealed class StackSlotLiveRangePass : IIrPass
                 // reshape its regions, so every reference must belong to a top-level
                 // statement in one top-level try-body block, with no read-before-write
                 // hidden under a same-slot store.
+                bool hasLoopContainedEntryReset = HasLoopContainedEntryReset(
+                    function,
+                    block,
+                    store.Slot);
                 if (hasStructuredEh
-                    ? !ReferencesAreStraightLineInBlock(function, store.Slot, block)
+                    ? !hasLoopContainedEntryReset
+                        && !ReferencesAreStraightLineInBlock(function, store.Slot, block)
                     : function.Descendants.OfType<LoadStackSlot>()
                             .Any(load => load.Slot == store.Slot && !IsDescendantOf(load, block))
-                        || HasLoopCarriedLoadBeforeStore(function, block, i, store))
+                        || (!hasLoopContainedEntryReset
+                            && HasLoopCarriedLoadBeforeStore(function, block, i, store)))
                     continue;
 
                 int newSlot = FreshStackSlot(function);
@@ -445,6 +451,53 @@ public sealed class StackSlotLiveRangePass : IIrPass
             foreach (int successor in edges[candidate].Successors)
                 pending.Push(successor);
         }
+        return false;
+    }
+
+    static bool HasLoopContainedEntryReset(IrFunction function, Block block, int slot)
+    {
+        if (!IsWithinStructuredLoop(block))
+            return false;
+
+        var references = CoercionSinks.ScopeNodes(function.Body)
+            .Where(node => node is StoreStackSlot store && store.Slot == slot
+                || node is LoadStackSlot load && load.Slot == slot)
+            .ToList();
+        if (references.Count == 0
+            || references.Any(reference => !ReferenceEquals(EnclosingBlock(reference), block)))
+        {
+            return false;
+        }
+
+        if (block.Children
+            .SelectMany(statement => ScopeDescendants(statement).Prepend(statement))
+            .Any(node => node is LabelAnchor || IsControlTransfer(node)))
+        {
+            return false;
+        }
+
+        foreach (var statement in block.Children)
+        {
+            foreach (var node in ScopeDescendants(statement).Prepend(statement))
+            {
+                bool isReference = node switch
+                {
+                    StoreStackSlot store => store.Slot == slot,
+                    LoadStackSlot load => load.Slot == slot,
+                    _ => false,
+                };
+                if (!isReference)
+                    continue;
+
+                return node is StoreStackSlot entryStore
+                    && ReferenceEquals(entryStore, statement)
+                    && !ScopeDescendants(entryStore.Value)
+                        .Prepend(entryStore.Value)
+                        .OfType<LoadStackSlot>()
+                        .Any(load => load.Slot == slot);
+            }
+        }
+
         return false;
     }
 
