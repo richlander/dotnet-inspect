@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 namespace ILInspector.Decompiler.Pipeline;
 
 /// <summary>
@@ -193,7 +194,18 @@ public static class CoercionSinks
                             constant.Value is int i ? i : (long)constant.Value, underlying!));
     }
 
-    /// <summary>The target type of the sink directly consuming an untyped slot load, where one is derivable.</summary>
+    /// <summary>
+    /// The target type of the sink directly consuming an untyped slot load,
+    /// where one is derivable: a typed store, the body's return, a call or
+    /// object-creation argument's declared parameter type (after MethodSpec
+    /// substitution, so an open generic parameter never testifies), or the
+    /// other operand of a comparison (value-typed-emission.md, Instance 2:
+    /// "an untyped load contributes its consuming sink's target type").
+    /// Argument and comparison sinks joined this list for the #9248 remainder:
+    /// a reference <c>??</c> join or an enum/constant join spilled to a slot and
+    /// consumed only by such a sink had no testimony and failed visibly at
+    /// residual storage binding.
+    /// </summary>
     static TypeRef? LoadSinkTargetType(LoadStackSlot load, TypeRef? returnType, IReadOnlyDictionary<TypeRef, TypeShape> shapes)
         => load.Parent switch
         {
@@ -203,8 +215,38 @@ public static class CoercionSinks
             StoreIndirect store when ReferenceEquals(store.Value, load) => store.Type,
             StoreElement store when ReferenceEquals(store.Value, load) => StoreElementTarget(store, shapes),
             Return ret when ReferenceEquals(ret.Value, load) => returnType,
+            Call call => ArgumentParameterType(call.Callee.ParameterTypes, call.Callee.HasThis ? 1 : 0, call.Arguments, load),
+            NewObject ctor => ArgumentParameterType(ctor.Constructor.ParameterTypes, 0, ctor.Arguments, load),
+            Comparison comparison when ReferenceEquals(comparison.Left, load) => ClosedType(comparison.Right.ResultType),
+            Comparison comparison when ReferenceEquals(comparison.Right, load) => ClosedType(comparison.Left.ResultType),
             _ => null,
         };
+
+    /// <summary>The declared parameter type behind <paramref name="argument"/>, or null when it is open or unmatched.</summary>
+    static TypeRef? ArgumentParameterType(
+        ImmutableArray<TypeRef> parameters,
+        int offset,
+        IReadOnlyList<IrExpression> arguments,
+        IrExpression argument)
+    {
+        if (parameters.IsDefault)
+            return null;
+        for (int i = 0; i < parameters.Length && i + offset < arguments.Count; i++)
+        {
+            if (ReferenceEquals(arguments[i + offset], argument))
+                return ClosedType(parameters[i]);
+        }
+        return null;
+    }
+
+    /// <summary>A type with no open generic parameter anywhere in it, else null: an open type is not evidence.</summary>
+    internal static TypeRef? ClosedType(TypeRef? type)
+        => type is null || ContainsOpenGenericParameter(type) ? null : type;
+
+    static bool ContainsOpenGenericParameter(TypeRef type)
+        => type.Kind is TypeRefKind.GenericParameter or TypeRefKind.MethodGenericParameter
+            || type.ElementType is { } element && ContainsOpenGenericParameter(element)
+            || !type.TypeArguments.IsDefaultOrEmpty && type.TypeArguments.Any(ContainsOpenGenericParameter);
 
     /// <summary>
     /// The semantic target that can recover a typed slot load's identity.

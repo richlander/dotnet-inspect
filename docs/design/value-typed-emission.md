@@ -237,7 +237,12 @@ either:
 - a coalesce has a proven assignment type accepted by
   `ReferenceAssignmentTargets`; or
 - an ordinary expression has a proven reference assignment type and the
-  storage target is nominal core-library `System.Object`.
+  storage target is nominal core-library `System.Object`; or
+- a coalesce of two proven references with no assignment type of its own is
+  stored to a slot whose every load testifies nominal `System.Object`: the
+  slot-target binding pass issues the one reference-conversion witness C#
+  needs on the left operand (`(object)left ?? right`), after which the
+  coalesce carries the `object` assignment type the first bullet accepts.
 
 This combines the already bounded coalesce assignment decision with the
 ordinary C# reference-to-`object` conversion. It does not infer a class or
@@ -738,11 +743,14 @@ now declares those types separately instead of asking the printer to create
 Synthetic cases gate the positive reset, a self-reading entry store, a retained
 label, read-before-write, and nested structured-EH ownership. On the fixed
 14-assembly corpus the proof performs three range rewrites with zero collection
-failures, reduces residual printer split slots from 131 to 129, removes exactly
+failures, reduces residual split slots from 131 to 129 as the printer's
+unifier counted them at that base (after [Residual storage
+binding](#residual-storage-binding) the same effect reads as two fewer
+residual-bound split webs in `--residual-binding-census`), removes exactly
 the `BuildAnalysisDiff` `S_6` and `S_8` identities, and introduces none. The
 third rewrite is a compatible `string`/`object` carrier in
 `ApiOutputFormatter.BuildMemberDrillMap`; it is disclosed separately because it
-was not a residual printer split.
+was not a residual split.
 
 ### Residual storage binding
 
@@ -865,8 +873,16 @@ primitive targets as the binding passes have just bound them; for the Boolean
 sink rule, each load's parent shape and the consuming sink target
 `CoercionSinks.SemanticLoadSinkTargetType` derives (field type, setter
 parameter, `Box` type, `StoreLocal` type, argument store type, indirect store
-type, element target, or the body's return type); and the function's type
-shapes and enum backing. That inventory is closed. For a raised lambda body
+type, element target, the body's return type, a call or object-creation
+argument's declared parameter type after MethodSpec substitution when that
+type is closed, or the other operand of a comparison); and the function's type
+shapes and enum backing. That inventory is closed. The argument and comparison
+sinks are the same "consuming sink's target type" the one slot-evidence rule
+(`TestifiedSlotTypes`) has always stated for an untyped load; they joined its
+derivation for the #9248 remainder, where a reference `??` join or an
+enum/constant join spilled to a slot and consumed only by such a sink had no
+testimony and failed visibly at residual storage binding. An open generic
+parameter never testifies. For a raised lambda body
 the return type is the body's own signature, the closure method's; the deleted
 printer read it from the delegate's shape and fell back to `void`, so a
 delegate it could not read (`Predicate<T>`, for example) is a named, expected
