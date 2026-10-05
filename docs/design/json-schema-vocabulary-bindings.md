@@ -5,7 +5,8 @@
 This document is the normative owner for **JSON Schema Vocabulary Bindings**,
 tracked by
 [#8594](https://github.com/richlander/dotnet-inspect/issues/8594).
-The pattern is designed but not yet implemented.
+The shared substrate and first Package Query production descriptor are
+implemented. Progressive JSONL transport remains planned.
 
 [Vocabulary Mappings](vocabulary-mappings.md) supplies stable vocabulary and
 term identities. [`ts-jsexport`](ts-jsexport.md) and
