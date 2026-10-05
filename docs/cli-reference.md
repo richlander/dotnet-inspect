@@ -823,10 +823,11 @@ shares one Path/Size row schema, so `-S @Files --table`, `--tsv`, or `--jsonl`
 streams one listing with each member's rows in family order. Scalar sections
 (`Package Info`, `Summary`, `Statistics`, `Signature`, the SourceLink
 availability and integrity sections, and the nuspec and README Text sections)
-have no rows: selecting one of them alone with `--count`, `-n`, or `--rows`
-fails before acquisition and names an inventory section as the alternative.
-Count maps over several sections, and multi-package counts, keep their
-existing per-section meaning.
+have no rows: selecting one of them alone with `--count` or `--rows` fails
+before acquisition and names an inventory section as the alternative. A bare
+`-n` on such a section is the rendered-line window it is for `Library Info`,
+not a row terminal. Count maps over several sections, and multi-package counts,
+keep their existing per-section meaning.
 
 ```bash
 dotnet-inspect package System.Text.Json -S "Target Frameworks"

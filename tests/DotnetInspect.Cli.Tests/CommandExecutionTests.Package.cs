@@ -828,6 +828,14 @@ public partial class CommandExecutionTests
             Assert.Contains("## Package README file", composed.Output);
             Assert.Contains("| README.md |", composed.Output);
             Assert.DoesNotContain("# Native text body", composed.Output);
+
+            // A bare -n is the rendered-line window (as for Library Info), not
+            // a row terminal, so it clips the payload rather than failing.
+            var clipped = await RunAppAsync(
+                "package", packagePath, "-S", "Package README file", "-n", "1");
+            Assert.Equal(0, clipped.Exit);
+            Assert.Empty(clipped.Error);
+            Assert.Single(clipped.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries));
         }
         finally
         {
@@ -941,6 +949,25 @@ public partial class CommandExecutionTests
 
             Assert.Equal(1, unknown.Exit);
             Assert.Contains("Bogus", unknown.Error);
+
+            // --fields spells the same Path/Size columns, and JSONL honors the
+            // projection like TSV does.
+            var fieldProjected = await RunAppAsync(
+                "package", packagePath, "-S", "@Files", "--tsv", "--fields", "Size");
+            var jsonlProjected = await RunAppAsync(
+                "package", packagePath, "-S", "@Files", "--jsonl", "--columns", "Path");
+            Assert.Equal(0, fieldProjected.Exit);
+            Assert.Equal(
+                "size",
+                fieldProjected.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries)[0]);
+            Assert.Equal(0, jsonlProjected.Exit);
+            Assert.All(
+                jsonlProjected.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries),
+                line =>
+                {
+                    using JsonDocument row = JsonDocument.Parse(line);
+                    Assert.Equal(["path"], row.RootElement.EnumerateObject().Select(static p => p.Name));
+                });
 
             Assert.Equal(0, head.Exit);
             string[] headLines = head.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries);

@@ -79,8 +79,11 @@ public partial class PackageCommand
 
     /// <summary>
     /// A lone scalar section (a field set or a single Text payload) has no rows
-    /// under <c>docs/design/section-cardinality.md</c>, so <c>--count</c>,
-    /// <c>-n</c>, and <c>--rows</c> are rejected before acquisition. Count
+    /// under <c>docs/design/section-cardinality.md</c>, so <c>--count</c> and
+    /// the <c>--rows</c> row window are rejected before acquisition. A bare
+    /// <c>-n</c> is not a row terminal here: without a semantic row population
+    /// it is the rendered-line window that <c>docs/design/cli-row-selection.md</c>
+    /// assigns to unadopted modes, exactly as for <c>Library Info</c>. Count
     /// maps over several sections keep their existing per-section meaning.
     /// </summary>
     private static string? ValidatePackageScalarTerminals(
@@ -173,18 +176,6 @@ public partial class PackageCommand
         }
 
         PackageFileText[] windowed = [.. RowWindow.Apply(options.Rows, rows)];
-        if (options.Jsonl)
-        {
-            foreach (PackageFileText file in windowed)
-            {
-                var row = new PackageFileJsonRow(file.Path, file.Size);
-                output.WriteLine(JsonSerializer.Serialize(
-                    row,
-                    PackageFileJsonRowContext.Default.PackageFileJsonRow));
-            }
-            return;
-        }
-
         string[][] cells =
         [
             .. windowed.Select(file => new[]
@@ -193,22 +184,27 @@ public partial class PackageCommand
                 file.Size.ToString(CultureInfo.InvariantCulture),
             }),
         ];
-        OutputFormatter.WriteTable(output, !options.NoHeader, (writer, formatter) =>
-        {
-            var writerOptions = OutputFormatter.CreateProjectedWriterOptions(
-                options.Columns,
-                options.Fields);
-            OutputFormatter.ConfigureTableWriterOptions(
-                writerOptions,
-                options.Tsv,
-                options.Jsonl);
-            var markoutWriter = new MarkoutWriter(writer, formatter, writerOptions);
-            markoutWriter.WriteTable(
-                ["Path", "Size"],
-                ["path", "size"],
-                cells);
-            markoutWriter.Flush();
-        });
+        // The listing has columns only, so a --fields spelling projects the
+        // same Path/Size columns; one projected writer serves table, TSV, and
+        // JSONL so every format honors the projection.
+        string[] projection = [.. options.Fields ?? [], .. options.Columns ?? []];
+        OutputFormatter.WriteProjectedTable(
+            output,
+            showHeader: !options.NoHeader,
+            tsv: options.Tsv,
+            jsonl: options.Jsonl,
+            columns: projection.Length > 0 ? projection : null,
+            fields: null,
+            (writer, formatter, writerOptions) =>
+            {
+                writerOptions.JsonTypedValues = true;
+                var markoutWriter = new MarkoutWriter(writer, formatter, writerOptions);
+                markoutWriter.WriteTable(
+                    ["Path", "Size"],
+                    ["path", "size"],
+                    cells);
+                markoutWriter.Flush();
+            });
     }
 
     /// <summary>
