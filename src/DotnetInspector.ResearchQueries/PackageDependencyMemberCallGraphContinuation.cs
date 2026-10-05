@@ -11,9 +11,43 @@ using ILInspector.Metadata;
 namespace DotnetInspector.ResearchQueries;
 
 public abstract class
+    PackageDependencyMemberCallGraphPlatformRouteFormationOutcome
+{
+    private protected
+        PackageDependencyMemberCallGraphPlatformRouteFormationOutcome()
+    {
+    }
+
+    public sealed class Completed :
+        PackageDependencyMemberCallGraphPlatformRouteFormationOutcome
+    {
+        public Completed(PlatformAssemblyReferenceExternalRoute route)
+        {
+            ArgumentNullException.ThrowIfNull(route);
+            Route = route;
+        }
+
+        public PlatformAssemblyReferenceExternalRoute Route { get; }
+    }
+
+    public sealed class Incomplete :
+        PackageDependencyMemberCallGraphPlatformRouteFormationOutcome
+    {
+        public Incomplete(object evidence)
+        {
+            ArgumentNullException.ThrowIfNull(evidence);
+            Evidence = evidence;
+        }
+
+        public object Evidence { get; }
+    }
+}
+
+public abstract class
     PackageDependencyMemberCallGraphExternalContinuationSource
 {
-    public abstract ValueTask<PlatformAssemblyReferenceExternalRoute>
+    public abstract ValueTask<
+        PackageDependencyMemberCallGraphPlatformRouteFormationOutcome>
         FormPlatformRouteAsync(
             AssemblyBindingRequest request,
             AssemblyReferenceResolutionGenerationReceipt generation,
@@ -98,6 +132,8 @@ public sealed class PackageDependencyMemberCallGraphContinuation :
             new List<PackageAssemblyContextAdditionalPackageAsset>();
         var platformTargets =
             new List<PlatformFamilyTarget>();
+        var successorBindings =
+            graphPreparation.GraphBindings.ToList();
         var attempted =
             new HashSet<AssemblyReferenceOccurrenceKey>();
         PackageDependencyMemberCallGraphGeneration? generation = null;
@@ -164,6 +200,17 @@ public sealed class PackageDependencyMemberCallGraphContinuation :
                 ImmutableArray<
                     PackageAssemblyContextPlatformLibrary>
                     successorPlatformLibraries = [];
+                async ValueTask ReleaseConstructedSuccessorAsync()
+                {
+                    PackageDependencyMemberCallGraphGeneration? constructed =
+                        successorGeneration;
+                    successorGeneration = null;
+                    if (constructed is not null)
+                    {
+                        await constructed.DisposeAsync()
+                            .ConfigureAwait(false);
+                    }
+                }
                 AssemblyReferenceWorkspaceContinuationOutcome continuation =
                     await AssemblyReferenceWorkspaceContinuationOperation
                         .ExecuteAsync(
@@ -177,18 +224,46 @@ public sealed class PackageDependencyMemberCallGraphContinuation :
                             {
                                 WorkspaceRegistrationRevision registrations =
                                     Registration(workspace);
+                                if (ApplyPackageSelection(
+                                        supplier,
+                                        graphPreparation,
+                                        additionalAssets)
+                                    is { } selectedBinding
+                                    && !successorBindings.Contains(
+                                        selectedBinding))
+                                {
+                                    int reducedIndex =
+                                        successorBindings.FindIndex(
+                                            binding =>
+                                                binding.Coordinate.PackageId
+                                                    .Equals(
+                                                        selectedBinding
+                                                            .Coordinate
+                                                            .PackageId,
+                                                        StringComparison
+                                                            .OrdinalIgnoreCase));
+                                    if (reducedIndex >= 0)
+                                    {
+                                        successorBindings[reducedIndex] =
+                                            selectedBinding;
+                                    }
+                                    else
+                                    {
+                                        successorBindings.Add(
+                                            selectedBinding);
+                                    }
+                                }
+                                ImmutableArray<PackageRootBinding>
+                                    successorBindingSnapshot =
+                                        [.. successorBindings];
                                 WorkspaceScopeSnapshot scope =
                                     await AdmitPackagesAsync(
                                             workspace,
                                             registrations,
-                                            graphPreparation.GraphBindings,
+                                            successorBindingSnapshot,
                                             request.WorkspaceDeadline,
                                             token)
                                         .ConfigureAwait(false);
-                                ApplyPackageSelection(
-                                    supplier,
-                                    graphPreparation,
-                                    additionalAssets);
                                 AddPlatformTarget(
                                     supplier,
                                     platformTargets);
@@ -216,7 +291,7 @@ public sealed class PackageDependencyMemberCallGraphContinuation :
                                             workspace,
                                             scope,
                                             registrations,
-                                            graphPreparation.GraphBindings,
+                                            successorBindingSnapshot,
                                             graphPreparation.Root,
                                             lowerRequest.Focus,
                                             lowerRequest.Graph,
@@ -244,6 +319,7 @@ public sealed class PackageDependencyMemberCallGraphContinuation :
                                         token)
                                     .ConfigureAwait(false);
                             },
+                            ReleaseConstructedSuccessorAsync,
                             cancellationToken)
                         .ConfigureAwait(false);
 
@@ -269,14 +345,18 @@ public sealed class PackageDependencyMemberCallGraphContinuation :
                 }
                 if (successorOperation is null)
                 {
+                    if (successorGeneration is not null)
+                    {
+                        await successorGeneration.DisposeAsync()
+                            .ConfigureAwait(false);
+                        successorGeneration = null;
+                    }
                     InspectionEnvelope<
                         PackageDependencyMemberCallGraphInspectionOutcome>?
                         terminalWithoutPublication =
                             ProjectTerminal(
                                 continuation,
                                 cancellationToken);
-                    if (successorGeneration is not null)
-                        await successorGeneration.DisposeAsync();
                     return terminalWithoutPublication
                         ?? throw new InvalidOperationException(
                             "A non-published continuation did not retain a terminal outcome.");
@@ -341,7 +421,8 @@ public sealed class PackageDependencyMemberCallGraphContinuation :
                 generation,
                 occurrence,
                 incomplete,
-                work);
+                work,
+                Math.Max(1, incomplete.Routes.Length));
         }
         var completed =
             (PackageAssemblyReferenceRouteProjectionOutcome.Completed)
@@ -351,7 +432,8 @@ public sealed class PackageDependencyMemberCallGraphContinuation :
             occurrence.Request,
             association,
             completed.Receipt);
-        PlatformAssemblyReferenceExternalRoute platformRoute =
+        PackageDependencyMemberCallGraphPlatformRouteFormationOutcome
+            platformFormation =
             await _source.FormPlatformRouteAsync(
                     occurrence.Request,
                     generation.Generation,
@@ -360,6 +442,20 @@ public sealed class PackageDependencyMemberCallGraphContinuation :
                     work,
                     cancellationToken)
                 .ConfigureAwait(false);
+        if (platformFormation
+            is PackageDependencyMemberCallGraphPlatformRouteFormationOutcome
+                .Incomplete platformIncomplete)
+        {
+            return CreateIncompleteResolutionRequest(
+                generation,
+                occurrence,
+                platformIncomplete.Evidence,
+                work,
+                packageRouteOccurrences: 0);
+        }
+        PlatformAssemblyReferenceExternalRoute platformRoute =
+            ((PackageDependencyMemberCallGraphPlatformRouteFormationOutcome
+                .Completed)platformFormation).Route;
         AssemblyReferenceExternalRouteSet? routeSet = null;
         var plan = new AssemblyReferenceResolutionRoutePlan(
             occurrence.Request,
@@ -411,9 +507,9 @@ public sealed class PackageDependencyMemberCallGraphContinuation :
         CreateIncompleteResolutionRequest(
         PackageDependencyMemberCallGraphGeneration generation,
         PackageAssemblyReferenceBindingEvidence occurrence,
-        PackageAssemblyReferenceRouteProjectionOutcome.Incomplete
-            incomplete,
-        AssemblyReferenceResolutionWorkLedger work)
+        object incomplete,
+        AssemblyReferenceResolutionWorkLedger work,
+        int packageRouteOccurrences)
     {
         var plan = new AssemblyReferenceResolutionRoutePlan(
             occurrence.Request,
@@ -433,10 +529,13 @@ public sealed class PackageDependencyMemberCallGraphContinuation :
             (_, _, token) =>
             {
                 token.ThrowIfCancellationRequested();
-                work.Charge(
-                    AssemblyReferenceResolutionWorkKind
-                        .PackageRouteOccurrence,
-                    Math.Max(1, incomplete.Routes.Length));
+                if (packageRouteOccurrences > 0)
+                {
+                    work.Charge(
+                        AssemblyReferenceResolutionWorkKind
+                            .PackageRouteOccurrence,
+                        packageRouteOccurrences);
+                }
                 return ValueTask.FromResult<
                     AssemblyReferenceExternalRouteSetFormationOutcome>(
                     new AssemblyReferenceExternalRouteSetFormationOutcome
@@ -857,7 +956,7 @@ public sealed class PackageDependencyMemberCallGraphContinuation :
         };
     }
 
-    static void ApplyPackageSelection(
+    static PackageRootBinding? ApplyPackageSelection(
         ExternalAssemblyReferenceSupplierOutcome supplier,
         PackageDependencyMemberCallGraphPreparation graphPreparation,
         ICollection<PackageAssemblyContextAdditionalPackageAsset>
@@ -867,7 +966,7 @@ public sealed class PackageDependencyMemberCallGraphContinuation :
             is not ExternalAssemblyReferenceSupplierOutcome.PackageOwned
                 package)
         {
-            return;
+            return null;
         }
 
         PackageRootBinding binding =
@@ -875,12 +974,24 @@ public sealed class PackageDependencyMemberCallGraphContinuation :
                 package.Package.Selection.Evidence.Route);
         PackageCompileAsset asset =
             package.Package.Selection.Evidence.PayloadAsset;
+        foreach (PackageAssemblyContextAdditionalPackageAsset previous
+            in additionalAssets.Where(
+                    item =>
+                        !ReferenceEquals(item.Package, binding)
+                        && item.Package.Coordinate.PackageId.Equals(
+                            binding.Coordinate.PackageId,
+                            StringComparison.OrdinalIgnoreCase))
+                .ToArray())
+        {
+            additionalAssets.Remove(previous);
+        }
         if (!additionalAssets.Any(item =>
                 ReferenceEquals(item.Package, binding)
                 && Equals(item.Asset, asset)))
         {
             additionalAssets.Add(new(binding, asset));
         }
+        return binding;
     }
 
     static void AddPlatformTarget(
@@ -888,12 +999,18 @@ public sealed class PackageDependencyMemberCallGraphContinuation :
         ICollection<PlatformFamilyTarget> targets)
     {
         if (supplier
-                is ExternalAssemblyReferenceSupplierOutcome.PlatformOwned
-                    platform
-            && !targets.Contains(platform.Platform.Family.Target))
+            is not ExternalAssemblyReferenceSupplierOutcome.PlatformOwned
+                platform)
         {
-            targets.Add(platform.Platform.Family.Target);
+            return;
         }
+        PlatformFamilyTarget selected = platform.Platform.Family.Target;
+        PlatformFamilyTarget? previous = targets.SingleOrDefault(
+            target => target.Family == selected.Family);
+        if (previous is not null && previous != selected)
+            targets.Remove(previous);
+        if (!targets.Contains(selected))
+            targets.Add(selected);
     }
 
     internal static async ValueTask<WorkspaceRealizationOperationLease?>

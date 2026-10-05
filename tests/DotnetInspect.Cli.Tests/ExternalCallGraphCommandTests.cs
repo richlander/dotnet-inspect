@@ -9,6 +9,7 @@ using DotnetInspector.Fixtures;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.PlatformHouse;
+using DotnetInspector.Platforms;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
@@ -33,6 +34,38 @@ public sealed class ExternalCallGraphCommandTests
 
     public ExternalCallGraphCommandTests() =>
         PersistentCache.Initialize("dotnet-inspect-test");
+
+    [Fact]
+    public void FirstUsePlatformTargetPolicyMatchesExactFrameworkBand()
+    {
+        PlatformSourceCapabilityIdentity installed =
+            PlatformSourceCapabilityIdentity.Create("installed");
+        PlatformSourceCapabilityIdentity package =
+            PlatformSourceCapabilityIdentity.Create("package");
+
+        Assert.True(
+            DesktopPackageDependencyMemberCallGraphContinuationSource
+                .TryCreateTargetPolicy(
+                    "runtime",
+                    "net11.0",
+                    installed,
+                    package,
+                    out PlatformVersionlessRuntimeTargetPolicy? policy));
+        Assert.NotNull(policy);
+        Assert.Equal(
+            PlatformVersion.Parse("11.0.0"),
+            policy.MinimumPreferredVersion);
+        Assert.IsType<PlatformTargetDiscoveryScope.ExactFramework>(
+            policy.Fallback.Scope);
+        Assert.False(
+            DesktopPackageDependencyMemberCallGraphContinuationSource
+                .TryCreateTargetPolicy(
+                    "runtime",
+                    "netstandard2.0",
+                    installed,
+                    package,
+                    out _));
+    }
 
     [Fact]
     public void PackageBackedPlatformWorkChargesBeforeSourceAdmission()
@@ -784,14 +817,14 @@ public sealed class ExternalCallGraphCommandTests
             node =>
                 node.Subject
                     is InspectionGraphSubject.MemberSubject
-                    {
-                        Identity:
+                {
+                    Identity:
                             InspectionGraphMemberIdentity.CallGraph
-                            {
-                                Member.Name:
+                    {
+                        Member.Name:
                                     "HandleTransientHttpError",
-                            },
-                    });
+                    },
+                });
         PackageDependencyMemberCallGraphPackageSubject package =
             Assert.Single(
                 available.Document.PackageSubjects,

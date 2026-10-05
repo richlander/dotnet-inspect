@@ -1046,6 +1046,54 @@ public sealed partial class PackageHouseExecutionTests
                     CallGraphTargetPackage,
                     StringComparison.OrdinalIgnoreCase)
                 && binding.Coordinate.Version == higherVersion);
+        ImmutableArray<PackageRootBinding> successorBindings =
+        [
+            .. preparation.GraphBindings.Select(
+                binding =>
+                    binding.Coordinate.PackageId.Equals(
+                        selected.Coordinate.PackageId,
+                        StringComparison.OrdinalIgnoreCase)
+                        ? selected
+                        : binding),
+        ];
+        Assert.Contains(selected, successorBindings);
+        Assert.DoesNotContain(
+            successorBindings,
+            binding =>
+                binding.Coordinate.PackageId.Equals(
+                    selected.Coordinate.PackageId,
+                    StringComparison.OrdinalIgnoreCase)
+                && !ReferenceEquals(binding, selected));
+        await using var successorWorkspace = new InspectionWorkspace();
+        WorkspaceScopeSnapshot successorEmpty =
+            await CurrentScopeAsync(successorWorkspace);
+        WorkspaceScopeSnapshot successorScope =
+            Assert.IsType<WorkspaceScopeOperationResult.Committed>(
+                await successorWorkspace.AddPackagesAsync(
+                    successorEmpty.Revision,
+                    successorEmpty.PublicationBase,
+                    successorBindings,
+                    DateTimeOffset.UtcNow.AddMinutes(1),
+                    TestContext.Current.CancellationToken)).Snapshot;
+        PackageCompileAsset selectedAsset =
+            Assert.Single(selected.Root.AssetSelection.Assets);
+        await using PackageDependencyMemberCallGraphGeneration generation =
+            await PackageDependencyMemberCallGraphOperation
+                .ExecuteGenerationAsync(
+                    successorWorkspace,
+                    successorScope,
+                    CurrentRegistrations(successorWorkspace),
+                    successorBindings,
+                    preparation.Root,
+                    request.Focus,
+                    request.Graph,
+                    request.SupplyChainBaseline,
+                    request.RealizationOptions,
+                    [new(selected, selectedAsset)],
+                    [],
+                    TestContext.Current.CancellationToken);
+
+        Assert.NotNull(generation.Outcome);
         await environment.AssertRootSettledAsync();
     }
 
@@ -1604,7 +1652,7 @@ public sealed partial class PackageHouseExecutionTests
         PackageDependencyMemberCallGraphExternalContinuationSource
     {
         public override ValueTask<
-            PlatformAssemblyReferenceExternalRoute>
+            PackageDependencyMemberCallGraphPlatformRouteFormationOutcome>
             FormPlatformRouteAsync(
             AssemblyBindingRequest request,
             AssemblyReferenceResolutionGenerationReceipt generation,

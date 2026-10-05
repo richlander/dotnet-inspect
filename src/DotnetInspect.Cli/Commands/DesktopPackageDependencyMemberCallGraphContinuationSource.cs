@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Diagnostics.CodeAnalysis;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 
@@ -62,7 +63,8 @@ internal sealed class
         }
     }
 
-    public override ValueTask<PlatformAssemblyReferenceExternalRoute>
+    public override async ValueTask<
+        PackageDependencyMemberCallGraphPlatformRouteFormationOutcome>
         FormPlatformRouteAsync(
             AssemblyBindingRequest request,
             AssemblyReferenceResolutionGenerationReceipt generation,
@@ -99,31 +101,51 @@ internal sealed class
         foreach (MemberCallGraphPlatformPopulationScope population
             in focalScope.PlatformPopulations)
         {
-            if (_selectedTargets.TryGetValue(
+            if (!_selectedTargets.TryGetValue(
                     population.Family,
                     out PlatformFamilyTarget? target))
             {
-                AddEligibility(
-                    eligibilityByTarget,
-                    target,
-                    new PlatformAssemblyReferenceFamilyEligibility
-                        .WorkspacePopulation(population));
+                PlatformTargetDiscoveryOutcome selection =
+                    await DiscoverTargetAsync(
+                            population.Family,
+                            packageRoutes.Traversal.TraversalTargetPolicy
+                                .TargetFramework,
+                            work,
+                            cancellationToken)
+                        .ConfigureAwait(false);
+                if (selection
+                    is PlatformTargetDiscoveryOutcome.Incomplete incomplete)
+                {
+                    return new
+                        PackageDependencyMemberCallGraphPlatformRouteFormationOutcome
+                            .Incomplete(incomplete.Evidence);
+                }
+                target =
+                    ((PlatformTargetDiscoveryOutcome.Selected)selection).Target;
+                _selectedTargets.Add(population.Family, target);
             }
+            AddEligibility(
+                eligibilityByTarget,
+                target,
+                new PlatformAssemblyReferenceFamilyEligibility
+                    .WorkspacePopulation(population));
         }
         if (eligibilityByTarget.Count == 0)
         {
-            return ValueTask.FromResult(
-                new PlatformAssemblyReferenceExternalRoute(
-                    request,
-                    generation,
-                    focalScope,
-                    [],
-                    packageRoutes,
-                    new(
-                        generation,
-                        focalScope,
-                        packageRoutes,
-                        "No exact Platform family target is eligible for this AssemblyRef route.")));
+            return new
+                PackageDependencyMemberCallGraphPlatformRouteFormationOutcome
+                    .Completed(
+                        new PlatformAssemblyReferenceExternalRoute(
+                            request,
+                            generation,
+                            focalScope,
+                            [],
+                            packageRoutes,
+                            new(
+                                generation,
+                                focalScope,
+                                packageRoutes,
+                                "No exact Platform family target is eligible for this AssemblyRef route.")));
         }
 
         var platformBindingRequest = new AssemblyBindingRequest(
@@ -182,13 +204,158 @@ internal sealed class
                     platformRequest));
         }
 
-        return ValueTask.FromResult(
-            new PlatformAssemblyReferenceExternalRoute(
-                request,
-                generation,
-                focalScope,
-                families.MoveToImmutable(),
-                packageRoutes));
+        return new
+            PackageDependencyMemberCallGraphPlatformRouteFormationOutcome
+                .Completed(
+                    new PlatformAssemblyReferenceExternalRoute(
+                        request,
+                        generation,
+                        focalScope,
+                        families.MoveToImmutable(),
+                        packageRoutes));
+    }
+
+    async ValueTask<PlatformTargetDiscoveryOutcome> DiscoverTargetAsync(
+        PlatformFamily family,
+        string targetFramework,
+        AssemblyReferenceResolutionWorkLedger work,
+        CancellationToken cancellationToken)
+    {
+        PlatformTargetDiscoverySource? installed =
+            _installed is null
+                ? null
+                : InstalledPlatformTargetDiscovery.CreateSource(_installed);
+        PlatformTargetDiscoverySource package =
+            PackagePlatformTargetDiscovery.CreateSource(
+                _packagePlatform,
+                _packageRuntime.IssueOperation);
+        string familyName = FamilyName(family);
+        if (!TryCreateTargetPolicy(
+                familyName,
+                targetFramework,
+                installed?.Capability,
+                package.Capability,
+                out PlatformVersionlessRuntimeTargetPolicy? targetPolicy))
+        {
+            return new PlatformTargetDiscoveryOutcome.Incomplete(
+                new UnsupportedPlatformTargetFrameworkEvidence(
+                    family,
+                    targetFramework));
+        }
+        PlatformSourceCapabilityIdentity[] capabilities =
+            installed is null
+                ? [package.Capability]
+                : [installed.Capability, package.Capability];
+        var sources = new PlatformSourcePlan(
+            PlatformSourcePlanIdentity.Create(
+                $"cli-call-graph-{familyName}-target-sources"),
+            PlatformSourcePolicyGeneration.Create("generation-1"),
+            [
+                new PlatformSourceSelection(
+                    PlatformSourceFacet.TargetDiscovery,
+                    PlatformSourceSelectionMode.Fallback,
+                    capabilities),
+            ]);
+        int maxSourceOperations = (int)Math.Min(
+            capabilities.Length,
+            work.GetRemainingAllowance(
+                AssemblyReferenceResolutionWorkKind.SourceOperation));
+        var request = new PlatformHouseRequest(
+            PlatformHouseRequestIdentity.Create(
+                $"cli-call-graph-{familyName}-target"),
+            new PlatformTargetDemand.FamilyDefault(
+                family,
+                targetPolicy,
+                new PlatformTargetDiscoveryBudget(
+                    maxCandidates: 128,
+                    maxComparisons: 512)),
+            new PlatformHouseRequestOrigin.Standalone(
+                PlatformStandaloneOperationIdentity.Create(
+                    $"cli-call-graph-{familyName}-target")),
+            new PlatformHouseOperation.Realize(
+                new PlatformPopulationDemand.CompletePopulation(),
+                PlatformViewDemand.Reference),
+            sources,
+            new PlatformHouseWorkBudget(
+                maxSourceOperations,
+                maxTargetCandidates: 128,
+                maxAssemblies: 0,
+                maxXmlDocuments: 0,
+                maxPortablePdbs: 0,
+                maxSourceDocuments: 0,
+                maxBytes: 0,
+                maxForwardingHops: 0,
+                maxDuration: TimeSpan.FromMinutes(1)),
+            cancellationToken);
+        PlatformTargetSelectionOutcome outcome =
+            await PlatformHouseTargetSelector.SelectAsync(
+                    request,
+                    installed is null
+                        ? [package]
+                        : [installed, package])
+                .ConfigureAwait(false);
+        PlatformHouseConsumedWork consumed = outcome switch
+        {
+            PlatformTargetSelectionOutcome.Selected selected =>
+                selected.ConsumedWork,
+            PlatformTargetSelectionOutcome.Terminal terminal =>
+                terminal.Receipt.ConsumedWork,
+            _ => throw new InvalidOperationException(
+                "Unknown Platform target-selection outcome."),
+        };
+        Charge(
+            work,
+            AssemblyReferenceResolutionWorkKind.SourceOperation,
+            consumed.SourceOperations);
+        return outcome switch
+        {
+            PlatformTargetSelectionOutcome.Selected selected =>
+                new PlatformTargetDiscoveryOutcome.Selected(selected.Target),
+            PlatformTargetSelectionOutcome.Terminal terminal =>
+                new PlatformTargetDiscoveryOutcome.Incomplete(terminal),
+            _ => throw new InvalidOperationException(
+                "Unknown Platform target-selection outcome."),
+        };
+    }
+
+    internal static bool TryCreateTargetPolicy(
+        string familyName,
+        string targetFramework,
+        PlatformSourceCapabilityIdentity? installed,
+        PlatformSourceCapabilityIdentity package,
+        [NotNullWhen(true)]
+        out PlatformVersionlessRuntimeTargetPolicy? policy)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(familyName);
+        ArgumentNullException.ThrowIfNull(targetFramework);
+        ArgumentNullException.ThrowIfNull(package);
+        if (!PlatformTargetFramework.TryParse(
+                targetFramework,
+                out PlatformTargetFramework? fallbackFramework))
+        {
+            policy = null;
+            return false;
+        }
+        PlatformTargetDiscoveryStage? preferred =
+            installed is null
+                ? null
+                : new(
+                    new PlatformTargetDiscoveryScope.AllFrameworks(),
+                    [installed]);
+        var fallback = new PlatformTargetDiscoveryStage(
+            new PlatformTargetDiscoveryScope.ExactFramework(
+                fallbackFramework),
+            [package]);
+        policy = new PlatformVersionlessRuntimeTargetPolicy(
+            PlatformTargetSelectionPolicyIdentity.Create(
+                $"cli-call-graph-{familyName}-default"),
+            PlatformTargetSelectionPolicyGeneration.Create(
+                "generation-1"),
+            PlatformVersion.Parse(
+                $"{fallbackFramework.Major}.{fallbackFramework.Minor}.0"),
+            preferred,
+            fallback);
+        return true;
     }
 
     public override async ValueTask<
@@ -818,4 +985,27 @@ internal sealed class
     static bool HasPacks(string? root) =>
         !string.IsNullOrWhiteSpace(root)
         && Directory.Exists(Path.Combine(root, "packs"));
+
+    abstract class PlatformTargetDiscoveryOutcome
+    {
+        private protected PlatformTargetDiscoveryOutcome()
+        {
+        }
+
+        internal sealed class Selected(PlatformFamilyTarget target) :
+            PlatformTargetDiscoveryOutcome
+        {
+            public PlatformFamilyTarget Target { get; } = target;
+        }
+
+        internal sealed class Incomplete(object evidence) :
+            PlatformTargetDiscoveryOutcome
+        {
+            public object Evidence { get; } = evidence;
+        }
+    }
+
+    sealed record UnsupportedPlatformTargetFrameworkEvidence(
+        PlatformFamily Family,
+        string TargetFramework);
 }
