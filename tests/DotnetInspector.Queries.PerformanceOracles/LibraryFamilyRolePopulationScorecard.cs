@@ -114,7 +114,7 @@ public static class LibraryFamilyRolePopulationScorecard
         {
             ScorecardClosing.Count =>
                 ScorecardAnswer<LibraryFamilyRoleRow>.OfCount(
-                    rows.Count),
+                    Enumerable.Count(rows)),
             ScorecardClosing.Head =>
                 ScorecardAnswer<LibraryFamilyRoleRow>.OfRows(
                     [.. rows.Take(shape.N)]),
@@ -122,7 +122,8 @@ public static class LibraryFamilyRolePopulationScorecard
                 ScorecardAnswer<LibraryFamilyRoleRow>.OfRows(
                     [.. rows.TakeLast(shape.N)]),
             ScorecardClosing.Rows =>
-                ScorecardAnswer<LibraryFamilyRoleRow>.OfRows(rows),
+                ScorecardAnswer<LibraryFamilyRoleRow>.OfRows(
+                    Enumerable.ToArray(rows)),
             ScorecardClosing.Window =>
                 rows.Count >= shape.WindowLast
                     ? ScorecardAnswer<LibraryFamilyRoleRow>.OfRows(
