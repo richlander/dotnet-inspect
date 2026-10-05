@@ -1,3 +1,5 @@
+using System.Collections.Immutable;
+
 using ILInspector.Analysis;
 using ILInspector.Analysis.Planning;
 using ILInspector.Metadata;
@@ -429,6 +431,73 @@ public sealed class LibraryStructuralTypeLeverageTests
         Assert.Equal(1, a.BodyOutgoingDegree);
         Assert.Equal(1, b.BodyIncomingDegree);
         Assert.Equal(0, b.BodyOutgoingDegree);
+    }
+
+    [Fact]
+    public void BodyTypeShardsPartitionWholeLibraryRelationshipsOnce()
+    {
+        MetadataLibrarySignatureUseResult whole = Evidence(
+            [
+                ("A", "Source", MetadataLibraryTypeClassification.None),
+                ("A", "Target", MetadataLibraryTypeClassification.None),
+                ("B", "Source", MetadataLibraryTypeClassification.None),
+                ("B", "Target", MetadataLibraryTypeClassification.None),
+            ],
+            [],
+            exactNamespace: null);
+        MetadataLibrarySignatureUseResult a = whole with
+        {
+            Receipt = whole.Receipt with { ExactNamespace = "A" },
+            Types =
+            [
+                .. whole.Types.Where(
+                    static type => type.Name.Namespace == "A"),
+            ],
+        };
+        MetadataLibrarySignatureUseResult b = whole with
+        {
+            Receipt = whole.Receipt with { ExactNamespace = "B" },
+            Types =
+            [
+                .. whole.Types.Where(
+                    static type => type.Name.Namespace == "B"),
+            ],
+        };
+        AnalysisLibraryBodyUseResult bodyUse = BodyEvidence(
+            whole.Types.Select(static type =>
+                new AnalysisLibraryBodyUseType(
+                    type.Type,
+                    type.Name,
+                    type.DefinitionKind)),
+            [
+                (0, 1, AnalysisLibraryBodyUseOperandKind.Call),
+                (2, 3, AnalysisLibraryBodyUseOperandKind.Field),
+                (0, 2, AnalysisLibraryBodyUseOperandKind.Type),
+                (3, 1, AnalysisLibraryBodyUseOperandKind.Type),
+            ]);
+
+        ImmutableArray<LibraryStructuralBodyTypeLeverageShard> shards =
+            LibraryStructuralReport.CreateBodyTypeLeverageShards(
+                [b, a],
+                bodyUse);
+
+        Assert.Equal(
+            ["B", "A"],
+            shards.Select(static shard => shard.Namespace));
+        Assert.All(
+            shards,
+            shard =>
+            {
+                Assert.Equal(2, shard.Rows.Length);
+                Assert.Equal(
+                    [0, 1],
+                    shard.Rows.Select(
+                        static row => row.BodyIncomingDegree));
+                Assert.Equal(
+                    [1, 0],
+                    shard.Rows.Select(
+                        static row => row.BodyOutgoingDegree));
+            });
     }
 
     [Theory]

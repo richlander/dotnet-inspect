@@ -147,4 +147,9 @@
     <ProjectReference Include="..\DotnetInspector.FixtureInfrastructure\DotnetInspector.FixtureInfrastructure.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- The one product vocabulary pin, owned by the Inspect Web suite so that moving it runs both CI lanes. -->
+    <Compile Include="..\DotnetInspect.Web.Tests\ProductVocabularyPin.cs" Link="ProductVocabularyPin.cs" />
+  </ItemGroup>
+
 </Project>

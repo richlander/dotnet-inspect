@@ -115,6 +115,10 @@ internal static class ChangePlanTestSuite
                 + "ts-jsexport-runtime/R.ts", "code,web"),
             ("tests/DotnetInspect.Web.Tests/BrowserEngineLayeringTests.cs",
                 "code,web"),
+            // The product vocabulary pin lives here so that moving it runs
+            // both the CLI and Inspect Web suites (vocabulary.md#ownership).
+            ("tests/DotnetInspect.Web.Tests/ProductVocabularyPin.cs",
+                "code,web"),
             ("tests/DotnetInspect.Web.Tests/Directory.Build.props",
                 "code,web"),
             ("tests/DotnetInspector.ILRoundtrip.Tests/T.cs",

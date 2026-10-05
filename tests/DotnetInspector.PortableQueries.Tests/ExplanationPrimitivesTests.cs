@@ -147,6 +147,60 @@ public sealed class ExplanationPrimitivesTests
     }
 
     [Fact]
+    public void SnapshotBatch_ValidatesEverySnapshotAgainstOneSchemaClosure()
+    {
+        ExplanationSchema schema = CreateSchema(
+            new(
+                maximumCanonicalByteCount: 4096,
+                maximumDepth: 8,
+                maximumNodeCount: 32));
+        ExplanationResourceSnapshot valid =
+            ExplanationConformance.CreateSnapshot(
+                [schema],
+                Key(1),
+                Version,
+                ExplanationSnapshotScope.Installed,
+                [
+                    new(
+                        AddressKind,
+                        Text("nodes/1")),
+                ],
+                [
+                    new(
+                        NameFact,
+                        ExplanationObservationState.Available,
+                        [Text("one")]),
+                ],
+                [
+                    new(
+                        Children,
+                        ExplanationObservationState.Available,
+                        []),
+                ]);
+        var invalid = new ExplanationResourceSnapshot(
+            Key(2),
+            Version,
+            ExplanationSnapshotScope.Installed,
+            [
+                new(
+                    AddressKind,
+                    Text("nodes/2")),
+            ],
+            [],
+            [
+                new(
+                    Children,
+                    ExplanationObservationState.Available,
+                    []),
+            ]);
+
+        Assert.Throws<InvalidOperationException>(() =>
+            ExplanationConformance.ValidateSnapshots(
+                [schema],
+                [valid, invalid]));
+    }
+
+    [Fact]
     public void ObservationDeclaration_AbsentRequiresOptionalOne()
     {
         Assert.Throws<ArgumentException>(() =>

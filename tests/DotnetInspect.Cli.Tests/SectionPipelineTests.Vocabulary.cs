@@ -56,7 +56,7 @@ public partial class SectionPipelineTests
             VocabularySections.CreatePipeline();
 
         Assert.Equal(
-            VocabularyCatalog.Document.Sections
+            CliVocabularyDocument.Document.Sections
                 .Select(section => section.Name)
                 .Order(StringComparer.OrdinalIgnoreCase),
             pipeline.SelectableSectionNames

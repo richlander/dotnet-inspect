@@ -18,7 +18,8 @@ public static class VocabularyCommand
     public static int Execute(VocabularyOptions options)
     {
         InspectionEnvelope<VocabularySnapshot> inspection =
-            ProductVocabularyInspection.Execute();
+            ProductVocabularyInspection.Execute(
+                CliVocabularyComposition.Snapshot);
         VocabularyDocument document =
             VocabularyCatalog.ProjectDocument(inspection.Content);
         SectionCatalog<VocabularyDocument> catalog = VocabularySections.Catalog;
