@@ -1,10 +1,11 @@
 # GitHub status queries
 
 This document owns how repository agents query and interpret GitHub pull
-request, mergeability, and CI state. `AGENTS.md` owns which states gate work;
-[`round-orchestration.md`](round-orchestration.md#status-discovery) owns what a
-round does with the result. This document does not define review eligibility,
-merge authorization, candidate formation, or scheduling policy.
+request, mergeability, and CI state.
+[`round-orchestration.md`](round-orchestration.md#status-discovery) owns which
+states gate work and what a round does with the result. This document does not
+define review eligibility, merge authorization, candidate formation, or
+scheduling policy.
 
 ## Query only for a decision
 
@@ -91,7 +92,7 @@ reports whether the merge happened. The only conflict that is not resolved is
 one on a head in a scope-violation or split decision hold, which the pending
 decision prompt reports; a conflict where both sides changed the same logic
 and either choice loses behavior pauses in `HELP` before resolution, not
-instead of it (AGENTS.md *Recovery transitions*). A conflict
+instead of it ([Recovery transitions](round-orchestration.md#review-clean-and-recovery)). A conflict
 is never a waiting state; `waiting` never carries a conflict predicate, and a
 status budget cannot expire holding one, because recovery leaves the wait at
 once ([Bounded status waiting](round-orchestration.md#bounded-status-waiting)).

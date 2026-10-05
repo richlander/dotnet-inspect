@@ -358,8 +358,9 @@ correspondence rules live in
 
 ## Dependency direction
 
-Repository-wide constraints in [`AGENTS.md`](../AGENTS.md) and focused designs
-are binding. The implementation map highlights the consequences:
+Repository-wide constraints in
+[Repository workflow](repository-workflow.md#engineering-constraints) and
+focused designs are binding. The implementation map highlights the consequences:
 
 - product inspection remains SRM-based and does not load inspected
   assemblies;
