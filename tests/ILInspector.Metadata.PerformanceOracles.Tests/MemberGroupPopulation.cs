@@ -948,7 +948,8 @@ public static partial class MemberGroupPopulation
                 Reader,
                 MethodSemantics,
                 declaringType,
-                methodName)
+                methodName,
+                MetadataMemberSpelling.CSharp)
             is MetadataMethodGroupInspection.PreparationResult
                 .Prepared prepared
                     ? prepared.Model

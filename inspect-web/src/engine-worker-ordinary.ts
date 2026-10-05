@@ -203,10 +203,10 @@ type MetadataWorkerClient =
       libraryIdentity: string,
       typeIdentity: string,
       memberName: string,
+      spelling: string,
       accessibility: string,
       receiver: string,
       includeHidden: boolean,
-      spelling: string,
     ) => Promise<Awaited<ReturnType<
       MetadataFacade["queryUploadedLibraryMemberGroupDocument"]
     >>>;
@@ -1386,10 +1386,10 @@ export const engineWorkerOrdinaryOperations = {
         libraryIdentity: string,
         typeIdentity: string,
         memberName: string,
+        spelling: string,
         accessibility: string,
         receiver: string,
         includeHidden: boolean,
-        spelling: string,
       ) => {
         const retained = retainedUploadedLibraries.get(facades);
         if (!retained) {
@@ -1408,10 +1408,10 @@ export const engineWorkerOrdinaryOperations = {
           retained.content,
           typeIdentity,
           memberName,
+          spelling,
           accessibility,
           receiver,
           includeHidden,
-          spelling,
         );
       },
     ),

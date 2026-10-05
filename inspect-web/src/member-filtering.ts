@@ -202,6 +202,8 @@ function groupMatchesSummaryTrait(
 
 interface StableMemberOverload {
   readonly stableSelector?: string | null;
+  readonly metadataToken?: number | null;
+  readonly declarationMetadataToken?: number | null;
 }
 
 interface StableMemberGroup {
@@ -220,6 +222,8 @@ export function memberOverloadSourceIndex(
   if (!overload || !sourceGroup || sourceGroup === group) return index;
   const sourceIndex = sourceGroup.overloads.findIndex(candidate =>
     candidate === overload
+    || (memberMetadataToken(overload) !== 0
+      && memberMetadataToken(candidate) === memberMetadataToken(overload))
     || (Boolean(overload.stableSelector)
       && candidate.stableSelector === overload.stableSelector));
   if (sourceIndex < 0) {
@@ -243,13 +247,20 @@ export function memberOverloadVisibleIndex(
   }
   const visibleIndex = group.overloads.findIndex(candidate =>
     candidate === sourceOverload
+    || (memberMetadataToken(sourceOverload) !== 0
+      && memberMetadataToken(candidate) === memberMetadataToken(sourceOverload))
     || (Boolean(sourceOverload.stableSelector)
       && candidate.stableSelector === sourceOverload.stableSelector));
   if (visibleIndex < 0) {
     throw new Error(
       `Source overload ${sourceIndex} for member '${group.key}' is not visible.`);
   }
+
   return visibleIndex;
+}
+
+function memberMetadataToken(member: StableMemberOverload): number {
+  return member.declarationMetadataToken ?? member.metadataToken ?? 0;
 }
 
 export function selectMemberFamilyParent(

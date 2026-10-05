@@ -64,9 +64,9 @@ public static class MemberOverloadPopulationInspectionOperation
                             && compatibleContinuation,
                         Accessibility(query.Accessibility),
                         Receiver(query.Receiver),
+                        Spelling(request.Plan.Subject.Spelling),
                         request.Plan.Bounds,
                         query.IncludeHidden,
-                        Spelling(request.Plan.Subject.Spelling),
                         expectedModuleVersionId:
                             compatibleContinuation
                                 ? rows?.Continuation?.Binding
@@ -221,11 +221,11 @@ public static class MemberOverloadPopulationInspectionOperation
             subject.Name,
             subject.Category,
             subject.Role,
+            subject.Spelling,
             ordering,
             query.Accessibility,
             query.Receiver,
-            query.IncludeHidden,
-            subject.Spelling);
+            query.IncludeHidden);
         MemberOverloadCountOutcome? count =
             !query.IncludesCount
                 ? null
@@ -298,6 +298,8 @@ public static class MemberOverloadPopulationInspectionOperation
                                         _ => throw new InvalidOperationException(
                                             "Unknown exact-Member receiver."),
                                     },
+                                    row.IsVirtual,
+                                    row.IsExplicitInterfaceImplementation,
                                     binding)),
                     ];
                 rows = new MemberOverloadRowsOutcome.Read(
@@ -390,7 +392,7 @@ public static class MemberOverloadPopulationInspectionOperation
             TypeMemberGroupSpelling.Metadata =>
                 MetadataMemberSpelling.Metadata,
             _ => throw new InvalidOperationException(
-                "Unknown Member-group spelling."),
+                "Unknown exact-Member spelling."),
         };
 
     private static InspectionEnvelope<

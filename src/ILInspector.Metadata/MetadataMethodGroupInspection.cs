@@ -46,7 +46,9 @@ public sealed record MetadataMethodGroupRow(
     string DocumentationId,
     string Fingerprint,
     string Accessibility,
-    MetadataMethodReceiver Receiver);
+    MetadataMethodReceiver Receiver,
+    bool IsVirtual,
+    bool IsExplicitInterfaceImplementation);
 
 public abstract record MetadataMethodGroupInspectionOutcome
 {
@@ -167,13 +169,10 @@ internal static class MetadataMethodGroupInspection
         {
             if (!Reader.StringComparer.Equals(
                     method.Name,
-                    MethodName))
-            {
-                return CandidateKind.OutsideGroup;
-            }
-            if (_spelling is MetadataMemberSpelling.CSharp
-                && (!IsOrdinaryMethodName(MethodName)
-                    || _accessors.Contains(handle)))
+                    MethodName)
+                || (_spelling is MetadataMemberSpelling.CSharp
+                    && (!IsOrdinaryMethodName(MethodName)
+                        || _accessors.Contains(handle))))
             {
                 return CandidateKind.OutsideGroup;
             }
@@ -255,7 +254,9 @@ internal static class MetadataMethodGroupInspection
                 documentationIdentity.Value,
                 anchor.Fingerprint,
                 declaration.Accessibility,
-                receiver);
+                receiver,
+                declaration.IsVirtual,
+                _interfaceImplementations.ContainsKey(handle));
         }
     }
 
@@ -552,8 +553,8 @@ internal static class MetadataMethodGroupInspection
         bool materializeRows,
         MetadataMethodAccessibilityFilter accessibility,
         MetadataMethodReceiverFilter receiver,
-        bool includeHidden,
         MetadataMemberSpelling spelling,
+        bool includeHidden,
         int maximumMembers,
         int maximumRetainedTextCharacters)
     {

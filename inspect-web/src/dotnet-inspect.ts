@@ -796,6 +796,7 @@ import type {
   BrowserMemberDeclaration,
   BrowserMemberDocumentInspection,
   BrowserMemberGroupDocumentInspection,
+  BrowserMemberGroupDocumentRow,
   BrowserTypeDocumentInspection,
   BrowserTypeMetadata,
 } from "./facades/inspect-web-metadata.d.ts";
@@ -6772,6 +6773,22 @@ function memberPopulationReceiver(
     : member.isStatic ? "static" : "this";
 }
 
+function documentMemberOverload(
+  row: BrowserMemberGroupDocumentRow,
+  resident: AppMemberSurface,
+): AppMemberSurface {
+  const signature =
+    `${row.accessibility} ${memberReceiverPrefix(row.receiver)}${row.displaySignature}`;
+  return {
+    ...resident,
+    baselineOrdinal: row.baselineOrdinal,
+    signature,
+    isVirtual: row.isVirtual,
+    isExplicitInterfaceImplementation:
+      row.isExplicitInterfaceImplementation,
+  };
+}
+
 function declaredMemberGroups(type: AppTypeSurface): AppMemberGroup[] {
   const population = currentTypeMemberPopulation(type);
   if (population) {
@@ -6794,8 +6811,6 @@ function declaredMemberGroups(type: AppTypeSurface): AppMemberGroup[] {
           && state.memberGroupDocument?.outcome === "Available"
           ? state.memberGroupDocument.document
           : null;
-      const exactRows = new Map(
-        document?.rows.map(row => [row.metadataToken, row]) ?? []);
       const residentOverloads = type.api.filter(member =>
           member.name === group.name
           && member.kind === group.kind
@@ -6806,24 +6821,15 @@ function declaredMemberGroups(type: AppTypeSurface): AppMemberGroup[] {
           && group.receivers.includes(memberPopulationReceiver(member)));
       const residentRowsComplete =
         residentOverloads.length === group.completeCount;
-      const overloads = exactRows.size > 0
-        ? residentOverloads
-          .filter(member => exactRows.has(
-            member.declarationMetadataToken
-              ?? member.metadataToken
-              ?? 0))
-          .map(member => {
-            const token =
-              member.declarationMetadataToken
+      const overloads = document
+        ? document.rows.flatMap(row => {
+            const resident = residentOverloads.find(member =>
+              (member.declarationMetadataToken
                 ?? member.metadataToken
-                ?? 0;
-            const row = exactRows.get(token)!;
-            return {
-              ...member,
-              baselineOrdinal: row.baselineOrdinal,
-              signature:
-                `${row.accessibility} ${memberReceiverPrefix(row.receiver)}${row.displaySignature}`,
-            };
+                ?? 0) === row.metadataToken);
+            return resident
+              ? [documentMemberOverload(row, resident)]
+              : [];
           })
         : (!uploadedLibraryIsActive()
             && residentOverloads.length <= group.completeCount)
@@ -8428,6 +8434,7 @@ function openMemberGroup(key: string) {
     group?.overloads.length === 1
       && !memberGroupUsesFamilySurface(group)
       && !graphOnlyTarget
+      && !ordinaryMethodGroup(group)
       ? memberNavOverloadSourceIndex(group, 0)
       : null;
   const resetMethodSection =
@@ -12968,6 +12975,36 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
             <h2>Declaration details are not loaded</h2>
             <p>The shared Type document supplied this Member-group inventory without constructing exact declaration rows.</p>
           </section>
+        </div>
+      </section>`;
+  }
+  if (overload.documentOnly) {
+    return `
+      <section class="member-surface" aria-labelledby="member-surface-title">
+        <header class="api-surface-head member-surface-head">
+          <h1 id="member-surface-title">${escapeHtml(member.name)}</h1>
+          <p>Exact declaration <span>· ${escapeHtml(member.kind)}</span></p>
+        </header>
+        <div class="member-surface-scroll">
+          <article class="learn-overview">
+            <section class="learn-section member-overview-intro">
+              <section class="signature-panel" aria-labelledby="member-declaration-title">
+                <div class="signature-language">
+                  <h2 id="member-declaration-title"><span>${state.memberSpelling === "metadata" ? "metadata" : "C#"}</span><small>declaration</small></h2>
+                </div>
+                <pre class="language-csharp signature-code"><code class="language-csharp">${highlightCSharp(overload.signature)}</code></pre>
+              </section>
+              <section class="member-identity" aria-labelledby="member-identity-title">
+                <div class="identity-heading"><h2 id="member-identity-title">Identity</h2><span>owner-issued exact Member</span></div>
+                <dl>
+                  <div><dt>Metadata token</dt><dd><code>0x${(overload.metadataToken ?? 0).toString(16).padStart(8, "0")}</code></dd></div>
+                  <div><dt>Baseline ordinal</dt><dd>${overload.baselineOrdinal ?? "unavailable"}</dd></div>
+                  <div><dt>Fingerprint</dt><dd><code>${escapeHtml(overload.anchorDigest)}</code></dd></div>
+                  <div class="canonical-identity"><dt>Canonical signature</dt><dd><code>${escapeHtml(overload.canonicalSignature)}</code></dd></div>
+                </dl>
+              </section>
+            </section>
+          </article>
         </div>
       </section>`;
   }
@@ -21400,10 +21437,10 @@ async function loadSelectedMemberGroupDocument() {
           type.assemblyId,
           type.definitionId ?? type.id,
           member.name,
+          state.memberSpelling,
           state.memberAccessibilityFilter,
           memberGroupReceiverIntent(),
-          false,
-          state.memberSpelling)
+          false)
       : pkg.isRuntimePack
       ? (() => {
           const row = platformLibraryForRequest(pkg, type.assemblyId);
@@ -21414,10 +21451,10 @@ async function loadSelectedMemberGroupDocument() {
             row.pack,
             type.definitionId ?? type.id,
             member.name,
+            state.memberSpelling,
             state.memberAccessibilityFilter,
             memberGroupReceiverIntent(),
-            false,
-            state.memberSpelling);
+            false);
         })()
       : inspectMemberGroupDocument(
           pkg.id,
@@ -21426,10 +21463,10 @@ async function loadSelectedMemberGroupDocument() {
           type.assembly,
           type.definitionId ?? type.id,
           member.name,
+          state.memberSpelling,
           state.memberAccessibilityFilter,
           memberGroupReceiverIntent(),
-          false,
-          state.memberSpelling);
+          false);
     const inspection = await result;
     if (state.memberGroupDocumentKey !== key) return;
     state.memberGroupDocument = inspection;

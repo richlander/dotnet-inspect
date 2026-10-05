@@ -329,6 +329,7 @@ public sealed class BrowserMemberDeclarationTests
                     AssemblyFileName,
                     SpellingType,
                     "PointerFreeUnsafeMethod",
+                    "csharp",
                     "public",
                     "all",
                     includeHidden: false));
@@ -422,6 +423,7 @@ public sealed class BrowserMemberDeclarationTests
                     image,
                     ExtensionType,
                     "Examine",
+                    "csharp",
                     "public",
                     "extension",
                     includeHidden: false));
@@ -448,6 +450,7 @@ public sealed class BrowserMemberDeclarationTests
                     runtimeImage,
                     typeof(JsonDocument).FullName!,
                     "Parse",
+                    "csharp",
                     "private",
                     "all",
                     includeHidden: false));
@@ -561,10 +564,10 @@ public sealed class BrowserMemberDeclarationTests
                     AssemblyFileName,
                     SpellingType,
                     getter.Name,
+                    "metadata",
                     "public",
                     "all",
-                    includeHidden: false,
-                    spelling: "metadata"));
+                    includeHidden: false));
         Assert.Equal(
             BrowserMemberGroupDocumentOutcome.Available,
             metadataAccessorGroup.Outcome);
@@ -572,6 +575,7 @@ public sealed class BrowserMemberDeclarationTests
             Assert.IsType<BrowserMemberGroupDocument>(
                 metadataAccessorGroup.Document);
         Assert.Equal("Metadata", metadataAccessorDocument.Spelling);
+        Assert.Equal("get_Type", metadataAccessorDocument.MemberName);
         BrowserMemberGroupDocumentRow metadataAccessorRow =
             Assert.Single(metadataAccessorDocument.Rows);
         BrowserMemberDocumentInspection metadataAccessorMember =
@@ -675,6 +679,7 @@ public sealed class BrowserMemberDeclarationTests
                     AssemblyFileName,
                     SpellingType,
                     "MissingMethod",
+                    "csharp",
                     "public",
                     "all",
                     includeHidden: false));
@@ -936,6 +941,7 @@ public sealed class BrowserMemberDeclarationTests
                         "netcore.app",
                         ExtensionType,
                         "Examine",
+                        "csharp",
                         "public",
                         "extension",
                         includeHidden: false));

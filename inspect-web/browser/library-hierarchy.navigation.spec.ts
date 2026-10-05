@@ -808,6 +808,21 @@ test("owner-issued metadata accessors open an exact Member document without resi
   await expect(
     page.getByRole("tablist", { name: "Member lenses" }).getByRole("tab"),
   ).toHaveCount(1);
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-member-group-document-request",
+    JSON.stringify([
+      "Example.Package",
+      "1.0.0",
+      "net10.0",
+      "Example.Core.dll",
+      "Example.Widget",
+      "get_Value",
+      "metadata",
+      "public",
+      "all",
+      false,
+    ]),
+  );
   expect(JSON.parse(
     await page.locator("html").getAttribute(
       "data-member-document-request") ?? "[]",

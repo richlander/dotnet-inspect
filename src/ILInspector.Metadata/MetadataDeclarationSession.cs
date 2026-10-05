@@ -71,11 +71,10 @@ public sealed class MetadataDeclarationSession : IDisposable
         bool materializeRows,
         MetadataMethodAccessibilityFilter accessibility,
         MetadataMethodReceiverFilter receiver,
+        MetadataMemberSpelling spelling,
         bool includeHidden,
         int maximumMembers,
-        int maximumRetainedTextCharacters,
-        MetadataMemberSpelling spelling =
-            MetadataMemberSpelling.CSharp)
+        int maximumRetainedTextCharacters)
     {
         EnsureAccess();
         if (_imageAdmission is MetadataImageAdmissionResult.Rejected)
@@ -92,8 +91,8 @@ public sealed class MetadataDeclarationSession : IDisposable
             materializeRows,
             accessibility,
             receiver,
-            includeHidden,
             spelling,
+            includeHidden,
             maximumMembers,
             maximumRetainedTextCharacters);
     }

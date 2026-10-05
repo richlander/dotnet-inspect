@@ -337,6 +337,7 @@ public sealed class MemberOverloadPopulationInspectionOperationTests
                                     binding.Name,
                                     binding.Category,
                                     binding.Role,
+                                    binding.Spelling,
                                     binding.Ordering),
                                 firstContinuation
                                     .NextOrdinal))));
@@ -344,6 +345,33 @@ public sealed class MemberOverloadPopulationInspectionOperationTests
             MemberOverloadRowsRejection.IncompatibleContinuation,
             Assert.IsType<MemberOverloadRowsOutcome.Rejected>(
                     incompatible.Overloads.Rows)
+                .Reason);
+
+        MemberOverloadPopulationContent changedSpelling =
+            Available(
+                Execute(
+                    library,
+                    "Serialize",
+                    count: false,
+                    new(
+                        maximumRows: 3,
+                        continuation:
+                            new(
+                                new(
+                                    binding.Assembly,
+                                    binding.ModuleVersionId,
+                                    binding.DeclaringType,
+                                    binding.TypeDefinitionToken,
+                                    binding.Name,
+                                    binding.Category,
+                                    binding.Role,
+                                    TypeMemberGroupSpelling.Metadata,
+                                    binding.Ordering),
+                                firstContinuation.NextOrdinal))));
+        Assert.Equal(
+            MemberOverloadRowsRejection.IncompatibleContinuation,
+            Assert.IsType<MemberOverloadRowsOutcome.Rejected>(
+                    changedSpelling.Overloads.Rows)
                 .Reason);
 
         MemberOverloadPopulationContent changedFilter =

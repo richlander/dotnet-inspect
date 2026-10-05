@@ -123,14 +123,13 @@ public sealed record MemberOverloadPopulationBinding
         string name,
         MemberGroupCategory category,
         MemberGroupRole role,
+        TypeMemberGroupSpelling spelling,
         MemberOverloadOrdering ordering,
         MemberOverloadAccessibilityFilter accessibility =
             MemberOverloadAccessibilityFilter.Public,
         MemberOverloadReceiverFilter receiver =
             MemberOverloadReceiverFilter.All,
-        bool includeHidden = false,
-        TypeMemberGroupSpelling spelling =
-            TypeMemberGroupSpelling.CSharp)
+        bool includeHidden = false)
     {
         Assembly = assembly
             ?? throw new ArgumentNullException(nameof(assembly));
@@ -164,7 +163,7 @@ public sealed record MemberOverloadPopulationBinding
             throw new ArgumentOutOfRangeException(
                 nameof(spelling),
                 spelling,
-                "Unknown Member-group spelling.");
+                "Unknown exact-Member spelling.");
         }
         if (!Enum.IsDefined(ordering))
         {
@@ -391,6 +390,8 @@ public sealed record MemberOverloadShape(
     InertString Accessibility,
     MemberGroupRole Role,
     MemberReceiver Receiver,
+    bool IsVirtual,
+    bool IsExplicitInterfaceImplementation,
     MemberOverloadPopulationBinding Binding);
 
 public enum MemberOverloadRowsRejection

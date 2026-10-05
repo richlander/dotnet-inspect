@@ -184,10 +184,10 @@ export interface EngineClient {
       libraryIdentity: string,
       typeIdentity: string,
       memberName: string,
+      spelling: string,
       accessibility: string,
       receiver: string,
       includeHidden: boolean,
-      spelling: string,
     ) => Promise<Awaited<ReturnType<
       MetadataFacade["queryUploadedLibraryMemberGroupDocument"]
     >>>;

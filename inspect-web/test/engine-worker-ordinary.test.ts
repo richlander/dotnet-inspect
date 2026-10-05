@@ -526,7 +526,7 @@ test("uploaded Library Member document queries use the retained exact image", as
   const content = [0x4d, 0x5a, 0x00, 0x01];
   const identity = `sha256:${"a".repeat(64)}`;
   let received:
-    [string, number[], string, string, string, string, boolean, string]
+    [string, number[], string, string, string, string, string, boolean]
       | undefined;
   let exactReceived:
     [
@@ -624,20 +624,20 @@ test("uploaded Library Member document queries use the retained exact image", as
         bytes,
         typeIdentity,
         memberName,
+        spelling,
         accessibility,
         receiver,
         includeHidden,
-        spelling,
       ) {
         received = [
           declaredName,
           bytes,
           typeIdentity,
           memberName,
+          spelling,
           accessibility,
           receiver,
           includeHidden,
-          spelling,
         ];
         return {
           outcome: "Available",
@@ -653,8 +653,11 @@ test("uploaded Library Member document queries use the retained exact image", as
               displaySignature: "void Run()",
               canonicalSignature: "M:Example.Widget.Run",
               fingerprint: "run",
+              documentationId: "M:Example.Widget.Run",
               accessibility: "Public",
               receiver: "This",
+              isVirtual: false,
+              isExplicitInterfaceImplementation: false,
             }],
           },
           diagnostics: [],
@@ -699,10 +702,10 @@ test("uploaded Library Member document queries use the retained exact image", as
       identity,
       "Example.Widget",
       "Run",
+      "metadata",
       "private",
       "static",
       false,
-      "metadata",
     );
   await state.environment.flushAsync();
 
@@ -712,10 +715,10 @@ test("uploaded Library Member document queries use the retained exact image", as
     content,
     "Example.Widget",
     "Run",
+    "metadata",
     "private",
     "static",
     false,
-    "metadata",
   ]);
   const population =
     state.client.metadata.queryUploadedLibraryTypeDocument(
@@ -766,10 +769,10 @@ test("uploaded Library Member document queries use the retained exact image", as
       `sha256:${"b".repeat(64)}`,
       "Example.Widget",
       "Run",
+      "csharp",
       "public",
       "all",
       false,
-      "csharp",
     );
   const mismatchFailure = assert.rejects(
     mismatched,

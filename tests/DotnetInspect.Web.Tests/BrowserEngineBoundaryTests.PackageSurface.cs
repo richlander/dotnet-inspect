@@ -684,6 +684,7 @@ public sealed partial class BrowserEngineBoundaryTests
                     "InspectWeb.DocumentationFixtures.dll",
                     "InspectWeb.DocumentationFixtures.WidgetExtensions",
                     "Measure",
+                    "csharp",
                     "public",
                     "all",
                     includeHidden: false),

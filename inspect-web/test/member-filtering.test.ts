@@ -423,6 +423,39 @@ test("partially resident groups retain pending matching traits", () => {
     }]);
 });
 
+test("partial resident detail retains producer-matched traits", () => {
+  const partial = {
+    key: "method:Dispose",
+    name: "Dispose",
+    kind: "method",
+    overloads: [{
+      signature: "public void Dispose()",
+      isVirtual: false,
+    }],
+    completeCount: 2,
+    sourceOverloadCount: 2,
+    detailsPending: true,
+    receivers: ["this"],
+    traitCounts: {
+      all: 2,
+      static: 0,
+      instance: 2,
+      virtual: 1,
+      interface: 0,
+      extensions: 0,
+    },
+  };
+
+  const filtered = filterMemberGroups([partial], {
+    kind: "method",
+    trait: "virtual",
+    query: "",
+  });
+  assert.equal(filtered.length, 1);
+  assert.deepEqual(filtered[0]?.overloads, []);
+  assert.equal(filtered[0]?.sourceOverloadCount, 1);
+});
+
 test("member traits use the complete selector vocabulary", () => {
   assert.equal(memberMatchesTrait(
     { signature: "", isStatic: true },
