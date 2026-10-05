@@ -468,6 +468,52 @@ public sealed class BrowserMemberDeclarationTests
 
         byte[] runtimeImage =
             File.ReadAllBytes(typeof(JsonDocument).Assembly.Location);
+        const string enumeratorType =
+            "System.Text.Json.JsonElement+ArrayEnumerator";
+        BrowserTypeMemberPopulation enumeratorPopulation =
+            AvailablePopulation(
+                TypeDocument(
+                    await MetadataExports
+                        .QueryUploadedLibraryTypeDocument(
+                            Path.GetFileName(
+                                typeof(JsonDocument).Assembly.Location),
+                            runtimeImage,
+                            enumeratorType,
+                            "csharp",
+                            "public")));
+        BrowserTypeMemberPopulationGroup explicitGroup =
+            enumeratorPopulation.Groups.First(
+                group =>
+                    group.Kind
+                        == "explicit-interface-implementation");
+        BrowserMemberGroupDocumentInspection explicitInspection =
+            MemberGroupDocument(
+                await MetadataExports
+                    .QueryUploadedLibraryMemberGroupDocument(
+                        Path.GetFileName(
+                            typeof(JsonDocument).Assembly.Location),
+                        runtimeImage,
+                        enumeratorType,
+                        explicitGroup.Name,
+                        explicitGroup.Kind,
+                        "csharp",
+                        "public",
+                        "all",
+                        includeHidden: false));
+        BrowserMemberGroupDocument explicitDocument =
+            Assert.IsType<BrowserMemberGroupDocument>(
+                explicitInspection.Document);
+        Assert.Equal(
+            explicitGroup.CompleteCount,
+            explicitDocument.Count);
+        Assert.All(
+            explicitDocument.Rows,
+            row =>
+            {
+                Assert.Equal("public", row.Accessibility);
+                Assert.True(row.IsExplicitInterfaceImplementation);
+            });
+
         BrowserMemberGroupDocumentInspection privateGroup =
             MemberGroupDocument(
                 await MetadataExports.QueryUploadedLibraryMemberGroupDocument(

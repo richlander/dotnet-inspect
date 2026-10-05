@@ -45,6 +45,7 @@ export interface WorkspaceView {
   memberBrowseTypeId: string;
   memberKindFilter: string;
   memberAccessibilityFilter: string;
+  memberSpelling?: "csharp" | "metadata";
   memberTraitFilter: string;
   memberTextFilter: string;
   selectedOverloadIndex: number | null;
@@ -80,6 +81,7 @@ export function workspaceViewSignature(view: WorkspaceView): string {
     mb: view.memberBrowseTypeId,
     mk: view.memberKindFilter,
     ma: view.memberAccessibilityFilter,
+    ms: view.memberSpelling ?? "csharp",
     mr: view.memberTraitFilter,
     o: view.selectedOverloadIndex,
     md: view.memberDocumentSelector ?? null,

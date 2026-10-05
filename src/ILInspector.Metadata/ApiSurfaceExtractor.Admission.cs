@@ -37,6 +37,18 @@ public static partial class ApiSurfaceExtractor
                 "The member accessibility is invalid."),
         };
 
+    internal static string AccessibilityBucketName(
+        MethodAttributes access) =>
+        AccessibilityBucket(access) switch
+        {
+            MetadataMethodAccessibilityFilter.Public => "public",
+            MetadataMethodAccessibilityFilter.Protected => "protected",
+            MetadataMethodAccessibilityFilter.Internal => "internal",
+            MetadataMethodAccessibilityFilter.Private => "private",
+            _ => throw new InvalidOperationException(
+                "Unknown member accessibility."),
+        };
+
     /// <summary>
     /// A method's effective access. A private body that implements an
     /// interface member through a MethodImpl is reachable by exactly the

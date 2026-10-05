@@ -156,6 +156,7 @@ function workspaceView(
     memberBrowseTypeId: "Example.Widget",
     memberKindFilter: "all",
     memberAccessibilityFilter: "all",
+    memberSpelling: "csharp",
     memberTraitFilter: "",
     memberTextFilter: "",
     selectedOverloadIndex: 0,
@@ -1218,6 +1219,12 @@ test("history signatures distinguish owner-issued exact Member selectors", () =>
       baselineOrdinal: 2,
       fingerprintPrefix: "member-fingerprint",
     },
+  });
+
+  test("history signatures distinguish Member spelling", () => {
+    assert.notEqual(
+      workspaceViewSignature(workspaceView({ memberSpelling: "csharp" })),
+      workspaceViewSignature(workspaceView({ memberSpelling: "metadata" })));
   });
 
   assert.notEqual(

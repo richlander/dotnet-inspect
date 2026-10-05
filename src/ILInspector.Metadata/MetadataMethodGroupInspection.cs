@@ -178,11 +178,7 @@ internal static class MetadataMethodGroupInspection
             }
 
             if (!MatchesAccessibility(
-                    ApiSurfaceExtractor.MethodEffectiveAccess(
-                        method.Attributes
-                            & MethodAttributes.MemberAccessMask,
-                        handle,
-                        _interfaceImplementations),
+                    QueryAccess(handle, method),
                     accessibility)
                 || !MatchesReceiver(
                     Reader,
@@ -253,10 +249,25 @@ internal static class MetadataMethodGroupInspection
                 anchor.CanonicalSignature,
                 documentationIdentity.Value,
                 anchor.Fingerprint,
-                declaration.Accessibility,
+                ApiSurfaceExtractor.AccessibilityBucketName(
+                    QueryAccess(handle, method)),
                 receiver,
                 declaration.IsVirtual,
                 _interfaceImplementations.ContainsKey(handle));
+        }
+
+        private MethodAttributes QueryAccess(
+            MethodDefinitionHandle handle,
+            MethodDefinition method)
+        {
+            MethodAttributes physical =
+                method.Attributes & MethodAttributes.MemberAccessMask;
+            return _spelling is MetadataMemberSpelling.Metadata
+                ? physical
+                : ApiSurfaceExtractor.MethodEffectiveAccess(
+                    physical,
+                    handle,
+                    _interfaceImplementations);
         }
     }
 

@@ -3949,6 +3949,7 @@ function captureView(): WorkspaceView | null {
     memberBrowseTypeId: state.memberBrowseTypeId,
     memberKindFilter: state.memberKindFilter,
     memberAccessibilityFilter: state.memberAccessibilityFilter,
+    memberSpelling: state.memberSpelling,
     memberTraitFilter: state.memberTraitFilter,
     memberTextFilter: state.memberTextFilter,
     selectedOverloadIndex: state.selectedOverloadIndex,
@@ -4098,6 +4099,8 @@ function applyView(view: WorkspaceView) {
   clearMemberDocumentCache();
   state.selectedMemberDocumentSelector =
     view.memberDocumentSelector ?? null;
+  state.memberSpelling =
+    view.memberSpelling === "metadata" ? "metadata" : "csharp";
   state.memberSourceRequestedView = view.memberSourceView ?? "source";
   state.memberSourceView = state.memberSourceRequestedView;
   state.rootKind = view.rootKind ?? (pkg.source.kind === "platform" ? "platform" : "package");
