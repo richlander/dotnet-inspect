@@ -200,7 +200,7 @@ peers, remove self relationships, rank Types, or aggregate evidence.
 
 The work is declared through
 [Producer Planning](producer-planning.md), not another
-`LibraryBodyAnalysisFeatures` path or `LibraryBodyIndex` projection.
+`LibraryBodyAnalysisFeatures` path or aggregate projection.
 
 The body-use producer is a method-definition producer. Its shipping consumer
 closes it with the Rows terminal. The scorecard also exercises its internal

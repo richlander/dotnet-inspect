@@ -14,6 +14,8 @@ using Inspector.Text;
 using ILInspector.Research.Tests.TypeFixtures;
 using DecompilerMetadataSource = ILInspector.Decompiler.Pipeline.MetadataSource;
 
+using ILInspector.ILDiff;
+
 namespace ILInspector.Research.Tests;
 
 public class ResearchDiffTests

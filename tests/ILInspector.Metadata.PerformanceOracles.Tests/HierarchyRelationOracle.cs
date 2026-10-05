@@ -210,14 +210,11 @@ public static class HierarchyRelationOracle
         MetadataHierarchyRelationAnalysisResult result =
             RequireAvailable(
                 session.AnalyzeHierarchyRelations(
-                    new(
-                        new(target, kind),
-                        MetadataOperationPolicy.Unbounded,
-                        materializeRows:
-                            closing is not ScorecardClosing.Count
-                                and not ScorecardClosing.Exists,
-                        forwardPlan:
-                            ForwardPlan(closing, shape))));
+                    AnalysisRequest(
+                        kind,
+                        target,
+                        closing,
+                        shape)));
         return AnalysisAnswer(result, closing, shape);
     }
 
@@ -231,16 +228,48 @@ public static class HierarchyRelationOracle
         MetadataHierarchyRelationAnalysisResult result =
             RequireAvailable(
                 index.Analyze(
-                    new(
-                        new(target, kind),
-                        MetadataOperationPolicy.Unbounded,
-                        materializeRows:
-                            closing is not ScorecardClosing.Count
-                                and not ScorecardClosing.Exists,
-                        forwardPlan:
-                            ForwardPlan(closing, shape))));
+                    AnalysisRequest(
+                        kind,
+                        target,
+                        closing,
+                        shape)));
         return AnalysisAnswer(result, closing, shape);
     }
+
+    public static ScorecardAnswer<HierarchyRelationOracleRow> IndexedAnswer(
+        Func<
+            MetadataHierarchyRelationAnalysisRequest,
+            MetadataHierarchyRelationAnalysisOutcome> analyze,
+        MetadataHierarchyRelationKind kind,
+        MetadataTypeDefinitionName target,
+        ScorecardClosing closing,
+        ScorecardShape shape)
+    {
+        ArgumentNullException.ThrowIfNull(analyze);
+        MetadataHierarchyRelationAnalysisResult result =
+            RequireAvailable(
+                analyze(
+                    AnalysisRequest(
+                        kind,
+                        target,
+                        closing,
+                        shape)));
+        return AnalysisAnswer(result, closing, shape);
+    }
+
+    static MetadataHierarchyRelationAnalysisRequest AnalysisRequest(
+        MetadataHierarchyRelationKind kind,
+        MetadataTypeDefinitionName target,
+        ScorecardClosing closing,
+        ScorecardShape shape) =>
+        new(
+            new(target, kind),
+            MetadataOperationPolicy.Unbounded,
+            materializeRows:
+                closing is not ScorecardClosing.Count
+                    and not ScorecardClosing.Exists,
+            forwardPlan:
+                ForwardPlan(closing, shape));
 
     static ScorecardAnswer<HierarchyRelationOracleRow> AnalysisAnswer(
         MetadataHierarchyRelationAnalysisResult result,

@@ -748,7 +748,9 @@
       "allowOnly": [
         "$platform",
         "DotnetInspector.Queries",
-        "ILInspector.Decompiler"
+        "DotnetInspector.Sections",
+        "ILInspector.Decompiler",
+        "QuerySpace.Primitives"
       ]
     },
     {

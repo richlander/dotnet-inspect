@@ -2504,7 +2504,6 @@ public class OpaqueUnsafeTests
         Assert.DoesNotContain(opaque, o => o.Method.Name == nameof(UnsafeEvidenceFixtures.UnsafePointerRead));
         Assert.All(opaque, o => Assert.False(
             o.Method.ParameterTypes.Any(t => t.ContainsPointer()) || o.Method.ReturnType.ContainsPointer()));
-        Assert.False(execution.HasMaterializedCompatibilityIndex);
     }
 }
 
@@ -2607,7 +2606,6 @@ public class HollowUnsafeTests
             HollowUnsafe.HasRealizedUnsafeOp(
                 h.Method,
                 execution.Safety.Evidence)));
-        Assert.False(execution.HasMaterializedCompatibilityIndex);
     }
 }
 

@@ -11,6 +11,13 @@ public enum ExactLibraryApiSelectionKind
     AssetId,
 }
 
+public enum ExactLibraryApiAssetKind
+{
+    Reference,
+    Library,
+    Tool,
+}
+
 public sealed record ExactLibraryApiInspectionRequest
 {
     public ExactLibraryApiInspectionRequest(
@@ -20,15 +27,45 @@ public sealed record ExactLibraryApiInspectionRequest
         string library,
         ExactLibraryApiSelectionKind selectionKind =
             ExactLibraryApiSelectionKind.Query)
+        : this(
+            packageId,
+            packageVersion,
+            targetFramework,
+            PackageHouseTargetSelectionMode.Exact,
+            library,
+            selectionKind)
+    {
+    }
+
+    private ExactLibraryApiInspectionRequest(
+        string packageId,
+        string packageVersion,
+        string? targetFramework,
+        PackageHouseTargetSelectionMode targetSelectionMode,
+        string library,
+        ExactLibraryApiSelectionKind selectionKind)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
         ArgumentException.ThrowIfNullOrWhiteSpace(packageVersion);
-        ArgumentException.ThrowIfNullOrWhiteSpace(targetFramework);
         ArgumentException.ThrowIfNullOrWhiteSpace(library);
-        if (targetFramework.Equals("all", StringComparison.OrdinalIgnoreCase))
+        if (!Enum.IsDefined(targetSelectionMode))
+            throw new ArgumentOutOfRangeException(nameof(targetSelectionMode));
+        if (targetSelectionMode == PackageHouseTargetSelectionMode.Exact)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(targetFramework);
+            if (targetFramework.Equals(
+                    "all",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                throw new ArgumentException(
+                    "Exact Library API inspection requires one target framework.",
+                    nameof(targetFramework));
+            }
+        }
+        else if (targetFramework is not null)
         {
             throw new ArgumentException(
-                "Exact Library API inspection requires one target framework.",
+                "Owner-default Library API inspection cannot carry an exact target framework.",
                 nameof(targetFramework));
         }
         if (!Enum.IsDefined(selectionKind))
@@ -36,13 +73,32 @@ public sealed record ExactLibraryApiInspectionRequest
 
         PackageId = packageId;
         PackageVersion = packageVersion;
-        TargetFramework = targetFramework;
+        TargetSelectionMode = targetSelectionMode;
+        TargetFramework = targetFramework ?? "";
         Library = library;
         SelectionKind = selectionKind;
     }
 
+    /// <summary>
+    /// Creates a retained-Package request whose target remains owner-selected.
+    /// </summary>
+    public static ExactLibraryApiInspectionRequest ForOwnerDefaultTarget(
+        string packageId,
+        string packageVersion,
+        string library,
+        ExactLibraryApiSelectionKind selectionKind =
+            ExactLibraryApiSelectionKind.Query) =>
+        new(
+            packageId,
+            packageVersion,
+            targetFramework: null,
+            PackageHouseTargetSelectionMode.OwnerDefault,
+            library,
+            selectionKind);
+
     public string PackageId { get; }
     public string PackageVersion { get; }
+    public PackageHouseTargetSelectionMode TargetSelectionMode { get; }
     public string TargetFramework { get; }
     public string Library { get; }
     public ExactLibraryApiSelectionKind SelectionKind { get; }
@@ -78,7 +134,7 @@ public sealed record ExactLibraryApiAsset(
     string Path,
     string AssemblyName,
     string TargetFramework,
-    PackageCompileAssetKind Kind);
+    ExactLibraryApiAssetKind Kind);
 
 public sealed record ExactLibraryApiAssemblyIdentity(
     AssemblyReferenceIdentity Identity,
@@ -142,10 +198,12 @@ public static class ExactLibraryApiInspectionQuery
             || !root.PackageVersion.Equals(
                 request.PackageVersion,
                 StringComparison.OrdinalIgnoreCase)
-            || !string.Equals(
-                root.RequestedTargetFramework,
-                request.TargetFramework,
-                StringComparison.OrdinalIgnoreCase))
+            || (request.TargetSelectionMode
+                    == PackageHouseTargetSelectionMode.Exact
+                && !string.Equals(
+                    root.RequestedTargetFramework,
+                    request.TargetFramework,
+                    StringComparison.OrdinalIgnoreCase)))
         {
             return Unavailable(
                 request,
@@ -240,12 +298,111 @@ public static class ExactLibraryApiInspectionQuery
         }
 
         PackageAssemblyRoleParticipant selected = participants[0];
+        return ExecuteSelected(
+            request,
+            Source(package),
+            Asset(asset),
+            realization.SurfaceGroup,
+            selected.Participant,
+            limits);
+    }
+
+    public static ExactLibraryApiQueryExecution ExecuteToolEntry(
+        PackageInspectionInput input,
+        PackageInspectionAssemblyOutcome outcome,
+        ExactLibraryApiInspectionRequest request,
+        ApiSurfaceProjectionLimits limits)
+    {
+        ArgumentNullException.ThrowIfNull(input);
+        ArgumentNullException.ThrowIfNull(outcome);
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(limits);
+
+        ExactLibraryApiSourceCoordinate? source =
+            input.PackageId is null || input.PackageVersion is null
+                ? null
+                : new(
+                input.PackageId,
+                input.PackageVersion,
+                input.ProducerKey,
+                request.TargetFramework);
+        var asset = new ExactLibraryApiAsset(
+            outcome.Selection.Path,
+            outcome.Selection.Path,
+            Path.GetFileName(outcome.Selection.Path),
+            outcome.Selection.TargetFramework
+                ?? request.TargetFramework,
+            ExactLibraryApiAssetKind.Tool);
+        if (source is null
+            || !input.PackageId!.Equals(
+                request.PackageId,
+                StringComparison.OrdinalIgnoreCase)
+            || !input.PackageVersion!.Equals(
+                request.PackageVersion,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return Unavailable(
+                request,
+                ExactLibraryApiInspectionFailureKind.PackageMismatch,
+                "The retained Package input does not match the exact Library API request.",
+                source,
+                asset);
+        }
+        if (!outcome.Selection.Path.Equals(
+                request.Library,
+                StringComparison.Ordinal))
+        {
+            return Unavailable(
+                request,
+                ExactLibraryApiInspectionFailureKind.LibraryNotFound,
+                $"Library '{request.Library}' is not the selected Package entry.",
+                source,
+                asset);
+        }
+
+        return outcome switch
+        {
+            PackageInspectionAssemblyOutcome.Available available =>
+                ExecuteSelected(
+                request,
+                source,
+                asset,
+                available.Group,
+                available.Participant,
+                limits),
+            PackageInspectionAssemblyOutcome.WithoutAssembly =>
+                Unavailable(
+                request,
+                ExactLibraryApiInspectionFailureKind.ParticipantUnavailable,
+                "The selected Package entry is not a managed assembly.",
+                source,
+                asset),
+            PackageInspectionAssemblyOutcome.Unavailable unavailable =>
+                Unavailable(
+                request,
+                ExactLibraryApiInspectionFailureKind.ParticipantUnavailable,
+                unavailable.Reason,
+                source,
+                asset),
+            _ => throw new InvalidOperationException(
+                "Unknown Package inspection assembly outcome."),
+        };
+    }
+
+    private static ExactLibraryApiQueryExecution ExecuteSelected(
+        ExactLibraryApiInspectionRequest request,
+        ExactLibraryApiSourceCoordinate source,
+        ExactLibraryApiAsset asset,
+        AssemblyContextGroup group,
+        AssemblyContextParticipant participant,
+        ApiSurfaceProjectionLimits limits)
+    {
         AssemblyContextApiSurfaceResult projection =
             AssemblyContextApiSurfaceQuery.ExecuteBoundedResolved(
-                realization.SurfaceGroup,
+                group,
                 ApiSurfaceScope.Public,
                 limits,
-                [selected.Participant]);
+                [participant]);
         if (projection.Truncation is { } truncation)
         {
             return Unavailable(
@@ -253,7 +410,7 @@ public static class ExactLibraryApiInspectionQuery
                 ExactLibraryApiInspectionFailureKind.ProjectionTruncated,
                 $"The exact Library API projection exceeded the {truncation.Limit} bound "
                 + $"of {truncation.Bound}.",
-                package,
+                source,
                 asset,
                 truncation);
         }
@@ -264,7 +421,7 @@ public static class ExactLibraryApiInspectionQuery
                 request,
                 ExactLibraryApiInspectionFailureKind.ParticipantUnavailable,
                 "The exact Library API projection did not return one participant.",
-                package,
+                source,
                 asset);
         }
         AssemblyContextEntry<AssemblyApiSurface> entry =
@@ -283,7 +440,7 @@ public static class ExactLibraryApiInspectionQuery
                 request,
                 ExactLibraryApiInspectionFailureKind.ParticipantUnavailable,
                 detail,
-                package,
+                source,
                 asset);
         }
 
@@ -308,11 +465,11 @@ public static class ExactLibraryApiInspectionQuery
                 request.PackageVersion,
                 request.TargetFramework,
                 request.Library,
-                Source(package),
-                Asset(asset),
+                source,
+                asset,
                 AssemblyIdentity(
-                    realization.SurfaceGroup,
-                    selected.Participant),
+                    group,
+                    participant),
                 new ExactLibraryApiInventory(
                     surface.PublicTypeCount,
                     surface.Types.Sum(type => type.Members.Count),
@@ -380,6 +537,21 @@ public static class ExactLibraryApiInspectionQuery
         PackageRootBinding? package = null,
         PackageCompileAsset? asset = null,
         ApiSurfaceProjectionTruncation? truncation = null) =>
+        Unavailable(
+            request,
+            kind,
+            detail,
+            package is null ? null : Source(package),
+            asset is null ? null : Asset(asset),
+            truncation);
+
+    static ExactLibraryApiQueryExecution Unavailable(
+        ExactLibraryApiInspectionRequest request,
+        ExactLibraryApiInspectionFailureKind kind,
+        string detail,
+        ExactLibraryApiSourceCoordinate? source,
+        ExactLibraryApiAsset? asset,
+        ApiSurfaceProjectionTruncation? truncation = null) =>
         new(
             new ExactLibraryApiInspectionResult(
                 ExactLibraryApiInspectionOutcome.Unavailable,
@@ -387,8 +559,8 @@ public static class ExactLibraryApiInspectionQuery
                 request.PackageVersion,
                 request.TargetFramework,
                 request.Library,
-                package is null ? null : Source(package),
-                asset is null ? null : Asset(asset),
+                source,
+                asset,
                 null,
                 null,
                 truncation,
@@ -410,7 +582,15 @@ public static class ExactLibraryApiInspectionQuery
             asset.Path,
             asset.AssemblyName,
             asset.TargetFramework,
-            asset.Kind);
+            asset.Kind switch
+            {
+                PackageCompileAssetKind.Reference =>
+                    ExactLibraryApiAssetKind.Reference,
+                PackageCompileAssetKind.Library =>
+                    ExactLibraryApiAssetKind.Library,
+                _ => throw new InvalidOperationException(
+                    "Unknown Package compile-asset kind."),
+            });
 
     static ExactLibraryApiAssemblyIdentity AssemblyIdentity(
         AssemblyContextGroup group,

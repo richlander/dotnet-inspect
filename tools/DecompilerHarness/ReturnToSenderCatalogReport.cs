@@ -5,6 +5,8 @@ using ILInspector.Research;
 using Markout;
 using Markout.Formatting;
 
+using ILInspector.ILDiff;
+
 namespace ILInspector.DecompilerHarness;
 
 internal sealed record ReturnToSenderCatalogReportCounts(int Passed, int Skipped, int Failed);

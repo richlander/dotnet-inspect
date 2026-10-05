@@ -3,6 +3,8 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using ILInspector.Instructions;
 
+using ILInspector.ILDiff;
+
 namespace ILInspector.Decompiler;
 
 /// <summary>Structural outcomes for one selected annotated-source node.</summary>

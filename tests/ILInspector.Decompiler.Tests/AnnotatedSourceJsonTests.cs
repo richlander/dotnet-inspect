@@ -2,6 +2,8 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using ILInspector.Decompiler.Annotations;
 
+using ILInspector.ILDiff;
+
 namespace ILInspector.Decompiler.Tests;
 
 public class AnnotatedSourceJsonTests
@@ -613,8 +615,8 @@ public class AnnotatedSourceJsonTests
             before,
             after,
             new CSharpStructuralFidelityEvidence(
-                ILInspector.Instructions.IlBodyDiffOutcome.OpcodeDiff,
-                ILInspector.Instructions.IlBodyDiffOutcome.Exact,
+                ILInspector.ILDiff.IlBodyDiffOutcome.OpcodeDiff,
+                ILInspector.ILDiff.IlBodyDiffOutcome.Exact,
                 "terminal IL_0000: ret"));
     }
 

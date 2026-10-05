@@ -381,8 +381,8 @@ public sealed class ExactPackageWorkspaceRouteTests
         Assert.Equal(0, ordinary.ExitCode);
         Assert.Empty(ordinary.Error);
         Assert.Equal(ordinary.Output, output);
-        Assert.Contains(
-            $"# {SelectedPackage}",
+        Assert.StartsWith(
+            $"{SelectedPackage} {Version} (",
             output,
             StringComparison.Ordinal);
         Assert.DoesNotContain(
@@ -1118,8 +1118,8 @@ public sealed class ExactPackageWorkspaceRouteTests
                     LoadOptions(client, store)));
 
         Assert.Equal(1, exitCode);
-        Assert.Contains(
-            $"# {SelectedPackage}",
+        Assert.StartsWith(
+            $"{SelectedPackage} {Version} (",
             output,
             StringComparison.Ordinal);
         Assert.Contains(

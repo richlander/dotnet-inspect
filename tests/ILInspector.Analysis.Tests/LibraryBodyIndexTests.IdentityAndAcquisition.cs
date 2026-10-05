@@ -500,7 +500,7 @@ public partial class LibraryBodyIndexTests
     }
 
     [Fact]
-    public void LibraryBodyIndex_PrefetchedImageScopeSkipsMalformedUnselectedBody()
+    public void ExecuteImage_PrefetchedScopeSkipsMalformedUnselectedBody()
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(

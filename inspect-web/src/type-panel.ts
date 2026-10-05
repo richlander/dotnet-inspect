@@ -82,6 +82,7 @@ export interface TypeSummary {
 export interface MemberOverloadSummary {
   signature: string;
   stableSelector?: string | null;
+  anchorDigest?: string | null;
   graphOnly?: boolean;
   parameters?: readonly OverloadLabelParameter[];
   returnType?: string | null;
@@ -223,6 +224,15 @@ export interface MemberGroup {
   completeCount?: number;
   completeCountStatus?: "available" | "pending" | "failed";
   sourceOverloadCount?: number;
+}
+
+export function memberGroupUsesFamilySurface(
+  group: {
+    readonly overloads: readonly unknown[];
+    readonly sourceOverloadCount?: number;
+  } | null | undefined,
+): boolean {
+  return (group?.overloads.length ?? 0) > 1;
 }
 
 export function familyOutsideMarkerHtml(
@@ -822,10 +832,16 @@ export function renderMemberNav(options: MemberNavOptions): string {
     overloadHeat, familyHeatCue,
   } = options;
   const memberAchievements = options.memberAchievements;
+  const selectedGroup = entries.find(entry =>
+    entry.kind === "member"
+    && entry.group.key === selectedMemberKey)?.group;
+  const selectedFamilyOpen =
+    memberGroupUsesFamilySurface(selectedGroup)
+    && selectedOverloadIndex != null;
   const navigationSelection = selectedMemberKey
-    ? (selectedOverloadIndex == null
-      ? `member:${selectedMemberKey}`
-      : `overload:${selectedMemberKey}:${selectedOverloadIndex}`)
+    ? (selectedFamilyOpen
+      ? `overload:${selectedMemberKey}:${selectedOverloadIndex}`
+      : `member:${selectedMemberKey}`)
     : "";
   return `
     <aside id="content-navigation-pane" class="type-browser member-nav${memberAchievements ? " has-item-achievement-rail" : ""}" aria-label="Members of ${escapeHtml(typeDisplayName(type))}">
@@ -846,9 +862,8 @@ export function renderMemberNav(options: MemberNavOptions): string {
         ${entries.map(entry => {
           if (entry.kind === "member") {
             const group = entry.group;
-            const overloadCount =
-              group.sourceOverloadCount ?? group.overloads.length;
-            const isMulti = overloadCount > 1;
+            const overloadCount = group.overloads.length;
+            const isMulti = memberGroupUsesFamilySurface(group);
             const graphOnly =
               group.overloads.some(overload => overload.graphOnly);
             const outsideMarker = familyOutsideMarkerHtml(

@@ -32,9 +32,23 @@ public sealed class PackageToolDeclarationEvidence
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(payload);
+        return await TryCreateAsync(
+                payload.Coordinate,
+                payload.Content,
+                cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    public static async ValueTask<PackageToolDeclarationEvidence?> TryCreateAsync(
+        PackageSourceCoordinate coordinate,
+        IPackageContent content,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(coordinate);
+        ArgumentNullException.ThrowIfNull(content);
         string[] nuspecEntries =
         [
-            .. payload.Content.EnumerateEntries()
+            .. content.EnumerateEntries()
                 .Where(static entry =>
                     !string.IsNullOrWhiteSpace(entry)
                     && !entry.Contains('/')
@@ -45,7 +59,7 @@ public sealed class PackageToolDeclarationEvidence
                 .Take(2),
         ];
         if (nuspecEntries.Length != 1
-            || !payload.Content.TryOpenEntry(
+            || !content.TryOpenEntry(
                 nuspecEntries[0],
                 PackageExtractor.MaxNuspecBytes,
                 out Stream? stream))
@@ -63,8 +77,8 @@ public sealed class PackageToolDeclarationEvidence
             return bytes is null
                 ? null
                 : TryCreate(
-                    payload.Coordinate,
-                    payload.Content,
+                    coordinate,
+                    content,
                     bytes);
         }
     }
@@ -157,6 +171,58 @@ public enum PackageToolSliceMeasurementUnavailableReason
     SelectedEntryUnavailable,
     SelectedEntryLengthInvalid,
     SelectedPayloadBytesOverflow,
+}
+
+public enum PackageToolSliceSelectionStatus
+{
+    Selected,
+    NoToolSlices,
+    NoApplicableSlice,
+    InvalidSelection,
+}
+
+public sealed record PackageToolSliceSelection
+{
+    internal PackageToolSliceSelection(
+        PackageToolSliceSelectionStatus status,
+        ImmutableArray<string> availableTargetFrameworks,
+        string? selectedTargetFramework,
+        ImmutableArray<string> selectedEntries,
+        string? detail)
+    {
+        if (!Enum.IsDefined(status))
+            throw new ArgumentOutOfRangeException(nameof(status));
+        bool isSelected =
+            status == PackageToolSliceSelectionStatus.Selected;
+        if (isSelected != !string.IsNullOrWhiteSpace(selectedTargetFramework)
+            || !isSelected && !selectedEntries.IsEmpty
+            || status == PackageToolSliceSelectionStatus.NoToolSlices
+                && !availableTargetFrameworks.IsEmpty
+            || status == PackageToolSliceSelectionStatus.NoApplicableSlice
+                && availableTargetFrameworks.IsEmpty
+            || status == PackageToolSliceSelectionStatus.InvalidSelection
+                != !string.IsNullOrWhiteSpace(detail))
+        {
+            throw new ArgumentException(
+                "Tool-slice selection fields do not match its status.");
+        }
+
+        Status = status;
+        AvailableTargetFrameworks = availableTargetFrameworks;
+        SelectedTargetFramework = selectedTargetFramework;
+        SelectedEntries = selectedEntries;
+        Detail = detail;
+    }
+
+    public PackageToolSliceSelectionStatus Status { get; }
+
+    public ImmutableArray<string> AvailableTargetFrameworks { get; }
+
+    public string? SelectedTargetFramework { get; }
+
+    public ImmutableArray<string> SelectedEntries { get; }
+
+    public string? Detail { get; }
 }
 
 /// <summary>
@@ -397,6 +463,78 @@ public abstract class PackageToolSliceMeasurementOutcome
 /// </summary>
 public static class PackageToolSliceMeasurementProjection
 {
+    public static PackageToolSliceSelection SelectEntries(
+        IEnumerable<string> entries,
+        string? requestedTargetFramework = null)
+    {
+        ArgumentNullException.ThrowIfNull(entries);
+        string[] entryArray = [.. entries];
+        ImmutableArray<string> frameworks =
+        [
+            .. entryArray
+                .Select(ParseToolFramework)
+                .OfType<string>()
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderByDescending(static framework =>
+                    TfmResolver.GetTfmPriority(framework.ToLowerInvariant()))
+                .ThenBy(static framework => framework, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(static framework => framework, StringComparer.Ordinal),
+        ];
+        if (frameworks.IsEmpty)
+        {
+            return new(
+                PackageToolSliceSelectionStatus.NoToolSlices,
+                frameworks,
+                selectedTargetFramework: null,
+                [],
+                detail: null);
+        }
+
+        string? selectedFramework = requestedTargetFramework is null
+            ? frameworks[0]
+            : PackageCompileAssetSelector.SelectApplicableFramework(
+                frameworks,
+                requestedTargetFramework);
+        if (selectedFramework is null)
+        {
+            return new(
+                PackageToolSliceSelectionStatus.NoApplicableSlice,
+                frameworks,
+                selectedTargetFramework: null,
+                [],
+                detail: null);
+        }
+
+        string[] selectedEntries =
+        [
+            .. entryArray
+                .Select(ParseToolAsset)
+                .OfType<ToolAsset>()
+                .Where(asset => asset.TargetFramework.Equals(
+                    selectedFramework,
+                    StringComparison.OrdinalIgnoreCase))
+                .Select(static asset => asset.Path),
+        ];
+        if (selectedEntries
+            .GroupBy(static path => path, StringComparer.OrdinalIgnoreCase)
+            .Any(static group => group.Count() > 1))
+        {
+            return new(
+                PackageToolSliceSelectionStatus.InvalidSelection,
+                frameworks,
+                selectedTargetFramework: null,
+                [],
+                "The selected tool slice contains ambiguous entry paths.");
+        }
+
+        return new(
+            PackageToolSliceSelectionStatus.Selected,
+            frameworks,
+            selectedFramework,
+            [.. selectedEntries.Order(StringComparer.Ordinal)],
+            detail: null);
+    }
+
     public static PackageToolSliceMeasurementOutcome Project(
         AcquiredPackageSourcePayload payload,
         PackageToolDeclarationEvidence declaration,
@@ -429,17 +567,11 @@ public static class PackageToolSliceMeasurementProjection
         }
 
         string[] entries = [.. content.EnumerateEntries()];
+        PackageToolSliceSelection selection = SelectEntries(
+            entries,
+            requestedTargetFramework);
         ImmutableArray<string> frameworks =
-        [
-            .. entries
-                .Select(ParseToolFramework)
-                .OfType<string>()
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .OrderByDescending(static framework =>
-                    TfmResolver.GetTfmPriority(framework.ToLowerInvariant()))
-                .ThenBy(static framework => framework, StringComparer.OrdinalIgnoreCase)
-                .ThenBy(static framework => framework, StringComparer.Ordinal),
-        ];
+            selection.AvailableTargetFrameworks;
         var evidence = new PackageToolSliceMeasurementEvidence(
             declaration,
             requestedTargetFramework,
@@ -459,41 +591,29 @@ public static class PackageToolSliceMeasurementProjection
             evidence,
             compressedPackageBytes);
 
-        if (frameworks.IsEmpty)
+        if (selection.Status
+            == PackageToolSliceSelectionStatus.NoToolSlices)
         {
             return new PackageToolSliceMeasurementOutcome.NoToolSlices(
                 packageMeasurements);
         }
-
-        string? selectedFramework = requestedTargetFramework is null
-            ? frameworks[0]
-            : PackageCompileAssetSelector.SelectApplicableFramework(
-                frameworks,
-                requestedTargetFramework);
-        if (selectedFramework is null)
+        if (selection.Status
+            == PackageToolSliceSelectionStatus.NoApplicableSlice)
         {
             return new PackageToolSliceMeasurementOutcome.NoApplicableSlice(
                 packageMeasurements);
         }
-
-        string[] selectedEntries =
-        [
-            .. entries
-                .Select(ParseToolAsset)
-                .OfType<ToolAsset>()
-                .Where(asset => asset.TargetFramework.Equals(
-                    selectedFramework,
-                    StringComparison.OrdinalIgnoreCase))
-                .Select(static asset => asset.Path),
-        ];
-        if (selectedEntries
-            .GroupBy(static path => path, StringComparer.OrdinalIgnoreCase)
-            .Any(static group => group.Count() > 1))
+        if (selection.Status
+            == PackageToolSliceSelectionStatus.InvalidSelection)
         {
             return new PackageToolSliceMeasurementOutcome.InvalidSelection(
                 packageMeasurements,
-                "The selected tool slice contains ambiguous entry paths.");
+                selection.Detail!);
         }
+
+        string selectedFramework = selection.SelectedTargetFramework!;
+        ImmutableArray<string> selectedEntries =
+            selection.SelectedEntries;
         if (content is not IPackageContentEntryManifest manifest)
         {
             return new PackageToolSliceMeasurementOutcome.Unavailable(
@@ -548,9 +668,9 @@ public static class PackageToolSliceMeasurementProjection
                 .SelectTargetFrameworkFolders(
                     content,
                     selectedFramework),
-            [.. selectedEntries.Order(StringComparer.Ordinal)],
+            selectedEntries,
             selectedPayloadBytes);
-        return selectedEntries.Length == 0
+        return selectedEntries.IsEmpty
             ? new PackageToolSliceMeasurementOutcome.SelectedEmpty(
                 measurements)
             : new PackageToolSliceMeasurementOutcome.Measured(measurements);

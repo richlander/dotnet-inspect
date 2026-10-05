@@ -3005,6 +3005,14 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     // The added Type carries its implicit constructor plus First and Second.
     await expect(panel.locator(".compare-status"))
       .toContainText("3 changed Members", { timeout: 60_000 });
+    const changedTypeNavigation = page.locator(
+      '#content-navigation-pane [data-type="LibraryApiDiffFixture.AddedType"]',
+    );
+    await expect(
+      changedTypeNavigation.locator(".item-achievement-glyph.api-diff"),
+    ).toHaveCount(1);
+    await expect(changedTypeNavigation.locator(".item-achievement-rail"))
+      .toHaveAttribute("aria-label", /API differences/);
     await expect(panel.locator(".library-api-diff-member")).toHaveCount(3);
     await expect(panel.locator(".library-api-diff-member button")).toHaveCount(3);
     await expect(panel).not.toContainText("Whole type diff");
@@ -3031,6 +3039,14 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
       .toHaveText("LibraryApiDiffFixture.AddedType.First");
     await expect(panel.locator(".compare-status"))
       .toContainText("Member added", { timeout: 60_000 });
+    const changedMemberNavigation = page.locator(
+      '#content-navigation-pane [data-nav-member="method:First"]',
+    );
+    await expect(
+      changedMemberNavigation.locator(".item-achievement-glyph.api-diff"),
+    ).toHaveCount(1);
+    await expect(changedMemberNavigation.locator(".item-achievement-rail"))
+      .toHaveAttribute("aria-label", /API differences/);
     await expect(panel.locator(".library-api-diff-endpoint")).toHaveCount(0);
     await expect(panel).not.toContainText("Member evidence");
     await expect(panel.locator("#library-api-diff-changes-title")).toHaveText("What changed");
@@ -3137,6 +3153,24 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     await expect(memberDiffExplorer).toHaveCount(0);
     await expect(explore).toBeFocused();
     await page.setViewportSize({ width: 1440, height: 900 });
+
+    // Cross-Member keyboard navigation keeps Compare active.
+    await page.locator("#type-list").focus();
+    await page.keyboard.press("ArrowDown");
+    await expect(panel.locator("#compare-title"))
+      .toHaveText("LibraryApiDiffFixture.AddedType.Second");
+    await expect(page.locator(
+      '[data-inspector-tab][data-member-section="compare"]',
+    )).toHaveAttribute("aria-selected", "true");
+    await page.keyboard.press("ArrowUp");
+    await expect(panel.locator("#compare-title"))
+      .toHaveText("LibraryApiDiffFixture.AddedType.First");
+    await page.locator("#nav-back").click();
+    await expect(panel.locator("#compare-title"))
+      .toHaveText("LibraryApiDiffFixture.AddedType.Second");
+    await page.locator("#nav-back").click();
+    await expect(panel.locator("#compare-title"))
+      .toHaveText("LibraryApiDiffFixture.AddedType.First");
 
     // A Member with its own classified change shows the producer's change row.
     await page.locator("#nav-back").click();
@@ -3858,6 +3892,9 @@ test.describe("bounded network-backed Worker smoke", () => {
       { waitUntil: "domcontentloaded" },
     );
     await page.locator(".workbench").waitFor({ timeout: 180_000 });
+    await page.locator("[data-package-child-library]").filter({
+      hasText: "System.Text.Json",
+    }).click();
     await page.locator("button").filter({
       hasText: /^20System\.Text\.Json$/,
     }).click();

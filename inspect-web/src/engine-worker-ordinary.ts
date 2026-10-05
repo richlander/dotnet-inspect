@@ -54,6 +54,7 @@ type PackageOperationName =
   | "prefetchPlatformPacks"
   | "queryPackage"
   | "queryPackageRoot"
+  | "queryPackageSummary"
   | "loadRuntimePack"
   | "loadRuntimePackAssembly"
   | "getPackageDocument"
@@ -104,12 +105,14 @@ type AnalysisOperationName =
   | "queryPackageOpportunities"
   | "queryPlatformOpportunities"
   | "queryPackagePerformance"
+  | "queryPackageLibraryDependencyStructure"
   | "queryPackageLibraryMetrics"
   | "queryPackageLibraryStructuralSalience"
   | "queryPackageTypeImplementationHeat"
   | "queryPackageTypeMethodLeverage"
   | "queryPlatformTypeImplementationHeat"
   | "queryPlatformTypeMethodLeverage"
+  | "queryPlatformLibraryDependencyStructure"
   | "queryPlatformLibraryMetrics"
   | "queryPlatformLibraryStructuralSalience"
   | "queryPlatformPerformance";
@@ -1095,6 +1098,14 @@ export const engineWorkerOrdinaryOperations = {
         ...args: Parameters<PackageFacade["queryPackageRoot"]>
       ) => facades.package.queryPackageRoot(...args),
     ),
+    queryPackageSummary: valueOperation(
+      "ordinary-package-query-package-summary",
+      3,
+      (
+        facades,
+        ...args: Parameters<PackageFacade["queryPackageSummary"]>
+      ) => facades.package.queryPackageSummary(...args),
+    ),
     loadRuntimePack: valueOperation(
       "ordinary-package-load-runtime-pack",
       2,
@@ -1574,6 +1585,17 @@ export const engineWorkerOrdinaryOperations = {
         ...args: Parameters<AnalysisFacade["queryPackagePerformance"]>
       ) => facades.analysis.queryPackagePerformance(...args),
     ),
+    queryPackageLibraryDependencyStructure: valueOperation(
+      "ordinary-analysis-query-package-library-dependency-structure",
+      4,
+      (
+        facades,
+        ...args: Parameters<
+          AnalysisFacade["queryPackageLibraryDependencyStructure"]
+        >
+      ) =>
+        facades.analysis.queryPackageLibraryDependencyStructure(...args),
+    ),
     queryPackageLibraryMetrics: valueOperation(
       "ordinary-analysis-query-package-library-metrics",
       4,
@@ -1591,6 +1613,17 @@ export const engineWorkerOrdinaryOperations = {
           AnalysisFacade["queryPackageLibraryStructuralSalience"]
         >
       ) => facades.analysis.queryPackageLibraryStructuralSalience(...args),
+    ),
+    queryPlatformLibraryDependencyStructure: valueOperation(
+      "ordinary-analysis-query-platform-library-dependency-structure",
+      4,
+      (
+        facades,
+        ...args: Parameters<
+          AnalysisFacade["queryPlatformLibraryDependencyStructure"]
+        >
+      ) =>
+        facades.analysis.queryPlatformLibraryDependencyStructure(...args),
     ),
     queryPlatformLibraryMetrics: valueOperation(
       "ordinary-analysis-query-platform-library-metrics",
@@ -2189,6 +2222,9 @@ export function bindEngineWorkerOrdinaryClient(
       queryPackageRoot: bind(
         engineWorkerOrdinaryOperations.package.queryPackageRoot,
       ),
+      queryPackageSummary: bind(
+        engineWorkerOrdinaryOperations.package.queryPackageSummary,
+      ),
       loadRuntimePack: bind(
         engineWorkerOrdinaryOperations.package.loadRuntimePack,
       ),
@@ -2359,6 +2395,10 @@ export function bindEngineWorkerOrdinaryClient(
         engineWorkerOrdinaryOperations.analysis
           .queryPackagePerformance,
       ),
+      queryPackageLibraryDependencyStructure: bind(
+        engineWorkerOrdinaryOperations.analysis
+          .queryPackageLibraryDependencyStructure,
+      ),
       queryPackageLibraryMetrics: bind(
         engineWorkerOrdinaryOperations.analysis
           .queryPackageLibraryMetrics,
@@ -2366,6 +2406,10 @@ export function bindEngineWorkerOrdinaryClient(
       queryPackageLibraryStructuralSalience: bind(
         engineWorkerOrdinaryOperations.analysis
           .queryPackageLibraryStructuralSalience,
+      ),
+      queryPlatformLibraryDependencyStructure: bind(
+        engineWorkerOrdinaryOperations.analysis
+          .queryPlatformLibraryDependencyStructure,
       ),
       queryPlatformLibraryMetrics: bind(
         engineWorkerOrdinaryOperations.analysis

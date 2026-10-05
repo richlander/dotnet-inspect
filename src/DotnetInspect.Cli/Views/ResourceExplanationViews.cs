@@ -33,6 +33,18 @@ public sealed class ResourceExplanationView
         init => field = LibraryViewText.Contain(value);
     } = "";
 
+    public string? Shape
+    {
+        get;
+        init => field = LibraryViewText.Contain(value);
+    }
+
+    public string? Cardinality
+    {
+        get;
+        init => field = LibraryViewText.Contain(value);
+    }
+
     public string? Identity
     {
         get;
@@ -204,18 +216,35 @@ public sealed class ResourceExplanationView
                     subject.Framework,
                 }.Where(static value =>
                     !string.IsNullOrWhiteSpace(value)));
+        (string title, string context, string? identity) =
+            (document.Kind, subject) switch
+            {
+                (MemberContextualExplanationKind.Command, null) =>
+                    ("Explain member", "Member command", null),
+                (
+                    MemberContextualExplanationKind.MemberGroup,
+                    MemberGroupContextualExplanationSubject group) =>
+                    (
+                        $"Explain {group.TypeName}.{group.Group.Name}",
+                        "MemberGroup",
+                        $"{group.Group.Category} / {group.Group.Role}"),
+                (
+                    MemberContextualExplanationKind.ExactMember,
+                    ExactMemberContextualExplanationSubject exact) =>
+                    (
+                        $"Explain {exact.TypeName}.{exact.StableSelector}",
+                        "Exact Member",
+                        exact.CanonicalSignature),
+                _ => throw new InvalidOperationException(
+                    "The contextual Member explanation kind and subject "
+                        + "do not agree."),
+            };
         return Create(
             document.Resource,
             new(
-                document.Kind
-                    == MemberContextualExplanationKind.Command
-                    ? "Explain member"
-                    : $"Explain {subject!.TypeName}.{subject.StableSelector}",
-                document.Kind
-                    == MemberContextualExplanationKind.Command
-                    ? "Member command"
-                    : "Exact Member",
-                subject?.CanonicalSignature,
+                title,
+                context,
+                identity,
                 source,
                 document.DefaultFacet?.Value,
                 [
@@ -252,6 +281,8 @@ public sealed class ResourceExplanationView
             Kind = rootRow.Kind,
             Name = rootRow.Name,
             Owner = rootRow.Owner,
+            Shape = details.Shape,
+            Cardinality = details.Cardinality,
             Identity = details.Identity,
             Summary = details.Summary,
             Key = details.Key,
@@ -343,12 +374,21 @@ public sealed class ResourceExplanationView
         List<string> Examples,
         List<string> Effects,
         string? ConsumerKind,
-        string? Gesture)
+        string? Gesture,
+        string? Shape = null,
+        string? Cardinality = null)
     {
         internal static RootDetails Create(
             ResourceExplanationDetail details) =>
             details switch
             {
+                ResourceExplanationDetail.StructuralSectionDetails value =>
+                    Empty() with
+                    {
+                        Shape = value.Shape?.ToString().ToLowerInvariant(),
+                        Cardinality =
+                            value.Cardinality?.ToString().ToLowerInvariant(),
+                    },
                 ResourceExplanationDetail.InspectionDocumentDetails value =>
                     Empty(
                         value.Identity,

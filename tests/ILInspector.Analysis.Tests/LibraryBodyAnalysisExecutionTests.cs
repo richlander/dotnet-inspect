@@ -2995,28 +2995,6 @@ public sealed class LibraryBodyAnalysisExecutionTests
         Assert.NotNull(callSiteUnavailable.Diagnostic);
     }
 
-    [Fact]
-    public void CompatibilityIndex_PreservesFocusedProfileResults()
-    {
-        LibraryBodyAnalysisExecution execution =
-            LibraryBodyAnalysisService.ExecutePath(
-                FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
-                LibraryBodyAnalysisRequest.Create(
-                    LibraryBodyAnalysisFeatures
-                        .ImplementationProfiles));
-
-        LibraryBodyIndex index =
-            execution.CompatibilityIndex();
-
-        Assert.Equal(
-            execution.ImplementationProfiles.Profiles,
-            index.ImplementationProfiles());
-        Assert.Equal(
-            execution.ImplementationProfiles
-                .OverloadRelationships,
-            index.OverloadRelationships());
-    }
-
     static ImmutableArray<int> ManagedMethodTokens(
         string path)
     {
@@ -3279,40 +3257,5 @@ public sealed class LibraryBodyAnalysisExecutionTests
         Assert.Equal(
             execution.CallGraph.DirectCalls,
             result.DirectCalls);
-        Assert.False(execution.HasMaterializedCompatibilityIndex);
-
-    }
-
-    [Fact]
-    [Trait("Speed", "Slow")]
-    public void CompatibilityIndex_PreservesFocusedOptimizationResults()
-    {
-        LibraryBodyAnalysisExecution execution =
-            LibraryBodyAnalysisService.ExecutePath(
-                typeof(LibraryBodyAnalysisExecutionTests)
-                    .Assembly.Location,
-                LibraryBodyAnalysisRequest.Create(
-                    LibraryBodyAnalysisFeatures
-                        .OptimizationOpportunities));
-
-        LibraryBodyIndex index =
-            execution.CompatibilityIndex();
-
-        Assert.True(execution.Optimization.WasRequested);
-        Assert.False(
-            execution.Optimization
-                .HasProjectedPhysicalDirectCalls);
-        Assert.NotEmpty(
-            execution.Optimization.Opportunities);
-        Assert.True(
-            execution.Optimization
-                .HasProjectedPhysicalDirectCalls);
-        Assert.Equal(
-            execution.Optimization.Opportunities,
-            index.OptimizationOpportunities);
-        Assert.Equal(
-            execution.Optimization
-                .AllocationFanoutOpportunities,
-            index.AllocationFanoutOpportunities);
     }
 }

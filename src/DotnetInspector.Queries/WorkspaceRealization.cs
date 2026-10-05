@@ -299,6 +299,15 @@ public sealed class WorkspaceRealizationOperationLease : IDisposable
 
     public WorkspaceScopeSnapshot Scope { get; }
 
+    internal bool IsOwnedBy(WorkspaceReplacementCoordinator coordinator)
+    {
+        lock (_gate)
+        {
+            return !_disposed
+                && ReferenceEquals(_owner, coordinator);
+        }
+    }
+
     public InspectionWorkspace Workspace
     {
         get

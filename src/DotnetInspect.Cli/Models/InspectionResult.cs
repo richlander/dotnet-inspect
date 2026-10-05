@@ -18,6 +18,16 @@ public class InspectionResult
 
     public string? ManifestVersion { get; set; }
 
+    [JsonIgnore]
+    internal bool ToolSettingsProjectionComplete { get; set; } = true;
+
+    [JsonIgnore]
+    internal DotnetToolSettingsProjectionStatus ToolSettingsProjectionStatus
+    {
+        get;
+        set;
+    } = DotnetToolSettingsProjectionStatus.Missing;
+
     public string Version { get; set; } = "";
 
     /// <summary>
