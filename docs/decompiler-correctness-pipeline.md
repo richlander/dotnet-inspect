@@ -377,7 +377,8 @@ Notes:
 
 ### IR invariant checks: hosts, levels, and fixtures
 
-`AGENTS.md` requires that a correctness check not hide behind
+[Evidence and validation](evidence-and-validation.md#asserted-properties-name-their-gate)
+requires that a correctness check not hide behind
 `[Conditional("DEBUG")]`, because the suite runs Release for fixture fidelity
 and such a call is stripped from the Release test assembly. The IR invariant
 check is the worked example of the alternative: `IrNode.CheckInvariant` is
@@ -895,8 +896,7 @@ Report:
 5. changed-method fidelity result, or a clear statement that changed methods are
    not currently checkable;
 6. adversarial review summary with resolution commit links, staffed according
-   to the AGENTS.md
-   [Adversarial Review](../AGENTS.md#adversarial-review) tier table.
+   to the [Reviewer roster](round-orchestration.md#reviewer-roster).
 
 For #1175-class retained-label work, the changed-method population must include
 the forward-merge / structuring-residual methods the PR changes. A green global
@@ -1206,7 +1206,7 @@ review are complete, post a PR comment that clearly says `Ready to merge`. If
 extra tests or review continue after that point, mark them as non-blocking
 follow-up work so the PR state remains unambiguous. Keep the `ready-to-merge`
 and `carry-forward` PR labels synchronized with
-[repository guidance](../AGENTS.md#keep-the-review-clean-label-current).
+[review-clean state](round-orchestration.md#review-clean-and-recovery).
 
 ## Naming the harnesses by role
 

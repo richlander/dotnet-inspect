@@ -50,6 +50,7 @@ test("Analysis opens on Relationships as its first tab", async ({ page }) => {
     .getByRole("tab");
   await expect(tabs).toHaveText([
     "Relationships",
+    "Dependencies",
     "Complexity",
     "Performance",
     "Integrations",
@@ -57,6 +58,53 @@ test("Analysis opens on Relationships as its first tab", async ({ page }) => {
   await expect(tabs.first()).toHaveAttribute("aria-selected", "true");
   await expect(page.locator('[data-analysis-mode="relationships"]'))
     .toHaveAttribute("aria-selected", "true");
+});
+
+test("Dependencies stays on demand and reveals one selected relationship", async ({
+  page,
+}) => {
+  await installFacades(page);
+  await page.goto(root);
+  await selectLibrary(page, core.id);
+  await chooseInspector(
+    page,
+    "data-library-lens",
+    "analysis",
+    "Analysis",
+  );
+  await page.getByRole("tab", { name: "Dependencies", exact: true }).click();
+
+  const frame = page.locator(".analysis-inspector");
+  await expect(frame.getByRole("button", {
+    name: "Load dependency structure",
+  })).toBeVisible();
+  expect(await page.locator("html")
+    .getAttribute("data-dependency-structure-request")).toBeNull();
+
+  await frame.getByRole("button", {
+    name: "Load dependency structure",
+  }).click();
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-dependency-structure-request",
+    core.id,
+  );
+  await expect(frame.locator("path.metrics-dependency-edge")).toHaveCount(1);
+  await expect(frame.getByRole("checkbox", {
+    name: "Include global namespace",
+  })).not.toBeChecked();
+  await expect(frame.locator(".metrics-dependency-node-label")
+    .filter({ hasText: "(global)" })).toHaveCount(0);
+
+  const edge = frame.locator("path.metrics-dependency-edge");
+  await edge.focus();
+  await edge.press("Enter");
+  await expect(edge).toHaveAttribute("aria-pressed", "true");
+  await expect(frame.locator("[data-dependency-edge-detail]:visible"))
+    .toHaveCount(1);
+  await expect(frame.locator("[data-dependency-edge-detail]:visible"))
+    .toContainText("Example.Api");
+  await expect(frame.locator("[data-dependency-edge-detail]:visible"))
+    .toContainText("Example.Core");
 });
 
 async function selectPerformanceAnalysis(page: Page) {
@@ -72,6 +120,7 @@ async function expectCompactAnalysisHeader(page: Page) {
   await expect(tabs).toBeVisible();
   for (const name of [
     "Relationships",
+    "Dependencies",
     "Complexity",
     "Performance",
     "Integrations",
@@ -84,7 +133,7 @@ async function expectCompactAnalysisHeader(page: Page) {
   const tabsBox = await tabs.boundingBox();
   const resultsBox = await frame.getByRole("tabpanel").boundingBox();
   const narrow = (page.viewportSize()?.width ?? 0) <= 600;
-  expect(headerBox!.height).toBe(narrow ? 72 : 40);
+  expect(headerBox!.height).toBe(narrow ? 104 : 40);
   if (narrow) {
     expect(tabsBox!.y - headerBox!.y).toBeGreaterThanOrEqual(20);
   } else {
