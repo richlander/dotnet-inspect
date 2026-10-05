@@ -387,7 +387,7 @@ the completed value is a Result, Document, or owner-specific Outcome under
 
 Focused Package, Library, Type, and Member inspection illustrates the first
 shape: one selected coordinate may yield a scalar subject, a vector inventory,
-or a multi-section analysis Document. Package files and versions, Library
+or a multi-section analysis Document. Files and versions, Library
 dependencies, Type members, and attached Findings do not create additional
 focal subjects merely because they render rows.
 

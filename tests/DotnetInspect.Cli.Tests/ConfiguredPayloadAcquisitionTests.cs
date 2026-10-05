@@ -2026,7 +2026,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
 
         var (exit, output, error) = await RunCommandAsync(
             ["package", $"{Id}@{Version}", "--source", source,
-                "-S", "Package files", "--rows", "1..1",
+                "-S", "Files", "--rows", "1..1",
                 "--table", "--jsonl"]);
 
         Assert.True(exit == 0, $"Exit {exit}: {error}");
@@ -2038,7 +2038,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
 
         var table = await RunCommandAsync(
             ["package", $"{Id}@{Version}", "--source", source,
-                "-S", "Package files", "--rows", "4..4",
+                "-S", "Files", "--rows", "4..4",
                 "--table"]);
 
         Assert.True(
@@ -2054,7 +2054,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
 
         var count = await RunCommandAsync(
             ["package", Id, "--source", source,
-                "-S", "Package files", "--rows", "2..3",
+                "-S", "Files", "--rows", "2..3",
                 "--count"]);
 
         Assert.True(
@@ -2085,7 +2085,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
 
         var (exit, output, error) = await RunCommandAsync(
             ["package", $"{Id}@{Version}", "--source", FirstFeed,
-                "-S", "Package files", "--paths"]);
+                "-S", "Files", "--paths"]);
 
         Assert.True(exit == 0, $"Exit {exit}: {error}");
         Assert.Contains("payload.txt", output, StringComparison.Ordinal);
@@ -2119,7 +2119,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
 
         var (exit, output, error) = await RunCommandAsync(
             ["package", $"{WrapperId}@{Version}", "--source", source,
-                "-S", "Package files", "--paths"]);
+                "-S", "Files", "--paths"]);
 
         Assert.True(exit == 0, $"Exit {exit}: {error}");
         Assert.Contains("payload.txt", output, StringComparison.Ordinal);
