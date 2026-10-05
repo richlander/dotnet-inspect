@@ -1363,6 +1363,7 @@ public sealed class PolicyEvaluatorTests
                 "DotnetInspector.Sections",
                 "DotnetInspector.SourceSelection",
                 "DotnetInspector.Vocabulary",
+                "ILInspector.Decompiler",
                 "ILInspector.Metadata",
                 "InertText",
                 "NuGetFetch",
