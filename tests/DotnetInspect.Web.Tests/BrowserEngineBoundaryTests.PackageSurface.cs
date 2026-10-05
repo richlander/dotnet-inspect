@@ -683,7 +683,10 @@ public sealed partial class BrowserEngineBoundaryTests
                     "net11.0",
                     "InspectWeb.DocumentationFixtures.dll",
                     "InspectWeb.DocumentationFixtures.WidgetExtensions",
-                    "Measure"),
+                    "Measure",
+                    "public",
+                    "all",
+                    includeHidden: false),
                 BrowserMetadataJsonContext.Default
                     .BrowserMemberGroupDocumentInspection)!;
         BrowserMemberGroupDocumentRow row =

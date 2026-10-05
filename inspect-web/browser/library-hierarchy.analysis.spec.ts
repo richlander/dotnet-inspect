@@ -306,6 +306,9 @@ test("production Analysis rows open the exact ranked member", async ({ page }) =
     "Example.Core.dll",
     "Example.Widget",
     "Run",
+    "public",
+    "all",
+    false,
   ]);
   await expect(page.locator("#inspector-panel")).toContainText(
     "Runs the widget.");
@@ -540,6 +543,9 @@ test("different family navigation loads its exact group before Facts", async ({
     "Example.Core.dll",
     "Example.Widget",
     "Stop",
+    "public",
+    "all",
+    false,
   ]);
 
   await page.locator(".member-surface-list .overload-row").first().click();

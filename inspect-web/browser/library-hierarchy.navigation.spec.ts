@@ -806,7 +806,7 @@ test("metadata accessors retain their established overload detail route", async 
     .toContainText("int Example.Widget.get_Value()");
 });
 
-test("filtered non-public groups retain exact rows when group detail is unavailable", async ({
+test("filtered non-public groups reuse complete resident exact rows when the group query fails", async ({
   page,
 }) => {
   const hidden = [1, 2, 3].map(index => ({
@@ -846,17 +846,19 @@ test("filtered non-public groups retain exact rows when group detail is unavaila
   await chooseSubject(page, "member", "Member");
   await page.locator("[data-nav-member]").filter({ hasText: "Hidden" }).click();
   await expect(page.locator("#member-surface-title")).toHaveText("Hidden");
+  await expect(page.locator(".member-surface-head"))
+    .toContainText("2 overloads");
   await expect(page.locator(".member-surface"))
-    .toContainText("MemberGroup unavailable");
-  await expect(page.locator(".member-surface"))
-    .toContainText("ordinary method group was not found");
+    .not.toContainText("MemberGroup unavailable");
   await expect(page.locator("[data-nav-overload]")).toHaveCount(2);
   expect(await page.locator("html").getAttribute(
     "data-member-document-request",
   )).toBeNull();
 
-  await page.locator('[data-nav-overload="2"]').click();
-  await expect(page.locator('[data-nav-overload="2"]'))
+  const lastVisibleOverload =
+    page.locator("[data-nav-overload]").last();
+  await lastVisibleOverload.click();
+  await expect(lastVisibleOverload)
     .toHaveAttribute("aria-selected", "true");
   await expect(page.locator(".member-surface"))
     .toContainText("void Example.Widget.Hidden(int value3)");
@@ -1293,7 +1295,7 @@ test("Member filters use dropdowns and request all accessibility buckets", async
 
   await filteredRun.click();
   await expect(page.locator(".member-surface-head"))
-    .toContainText("method · 2 of 2");
+    .toContainText("method · 1 of 1");
   await expect(page.locator(".member-surface-list .overload-row"))
     .toHaveCount(0);
   await expect(page.locator(".signature-code"))
@@ -1321,7 +1323,7 @@ test("Member filters use dropdowns and request all accessibility buckets", async
   await page.locator("[data-member-trait-filter]")
     .selectOption("instance");
   await expect(page.locator(".member-surface-head"))
-    .toContainText("method · 2 of 2");
+    .toContainText("method · 1 of 1");
   await expect(page.locator(".signature-code"))
     .toContainText("public void Run(int value)");
   await expect(page.locator("html")).toHaveAttribute(

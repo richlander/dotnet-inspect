@@ -1054,7 +1054,10 @@ test("fallback ordinary families load the shared document", () => {
     /member\.completeCountStatus === "available"/);
   assert.match(
     groupDocument,
-    /member\.overloads\.some\(overload => overload\.graphOnly\)[\s\S]*memberGroupDocumentRequestKey\(type, member\)[\s\S]*inspectUploadedLibraryMemberGroupDocument[\s\S]*inspectPlatformMemberGroupDocument[\s\S]*inspectMemberGroupDocument/);
+    /member\.kind !== "method"[\s\S]*member\.overloads\.some\(overload => overload\.graphOnly\)[\s\S]*memberGroupDocumentRequestKey\(type, member\)[\s\S]*inspectUploadedLibraryMemberGroupDocument[\s\S]*state\.memberAccessibilityFilter[\s\S]*memberGroupReceiverIntent\(\)[\s\S]*inspectPlatformMemberGroupDocument[\s\S]*inspectMemberGroupDocument/);
+  assert.match(
+    appSource,
+    /function memberGroupDocumentRequestKey[\s\S]*state\.memberSpelling[\s\S]*state\.memberAccessibilityFilter[\s\S]*state\.memberTraitFilter/);
 
   const drillOut =
     appSource.match(/function drillOut\(\)[\s\S]*?\n}\n\nfunction exitMemberScope/)?.[0]
@@ -1424,7 +1427,7 @@ test("member API uses full-area overload and selected-member surfaces", () => {
   assert.doesNotMatch(renderMember, /implementation-profiles/);
   assert.match(
     renderMember,
-    /· \$\{sourceOverloadIndex \+ 1} of \$\{sourceOverloadCount}<\/span>/);
+    /· \$\{visibleOverloadIndex \+ 1} of \$\{sourceOverloadCount}<\/span>/);
   assert.match(
     memberOverview,
     /class="learn-section member-overview-intro">\s*<section class="signature-panel"[\s\S]*?class="member-documentation"[\s\S]*?class="member-identity"/);

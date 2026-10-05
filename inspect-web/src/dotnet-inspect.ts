@@ -6777,6 +6777,8 @@ function declaredMemberGroups(type: AppTypeSurface): AppMemberGroup[] {
             || memberAccessibilityBucket(member.accessibility)
               === state.memberAccessibilityFilter)
           && group.receivers.includes(memberPopulationReceiver(member)));
+      const residentRowsComplete =
+        residentOverloads.length === group.completeCount;
       const overloads = exactRows.size > 0
         ? residentOverloads
           .filter(member => exactRows.has(
@@ -6796,8 +6798,9 @@ function declaredMemberGroups(type: AppTypeSurface): AppMemberGroup[] {
                 `${row.accessibility} ${memberReceiverPrefix(row.receiver)}${row.displaySignature}`,
             };
           })
-        : !uploadedLibraryIsActive()
-            && residentOverloads.length <= group.completeCount
+        : (!uploadedLibraryIsActive()
+            && residentOverloads.length <= group.completeCount)
+          || (group.kind !== "method" && residentRowsComplete)
           ? residentOverloads
           : [];
       return {
@@ -12787,18 +12790,6 @@ function renderDeferredMemberGroup(
         (overload.declarationMetadataToken
           ?? overload.metadataToken
           ?? 0) === row.metadataToken));
-    if (document.rows.length > 0 && !hasDetailedRows) {
-      return `
-        <section class="member-surface member-overload-surface" aria-labelledby="member-surface-title">
-          <header class="api-surface-head member-surface-head">
-            <h1 id="member-surface-title">${escapeHtml(member.name)}</h1>
-            <p>MemberGroup unavailable <span>· ${escapeHtml(member.kind)}</span></p>
-          </header>
-          <div class="member-surface-scroll">
-            <p class="docs-unavailable">Exact ${unit} detail is unavailable for the selected ${escapeHtml(state.memberAccessibilityFilter)} population.</p>
-          </div>
-        </section>`;
-    }
     return `
       <section class="member-surface member-overload-surface" aria-labelledby="member-surface-title">
         <header class="api-surface-head member-surface-head">
@@ -13052,7 +13043,12 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
     assertNever(state.memberSection, "member section");
   }
   if (!memberSectionUsesWorkingSurface(state.memberSection)) return content;
-  const sourceOverloadIndex = state.selectedOverloadIndex ?? 0;
+  const visibleOverloadIndex =
+    state.selectedOverloadIndex == null
+      ? 0
+      : memberNavOverloadVisibleIndex(
+          member,
+          state.selectedOverloadIndex);
   const sourceOverloadCount =
     member.sourceOverloadCount ?? member.overloads.length;
   const callGraphExplore = state.memberSection === "call-graph"
@@ -13067,7 +13063,7 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
       <header class="api-surface-head member-surface-head">
         <h1 id="member-surface-title">${escapeHtml(member.name)}</h1>
         <div class="member-surface-meta">
-          <p>${escapeHtml(member.kind)} <span>· ${sourceOverloadIndex + 1} of ${sourceOverloadCount}</span></p>
+          <p>${escapeHtml(member.kind)} <span>· ${visibleOverloadIndex + 1} of ${sourceOverloadCount}</span></p>
           ${callGraphExplore}
         </div>
       </header>
@@ -21097,7 +21093,24 @@ function memberGroupDocumentRequestKey(
     type.assemblyId,
     type.definitionId ?? type.id,
     member.key,
+    state.memberSpelling,
+    state.memberAccessibilityFilter,
+    state.memberTraitFilter,
   ]);
+}
+
+function memberGroupReceiverIntent():
+  "all" | "this" | "static" | "extension" {
+  switch (state.memberTraitFilter) {
+    case "instance":
+      return "this";
+    case "static":
+      return "static";
+    case "extensions":
+      return "extension";
+    default:
+      return "all";
+  }
 }
 
 interface TypeMemberPopulationLoad {
@@ -21258,6 +21271,7 @@ async function loadSelectedMemberGroupDocument() {
   const member = selectedMember(type);
   if (!type
     || !member
+    || member.kind !== "method"
     || member.overloads.some(overload => overload.graphOnly)) {
     renderPreservingMemberFocus();
     return;
@@ -21283,7 +21297,10 @@ async function loadSelectedMemberGroupDocument() {
       ? inspectUploadedLibraryMemberGroupDocument(
           type.assemblyId,
           type.definitionId ?? type.id,
-          member.name)
+          member.name,
+          state.memberAccessibilityFilter,
+          memberGroupReceiverIntent(),
+          false)
       : pkg.isRuntimePack
       ? (() => {
           const row = platformLibraryForRequest(pkg, type.assemblyId);
@@ -21293,7 +21310,10 @@ async function loadSelectedMemberGroupDocument() {
             platformAssemblyRequest(row),
             row.pack,
             type.definitionId ?? type.id,
-            member.name);
+            member.name,
+            state.memberAccessibilityFilter,
+            memberGroupReceiverIntent(),
+            false);
         })()
       : inspectMemberGroupDocument(
           pkg.id,
@@ -21301,7 +21321,10 @@ async function loadSelectedMemberGroupDocument() {
           pkg.activeFramework,
           type.assembly,
           type.definitionId ?? type.id,
-          member.name);
+          member.name,
+          state.memberAccessibilityFilter,
+          memberGroupReceiverIntent(),
+          false);
     const inspection = await result;
     if (state.memberGroupDocumentKey !== key) return;
     state.memberGroupDocument = inspection;
