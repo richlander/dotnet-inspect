@@ -362,8 +362,9 @@ population effects separately.
 
 The same binding issues two arm facts over each join's rendered arms (both arms
 of a conditional, every switch-expression arm value, a coalesce's right
-operand): every rendered arm is integer-typed, and every rendered arm is a
-`char` constant. They are issued even when the join's own type is not an
+operand): the join has at least one rendered arm and every rendered arm is
+integer-typed, and the join has at least one rendered arm and every rendered
+arm is a `char` constant. They are issued even when the join's own type is not an
 integer (an enum-typed conditional of integer arms is the enum route's case).
 One relation, `CanRenderValueJoinAt`, decides whether a join renders as a value
 join at a target, and both the printer's targeted join spellings and the
@@ -383,20 +384,28 @@ of the arms, and is shared by every caller. A coalesce that is not a value join
 at an enum target still takes the whole-operand enum spelling; that cast is a
 spelling decision and stays with the writer.
 
-Binding and refresh follow the primitive relation: issued at construction and
-by the final binding, retained by cloning, refreshed by the next binding after
-an operand rewrite. Residual storage binding runs after the final binding and
-rewrites slot loads into typed locals, so it refreshes every join's testimony
-(primitive and arm facts alike) before its coercion discharge; on the pinned
-14-assembly corpus no join's testimony differs between the final binding and
-print time (6,581 joins), so the refresh closes the ordering gap without
-changing output. The printer's `CanRenderValueConditionalForTarget` and
+The arm facts are issued at construction and by the final binding, retained
+by cloning, and re-taken where their readers look. Two rewrites follow the
+final binding: coercion insertion wraps an enum-merged join's integer arms in
+`Coerce` nodes, and residual storage binding retypes slot-load arms and then
+discharges coercions again. Each reader previously walked the arms live, so
+residual storage binding re-takes the arm facts (and only them) at its entry,
+before its policy reads them and before its early return when no slot
+remains, and again after its discharge, where the printer reads them. The
+integer-family testimony keeps its own binding point and is not refreshed, so
+neither reader sees a fact the deleted walks would not have computed. On the
+pinned 14-assembly corpus no join's arm facts or integer-family testimony
+differ between the final binding and print time (6,581 joins); the
+coercion-wrapped enum-merge shape is gated synthetically, including the
+residual policy's storage decision for it. The printer's `CanRenderValueConditionalForTarget` and
 `CanRenderSwitchExpressionForTarget` and the residual policy's verbatim copy of
 the former are deleted; the printer asks the relation and only spells the
 join. `JoinTargetTestimonyTests` gates the three join kinds, the enum-typed
 join with integer arms, the `Nullable<T>` coalesce condition, the `char`
 route's conditional-only scope, the missing-type and reference declines, and
-clone and refresh.
+clone and refresh, the arms coercion insertion wraps (with and without a
+residual slot), the arms residual discharge wraps, and the residual policy's
+split decision for a slot that stores a coercion-wrapped enum merge.
 
 ## Instance 1 — coercion: the missing member of the type system
 

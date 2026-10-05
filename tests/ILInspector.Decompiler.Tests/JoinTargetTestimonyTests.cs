@@ -110,29 +110,101 @@ public class JoinTargetTestimonyTests
         Assert.True(clone.CanRenderValueJoinAt(ForeignEnum, NoShapes));
     }
 
-    [Fact]
-    public void ResidualBindingRefreshesTestimonyForAnArmItRetypes()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ArmFactsDescribeTheArmsCoercionInsertionWrapped(bool withResidualSlot)
     {
-        // A slot read as a conditional arm has no sink to testify from, so
-        // materialization declines it and residual storage binding turns the
-        // load into an int local after the final join binding ran. The
-        // conditional's arm facts must describe the rewritten arm.
-        var slotArm = new LoadStackSlot(0, type: IntType);
-        var conditional = Conditional(slotArm, Arg(1, "right", IntType), mergedType: ForeignEnum);
-        var function = Function(
-            new StoreStackSlot(0, Arg(2, "value", IntType)),
-            new StoreStackSlot(0, Arg(3, "other", IntType)),
-            new Return(conditional));
-        new PrimitiveJoinBindingPass().Run(function, PassContext.None);
-        // Model the pre-binding state the corpus never produced: the arm's
-        // issued fact was taken while it was untyped.
-        ((IPrimitiveJoin)conditional).PrimitiveTargets = Testimony(conditional) with { IntegerArms = false };
+        // An enum-merged conditional of integer arms (ConditionalStoreChainPass
+        // and SlotDiamondPass build it): the final binding sees int arms, then
+        // coercion insertion wraps each arm in Coerce(Local). The readers —
+        // the residual policy and the printer — must see the wrapped arms, as
+        // the deleted live walks did (#9393 round 1). With and without a
+        // residual slot (residual binding returns early when none exists).
+        var conditional = Conditional(Arg(1, "a", IntType), Arg(2, "b", IntType), mergedType: LocalEnum);
+        var statements = new List<IrNode>();
+        if (withResidualSlot)
+        {
+            statements.Add(new StoreStackSlot(7, Arg(1, "a", IntType)));
+            statements.Add(new StoreStackSlot(7, Arg(2, "b", IntType)));
+            statements.Add(new Call(new MethodRef(TypeRef.CoreLib("System", "Math"), "Abs", IntType, [IntType], HasThis: false), false, [new LoadStackSlot(7, IntType)]));
+        }
+        statements.Add(new Return(conditional));
+        var function = LocalEnumFunction(ForeignEnum, [.. statements]);
 
-        new ResidualSlotBindingPass().Run(function, PassContext.None);
+        RunEmissionTail(function);
+
+        Assert.IsType<Coerce>(conditional.WhenTrue);
+        Assert.Equal(FreshIntegerArms(conditional), Testimony(conditional).IntegerArms);
+        Assert.False(Testimony(conditional).IntegerArms);
+    }
+
+    [Fact]
+    public void ArmFactsDescribeSlotArmsAfterTheResidualDischarge()
+    {
+        // Both arms are slot loads: residual binding retypes them to int
+        // locals and its coercion discharge then wraps them in Coerce(Local).
+        var conditional = Conditional(new LoadStackSlot(3, IntType), new LoadStackSlot(4, IntType), mergedType: LocalEnum);
+        var function = LocalEnumFunction(LocalEnum,
+            new StoreStackSlot(3, Arg(1, "a", IntType)),
+            new StoreStackSlot(4, Arg(2, "b", IntType)),
+            new Return(conditional));
+
+        RunEmissionTail(function);
 
         Assert.DoesNotContain(function.Descendants, static node => node is LoadStackSlot or StoreStackSlot);
-        Assert.True(Testimony(conditional).IntegerArms);
-        Assert.True(conditional.CanRenderValueJoinAt(ForeignEnum, NoShapes));
+        Assert.Equal(FreshIntegerArms(conditional), Testimony(conditional).IntegerArms);
+    }
+
+    [Fact]
+    public void ResidualPolicyReadsTheWrappedArmsWhenItChoosesStorage()
+    {
+        // The round-1 admission witness: a slot stores the enum-merged
+        // conditional and is loaded as a cross-assembly enum. With the stale
+        // pre-insertion fact the policy unified the web as `Mode`; reading the
+        // wrapped arms it keeps the base decision and splits the web.
+        var conditional = Conditional(Arg(1, "a", IntType), Arg(2, "b", IntType), mergedType: LocalEnum);
+        var function = LocalEnumFunction(ForeignEnum,
+            new StoreStackSlot(7, conditional),
+            new Return(new LoadStackSlot(7, ForeignEnum)));
+
+        RunEmissionTail(function);
+
+        var pieces = function.ResidualSlotBindings.Values.Where(static binding => binding.Slot == 7).ToList();
+        Assert.Equal(2, pieces.Count);
+        Assert.All(pieces, static binding => Assert.Equal(ResidualSlotBindingKind.Split, binding.Kind));
+    }
+
+    static readonly TypeRef LocalEnum = TypeRef.Definition("synthetic", "", "Local");
+
+    static bool FreshIntegerArms(Conditional conditional)
+        => conditional.WhenTrue.ResultType is { } t && TypeFamilies.IsIntegerLike(t)
+            && conditional.WhenFalse.ResultType is { } f && TypeFamilies.IsIntegerLike(f);
+
+    static void RunEmissionTail(IrFunction function)
+    {
+        new PrimitiveJoinBindingPass().Run(function, PassContext.None);
+        new CoercionInsertionPass().Run(function, PassContext.None);
+        new ResidualSlotBindingPass().Run(function, PassContext.None);
+    }
+
+    static IrFunction LocalEnumFunction(TypeRef returnType, params IrNode[] statements)
+    {
+        var block = new Block(0);
+        foreach (var statement in statements)
+            block.Add(statement);
+        var body = new BlockContainer();
+        body.Add(block);
+        return new IrFunction(
+            "M",
+            TypeRef.Definition("synthetic", "", "Holder"),
+            new MethodSignature(returnType, [new Parameter("c", BoolType), new Parameter("a", IntType), new Parameter("b", IntType)], HasThis: false, GenericParameterCount: 0),
+            [],
+            body)
+        {
+            TypeShapes = new Dictionary<TypeRef, TypeShape> { [LocalEnum] = TypeShape.Enum },
+            EnumUnderlyingTypes = new Dictionary<TypeRef, TypeRef> { [LocalEnum] = IntType },
+        };
     }
 
     static PrimitiveJoinTargetCompatibility Testimony(IrExpression join)

@@ -52,6 +52,10 @@ public sealed class ResidualSlotBindingPass : IIrPass
 
     public void Run(IrFunction function, PassContext context)
     {
+        // Coercion insertion ran after the final join binding and may have
+        // wrapped join arms; the policy below and, when no slot remains, the
+        // printer read the arm facts as the arms are now.
+        PrimitiveJoinTargetBinding.RefreshArmFacts(function);
         var nodes = CoercionSinks.ScopeNodes(function.Body).ToList();
         if (!nodes.Any(static node => node is StoreStackSlot or LoadStackSlot))
             return;
@@ -73,13 +77,11 @@ public sealed class ResidualSlotBindingPass : IIrPass
 
         invariant?.Check();
 
-        // Binding rewrote slot loads into typed locals after the final join
-        // binding ran; a join arm that was one of them now has a type, so the
-        // issued join testimony is refreshed before anything reads it again
-        // (value-typed-emission.md, "Join target testimony").
-        new PrimitiveJoinBindingPass().Run(function, context);
-
         Discharge(function, context);
+
+        // Binding retyped slot-load arms and the discharge may have wrapped
+        // them again: the printer reads the arm facts as the arms end here.
+        PrimitiveJoinTargetBinding.RefreshArmFacts(function);
     }
 
     static void RejectManagedReferenceWebs(IrFunction function, IReadOnlyList<IrNode> nodes)

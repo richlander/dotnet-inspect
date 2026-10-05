@@ -48,10 +48,8 @@ internal sealed record PrimitiveJoinTargetCompatibility(
         IReadOnlyDictionary<TypeRef, TypeShape> shapes,
         IReadOnlyDictionary<TypeRef, TypeRef> enumUnderlyingTypes)
     {
-        bool integerArms = renderedArms.Count > 0
-            && renderedArms.All(static arm => arm.ResultType is { } type && TypeFamilies.IsIntegerLike(type));
-        bool charConstantArms = renderedArms.Count > 0
-            && renderedArms.All(static arm => CoercionRendering.TryCharConstantValue(arm, out _));
+        bool integerArms = IntegerArmsOf(renderedArms);
+        bool charConstantArms = CharConstantArmsOf(renderedArms);
         if (CSharpExpressionType.Effective(expression) is not { } source
             || !TypeFamilies.IsIntegerLike(source))
         {
@@ -94,6 +92,16 @@ internal sealed record PrimitiveJoinTargetCompatibility(
         }
         return new(wholeJoinTargets.ToImmutable(), renderedArmTargets.ToImmutable(), integerArms, charConstantArms);
     }
+
+    /// <summary>Every rendered arm carries an integer-family result type.</summary>
+    internal static bool IntegerArmsOf(IReadOnlyList<IrExpression> renderedArms)
+        => renderedArms.Count > 0
+            && renderedArms.All(static arm => arm.ResultType is { } type && TypeFamilies.IsIntegerLike(type));
+
+    /// <summary>Every rendered arm is a <c>char</c>-valued constant.</summary>
+    internal static bool CharConstantArmsOf(IReadOnlyList<IrExpression> renderedArms)
+        => renderedArms.Count > 0
+            && renderedArms.All(static arm => CoercionRendering.TryCharConstantValue(arm, out _));
 
     internal static bool CanCoerceArm(
         TypeRef armType,
@@ -146,6 +154,29 @@ internal static class PrimitiveJoinTargetBinding
             join.RenderedArms,
             shapes,
             enumUnderlyingTypes);
+
+    /// <summary>
+    /// Re-takes only the enum and <c>char</c> arm facts over each join's
+    /// current rendered arms, leaving the integer-family testimony as its own
+    /// binding issued it. Coercion insertion wraps an enum-merged join's
+    /// integer arms after the final binding, and residual storage binding
+    /// retypes slot-load arms; the arm facts are re-taken where their readers
+    /// look — residual binding's entry and its end — so each reader sees the
+    /// arms it would have walked (value-typed-emission.md, "Enum and char arm
+    /// facts").
+    /// </summary>
+    internal static void RefreshArmFacts(IrNode scope)
+    {
+        foreach (var join in scope.Descendants.OfType<IPrimitiveJoin>())
+        {
+            var arms = join.RenderedArms;
+            join.PrimitiveTargets = join.PrimitiveTargets with
+            {
+                IntegerArms = PrimitiveJoinTargetCompatibility.IntegerArmsOf(arms),
+                CharConstantArms = PrimitiveJoinTargetCompatibility.CharConstantArmsOf(arms),
+            };
+        }
+    }
 
     internal static void BindInitialPrimitiveTargets(this IPrimitiveJoin join)
         => join.BindPrimitiveTargets(EmptyShapes, EmptyEnumUnderlyingTypes);
