@@ -1438,6 +1438,11 @@ public static class OutputFormatter
                 count);
         }
         ApplyClassificationCounts(projection, inspection, writerOptions.IncludeSections, rows);
+        ApplyPerformanceCounts(
+            projection,
+            inspection,
+            writerOptions.IncludeSections,
+            rows);
         ApplyILCoordinateCardinality(
             projection, inspection, writerOptions.IncludeSections, rows, fields, columns);
         return projection;
@@ -1477,6 +1482,41 @@ public static class OutputFormatter
                 return count;
             (int keepStart, int keepEnd) = window.Resolve(count);
             return keepEnd - keepStart;
+        }
+    }
+
+    internal static void ApplyPerformanceCounts(
+        CountProjection projection,
+        LibraryInspection inspection,
+        IReadOnlyCollection<string>? includedSections,
+        RowWindow? rows)
+    {
+        if (includedSections is null
+            || inspection.PerformanceTriageCounts is not
+                { } counts)
+        {
+            return;
+        }
+
+        foreach (string section in includedSections)
+        {
+            if (!PerformanceKinds.Sections.Contains(
+                    section,
+                    StringComparer.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            int count = counts.Count(
+                PerformanceKinds.KindForSection(section));
+            if (rows is { IsUnlimited: false } window)
+            {
+                (int keepStart, int keepEnd) =
+                    window.Resolve(count);
+                count = keepEnd - keepStart;
+            }
+
+            projection.SetRows(section, count);
         }
     }
 
