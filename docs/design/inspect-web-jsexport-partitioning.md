@@ -327,7 +327,12 @@ package or Platform workspace services through `DotnetInspect.Web.Core`; it
 does not call sibling facades or reuse their wire DTOs.
 Home-demo call graphs likewise ask Web Core to lower the owner-issued neutral
 call-graph projection. The catalog facade does not open Analysis sessions or
-reference the Analysis component directly.
+reference the Analysis component directly. It composes the product vocabulary
+from its owners' declarations (`BrowserVocabularyComposition`, under
+[Product Vocabulary ownership](vocabulary.md#ownership)), so its assembly
+ratchet admits `ILInspector.Decompiler` for the Decompiler's vocabulary
+declaration factories; it reaches that project transitively and adds no project
+reference.
 
 ## Managed assembly contract
 
