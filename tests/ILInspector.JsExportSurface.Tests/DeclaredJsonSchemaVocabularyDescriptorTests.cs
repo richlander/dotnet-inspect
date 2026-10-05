@@ -4,7 +4,6 @@ using DotnetInspect.Web.Interop.Package;
 using DotnetInspector.JsonSchema;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
-using DotnetInspector.Vocabulary;
 using ILInspector.JsExportSurface;
 using ILInspector.JsExportSurface.JsonSchemaFixtures;
 using ILInspector.Metadata;

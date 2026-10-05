@@ -149,7 +149,6 @@
         "DotnetInspector.Ecosystems",
         "DotnetInspector.Queries",
         "DotnetInspector.Sections",
-        "DotnetInspector.Vocabulary",
         "ILInspector.Metadata"
       ]
     },
@@ -175,7 +174,6 @@
         "DotnetInspector.Queries",
         "DotnetInspector.Sections",
         "DotnetInspector.SourceSelection",
-        "DotnetInspector.Vocabulary",
         "ILInspector.Decompiler",
         "ILInspector.Metadata",
         "InertText",
@@ -236,7 +234,6 @@
         "DotnetInspector.Sections.Local",
         "DotnetInspector.Services",
         "DotnetInspector.SourceSelection",
-        "DotnetInspector.Vocabulary",
         "ILInspector.Analysis",
         "ILInspector.CallGraph",
         "ILInspector.CSharp",
@@ -294,7 +291,6 @@
         "DotnetInspector.Services",
         "DotnetInspector.SourceHouse",
         "DotnetInspector.SourceSelection",
-        "DotnetInspector.Vocabulary",
         "ILInspector.Analysis",
         "ILInspector.CSharp",
         "ILInspector.CallGraph",
@@ -841,25 +837,6 @@
         "ILInspector.MetadataPrimitives",
         "ILInspector.SourceLink",
         "Inspector.Text"
-      ]
-    },
-    {
-      "id": "vocabulary-dependencies",
-      "source": "docs/design/vocabulary.md#ownership",
-      "graphs": [
-        "project",
-        "assembly"
-      ],
-      "targets": [
-        "DotnetInspector.Vocabulary"
-      ],
-      "allowOnly": [
-        "$platform",
-        "DotnetInspector.InspectionContracts",
-        "DotnetInspector.Queries",
-        "DotnetInspector.Sections",
-        "ILInspector.Decompiler",
-        "QuerySpace.Primitives"
       ]
     },
     {

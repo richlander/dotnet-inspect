@@ -10,145 +10,145 @@ using QuerySpace.Rows;
 
 namespace DotnetInspector.Queries;
 
-public sealed record LibraryFamilyRoleQueryPlan(
+public sealed record LibraryArchitecturalFamilyQueryPlan(
     PortableQueryIntent Intent,
     LibraryNameFamilyPopulationKind Population);
 
-public abstract record LibraryFamilyRoleQueryPlanResult
+public abstract record LibraryArchitecturalFamilyQueryPlanResult
 {
-    private LibraryFamilyRoleQueryPlanResult()
+    private LibraryArchitecturalFamilyQueryPlanResult()
     {
     }
 
-    public sealed record Accepted(LibraryFamilyRoleQueryPlan Plan)
-        : LibraryFamilyRoleQueryPlanResult;
+    public sealed record Accepted(LibraryArchitecturalFamilyQueryPlan Plan)
+        : LibraryArchitecturalFamilyQueryPlanResult;
 
     public sealed record Rejected(PortableQueryFailure Failure)
-        : LibraryFamilyRoleQueryPlanResult;
+        : LibraryArchitecturalFamilyQueryPlanResult;
 }
 
-public sealed record LibraryFamilyRoleSemanticSelectionFailure(
+public sealed record LibraryArchitecturalFamilySemanticSelectionFailure(
     int StageNumber,
     int RequiredPosition,
     int AvailableCount);
 
-public abstract record LibraryFamilyRoleQueryResult
+public abstract record LibraryArchitecturalFamilyQueryResult
 {
-    private LibraryFamilyRoleQueryResult()
+    private LibraryArchitecturalFamilyQueryResult()
     {
     }
 
     public sealed record Available(
-        LibraryFamilyRoleCompositionDocument Document,
-        LibraryFamilyRolePopulation Population,
+        LibraryArchitecturalFamilyCompositionDocument Document,
+        LibraryArchitecturalFamilyPopulation Population,
         QuerySpaceRequest Request,
-        ImmutableArray<LibraryFamilyRoleRow> FamilyRows,
-        ImmutableArray<LibraryFamilyRoleTypeRow> TypeRows,
+        ImmutableArray<LibraryArchitecturalFamilyRow> FamilyRows,
+        ImmutableArray<LibraryArchitecturalFamilyTypeRow> TypeRows,
         int TotalRowCount,
         int SelectedRowCount,
         int? Count)
-        : LibraryFamilyRoleQueryResult;
+        : LibraryArchitecturalFamilyQueryResult;
 
     public sealed record NameFamiliesUnavailable(
         LibraryNameFamilySummaryOutcome.Unavailable Outcome)
-        : LibraryFamilyRoleQueryResult;
+        : LibraryArchitecturalFamilyQueryResult;
 
     public sealed record NameFamiliesRejected(
         LibraryNameFamilySummaryOutcome.Rejected Outcome)
-        : LibraryFamilyRoleQueryResult;
+        : LibraryArchitecturalFamilyQueryResult;
 
     public sealed record StructuralRejected(
         LibrarySurfaceLeverageResult.Rejected Outcome)
-        : LibraryFamilyRoleQueryResult;
+        : LibraryArchitecturalFamilyQueryResult;
 
     public sealed record CompositionRejected(
-        LibraryFamilyRoleCompositionOutcome.Rejected Outcome)
-        : LibraryFamilyRoleQueryResult;
+        LibraryArchitecturalFamilyCompositionOutcome.Rejected Outcome)
+        : LibraryArchitecturalFamilyQueryResult;
 
     public sealed record PopulationUnavailable(
-        LibraryFamilyRoleCompositionDocument Document,
+        LibraryArchitecturalFamilyCompositionDocument Document,
         LibraryNameFamilyPopulationKind RequestedPopulation)
-        : LibraryFamilyRoleQueryResult;
+        : LibraryArchitecturalFamilyQueryResult;
 
     public sealed record SelectionFailed(
         string Detail,
         RowQueryFailure? ResolutionFailure = null,
-        LibraryFamilyRoleSemanticSelectionFailure?
+        LibraryArchitecturalFamilySemanticSelectionFailure?
             SemanticFailure = null)
-        : LibraryFamilyRoleQueryResult;
+        : LibraryArchitecturalFamilyQueryResult;
 
     public sealed record Failed(Exception Error)
-        : LibraryFamilyRoleQueryResult;
+        : LibraryArchitecturalFamilyQueryResult;
 }
 
-public static partial class LibraryFamilyRoleQuery
+public static partial class LibraryArchitecturalFamilyQuery
 {
-    public const string OperationIdentity = "library-family-roles";
+    public const string OperationIdentity = "architectural-families";
     public const string OperationRouteIdentity =
-        "library-family-roles/default";
+        "architectural-families/default";
     public const string OperationSubjectRole = "exact-library";
-    public const string OperationResultGrain = "library-family-role";
+    public const string OperationResultGrain = "architectural-family";
     public const string OperationProfileIdentity = "population-selection";
     public const string OperationVocabularyIdentity =
-        "library-family-roles/operation/v1";
+        "architectural-families/operation/v1";
     public const string PopulationTermKey = "population";
 
     public const string QuerySpaceIdentity =
-        "library-family-roles/query-space/v1";
+        "architectural-families/query-space/v1";
     public const string FamilyRowsScopeIdentity =
-        "library-family-roles/family-rows/v1";
+        "architectural-families/family-rows/v1";
     public const string TypeRowsScopeIdentity =
-        "library-family-roles/type-rows/v1";
+        "architectural-families/type-rows/v1";
     public const string FamilyRowsResultContract =
-        "library-family-roles/family-result/v1";
+        "architectural-families/family-result/v1";
     public const string TypeRowsResultContract =
-        "library-family-roles/type-result/v1";
-    public const string FamilyRowsRowSet = "family-role-rows";
-    public const string TypeRowsRowSet = "type-role-rows";
+        "architectural-families/type-result/v1";
+    public const string FamilyRowsRowSet = "families";
+    public const string TypeRowsRowSet = "types";
 
-    public static InspectionQuery<LibraryFamilyRoleQueryResult> Definition
+    public static InspectionQuery<LibraryArchitecturalFamilyQueryResult> Definition
     { get; } =
-        new("Library name-family roles", InspectionCost.Unbounded);
+        new("Library architectural families", InspectionCost.Unbounded);
 
     public static IQueryOperationRoute OperationRoute =>
         OperationRegistration.Route;
 
-    public static LibraryFamilyRoleQueryPlan CreatePlan(
+    public static LibraryArchitecturalFamilyQueryPlan CreatePlan(
         LibraryNameFamilyPopulationKind population)
     {
-        LibraryFamilyRoleQueryPlanResult result =
+        LibraryArchitecturalFamilyQueryPlanResult result =
             ResolveIntent(CreateIntent(population));
         return result switch
         {
-            LibraryFamilyRoleQueryPlanResult.Accepted accepted =>
+            LibraryArchitecturalFamilyQueryPlanResult.Accepted accepted =>
                 accepted.Plan,
-            LibraryFamilyRoleQueryPlanResult.Rejected rejected =>
+            LibraryArchitecturalFamilyQueryPlanResult.Rejected rejected =>
                 throw new InvalidOperationException(
-                    "A product-issued Library family-role operation plan "
+                    "A product-issued Architectural Families operation plan "
                         + $"was rejected: {rejected.Failure.Reason}."),
             _ => throw new InvalidOperationException(
-                "Unknown Library family-role operation-plan result."),
+                "Unknown Architectural Families operation-plan result."),
         };
     }
 
-    public static LibraryFamilyRoleQueryPlanResult ResolveIntent(
+    public static LibraryArchitecturalFamilyQueryPlanResult ResolveIntent(
         PortableQueryIntent intent,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(intent);
-        PortableQueryResolution<LibraryFamilyRoleQueryPlan> resolution =
+        PortableQueryResolution<LibraryArchitecturalFamilyQueryPlan> resolution =
             OperationRegistration.Route.Resolve(
                 intent,
                 cancellationToken);
         return resolution.IsResolved
-            ? new LibraryFamilyRoleQueryPlanResult.Accepted(
+            ? new LibraryArchitecturalFamilyQueryPlanResult.Accepted(
                 resolution.Plan)
-            : new LibraryFamilyRoleQueryPlanResult.Rejected(
+            : new LibraryArchitecturalFamilyQueryPlanResult.Rejected(
                 resolution.Failure);
     }
 
     public static QuerySpaceRequest CreateFamilyRequest(
-        LibraryFamilyRoleQueryPlan operation,
+        LibraryArchitecturalFamilyQueryPlan operation,
         RowSelectionIntent<string> rows,
         QuerySpaceTerminalRequirement terminal)
     {
@@ -166,7 +166,7 @@ public static partial class LibraryFamilyRoleQuery
     }
 
     public static QuerySpaceRequest CreateTypeRequest(
-        LibraryFamilyRoleQueryPlan operation,
+        LibraryArchitecturalFamilyQueryPlan operation,
         RowSelectionIntent<string> rows,
         QuerySpaceTerminalRequirement terminal)
     {
@@ -184,7 +184,7 @@ public static partial class LibraryFamilyRoleQuery
     }
 
     public static QuerySpaceRequest CreateRequest(
-        LibraryFamilyRoleQueryPlan operation,
+        LibraryArchitecturalFamilyQueryPlan operation,
         QuerySpaceRowScopeBinding scope,
         string rowSet,
         PortableQueryIntent rows,
@@ -277,7 +277,7 @@ public static partial class LibraryFamilyRoleQuery
     private sealed class OperationVocabulary
         : PortableQueryVocabulary<
             OperationPredicate,
-            LibraryFamilyRoleQueryPlan>
+            LibraryArchitecturalFamilyQueryPlan>
     {
         private static readonly PopulationDeclaration Population = new();
 
@@ -324,7 +324,7 @@ public static partial class LibraryFamilyRoleQuery
 
         public override bool IsOrderable(string key) => false;
 
-        public override LibraryFamilyRoleQueryPlan CreatePlan(
+        public override LibraryArchitecturalFamilyQueryPlan CreatePlan(
             PortableQueryResolvedIntent<OperationPredicate> resolved)
         {
             OperationPredicate population =
@@ -345,15 +345,15 @@ public static partial class LibraryFamilyRoleQuery
 
         internal static readonly QueryOperationDefinition<
             OperationPredicate,
-            LibraryFamilyRoleQueryPlan> Definition =
+            LibraryArchitecturalFamilyQueryPlan> Definition =
                 CreateDefinition();
 
         internal static readonly QueryOperationRoute<
             OperationPredicate,
-            LibraryFamilyRoleQueryPlan> Route =
+            LibraryArchitecturalFamilyQueryPlan> Route =
                 QueryOperationRoute<
                     OperationPredicate,
-                    LibraryFamilyRoleQueryPlan>.Create(
+                    LibraryArchitecturalFamilyQueryPlan>.Create(
                         OperationRouteIdentity,
                         Definition,
                         OperationSubjectRole,
@@ -368,20 +368,20 @@ public static partial class LibraryFamilyRoleQuery
 
         private static QueryOperationDefinition<
             OperationPredicate,
-            LibraryFamilyRoleQueryPlan> CreateDefinition()
+            LibraryArchitecturalFamilyQueryPlan> CreateDefinition()
         {
             var applicability = new QueryOperationApplicability(
                 [OperationSubjectRole],
                 [OperationResultGrain],
                 []);
             var population = new QueryOperationTermBinding(
-                "library-family-roles.term.population",
+                "architectural-families.term.population",
                 PopulationTermKey,
                 QueryOperationTermRole.OperationSelector,
                 applicability,
                 new QueryOperationTermDescription(
                     "source population",
-                    "family-role source population",
+                    "architectural-family source population",
                     [
                         "all",
                         "ordinary",
@@ -394,7 +394,7 @@ public static partial class LibraryFamilyRoleQuery
 
             return QueryOperationDefinition<
                 OperationPredicate,
-                LibraryFamilyRoleQueryPlan>.Create(
+                LibraryArchitecturalFamilyQueryPlan>.Create(
                     OperationIdentity,
                     Vocabulary,
                     [OperationSubjectRole],

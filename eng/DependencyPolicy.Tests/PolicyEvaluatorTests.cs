@@ -797,39 +797,6 @@ public sealed class PolicyEvaluatorTests
     }
 
     [Fact]
-    public void CheckedInPolicyKeepsVocabularyAtItsOwnerCatalogs()
-    {
-        string repository = FindRepositoryRoot();
-        DependencyPolicyDocument policy = PolicyLoader.Load(
-            Path.Combine(repository, "eng", "dependency-policy.json"));
-        DependencyRule rule = Assert.Single(
-            policy.Rules,
-            candidate => candidate.Id == "vocabulary-dependencies");
-        Assert.Equal(
-            [
-                DependencyGraphKind.Project,
-                DependencyGraphKind.Assembly,
-            ],
-            rule.Graphs);
-        Assert.NotNull(rule.AllowOnly);
-        Assert.Equal(
-            [
-                "$platform",
-                "DotnetInspector.InspectionContracts",
-                "DotnetInspector.Queries",
-                "DotnetInspector.Sections",
-                "ILInspector.Decompiler",
-                "QuerySpace.Primitives",
-            ],
-            rule.AllowOnly);
-
-        AssertCheckedInRuleRejectsRepositoryDependency(
-            "vocabulary-dependencies",
-            "DotnetInspector.Vocabulary",
-            "QuerySpace");
-    }
-
-    [Fact]
     public void CheckedInPolicyKeepsLocalAdaptersOutOfBrowserHosts()
     {
         string repository = FindRepositoryRoot();
@@ -1038,7 +1005,6 @@ public sealed class PolicyEvaluatorTests
                 "DotnetInspector.Sections.Local",
                 "DotnetInspector.Services",
                 "DotnetInspector.SourceSelection",
-                "DotnetInspector.Vocabulary",
                 "ILInspector.Analysis",
                 "ILInspector.CallGraph",
                 "ILInspector.CSharp",
@@ -1117,7 +1083,6 @@ public sealed class PolicyEvaluatorTests
                 "DotnetInspector.Services",
                 "DotnetInspector.SourceHouse",
                 "DotnetInspector.SourceSelection",
-                "DotnetInspector.Vocabulary",
                 "ILInspector.Analysis",
                 "ILInspector.CSharp",
                 "ILInspector.CallGraph",
@@ -1344,7 +1309,6 @@ public sealed class PolicyEvaluatorTests
                 "DotnetInspector.Ecosystems",
                 "DotnetInspector.Queries",
                 "DotnetInspector.Sections",
-                "DotnetInspector.Vocabulary",
                 "ILInspector.Metadata",
             ],
             Assert.IsType<string[]>(projectRule.AllowOnly));
@@ -1367,7 +1331,6 @@ public sealed class PolicyEvaluatorTests
                 "DotnetInspector.Queries",
                 "DotnetInspector.Sections",
                 "DotnetInspector.SourceSelection",
-                "DotnetInspector.Vocabulary",
                 "ILInspector.Decompiler",
                 "ILInspector.Metadata",
                 "InertText",

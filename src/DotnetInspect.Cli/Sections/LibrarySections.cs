@@ -151,10 +151,10 @@ public static class LibrarySections
                 HasMethodBodies)
             .Add<NameFamilies>(
                 LibraryNameFamilyQuery.Definition)
-            .Add<NameFamilyRoles>(
-                LibraryFamilyRoleQuery.Definition)
-            .Add<NameFamilyRoleTypes>(
-                LibraryFamilyRoleQuery.Definition)
+            .Add<ArchitecturalFamilies>(
+                LibraryArchitecturalFamilyQuery.Definition)
+            .Add<ArchitecturalFamilyTypes>(
+                LibraryArchitecturalFamilyQuery.Definition)
             .Add<DependencyStructure>(
                 LibraryDependencyStructureQuery.Definition,
                 HasMethodBodies)
@@ -415,8 +415,8 @@ public static class LibrarySections
                 LibraryNameFamilyQuery.Definition,
                 ExecuteLibraryNameFamilyQuery)
             .Add(
-                LibraryFamilyRoleQuery.Definition,
-                ExecuteLibraryFamilyRoleQuery)
+                LibraryArchitecturalFamilyQuery.Definition,
+                ExecuteLibraryArchitecturalFamilyQuery)
             .Add(
                 LibraryDependencyStructureQuery.Definition,
                 ExecuteLibraryDependencyStructureQuery)
@@ -659,42 +659,42 @@ public static class LibrarySections
         }
     }
 
-    internal static LibraryFamilyRoleQueryResult
-        ExecuteLibraryFamilyRoleQuery(
+    internal static LibraryArchitecturalFamilyQueryResult
+        ExecuteLibraryArchitecturalFamilyQuery(
             InspectionQueryContext context)
     {
         if (context.AssemblyReference is not { } assembly)
         {
-            return new LibraryFamilyRoleQueryResult.Failed(
+            return new LibraryArchitecturalFamilyQueryResult.Failed(
                 new InvalidOperationException(
-                    "Library name-family roles require an artifact-backed "
+                    "Library architectural families require an artifact-backed "
                         + "assembly descriptor."));
         }
 
         try
         {
-            LibraryFamilyRoleQueryPlan operation =
-                LibraryFamilyRoleQuery.CreatePlan(
+            LibraryArchitecturalFamilyQueryPlan operation =
+                LibraryArchitecturalFamilyQuery.CreatePlan(
                     context.NameFamilyPopulation);
             RowSelectionIntent<string> rows =
                 context.NameFamilyRowSelection
                 ?? RowSelectionIntent<string>.Create([]);
             QuerySpaceRequest request =
-                context.NameFamilyRoleTypeRows
-                    ? LibraryFamilyRoleQuery.CreateTypeRequest(
+                context.ArchitecturalFamilyTypeRows
+                    ? LibraryArchitecturalFamilyQuery.CreateTypeRequest(
                         operation,
                         rows,
                         context.CountOnly
                             ? QuerySpaceTerminalRequirement.Count
                             : QuerySpaceTerminalRequirement.Rows)
-                    : LibraryFamilyRoleQuery.CreateFamilyRequest(
+                    : LibraryArchitecturalFamilyQuery.CreateFamilyRequest(
                         operation,
                         rows,
                         context.CountOnly
                             ? QuerySpaceTerminalRequirement.Count
                             : QuerySpaceTerminalRequirement.Rows);
             return context.Query(
-                session => LibraryFamilyRoleInspection.Execute(
+                session => LibraryArchitecturalFamilyInspection.Execute(
                     assembly,
                     session,
                     context.MetadataContext?
@@ -702,7 +702,7 @@ public static class LibrarySections
                     operation,
                     request),
                 static error =>
-                    new LibraryFamilyRoleQueryResult.Failed(error));
+                    new LibraryArchitecturalFamilyQueryResult.Failed(error));
         }
         catch (CostDeclarationException)
         {
@@ -710,7 +710,7 @@ public static class LibrarySections
         }
         catch (Exception error)
         {
-            return new LibraryFamilyRoleQueryResult.Failed(error);
+            return new LibraryArchitecturalFamilyQueryResult.Failed(error);
         }
     }
 
@@ -1315,10 +1315,10 @@ public static class LibrarySections
         public static bool CanRender(LibraryInspection model) => true;
     }
 
-    public sealed class NameFamilyRoles
+    public sealed class ArchitecturalFamilies
         : ISectionDescriptor<LibraryInspection>
     {
-        public static string Name => SectionNames.NameFamilyRoles;
+        public static string Name => SectionNames.ArchitecturalFamilies;
         public static bool IsExpensive => true;
         public static bool ExplicitOnly => true;
         public static bool ProbeEffectiveness => false;
@@ -1330,10 +1330,10 @@ public static class LibrarySections
         public static bool CanRender(LibraryInspection model) => true;
     }
 
-    public sealed class NameFamilyRoleTypes
+    public sealed class ArchitecturalFamilyTypes
         : ISectionDescriptor<LibraryInspection>
     {
-        public static string Name => SectionNames.NameFamilyRoleTypes;
+        public static string Name => SectionNames.ArchitecturalFamilyTypes;
         public static bool IsExpensive => true;
         public static bool ExplicitOnly => true;
         public static bool ProbeEffectiveness => false;

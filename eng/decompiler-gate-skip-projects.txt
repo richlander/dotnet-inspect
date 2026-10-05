@@ -137,7 +137,6 @@ src/DotnetInspector.MetadataRendering
 src/DotnetInspector.PlatformHouse.Local
 src/DotnetInspector.Sections.Local
 src/DotnetInspector.SourceDelegation
-src/DotnetInspector.Vocabulary
 src/ILInspector.Analysis.App
 src/ILInspector.JsExportSurface
 src/ILInspector.TypeScriptGeneration
@@ -236,7 +235,7 @@ tools/HarnessReportDiff
 tools/IlDiffHarness
 tools/ImplementationMetricPerformance
 tools/InspectWebFixtureResolver
-tools/LibraryFamilyRoleScorecard
+tools/LibraryArchitecturalFamilyScorecard
 tools/LibraryInfoCountScorecard
 tools/MemberBodySizeScorecard
 tools/MemberGroupScorecard
