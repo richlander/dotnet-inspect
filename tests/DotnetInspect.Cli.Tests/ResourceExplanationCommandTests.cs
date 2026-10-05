@@ -71,6 +71,33 @@ public sealed class ResourceExplanationCommandTests : IDisposable
                 .GetString());
     }
 
+    [Theory]
+    [InlineData("package-query", "inspection-document")]
+    [InlineData("package-files", "inspection-document")]
+    public async Task Explain_CapabilityRootUsesItsOwnerCatalog(
+        string path,
+        string resourceType)
+    {
+        var result = await RunAsync(
+            "explain",
+            path,
+            "--json");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        Assert.Equal(
+            path,
+            document.RootElement
+                .GetProperty("requested_path")
+                .GetString());
+        Assert.Equal(
+            resourceType,
+            ResourceType(
+                document.RootElement
+                    .GetProperty("resources")[0]));
+    }
+
     [Fact]
     public async Task ExactSection_RendersResourceAndRelatedPaths()
     {
