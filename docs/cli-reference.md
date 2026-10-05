@@ -1446,6 +1446,18 @@ dotnet-inspect library address 0x060002EA+0x0 \
   --package System.Text.Json --library System.Text.Json.dll
 ```
 
+An exact package or platform Type uses the shared compact `TypeDocument` for
+its native Tree and bare `--count`; explicit `--tree` or `--count` does the
+same over a local Library. The Tree shows declared Member-group rows with
+nested exact-declaration Counts without constructing every exact Member row.
+Count covers the same declared population: public declarations by default, or
+all accessibility buckets and hidden declarations under `--all`. Attached
+extension methods are a separate contextual population and do not delay or
+inflate this declared result. A local Library's implicit default view, and
+sections that require exact signatures, source, bodies, documentation,
+analysis, or complete inspection-failure diagnostics, continue through their
+owning exact-Member or rich compatibility routes.
+
 A bare ordinary method name selects its MemberGroup. Its default output is a
 native Tree rooted at one compact identity line and containing every public,
 non-hidden exact overload; explicit `--tree` renders the same population.

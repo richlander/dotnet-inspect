@@ -848,7 +848,8 @@ public sealed class BrowserMemberDeclarationTests
                 AvailablePopulation(population);
             Assert.Equal(
                 members.Composition.Public,
-                members.Groups.Sum(candidate => candidate.CompleteCount));
+                members.Groups.Sum(
+                    candidate => candidate.CompleteCount));
             Assert.Equal(requests, handler.Requests);
         }
         finally

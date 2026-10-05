@@ -1388,13 +1388,22 @@ declared Member-group population. Subject-only requests issue no population
 demand, and requested population rejection, incompleteness, or failure remains
 independently typed without discarding the available Type subject.
 
-Step 9 now binds CLI minimal native Type navigation and Inspect Web declared
-Member navigation to one shared `TypeDocument` request. CLI renders the
-lightweight Member-group Rows and nested exact-Member Counts directly; richer
-Type views remain on their explicit signature-bearing route. Inspect Web
-mechanically transports the same envelope and opens `MemberGroupDocument` only
-when a group is selected, rather than embedding exact Member rows in the Type
-response. The superseded Browser Type-member population exports are removed.
+Step 9 binds the native Type Tree and Browser declaration inventory to the
+shared route. The CLI executes exact package or platform Type Tree and bare
+Count gestures, plus explicit local-Library Tree and Count gestures, before
+the eager API-surface path. It renders declared Member-group Rows with nested
+exact-member Counts or the matching declaration Composition Count. The
+implicit local-Library default remains on the rich route so existing
+inspection-failure diagnostics remain visible. Inspect Web projects the same
+document envelope mechanically into its independently typed subject and
+declaration outcomes, compact group rows, composition Counts, selector Counts,
+Share, and diagnostics. The Type response embeds no exact Member rows;
+selecting a group opens `MemberGroupDocument`. TypeScript does not regroup or
+count exact declarations. Attached and workspace-wide contextual extensions
+remain independent and are not awaited by the declared result; #9183 owns
+their replacement population. The superseded Browser Type-member population
+exports are removed. Accepted NativeAOT before/after evidence is still
+required before this adoption makes a performance-success claim.
 
 ## Required evidence
 

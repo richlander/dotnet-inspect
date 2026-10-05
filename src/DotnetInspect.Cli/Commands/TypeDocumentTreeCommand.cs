@@ -24,7 +24,8 @@ internal static class TypeDocumentTreeCommand
     internal static bool CanExecute(TypeOptions options)
     {
         bool nativeTree =
-            options.ShapeOutput
+            options.Count
+            || options.ShapeOutput
             || options.Tree
             || (!options.HasSectionQuery
                 && !options.JsonOutput
@@ -33,14 +34,15 @@ internal static class TypeDocumentTreeCommand
                 && !options.Jsonl
                 && !options.NoHeader
                 && !options.PlainText
-                && !options.Count
                 && !options.MarkdownExplicitlySet);
         return nativeTree
-            && options.Verbosity == Verbosity.Minimal
+            && (options.Count
+                || options.Tree
+                || options.ShapeOutput
+                || options.Verbosity == Verbosity.Minimal)
             && !string.IsNullOrWhiteSpace(options.TypeName)
             && !TypeMatcher.IsTypeGlobPattern(options.TypeName)
             && string.IsNullOrWhiteSpace(options.TypeFilter)
-            && !options.IncludeAll
             && !options.ShowDocs
             && !options.DocsExplicitlySet
             && !options.ShowSamples
@@ -68,7 +70,11 @@ internal static class TypeDocumentTreeCommand
             && options.RequestReadableLocalNames is false
             && options.SourceRepositories.Length == 0
             && options.DllPath is null
-            && options.PdbPath is null;
+            && options.PdbPath is null
+            && (options.AssemblyPath is null
+                || options.Count
+                || options.Tree
+                || options.ShapeOutput);
     }
 
     internal static async Task<int?> TryExecuteAsync(
@@ -94,6 +100,7 @@ internal static class TypeDocumentTreeCommand
                         Execute(
                             session,
                             source.TypeName!,
+                            options,
                             cancellationToken),
                     cancellationToken)
                 .ConfigureAwait(false);
@@ -109,6 +116,7 @@ internal static class TypeDocumentTreeCommand
 
         return Write(
             completed.Envelope,
+            options,
             source.PackageName,
             source.PackageVersion);
     }
@@ -116,6 +124,7 @@ internal static class TypeDocumentTreeCommand
     private static TypeDocumentTreeExecution Execute(
         ExactLibraryInspectionSession session,
         string typeName,
+        TypeOptions options,
         CancellationToken cancellationToken)
     {
         LibraryTypeListingResult? listing =
@@ -139,10 +148,25 @@ internal static class TypeDocumentTreeCommand
         if (matches.Length != 1)
             return new TypeDocumentTreeExecution.NotMatched();
 
+        TypeMemberGroupAccessibilityFilter accessibility =
+            options.IncludeAll
+                ? TypeMemberGroupAccessibilityFilter.All
+                : TypeMemberGroupAccessibilityFilter.Public;
         TypeDocumentInspectionPlan plan =
-            TypeDocumentInspectionPlan.CreateDeclaredMemberNavigation(
-            matches[0].Identity,
-            s_bounds);
+            options.Count
+                ? TypeDocumentInspectionPlans.DeclaredMemberCount(
+                    matches[0].Identity,
+                    s_bounds,
+                    TypeMemberGroupSpelling.CSharp,
+                    accessibility,
+                    includeHidden: options.IncludeAll)
+                : TypeDocumentInspectionPlans.DeclaredMemberRows(
+                    matches[0].Identity,
+                    s_bounds,
+                    TypeMemberGroupSpelling.CSharp,
+                    accessibility,
+                    includeHidden: options.IncludeAll,
+                    s_bounds.MaxMembers);
         InspectionEnvelope<TypeDocumentInspectionOutcome>? envelope =
             session.ExecuteTypeDocument(
                 plan,
@@ -154,6 +178,7 @@ internal static class TypeDocumentTreeCommand
 
     private static int Write(
         InspectionEnvelope<TypeDocumentInspectionOutcome> envelope,
+        TypeOptions options,
         string? packageName,
         string? packageVersion)
     {
@@ -172,6 +197,8 @@ internal static class TypeDocumentTreeCommand
                 available.Document.Declarations);
             return 1;
         }
+        if (options.Count)
+            return WriteCount(declarations.Population);
         if (declarations.Population.Rows
             is not TypeMemberGroupRowsOutcome.Read
             {
@@ -202,6 +229,40 @@ internal static class TypeDocumentTreeCommand
                     .OrderBy(group => CategoryOrder(group.Key))
                     .Select(group => CategoryNode(group.Key, [.. group])),
             ]);
+        return 0;
+    }
+
+    private static int WriteCount(
+        TypeMemberGroupPopulationResult population)
+    {
+        if (population.Composition is not { } composition)
+        {
+            CommandError.Write(
+                "The Type document did not return its declaration count.");
+            return 1;
+        }
+
+        int count =
+            population.Binding.Accessibility switch
+            {
+                TypeMemberGroupAccessibilityFilter.Public =>
+                    composition.Public - composition.Extension,
+                TypeMemberGroupAccessibilityFilter.Protected =>
+                    composition.Protected,
+                TypeMemberGroupAccessibilityFilter.Internal =>
+                    composition.Internal,
+                TypeMemberGroupAccessibilityFilter.Private =>
+                    composition.Private,
+                TypeMemberGroupAccessibilityFilter.All =>
+                    composition.Public
+                        + composition.Protected
+                        + composition.Internal
+                        + composition.Private
+                        - composition.Extension,
+                _ => throw new InvalidOperationException(
+                    "Unknown Type Member accessibility."),
+            };
+        CountOutput.WriteCount(count);
         return 0;
     }
 

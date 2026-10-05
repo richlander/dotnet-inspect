@@ -1176,6 +1176,8 @@ interface AppMemberGroup {
   completeCount: number;
   completeCountStatus: "available" | "pending" | "failed";
   sourceOverloadCount?: number;
+  receivers?: readonly string[];
+  detailsPending?: boolean;
 }
 
 type MemberAccessibility =
@@ -6703,6 +6705,9 @@ function declaredMemberGroups(type: AppTypeSurface): AppMemberGroup[] {
         completeCount: group.completeCount,
         completeCountStatus: "available",
         overloads: [],
+        sourceOverloadCount: group.completeCount,
+        receivers: group.receivers,
+        detailsPending: true,
       };
       const document =
         state.memberGroupDocumentKey
@@ -6722,6 +6727,8 @@ function declaredMemberGroups(type: AppTypeSurface): AppMemberGroup[] {
       return {
         ...shape,
         overloads,
+        detailsPending:
+          overloads.length !== group.completeCount,
       };
     });
   }
@@ -9829,10 +9836,12 @@ function renderMemberNavPane(type: AppTypeSurface) {
     type,
     entries: memberNavEntries(type),
     memberCount: groups.reduce(
-      (count, group) => count + group.overloads.length,
+      (count, group) =>
+        count + (group.sourceOverloadCount ?? group.overloads.length),
       0),
     visibleMemberCount: visibleGroups.reduce(
-      (count, group) => count + group.overloads.length,
+      (count, group) =>
+        count + (group.sourceOverloadCount ?? group.overloads.length),
       0),
     filterControlsHtml: renderMemberFilterControls(type),
     selectedMemberKey: state.selectedMemberKey,
@@ -12182,7 +12191,7 @@ function renderApiLens(item: AppTypeSurface) {
           group.sourceOverloadCount ?? group.completeCount;
         const achievements = methodLeverageAchievements(
           group,
-          sourceOverloadCount === 1 ? 0 : null);
+          overload && sourceOverloadCount === 1 ? 0 : null);
         const achievementClasses =
           itemAchievementClassNames(achievements);
         return `
@@ -12357,7 +12366,22 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
     return renderDeferredMemberGroup(type, member);
   }
   const overload = selectedOverload ?? member.overloads[0];
-  if (!overload) return "";
+  if (!overload) {
+    return `
+      <section class="member-surface member-empty-surface" aria-labelledby="member-surface-title">
+        <header class="api-surface-head member-surface-head">
+          <h1 id="member-surface-title">${escapeHtml(member.name)}</h1>
+          <p>${escapeHtml(member.kind)} <span>· ${member.sourceOverloadCount ?? member.completeCount} declared</span></p>
+        </header>
+        <div class="member-surface-scroll">
+          <section class="empty-member-section">
+            <span class="large-glyph">⌕</span>
+            <h2>Declaration details are not loaded</h2>
+            <p>The shared Type document supplied this Member-group inventory without constructing exact declaration rows.</p>
+          </section>
+        </div>
+      </section>`;
+  }
   const pkg = currentPackage();
   const documentationKey = memberRequestSignature(type, overload);
   const documentationState = scopedRequestState(

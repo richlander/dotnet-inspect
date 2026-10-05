@@ -396,11 +396,10 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("produced unprojected output", error);
     }
 
-    // A Type subject's bare Count is its Member population: the public bucket
-    // by default, every bucket with hidden declarations under --all. It equals
-    // the Metadata Composition Count, and the rows are the same population, so
-    // the host does not narrow them by name
-    // (docs/design/type-member-inspection-documents.md#composition-count).
+    // A Type subject's native Count is its declared Member population: the
+    // public bucket by default, every bucket with hidden declarations under
+    // --all. Attached extensions are a separate contextual population and do
+    // not delay or inflate the declared result.
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -427,8 +426,12 @@ public partial class CommandExecutionTests
                 all ? MetadataMethodAccessibilityFilter.All : MetadataMethodAccessibilityFilter.Public));
         MetadataTypeMemberComposition composition = counted.Composition;
         int expected = all
-            ? composition.Public + composition.Protected + composition.Internal + composition.Private
-            : composition.Public;
+            ? composition.Public
+                + composition.Protected
+                + composition.Internal
+                + composition.Private
+                - composition.Extension
+            : composition.Public - composition.Extension;
         Assert.Equal(expected.ToString(System.Globalization.CultureInfo.InvariantCulture), output.Trim());
     }
 

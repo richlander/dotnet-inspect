@@ -552,10 +552,13 @@ public sealed class TypeDocumentInspectionOperationTests
             Name("System.Text.Json", "JsonSerializer");
 
         TypeDocumentInspectionPlan plan =
-            TypeDocumentInspectionPlan
-                .CreateDeclaredMemberNavigation(
+            TypeDocumentInspectionPlans.DeclaredMemberRows(
                     type,
-                    s_bounds);
+                    s_bounds,
+                    TypeMemberGroupSpelling.CSharp,
+                    TypeMemberGroupAccessibilityFilter.Public,
+                    includeHidden: false,
+                    s_bounds.MaxMembers);
 
         Assert.Same(type, plan.Type);
         Assert.Same(s_bounds, plan.Bounds);

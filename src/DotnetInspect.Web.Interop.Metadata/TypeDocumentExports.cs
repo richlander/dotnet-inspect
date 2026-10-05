@@ -145,11 +145,13 @@ public static partial class MetadataExports
         MetadataTypeDefinitionName type =
             BrowserExactMemberPolicy.ParseTypeIdentity(typeIdentity);
         TypeDocumentInspectionPlan plan =
-            TypeDocumentInspectionPlan.CreateDeclaredMemberNavigation(
-            type,
-            BrowserExactMemberPolicy.Bounds,
-            ParseSpelling(spelling),
-            ParseAccessibility(accessibility));
+            TypeDocumentInspectionPlans.DeclaredMemberRows(
+                type,
+                BrowserExactMemberPolicy.Bounds,
+                ParseSpelling(spelling),
+                ParseAccessibility(accessibility),
+                includeHidden: false,
+                BrowserExactMemberPolicy.Bounds.MaxMembers);
         AssemblyContextLibraryInspectionRun<
             InspectionEnvelope<TypeDocumentInspectionOutcome>> run =
                 await AssemblyContextLibraryInspection.ExecuteAsync(
