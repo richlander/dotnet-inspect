@@ -4688,6 +4688,17 @@ kbd {
   font: 10px var(--mono);
 }
 .query-row-meta button { margin-left: auto; color: var(--accent); }
+.query-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+.query-row-actions button { margin-left: 0; }
+.query-row-actions button:disabled {
+  color: var(--dim);
+  cursor: default;
+}
 .query-footer {
   display: flex;
   align-items: center;
@@ -5021,7 +5032,11 @@ kbd {
   .query-preset-group { width: auto; }
   .query-progress-item { grid-template-columns: 1fr; gap: 4px; }
   .query-row-meta { flex-wrap: wrap; }
-  .query-row-meta button { flex-basis: 100%; margin-left: 0; }
+  .query-row-actions {
+    flex-basis: 100%;
+    margin-left: 0;
+  }
+  .query-row-actions button { flex: 1; }
   .package-changes-form { grid-template-columns: 1fr; }
   .package-changes-form > *,
   .package-changes-ecosystem-summary,
