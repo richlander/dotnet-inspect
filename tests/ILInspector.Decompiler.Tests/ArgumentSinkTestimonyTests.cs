@@ -24,6 +24,8 @@ public class ArgumentSinkTestimonyTests
     static readonly TypeRef Bool = TypeRef.CoreLib("System", "Boolean");
     static readonly TypeRef Int32 = TypeRef.CoreLib("System", "Int32");
     static readonly TypeRef Int64 = TypeRef.CoreLib("System", "Int64");
+    static readonly TypeRef Byte = TypeRef.CoreLib("System", "Byte");
+    static readonly TypeRef ByteEnum = TypeRef.Definition("Synthetic", "Samples", "ByteEnum", ValueTypeHint.ValueType);
 
     [Fact]
     public void ArgumentParameterTypeTestifiesForAnUntypedLoad()
@@ -112,6 +114,80 @@ public class ArgumentSinkTestimonyTests
 
         var testimony = CoercionSinks.AnalyzeSlotTypeTestimony(function.Body, function.Signature.ReturnType, function.TypeShapes);
         Assert.Equal(CoercionSinks.SlotTypeTestimonyStatus.Underivable, testimony[0].Status);
+    }
+
+    [Theory]
+    [InlineData("Byte")]
+    [InlineData("Int16")]
+    [InlineData("Char")]
+    [InlineData("Boolean")]
+    public void NarrowComparisonSiblingDoesNotTestify(string siblingName)
+    {
+        // `b == (c ? (int)e : x)` with `byte b`: the IL compares at int32
+        // width, so the byte sibling is not the comparison's operand type.
+        // Taking it would declare `byte S_0 = c ? (byte)e : (byte)x;` —
+        // output that compiles and truncates `x` (#9390 round 1, F1). The
+        // load stays underivable; the all-int web then binds under the frozen
+        // policy at the comparison's own int width, with no narrowing cast.
+        var sibling = TypeRef.CoreLib("System", siblingName);
+        var block = new Block(0);
+        block.Add(new IfStatement(
+            new LoadArgument(0, "choose", Bool),
+            BlockOf(new StoreStackSlot(0, new Constant(44, Int32))),
+            BlockOf(new StoreStackSlot(0, new LoadArgument(1, "value", Int32)))));
+        block.Add(new Return(new Comparison(ComparisonKind.Equal, isUnsigned: false, new LoadArgument(2, "narrow", sibling), new LoadStackSlot(0, type: null))));
+        var function = Function(Bool, block, [new Parameter("choose", Bool), new Parameter("value", Int32), new Parameter("narrow", sibling)]);
+
+        var testimony = CoercionSinks.AnalyzeSlotTypeTestimony(function.Body, function.Signature.ReturnType, function.TypeShapes);
+        Assert.Equal(CoercionSinks.SlotTypeTestimonyStatus.Underivable, testimony[0].Status);
+
+        string output = RunTail(function);
+        Assert.Contains("int S_0", output);
+        Assert.DoesNotContain("(byte)", output);
+        Assert.DoesNotContain("(short)", output);
+        Assert.DoesNotContain("(char)", output);
+        Assert.DoesNotContain("(bool)", output);
+    }
+
+    [Fact]
+    public void EnumComparisonSiblingDoesNotTestify()
+    {
+        // The derivation sees the enum shape but not its backing width, so an
+        // enum sibling declines the same way a narrow primitive does; widening
+        // this is a named #9371 follow-up.
+        var block = new Block(0);
+        block.Add(new IfStatement(
+            new LoadArgument(0, "choose", Bool),
+            BlockOf(new StoreStackSlot(0, new Constant(44, Int32))),
+            BlockOf(new StoreStackSlot(0, new LoadArgument(1, "value", Int32)))));
+        block.Add(new Return(new Comparison(ComparisonKind.Equal, isUnsigned: false, new LoadStackSlot(0, type: null), new LoadArgument(2, "flag", ByteEnum))));
+        var function = Function(Bool, block, [new Parameter("choose", Bool), new Parameter("value", Int32), new Parameter("flag", ByteEnum)]);
+        function.TypeShapes = new Dictionary<TypeRef, TypeShape> { [ByteEnum] = TypeShape.Enum };
+
+        var testimony = CoercionSinks.AnalyzeSlotTypeTestimony(function.Body, function.Signature.ReturnType, function.TypeShapes);
+        Assert.Equal(CoercionSinks.SlotTypeTestimonyStatus.Underivable, testimony[0].Status);
+    }
+
+    [Fact]
+    public void Int32AndReferenceComparisonSiblingsTestify()
+    {
+        // `int` is the I4 family's width-exact member and a proven reference
+        // is compared by identity at its own type: both remain sink evidence.
+        var block = new Block(0);
+        block.Add(new IfStatement(
+            new LoadArgument(0, "choose", Bool),
+            BlockOf(new StoreStackSlot(0, new Constant(44, Int32))),
+            BlockOf(new StoreStackSlot(0, new LoadArgument(1, "value", Byte)))));
+        block.Add(new StoreStackSlot(1, new LoadArgument(2, "alpha", Alpha)));
+        block.Add(new Return(new LogicalBinary(
+            LogicalKind.And,
+            new Comparison(ComparisonKind.Equal, isUnsigned: false, new LoadStackSlot(0, type: null), new LoadArgument(3, "wide", Int32)),
+            new Comparison(ComparisonKind.Equal, isUnsigned: false, new LoadStackSlot(1, type: null), new LoadArgument(4, "other", Alpha)))));
+        var function = Function(Bool, block, [new Parameter("choose", Bool), new Parameter("value", Byte), new Parameter("alpha", Alpha), new Parameter("wide", Int32), new Parameter("other", Alpha)]);
+
+        var testimony = CoercionSinks.AnalyzeSlotTypeTestimony(function.Body, function.Signature.ReturnType, function.TypeShapes);
+        Assert.Equal(Int32, testimony[0].Type);
+        Assert.Equal(Alpha, testimony[1].Type);
     }
 
     [Fact]

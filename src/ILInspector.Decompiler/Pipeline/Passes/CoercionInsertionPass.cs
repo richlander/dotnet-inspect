@@ -199,7 +199,8 @@ public static class CoercionSinks
     /// where one is derivable: a typed store, the body's return, a call or
     /// object-creation argument's declared parameter type (after MethodSpec
     /// substitution, so an open generic parameter never testifies), or the
-    /// other operand of a comparison when that operand is not a constant
+    /// other operand of a comparison when that operand is not a constant and
+    /// its type is width-exact for the comparison (<see cref="ComparisonSiblingType"/>)
     /// (value-typed-emission.md, Instance 2: "an untyped load contributes its
     /// consuming sink's target type"). A constant sibling carries only its IL
     /// stack width, and taking it would pre-empt the enum naming route the
@@ -220,10 +221,33 @@ public static class CoercionSinks
             Return ret when ReferenceEquals(ret.Value, load) => returnType,
             Call call => ArgumentParameterType(call.Callee.ParameterTypes, call.Callee.HasThis ? 1 : 0, call.Arguments, load),
             NewObject ctor => ArgumentParameterType(ctor.Constructor.ParameterTypes, 0, ctor.Arguments, load),
-            Comparison { Right: not Constant } comparison when ReferenceEquals(comparison.Left, load) => ClosedType(comparison.Right.ResultType),
-            Comparison { Left: not Constant } comparison when ReferenceEquals(comparison.Right, load) => ClosedType(comparison.Left.ResultType),
+            Comparison { Right: not Constant } comparison when ReferenceEquals(comparison.Left, load) => ComparisonSiblingType(comparison.Right.ResultType, shapes),
+            Comparison { Left: not Constant } comparison when ReferenceEquals(comparison.Right, load) => ComparisonSiblingType(comparison.Left.ResultType, shapes),
             _ => null,
         };
+
+    /// <summary>
+    /// The other comparison operand's type when the IL comparison binds the
+    /// load to exactly that type, else null. An I4-family operand is compared
+    /// at int32 width (ECMA-335 III.1.5), so only <c>int</c>/<c>uint</c>
+    /// witness it: a narrower primitive (<c>byte</c>, <c>short</c>,
+    /// <c>char</c>, <c>bool</c>) or an enum, whose backing width this
+    /// derivation cannot see, would type the slot narrower than the comparison
+    /// and make its other stores truncate (<c>b == (c ? (int)e : x)</c> must
+    /// not become <c>byte S = c ? (byte)e : (byte)x</c>; #9390 round 1). The
+    /// wider families (<c>long</c>, floats, native ints) and proven references
+    /// are width-exact and testify.
+    /// </summary>
+    static TypeRef? ComparisonSiblingType(TypeRef? sibling, IReadOnlyDictionary<TypeRef, TypeShape> shapes)
+        => ClosedType(sibling) is { } type
+            && (TypeFamilies.Of(type) switch
+            {
+                StackFamily.I4 => TypeFamilies.HasInt32Width(type),
+                StackFamily.I8 or StackFamily.F or StackFamily.I or StackFamily.O => true,
+                _ => CoercionRendering.IsProvenReference(type, shapes),
+            })
+            ? type
+            : null;
 
     /// <summary>The declared parameter type behind <paramref name="argument"/>, or null when it is open or unmatched.</summary>
     static TypeRef? ArgumentParameterType(

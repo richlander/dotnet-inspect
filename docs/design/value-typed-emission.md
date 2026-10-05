@@ -876,7 +876,7 @@ parameter, `Box` type, `StoreLocal` type, argument store type, indirect store
 type, element target, the body's return type, a call or object-creation
 argument's declared parameter type after MethodSpec substitution when that
 type is closed, or the other operand of a comparison when that operand is not
-a constant); and the function's type
+a constant and its type is width-exact for the comparison); and the function's type
 shapes and enum backing. That inventory is closed. The argument and comparison
 sinks are the same "consuming sink's target type" the one slot-evidence rule
 (`TestifiedSlotTypes`) has always stated for an untyped load; they joined its
@@ -885,7 +885,19 @@ enum/constant join spilled to a slot and consumed only by such a sink had no
 testimony and failed visibly at residual storage binding. An open generic
 parameter never testifies, and a constant comparison operand never does: it
 carries only its stack width, and `c ? CfgFlags.Top : e` compared against
-`0` keeps the enum naming route (`EnumCastPrinterTests`). For a raised lambda body
+`0` keeps the enum naming route (`EnumCastPrinterTests`). A comparison operand
+testifies only when the IL comparison binds the load to exactly its type: an
+I4-family operand is compared at int32 width (ECMA-335 III.1.5), so `int` and
+`uint` testify while `byte`, `short`, `char`, `bool`, and enums (whose backing
+width the derivation does not see) decline; `long`, floats, native ints, and
+proven references are width-exact and testify. Taking a narrow sibling would
+declare the slot narrower than the comparison and truncate its other stores
+(`b == (c ? (int)e : x)` as `byte S = c ? (byte)e : (byte)x`), output that
+compiles and changes the result; `ArgumentSinkTestimonyTests` gates the
+decline. A declined narrow or enum sibling leaves the load underivable, so the
+web fails visibly as before, and widening the rule to enum siblings once the
+derivation carries enum backing widths is a named follow-up on the #9371
+docket. For a raised lambda body
 the return type is the body's own signature, the closure method's; the deleted
 printer read it from the delegate's shape and fell back to `void`, so a
 delegate it could not read (`Predicate<T>`, for example) is a named, expected
