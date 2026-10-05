@@ -39,12 +39,22 @@ public static class ImplementationDiffDocumentQuery
             input.NewAssemblies[0],
             compared.Comparison,
             new ImplementationDiffOptions(
+                input.Mechanisms,
                 TypeFilters: input.TypeFilters),
-            input.MemberSelections is null
-                ? null
-                : [.. input.MemberSelections.Select(selection =>
-                    new ImplementationDiffDocumentMemberSelection(
-                        selection.DeclaringType.ToEscapedFullName(),
-                        selection.Selector.RequestedText))]);
+            input.Population switch
+            {
+                ImplementationComparisonPopulation.All =>
+                    ImplementationDiffDocumentPopulation.All(),
+                ImplementationComparisonPopulation.Selected selected =>
+                    ImplementationDiffDocumentPopulation.Selected(
+                        [.. selected.Members.Select(selection =>
+                            new ImplementationDiffDocumentMemberSelection(
+                                selection.DeclaringType.ToEscapedFullName(),
+                                selection.Selector.RequestedText))]),
+                _ => throw new ArgumentOutOfRangeException(
+                    nameof(input),
+                    input.Population,
+                    "Unknown Implementation Diff population."),
+            });
     }
 }
