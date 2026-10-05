@@ -139,6 +139,7 @@ const matchEvent: Extract<
     description: "A test package.",
     rootRequest: "root1:Contoso.Library@1.2.3",
     owners: ["Contoso"],
+    ecosystemAdmission: null,
     manifest: {
       packageId: "Contoso.Library",
       version: "1.2.3",
