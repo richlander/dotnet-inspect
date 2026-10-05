@@ -219,7 +219,7 @@ public static class MetadataHierarchySubjectRelationsOperation
                 request.Population,
                 [producer]);
         SubjectRelationPopulationCountOutcome? count =
-            MapCount(countResult, producer.Disposition);
+            MapCount(countResult);
         SubjectRelationPopulationRowsOutcome? rows;
         MetadataHierarchySubjectRelationsContinuationAuthority?
             outputAuthority = null;
@@ -242,16 +242,32 @@ public static class MetadataHierarchySubjectRelationsOperation
                 out outputAuthority);
         }
 
+        SubjectRelationPopulationContinuationAuthority?
+            inputPopulationAuthority =
+            rows is SubjectRelationPopulationRowsOutcome.Read
+                && request.Request.Rows?.Continuation is not null
+                ? continuationAuthority?.PopulationAuthority
+                : null;
+        bool countHasOwnerAcceptedExactWitness =
+            countResult?.Relations.Disposition
+                == MetadataRelationFamilyDisposition.Complete
+            && producer.Disposition
+                != SubjectRelationProducerDisposition.Complete;
         SubjectRelationPopulationResult population =
-            SubjectRelationsPopulationOperation.Settle(
-                request,
-                evidence,
-                count,
-                rows,
-                rows is SubjectRelationPopulationRowsOutcome.Read
-                    && request.Request.Rows?.Continuation is not null
-                    ? continuationAuthority?.PopulationAuthority
-                    : null);
+            countHasOwnerAcceptedExactWitness
+                ? SubjectRelationsPopulationOperation
+                    .SettleWithOwnerAcceptedExactCount(
+                        request,
+                        evidence,
+                        count,
+                        rows,
+                        inputPopulationAuthority)
+                : SubjectRelationsPopulationOperation.Settle(
+                    request,
+                    evidence,
+                    count,
+                    rows,
+                    inputPopulationAuthority);
         return new(population, outputAuthority);
     }
 
@@ -281,22 +297,25 @@ public static class MetadataHierarchySubjectRelationsOperation
     }
 
     private static SubjectRelationPopulationCountOutcome? MapCount(
-        MetadataHierarchyRelationAnalysisResult? result,
-        SubjectRelationProducerDisposition disposition)
+        MetadataHierarchyRelationAnalysisResult? result)
     {
         if (result is null)
             return null;
 
+        MetadataRelationFamilyDisposition disposition =
+            result.Relations.Disposition
+            ?? throw new InvalidOperationException(
+                "Requested hierarchy Count requires a disposition.");
         return disposition switch
         {
-            SubjectRelationProducerDisposition.Complete =>
+            MetadataRelationFamilyDisposition.Complete =>
                 new SubjectRelationPopulationCountOutcome.Counted(
                     result.CandidateCount),
-            SubjectRelationProducerDisposition.Partial =>
+            MetadataRelationFamilyDisposition.Partial =>
                 new SubjectRelationPopulationCountOutcome.Incomplete(),
-            SubjectRelationProducerDisposition.Unavailable =>
+            MetadataRelationFamilyDisposition.Unavailable =>
                 new SubjectRelationPopulationCountOutcome.Unavailable(),
-            SubjectRelationProducerDisposition.Failed =>
+            MetadataRelationFamilyDisposition.Failed =>
                 new SubjectRelationPopulationCountOutcome.Failed(),
             _ => throw new InvalidOperationException(
                 "Unknown hierarchy producer disposition."),

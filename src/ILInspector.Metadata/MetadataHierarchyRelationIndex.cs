@@ -465,6 +465,8 @@ internal static partial class MetadataRelationInspection
                 }
 
                 int ordinal = matched;
+                matched = checked(matched + 1);
+                bool materializationUnavailable = false;
                 if (request.MaterializeRows
                     && ordinal >= startOrdinal
                     && ordinal < endOrdinal)
@@ -492,30 +494,33 @@ internal static partial class MetadataRelationInspection
                         is MetadataTypeDefinitionNameReadResult.Rejected
                             rejected)
                     {
+                        materializationUnavailable = true;
                         unavailable++;
                         diagnostics.Add(
                             MalformedDiagnostic(
                                 MetadataRelationFamily.Hierarchy,
                                 MetadataTokens.GetToken(source.Handle),
                                 rejected.Failure.Detail));
-                        continue;
                     }
-                    var sourceName =
-                        (MetadataTypeDefinitionNameReadResult.Read)read;
-                    operation.Charge(
-                        MetadataOperationDimension.StructuredNodes);
-                    rows.Add(
-                        new(
-                            MetadataTypeDefinitionAddress.FromHandle(
-                                reader,
-                                source.Handle),
-                            sourceName.Name,
-                            candidate.Kind,
-                            candidate.OccurrenceTokens));
+                    else
+                    {
+                        var sourceName =
+                            (MetadataTypeDefinitionNameReadResult.Read)read;
+                        operation.Charge(
+                            MetadataOperationDimension.StructuredNodes);
+                        rows.Add(
+                            new(
+                                MetadataTypeDefinitionAddress.FromHandle(
+                                    reader,
+                                    source.Handle),
+                                sourceName.Name,
+                                candidate.Kind,
+                                candidate.OccurrenceTokens));
+                    }
                 }
 
-                matched = checked(matched + 1);
-                examined++;
+                if (!materializationUnavailable)
+                    examined++;
                 if (request.ForwardPlan is not null
                     && matched >= endOrdinal
                     && considered < candidates.Length)

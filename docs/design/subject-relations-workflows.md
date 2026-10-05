@@ -366,7 +366,9 @@ independent terminals. Count succeeds only from exact completion or another
 owner-accepted exact witness. Rows may retain a useful bounded segment while
 remaining visibly incomplete. Count success does not conceal Rows failure, and
 Rows success does not turn a partial observed cardinality, including zero, into
-exact Count.
+exact Count. The hierarchy operation treats its independently completed
+non-materializing Count pass as that exact witness when Rows projection remains
+partial and preserves the Rows diagnostics in producer evidence.
 
 Rows continuation is an opaque producer-issued receipt bound to the exact
 focus, candidate-population generation, canonical facets, ordering, row

@@ -772,6 +772,7 @@ internal static partial class MetadataRelationInspection
                     && unit.InterfaceMatched
                     && interfaceOrdinal >= startOrdinal
                     && interfaceOrdinal < endOrdinal;
+                int matchedCandidateCount = unit.CandidateCount;
                 if (materializeBase || materializeInterface)
                 {
                     unit = pass.Materialize(
@@ -781,11 +782,22 @@ internal static partial class MetadataRelationInspection
                         materializeInterface);
                     if (unit.IsUnavailable)
                     {
+                        matched = checked(
+                            matched + matchedCandidateCount);
                         unavailable++;
                         diagnostics.Add(
                             unit.Diagnostic
                             ?? throw new InvalidOperationException(
                                 "Unavailable hierarchy materialization requires a diagnostic."));
+                        if (analysisRequest.ForwardPlan is not null
+                            && matched >= endOrdinal
+                            && (matched > endOrdinal
+                                || considered < sourceCandidateCount))
+                        {
+                            matched = checked((int)endOrdinal);
+                            stopped = true;
+                            break;
+                        }
                         continue;
                     }
                 }

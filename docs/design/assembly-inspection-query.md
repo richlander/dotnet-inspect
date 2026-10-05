@@ -1466,8 +1466,10 @@ and occurrence tokens. The result also carries the admitted-image receipt,
 candidate count, coverage, ordered diagnostics, disposition, applied forward
 plan, and whether production stopped early. Candidate count is an observed
 count unless complete coverage or an owner-issued exact witness establishes
-cardinality; consumers must not infer exact absence or Count from a partial
-zero.
+cardinality. A matched candidate consumes its producer ordinal even when source
+row-name projection is unavailable, so a continued window cannot revisit a
+later materialized row. Consumers must not infer exact absence or Count from a
+partial zero.
 
 The producer may avoid work required only by an unrequested closing:
 

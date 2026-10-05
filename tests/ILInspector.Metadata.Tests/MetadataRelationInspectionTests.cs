@@ -1071,6 +1071,66 @@ public sealed class MetadataRelationInspectionTests
     }
 
     [Fact]
+    public void
+        HierarchyAnalysisConsumesRejectedMaterializationOrdinal()
+    {
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.OpenPrefetched(
+                new MemoryStream(
+                    HierarchyRelationSafetyFixtures
+                        .BuildRejectedSourceNameBetweenHierarchyMatches(),
+                    writable: false));
+        var target = new MetadataHierarchyTargetSelection(
+            TypeName("Sample", "ITarget"),
+            MetadataHierarchyRelationKind.Interface);
+        MetadataHierarchyRelationAnalysisResult first =
+            Assert.IsType<
+                MetadataHierarchyRelationAnalysisOutcome.Available>(
+                    session.AnalyzeHierarchyRelations(
+                        new(
+                            target,
+                            MetadataOperationPolicy.Unbounded,
+                            includeNonPublic: true,
+                            includeHidden: true,
+                            forwardPlan:
+                                new(maximumCandidates: 2)),
+                        TestContext.Current.CancellationToken)).Result;
+        MetadataHierarchyRelationAnalysisResult continued =
+            Assert.IsType<
+                MetadataHierarchyRelationAnalysisOutcome.Available>(
+                    session.AnalyzeHierarchyRelations(
+                        new(
+                            target,
+                            MetadataOperationPolicy.Unbounded,
+                            includeNonPublic: true,
+                            includeHidden: true,
+                            forwardPlan:
+                                new(
+                                    startOrdinal: 1,
+                                    maximumCandidates: 2)),
+                        TestContext.Current.CancellationToken)).Result;
+
+        Assert.Equal(2, first.CandidateCount);
+        Assert.Equal(3, continued.CandidateCount);
+        Assert.Equal(
+            ["First"],
+            first.Relations.Evidence
+                .Select(static row => row.SourceType.Segments[^1]));
+        Assert.Equal(
+            ["Second"],
+            continued.Relations.Evidence
+                .Select(static row => row.SourceType.Segments[^1]));
+        Assert.Equal(
+            MetadataRelationFamilyDisposition.Partial,
+            first.Relations.Disposition);
+        Assert.Equal(
+            MetadataRelationFamilyDisposition.Partial,
+            continued.Relations.Disposition);
+        Assert.Single(first.Relations.Diagnostics);
+        Assert.Single(continued.Relations.Diagnostics);
+    }
+
+    [Fact]
     public void HierarchyTargetSelectionReportsMalformedGenericTypeSpecifications()
     {
         using AssemblyInspectionSession session =
