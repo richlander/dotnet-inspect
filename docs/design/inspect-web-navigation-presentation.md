@@ -854,30 +854,28 @@ subject is rather than repeating which kind it is, because the kind icon
 already carries the kind.
 
 - Opening a Type requests its declared Member-group inventory through the
-  shared `TypeDocument` route and paints that result independently of
+  shared `TypeOverviewDocument` route and paints that result independently of
   contextual extension discovery. The compact result carries names,
-  categories, receiver forms, and exact declaration Counts; it does not embed
-  every exact Member row. Exact public rows already resident in the selected
-  Type may enrich the same inventory immediately. Ordinary method groups load
-  their exact overload document only when activated. Workspace-wide inherited
-  and extension populations remain the separate #9183 adoption.
+  categories, receiver forms, exact declaration Counts, and typed activation
+  identities; it does not decode or embed exact Member display signatures.
+  Workspace-wide inherited and extension populations remain the separate
+  #9183 adoption.
 - A Type row shows its display name and its member count.
-- A single-member row shows a method's compact parameter list (the member
-  name and unqualified parameter types, as nested overload rows spell them)
-  or a property's, field's, or event's unqualified value type when that exact
-  declaration row is resident. Before exact detail is available, the compact
-  row shows the truthful Member-group name and declaration Count rather than
-  inventing a signature.
+- A single-member overview row shows its truthful Member name and direct
+  activation affordance. It does not opportunistically borrow a signature from
+  an already resident rich API surface. A Browser view that needs every
+  signature requests complete `TypeDocument` instead.
 - Activating a row with one exact declaration in the active inventory opens
-  that exact Member directly. It does not insert a one-row MemberGroup chooser
-  between the inventory and the Member surface. This is the same traversal
-  rule for methods, properties, fields, and events.
+  that exact `MemberDocument` directly through the overview's owner-issued
+  selector. It does not insert a one-row Member overview between the inventory
+  and the Member surface. This is the same traversal rule for methods,
+  properties, fields, and events.
 - An overload family's parent row shows its overload count and family-level
   status, and colors its name differently from single-member rows. The name
   color marks a row that holds overloads, together with the overload count, so
   it does not rely on color alone. It uses its own token, distinct from heat's
   background tint and from the parent row's heat-status tokens. Its nested rows
-  follow
+  come from `MemberOverviewDocument` and follow
   [Overload rows](inspect-web-implementation-profiles.md#overload-rows).
 - A Member-group row counts the declarations in view: a family row shows
   `5×`, and a row with one declaration in view keeps its single-member

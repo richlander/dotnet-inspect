@@ -678,7 +678,7 @@ that issue each typed currency. The complete #6639 inventory can then measure
 shared product adoption without making #6639 the implementation owner for every
 command.
 
-## Worked pattern: MemberGroup documents
+## Worked pattern: Member overview documents
 
 The capability-led pilot for
 [#8802](https://github.com/richlander/dotnet-inspect/issues/8802) is the current
@@ -691,13 +691,15 @@ through the QuerySpace route in
   demonstrated by `System.Text.Json.JsonSerializer.Serialize`;
 - Metadata owns the exact declarations, while the
   [Type/Member inspection design](design/type-member-inspection-documents.md)
-  owns `MemberGroupDocument` and its Count/Rows identity;
+  owns `MemberOverviewDocument` and its Count/Rows identity;
 - the exact-overload query binds owner-issued accessibility, receiver, and
   hidden-state facets, then uses QuerySpace for portable intent, Count, Rows,
   continuation, and terminal-directed work;
-- [`MemberGroupDocumentInspectionOperation`](../src/DotnetInspector.Sections/MemberGroupDocumentInspection.cs)
-  composes that population into one resource-free L2 Document and preserves
-  typed rejection, incompleteness, failure, Share, and diagnostics in
+- the current migration symbol
+  [`MemberGroupDocumentInspectionOperation`](../src/DotnetInspector.Sections/MemberGroupDocumentInspection.cs)
+  composes that population into one resource-free L2
+  `MemberOverviewDocument` and preserves typed rejection, incompleteness,
+  failure, Share, and diagnostics in
   `InspectionEnvelope<MemberGroupDocumentInspectionOutcome>`;
 - CLI
   [`MemberGroupDocumentOutput`](../src/DotnetInspect.Cli/Output/MemberGroupDocumentOutput.cs)

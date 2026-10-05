@@ -100,10 +100,12 @@ Library facts only
   -> LibraryDocument with no Type Rows
 ```
 
-An exact Type request is owned by a `TypeDocument`; an exact Member request is
-owned by a `MemberDocument`. Analysis such as unsafe, async, performance, or
-call-graph inspection remains a separately owned `AnalysisResults` family that
-may carry Type- or Member-shaped results.
+An exact Type overview request is owned by `TypeOverviewDocument`; a complete
+exact Type declaration request is owned by `TypeDocument`; an overloaded
+Member-family request is owned by `MemberOverviewDocument`; and an exact Member
+request is owned by `MemberDocument`. Analysis such as unsafe, async,
+performance, or call-graph inspection remains a separately owned
+`AnalysisResults` family that may carry Type- or Member-shaped results.
 
 ## Subject documents
 
@@ -112,12 +114,15 @@ The domain document family is subject-shaped:
 ```text
 PackageDocument
 LibraryDocument
+TypeOverviewDocument
 TypeDocument
+MemberOverviewDocument
 MemberDocument
 ```
 
-Document type follows the resolved subject, not the command name, visible
-heading, row count, or output format.
+Document type follows the resolved subject and requested overview, complete, or
+exact-detail work level, not the command name, visible heading, row count, or
+output format.
 
 For example:
 
@@ -129,9 +134,11 @@ resolves `System.Text.Json` as a Library and requests Type rows. Its semantic
 result is a `LibraryDocument` containing a bounded Type population, even
 though the convenience command is named `type`.
 
-Likewise, a request for several members of one exact Type returns a
-`TypeDocument` containing the selected Member population. A request for one
-exact overload may return a `MemberDocument`.
+Likewise, a compact request for the logical members of one exact Type returns a
+`TypeOverviewDocument`; a complete declaration request returns `TypeDocument`
+with every exact Member signature. An overloaded family returns
+`MemberOverviewDocument`, while one exact declaration returns
+`MemberDocument`.
 
 Child inventory rows are lightweight shapes, not eagerly embedded child
 documents. Drill-down constructs the child document only when requested.
@@ -538,7 +545,8 @@ evidence but does not retain `ApiMember` rows.
 Intrinsic facet values remain available to structured consumers even when a
 renderer suppresses redundant columns for a homogeneous result group.
 
-The Type row is not a `TypeDocument`. It does not contain complete member,
+The Type row is neither a `TypeOverviewDocument` nor a `TypeDocument`. It does
+not contain the compact logical-Member overview or complete Member signatures,
 source, documentation, analysis, or decompilation results. Those require a
 separate exact Type request.
 
@@ -856,7 +864,8 @@ This owner does not define:
 - CLI defaults, command names, verbosity, section spelling, or rendering;
 - section-cardinality declarations or the mapping from document populations to
   section row sets;
-- TypeDocument, MemberDocument, or AnalysisResults internals;
+- TypeOverviewDocument, TypeDocument, MemberOverviewDocument, MemberDocument,
+  or AnalysisResults internals;
 - every future Library fact, population, facet, or ordering;
 - a generic document or population framework for every subject family;
 - Browser callback credit or transport batching;

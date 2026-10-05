@@ -1,9 +1,9 @@
-# Type, MemberGroup, and Member inspection documents
+# Type overview, Type, Member overview, and Member inspection documents
 
 ## Status and approved scope
 
-This document is the normative design for **Type, MemberGroup, and Member
-inspection documents**, tracked by
+This document is the normative design for **Type overview, Type, Member
+overview, and Member inspection documents**, tracked by
 [#8430](https://github.com/richlander/dotnet-inspect/issues/8430).
 
 The design is proposed. The current product already has exact-Type resolution,
@@ -24,23 +24,26 @@ their own internal contracts.
 
 ## Owner and exact claim
 
-**Type, MemberGroup, and Member inspection documents** owns this exact
+**Type and Member inspection documents** owns this exact
 claim:
 
 > Given one owner-resolved exact Type, MemberGroup, or exact Member, produce
-> one resource-free subject document whose requested child populations execute
-> through QuerySpace before row materialization, whose parent and realized-row
-> documentation or source attachments are independently requested, and whose
-> completed `InspectionEnvelope<TContent>` is shared by CLI and Inspect Web.
+> the requested overview, complete declaration, or exact-subject document with
+> only its required decoding and child-population work, whose requested child
+> populations execute through QuerySpace before row materialization, whose
+> parent and realized-row documentation or source attachments are independently
+> requested, and whose completed `InspectionEnvelope<TContent>` is shared by
+> CLI and Inspect Web.
 
 This owner defines:
 
-- the `TypeDocument`, `MemberGroupDocument`, and `MemberDocument` subject
-  boundaries;
+- the `TypeOverviewDocument`, `TypeDocument`, `MemberOverviewDocument`, and
+  `MemberDocument` subject and work boundaries;
 - the exact-subject and population correspondence required to compose
   lower-owner outcomes;
-- the Type document's Member-group populations;
-- the Member-group document's exact Member population;
+- the Type overview's compact Member-group populations;
+- the complete Type document's exact Member declaration populations;
+- the Member overview's exact Member population;
 - mixed hierarchical Rows and Count requests;
 - request-driven QuerySpace execution over those populations;
 - independently scoped parent and realized-row documentation and source
@@ -69,7 +72,7 @@ reconstructing or strengthening their claims.
 
 ## Product question
 
-The three declaration documents answer:
+The four declaration documents answer:
 
 > What declaration and requested child-population information describes this
 > exact Type, MemberGroup, or exact Member?
@@ -81,18 +84,23 @@ They do not answer:
 
 That second question belongs to orthogonal Type- and Member-metrics operations.
 
-The subject, not the command or host, determines the document:
+The resolved subject and requested work level, not the command, source kind, or
+host, determine the document:
 
 ```text
 exact Type
-  -> TypeDocument
+  -> TypeOverviewDocument
        Type declaration
-       Member-group populations
+       compact Member-group names, categories, Counts, and selectors
+
+  -> TypeDocument
+       complete Type declaration
+       every exact Member declaration and full signature
 
 MemberGroup
-  -> MemberGroupDocument
+  -> MemberOverviewDocument
        Member-group binding
-       exact-Member population
+       exact-Member signatures and identities
 
 exact Member declaration
   -> MemberDocument
@@ -101,69 +109,76 @@ exact Member declaration
 
 Package, Platform, project, Workspace, and direct-Library routes first resolve
 their source-specific gestures to one exact realized subject. They then invoke
-the same document producer. Source kind does not select another schema or
-permit a host to assemble one.
+the requested overview, complete, or exact-detail document producer. Source
+kind does not select another schema or permit a host to assemble one.
 
 ## Production demonstration
 
-The primary production witness is the .NET 11 RC1
-`System.Text.Json.JsonSerializer` Type:
+The primary mixed-presentation witness is `System.Text.Json.JsonDocument`:
 
 ```console
-$ dotnet-inspect type System.Text.Json.JsonSerializer
-static class System.Text.Json.JsonSerializer
+$ dotnet-inspect type System.Text.Json.JsonDocument
+sealed class System.Text.Json.JsonDocument
 ├─ Inherits
 │  └─ System.Object
+├─ Implements
+│  └─ System.IDisposable
 ├─ Properties (1)
-│  └─ bool IsReflectionEnabledByDefault { get; }
-└─ Methods (107)
-   ├─ Deserialize (40 overloads)
-   ├─ DeserializeAsync (10 overloads)
-   ├─ DeserializeAsyncEnumerable (8 overloads)
-   ├─ Serialize (15 overloads)
-   ├─ SerializeAsync (10 overloads)
-   ├─ SerializeAsyncEnumerable (4 overloads)
-   ├─ SerializeToDocument (5 overloads)
-   ├─ SerializeToElement (5 overloads)
-   ├─ SerializeToNode (5 overloads)
-   └─ SerializeToUtf8Bytes (5 overloads)
+│  └─ System.Text.Json.JsonElement RootElement { get; }
+├─ Methods (6 logical, 10 overloads)
+│  ├─ void Dispose()
+│  ├─ Parse (5 overloads)
+│  ├─ System.Threading.Tasks.Task<System.Text.Json.JsonDocument> ParseAsync(System.IO.Stream utf8Json, System.Text.Json.JsonDocumentOptions options = default, System.Threading.CancellationToken cancellationToken = default)
+│  ├─ System.Text.Json.JsonDocument ParseValue(ref System.Text.Json.Utf8JsonReader reader)
+│  ├─ bool TryParseValue(ref System.Text.Json.Utf8JsonReader reader, out System.Text.Json.JsonDocument? document)
+│  └─ void WriteTo(System.Text.Json.Utf8JsonWriter writer)
+└─ Extension Methods (1 logical, 5 overloads)
+   └─ Deserialize (5 overloads)
 ```
 
-This is one mixed hierarchical request:
+That CLI view consumes complete `TypeDocument`. The producer decodes every
+admitted exact Member declaration and full signature. Presentation then shows a
+singleton as the Member itself and collapses a multi-declaration group to its
+name and overload Count. It does not force the reader through a one-overload
+family link.
+
+Inspect Web first paint consumes the cheaper overview:
 
 ```text
-TypeDocument(JsonSerializer)
+TypeOverviewDocument(JsonDocument)
   Type documentation: not requested by default
   Property Member-group Rows: 1
-  Method Member-group Rows: 10
+  Method Member-group Rows: 6
   nested overload Count for each returned MemberGroup
-  aggregate overload Count across those rows: 107
+  full exact Member signatures: not requested
 ```
 
-The ten method Rows do not require 107 exact-overload Rows. Each nested Count
-is a terminal over that MemberGroup's exact-Member population and may be
-computed during the same producer scan.
+Those Rows do not require exact-overload Rows or signature decoding. Each
+nested Count is a terminal over that MemberGroup's exact-Member population and
+may be computed during the same producer scan. A Count of one carries the
+typed exact selector needed to open `MemberDocument`, but still carries no
+display signature.
 
-Selecting `Deserialize` changes the subject:
+Selecting overloaded `Parse` changes the subject:
 
 ```text
-MemberGroupDocument(JsonSerializer.Deserialize)
-  exact-overload Rows: 40
+MemberOverviewDocument(JsonDocument.Parse)
+  exact-overload Rows: 5
   documentation: not requested by default
   metrics: not requested by default
 ```
 
 An explicit sibling-relationship decoration may later add per-overload
-implementation and convenience cues without changing those 40 identities,
+implementation and convenience cues without changing those five identities,
 their order, or their Count. A user can then select the implementation hub for
 exact `MemberDocument`, source, or metrics inspection.
 
 Microsoft Learn provides an analogous navigation model:
 
-- [`JsonSerializer`](https://learn.microsoft.com/en-us/dotnet/api/system.text.json.jsonserializer)
+- [`JsonDocument`](https://learn.microsoft.com/en-us/dotnet/api/system.text.json.jsondocument)
   is the Type page; and
-- [`JsonSerializer.Deserialize`](https://learn.microsoft.com/en-us/dotnet/api/system.text.json.jsonserializer.deserialize)
-  has wildcard UID `System.Text.Json.JsonSerializer.Deserialize*` and
+- [`JsonDocument.Parse`](https://learn.microsoft.com/en-us/dotnet/api/system.text.json.jsondocument.parse)
+  has wildcard UID `System.Text.Json.JsonDocument.Parse*` and
   represents the overload family.
 
 dotnet-inspect adopts the subject distinction, not Learn's page construction,
@@ -200,7 +215,7 @@ This subject instead contains one or more exact Member declarations. Because
 the subject is not yet implemented, no `LogicalMember` compatibility alias is
 introduced.
 
-## Core distinction: declaration documents and descriptive views
+## Core distinction: overview documents, complete documents, and descriptive views
 
 Declaration documents and descriptive metadata or metrics views are
 orthogonal.
@@ -221,6 +236,7 @@ metadata or metrics document
 The aligned exact-subject pairs are:
 
 ```text
+TypeOverviewDocument(exact Type)
 TypeDocument(exact Type)
 Type metadata/metrics view(the same exact Type)
 
@@ -228,8 +244,14 @@ MemberDocument(exact Member declaration)
 Member metadata/metrics view(the same exact Member declaration)
 ```
 
-`MemberGroupDocument` is intentionally a population/navigation document
-between them. It represents an overload family and contains exact Member rows.
+`TypeOverviewDocument` is the compact Type-navigation document. It carries
+logical Member-group names, categories, Counts, traits, and typed activation
+identity without decoding every exact Member signature.
+
+`MemberOverviewDocument` is intentionally a population/navigation document
+between Type and exact Member. It represents an overload family and contains
+exact Member rows with full signatures.
+
 It has no implied `MemberGroupMetricsDocument`: a MemberGroup has no
 single implementation body, body size, unsafe judgment, or source location.
 
@@ -267,21 +289,48 @@ The document family is subject-shaped:
 ```text
 PackageDocument
 LibraryDocument
+TypeOverviewDocument
 TypeDocument
-MemberGroupDocument
+MemberOverviewDocument
 MemberDocument
 ```
 
 [Library inspection documents and populations](library-inspection-document.md)
-owns the family rule and `LibraryDocument`. This design owns the next three
+owns the family rule and `LibraryDocument`. This design owns the next four
 documents.
+
+### TypeOverviewDocument
+
+A `TypeOverviewDocument` describes one exact resolved Type with the compact
+declaration inventory needed for first paint, filtering, Counts, and
+navigation. Its child Rows are lightweight Member-group shapes, not embedded
+`TypeDocument`, `MemberOverviewDocument`, or `MemberDocument` values. That
+declaration population contains only members physically owned by the Type.
+
+One declared Member-group row binds a canonical name and member category to one
+non-empty exact declaration population. It may carry exact declaration Count,
+receiver forms, traits, and the typed activation identity required by the
+active population. A row whose selected exact declaration Count is one carries
+an owner-issued exact selector so a host can open `MemberDocument` directly.
+It does not decode or carry that declaration's full display signature. A row
+whose Count is greater than one carries the MemberGroup identity used to open
+`MemberOverviewDocument`.
+
+The singleton selector is typed identity under the overview's exact population
+binding, such as category plus baseline ordinal and generation correspondence.
+It is not a display signature, name-only lookup, or durable interpretation of
+an ordinal outside that binding.
+
+The overview never decodes every exact Member signature and never embeds an
+eager rich API graph. Count-only requests decode no Member signatures.
 
 ### TypeDocument
 
-A `TypeDocument` describes one exact resolved Type. Its declaration child Rows
-are lightweight Member-group shapes, not embedded `MemberGroupDocument` or
-`MemberDocument` values. That declaration population contains only members
-physically owned by the Type.
+A `TypeDocument` is the complete declaration document for one exact resolved
+Type. It contains every admitted logical Member group and every exact Member
+declaration with its full signature and exact identity. It may support several
+host views without reopening Metadata or reconstructing identity from rendered
+text.
 
 The subject's detached declaration signature retains each generic parameter's
 inert name, metadata index, attributes, and the declaring-name segment that
@@ -290,27 +339,24 @@ introduces it. This lets hosts present exact shapes such as
 surface. Base/interface constraint type identities remain separate Metadata
 views rather than implicit Type-document population.
 
-One declared Member-group row binds a canonical name and member category to one
-non-empty exact declaration population. The grouping key must retain every
-owner-issued distinction needed for unambiguous drill-down. Receiver
-classification is not part of Member-group identity: one declared family may
-contain both ordinary static and extension declarations.
-
-The row may carry requested nested measurements such as exact-overload Count.
-Those measurements describe its child population without constructing child
-Rows.
+The complete document retains the same exact Type subject, Member-group
+identity, ordering, spelling, accessibility, receiver, hidden admission, and
+population generation as `TypeOverviewDocument`. Complete Member declaration
+Rows are API declarations, not embedded `MemberDocument` values: documentation,
+source, metrics, and Analysis remain independently requested exact-subject
+attachments or operations.
 
 Receiver-targeted extensions are a separately requested contextual population,
 not declarations of the Type. A host may request declaration and extension
 populations concurrently and present them together, but their completion and
 failure evidence remain independent. Inspect Web paints the completed
-declaration population without waiting for workspace-wide extension discovery;
-a late, incomplete, or failed extension result does not revise the declaration
-result.
+declaration overview without waiting for workspace-wide extension discovery;
+a late, incomplete, or failed extension result does not revise either declared
+Type document.
 
-### MemberGroupDocument
+### MemberOverviewDocument
 
-A `MemberGroupDocument` describes one owner-issued `MemberGroup` within one
+A `MemberOverviewDocument` describes one owner-issued `MemberGroup` within one
 exact Type context. Its child population contains exact Member declarations,
 conventionally called overloads.
 
@@ -333,9 +379,10 @@ The MemberGroup subject retains:
 - stable baseline order; and
 - every exact Member identity required for drill-down.
 
-A no-match result is typed non-success, not a successful empty family. A
-singleton MemberGroup remains a group subject unless the request
-contains owner-issued exact-target intent.
+A no-match result is typed non-success, not a successful empty family.
+Presentation opens this document only when the active MemberGroup contains
+multiple exact declarations. A singleton row from `TypeOverviewDocument` opens
+its exact `MemberDocument` directly rather than inserting a one-row overview.
 
 ### MemberDocument
 
@@ -346,7 +393,7 @@ declaration binding.
 
 `MemberDocument` does not rediscover siblings or own an overload population.
 Navigating back to or across siblings uses the containing
-`MemberGroupDocument` and its population receipt.
+`MemberOverviewDocument` and its population receipt.
 
 Pattern, prefix, glob, or multi-name search belongs to `find` or a Type
 population query rather than creating a multi-subject document.
@@ -358,8 +405,10 @@ explanation is produced:
 
 ```text
 member JsonSerializer DeserializeAsync
-  -> name-only group intent
-  -> MemberGroupDocument(JsonSerializer.DeserializeAsync)
+  -> name-only Member intent
+  -> resolve the active exact declaration population
+  -> one declaration: MemberDocument(the exact declaration)
+  -> several declarations: MemberOverviewDocument(the overload family)
 
 member JsonSerializer DeserializeAsync:1
   -> exact-overload intent
@@ -370,10 +419,12 @@ The command spellings are illustrative of the existing selector grammar. The
 contract is independent of whether the Type is supplied positionally, through
 `-m`, or through a package, Platform, project, or Workspace route.
 
-A bare name remains a MemberGroup request even when the family currently
-contains one exact declaration. It does not silently become an exact
-`MemberDocument`. An ordinal or digest is exact-target intent and must resolve
-to one owner-issued exact Member identity or return typed non-success.
+A bare name first resolves one owner-issued MemberGroup and its active exact
+declaration Count. One exact declaration resolves directly to
+`MemberDocument`; several resolve to `MemberOverviewDocument`. This is typed
+resolution, not a host treating the first overload as the family. An ordinal
+or digest is exact-target intent and must resolve to one owner-issued exact
+Member identity or return typed non-success.
 
 The one-based `:N` ordinal is a selector within the current bound overload
 population, not durable Member identity. After resolution, Content, Share,
@@ -385,19 +436,20 @@ Command-local `--explain` uses the subject already resolved for the document:
 
 ```text
 member JsonSerializer DeserializeAsync --explain
-  -> explain one MemberGroup subject
-  -> retain the MemberGroup identity and population binding
+  -> resolve the same singleton or overload-family result as inspection
+  -> explain the exact Member or MemberGroup subject that result establishes
 
 member JsonSerializer DeserializeAsync:1 --explain
   -> explain one exact-Member subject
   -> retain the resolved exact declaration and containing MemberGroup
 ```
 
-A MemberGroup is exactly one explainable subject even though its population
-contains several exact declarations. `--explain` must not reject it as
-multi-subject, choose its first overload, or promote a singleton family to an
-exact Member. Exact-selector explanation must not widen back to the family or
-replay the selector against a different population.
+A multi-declaration MemberGroup is exactly one explainable subject even though
+its population contains several exact declarations. `--explain` must not
+reject it as multi-subject or choose its first overload. A singleton name
+resolves the one exact Member and explains that declaration. Exact-selector
+explanation must not widen back to the family or replay the selector against a
+different population.
 
 The standalone `explain` command preserves the same distinction when it
 consumes an owner-issued reusable reference. A reference projected from a
@@ -477,15 +529,22 @@ renderer settings.
 Conceptually:
 
 ```text
+TypeOverviewDocumentRequest
+  exact Type subject
+  required Type declaration binding
+  zero or more compact Member-group population requests
+  typed singleton activation selectors
+  aggregate work bounds
+
 TypeDocumentRequest
   exact Type subject
   required Type declaration binding and signature
   subject documentation attachment request
   optional subject SourceHouse request
-  zero or more Member-group population requests
+  complete exact Member declaration populations with full signatures
   aggregate work bounds
 
-MemberGroupDocumentRequest
+MemberOverviewDocumentRequest
   MemberGroup subject
   required Member-group binding
   optional family-level authored-document request, when an owner exists
@@ -516,9 +575,11 @@ execution has two terminals.
 
 Unrequested documentation, source, populations, metadata views, and metrics
 remain distinguishable from requested empty or unavailable results. A producer
-does not execute work merely because one host commonly displays it. The
-declaration identity and API signature required to establish the document
-subject are not an implicit request for every available Metadata view.
+does not execute work merely because one host commonly displays it. Selecting
+`TypeOverviewDocument` explicitly excludes complete Member-signature decoding;
+selecting `TypeDocument` explicitly requests it. The declaration identity and
+API signature required to establish a document subject are not an implicit
+request for every available Metadata view.
 
 ## QuerySpace is producer-directed
 
@@ -606,11 +667,12 @@ Member-group rows it covers and does not substitute for any child's Count.
 
 ### Composition Count
 
-A `TypeDocument` request may ask for its composition: a set of exact Counts of
-declarations (actual members, so each overload counts). A composition reports
-no Member-group Count. An intent's declaration Count is the total of the
-nested exact-overload Counts across its completely drained Member-group Rows,
-with a single-declaration row counting 1. The request's
+A `TypeOverviewDocument` or `TypeDocument` request may ask for its composition:
+a set of exact Counts of declarations (actual members, so each overload
+counts). A composition reports no Member-group Count. An intent's declaration
+Count is the total of the nested exact-overload Counts across its completely
+drained Member-group Rows, with a single-declaration row counting 1. The
+request's
 [spelling](api-population-scope.md#spelling-within-api-visibility-scope)
 decides what one declaration is: a composed C# declaration, or one metadata
 record. Rows and every Count of one request use the same spelling. Under
@@ -692,9 +754,10 @@ record, its private `IEnumerator.get_Current` method, and the two private
 
 ## Type Members row space
 
-`TypeDocument` may expose several declared Member-group row sets, such as
-properties and method groups, under one document request. Each row set has an
-owner-defined Member-group row identity and its own Rows or Count terminal.
+`TypeOverviewDocument` exposes compact declared Member-group row sets, such as
+properties and method groups. `TypeDocument` exposes the same groups plus their
+complete exact Member declaration Rows. Each row set has an owner-defined
+Member-group row identity and its own Rows or Count terminal.
 
 A Member-group key includes enough typed information to preserve:
 
@@ -758,7 +821,7 @@ completion, and failure evidence remain separate from every declared row set.
 
 ## Member Overloads row space
 
-`MemberGroupDocument` exposes one natural exact-overload population. Its row
+`MemberOverviewDocument` exposes one natural exact-overload population. Its row
 unit is one exact Member declaration admitted by the MemberGroup.
 
 Every exact row carries:
@@ -884,7 +947,8 @@ Member-group row documentation: not requested
 nested overload Count documentation: structurally impossible
 ```
 
-The default Type and Member-group views request no documentation.
+The default Type overview, complete Type, and Member overview views request no
+documentation.
 
 Documentation attaches only where the document contains an exact
 DocumentationHouse subject:
@@ -957,7 +1021,8 @@ this design does not infer one source document from several declarations or
 physical bodies. A Type or Member-group population may expose exact source
 location fields only through an independently owned requested row projection.
 
-Source is not part of default Type, Member-group, or Member completion.
+Source is not part of default Type overview, complete Type, Member overview, or
+Member completion.
 
 ## Orthogonal Type and Member metadata and metrics
 
@@ -977,10 +1042,10 @@ population document without merging their execution contracts.
 
 ### Type metrics
 
-A Type-metrics operation applies to the same exact Type as `TypeDocument`. It
-may consume the document's exact Type binding or resolve the same exact
-coordinate independently. It does not enumerate, filter, order, or count the
-Type's MemberGroups.
+A Type-metrics operation applies to the same exact Type as
+`TypeOverviewDocument` or `TypeDocument`. It may consume either document's
+exact Type binding or resolve the same exact coordinate independently. It does
+not enumerate, filter, order, or count the Type's MemberGroups.
 
 ### Member metrics
 
@@ -988,7 +1053,7 @@ A Member-metrics operation applies to one or more exact Member declarations.
 It may consume:
 
 - one exact `MemberDocument` binding;
-- selected exact-overload Rows from a `MemberGroupDocument`; or
+- selected exact-overload Rows from a `MemberOverviewDocument`; or
 - a complete Member-group receipt when requested relationship evidence
   requires authoritative sibling scope.
 
@@ -999,7 +1064,7 @@ a mirrored overload Rows population or QuerySpace Count.
 Sibling-overload relationships are the important initial composition:
 
 ```text
-MemberGroupDocument
+MemberOverviewDocument
   -> settle exact-overload Rows and family receipt
   -> optional MemberMetrics request for those exact Members
   -> relationship and per-overload role outcomes
@@ -1090,7 +1155,10 @@ not to the number of exact declarations contained by a MemberGroup subject.
 
 Member adoption therefore maps:
 
-- bare-name Member intent to the `MemberGroupDocument` subject affordance;
+- bare-name Member intent with several exact declarations to the
+  `MemberOverviewDocument` subject affordance;
+- bare-name Member intent with one exact declaration to the `MemberDocument`
+  subject affordance;
 - ordinal or digest exact-target intent to the `MemberDocument` subject
   affordance;
 - a reusable Member-group reference consumed by `explain` to the same
@@ -1135,8 +1203,9 @@ one generic missing-data result.
 Each completed operation returns one shared envelope:
 
 ```text
+InspectionEnvelope<TypeOverviewInspectionContent>
 InspectionEnvelope<TypeInspectionContent>
-InspectionEnvelope<MemberGroupInspectionContent>
+InspectionEnvelope<MemberOverviewInspectionContent>
 InspectionEnvelope<MemberInspectionContent>
 ```
 
@@ -1215,11 +1284,13 @@ requiring either host to duplicate its vocabulary.
 Sections project completed documents; they do not invoke another House,
 enumerate a replacement population, or reconstruct Count.
 
-The Type section owner maps the compact tree to Member-group row sets and
-their requested nested overload Counts. `Extension Methods` is a distinguished
-projection of attached-extension Member-group rows, not a second population.
+The Type-overview section owner maps the compact tree to Member-group row sets
+and their requested nested overload Counts. The complete Type section owner
+maps full exact declaration signatures without reconstructing them in the
+host. `Extension Methods` is a distinguished projection of
+attached-extension Member-group rows, not a second population.
 
-The Member-group section owner maps overload sections to the exact-overload
+The Member-overview section owner maps overload sections to the exact-overload
 population. The exact Member section owner projects the selected
 `MemberDocument` declaration and attachments.
 
@@ -1228,7 +1299,8 @@ may use host-native interaction and progressive decoration over the same typed
 content. The CLI may await an explicitly requested decoration before printing;
 that scheduling choice does not move the metric into document settlement.
 
-The default Type and Member-group views show population structure and API
+The default Type overview shows compact population structure without exact
+Member signatures. The default complete Type and Member overview views show API
 signatures without documentation or metrics. Documentation, source, and
 metrics require explicit gestures until their presentation owners establish a
 different measured disclosure policy.
@@ -1238,9 +1310,10 @@ different measured disclosure policy.
 After each route has a completed production implementation, it registers with
 [Inspection Capability Composition](inspection-capability-composition.md):
 
-- Type document definition and route;
+- Type overview document definition and route;
+- complete Type document definition and route;
 - Type Member-group QuerySpace surfaces;
-- Member-group document definition and route;
+- Member overview document definition and route;
 - exact-overload QuerySpace surface;
 - exact Member document definition and route;
 - section-to-population bindings;
@@ -1253,7 +1326,10 @@ not merge document and metric routes.
 
 The current Browser route named `TypeDocumentInspection` returns
 `CSharpTypeDocumentOutcome`, a source-oriented projection. It is a migration
-input, not the population document defined here.
+input, not either Type declaration document defined here. The compact
+implementation currently named `TypeDocument` is likewise a migration name
+for `TypeOverviewDocument`; the final public document vocabulary must not use
+one name for both compact and complete work.
 
 ## Platform and safety boundary
 
@@ -1277,6 +1353,15 @@ Browser/Wasm gates named by #8430 exist and pass.
 
 The implementation must preserve at least:
 
+- `TypeOverviewDocument(JsonDocument)` returns compact names, categories,
+  Counts, traits, and activation identities without decoding exact Member
+  display signatures;
+- `TypeDocument(JsonDocument)` returns every exact declaration and full
+  signature; the CLI renders `void Dispose()` directly, renders
+  `Parse (5 overloads)`, and does not insert a one-overload chooser;
+- the singleton `Dispose` overview row opens its exact `MemberDocument`
+  directly, while the five-declaration `Parse` row opens
+  `MemberOverviewDocument`;
 - `JsonSerializer` returns ten method-group Rows and nested Counts totaling
   107 exact overloads without constructing 107 overload Rows;
 - `Deserialize` returns 40 exact-overload Rows, while Count over the same
@@ -1299,9 +1384,10 @@ The implementation must preserve at least:
   identity without delaying or changing the declaration result;
 - an ambiguous MemberGroup runs no exact-Member documentation, source, or
   metrics work;
-- bare-name `DeserializeAsync` remains a `MemberGroupDocument` even when a
-  selected version has one overload, while `DeserializeAsync:1` resolves one
-  exact `MemberDocument`;
+- bare-name `DeserializeAsync` resolves `MemberOverviewDocument` when the
+  active family has several exact declarations and resolves `MemberDocument`
+  directly when it has one; `DeserializeAsync:1` always resolves one exact
+  `MemberDocument`;
 - `--explain` preserves the same MemberGroup or exact Member subject and does
   not rerun selector resolution;
 - `explain` over a reusable Member-group or exact-Member reference preserves
@@ -1333,9 +1419,9 @@ owns the revised counted path:
 1. Lock this Type/Member-group/Member population-document specification.
 2. Add the exact-overload population and terminal-specific QuerySpace
    execution for one MemberGroup.
-3. Implement `MemberGroupDocument` and adopt its native overload Tree in CLI and
-   Inspect Web.
-4. Implement selector-driven `MemberGroupDocument` versus exact
+3. Implement `MemberOverviewDocument` and adopt its native overload Tree in CLI
+   and Inspect Web.
+4. Implement selector-driven `MemberOverviewDocument` versus exact
    `MemberDocument` routing, exact declaration drill-down, and corresponding
    `--explain` subject mapping.
 5. Compose independently scoped Member-subject and returned
@@ -1345,17 +1431,20 @@ owns the revised counted path:
    QuerySpace execution under the [QuerySpace host
    boundary](#queryspace-host-boundary), including nested exact-overload Count,
    the `accessibility` projection, and Composition Count.
-8. Implement `TypeDocument` over that population without the eager rich
-   exact-Type/API-surface path.
-9. Bind the native Type Tree and section inventories to the shared route in
-   CLI and Inspect Web.
-10. Compose independently scoped Type-subject DocumentationHouse and
+8. Implement `TypeOverviewDocument` over that population without the eager
+   rich exact-Type/API-surface path.
+9. Bind Inspect Web first paint and Count/compact host gestures to
+   `TypeOverviewDocument`.
+10. Implement complete `TypeDocument` with every admitted exact Member
+    declaration and full signature, then bind the rich CLI Type Tree and any
+    Browser view that requests complete declarations to that route.
+11. Compose independently scoped Type-subject DocumentationHouse and
     SourceHouse attachments.
-11. Amend #8445 and its implementation path to the exact-Member, non-population
+12. Amend #8445 and its implementation path to the exact-Member, non-population
     metrics contract required above.
-12. Adopt selective sibling-relationship decoration from #8450/#8455 without
+13. Adopt selective sibling-relationship decoration from #8450/#8455 without
     changing Member-group Rows or Count.
-13. Register completed routes and remove superseded eager, command-local, and
+14. Register completed routes and remove superseded eager, command-local, and
     host-local composition paths.
 
 Each implementation or adoption remains a focused owner change. This design
@@ -1373,6 +1462,11 @@ Inspect Web ordinary-method declaration source now compose through the shared
 remain on their existing body-resolution path because those targets are not
 additional declaration documents.
 
+The current implementation symbols named `MemberGroupDocument` implement the
+multi-declaration population now named `MemberOverviewDocument`. That code name
+is transitional; singleton navigation is `MemberDocument`, not a one-row
+`MemberGroupDocument`.
+
 Step 7's Metadata-owned compact declaration kernel is implemented by
 [#9209](https://github.com/richlander/dotnet-inspect/pull/9209). The shared
 Sections QuerySpace route now carries producer-directed spelling,
@@ -1384,28 +1478,34 @@ incomplete or failed outcomes.
 Step 8's initial host-neutral composition landed in
 [#9298](https://github.com/richlander/dotnet-inspect/pull/9298).
 [#9306](https://github.com/richlander/dotnet-inspect/pull/9306) completes the
-declaration-document contract over that route: one Metadata declaration
-session establishes the detached exact-Type subject and optionally executes
+overview-document contract over that route: one Metadata declaration session
+establishes the detached exact-Type subject and optionally executes the compact
 declared Member-group population. Subject-only requests issue no population
 demand, and requested population rejection, incompleteness, or failure remains
-independently typed without discarding the available Type subject.
+independently typed without discarding the available Type subject. Its current
+implementation name `TypeDocument` is transitional; its work contract is
+`TypeOverviewDocument`.
 
-Step 9 binds the native Type Tree and Browser declaration inventory to the
-shared route. The CLI executes exact package or platform Type Tree and bare
-Count gestures, plus explicit local-Library Tree and Count gestures, before
-the eager API-surface path. It renders declared Member-group Rows with nested
-exact-member Counts or the matching declaration Composition Count. The
-implicit local-Library default remains on the rich route so existing
-inspection-failure diagnostics remain visible. Inspect Web projects the same
-document envelope mechanically into its independently typed subject and
-declaration outcomes, compact group rows, composition Counts, selector Counts,
-Share, and diagnostics. The Type response embeds no exact Member rows;
-selecting a group opens `MemberGroupDocument`. TypeScript does not regroup or
-count exact declarations. Attached and workspace-wide contextual extensions
-remain independent and are not awaited by the declared result; #9183 owns
-their replacement population. The superseded Browser Type-member population
-exports are removed. Accepted NativeAOT before/after evidence is still
-required before this adoption makes a performance-success claim.
+Step 9 binds Inspect Web declaration first paint and compact Count gestures to
+the shared overview route. Inspect Web projects the same document envelope
+mechanically into its independently typed subject and declaration outcomes,
+compact group rows, composition Counts, selector Counts, Share, and
+diagnostics. The overview embeds no exact Member signatures. A singleton row
+uses its owner-issued selector to open `MemberDocument` directly; an overloaded
+row opens `MemberOverviewDocument`. TypeScript does not regroup or count exact
+declarations. Attached and workspace-wide contextual extensions remain
+independent and are not awaited by the declared result; #9183 owns their
+replacement population. The superseded Browser Type-member population exports
+are removed.
+
+The rich CLI Type Tree belongs to step 10 because its conventional mixed
+presentation displays full signatures for singleton Members and overload
+Counts for families. It consumes complete `TypeDocument`; it does not
+opportunistically enrich overview rows or reconstruct signatures in the host.
+An explicitly compact or Count-only CLI gesture may consume
+`TypeOverviewDocument`. Accepted NativeAOT before/after evidence is required
+for each supported overview or complete terminal before its adoption makes a
+performance-success claim.
 
 ## Required evidence
 
@@ -1421,9 +1521,21 @@ The implementation sequence must add Release gates proving:
   retaining continuation and binding;
 - Count executes a compact producer-owned kernel and allocates materially less
   than the superseded eager exact-Type path;
-- CLI and Browser Type population call sites lower through the same
-  subject-specific host-neutral request construction and consume the same
-  envelope contract, while Browser transport remains mechanical;
+- `TypeOverviewDocument` constructs no exact Member display signatures, while
+  a singleton row retains an owner-issued exact selector and a
+  multi-declaration row retains its MemberGroup identity;
+- `TypeDocument` returns every admitted exact Member declaration with its full
+  signature and the same group membership, order, Counts, and population
+  identity as `TypeOverviewDocument`;
+- the rich CLI Type Tree consumes `TypeDocument`, renders singleton signatures,
+  and collapses multi-declaration families to names and overload Counts without
+  discarding producer work required by another complete view;
+- Inspect Web first paint consumes `TypeOverviewDocument`, opens a singleton
+  `MemberDocument` directly, and opens `MemberOverviewDocument` only for a
+  multi-declaration family;
+- CLI and Browser lower each overview or complete need through the corresponding
+  subject-specific host-neutral request and preserve the shared exact Type and
+  population identity, while Browser transport remains mechanical;
 - a host with no control for one admitted QuerySpace dimension forms the
   owner-issued empty or default intent and observes the same population result
   as an explicit equivalent request from the other host;
@@ -1490,8 +1602,9 @@ The implementation sequence must add Release gates proving:
 - body-size-only and sibling-relationship metric requests execute only their
   #8450/#8455 required facts and work stages;
 - Type and Member metrics routes expose no declaration Rows or Count;
-- CLI and Browser execute the same host-neutral document routes and preserve
-  Content, Share, and diagnostics;
+- CLI and Browser execute the host-neutral overview, complete, and exact-detail
+  routes selected by their stated need and preserve Content, Share, and
+  diagnostics;
 - Browser/Wasm serialization preserves every closed outcome and inert
   artifact-authored string; and
 - superseded eager API-surface projection and host-local joins are unreachable
@@ -1503,7 +1616,8 @@ distinct from same-named declared families, preserve independent completion and
 failure evidence, and can include declarations from multiple admitted workspace
 assemblies without delaying the declaration population.
 
-The production assets are `System.Text.Json.JsonSerializer`,
+The production assets are `System.Text.Json.JsonDocument`,
+`JsonDocument.Parse`, `System.Text.Json.JsonSerializer`,
 `JsonSerializer.Deserialize`, and
 `System.Text.StringBuilder.AppendFormat`. Focused fixtures isolate ambiguity,
 attached extensions, mixed receiver names, bodyless declarations,
@@ -1520,13 +1634,14 @@ before QuerySpace execution.
 This design does not:
 
 - create a generic `SubjectInspection<T>` public API;
-- require the three population documents to have identical fields;
+- require the four declaration documents to have identical fields;
 - define Package or Library document contents;
 - make every Type or Member section a row space;
 - expose House attempts directly as host commands;
 - make documentation, source, or metrics affect declaration cardinality;
 - make broader Metadata views part of population settlement;
-- request documentation or metrics in the default Type or Member-group view;
+- request documentation or metrics in the default Type overview, complete
+  Type, or Member overview view;
 - define family-level synthesized documentation;
 - define metric algorithms or a universal metrics query language;
 - define a `MemberGroupMetricsDocument`;
