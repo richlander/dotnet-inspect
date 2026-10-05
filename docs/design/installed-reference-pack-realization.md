@@ -13,7 +13,7 @@ Family-wide installed target discovery is the second focused slice of
 by [#7749](https://github.com/richlander/dotnet-inspect/issues/7749).
 
 The first production consumer is
-`DotnetInspector.PlatformHouse.Installed`, which translates an authorized
+`DotnetInspector.PlatformHouse.Local`, which translates an authorized
 PlatformHouse request into this source owner's coordinates and returns the live
 source result beside a resource-free House contribution.
 
@@ -76,25 +76,23 @@ returns path-backed results. This owner does not wrap that behavior.
 
 ## Boundary and dependency direction
 
-The source implementation lives in
-`DotnetInspector.Platforms.Installed`.
+The source implementation lives in the `Platforms` folder of
+`DotnetInspector.PlatformHouse.Local`, under the
+`DotnetInspector.Platforms.Local` namespace, beside the installed House
+adapter and its execution.
 
 ```text
 DotnetInspector.Platforms
 ILInspector.Metadata
-        |
-        v
-DotnetInspector.Platforms.Installed
-        |
-        v
-DotnetInspector.PlatformHouse.Installed
-        |
-        v
 DotnetInspector.PlatformHouse
+        |
+        v
+DotnetInspector.PlatformHouse.Local (source, adapter, execution)
 ```
 
-`DotnetInspector.Platforms.Installed` may depend on the package-neutral target
-currency and Metadata identity projection. It must not reference:
+The installed source code, the `DotnetInspector.Platforms.Local` namespace,
+uses only the package-neutral target currency, the platform manifest formats,
+and the Metadata identity projection. Its code must not use:
 
 - `DotnetInspector.Packages` or NuGet implementations;
 - `DotnetInspector.Services`;
@@ -102,13 +100,23 @@ currency and Metadata identity projection. It must not reference:
 - package caches or package-source configuration; or
 - inspected-assembly loading or Roslyn.
 
-`DotnetInspector.PlatformHouse.Installed` is the integration boundary above
+This is a namespace boundary, not an assembly boundary. The source compiles
+inside `DotnetInspector.PlatformHouse.Local`, whose reference to
+`DotnetInspector.PlatformHouse` closes over Source Selection, Packages, and
+Workspaces, so a consumer that loads the installed source loads those
+assemblies with it. Before #9240 slice 3 the source's own project enforced the
+list at build time; no policy rule or layering test checks the namespace's
+references today, so the boundary is `unverified` as a gate and code review
+holds it.
+
+`DotnetInspector.PlatformHouse.Local` is the integration boundary above
 both owners. It translates House target currency into installed-source
 coordinates, validates House capability authorization, and pairs live source
 values with resource-free `PlatformSourceContribution` evidence.
 
-The source owner remains usable without PlatformHouse. PlatformHouse does not
-learn installed paths or source implementation types.
+The source owner's types take no dependency on PlatformHouse, though the
+assembly that carries them does. PlatformHouse does not learn installed paths
+or source implementation types.
 
 ## Installed source identity and coordinate
 
@@ -311,7 +319,7 @@ plan.
 ## Evidence gates
 
 The focused executable suite
-`DotnetInspector.PlatformHouse.Installed.Tests` proves:
+`DotnetInspector.PlatformHouse.Local.Tests` proves:
 
 - explicit-root, family-specific, framework-scoped discovery;
 - complete family-wide discovery across installed feature bands;
