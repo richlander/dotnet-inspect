@@ -932,6 +932,8 @@ public static class PortablePdbSettlement
         bool positiveStoreReceiptRecorded = false;
         PackageLocalProbe packageProbe =
             PackageLocalProbe.NotApplicable;
+        bool packageAttemptStarted = false;
+        bool packageReceiptRecorded = false;
         try
         {
             storeProbe =
@@ -1007,6 +1009,7 @@ public static class PortablePdbSettlement
             if (request.PackagePreparation is not null
                 && !request.CacheOnly)
             {
+                packageAttemptStarted = true;
                 PortablePdbPackagePreparationResult prepared =
                     await request.PackagePreparation.PrepareAsync(
                             operationToken)
@@ -1039,6 +1042,7 @@ public static class PortablePdbSettlement
                     PackageLocalProbe.BindingFailed(
                         bindingFailure);
                 receipts.Add(packageProbe.Receipt);
+                packageReceiptRecorded = true;
             }
             else if (hasPackageAttempt
                 && request.CacheOnly)
@@ -1046,9 +1050,11 @@ public static class PortablePdbSettlement
                 receipts.Add(Skipped(
                     PortablePdbSettlementCandidate.PackageLocal,
                     PortablePdbSettlementSkipReason.CacheOnly));
+                packageReceiptRecorded = true;
             }
             else if (packageCandidate is not null)
             {
+                packageAttemptStarted = true;
                 packageProbe =
                     await ProbePackageLocalAsync(
                             packageCandidate,
@@ -1061,6 +1067,7 @@ public static class PortablePdbSettlement
                             operationToken)
                         .ConfigureAwait(false);
                 receipts.Add(packageProbe.Receipt);
+                packageReceiptRecorded = true;
             }
             if (packageProbe.Content is not null)
             {
@@ -1150,13 +1157,23 @@ public static class PortablePdbSettlement
                         : PortablePdbSettlementAttemptOutcome
                             .Unavailable,
                     StoreFailure: storeProbe.Failure));
-                if (hasPackageAttempt)
-                {
-                    receipts.Add(Skipped(
-                        PortablePdbSettlementCandidate.PackageLocal,
-                        PortablePdbSettlementSkipReason
-                            .OperationStopped));
-                }
+            }
+            if (hasPackageAttempt
+                && !packageReceiptRecorded)
+            {
+                receipts.Add(
+                    packageAttemptStarted
+                        ? new(
+                            PortablePdbSettlementCandidate.PackageLocal,
+                            callerCanceled
+                                ? PortablePdbSettlementAttemptOutcome
+                                    .Canceled
+                                : PortablePdbSettlementAttemptOutcome
+                                    .Incomplete)
+                        : Skipped(
+                            PortablePdbSettlementCandidate.PackageLocal,
+                            PortablePdbSettlementSkipReason
+                                .OperationStopped));
             }
             foreach (PortablePdbNetworkAttemptEvidence attempt
                 in canceled.NetworkAttempts)

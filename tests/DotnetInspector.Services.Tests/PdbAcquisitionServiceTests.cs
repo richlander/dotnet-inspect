@@ -1753,6 +1753,66 @@ public class PdbAcquisitionServiceTests
 
     [Fact]
     public async Task
+        PackageSettlement_CancellationRecordsDeferredPackageAttempt()
+    {
+        var (assembly, _) = CreateTestAssembly(
+            AssemblyResolutionProvenance.Package(
+                "Example.Package",
+                "1.0.0",
+                "net10.0",
+                rid: null,
+                assetPath:
+                    "lib/net10.0/Example.Package.dll"));
+        using var source =
+            SourceLinkService.OpenEmbeddedPdbOnly(assembly);
+        var handler =
+            new PlatformSymbolHandler(
+                throwOnRequest: true);
+        using var client = new HttpClient(handler);
+        var packageSource =
+            new CancelingPackageContentSource();
+        using var cancellation = new CancellationTokenSource();
+
+        Task<PortablePdbSettlementResult> pending =
+            PortablePdbSettlement.SettleAsync(
+                new PortablePdbSettlementRequest(
+                    source.Context,
+                    assembly,
+                    client,
+                    new InMemoryPdbStore(),
+                    new UniformPackageSourceAuthorization(
+                        [NuGetFetch.PackageSource.NuGetOrg]))
+                {
+                    PackagePreparation =
+                        PortablePdbPackageComposition
+                            .DeferForAssembly(
+                                assembly,
+                                packageSource,
+                                NuGetFetch.PackageProducerIdentity
+                                    .NuGetOrg),
+                },
+                cancellation.Token);
+        await packageSource.Started.Task.WaitAsync(
+            TestContext.Current.CancellationToken);
+        cancellation.Cancel();
+
+        PortablePdbSettlementResult result =
+            await pending;
+        Assert.IsType<
+            PortablePdbSettlementResult.Canceled>(result);
+        PortablePdbSettlementReceipt packageReceipt =
+            Assert.Single(
+                result.Receipts,
+                receipt =>
+                    receipt.Candidate
+                    == PortablePdbSettlementCandidate.PackageLocal);
+        Assert.Equal(
+            PortablePdbSettlementAttemptOutcome.Canceled,
+            packageReceipt.Outcome);
+    }
+
+    [Fact]
+    public async Task
         PackageSettlement_PreservesPackageBindingFailureWhenProvidersAreUnavailable()
     {
         var (assembly, _) = CreateTestAssembly(
@@ -2081,6 +2141,28 @@ public class PdbAcquisitionServiceTests
             Calls++;
             throw new InvalidOperationException(
                 "Deferred package preparation should not run.");
+        }
+    }
+
+    private sealed class CancelingPackageContentSource :
+        IPortablePdbPackageContentSource
+    {
+        internal TaskCompletionSource<bool> Started { get; } =
+            new(
+                TaskCreationOptions
+                    .RunContinuationsAsynchronously);
+
+        public async Task<PackageHouseSettlement> AcquireAsync(
+            NuGetFetch.PackageSourceCoordinate coordinate,
+            PackageHouseContentQuery query,
+            CancellationToken cancellationToken = default)
+        {
+            Started.TrySetResult(true);
+            await Task.Delay(
+                Timeout.InfiniteTimeSpan,
+                cancellationToken);
+            throw new InvalidOperationException(
+                "Cancellation did not stop deferred package preparation.");
         }
     }
 
