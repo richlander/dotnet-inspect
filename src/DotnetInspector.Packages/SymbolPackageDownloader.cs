@@ -626,12 +626,28 @@ public partial class SymbolPackageDownloader
             acquisitionFailure ??= snupkgResult.AcquisitionFailure;
         }
 
-        // Try NuGet symbol server, then MSDL as fallback (for non-Microsoft packages)
-        if (!isMicrosoftPackage && pdbFileNameUsable)
+        bool nuGetOrgAuthorized =
+            !string.IsNullOrEmpty(packageName)
+            && IsNuGetOrgEligibleForPackage(
+                sourceOptions,
+                packageName);
+        bool useNuGetSymbolServer =
+            _microsoftSymbolServerPackagePolicy
+                == MicrosoftSymbolServerPackagePolicy
+                    .CompatibilityNamePrefix
+            || nuGetOrgAuthorized;
+        if (!isMicrosoftPackage
+            && pdbFileNameUsable
+            && useNuGetSymbolServer)
         {
             var symbolResult = await TryLocateFromSymbolServerAsync(
                 pdbFileName, symbolKey, storeIdentity, pdbGuid, portablePdbStamp,
-                isPortable, log, cacheOnly, evidence, cancellationToken).ConfigureAwait(false);
+                isPortable, log, cacheOnly, evidence,
+                includeMicrosoftFallback:
+                    _microsoftSymbolServerPackagePolicy
+                        == MicrosoftSymbolServerPackagePolicy
+                            .CompatibilityNamePrefix,
+                cancellationToken).ConfigureAwait(false);
             evidence?.RecordObservations(
                 symbolResult.WindowsPdbDetected,
                 symbolResult.StoreFailure);

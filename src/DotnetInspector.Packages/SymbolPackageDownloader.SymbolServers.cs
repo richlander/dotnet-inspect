@@ -224,6 +224,7 @@ public partial class SymbolPackageDownloader
         Action<string>? log,
         bool cacheOnly,
         PortablePdbAcquisitionEvidenceCollector? evidence,
+        bool includeMicrosoftFallback,
         CancellationToken cancellationToken)
     {
         using var trafficScope = NetworkTelemetry.Scope(NetworkTrafficKind.SymbolDownload);
@@ -231,11 +232,17 @@ public partial class SymbolPackageDownloader
         PortablePdbStoreFailureKind? storeFailure = null;
         PortablePdbAcquisitionFailureKind? acquisitionFailure = null;
 
-        var symbolServers = new[]
-        {
-            "https://symbols.nuget.org/download/symbols",
-            "https://msdl.microsoft.com/download/symbols"
-        };
+        string[] symbolServers =
+            includeMicrosoftFallback
+                ?
+                [
+                    "https://symbols.nuget.org/download/symbols",
+                    "https://msdl.microsoft.com/download/symbols",
+                ]
+                :
+                [
+                    "https://symbols.nuget.org/download/symbols",
+                ];
 
         foreach (var server in symbolServers)
         {

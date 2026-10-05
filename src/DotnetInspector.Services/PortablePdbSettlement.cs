@@ -1411,6 +1411,10 @@ public static class PortablePdbSettlement
             settlement.Result.Evidence.Acquisition?.Origin
                 is PackagePayloadOrigin.Download
                     or PackagePayloadOrigin.Ranged;
+        int requestCount =
+            settlement.Result.Evidence.Acquisition?
+                .Transfer.RequestCount
+            ?? 0;
         if (settlement
                 is not PackageHouseSettlement.Acquired acquired
             || acquired.Result
@@ -1429,7 +1433,7 @@ public static class PortablePdbSettlement
                             .Incomplete
                         : PortablePdbSettlementAttemptOutcome
                             .Failed,
-                    RequestCount: networkOccurred ? 1 : 0,
+                    RequestCount: requestCount,
                     Elapsed: stopwatch.Elapsed,
                     Coordinates: coordinates),
                 networkOccurred,
@@ -1462,7 +1466,7 @@ public static class PortablePdbSettlement
                 new(
                     PortablePdbSettlementCandidate.PackageLocal,
                     PortablePdbSettlementAttemptOutcome.Canceled,
-                    RequestCount: networkOccurred ? 1 : 0,
+                    RequestCount: requestCount,
                     Elapsed: stopwatch.Elapsed,
                     Coordinates: coordinates),
                 networkOccurred,
@@ -1476,7 +1480,7 @@ public static class PortablePdbSettlement
                 new(
                     PortablePdbSettlementCandidate.PackageLocal,
                     PortablePdbSettlementAttemptOutcome.Incomplete,
-                    RequestCount: networkOccurred ? 1 : 0,
+                    RequestCount: requestCount,
                     Elapsed: stopwatch.Elapsed,
                     Coordinates: coordinates),
                 networkOccurred,
@@ -1495,7 +1499,7 @@ public static class PortablePdbSettlement
                 new(
                     PortablePdbSettlementCandidate.PackageLocal,
                     PortablePdbSettlementAttemptOutcome.Failed,
-                    RequestCount: networkOccurred ? 1 : 0,
+                    RequestCount: requestCount,
                     Elapsed: stopwatch.Elapsed,
                     Coordinates: coordinates),
                 networkOccurred,
@@ -1525,7 +1529,7 @@ public static class PortablePdbSettlement
                             .Rejected
                         : PortablePdbSettlementAttemptOutcome
                             .Failed,
-                    RequestCount: networkOccurred ? 1 : 0,
+                    RequestCount: requestCount,
                     BodyBytesRead: image.Length,
                     Elapsed: stopwatch.Elapsed,
                     Coordinates: coordinates),
@@ -1568,7 +1572,7 @@ public static class PortablePdbSettlement
                         PortablePdbSettlementCandidate.PackageLocal,
                         PortablePdbSettlementAttemptOutcome.Canceled,
                         RequestCount:
-                            networkOccurred ? 1 : 0,
+                            requestCount,
                         BodyBytesRead: image.Length,
                         Elapsed: stopwatch.Elapsed,
                         Coordinates: coordinates),
@@ -1585,7 +1589,7 @@ public static class PortablePdbSettlement
                         PortablePdbSettlementCandidate.PackageLocal,
                         PortablePdbSettlementAttemptOutcome.Failed,
                         RequestCount:
-                            networkOccurred ? 1 : 0,
+                            requestCount,
                         BodyBytesRead: image.Length,
                         Elapsed: stopwatch.Elapsed,
                         Coordinates: coordinates,
@@ -1593,6 +1597,65 @@ public static class PortablePdbSettlement
                     networkOccurred,
                     Stopped: false);
             }
+
+            PositiveStoreProbe retained =
+                await ProbePositiveStoreAsync(
+                        positiveStore,
+                        positiveStoreKey,
+                        positiveStoreProvenanceKey,
+                        identity,
+                        limits,
+                        log,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+            if (retained.Incomplete)
+            {
+                stopwatch.Stop();
+                return new(
+                    Content: null,
+                    new(
+                        PortablePdbSettlementCandidate.PackageLocal,
+                        PortablePdbSettlementAttemptOutcome.Incomplete,
+                        RequestCount: requestCount,
+                        BodyBytesRead: image.Length,
+                        Elapsed: stopwatch.Elapsed,
+                        Coordinates: coordinates),
+                    networkOccurred,
+                    Stopped: true);
+            }
+
+            if (retained.Content is null)
+            {
+                stopwatch.Stop();
+                return new(
+                    Content: null,
+                    new(
+                        PortablePdbSettlementCandidate.PackageLocal,
+                        PortablePdbSettlementAttemptOutcome.Failed,
+                        RequestCount: requestCount,
+                        BodyBytesRead: image.Length,
+                        Elapsed: stopwatch.Elapsed,
+                        Coordinates: coordinates,
+                        StoreFailure:
+                            retained.Failure
+                            ?? PortablePdbStoreFailureKind
+                                .PublicationNotRetained),
+                    networkOccurred,
+                    Stopped: false);
+            }
+
+            stopwatch.Stop();
+            return new(
+                retained.Content,
+                new(
+                    PortablePdbSettlementCandidate.PackageLocal,
+                    PortablePdbSettlementAttemptOutcome.Acquired,
+                    RequestCount: requestCount,
+                    BodyBytesRead: image.Length,
+                    Elapsed: stopwatch.Elapsed,
+                    Coordinates: coordinates),
+                networkOccurred,
+                Stopped: false);
         }
         catch (PdbStoreAcquisitionException exception)
         {
@@ -1602,7 +1665,7 @@ public static class PortablePdbSettlement
                 new(
                     PortablePdbSettlementCandidate.PackageLocal,
                     PortablePdbSettlementAttemptOutcome.Failed,
-                    RequestCount: networkOccurred ? 1 : 0,
+                    RequestCount: requestCount,
                     BodyBytesRead: image.Length,
                     Elapsed: stopwatch.Elapsed,
                     Coordinates: coordinates,
@@ -1618,7 +1681,7 @@ public static class PortablePdbSettlement
                 new(
                     PortablePdbSettlementCandidate.PackageLocal,
                     PortablePdbSettlementAttemptOutcome.Canceled,
-                    RequestCount: networkOccurred ? 1 : 0,
+                    RequestCount: requestCount,
                     BodyBytesRead: image.Length,
                     Elapsed: stopwatch.Elapsed,
                     Coordinates: coordinates),
@@ -1626,19 +1689,6 @@ public static class PortablePdbSettlement
                 Stopped: true);
         }
 
-        stopwatch.Stop();
-        return new(
-            new SettledPortablePdbContent(
-                ImmutableArray.CreateRange(image)),
-            new(
-                PortablePdbSettlementCandidate.PackageLocal,
-                PortablePdbSettlementAttemptOutcome.Acquired,
-                RequestCount: networkOccurred ? 1 : 0,
-                BodyBytesRead: image.Length,
-                Elapsed: stopwatch.Elapsed,
-                Coordinates: coordinates),
-            networkOccurred,
-            Stopped: false);
     }
 
     private static async Task<PositiveStoreProbe>

@@ -681,6 +681,18 @@ public sealed partial class PackageRangedRealizationTests
             source.Context,
             TestContext.Current.CancellationToken);
         Assert.True(source.Context.HasPdb);
+        PortablePdbSettlementReceipt packageReceipt =
+            Assert.Single(
+                acquired.Receipts,
+                receipt =>
+                    receipt.Candidate
+                    == PortablePdbSettlementCandidate
+                        .PackageLocal);
+        Assert.Equal(
+            packageSource.Settlements[1]
+                .Result.Evidence.Acquisition!
+                .Transfer.RequestCount,
+            packageReceipt.RequestCount);
 
         Assert.Collection(
             packageSource.Queries,
@@ -728,6 +740,94 @@ public sealed partial class PackageRangedRealizationTests
             binding.Candidate.Row,
             warm.PackageLibraryRow);
         Assert.Equal(2, packageSource.Queries.Count);
+    }
+
+    [Fact]
+    public async Task
+        PackagePortablePdbSettlement_StoreReadBackFailureIsVisible()
+    {
+        const string DllPath =
+            "lib/net11.0/SettlementWitness.dll";
+        const string PdbPath =
+            "lib/net11.0/SettlementWitness.pdb";
+        string testAssembly =
+            typeof(PackageRangedRealizationTests)
+                .Assembly.Location;
+        byte[] archive = CreateFrameworkArchive(
+            (DllPath, File.ReadAllBytes(testAssembly)),
+            (
+                PdbPath,
+                File.ReadAllBytes(
+                    Path.ChangeExtension(
+                        testAssembly,
+                        ".pdb"))));
+        await using RangedEnvironment environment =
+            RangedEnvironment.Create(
+                new RangeFeed(
+                    AddressPackageId,
+                    AddressPackageVersion,
+                    archive));
+        var packageSource =
+            new TestPortablePdbPackageContentSource(
+                environment,
+                new InMemoryPackageStore());
+        PortablePdbPackageBinding binding =
+            Assert.IsType<
+                PortablePdbPackageBindingResult.Bound>(
+                    await PortablePdbPackageComposition
+                        .PrepareAsync(
+                            PackageSourceCoordinate.Create(
+                                AddressPackageId,
+                                AddressPackageVersion),
+                            PackageHouseTargetContext
+                                .Exact("net11.0"),
+                            packageSource,
+                            cancellationToken:
+                                TestContext.Current
+                                    .CancellationToken))
+                .Value;
+        using SourceLinkService source =
+            SourceLinkService.OpenEmbeddedPdbOnly(
+                binding.Assembly);
+        using var client =
+            new HttpClient(
+                new NotFoundNetworkHandler());
+
+        PortablePdbSettlementResult result =
+            await PortablePdbSettlement.SettleAsync(
+                new PortablePdbSettlementRequest(
+                    source.Context,
+                    binding.Assembly,
+                    client,
+                    new PdbDroppingStore(),
+                    new UniformPackageSourceAuthorization(
+                        [PackageSource.NuGetOrg]))
+                {
+                    PackageCandidate = binding.Candidate,
+                },
+                TestContext.Current.CancellationToken);
+
+        var failed =
+            Assert.IsType<
+                PortablePdbSettlementResult.Failed>(result);
+        Assert.Equal(
+            PortablePdbSettlementFailureKind.PositiveStoreFailed,
+            failed.Failure);
+        Assert.Equal(
+            PortablePdbStoreFailureKind.PublicationNotRetained,
+            failed.StoreFailure);
+        Assert.Contains(
+            failed.Receipts,
+            receipt =>
+                receipt.Candidate
+                    == PortablePdbSettlementCandidate
+                        .PackageLocal
+                && receipt.Outcome
+                    == PortablePdbSettlementAttemptOutcome
+                        .Failed
+                && receipt.StoreFailure
+                    == PortablePdbStoreFailureKind
+                        .PublicationNotRetained);
     }
 
     [Fact]
@@ -2081,24 +2181,75 @@ public sealed partial class PackageRangedRealizationTests
         internal List<PackageHouseContentQuery> Queries { get; } =
             [];
 
-        public Task<PackageHouseSettlement> AcquireAsync(
+        internal List<PackageHouseSettlement> Settlements { get; } =
+            [];
+
+        public async Task<PackageHouseSettlement> AcquireAsync(
             PackageSourceCoordinate coordinate,
             PackageHouseContentQuery query,
             CancellationToken cancellationToken = default)
         {
             Queries.Add(query);
-            return environment.AcquireContentAsync(
-                store,
-                query,
-                packageId: coordinate.PackageId,
-                version: coordinate.Version,
-                targetContext:
-                    query.Narrowing
-                        is PackageHouseContentNarrowing.TfmWide
-                            tfmWide
-                            ? tfmWide.Target
-                            : null);
+            PackageHouseSettlement settlement =
+                await environment.AcquireContentAsync(
+                        store,
+                        query,
+                        packageId: coordinate.PackageId,
+                        version: coordinate.Version,
+                        targetContext:
+                            query.Narrowing
+                                is PackageHouseContentNarrowing.TfmWide
+                                    tfmWide
+                                    ? tfmWide.Target
+                                    : null)
+                    .ConfigureAwait(false);
+            Settlements.Add(settlement);
+            return settlement;
         }
+    }
+
+    private sealed class PdbDroppingStore : IPdbStore
+    {
+        private readonly Dictionary<string, byte[]> _content =
+            new(StringComparer.Ordinal);
+
+        public ValueTask<Stream?> TryOpenAsync(
+            string key,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return ValueTask.FromResult<Stream?>(
+                _content.TryGetValue(
+                    key,
+                    out byte[]? content)
+                    ? new MemoryStream(
+                        content,
+                        writable: false)
+                    : null);
+        }
+
+        public async ValueTask PutAsync(
+            string key,
+            Stream content,
+            CancellationToken cancellationToken = default)
+        {
+            if (key.EndsWith(
+                    ".pdb",
+                    StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            using var copy = new MemoryStream();
+            await content.CopyToAsync(
+                    copy,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            _content[key] = copy.ToArray();
+        }
+
+        public string? TryGetLocalPath(string key) =>
+            null;
     }
 
     private sealed class RejectNetworkHandler

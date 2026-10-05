@@ -1469,6 +1469,83 @@ public class PdbAcquisitionServiceTests
     }
 
     [Fact]
+    public async Task
+        PackageSettlement_NuGetSymbolMissDoesNotFallBackToMsdl()
+    {
+        var (assembly, _) = CreateTestAssembly(
+            AssemblyResolutionProvenance.Package(
+                "Example.Package",
+                "1.0.0",
+                "net10.0",
+                rid: null));
+        using var source =
+            SourceLinkService.OpenEmbeddedPdbOnly(assembly);
+        var handler = new RecordingNotFoundHandler();
+        using var client = new HttpClient(handler);
+
+        PortablePdbSettlementResult result =
+            await PortablePdbSettlement.SettleAsync(
+                new PortablePdbSettlementRequest(
+                    source.Context,
+                    assembly,
+                    client,
+                    new InMemoryPdbStore(),
+                    new UniformPackageSourceAuthorization(
+                        [NuGetFetch.PackageSource.NuGetOrg])),
+                TestContext.Current.CancellationToken);
+
+        Assert.IsType<
+            PortablePdbSettlementResult.Unavailable>(result);
+        Assert.Contains(
+            handler.RequestUris,
+            uri => uri.Host.Equals(
+                "symbols.nuget.org",
+                StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(
+            handler.RequestUris,
+            uri => uri.Host.Equals(
+                "msdl.microsoft.com",
+                StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task
+        PackageSettlement_PrivateProducerDoesNotContactPublicSymbolProviders()
+    {
+        var (assembly, _) = CreateTestAssembly(
+            AssemblyResolutionProvenance.Package(
+                "Private.Package",
+                "1.0.0",
+                "net10.0",
+                rid: null));
+        using var source =
+            SourceLinkService.OpenEmbeddedPdbOnly(assembly);
+        var handler =
+            new PlatformSymbolHandler(
+                throwOnRequest: true);
+        using var client = new HttpClient(handler);
+
+        PortablePdbSettlementResult result =
+            await PortablePdbSettlement.SettleAsync(
+                new PortablePdbSettlementRequest(
+                    source.Context,
+                    assembly,
+                    client,
+                    new InMemoryPdbStore(),
+                    new UniformPackageSourceAuthorization(
+                        [
+                            new NuGetFetch.PackageSource(
+                                "private",
+                                "https://packages.example/v3/index.json"),
+                        ])),
+                TestContext.Current.CancellationToken);
+
+        Assert.IsType<
+            PortablePdbSettlementResult.Unavailable>(result);
+        Assert.Empty(handler.RequestUris);
+    }
+
+    [Fact]
     public async Task PackageSettlement_CanReuseExactPositiveStoreContent()
     {
         var (platformAssembly, pdbBytes) = CreateTestAssembly(
@@ -1814,6 +1891,22 @@ public class PdbAcquisitionServiceTests
                 {
                     Content = new ByteArrayContent(_pdbBytes),
                 });
+        }
+    }
+
+    private sealed class RecordingNotFoundHandler
+        : HttpMessageHandler
+    {
+        internal List<Uri> RequestUris { get; } = [];
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            RequestUris.Add(request.RequestUri!);
+            return Task.FromResult(
+                new HttpResponseMessage(
+                    HttpStatusCode.NotFound));
         }
     }
 
