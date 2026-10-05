@@ -11048,7 +11048,7 @@ function renderPackagePerformance() {
     requireLibrary: pkg.isRuntimePack && !scopedLib,
     pickerHtml: pkg.isRuntimePack
       ? platformLibrarySelectHtml({
-            dataAttr: "data-platform-analysis-library",
+          dataAttr: "data-platform-analysis-library",
           selected: scopedLib || "",
         })
       : "",
@@ -11073,7 +11073,7 @@ function packageLibraryAnalysisOptions(): LibraryAnalysisOptions {
     requireLibrary: pkg.isRuntimePack && !scopedLib,
     pickerHtml: pkg.isRuntimePack
       ? platformLibrarySelectHtml({
-        dataAttr: "data-platform-analysis-library",
+          dataAttr: "data-platform-analysis-library",
           selected: scopedLib || "",
         })
       : "",
