@@ -6789,6 +6789,20 @@ function documentMemberOverload(
   };
 }
 
+function memberDocumentRowMatchesTrait(
+  row: BrowserMemberGroupDocumentRow,
+  trait: string,
+): boolean {
+  return memberMatchesTrait({
+    signature: row.displaySignature,
+    isStatic: row.receiver === "Static",
+    isExtension: row.receiver === "Extension",
+    isVirtual: row.isVirtual,
+    isExplicitInterfaceImplementation:
+      row.isExplicitInterfaceImplementation,
+  }, trait);
+}
+
 function declaredMemberGroups(type: AppTypeSurface): AppMemberGroup[] {
   const population = currentTypeMemberPopulation(type);
   if (population) {
@@ -6845,6 +6859,9 @@ function declaredMemberGroups(type: AppTypeSurface): AppMemberGroup[] {
     });
   }
   if (!loadedMemberDeclarationsApplyToSelection()) {
+    return [];
+  }
+  if (uploadedLibraryIsActive()) {
     return [];
   }
   const { publicMembers } = partitionGraphMembers(type.api);
@@ -12877,13 +12894,10 @@ function renderDeferredMemberGroup(
       if (resident) {
         return memberMatchesTrait(resident, state.memberTraitFilter);
       }
-      return state.memberTraitFilter === "static"
-        ? row.receiver === "Static"
-        : state.memberTraitFilter === "instance"
-          ? row.receiver === "This"
-          : state.memberTraitFilter === "extensions"
-            ? row.receiver === "Extension"
-            : false;
+      return memberDocumentRowMatchesTrait(
+        row,
+        state.memberTraitFilter,
+      );
     });
     return `
       <section class="member-surface member-overload-surface" aria-labelledby="member-surface-title">

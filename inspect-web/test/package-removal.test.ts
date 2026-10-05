@@ -363,7 +363,7 @@ const graphHostNames = new Set([
   "currentPackage", "selectedType", "selectedMember",
   "groupMembers", "typeMemberPopulationKey",
   "currentTypeMemberPopulation", "declaredMemberGroups",
-  "loadedMemberDeclarationsApplyToSelection",
+  "loadedMemberDeclarationsApplyToSelection", "uploadedLibraryIsActive",
   "memberGroups", "memberGroupForCurrentFilters", "memberFilterState",
   "selectedMemberGroups", "visibleMemberGroups", "scope",
 ]);

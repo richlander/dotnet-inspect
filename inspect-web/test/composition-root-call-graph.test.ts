@@ -1138,7 +1138,7 @@ test("member navigation excludes graph-only projections from ordinary filters", 
     /function selectedMemberTraitCount\([\s\S]*currentTypeMemberPopulation\(type\)\?\.selectorCounts\.traits[\s\S]*if \(!traits\) return null;/);
   assert.match(
     appSource,
-    /function loadedMemberDeclarationsApplyToSelection\([\s\S]*state\.memberSpelling === "csharp"[\s\S]*state\.memberAccessibilityFilter === "public"[\s\S]*function declaredMemberGroups\([\s\S]*loadedMemberDeclarationsApplyToSelection\(\)[\s\S]*partitionGraphMembers\(type\.api\)[\s\S]*searchableMemberGroups\(groupMembers\(publicMembers\)\)/);
+    /function loadedMemberDeclarationsApplyToSelection\([\s\S]*state\.memberSpelling === "csharp"[\s\S]*state\.memberAccessibilityFilter === "public"[\s\S]*function declaredMemberGroups\([\s\S]*loadedMemberDeclarationsApplyToSelection\(\)[\s\S]*uploadedLibraryIsActive\(\)[\s\S]*partitionGraphMembers\(type\.api\)[\s\S]*searchableMemberGroups\(groupMembers\(publicMembers\)\)/);
 
   const entries =
     appSource.match(/function memberNavEntries\([\s\S]*?\n}\n\nfunction memberNavCursor/)?.[0]
@@ -1397,7 +1397,10 @@ test("member API uses full-area overload and selected-member surfaces", () => {
     /memberGroupDocumentError[\s\S]*query failed/);
   assert.match(
     renderDeferredMemberGroup,
-    /document\.rows\.filter\(row =>[\s\S]*memberAccessibilityBucket\(row\.accessibility\)[\s\S]*memberMatchesTrait\(resident, state\.memberTraitFilter\)/);
+    /document\.rows\.filter\(row =>[\s\S]*memberAccessibilityBucket\(row\.accessibility\)[\s\S]*memberMatchesTrait\(resident, state\.memberTraitFilter\)[\s\S]*memberDocumentRowMatchesTrait/);
+  assert.match(
+    appSource,
+    /function memberDocumentRowMatchesTrait\([\s\S]*row\.receiver === "Static"[\s\S]*row\.receiver === "Extension"[\s\S]*isVirtual: row\.isVirtual[\s\S]*row\.isExplicitInterfaceImplementation/);
   assert.match(
     renderDeferredMemberGroup,
     /rows\.map\(row =>[\s\S]*findIndex\(overload =>[\s\S]*row\.metadataToken[\s\S]*memberNavOverloadSourceIndex\(member, visibleIndex\)[\s\S]*data-member-document-ordinal="\$\{row\.baselineOrdinal}"/);
