@@ -1374,20 +1374,6 @@ async function installFacades(
           if (value.includes("internal")) return "internal";
           return "private";
         }
-        function populationMember(member) {
-          if (spelling !== "csharp") return member;
-          const memberAccessibility = member.accessibility || "public";
-          if (member.signature.startsWith(memberAccessibility + " ")) {
-            return member;
-          }
-          const receiver = member.isExtension
-            ? "extension "
-            : member.isStatic ? "static " : "";
-          return {
-            ...member,
-            signature: memberAccessibility + " " + receiver + member.signature,
-          };
-        }
         const type = surface.types.find(item =>
           item.definitionId === typeIdentity || item.queryId === typeIdentity);
         if (!type) {
@@ -1429,6 +1415,8 @@ async function installFacades(
           if (member.isExtension) composition.extension++;
           else if (member.isStatic) composition.static++;
           else composition.this++;
+        }
+        for (const member of selectedMembers) {
           const key = member.kind + ":" + member.name;
           completeCounts.set(key, (completeCounts.get(key) ?? 0) + 1);
         }
@@ -1457,25 +1445,17 @@ async function installFacades(
             key,
             name: member.name,
             kind: member.kind,
+            baselineOrdinal: groups.size + 1,
+            receivers: [],
             completeCount: completeCounts.get(key) ?? 0,
-            members: [],
           };
-          group.members.push({
-            ...populationMember(member),
-            baselineOrdinal: null,
-          });
+          const receiver = member.isExtension
+            ? "extension"
+            : member.isStatic ? "static" : "this";
+          if (!group.receivers.includes(receiver)) {
+            group.receivers.push(receiver);
+          }
           groups.set(key, group);
-        }
-        for (const group of groups.values()) {
-          const hasExactSelectors =
-            accessibility === "public"
-            && group.kind === "method"
-            && group.members.every(member =>
-              member.metadataAccessor !== true);
-          if (!hasExactSelectors) continue;
-          group.members.forEach((member, index) => {
-            member.baselineOrdinal = index + 1;
-          });
         }
         return {
           outcome: "Available",
@@ -1488,6 +1468,43 @@ async function installFacades(
             selectorCounts,
             groups: [...groups.values()],
           },
+          diagnostics: [],
+        };
+      }
+      function typeDocument(
+        surface, typeIdentity, spelling, accessibility) {
+        const declarations = typeMemberPopulation(
+          surface, typeIdentity, spelling, accessibility);
+        const type = surface.types.find(item =>
+          item.definitionId === typeIdentity || item.queryId === typeIdentity);
+        const share = {
+          kind: "NonProjectable",
+          fullUrl: null,
+          packet: null,
+          path: "type-document/share",
+          reason: "No canonical Browser share projection.",
+        };
+        if (!type || declarations.outcome !== "Available") {
+          return {
+            outcome: declarations.outcome,
+            detail: declarations.detail,
+            document: null,
+            share,
+            diagnostics: declarations.diagnostics,
+          };
+        }
+        return {
+          outcome: "Available",
+          detail: null,
+          document: {
+            typeIdentity: type.queryId,
+            typeDefinitionToken: 0x02000001,
+            category: type.kind,
+            isByRefLike: false,
+            genericParameters: [],
+            declarations,
+          },
+          share,
           diagnostics: [],
         };
       }
@@ -1512,7 +1529,7 @@ async function installFacades(
             accessibility,
           ]);
         await waitForTypeMemberPopulationGate();
-        return typeMemberPopulation(
+        return typeDocument(
           surfaceFor(id, version, framework),
           typeIdentity,
           spelling,
@@ -1526,7 +1543,7 @@ async function installFacades(
             accessibility,
           ]);
         await waitForTypeMemberPopulationGate();
-        return typeMemberPopulation(
+        return typeDocument(
           surfaceFor("Microsoft.NETCore.App", version, framework),
           typeIdentity,
           spelling,
@@ -1540,7 +1557,7 @@ async function installFacades(
             accessibility,
           ]);
         await waitForTypeMemberPopulationGate();
-        return typeMemberPopulation(
+        return typeDocument(
           surfaces[0],
           typeIdentity,
           spelling,

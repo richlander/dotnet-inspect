@@ -1385,7 +1385,10 @@ test("member API uses full-area overload and selected-member surfaces", () => {
     /memberGroupDocumentError[\s\S]*query failed/);
   assert.match(
     renderDeferredMemberGroup,
-    /document\.rows\.map\(row =>[\s\S]*findIndex\(overload =>[\s\S]*row\.metadataToken[\s\S]*memberNavOverloadSourceIndex\(member, visibleIndex\)[\s\S]*data-overload="\$\{sourceIndex}"/);
+    /document\.rows\.filter\(row =>[\s\S]*memberAccessibilityBucket\(row\.accessibility\)[\s\S]*memberMatchesTrait\(resident, state\.memberTraitFilter\)/);
+  assert.match(
+    renderDeferredMemberGroup,
+    /rows\.map\(row =>[\s\S]*findIndex\(overload =>[\s\S]*row\.metadataToken[\s\S]*memberNavOverloadSourceIndex\(member, visibleIndex\)[\s\S]*data-overload="\$\{sourceIndex}"/);
   assert.match(
     renderMember,
     /member\.overloads\.length === 0 && member\.kind !== "method"[\s\S]*renderDeferredMemberGroup\(type, member\)/);

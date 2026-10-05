@@ -815,6 +815,8 @@ test("filtered non-public overload navigation retains its established detail rou
     name: "Hidden",
     isStatic: index !== 2,
     accessibility: "private",
+    metadataToken: 0x06000010 + index,
+    declarationMetadataToken: 0x06000010 + index,
     stableSelector: `Hidden:${index}`,
     anchorDigest: `widget-hidden-${index}`,
     canonicalSignature: `void Example.Widget.Hidden(int value${index})`,

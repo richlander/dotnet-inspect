@@ -419,7 +419,7 @@ test("ranked Analysis activation does not outlive A to B to A Type navigation", 
     .toHaveAttribute("aria-selected", "false");
 });
 
-test("different family navigation leaves exact Facts for the shared document", async ({
+test("different family navigation loads its exact group before Facts", async ({
   page,
 }) => {
   const widget = surface.types.find(
@@ -507,9 +507,17 @@ test("different family navigation leaves exact Facts for the shared document", a
     .toContainText("2 overloads");
   await expect(page.locator(".member-surface-list .overload-row"))
     .toHaveCount(2);
-  expect(await page.locator("html").getAttribute(
-    "data-member-group-document-request",
-  )).toBeNull();
+  expect(JSON.parse(
+    await page.locator("html").getAttribute(
+      "data-member-group-document-request") ?? "null",
+  )).toEqual([
+    "Example.Package",
+    "1.0.0",
+    "net10.0",
+    "Example.Core.dll",
+    "Example.Widget",
+    "Stop",
+  ]);
 
   await page.locator(".member-surface-list .overload-row").first().click();
   await page.keyboard.press("Backspace");

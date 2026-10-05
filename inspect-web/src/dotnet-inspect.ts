@@ -92,6 +92,7 @@ import {
   invalidateSourceDestinationWork,
   memberGroupUsesFamilySurface,
   MEMBER_TRAITS,
+  memberMatchesTrait,
   memberNavTargetIndex,
   memberOverloadSourceIndex,
   memberOverloadVisibleIndex,
@@ -6705,6 +6706,24 @@ function loadedMemberDeclarationsApplyToSelection() {
     && state.memberAccessibilityFilter === "public";
 }
 
+function memberAccessibilityBucket(
+  accessibility: string | undefined,
+): MemberAccessibility {
+  const value = accessibility ?? "public";
+  if (value === "public") return "public";
+  if (value.includes("protected")) return "protected";
+  if (value.includes("internal")) return "internal";
+  return "private";
+}
+
+function memberPopulationReceiver(
+  member: Pick<AppMemberSurface, "isExtension" | "isStatic">,
+): "extension" | "static" | "this" {
+  return member.isExtension
+    ? "extension"
+    : member.isStatic ? "static" : "this";
+}
+
 function declaredMemberGroups(type: AppTypeSurface): AppMemberGroup[] {
   const population = currentTypeMemberPopulation(type);
   if (population) {
@@ -6728,13 +6747,24 @@ function declaredMemberGroups(type: AppTypeSurface): AppMemberGroup[] {
           : null;
       const exactTokens = new Set(
         document?.rows.map(row => row.metadataToken) ?? []);
-      const overloads = type.api.filter(member =>
-        member.name === group.name
-        && member.kind === group.kind
-        && exactTokens.has(
+      const residentOverloads = uploadedLibraryIsActive()
+        ? []
+        : type.api.filter(member =>
+          member.name === group.name
+          && member.kind === group.kind
+          && !member.graphOnly
+          && (state.memberAccessibilityFilter === "all"
+            || memberAccessibilityBucket(member.accessibility)
+              === state.memberAccessibilityFilter)
+          && group.receivers.includes(memberPopulationReceiver(member)));
+      const overloads = exactTokens.size > 0
+        ? residentOverloads.filter(member => exactTokens.has(
           member.declarationMetadataToken
             ?? member.metadataToken
-            ?? 0));
+            ?? 0))
+        : residentOverloads.length <= group.completeCount
+          ? residentOverloads
+          : [];
       return {
         ...shape,
         overloads,
@@ -10120,11 +10150,13 @@ function renderMemberNavPane(type: AppTypeSurface) {
     entries: memberNavEntries(type),
     memberCount: groups.reduce(
       (count, group) =>
-        count + (group.sourceOverloadCount ?? group.overloads.length),
+        count + group.completeCount,
       0),
     visibleMemberCount: visibleGroups.reduce(
       (count, group) =>
-        count + (group.sourceOverloadCount ?? group.overloads.length),
+        count + (group.detailsPending
+          ? group.completeCount
+          : group.overloads.length),
       0),
     filterControlsHtml: renderMemberFilterControls(type),
     selectedMemberKey: state.selectedMemberKey,
@@ -12428,7 +12460,10 @@ function renderApiLens(item: AppTypeSurface) {
     (count, group) => count + group.completeCount,
     0);
   const visibleMemberCount = visibleGroups.reduce(
-    (count, group) => count + group.completeCount,
+    (count, group) =>
+      count + (group.detailsPending
+        ? group.completeCount
+        : group.overloads.length),
     0);
   const populationSummary =
     memberPopulationSummary(item, visibleMemberCount, memberCount);
@@ -12566,7 +12601,29 @@ function renderDeferredMemberGroup(
           </div>
         </section>`;
     }
-    const hasDetailedRows = document.rows.some(row =>
+    const rows = document.rows.filter(row => {
+      if (state.memberAccessibilityFilter !== "all"
+        && memberAccessibilityBucket(row.accessibility)
+          !== state.memberAccessibilityFilter) {
+        return false;
+      }
+      if (!state.memberTraitFilter) return true;
+      const resident = type.api.find(overload =>
+        (overload.declarationMetadataToken
+          ?? overload.metadataToken
+          ?? 0) === row.metadataToken);
+      if (resident) {
+        return memberMatchesTrait(resident, state.memberTraitFilter);
+      }
+      return state.memberTraitFilter === "static"
+        ? row.receiver === "Static"
+        : state.memberTraitFilter === "instance"
+          ? row.receiver === "This"
+          : state.memberTraitFilter === "extensions"
+            ? row.receiver === "Extension"
+            : false;
+    });
+    const hasDetailedRows = rows.some(row =>
       member.overloads.some(overload =>
         (overload.declarationMetadataToken
           ?? overload.metadataToken
@@ -12575,11 +12632,11 @@ function renderDeferredMemberGroup(
       <section class="member-surface member-overload-surface" aria-labelledby="member-surface-title">
         <header class="api-surface-head member-surface-head">
           <h1 id="member-surface-title">${escapeHtml(member.name)}</h1>
-          <p>${document.count} ${document.count === 1 ? unit : `${unit}s`} <span>· ${escapeHtml(member.kind)}</span></p>
+          <p>${rows.length} ${rows.length === 1 ? unit : `${unit}s`} <span>· ${escapeHtml(member.kind)}</span></p>
         </header>
         <div class="member-surface-scroll">
           <div class="api-list api-surface-list member-surface-list">
-            ${document.rows.map(row => {
+          ${rows.map(row => {
               const signature =
                 `${row.accessibility} ${memberReceiverPrefix(row.receiver)}${row.displaySignature}`;
               const visibleIndex = member.overloads.findIndex(overload =>
