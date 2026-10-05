@@ -190,9 +190,9 @@ Release gates in the CLI tests:
 - `Antlr` 3.5.0.2, which carries no Informational Version, keeps
   `Version | 3.5.0.2` from its Assembly Version;
 - the `-v:q` summary shows the same values as `Library Info` and no Modified;
-- the exact direct-file `-v:q` summary does not invoke the legacy Library
-  inspection service, while a `Library Info` control proves the gate observes
-  that service;
+- the exact direct-file `-v:q` summary neither invokes the legacy Library
+  inspection service nor constructs the mutable legacy model, while a
+  `Library Info` control proves the gates observe both;
 - a native PE asset, such as `runtimes/win-x64/native/capstone.dll` from
   `Gee.External.Capstone` 2.3.0, keeps its current `Library Info` and `-v:q`
   rows, including `Compilation | Native`;

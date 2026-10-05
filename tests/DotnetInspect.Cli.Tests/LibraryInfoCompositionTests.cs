@@ -5,6 +5,7 @@ using System.Reflection.PortableExecutable;
 
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Inspectors;
+using DotnetInspect.Cli.Models;
 using DotnetInspector.Queries;
 
 namespace DotnetInspect.Cli.Tests;
@@ -91,6 +92,7 @@ public sealed class LibraryInfoCompositionTests
     public async Task CompactSummary_MatchesLibraryInfoWithoutModified()
     {
         LibraryMetadataService.InspectionCountForTests = 0;
+        LibraryInspection.ConstructionCountForTests = 0;
         (int exit, string output, string error) =
             await RunAsync("library", Asset("runtime", "System.Net.Sockets.dll"), "-v:q");
 
@@ -98,12 +100,16 @@ public sealed class LibraryInfoCompositionTests
         Assert.Equal(
             0,
             LibraryMetadataService.InspectionCountForTests);
+        Assert.Equal(
+            0,
+            LibraryInspection.ConstructionCountForTests);
         Assert.Contains("Version: 11.0.0-rc.1.26425.128", output, StringComparison.Ordinal);
         Assert.Contains("TFM: .NETCoreApp,Version=v11.0", output, StringComparison.Ordinal);
         Assert.Contains("Size: 601.3 KB", output, StringComparison.Ordinal);
         Assert.DoesNotContain("Modified", output, StringComparison.Ordinal);
 
         LibraryMetadataService.InspectionCountForTests = 0;
+        LibraryInspection.ConstructionCountForTests = 0;
         (int tracedExit, string tracedOutput, string tracedError) =
             await RunAsync(
                 "library",
@@ -115,6 +121,8 @@ public sealed class LibraryInfoCompositionTests
         Assert.Equal(output, tracedOutput);
         Assert.True(
             LibraryMetadataService.InspectionCountForTests > 0);
+        Assert.True(
+            LibraryInspection.ConstructionCountForTests > 0);
     }
 
     [Fact]

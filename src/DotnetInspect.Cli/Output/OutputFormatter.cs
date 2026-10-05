@@ -618,6 +618,24 @@ public static class OutputFormatter
             options,
             pipeline);
 
+    internal static void WriteLibraryDocumentContext(
+        LibraryPresentationContext context,
+        LibraryDocumentInspection documentInspection)
+    {
+        var view = new LibraryDocumentContextView(
+            context,
+            documentInspection);
+        var writer = new StringWriter { NewLine = "\n" };
+        MarkoutSerializer.Serialize(
+            view,
+            writer,
+            InspectionContext.Default,
+            new MarkoutWriterOptions());
+        WriteLfLine(
+            Console.Out,
+            writer.ToString().TrimEnd());
+    }
+
     internal static void WriteLibraryResult(
         LibraryInspectionRenderInput input,
         LibraryOptions options,

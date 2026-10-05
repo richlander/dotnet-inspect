@@ -1890,18 +1890,11 @@ public partial class LibraryCommand
                             exactAssembly,
                             AssemblyContextLibraryRole.ApiOnly);
 
-                    var directInspection = new LibraryInspection
-                    {
-                        FileName = Path.GetFileName(assemblyPath),
-                        FileType = "dll",
-                        Source = SourceKind.File,
-                    };
-                    OutputFormatter.WriteLibraryResult(
-                        new LibraryInspectionRenderInput(
-                            directInspection,
-                            directDocumentInspection),
-                        options,
-                        pipeline);
+                    OutputFormatter.WriteLibraryDocumentContext(
+                        new LibraryPresentationContext(
+                            Path.GetFileName(assemblyPath),
+                            SourceKind.File),
+                        directDocumentInspection);
                     return 0;
                 }
 
