@@ -38,7 +38,7 @@ public class ExactManagedReferenceSlotMaterializationTests
             store => store.Index == 1).Value);
         Assert.Empty(function.Descendants.OfType<StoreStackSlot>());
         Assert.Empty(function.Descendants.OfType<LoadStackSlot>());
-        string output = CSharpPrinter.Print(function).Output!;
+        string output = DecidedPrint.Print(function).Output!;
         Assert.Contains("ref int S_0 = ref V_0;", output);
         Assert.Contains("return ref S_0;", output);
         function.CheckInvariant(includeSemantics: true);
@@ -78,7 +78,7 @@ public class ExactManagedReferenceSlotMaterializationTests
         Assert.True(decision.WillMaterialize, decision.Vetoes.ToString());
         new SlotMaterializationPass().Run(function, PassContext.None);
 
-        string output = CSharpPrinter.Print(function).Output!;
+        string output = DecidedPrint.Print(function).Output!;
         Assert.Contains(
             "ref int S_0 = ref System.Runtime.CompilerServices.Unsafe.NullRef<int>();",
             output);
@@ -131,7 +131,7 @@ public class ExactManagedReferenceSlotMaterializationTests
 
         new SlotMaterializationPass().Run(function, PassContext.None);
         new ResidualSlotBindingPass().Run(function, PassContext.None);
-        string output = CSharpPrinter.Print(function).Output!;
+        string output = DecidedPrint.Print(function).Output!;
 
         // The load-only residual piece is a plan-owned local now, but a
         // residual-bound local is never zero-initialised (its unreached read
@@ -187,7 +187,7 @@ public class ExactManagedReferenceSlotMaterializationTests
             PassContext.None);
 
         Assert.Null(store.UpdateKind);
-        string output = CSharpPrinter.Print(function).Output!;
+        string output = DecidedPrint.Print(function).Output!;
         Assert.Contains(
             "S_0.Flags = S_0.Flags | 1;",
             output);
@@ -269,7 +269,7 @@ public class ExactManagedReferenceSlotMaterializationTests
         Assert.True(decision.Vetoes.HasFlag(
             SlotMaterializationVeto.OutsideCoercionDomain));
         AssertRetainsSlots(function);
-        Assert.False(CSharpPrinter.Print(function).Succeeded);
+        Assert.False(DecidedPrint.Print(function).Succeeded);
     }
 
     [Fact]
@@ -293,7 +293,7 @@ public class ExactManagedReferenceSlotMaterializationTests
         Assert.Equal(type, Assert.Single(function.Locals));
         Assert.Empty(function.Descendants.OfType<StoreStackSlot>());
         Assert.Empty(function.Descendants.OfType<LoadStackSlot>());
-        var result = CSharpPrinter.Print(function);
+        var result = DecidedPrint.Print(function);
         Assert.True(result.Succeeded);
         Assert.Contains(
             "ref __Value_j__TPar S_0 = ref GetRef();",
@@ -347,7 +347,7 @@ public class ExactManagedReferenceSlotMaterializationTests
         new SlotMaterializationPass().Run(function, PassContext.None);
 
         Assert.Empty(function.Descendants.OfType<StoreStackSlot>());
-        var result = CSharpPrinter.Print(function);
+        var result = DecidedPrint.Print(function);
         Assert.True(result.Succeeded);
         Assert.Contains(
             "ref int S_0 = ref System.Runtime.CompilerServices.Unsafe.NullRef<int>();",
@@ -404,7 +404,7 @@ public class ExactManagedReferenceSlotMaterializationTests
             function,
             PassContext.None);
 
-        var result = CSharpPrinter.Print(function);
+        var result = DecidedPrint.Print(function);
         Assert.True(result.Succeeded);
         Assert.Contains("ref int S_0 = ref V_0;", result.Output);
         Assert.DoesNotContain("Unsafe.NullRef", result.Output);
@@ -429,7 +429,7 @@ public class ExactManagedReferenceSlotMaterializationTests
         new SlotMaterializationPass().Run(function, PassContext.None);
 
         Assert.Equal(2, function.Descendants.OfType<StoreStackSlot>().Count());
-        Assert.False(CSharpPrinter.Print(function).Succeeded);
+        Assert.False(DecidedPrint.Print(function).Succeeded);
         function.CheckInvariant();
     }
 
@@ -453,7 +453,7 @@ public class ExactManagedReferenceSlotMaterializationTests
         Assert.Equal(
             "M: managed-reference stack slot 0 reached residual storage binding after slot materialization.",
             binding.Message);
-        var result = CSharpPrinter.Print(function);
+        var result = DecidedPrint.Print(function);
         Assert.False(result.Succeeded);
         var diagnostic = Assert.Single(result.Diagnostics);
         Assert.Equal(DiagnosticIds.InternalError, diagnostic.Id);
@@ -532,7 +532,7 @@ public class ExactManagedReferenceSlotMaterializationTests
         Assert.DoesNotContain(
             function.ResidualSlotBindings.Values,
             binding => binding.Slot == 1);
-        string output = CSharpPrinter.Print(function).Output!;
+        string output = DecidedPrint.Print(function).Output!;
         Assert.Contains(
             "ref DefaultInterpolatedStringHandler S_0 = ref V_0;",
             output);
@@ -571,7 +571,7 @@ public class ExactManagedReferenceSlotMaterializationTests
             localFunction,
             new Return(null));
 
-        var result = CSharpPrinter.Print(function);
+        var result = DecidedPrint.Print(function);
         Assert.True(result.Succeeded);
         Assert.Contains(
             "ref int S_0 = ref System.Runtime.CompilerServices.Unsafe.NullRef<int>();",
@@ -609,7 +609,7 @@ public class ExactManagedReferenceSlotMaterializationTests
             [],
             new Return(lambda));
 
-        var result = CSharpPrinter.Print(function);
+        var result = DecidedPrint.Print(function);
         Assert.True(result.Succeeded);
         Assert.Contains(
             "ref int S_0 = ref System.Runtime.CompilerServices.Unsafe.NullRef<int>();",

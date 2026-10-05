@@ -188,7 +188,7 @@ public class DataflowFactsTests
         // real method and require the local to declare `= default`, then compile
         // the exact rendered text with Roslyn against a compatible Helper.TryGet
         // declaration to prove csc itself would accept it (no CS0165).
-        var output = CSharpPrinter.Print(function).Output!;
+        var output = DecidedPrint.Print(function).Output!;
         Assert.Contains("int V_0 = default;", output);
         AssertCompiles(
             "public static int TupleSwitchOut(int x, int y)",

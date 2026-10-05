@@ -92,6 +92,14 @@ public class OutputCapabilityCatalogTests
             DiscoveryOutputMode.Json,
             LibraryOutputCapabilities.Catalog.FormatsForSection(
                 SectionNames.NameFamilies));
+        Assert.DoesNotContain(
+            DiscoveryOutputMode.Json,
+            LibraryOutputCapabilities.Catalog.FormatsForSection(
+                SectionNames.NameFamilyRoles));
+        Assert.DoesNotContain(
+            DiscoveryOutputMode.Json,
+            LibraryOutputCapabilities.Catalog.FormatsForSection(
+                SectionNames.NameFamilyRoleTypes));
     }
 
     [Fact]

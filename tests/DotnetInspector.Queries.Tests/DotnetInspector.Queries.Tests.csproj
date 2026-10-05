@@ -54,11 +54,14 @@
     <ProjectReference Include="..\..\src\DotnetInspector.SourceHouse\DotnetInspector.SourceHouse.csproj" />
     <ProjectReference Include="..\..\src\DotnetInspector.Sections\DotnetInspector.Sections.csproj" />
     <ProjectReference Include="..\DotnetInspector.Queries.Consumer\DotnetInspector.Queries.Consumer.csproj" />
+    <ProjectReference Include="..\DotnetInspector.Queries.PerformanceOracles\DotnetInspector.Queries.PerformanceOracles.csproj" />
+    <ProjectReference Include="..\DotnetInspector.PerformanceOracles\DotnetInspector.PerformanceOracles.csproj" />
     <ProjectReference Include="..\..\fixtures\queries\DotnetInspector.Queries.EmbeddedFixtures\DotnetInspector.Queries.EmbeddedFixtures.csproj" />
     <ProjectReference Include="..\..\fixtures\queries\DotnetInspector.Queries.IntrinsicCoreLibraryCallFixtures\DotnetInspector.Queries.IntrinsicCoreLibraryCallFixtures.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\src\DotnetInspector.ResearchQueries\DotnetInspector.ResearchQueries.csproj" />
     <ProjectReference Include="..\..\src\DotnetInspector.ResearchSections\DotnetInspector.ResearchSections.csproj" />
     <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.Fixtures\ILInspector.Analysis.Fixtures.csproj" />
+    <ProjectReference Include="..\..\fixtures\research\ILInspector.Research.NameFamilyFixtures\ILInspector.Research.NameFamilyFixtures.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\research\ILInspector.Research.DependencyStructureFixtures\ILInspector.Research.DependencyStructureFixtures.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.AsyncSiblingRepositoryFixture\ILInspector.Analysis.AsyncSiblingRepositoryFixture.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.CallerGraphCaller\ILInspector.Analysis.CallerGraphCaller.csproj" ReferenceOutputAssembly="false" />
