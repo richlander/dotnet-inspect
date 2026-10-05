@@ -153,7 +153,7 @@ public static class MetadataDeclarationQuery
                 Name = declaration.MetadataName,
                 Kind = "property",
                 SignatureModel = declaration.Signature,
-                Signature = PropertySignatureText(declaration),
+                Signature = GetPropertySignatureText(declaration),
                 SignatureDecodeStatus = declaration.SignatureDecodeStatus,
                 IsStatic = declaration.IsStatic,
                 IsAbstract = declaration.IsAbstract,
@@ -1107,8 +1107,10 @@ public static class MetadataDeclarationQuery
         return MethodSignatureText(declaration);
     }
 
-    static string PropertySignatureText(MetadataPropertyDeclaration declaration)
+    public static string GetPropertySignatureText(
+        MetadataPropertyDeclaration declaration)
     {
+        ArgumentNullException.ThrowIfNull(declaration);
         var returnType = declaration.Signature.ReturnType ?? "void";
         var accessors = declaration.Signature.Accessors.Count == 0
             ? "{ get; }"
@@ -1116,6 +1118,13 @@ public static class MetadataDeclarationQuery
         return declaration.Signature.Parameters.Count == 0
             ? $"{returnType} {declaration.CSharpName} {accessors}"
             : $"{returnType} this[{string.Join(", ", declaration.Signature.Parameters.Select(ParameterDeclaration))}] {accessors}";
+    }
+
+    public static string GetFieldSignatureText(
+        MetadataFieldDeclaration declaration)
+    {
+        ArgumentNullException.ThrowIfNull(declaration);
+        return $"{declaration.ReturnType ?? "object"} {declaration.CSharpName}";
     }
 
     static string ParameterDeclaration(ApiParameter parameter)

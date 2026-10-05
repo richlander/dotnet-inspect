@@ -1038,7 +1038,7 @@ test("fallback ordinary families load the shared document", () => {
     ?? "";
   assert.match(
     singleton,
-    /resolved\?\.overloads\.length !== 1[\s\S]*memberGroupUsesFamilySurface\(resolved\)/);
+    /memberGroupUsesFamilySurface\(resolved\)[\s\S]*resolved\.overloads\.length === 1[\s\S]*document\?\.rows\.length !== 1[\s\S]*loadSelectedMemberDocument\([\s\S]*document\.rows\[0\]!\.baselineOrdinal\)/);
 
   const applyView =
     appSource.match(/function applyView\([\s\S]*?\n}\n\nasync function restorePlatformHistoryView/)?.[0]
@@ -1063,7 +1063,7 @@ test("fallback ordinary families load the shared document", () => {
     /member\.completeCountStatus === "available"/);
   assert.match(
     groupDocument,
-    /member\.kind !== "method"[\s\S]*member\.overloads\.some\(overload => overload\.graphOnly\)[\s\S]*memberGroupDocumentRequestKey\(type, member\)[\s\S]*inspectUploadedLibraryMemberGroupDocument[\s\S]*state\.memberAccessibilityFilter[\s\S]*memberGroupReceiverIntent\(\)[\s\S]*inspectPlatformMemberGroupDocument[\s\S]*inspectMemberGroupDocument/);
+    /member\.overloads\.some\(overload => overload\.graphOnly\)[\s\S]*memberGroupDocumentRequestKey\(type, member\)[\s\S]*inspectUploadedLibraryMemberGroupDocument\([\s\S]*member\.name,\s*member\.kind,[\s\S]*inspectPlatformMemberGroupDocument\([\s\S]*member\.name,\s*member\.kind,[\s\S]*inspectMemberGroupDocument\([\s\S]*member\.name,\s*member\.kind,/);
   assert.match(
     appSource,
     /function memberGroupDocumentRequestKey[\s\S]*state\.memberSpelling[\s\S]*state\.memberAccessibilityFilter[\s\S]*state\.memberTraitFilter/);

@@ -9,6 +9,7 @@ public sealed record LibraryMethodGroupInspectionRequest
         LibraryReference library,
         MetadataTypeDefinitionName declaringType,
         string methodName,
+        MetadataTypeMemberGroupCategory category,
         int startOrdinal,
         int maximumRows,
         bool materializeRows,
@@ -24,6 +25,13 @@ public sealed record LibraryMethodGroupInspectionRequest
         DeclaringType = declaringType
             ?? throw new ArgumentNullException(nameof(declaringType));
         ArgumentException.ThrowIfNullOrWhiteSpace(methodName);
+        if (!Enum.IsDefined(category))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(category),
+                category,
+                "Unknown Member-group category.");
+        }
         ArgumentOutOfRangeException.ThrowIfNegative(startOrdinal);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maximumRows);
         if (!Enum.IsDefined(accessibility))
@@ -57,6 +65,7 @@ public sealed record LibraryMethodGroupInspectionRequest
         }
 
         MethodName = methodName;
+        Category = category;
         StartOrdinal = startOrdinal;
         MaximumRows = maximumRows;
         MaterializeRows = materializeRows;
@@ -70,6 +79,7 @@ public sealed record LibraryMethodGroupInspectionRequest
     public LibraryReference Library { get; }
     public MetadataTypeDefinitionName DeclaringType { get; }
     public string MethodName { get; }
+    public MetadataTypeMemberGroupCategory Category { get; }
     public int StartOrdinal { get; }
     public int MaximumRows { get; }
     public bool MaterializeRows { get; }
@@ -257,7 +267,8 @@ public static class LibraryMethodGroupInspection
                     request.Spelling,
                     request.IncludeHidden,
                     request.Bounds.MaxMembers,
-                    request.Bounds.MaxRetainedTextCharacters);
+                    request.Bounds.MaxRetainedTextCharacters,
+                    request.Category);
             cancellationToken.ThrowIfCancellationRequested();
             return new LibraryMethodGroupInspectionOutcome.Completed(
                 new(

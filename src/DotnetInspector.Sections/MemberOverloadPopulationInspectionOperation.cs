@@ -57,6 +57,7 @@ public static class MemberOverloadPopulationInspectionOperation
                         request.Library,
                         request.Plan.Subject.DeclaringType,
                         request.Plan.Subject.Name,
+                        Category(request.Plan.Subject.Category),
                         startOrdinal,
                         rows?.MaximumRows ?? 1,
                         materializeRows:
@@ -365,6 +366,31 @@ public static class MemberOverloadPopulationInspectionOperation
                 MetadataMethodAccessibilityFilter.All,
             _ => throw new InvalidOperationException(
                 "Unknown exact-Member accessibility filter."),
+        };
+
+    private static MetadataTypeMemberGroupCategory Category(
+        MemberGroupCategory category) =>
+        category switch
+        {
+            MemberGroupCategory.Method =>
+                MetadataTypeMemberGroupCategory.Method,
+            MemberGroupCategory.Constructor =>
+                MetadataTypeMemberGroupCategory.Constructor,
+            MemberGroupCategory.Operator =>
+                MetadataTypeMemberGroupCategory.Operator,
+            MemberGroupCategory.Finalizer =>
+                MetadataTypeMemberGroupCategory.Finalizer,
+            MemberGroupCategory.ExplicitInterfaceImplementation =>
+                MetadataTypeMemberGroupCategory
+                    .ExplicitInterfaceImplementation,
+            MemberGroupCategory.Property =>
+                MetadataTypeMemberGroupCategory.Property,
+            MemberGroupCategory.Field =>
+                MetadataTypeMemberGroupCategory.Field,
+            MemberGroupCategory.Event =>
+                MetadataTypeMemberGroupCategory.Event,
+            _ => throw new InvalidOperationException(
+                "Unknown Member-group category."),
         };
 
     private static MetadataMethodReceiverFilter Receiver(

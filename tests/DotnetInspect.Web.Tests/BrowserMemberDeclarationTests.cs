@@ -329,6 +329,7 @@ public sealed class BrowserMemberDeclarationTests
                     AssemblyFileName,
                     SpellingType,
                     "PointerFreeUnsafeMethod",
+                    "method",
                     "csharp",
                     "public",
                     "all",
@@ -360,8 +361,13 @@ public sealed class BrowserMemberDeclarationTests
                     AssemblyFileName,
                     SpellingType,
                     "PointerFreeUnsafeMethod",
+                    "method",
                     singletonRow.BaselineOrdinal,
-                    ""));
+                    "",
+                    "public",
+                    "all",
+                    includeHidden: false,
+                    spelling: "csharp"));
         BrowserMemberDocumentInspection fingerprintMember =
             MemberDocument(
                 await MetadataExports.QueryMemberDocument(
@@ -371,8 +377,13 @@ public sealed class BrowserMemberDeclarationTests
                     AssemblyFileName,
                     SpellingType,
                     "PointerFreeUnsafeMethod",
+                    "method",
                     0,
-                    singletonRow.Fingerprint));
+                    singletonRow.Fingerprint,
+                    "public",
+                    "all",
+                    includeHidden: false,
+                    spelling: "csharp"));
         Assert.Equal(
             BrowserMemberDocumentOutcome.Available,
             ordinalMember.Outcome);
@@ -408,8 +419,13 @@ public sealed class BrowserMemberDeclarationTests
                     AssemblyFileName,
                     SpellingType,
                     "PointerFreeUnsafeMethod",
+                    "method",
                     2,
-                    ""));
+                    "",
+                    "public",
+                    "all",
+                    includeHidden: false,
+                    spelling: "csharp"));
         Assert.Equal(
             BrowserMemberDocumentOutcome.Rejected,
             missingMember.Outcome);
@@ -423,6 +439,7 @@ public sealed class BrowserMemberDeclarationTests
                     image,
                     ExtensionType,
                     "Examine",
+                    "method",
                     "csharp",
                     "public",
                     "extension",
@@ -450,6 +467,7 @@ public sealed class BrowserMemberDeclarationTests
                     runtimeImage,
                     typeof(JsonDocument).FullName!,
                     "Parse",
+                    "method",
                     "csharp",
                     "private",
                     "all",
@@ -475,6 +493,7 @@ public sealed class BrowserMemberDeclarationTests
                         runtimeImage,
                         typeof(JsonDocument).FullName!,
                         "Parse",
+                        "method",
                         privateRow.BaselineOrdinal,
                         "",
                         "private",
@@ -488,6 +507,49 @@ public sealed class BrowserMemberDeclarationTests
             privateRow.MetadataToken,
             Assert.IsType<BrowserMemberDocument>(
                 privateMember.Document).MetadataToken);
+
+        BrowserMemberGroupDocumentInspection privatePropertyGroup =
+            MemberGroupDocument(
+                await MetadataExports.QueryUploadedLibraryMemberGroupDocument(
+                    Path.GetFileName(
+                        typeof(JsonDocument).Assembly.Location),
+                    runtimeImage,
+                    typeof(JsonDocument).FullName!,
+                    "IsDisposable",
+                    "property",
+                    "csharp",
+                    "all",
+                    "all",
+                    includeHidden: false));
+        BrowserMemberGroupDocumentRow privatePropertyRow =
+            Assert.Single(
+                Assert.IsType<BrowserMemberGroupDocument>(
+                    privatePropertyGroup.Document).Rows);
+        BrowserMemberDocumentInspection privatePropertyMember =
+            MemberDocument(
+                await MetadataExports.QueryUploadedLibraryMemberDocument(
+                    Path.GetFileName(
+                        typeof(JsonDocument).Assembly.Location),
+                    runtimeImage,
+                    typeof(JsonDocument).FullName!,
+                    "IsDisposable",
+                    "property",
+                    privatePropertyRow.BaselineOrdinal,
+                    "",
+                    "all",
+                    "all",
+                    includeHidden: false,
+                    spelling: "csharp"));
+        BrowserMemberDocument privatePropertyDocument =
+            Assert.IsType<BrowserMemberDocument>(
+                privatePropertyMember.Document);
+        Assert.Equal(
+            privatePropertyRow.MetadataToken,
+            privatePropertyDocument.MetadataToken);
+        Assert.Contains(
+            "IsDisposable",
+            privatePropertyDocument.DisplaySignature,
+            StringComparison.Ordinal);
 
         BrowserTypeDocumentInspection packagePopulation =
             TypeDocument(
@@ -564,6 +626,7 @@ public sealed class BrowserMemberDeclarationTests
                     AssemblyFileName,
                     SpellingType,
                     getter.Name,
+                    "method",
                     "metadata",
                     "public",
                     "all",
@@ -587,6 +650,7 @@ public sealed class BrowserMemberDeclarationTests
                     AssemblyFileName,
                     SpellingType,
                     getter.Name,
+                    "method",
                     metadataAccessorRow.BaselineOrdinal,
                     "",
                     "public",
@@ -679,6 +743,7 @@ public sealed class BrowserMemberDeclarationTests
                     AssemblyFileName,
                     SpellingType,
                     "MissingMethod",
+                    "method",
                     "csharp",
                     "public",
                     "all",
@@ -941,6 +1006,7 @@ public sealed class BrowserMemberDeclarationTests
                         "netcore.app",
                         ExtensionType,
                         "Examine",
+                        "method",
                         "csharp",
                         "public",
                         "extension",

@@ -91,6 +91,7 @@ import {
   invalidateMemberDestinationWork,
   invalidateSourceDestinationWork,
   memberGroupUsesFamilySurface,
+  memberDocumentRowMatchesTrait,
   MEMBER_TRAITS,
   memberMatchesTrait,
   memberNavTargetIndex,
@@ -8394,16 +8395,31 @@ async function loadSelectedMemberOverview(): Promise<void> {
 async function loadSelectedMemberGroupAndSelectSingleton() {
   await loadSelectedMemberGroupDocument();
   const resolved = selectedMember(selectedType());
-  if (resolved?.overloads.length !== 1
+  if (!resolved
     || memberGroupUsesFamilySurface(resolved)
     || state.selectedOverloadIndex !== null) {
     return false;
   }
-  state.selectedOverloadIndex =
-    memberNavOverloadSourceIndex(resolved, 0);
-  normalizeCurrentNavEntry();
-  renderPreservingMemberFocus();
-  return true;
+  if (resolved.overloads.length === 1) {
+    state.selectedOverloadIndex =
+      memberNavOverloadSourceIndex(resolved, 0);
+    normalizeCurrentNavEntry();
+    renderPreservingMemberFocus();
+    return true;
+  }
+  const document =
+    state.memberGroupDocumentKey
+        === memberGroupDocumentRequestKey(
+          selectedType(),
+          resolved)
+      && state.memberGroupDocument?.outcome === "Available"
+      ? state.memberGroupDocument.document
+      : null;
+  if (document?.rows.length !== 1)
+    return false;
+  await loadSelectedMemberDocument(
+    document.rows[0]!.baselineOrdinal);
+  return false;
 }
 
 function loadMemberSectionContent(id: MemberSection) {
@@ -12877,13 +12893,9 @@ function renderDeferredMemberGroup(
       if (resident) {
         return memberMatchesTrait(resident, state.memberTraitFilter);
       }
-      return state.memberTraitFilter === "static"
-        ? row.receiver === "Static"
-        : state.memberTraitFilter === "instance"
-          ? row.receiver === "This"
-          : state.memberTraitFilter === "extensions"
-            ? row.receiver === "Extension"
-            : false;
+      return memberDocumentRowMatchesTrait(
+        row,
+        state.memberTraitFilter);
     });
     return `
       <section class="member-surface member-overload-surface" aria-labelledby="member-surface-title">
@@ -21411,7 +21423,6 @@ async function loadSelectedMemberGroupDocument() {
   const member = selectedMember(type);
   if (!type
     || !member
-    || member.kind !== "method"
     || member.overloads.some(overload => overload.graphOnly)) {
     renderPreservingMemberFocus();
     return;
@@ -21438,6 +21449,7 @@ async function loadSelectedMemberGroupDocument() {
           type.assemblyId,
           type.definitionId ?? type.id,
           member.name,
+          member.kind,
           state.memberSpelling,
           state.memberAccessibilityFilter,
           memberGroupReceiverIntent(),
@@ -21452,6 +21464,7 @@ async function loadSelectedMemberGroupDocument() {
             row.pack,
             type.definitionId ?? type.id,
             member.name,
+            member.kind,
             state.memberSpelling,
             state.memberAccessibilityFilter,
             memberGroupReceiverIntent(),
@@ -21464,6 +21477,7 @@ async function loadSelectedMemberGroupDocument() {
           type.assembly,
           type.definitionId ?? type.id,
           member.name,
+          member.kind,
           state.memberSpelling,
           state.memberAccessibilityFilter,
           memberGroupReceiverIntent(),
@@ -21510,6 +21524,7 @@ async function loadSelectedMemberDocument(baselineOrdinal: number) {
           type.assemblyId,
           type.definitionId ?? type.id,
           member.name,
+          member.kind,
           baselineOrdinal,
           "",
           state.memberAccessibilityFilter,
@@ -21526,6 +21541,7 @@ async function loadSelectedMemberDocument(baselineOrdinal: number) {
             row.pack,
             type.definitionId ?? type.id,
             member.name,
+            member.kind,
             baselineOrdinal,
             "",
             state.memberAccessibilityFilter,
@@ -21540,6 +21556,7 @@ async function loadSelectedMemberDocument(baselineOrdinal: number) {
           type.assembly,
           type.definitionId ?? type.id,
           member.name,
+          member.kind,
           baselineOrdinal,
           "",
           state.memberAccessibilityFilter,

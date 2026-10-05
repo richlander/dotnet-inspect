@@ -1325,6 +1325,50 @@ public sealed class MemberOverloadPopulationInspectionOperationTests
         await library.RetireAsync();
     }
 
+    [Fact]
+    public async Task
+        RealSystemTextJson_PropertyGroupReturnsExactDeclaration()
+    {
+        byte[] content =
+            await LibraryInspectionTestLibrary.RealSystemTextJsonAsync();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+
+        MemberOverloadPopulationContent population =
+            Available(
+                Execute(
+                    library,
+                    "RootElement",
+                    count: true,
+                    new(maximumRows: 2),
+                    declaringType:
+                        Name("System.Text.Json", "JsonDocument"),
+                    category: MemberGroupCategory.Property));
+        Assert.Equal(
+            1,
+            Assert.IsType<MemberOverloadCountOutcome.Counted>(
+                    population.Overloads.Count)
+                .Value);
+        MemberOverloadShape row =
+            Assert.Single(
+                Assert.IsType<MemberOverloadRowsOutcome.Read>(
+                    population.Overloads.Rows).Items);
+        Assert.Equal(MemberGroupCategory.Property, row.Binding.Category);
+        Assert.Equal(MemberReceiver.This, row.Receiver);
+        Assert.Contains(
+            "RootElement",
+            row.DisplaySignature.ToString(),
+            StringComparison.Ordinal);
+        Assert.StartsWith(
+            "P:System.Text.Json.JsonDocument.RootElement",
+            row.CanonicalSignature.ToString(),
+            StringComparison.Ordinal);
+
+        await library.RetireAsync();
+    }
+
     /// <summary>
     /// VB's <c>Collection.IListAdd</c> is a private body whose MethodImpl
     /// implements the referenced <c>IList.Add</c>. The shared member admission
@@ -1920,6 +1964,47 @@ public sealed class MemberOverloadPopulationInspectionOperationTests
         await library.RetireAsync();
     }
 
+    [Theory]
+    [InlineData(".ctor", MemberGroupCategory.Constructor)]
+    [InlineData("op_Addition", MemberGroupCategory.Operator)]
+    public async Task
+        LogicalMethodCategoriesReturnTheirExactDeclarations(
+            string metadataName,
+            MemberGroupCategory category)
+    {
+        byte[] content =
+            BuildMethodGroupImage(
+                metadataName,
+                VoidMethodSignature());
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+
+        MemberOverloadPopulationContent population =
+            Available(
+                Execute(
+                    library,
+                    metadataName,
+                    count: true,
+                    new(maximumRows: 1),
+                    declaringType: Name("N", "C"),
+                    category: category));
+        Assert.Equal(
+            1,
+            Assert.IsType<MemberOverloadCountOutcome.Counted>(
+                    population.Overloads.Count)
+                .Value);
+        Assert.Equal(
+            category,
+            Assert.Single(
+                Assert.IsType<MemberOverloadRowsOutcome.Read>(
+                    population.Overloads.Rows).Items)
+                .Binding.Category);
+
+        await library.RetireAsync();
+    }
+
     private static InspectionEnvelope<
         MemberOverloadPopulationInspectionOutcome> Execute(
             LibraryInspectionTestLibrary library,
@@ -1932,7 +2017,9 @@ public sealed class MemberOverloadPopulationInspectionOperationTests
                 MemberOverloadAccessibilityFilter.Public,
             MemberOverloadReceiverFilter receiver =
                 MemberOverloadReceiverFilter.All,
-            bool includeHidden = false) =>
+            bool includeHidden = false,
+            MemberGroupCategory category =
+                MemberGroupCategory.Method) =>
         MemberOverloadPopulationInspectionOperation.Execute(
             new(
                 library.Reference,
@@ -1942,7 +2029,8 @@ public sealed class MemberOverloadPopulationInspectionOperationTests
                             ?? Name(
                                 "System.Text.Json",
                                 "JsonSerializer"),
-                        methodName),
+                        methodName,
+                        category),
                     new(
                         count
                             ? new MemberOverloadCountRequest()
