@@ -490,7 +490,8 @@ public partial class SymbolPackageDownloader
         NuGetSourceOptions? sourceOptions = null,
         CancellationToken cancellationToken = default,
         uint? portablePdbStamp = null,
-        PortablePdbAcquisitionEvidenceCollector? evidence = null)
+        PortablePdbAcquisitionEvidenceCollector? evidence = null,
+        bool? nuGetOrgPackageProducer = null)
     {
         try
         {
@@ -509,7 +510,8 @@ public partial class SymbolPackageDownloader
                     sourceOptions,
                     cancellationToken,
                     portablePdbStamp,
-                    evidence)
+                    evidence,
+                    nuGetOrgPackageProducer)
                     .ConfigureAwait(false);
             evidence?.Complete(result);
             return result;
@@ -538,7 +540,8 @@ public partial class SymbolPackageDownloader
         NuGetSourceOptions? sourceOptions,
         CancellationToken cancellationToken,
         uint? portablePdbStamp,
-        PortablePdbAcquisitionEvidenceCollector? evidence)
+        PortablePdbAcquisitionEvidenceCollector? evidence,
+        bool? nuGetOrgPackageProducer)
     {
         cancellationToken.ThrowIfCancellationRequested();
         bool windowsPdbDetected = false;
@@ -600,11 +603,18 @@ public partial class SymbolPackageDownloader
             acquisitionFailure ??= msdlResult.AcquisitionFailure;
         }
 
+        bool nuGetOrgAuthorized =
+            nuGetOrgPackageProducer
+            ?? (!string.IsNullOrEmpty(packageName)
+                && IsNuGetOrgEligibleForPackage(
+                    sourceOptions,
+                    packageName));
+
         // Try downloading symbol package (.snupkg)
         if (!string.IsNullOrEmpty(packageName)
             && !string.IsNullOrEmpty(packageVersion)
             && snupkgAssemblyName is not null
-            && IsNuGetOrgEligibleForPackage(sourceOptions, packageName))
+            && nuGetOrgAuthorized)
         {
             var snupkgResult = await TryLocateFromSymbolPackageAsync(
                 packageName, packageVersion, snupkgAssemblyName, symbolKey,
@@ -626,11 +636,6 @@ public partial class SymbolPackageDownloader
             acquisitionFailure ??= snupkgResult.AcquisitionFailure;
         }
 
-        bool nuGetOrgAuthorized =
-            !string.IsNullOrEmpty(packageName)
-            && IsNuGetOrgEligibleForPackage(
-                sourceOptions,
-                packageName);
         bool useNuGetSymbolServer =
             _microsoftSymbolServerPackagePolicy
                 == MicrosoftSymbolServerPackagePolicy

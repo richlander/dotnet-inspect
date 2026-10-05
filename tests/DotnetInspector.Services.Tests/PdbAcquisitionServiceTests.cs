@@ -1451,7 +1451,12 @@ public class PdbAcquisitionServiceTests
                     client,
                     new InMemoryPdbStore(),
                     new UniformPackageSourceAuthorization(
-                        [NuGetFetch.PackageSource.NuGetOrg])),
+                        [NuGetFetch.PackageSource.NuGetOrg]))
+                {
+                    PackageProducer =
+                        NuGetFetch.PackageProducerIdentity
+                            .NuGetOrg,
+                },
                 TestContext.Current.CancellationToken);
 
         var acquired =
@@ -1491,7 +1496,12 @@ public class PdbAcquisitionServiceTests
                     client,
                     new InMemoryPdbStore(),
                     new UniformPackageSourceAuthorization(
-                        [NuGetFetch.PackageSource.NuGetOrg])),
+                        [NuGetFetch.PackageSource.NuGetOrg]))
+                {
+                    PackageProducer =
+                        NuGetFetch.PackageProducerIdentity
+                            .NuGetOrg,
+                },
                 TestContext.Current.CancellationToken);
 
         Assert.IsType<
@@ -1524,6 +1534,10 @@ public class PdbAcquisitionServiceTests
             new PlatformSymbolHandler(
                 throwOnRequest: true);
         using var client = new HttpClient(handler);
+        var privateSource =
+            new NuGetFetch.PackageSource(
+                "private",
+                "https://packages.example/v3/index.json");
 
         PortablePdbSettlementResult result =
             await PortablePdbSettlement.SettleAsync(
@@ -1534,10 +1548,15 @@ public class PdbAcquisitionServiceTests
                     new InMemoryPdbStore(),
                     new UniformPackageSourceAuthorization(
                         [
-                            new NuGetFetch.PackageSource(
-                                "private",
-                                "https://packages.example/v3/index.json"),
-                        ])),
+                            privateSource,
+                            NuGetFetch.PackageSource.NuGetOrg,
+                        ]))
+                {
+                    PackageProducer =
+                        NuGetFetch.PackageSourceClientFactory
+                            .GetProducerIdentity(
+                                privateSource),
+                },
                 TestContext.Current.CancellationToken);
 
         Assert.IsType<

@@ -135,6 +135,7 @@ public sealed class PortablePdbSettlementRequest
         get;
     }
     public bool CacheOnly { get; init; }
+    public PackageProducerIdentity? PackageProducer { get; init; }
     public NuGetSourceOptions? NuGetSourceOptions { get; init; }
     public SymbolAcquisitionLimits? Limits { get; init; }
     public PortablePdbPackageCandidate? PackageCandidate
@@ -486,6 +487,20 @@ public static class PortablePdbSettlement
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
+        PackageProducerIdentity? packageProducer =
+            request.PackageCandidate?.Producer;
+        if (request.PackageProducer is { } requestedProducer)
+        {
+            if (packageProducer is not null
+                && packageProducer != requestedProducer)
+            {
+                throw new ArgumentException(
+                    "The package-local candidate and settlement request name different package producers.",
+                    nameof(request));
+            }
+
+            packageProducer = requestedProducer;
+        }
 
         var receipts =
             ImmutableArray.CreateBuilder<
@@ -855,7 +870,14 @@ public static class PortablePdbSettlement
                 StoreFailure: storeProbe.Failure));
             positiveStoreReceiptRecorded = true;
 
-            if (request.PackageCandidate is not null)
+            if (request.PackageCandidate is not null
+                && request.CacheOnly)
+            {
+                receipts.Add(Skipped(
+                    PortablePdbSettlementCandidate.PackageLocal,
+                    PortablePdbSettlementSkipReason.CacheOnly));
+            }
+            else if (request.PackageCandidate is not null)
             {
                 packageProbe =
                     await ProbePackageLocalAsync(
@@ -921,7 +943,11 @@ public static class PortablePdbSettlement
                     request.NuGetSourceOptions,
                     operationToken,
                     request.Limits,
-                    evidence).ConfigureAwait(false);
+                    evidence,
+                    nuGetOrgPackageProducer:
+                        packageProducer
+                        == PackageProducerIdentity.NuGetOrg)
+                    .ConfigureAwait(false);
         }
         catch (PdbStoreAcquisitionException exception)
         {

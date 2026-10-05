@@ -288,7 +288,9 @@ internal static class MemberSourceLocationCollector
                     source.PackageVersion),
                 PackageHouseTargetContext.Exact(
                     source.SelectedTfm),
-                packageSource);
+                packageSource,
+                selectedLibraryPath:
+                    relativeAssemblyPath);
         if (bindingResult
             is not PortablePdbPackageBindingResult.Bound bound)
         {
@@ -301,11 +303,7 @@ internal static class MemberSourceLocationCollector
 
         PackageHouseLibraryInventoryRow row =
             bound.Value.Candidate.Row;
-        if (!string.Equals(
-                row.CompileEntry.Path,
-                relativeAssemblyPath,
-                StringComparison.Ordinal)
-            || bound.Value.Assembly.Identity
+        if (bound.Value.Assembly.Identity
                 != sourceAssembly.Identity)
         {
             logger.LogWarning(
@@ -358,6 +356,11 @@ internal static class MemberSourceLocationCollector
                 {
                     PackageCandidate =
                         bound.Value.Candidate,
+                    PackageProducer =
+                        PackageSourceClientFactory
+                            .GetProducerIdentity(
+                                source.PackageAuthority
+                                    .Source),
                     NuGetSourceOptions = sourceOptions,
                     Timeout = TimeSpan.FromMinutes(5),
                     Log = logger.Log,

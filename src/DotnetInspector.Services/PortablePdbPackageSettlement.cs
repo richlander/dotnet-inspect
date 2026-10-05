@@ -48,6 +48,9 @@ public sealed class PortablePdbPackageCandidate
 
     public PackageSourceCoordinate Coordinate =>
         Inventory.Narrowing.Acquisition.Candidate.Coordinate;
+
+    public PackageProducerIdentity Producer =>
+        Inventory.Narrowing.Acquisition.Producer;
 }
 
 public enum PortablePdbPackageBindingFailureKind
@@ -59,6 +62,7 @@ public enum PortablePdbPackageBindingFailureKind
     AssemblyContentUnavailable,
     InvalidAssemblyContent,
     AssemblyIdentityMismatch,
+    SelectedLibraryUnavailable,
 }
 
 /// <summary>
@@ -114,6 +118,7 @@ public static class PortablePdbPackageComposition
         PackageSourceCoordinate coordinate,
         PackageHouseTargetContext target,
         IPortablePdbPackageContentSource source,
+        string? selectedLibraryPath = null,
         long maxAssemblyBytes = DefaultMaxAssemblyBytes,
         CancellationToken cancellationToken = default)
     {
@@ -151,15 +156,57 @@ public static class PortablePdbPackageComposition
                 inventorySettlement);
         }
 
-        PackageHouseLibraryInventoryRow row =
-            library.Selection.SelectedRow;
+        PackageHouseLibraryInventoryRow? row =
+            selectedLibraryPath is null
+                ? library.Selection.SelectedRow
+                : library.Inventory.Rows.FirstOrDefault(
+                    candidate => string.Equals(
+                        candidate.CompileEntry.Path,
+                        selectedLibraryPath,
+                        StringComparison.Ordinal));
+        if (row is null)
+        {
+            return new PortablePdbPackageBindingResult.Terminal(
+                PortablePdbPackageBindingFailureKind
+                    .SelectedLibraryUnavailable,
+                inventorySettlement);
+        }
+
         PackageHouseContentNarrowing.TfmWide narrowing =
             (PackageHouseContentNarrowing.TfmWide)
                 library.Inventory.Narrowing.Narrowing;
+        PackageHouseSettlement.Acquired compileAcquired = acquired;
+        PackageHouseSettlement compileSettlement = inventorySettlement;
+        if (!row.CompileEntry.Equals(
+                library.Selection.SelectedRow.CompileEntry))
+        {
+            PackageHouseContentQuery compileQuery =
+                library.Inventory.CreateFilesQuery(
+                    [row.CompileEntry]);
+            compileSettlement =
+                await source.AcquireAsync(
+                        coordinate,
+                        compileQuery,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+            if (compileSettlement
+                    is not PackageHouseSettlement.Acquired
+                        selectedLibraryAcquired
+                || selectedLibraryAcquired.Result
+                    is not PackageHouseResult.Settled)
+            {
+                return new PortablePdbPackageBindingResult.Terminal(
+                    Classify(compileSettlement.Result),
+                    compileSettlement);
+            }
+
+            compileAcquired = selectedLibraryAcquired;
+        }
+
         (byte[]? compileImage,
             PortablePdbPackageBindingFailureKind? compileFailure) =
             await ReadEntryAsync(
-                    acquired,
+                    compileAcquired,
                     row.CompileEntry,
                     maxAssemblyBytes,
                     cancellationToken)
@@ -171,7 +218,7 @@ public static class PortablePdbPackageComposition
                 compileFailure
                     ?? PortablePdbPackageBindingFailureKind
                         .AssemblyContentUnavailable,
-                inventorySettlement);
+                compileSettlement);
         }
 
         ResolvedAssemblyReference? compileAssembly =
@@ -185,7 +232,7 @@ public static class PortablePdbPackageComposition
             return new PortablePdbPackageBindingResult.Terminal(
                 PortablePdbPackageBindingFailureKind
                     .InvalidAssemblyContent,
-                inventorySettlement);
+                compileSettlement);
         }
 
         ResolvedAssemblyReference assembly =

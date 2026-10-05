@@ -102,6 +102,7 @@ PortablePdbSettlementRequest
   SelectedAssemblyContent
   PortablePdbIdentity
   AssemblyProvenance
+  OptionalExactPackageProducer
   OptionalLogicalLibrarySubject
   OptionalPackagePdbEntryReference
   ProviderPolicy
@@ -132,6 +133,14 @@ implementation assembly first and construct settlement from its reference,
 content generation, and CodeView identity. The result retains the logical
 Library and correspondence receipt separately; it never attributes
 implementation sequence points to the reference image.
+
+When a package target contains multiple Libraries, the caller supplies the
+selected assembly's exact package-relative compile path from its package
+provenance. Package composition matches that path to one owner-issued inventory
+row, exact-acquires its compile entry when it is not the inventory terminal's
+default Library, and preserves that row through implementation and PDB
+settlement. The terminal's deterministic default selection does not override
+the Library already selected by the production command.
 
 An assembly with no applicable Portable CodeView identity has no standalone
 Portable PDB request. Applicable embedded Portable PDB content may still settle
@@ -205,6 +214,11 @@ settlement may continue to policy-authorized external providers for its exact
 symbol-bearing assembly; it does not silently issue a PackageHouse inventory
 query merely because symbols were requested.
 
+An owner-issued package-local candidate also carries the exact producer that
+supplied its PackageHouse generation. A separately supplied producer must match
+that receipt. Configured-source eligibility cannot widen external symbol
+authorization beyond the producer that supplied the package.
+
 ### Provider policy
 
 Provider ordering consumes typed evidence:
@@ -232,6 +246,11 @@ The initial CLI policy is:
    explicitly authorized for that producer; and
 4. in offline or cache-only mode, embedded and verified-store content plus
    already supplied package content, with no remote request.
+
+A PackageHouse inventory row and exact entry reference are evidence, not
+already supplied PDB bytes. Cache-only settlement therefore skips that
+package-local acquisition unless a future candidate type explicitly carries
+the PDB content itself.
 
 Microsoft-owned-package specialization remains unavailable until an
 owner-issued publisher identity exists. The current package-ID-prefix

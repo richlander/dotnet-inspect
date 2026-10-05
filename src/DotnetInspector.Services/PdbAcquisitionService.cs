@@ -91,7 +91,8 @@ public static class PdbAcquisitionService
         IPackageSourceAuthorization? sourceAuthorization,
         SymbolAcquisitionLimits? limits = null,
         PortablePdbAcquisitionEvidenceCollector? evidence = null,
-        bool allowMicrosoftPackageNameHeuristic = true)
+        bool allowMicrosoftPackageNameHeuristic = true,
+        bool? nuGetOrgPackageProducer = null)
     {
         PortablePdbAcquisitionResult result =
             await AcquireContentCoreAsync(
@@ -173,7 +174,8 @@ public static class PdbAcquisitionService
         IPackageSourceAuthorization? sourceAuthorization,
         SymbolAcquisitionLimits? limits = null,
         PortablePdbAcquisitionEvidenceCollector? evidence = null,
-        bool allowMicrosoftPackageNameHeuristic = true)
+        bool allowMicrosoftPackageNameHeuristic = true,
+        bool? nuGetOrgPackageProducer = null)
     {
         MicrosoftSymbolServerPackagePolicy packagePolicy =
             allowMicrosoftPackageNameHeuristic
@@ -213,7 +215,8 @@ public static class PdbAcquisitionService
                 sourceOptions,
                 cancellationToken,
                 context.PdbId.Stamp,
-                evidence)
+                evidence,
+                nuGetOrgPackageProducer)
             .ConfigureAwait(false);
     }
 
@@ -332,7 +335,8 @@ public static class PdbAcquisitionService
         NuGetSourceOptions? sourceOptions = null,
         CancellationToken cancellationToken = default,
         SymbolAcquisitionLimits? limits = null,
-        PortablePdbAcquisitionEvidenceCollector? evidence = null)
+        PortablePdbAcquisitionEvidenceCollector? evidence = null,
+        bool? nuGetOrgPackageProducer = null)
     {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(assembly);
@@ -371,7 +375,9 @@ public static class PdbAcquisitionService
                         sourceAuthorization,
                         limits,
                         evidence,
-                        allowMicrosoftPackageNameHeuristic: false)
+                        allowMicrosoftPackageNameHeuristic: false,
+                        nuGetOrgPackageProducer:
+                            nuGetOrgPackageProducer)
                     .ConfigureAwait(false);
     }
 
