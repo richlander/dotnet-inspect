@@ -47,8 +47,6 @@
   <ItemGroup>
     <ProjectReference Include="..\ILInspector.Metadata.LegacyOracles\ILInspector.Metadata.LegacyOracles.csproj" />
     <ProjectReference Include="..\..\src\DotnetInspector.PackageQueries\DotnetInspector.PackageQueries.csproj" />
-    <ProjectReference Include="..\..\src\DotnetInspector.DocumentationHouse.Direct\DotnetInspector.DocumentationHouse.Direct.csproj" />
-    <ProjectReference Include="..\..\src\DotnetInspector.DocumentationHouse.Source\DotnetInspector.DocumentationHouse.Source.csproj" />
     <ProjectReference Include="..\..\src\DotnetInspector.Ecosystems\DotnetInspector.Ecosystems.csproj" />
     <ProjectReference Include="..\..\src\QuerySpace\QuerySpace.csproj" />
     <ProjectReference Include="..\..\src\DotnetInspector.Presentation\DotnetInspector.Presentation.csproj" />
