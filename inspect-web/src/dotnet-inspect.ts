@@ -21196,20 +21196,19 @@ function loadSelectedTypeMemberPopulation():
         || state.typeMemberPopulationKey !== key) {
         return receipt;
       }
-      const expectedDeclarationSource =
+      const requiresImplementation =
         state.rootKind === "library"
         || pkg.isRuntimePack
-        || typeMemberPopulationSource(type) === "implementation"
-          ? "Implementation"
-          : "Surface";
+        || typeMemberPopulationSource(type) === "implementation";
       const sourceMismatch =
         inspection.outcome === "Available"
         && inspection.population
+        && requiresImplementation
         && inspection.population.declarationSource
-          !== expectedDeclarationSource;
+          !== "Implementation";
       state.typeMemberPopulation = sourceMismatch ? null : inspection;
       state.typeMemberPopulationError = sourceMismatch
-        ? `The required ${expectedDeclarationSource.toLowerCase()} declaration resolved to ${String(inspection.population.declarationSource).toLowerCase()} evidence.`
+        ? "The required implementation declaration resolved to surface evidence."
         : inspection.outcome === "Available"
           ? ""
           : inspection.detail
