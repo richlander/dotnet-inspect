@@ -1,5 +1,7 @@
 using DotnetInspector.Sections;
-using DotnetInspector.Vocabulary;
+using DotnetInspector.Queries;
+using ILInspector.Decompiler;
+using ILInspector.Decompiler.Pipeline;
 
 namespace DotnetInspect.Cli.Sections;
 
@@ -35,7 +37,7 @@ public static class VocabularySections
 
     public sealed class Index : ISectionDescriptor<VocabularyDocument>
     {
-        public static string Name => VocabularyCatalog.SectionsSection;
+        public static string Name => ProductVocabularyComposition.SectionsLabel;
         public static bool IsExpensive => false;
         public static bool Info => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Terse;
@@ -46,7 +48,7 @@ public static class VocabularySections
     public sealed class Accessibility :
         ISectionDescriptor<VocabularyDocument>
     {
-        public static string Name => VocabularyCatalog.AccessibilitySection;
+        public static string Name => ApiAccessibilityVocabulary.AccessibilityLabel;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Terse;
@@ -56,7 +58,7 @@ public static class VocabularySections
 
     public sealed class StyleTiers : ISectionDescriptor<VocabularyDocument>
     {
-        public static string Name => VocabularyCatalog.StyleTiersSection;
+        public static string Name => StyleOptionVocabularies.StyleTiersLabel;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Terse;
@@ -67,7 +69,7 @@ public static class VocabularySections
     public sealed class StyleChoices :
         ISectionDescriptor<VocabularyDocument>
     {
-        public static string Name => VocabularyCatalog.StyleChoicesSection;
+        public static string Name => StyleOptionVocabularies.StyleChoicesLabel;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static SectionSizeClass SizeClass =>
@@ -78,7 +80,7 @@ public static class VocabularySections
 
     public sealed class BodyKinds : ISectionDescriptor<VocabularyDocument>
     {
-        public static string Name => VocabularyCatalog.BodyKindsSection;
+        public static string Name => BodyShapeVocabulary.BodyKindsLabel;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
