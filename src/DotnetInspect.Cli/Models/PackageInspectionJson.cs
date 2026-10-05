@@ -148,11 +148,15 @@ public sealed class EcosystemDependencyRecognitionJson
 
     public required string[] Ecosystems { get; init; }
 
+    public required string[] CandidateEcosystems { get; init; }
+
     public required EcosystemDependencyJson[] Dependencies { get; init; }
+
+    public required EcosystemDependencyJson[] Candidates { get; init; }
 
     internal static EcosystemDependencyRecognitionJson? Create(
         InspectionEnvelope<EcosystemDependencyRecognitionOutcome>? inspection,
-        IReadOnlyList<EcosystemDependencyRecognitionEntry>? selectedRows)
+        IReadOnlyList<EcosystemDependencyMatchEntry>? selectedRows)
     {
         if (inspection?.Content is not { } outcome)
         {
@@ -175,9 +179,9 @@ public sealed class EcosystemDependencyRecognitionJson
                 unavailable.InputIssues.Length,
             _ => 0,
         };
-        IReadOnlyList<EcosystemDependencyRecognitionEntry> entries =
+        IReadOnlyList<EcosystemDependencyMatchEntry> entries =
             selectedRows
-            ?? document?.Classification.Recognized
+            ?? document?.Classification.Matches
             ?? [];
 
         return new EcosystemDependencyRecognitionJson
@@ -197,9 +201,23 @@ public sealed class EcosystemDependencyRecognitionJson
                 .Select(static ecosystem => ecosystem.Title)
                 .ToArray()
                 ?? [],
+            CandidateEcosystems =
+                document?.Classification.CandidateEcosystems
+                    .Select(static ecosystem => ecosystem.Title)
+                    .ToArray()
+                ?? [],
             Dependencies = document is null
                 ? []
                 : entries
+                    .OfType<EcosystemDependencyRecognitionEntry>()
+                    .Select(entry =>
+                        PackageEcosystemDependencyRow.Create(entry, document))
+                    .Select(EcosystemDependencyJson.Create)
+                    .ToArray(),
+            Candidates = document is null
+                ? []
+                : entries
+                    .OfType<EcosystemDependencyCandidateEntry>()
                     .Select(entry =>
                         PackageEcosystemDependencyRow.Create(entry, document))
                     .Select(EcosystemDependencyJson.Create)
@@ -212,6 +230,8 @@ public sealed class EcosystemDependencyJson
 {
     public required string Ecosystem { get; init; }
 
+    public required string Recognition { get; init; }
+
     public required string Kind { get; init; }
 
     public required string Dependency { get; init; }
@@ -221,6 +241,8 @@ public sealed class EcosystemDependencyJson
     public string? Coverage { get; init; }
 
     public required string MatchingBases { get; init; }
+
+    public string? AssemblyEvidence { get; init; }
 
     public string? VersionOrRange { get; init; }
 
@@ -237,11 +259,13 @@ public sealed class EcosystemDependencyJson
         new()
         {
             Ecosystem = row.Ecosystem,
+            Recognition = row.Recognition,
             Kind = row.Kind,
             Dependency = row.Dependency,
             DeclaredBy = row.DeclaredBy,
             Coverage = row.Coverage,
             MatchingBases = row.MatchingBases,
+            AssemblyEvidence = row.AssemblyEvidence,
             VersionOrRange = row.VersionOrRange,
             Occurrence = row.Occurrence,
             RequestedTargetFramework = row.RequestedTargetFramework,
