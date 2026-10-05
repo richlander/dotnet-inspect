@@ -1,13 +1,14 @@
 # Library-body root paths
 
 This document owns Analysis's bounded path evidence from caller-supplied exact
-roots to exact destination methods in one already-built `LibraryBodyIndex`
-(issue #6601).
+roots to exact destination methods in one focused
+`LibraryCallGraphAnalysisResult` (issue #6601).
 
 ## Claim and owner
 
-`ILInspector.Analysis` owns one focused operation: given one exact local body
-index, exact root and destination MethodDefs, and explicit search limits,
+`ILInspector.Analysis` owns one focused operation: given one exact local
+call-graph result, exact root and destination MethodDefs, and explicit search
+limits,
 return deterministic shortest local call witnesses with their physical call
 receipts and visible completion boundaries.
 
@@ -50,27 +51,28 @@ The existing `CallerLoopEvidenceAnalysis.FindNearest` uses breadth-first
 frontiers for nearest call evidence, while
 `CallGraphProjection.FindFocusCycles` uses breadth-first paths with independent
 retained-witness and search-work limits. This operation follows that convention
-but remains Analysis-owned and traverses the body index directly rather than a
-rendering projection.
+but remains Analysis-owned and traverses the focused call-graph result directly
+rather than a rendering projection.
 
 ## Exact input
 
 The operation accepts:
 
-- one `LibraryBodyIndex`, which fixes the physical local participant;
+- one `LibraryCallGraphAnalysisResult`, which fixes the physical local
+  participant;
 - a non-empty set of root `MetadataMethodAddress` values;
 - a non-empty set of destination `MetadataMethodAddress` values; and
 - explicit maximum depth, search-node, searched-edge, and retained-path limits.
 
-Each address must carry the index MVID and name a declared MethodDef in that
-index. The live index supplies the participant-local boundary; the later
+Each address must carry the result MVID and name a declared MethodDef in that
+result. The focused result supplies the participant-local boundary; the later
 Queries composition pairs it with acquisition registration so duplicate
 physical participants remain distinct. Duplicate addresses are one set member,
 and input order has no semantic effect.
 
 ## Local call graph
 
-Vertices are declared MethodDefs in the selected index. A directed edge exists
+Vertices are declared MethodDefs in the selected result. A directed edge exists
 from caller to callee for an indexed `call`, `callvirt`, or `newobj` occurrence
 whose typed operand resolves to a MethodDef in the same module. Calls to the
 provider, framework, or any other participant do not enter the graph.
@@ -83,8 +85,9 @@ instruction coordinate. Repeated sites therefore remain separate receipts but
 contribute one graph hop.
 
 Synchronous iterator `MoveNext` bodies are not currently attributed to their
-source method by `LibraryBodyIndex`. Their calls do not fabricate a path from
-the iterator method; a typed generated-body boundary makes absence incomplete.
+source method by call-graph acquisition. Their calls do not fabricate a path
+from the iterator method; a typed generated-body boundary makes absence
+incomplete.
 
 The operation does not infer reflection, delegates, dynamic dispatch, or
 runtime virtual targets. A direct `callvirt` operand remains the exact static
@@ -118,10 +121,9 @@ reached.
 
 ## Bounds and completion
 
-The already-materialized `LibraryBodyIndex` and its lazily cached local
-adjacency indexing are prerequisites, not path-search work. The cache is
-released by `LibraryBodyIndex.ReleaseCallGraphCaches`. The operation's receipt
-counts:
+The already-produced `LibraryCallGraphAnalysisResult` and its lazily cached
+local adjacency indexing are prerequisites, not path-search work. The
+operation's receipt counts:
 
 - one search node for each admitted `(destination, method)` state;
 - one searched edge for each logical incoming edge examined;

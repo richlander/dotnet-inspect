@@ -10,10 +10,13 @@
 
   <PropertyGroup>
     <Authors>Richard Lander</Authors>
-    <Description>Package-neutral platform identity contracts</Description>
+    <Description>Package-neutral platform identity contracts and platform manifest format interpretation</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
   </PropertyGroup>
 
-  <!-- Resource-free contract floor: references no project by design. -->
+  <!-- Resource-free contract floor: no House, source, package, pruning, Metadata, or result dependency by design. UntrustedDocuments is the hardened JSON floor the manifest readers consume. -->
+  <ItemGroup>
+    <ProjectReference Include="../UntrustedDocuments/UntrustedDocuments.csproj" />
+  </ItemGroup>
 
 </Project>

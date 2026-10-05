@@ -25,7 +25,8 @@ internal sealed record IrTypeFactSnapshot(
     IReadOnlySet<TypeRef> ByRefLikeTypes,
     IReadOnlySet<TypeRef> InterfaceTypes,
     IReadOnlySet<TypeDefinitionIdentity> EqualityOperatorFreeTypes,
-    IReadOnlySet<TypeDefinitionIdentity> InequalityOperatorFreeTypes)
+    IReadOnlySet<TypeDefinitionIdentity> InequalityOperatorFreeTypes,
+    IReadOnlySet<ReferenceWidening> ProvenReferenceWidenings)
 {
     internal string Signature => string.Join(
         "|",
@@ -48,6 +49,7 @@ internal sealed record IrTypeFactSnapshot(
             Set(InterfaceTypes, Type),
             Set(EqualityOperatorFreeTypes, Identity),
             Set(InequalityOperatorFreeTypes, Identity),
+            Set(ProvenReferenceWidenings, static widening => $"{Type(widening.From)}>{Type(widening.To)}"),
         ]);
 
     static string Map<TValue>(

@@ -313,11 +313,22 @@ public abstract record ResourceExplanationIdentity
 
     public sealed record Structural : ResourceExplanationIdentity
     {
-        public Structural(DiscoveryResourceIdentity resource)
+        public Structural(
+            string catalogName,
+            DiscoveryResourceIdentity resource)
         {
+            ArgumentException.ThrowIfNullOrWhiteSpace(catalogName);
+            CatalogName = catalogName;
             Resource =
                 resource ?? throw new ArgumentNullException(nameof(resource));
         }
+
+        /// <summary>
+        /// The structural catalog the resource belongs to (for example
+        /// <c>library</c> or <c>package</c>); two catalogs may author a
+        /// category or section of the same name.
+        /// </summary>
+        public string CatalogName { get; }
 
         public DiscoveryResourceIdentity Resource { get; }
 
@@ -588,13 +599,17 @@ public abstract record ResourceExplanationDetail
         public StructuralSectionDetails(
             string name,
             ImmutableArray<DiscoveryOutputMode> outputModes,
-            int memberCount)
+            int memberCount,
+            SectionShape? shape = null,
+            SectionCardinalityKind? cardinality = null)
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(name);
             ArgumentOutOfRangeException.ThrowIfNegative(memberCount);
             Name = name;
             OutputModes = NormalizeOutputModes(outputModes);
             MemberCount = memberCount;
+            Shape = shape;
+            Cardinality = cardinality;
         }
 
         public override string Name { get; }
@@ -602,6 +617,14 @@ public abstract record ResourceExplanationDetail
         public ImmutableArray<DiscoveryOutputMode> OutputModes { get; }
 
         public int MemberCount { get; }
+
+        /// <summary>Declared shape (Table, Hierarchy, Text) when the owner has adopted shapes.</summary>
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public SectionShape? Shape { get; }
+
+        /// <summary>Declared cardinality (scalar or inventory) when the owner declares one.</summary>
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public SectionCardinalityKind? Cardinality { get; }
     }
 
     public sealed record StructuralItemDetails :
