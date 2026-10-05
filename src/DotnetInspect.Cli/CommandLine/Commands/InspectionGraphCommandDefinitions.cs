@@ -13,17 +13,31 @@ namespace DotnetInspect.Cli.CommandLine;
 
 public static class InspectionGraphCommandDefinitions
 {
-    public static Command CreateGraphCommand(SharedOptions opts)
+    public static Command CreateGraphCommand(SharedOptions opts) =>
+        CreateGraphCommandCore(opts, packagePairLoadOptions: null);
+
+    internal static Command CreateGraphCommand(
+        SharedOptions opts,
+        WorkspaceContextLoadOptions packagePairLoadOptions) =>
+        CreateGraphCommandCore(opts, packagePairLoadOptions);
+
+    static Command CreateGraphCommandCore(
+        SharedOptions opts,
+        WorkspaceContextLoadOptions? packagePairLoadOptions)
     {
         var command = new Command(
             InspectionGraphCommand.Name,
             "Inspect typed relationships across an explicit workspace");
         var integrations = CreateIntegrationsCommand(opts);
         var libraries = CreateLibrariesCommand(opts);
-        var cluster = CreateClusterCommand(opts);
+        var packages = CreatePackagesCommand(opts);
+        var cluster = CreateClusterCommand(
+            opts,
+            packagePairLoadOptions);
         var calls = CreateCallsCommand(opts);
         command.Subcommands.Add(integrations);
         command.Subcommands.Add(libraries);
+        command.Subcommands.Add(packages);
         command.Subcommands.Add(cluster);
         command.Subcommands.Add(calls);
         command.SetAction(_ =>
@@ -325,20 +339,116 @@ public static class InspectionGraphCommandDefinitions
             LibraryCallUseRouteKind.Libraries,
             clusterArgument: null);
 
-    static Command CreateClusterCommand(SharedOptions opts)
+    static Command CreatePackagesCommand(SharedOptions opts)
+    {
+        var command = new Command(
+            PackagePairCallUseCommand.Name,
+            "Discover direct-use clusters between two exact packages");
+        var packageOption = new Option<string[]>("--package")
+        {
+            Description =
+                "Package in the exact pair (name or name@version). Specify exactly twice.",
+            AllowMultipleArgumentsPerToken = false,
+        };
+        var tfmOption = new Option<string>("--tfm")
+        {
+            Description =
+                "Shared target framework for both packages",
+        };
+        command.Options.Add(packageOption);
+        command.Options.Add(tfmOption);
+        command.Options.Add(opts.Json);
+        command.Options.Add(opts.Markdown);
+        command.Options.Add(opts.PlainText);
+        opts.AddTableOptionsTo(command);
+        opts.AddOutputOptionsTo(command);
+        opts.AddSectionOptionsTo(command);
+        opts.AddCountOptionTo(command);
+        opts.AddNuGetOptionsTo(command);
+
+        command.SetAction(async (parseResult, cancellationToken) =>
+        {
+            string[]? discover = opts.ParseDiscover(parseResult);
+            if (discover is not null)
+            {
+                Console.WriteLine(PackagePairCallUseCommand.DirectUseClustersSection);
+                Console.WriteLine(PackagePairCallUseCommand.LibraryPairsSection);
+                Console.WriteLine(PackagePairCallUseCommand.CallSitesSection);
+                return 0;
+            }
+            if (!CliRowSelectionCommandRegistry
+                .TryGetPreparedSemanticIntent(
+                    parseResult,
+                    "Package-pair call topology",
+                    out RowSelectionIntent<string>? rowSelection,
+                    out string? rowSelectionError))
+            {
+                CommandError.Write(rowSelectionError!);
+                return 1;
+            }
+            return await PackagePairCallUseCommand.ExecuteAsync(
+                new()
+                {
+                    Packages =
+                        parseResult.GetValue(packageOption) ?? [],
+                    TargetFramework =
+                        parseResult.GetValue(tfmOption) ?? "",
+                    Format = opts.ResolveFormat(parseResult),
+                    Count = parseResult.GetValue(opts.Count),
+                    RowSelection = rowSelection,
+                    Rows = rowSelection is null
+                        ? opts.ParseRows(parseResult)
+                        : null,
+                    NoHeader = parseResult.GetValue(opts.NoHeaders),
+                    Verbose = parseResult.GetValue(opts.Verbose),
+                    Columns = opts.ParseColumns(parseResult),
+                    Fields = opts.ParseFields(parseResult),
+                    Sections = opts.ParseSelect(parseResult) ?? [],
+                    SourceOptions =
+                        opts.ParseNuGetSourceOptions(parseResult),
+                },
+                cancellationToken);
+        });
+
+        CliRowSelectionCommandRegistry.Register(
+            command,
+            new(
+                opts.Limit,
+                opts.Rows,
+                top: null,
+                orderBy: null,
+                opts.Head,
+                opts.Tail,
+                opts.Lines,
+                opts.TailLines),
+            CliRowSelectionCapabilities.HeadTail
+                | CliRowSelectionCapabilities.Window
+                | CliRowSelectionCapabilities.Lines,
+            isActive: static _ => true,
+            validateLowering: (result, lowering) =>
+                CliRowSelectionValidation.ValidateLineSelectionForOutput(
+                    opts.IsJsonDocumentOutput(result),
+                    lowering));
+        return command;
+    }
+
+    static Command CreateClusterCommand(
+        SharedOptions opts,
+        WorkspaceContextLoadOptions? packagePairLoadOptions)
     {
         var clusterArgument = new Argument<int?>("cluster")
         {
             Description =
-                "Positive pair-local Direct-Use Cluster ordinal",
+                "Positive Direct-Use Cluster ordinal for the selected Library or Package pair",
             Arity = ArgumentArity.ZeroOrOne,
         };
         return CreateLibraryCallUseCommand(
             opts,
             LibraryCallUseCommand.ClusterName,
-            "Inspect one Direct-Use Cluster between two local libraries",
+            "Inspect one Direct-Use Cluster between two local libraries or exact packages",
             LibraryCallUseRouteKind.Cluster,
-            clusterArgument);
+            clusterArgument,
+            packagePairLoadOptions);
     }
 
     static Command CreateLibraryCallUseCommand(
@@ -346,7 +456,8 @@ public static class InspectionGraphCommandDefinitions
         string name,
         string description,
         LibraryCallUseRouteKind routeKind,
-        Argument<int?>? clusterArgument)
+        Argument<int?>? clusterArgument,
+        WorkspaceContextLoadOptions? packagePairLoadOptions = null)
     {
         var command = new Command(
             name,
@@ -357,11 +468,28 @@ public static class InspectionGraphCommandDefinitions
                 "Local managed library in the induced pair. Specify exactly twice.",
             AllowMultipleArgumentsPerToken = false,
         };
+        var packageOption = new Option<string[]>("--package")
+        {
+            Description =
+                "Package in the exact pair (name or name@version). Specify exactly twice.",
+            AllowMultipleArgumentsPerToken = false,
+        };
+        var tfmOption = new Option<string?>("--tfm")
+        {
+            Description =
+                "Shared target framework for a Package pair",
+        };
         if (clusterArgument is not null)
         {
             command.Arguments.Add(clusterArgument);
         }
         command.Options.Add(libraryOption);
+        if (routeKind == LibraryCallUseRouteKind.Cluster)
+        {
+            command.Options.Add(packageOption);
+            command.Options.Add(tfmOption);
+            opts.AddNuGetOptionsTo(command);
+        }
         command.Options.Add(opts.Json);
         command.Options.Add(opts.Markdown);
         command.Options.Add(opts.PlainText);
@@ -408,6 +536,58 @@ public static class InspectionGraphCommandDefinitions
 
             string[] libraries =
                 parseResult.GetValue(libraryOption) ?? [];
+            string[] packages =
+                routeKind == LibraryCallUseRouteKind.Cluster
+                    ? parseResult.GetValue(packageOption) ?? []
+                    : [];
+            if (routeKind == LibraryCallUseRouteKind.Cluster
+                && packages.Length != 0)
+            {
+                if (libraries.Length != 0)
+                {
+                    CommandError.Write(
+                        "--library and --package cannot be combined.");
+                    return 1;
+                }
+                string? tfm = parseResult.GetValue(tfmOption);
+                if (string.IsNullOrWhiteSpace(tfm))
+                {
+                    CommandError.Write(
+                        "--tfm is required with --package.");
+                    return 1;
+                }
+                var packagePairOptions =
+                    new PackagePairCallUseOptions
+                    {
+                        Packages = packages,
+                        TargetFramework = tfm,
+                        Cluster = cluster,
+                        Format = opts.ResolveFormat(parseResult),
+                        Count = parseResult.GetValue(opts.Count),
+                        RowSelection = rowSelection,
+                        Rows = rowSelection is null
+                            ? opts.ParseRows(parseResult)
+                            : null,
+                        NoHeader =
+                            parseResult.GetValue(opts.NoHeaders),
+                        Verbose =
+                            parseResult.GetValue(opts.Verbose),
+                        Columns = opts.ParseColumns(parseResult),
+                        Fields = opts.ParseFields(parseResult),
+                        Sections =
+                            opts.ParseSelect(parseResult) ?? [],
+                        SourceOptions =
+                            opts.ParseNuGetSourceOptions(parseResult),
+                    };
+                return packagePairLoadOptions is null
+                    ? await PackagePairCallUseCommand.ExecuteAsync(
+                        packagePairOptions,
+                        cancellationToken)
+                    : await PackagePairCallUseCommand.ExecuteAsync(
+                        packagePairOptions,
+                        packagePairLoadOptions,
+                        cancellationToken);
+            }
 
             return await LibraryCallUseCommand.ExecuteAsync(
                 new LibraryCallUseOptions

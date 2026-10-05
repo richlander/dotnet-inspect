@@ -57,7 +57,7 @@ generated serializer context. `EngineCoreProject_HasOneWayOwnerReference`,
 This boundary is enforced by the compiler, not by a convention.
 The `inspect-web-executable-stays-at-host-boundary` dependency-policy rule
 allows `DotnetInspect.Web` to reference only the .NET platform,
-`TsJsExport.Contracts`, Web Core, and the seven capability facades in both the
+`TsJsExport.Contracts`, Web Core, and the eight capability facades in both the
 evaluated project and compiled assembly graphs. This catches low-level product
 use even when SDK transitivity makes its assembly available to compile.
 `src/DotnetInspect.Web/PlatformHazards/BannedSymbols.txt` closes the part that
@@ -71,7 +71,15 @@ Queries, and Sections in both graphs. Its project references declare that same
 set rather than relying on transitive access or retaining unused low-level
 projects, and it shares the narrow platform-hazard analyzer input.
 
-Web Core and the remaining capability facades still use the broader
+The separate `inspect-web-library-facade-*-dependencies-stay-within-capability-ratchet`
+rules preserve the Library facade's smaller evaluated-project boundary and its
+larger compiled-assembly boundary. The facade currently adapts the shared
+Library document and embedded-Library inspection while directly projecting
+Metadata-owned identity and API-surface values. It therefore keeps the broad
+semantic analyzer input until focused #8779 successors retire those low-level
+edges; the positive rules prevent either graph from expanding meanwhile.
+
+Web Core and the capability facades other than CallGraph still use the broader
 `src/DotnetInspect.Web/BannedSymbols.txt` while their positive component
 boundaries migrate under #8779. `BrowserEngineLayeringTests` pins both evaluated
 analyzer inputs and resolves every complete banned documentation ID, including

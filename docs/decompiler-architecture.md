@@ -125,7 +125,7 @@ defined, so a retirement slice can scope itself from the file list:
 | Decision class (#2095 inventory) | Defined in |
 | --- | --- |
 | Coercion routing (`CoerceText` and the enum routing family) | `.Numerics`; called from `.Statements`, `.Expressions`, `.Members` |
-| Join target compatibility | `.Numerics` |
+| Join target compatibility | Decided pre-print in `Pipeline/PrimitiveJoinTargetCompatibility.cs` (#2095); `.Numerics` keeps only the join-arm spelling |
 | Definite assignment (consumer of `DefiniteAssignment.cs`) | `.Declarations` |
 | Unsafe-context inference | `.UnsafeContext`; `_unsafeDepth` is read and updated from `.Statements` |
 | Cast-need predicates | `.Numerics`, plus `NeedsObjectBridgeForGenericUnbox` in `.Expressions` |

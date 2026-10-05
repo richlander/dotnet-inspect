@@ -40,6 +40,34 @@ public static class CoercionRendering
                 || type.DeclaredValueTypeHint == ValueTypeHint.ReferenceType
                 || shapes.GetValueOrDefault(NamedDefinition(type)) == TypeShape.Reference);
 
+    /// <summary>
+    /// True when <paramref name="type"/> can only be an enum where it meets an
+    /// integer operand: a named definition with no primitive stack family that
+    /// the shape map does not class as a reference or (non-enum) struct. A
+    /// cross-assembly enum loads no definition, so it resolves to
+    /// <see cref="TypeShape.Unknown"/> — this structural test, not a shape
+    /// lookup, is what recognizes it. Callers pair it with an integer sibling:
+    /// IL verification admits no other value type as an integer-op operand, so
+    /// the pairing is the proof it is an enum.
+    /// </summary>
+    internal static bool IsEnumLikeInteger(TypeRef? type, IReadOnlyDictionary<TypeRef, TypeShape> shapes)
+        => type is { Kind: TypeRefKind.Definition }
+                && TypeFamilies.Of(type) is null
+                && shapes.GetValueOrDefault(type) is not (TypeShape.Reference or TypeShape.ValueType)
+            || type is { Kind: TypeRefKind.GenericInstance }
+                && IsEnum(type, shapes);
+
+    /// <summary>The <c>T</c> of a <c>System.Nullable&lt;T&gt;</c>, else null.</summary>
+    internal static TypeRef? NullableValueType(TypeRef? type)
+        => type is
+        {
+            Kind: TypeRefKind.GenericInstance,
+            ElementType: { Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "Nullable`1" },
+            TypeArguments: [var value],
+        }
+            ? value
+            : null;
+
     internal static bool IsReferenceLike(TypeRef? type, IReadOnlyDictionary<TypeRef, TypeShape> shapes)
     {
         if (type is null || type.Kind is TypeRefKind.ByRef or TypeRefKind.Pointer or TypeRefKind.FunctionPointer)

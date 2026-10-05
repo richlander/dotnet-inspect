@@ -76,11 +76,12 @@ public class LibraryInspection
     { get; set; }
 
     /// <summary>
-    /// Presentation-selected ecosystem-dependency pairs. Null retains the
-    /// complete recognized population from the recognition Document.
+    /// Presentation-selected ecosystem-dependency matches. Null retains the
+    /// complete recognized and candidate populations from the recognition
+    /// Document.
     /// </summary>
     [JsonIgnore]
-    public IReadOnlyList<EcosystemDependencyRecognitionEntry>?
+    public IReadOnlyList<EcosystemDependencyMatchEntry>?
         EcosystemDependencyRows
     { get; set; }
 
@@ -601,6 +602,10 @@ public class LibraryInspection
     public ImmutableArray<OptimizationOpportunity>
         PerformanceTriageOpportunities
     { get; set; } = [];
+
+    [JsonIgnore]
+    internal OptimizationOpportunityCounts? PerformanceTriageCounts
+    { get; set; }
 
     /// <summary>
     /// Nested performance projection: the optimization opportunities bucketed by kind, mirroring
