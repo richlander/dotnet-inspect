@@ -773,14 +773,9 @@ public enum BrowserCapabilityResourceKind
     ConsumerBinding,
 }
 
-[JsonConverter(typeof(JsonStringEnumConverter<BrowserResourceExplanationResourceKind>))]
-public enum BrowserResourceExplanationResourceKind
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserCapabilityCatalogSearchResourceKind>))]
+public enum BrowserCapabilityCatalogSearchResourceKind
 {
-    Catalog,
-    NavigationCollection,
-    StructuralCategory,
-    StructuralSection,
-    StructuralItem,
     InspectionDocument,
     HostNeutralRoute,
     QuerySpace,
@@ -819,7 +814,7 @@ public sealed record BrowserCapabilityCatalogSearchResult(
     BrowserCapabilityCatalogSearchMatchSource MatchSource,
     bool IsSegment,
     BrowserCapabilityResourceIdentity ResourceIdentity,
-    BrowserResourceExplanationResourceKind ResourceKind,
+    BrowserCapabilityCatalogSearchResourceKind ResourceKind,
     string ResourceName,
     string[] CanonicalKeys,
     string ResourcePath,

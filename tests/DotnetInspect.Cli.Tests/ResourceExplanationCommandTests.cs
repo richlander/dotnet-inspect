@@ -44,11 +44,10 @@ public sealed class ResourceExplanationCommandTests : IDisposable
         using JsonDocument document = JsonDocument.Parse(json.Output);
         JsonElement root = document.RootElement.GetProperty("resources")[0];
         Assert.Equal(
-            "package",
-            root.GetProperty("identity").GetProperty("catalog_name").GetString());
-        JsonElement details = root.GetProperty("details");
-        Assert.Equal("Text", details.GetProperty("shape").GetString());
-        Assert.Equal("Scalar", details.GetProperty("cardinality").GetString());
+            "structural-section",
+            ResourceType(root));
+        Assert.Equal("text", TextFact(root, "shape"));
+        Assert.Equal("scalar", TextFact(root, "cardinality"));
 
         var catalog = await RunAsync("explain", "package");
 
@@ -62,11 +61,14 @@ public sealed class ResourceExplanationCommandTests : IDisposable
             "--json");
 
         Assert.Equal(0, library.ExitCode);
-        JsonElement libraryDetails =
+        JsonElement libraryRoot =
             JsonDocument.Parse(library.Output).RootElement
-                .GetProperty("resources")[0]
-                .GetProperty("details");
-        Assert.False(libraryDetails.TryGetProperty("shape", out _));
+                .GetProperty("resources")[0];
+        Assert.Equal(
+            "Absent",
+            Fact(libraryRoot, "shape")
+                .GetProperty("state")
+                .GetString());
     }
 
     [Fact]
@@ -256,44 +258,36 @@ public sealed class ResourceExplanationCommandTests : IDisposable
             explanationDocument.RootElement
                 .GetProperty("resources")[0];
         Assert.Equal(
-            "QueryFacet",
-            root.GetProperty("resource_kind").GetString());
+            "query-facet",
+            ResourceType(root));
         Assert.Equal(
             "library-literal",
-            root.GetProperty("details")
-                .GetProperty("key")
-                .GetString());
+            TextFact(root, "key"));
         Assert.Equal(
             ["https://"],
-            root.GetProperty("details")
-                .GetProperty("examples")
-                .EnumerateArray()
-                .Select(static value => value.GetString()));
+            TextFacts(root, "examples"));
         Assert.Contains(
             explanationDocument.RootElement
                 .GetProperty("resources")
                 .EnumerateArray(),
             resource =>
-                resource.GetProperty("resource_kind").GetString()
-                    == "ConsumerBinding");
+                ResourceType(resource) == "consumer-binding");
         Assert.Contains(
             explanationDocument.RootElement
                 .GetProperty("relationships")
                 .EnumerateArray(),
             relationship =>
-                relationship.GetProperty("relationship_kind").GetString()
-                    == "ExposedBy"
-                && relationship.GetProperty("target_path").GetString()
-                    == "package-query/bindings/cli");
+                RelationshipKind(relationship) == "exposed-by"
+                && TargetPaths(relationship).Contains(
+                    "package-query/bindings/cli"));
         Assert.Contains(
             explanationDocument.RootElement
                 .GetProperty("relationships")
                 .EnumerateArray(),
             relationship =>
-                relationship.GetProperty("relationship_kind").GetString()
-                    == "RequiredContext"
-                && relationship.GetProperty("target_path").GetString()
-                    == "package-query/query/facets/library-target");
+                RelationshipKind(relationship) == "required-context"
+                && TargetPaths(relationship).Contains(
+                    "package-query/query/facets/library-target"));
     }
 
     [Fact]
@@ -322,8 +316,7 @@ public sealed class ResourceExplanationCommandTests : IDisposable
                 .GetProperty("resources")
                 .EnumerateArray(),
             resource =>
-                resource.GetProperty("resource_kind").GetString()
-                    == "InspectionDocument"
+                ResourceType(resource) == "inspection-document"
                 && resource.GetProperty("path").GetString()
                     == "package-files");
         Assert.Contains(
@@ -331,8 +324,7 @@ public sealed class ResourceExplanationCommandTests : IDisposable
                 .GetProperty("resources")
                 .EnumerateArray(),
             resource =>
-                resource.GetProperty("resource_kind").GetString()
-                    == "QuerySpace"
+                ResourceType(resource) == "query-space"
                 && resource.GetProperty("path").GetString()
                     == "package-files/query");
         Assert.Contains(
@@ -340,8 +332,7 @@ public sealed class ResourceExplanationCommandTests : IDisposable
                 .GetProperty("resources")
                 .EnumerateArray(),
             resource =>
-                resource.GetProperty("resource_kind").GetString()
-                    == "ConsumerBinding"
+                ResourceType(resource) == "consumer-binding"
                 && resource.GetProperty("path").GetString()
                     == "package-files/bindings/cli");
     }
@@ -413,11 +404,10 @@ public sealed class ResourceExplanationCommandTests : IDisposable
             JsonDocument.Parse(explanation.Output);
         Assert.Equal(
             "library-literal",
-            explanationDocument.RootElement
-                .GetProperty("resources")[0]
-                .GetProperty("details")
-                .GetProperty("key")
-                .GetString());
+            TextFact(
+                explanationDocument.RootElement
+                    .GetProperty("resources")[0],
+                "key"));
     }
 
     [Fact]
@@ -598,11 +588,10 @@ public sealed class ResourceExplanationCommandTests : IDisposable
                 .GetProperty("requested_path")
                 .GetString());
         Assert.Equal(
-            "StructuralSection",
-            document.RootElement
-                .GetProperty("resources")[0]
-                .GetProperty("resource_kind")
-                .GetString());
+            "structural-section",
+            ResourceType(
+                document.RootElement
+                    .GetProperty("resources")[0]));
         Assert.True(
             document.RootElement
                 .GetProperty("resources")
@@ -663,6 +652,61 @@ public sealed class ResourceExplanationCommandTests : IDisposable
         Assert.Equal(0, result.ExitCode);
         Assert.Equal(0, requests);
     }
+
+    private static string ResourceType(JsonElement resource) =>
+        resource.GetProperty("key")
+            .GetProperty("resource_type")
+            .GetProperty("value")
+            .GetString()!;
+
+    private static JsonElement Fact(
+        JsonElement resource,
+        string identity) =>
+        resource.GetProperty("facts")
+            .EnumerateArray()
+            .Single(fact =>
+                fact.GetProperty("fact")
+                    .GetProperty("value")
+                    .GetString()
+                == identity);
+
+    private static string TextFact(
+        JsonElement resource,
+        string identity) =>
+        Fact(resource, identity)
+            .GetProperty("values")[0]
+            .GetProperty("value")
+            .GetProperty("text")
+            .GetString()!;
+
+    private static string?[] TextFacts(
+        JsonElement resource,
+        string identity) =>
+        Fact(resource, identity)
+            .GetProperty("values")
+            .EnumerateArray()
+            .Select(value =>
+                value.GetProperty("value")
+                    .GetProperty("text")
+                    .GetString())
+            .ToArray();
+
+    private static string RelationshipKind(JsonElement relationship) =>
+        relationship.GetProperty("relationship")
+            .GetProperty("value")
+            .GetString()!;
+
+    private static string?[] TargetPaths(JsonElement relationship) =>
+        relationship.GetProperty("targets")
+            .EnumerateArray()
+            .SelectMany(target =>
+                target.GetProperty("addresses").EnumerateArray())
+            .Select(address =>
+                address.GetProperty("value")
+                    .GetProperty("value")
+                    .GetProperty("text")
+                    .GetString())
+            .ToArray();
 
     private static Task<(
         int ExitCode,

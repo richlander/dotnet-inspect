@@ -268,23 +268,22 @@ public sealed class InspectionCapabilityCompositionTests
             Assert.Single(
                 envelope.Content.Resources,
                 resource => resource.Path == path);
-        var details =
-            Assert.IsType<
-                ResourceExplanationDetail.QueryFacetDetails>(
-                root.Details);
-
-        Assert.Equal(PackageQuery.LibraryLiteralTermKey, details.Key);
-        Assert.Equal("decoded UTF-16 text", details.ValueKind);
-        Assert.Equal(["eq"], details.Operators);
-        Assert.Equal(["https://"], details.Examples);
+        Assert.Equal(
+            PackageQuery.LibraryLiteralTermKey,
+            Text(root, "key"));
+        Assert.Equal(
+            "decoded UTF-16 text",
+            Text(root, "value-kind"));
+        Assert.Equal(["eq"], Texts(root, "operators"));
+        Assert.Equal(["https://"], Texts(root, "examples"));
         Assert.Contains(
             envelope.Content.Relationships,
             relationship =>
-                relationship.Source == root.Identity
-                && relationship.RelationshipKind
-                    == ResourceExplanationRelationshipKind.Route
-                && relationship.TargetPath
-                    == PackageQueryCapabilityResourcePaths.Route);
+                relationship.Source == root.Key
+                && relationship.Relationship.Value == "route"
+                && HasTargetPath(
+                    relationship,
+                    PackageQueryCapabilityResourcePaths.Route));
     }
 
     [Fact]
@@ -298,38 +297,39 @@ public sealed class InspectionCapabilityCompositionTests
             CreateExplanationForBinding(
                 PackageQuery.TermBindingIdentity(
                     PackageQuery.LibraryLiteralTermKey));
-        ResourceExplanationIdentity.Capability bindingIdentity =
+        QuerySpace.Explanation.ExplanationResourceKey bindingIdentity =
             CapabilityIdentity(
-                InspectionCapabilityResourceKind.ConsumerBinding,
+                readme,
+                "consumer-binding",
                 "test/binding");
 
         Assert.Contains(
             readme.Relationships,
             relationship =>
                 relationship.Source == bindingIdentity
-                && relationship.RelationshipKind
-                    == ResourceExplanationRelationshipKind.Exposes
-                && relationship.TargetPath
-                    == PackageQueryCapabilityResourcePaths.QueryFacet(
-                        PackageQuery.ReadmeTermKey));
+                && relationship.Relationship.Value == "exposes"
+                && HasTargetPath(
+                    relationship,
+                    PackageQueryCapabilityResourcePaths.QueryFacet(
+                        PackageQuery.ReadmeTermKey)));
         Assert.DoesNotContain(
             readme.Relationships,
             relationship =>
                 relationship.Source == bindingIdentity
-                && relationship.RelationshipKind
-                    == ResourceExplanationRelationshipKind.Exposes
-                && relationship.TargetPath
-                    == PackageQueryCapabilityResourcePaths.QueryFacet(
-                        PackageQuery.LibraryLiteralTermKey));
+                && relationship.Relationship.Value == "exposes"
+                && HasTargetPath(
+                    relationship,
+                    PackageQueryCapabilityResourcePaths.QueryFacet(
+                        PackageQuery.LibraryLiteralTermKey)));
         Assert.Contains(
             literal.Relationships,
             relationship =>
                 relationship.Source == bindingIdentity
-                && relationship.RelationshipKind
-                    == ResourceExplanationRelationshipKind.Exposes
-                && relationship.TargetPath
-                    == PackageQueryCapabilityResourcePaths.QueryFacet(
-                        PackageQuery.LibraryLiteralTermKey));
+                && relationship.Relationship.Value == "exposes"
+                && HasTargetPath(
+                    relationship,
+                    PackageQueryCapabilityResourcePaths.QueryFacet(
+                        PackageQuery.LibraryLiteralTermKey)));
     }
 
     [Fact]
@@ -364,36 +364,39 @@ public sealed class InspectionCapabilityCompositionTests
             ResourceExplanationCatalog.CreateCapabilities(
                 catalog,
                 SharedQuerySpacePaths(catalog, alternateRoute));
-        ResourceExplanationIdentity.Capability querySpaceIdentity =
+        QuerySpace.Explanation.ExplanationResourceKey querySpaceIdentity =
             CapabilityIdentity(
-                InspectionCapabilityResourceKind.QuerySpace,
+                explanation,
+                "query-space",
                 PackageQuery.QuerySpace.Descriptor.Identity);
-        ResourceExplanationIdentity.Capability literalIdentity =
+        QuerySpace.Explanation.ExplanationResourceKey literalIdentity =
             CapabilityIdentity(
-                InspectionCapabilityResourceKind.QueryFacet,
+                explanation,
+                "query-facet",
                 PackageQuery.TermBindingIdentity(
-                    PackageQuery.LibraryLiteralTermKey),
-                PackageQuery.QuerySpace.Descriptor.Identity);
+                    PackageQuery.LibraryLiteralTermKey));
 
         Assert.Equal(
             1,
             explanation.Relationships.Count(relationship =>
                 relationship.Source == querySpaceIdentity
-                && relationship.RelationshipKind
-                    == ResourceExplanationRelationshipKind.QueryFacet
-                && relationship.Target == literalIdentity));
+                && relationship.Relationship.Value == "query-facet"
+                && relationship.Targets.Any(target =>
+                    target.Resource == literalIdentity)));
         Assert.Equal(
             2,
-            explanation.Relationships.Count(relationship =>
+            explanation.Relationships.Where(relationship =>
                 relationship.Source == literalIdentity
-                && relationship.RelationshipKind
-                    == ResourceExplanationRelationshipKind.Route));
+                && relationship.Relationship.Value == "route")
+                .Sum(static relationship =>
+                    relationship.Targets.Length));
         Assert.Equal(
             1,
-            explanation.Relationships.Count(relationship =>
+            explanation.Relationships.Where(relationship =>
                 relationship.Source == literalIdentity
-                && relationship.RelationshipKind
-                    == ResourceExplanationRelationshipKind.RequiredContext));
+                && relationship.Relationship.Value == "required-context")
+                .Sum(static relationship =>
+                    relationship.Targets.Length));
     }
 
     private static ResourceExplanationCatalog CreateExplanationForBinding(
@@ -464,12 +467,43 @@ public sealed class InspectionCapabilityCompositionTests
         }
     }
 
-    private static ResourceExplanationIdentity.Capability
+    private static QuerySpace.Explanation.ExplanationResourceKey
         CapabilityIdentity(
-            InspectionCapabilityResourceKind kind,
-            string identity,
-            string? parentIdentity = null) =>
-        new(new(kind, identity, parentIdentity));
+            ResourceExplanationCatalog catalog,
+            string resourceType,
+            string identity) =>
+            catalog.Resources.Single(resource =>
+                resource.ResourceType.Value == resourceType
+                && Text(resource, "identity") == identity).Key;
+
+    private static string Text(
+        ResourceExplanationResource resource,
+        string identity) =>
+        Assert.IsType<QuerySpace.Explanation.ExplanationValue.Scalar>(
+            Assert.Single(
+                resource.Facts.Single(fact =>
+                    fact.Fact.Value == identity).Values)).Value.Text!;
+
+    private static string[] Texts(
+        ResourceExplanationResource resource,
+        string identity) =>
+    [
+        .. resource.Facts.Single(fact =>
+                fact.Fact.Value == identity).Values
+            .Select(value =>
+                Assert.IsType<
+                    QuerySpace.Explanation.ExplanationValue.Scalar>(
+                    value).Value.Text!),
+    ];
+
+    private static bool HasTargetPath(
+        ResourceExplanationRelationship relationship,
+        ResourcePath path) =>
+        relationship.Targets.Any(target =>
+            target.Addresses.Any(address =>
+                address.Value
+                    is QuerySpace.Explanation.ExplanationValue.Scalar scalar
+                && scalar.Value.Text == path.Value));
 
     private static InspectionDocumentRegistration<string> Document(
         string identity) =>

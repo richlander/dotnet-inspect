@@ -1,40 +1,54 @@
 using System.Text.Json;
-using System.Text.Json.Nodes;
 using DotnetInspector.Sections;
+using QuerySpace.Explanation;
 
 namespace DotnetInspector.Sections.Tests;
 
 public class ResourceExplanationTests
 {
     [Theory]
-    [InlineData(0, 1)]
-    [InlineData(1, 0)]
+    [InlineData(0, 1, 1, 1)]
+    [InlineData(1, 0, 1, 1)]
+    [InlineData(1, 1, 0, 1)]
+    [InlineData(1, 1, 1, 0)]
     public void Request_RequiresPositiveTraversalLimits(
         int resourceLimit,
-        int relationshipLimit)
+        int relationshipLimit,
+        int targetLimit,
+        int schemaLimit)
     {
         Assert.Throws<ArgumentOutOfRangeException>(() =>
             new ResourceExplanationRequest(
                 depth: 0,
                 resourceLimit,
-                relationshipLimit));
+                relationshipLimit,
+                targetLimit,
+                schemaLimit));
     }
 
     [Theory]
-    [InlineData(0, 1)]
-    [InlineData(1, 0)]
+    [InlineData(0, 1, 1, 1)]
+    [InlineData(1, 0, 1, 1)]
+    [InlineData(1, 1, 0, 1)]
+    [InlineData(1, 1, 1, 0)]
     public void TraversalReceipt_RequiresPositiveRequestedLimits(
         int resourceLimit,
-        int relationshipLimit)
+        int relationshipLimit,
+        int targetLimit,
+        int schemaLimit)
     {
         Assert.Throws<ArgumentOutOfRangeException>(() =>
             new ResourceExplanationTraversalReceipt(
                 requestedDepth: 0,
                 requestedResourceLimit: resourceLimit,
                 requestedRelationshipLimit: relationshipLimit,
+                requestedRelationshipTargetLimit: targetLimit,
+                requestedSchemaDeclarationLimit: schemaLimit,
                 completedDepth: 0,
                 visitedResourceCount: 0,
                 emittedRelationshipCount: 0,
+                emittedRelationshipTargetCount: 0,
+                emittedSchemaDeclarationCount: 0,
                 ResourceExplanationCompleteness.Complete,
                 truncationReasons: []));
     }
@@ -71,6 +85,7 @@ public class ResourceExplanationTests
                 new("library"),
                 out ResourcePathResolution.Resolved? resolved));
         Assert.Equal("library", resolved.Path.Value);
+        Assert.Equal("catalog", resolved.Key.ResourceType.Value);
         Assert.False(
             catalog.TryResolveExact(
                 new("library/not-real"),
@@ -92,18 +107,28 @@ public class ResourceExplanationTests
         ResourceExplanationResource[] structural =
         [
             .. catalog.Resources.Where(static resource =>
-                resource.Identity
-                is ResourceExplanationIdentity.Structural),
+                resource.Owner.Value == "schema-query"
+                && resource.ResourceType.Value != "catalog"),
         ];
         Assert.Equal(discovery.Resources.Length, structural.Length);
-        Assert.All(
-            discovery.Resources,
-            resource => Assert.Single(
-                structural,
-                candidate =>
-                    candidate.Identity
-                    is ResourceExplanationIdentity.Structural identity
-                    && identity.Resource == resource.Identity));
+        Assert.Equal(
+            discovery.Resources.Count(static resource =>
+                resource.Identity.Kind
+                    == DiscoveryResourceKind.Category),
+            structural.Count(static resource =>
+                resource.ResourceType.Value == "structural-category"));
+        Assert.Equal(
+            discovery.Resources.Count(static resource =>
+                resource.Identity.Kind
+                    == DiscoveryResourceKind.Section),
+            structural.Count(static resource =>
+                resource.ResourceType.Value == "structural-section"));
+        Assert.Equal(
+            discovery.Resources.Count(static resource =>
+                resource.Identity.Kind
+                    == DiscoveryResourceKind.Item),
+            structural.Count(static resource =>
+                resource.ResourceType.Value == "structural-item"));
 
         int categoryMembers = discovery.Resources
             .Where(static resource =>
@@ -117,27 +142,17 @@ public class ResourceExplanationTests
             .Sum(static resource => resource.Members.Length);
         Assert.Equal(
             categoryMembers,
-            catalog.Relationships.Count(static relationship =>
-                relationship.RelationshipKind
-                == ResourceExplanationRelationshipKind.CategoryMember));
+            TargetCount(catalog, "category-member"));
         Assert.Equal(
             sectionItems,
-            catalog.Relationships.Count(static relationship =>
-                relationship.RelationshipKind
-                == ResourceExplanationRelationshipKind.StructuralItem));
+            TargetCount(catalog, "structural-item"));
 
         ResourceExplanationResource filterable = Assert.Single(
             structural,
             resource =>
-                resource.Details
-                    is ResourceExplanationDetail.StructuralItemDetails
-                    {
-                        ItemKind: "filterable",
-                    });
-        Assert.Equal(
-            ResourceExplanationResourceKind.StructuralItem,
-            filterable.ResourceKind);
-        Assert.Equal(ResourceExplanationOwner.SchemaQuery, filterable.Owner);
+                resource.ResourceType.Value == "structural-item"
+                && OptionalText(resource, "item-kind") == "filterable");
+        Assert.Equal("schema-query", filterable.Owner.Value);
     }
 
     [Fact]
@@ -147,20 +162,18 @@ public class ResourceExplanationTests
 
         foreach (ResourceExplanationResource collection
                  in catalog.Resources.Where(static resource =>
-                     resource.Identity
-                     is ResourceExplanationIdentity.NavigationCollection))
+                     resource.ResourceType.Value
+                        == "navigation-collection"))
         {
-            var details =
-                Assert.IsType<
-                    ResourceExplanationDetail.NavigationCollectionDetails>(
-                    collection.Details);
-            int directMembers = catalog.Relationships.Count(
-                relationship =>
-                    relationship.Source == collection.Identity
-                    && relationship.RelationshipKind
-                    == ResourceExplanationRelationshipKind.CollectionMember);
+            int directMembers = catalog.Relationships
+                .Where(relationship =>
+                    relationship.Source == collection.Key)
+                .Sum(static relationship =>
+                    relationship.Targets.Length);
 
-            Assert.Equal(details.MemberCount, directMembers);
+            Assert.Equal(
+                RequiredInteger(collection, "members"),
+                directMembers);
         }
     }
 
@@ -229,55 +242,7 @@ public class ResourceExplanationTests
     }
 
     [Fact]
-    public void Resource_RejectsMismatchedTypedDetailVariant()
-    {
-        Assert.Throws<ArgumentException>(() =>
-            new ResourceExplanationResource(
-                new ResourcePath("library/sections/references"),
-                new ResourceExplanationIdentity.Structural(
-                    "library",
-                    Section("References")),
-                ResourceExplanationResourceKind.StructuralSection,
-                new ResourceExplanationDetail.StructuralItemDetails(
-                    "Name",
-                    "column")));
-    }
-
-    [Fact]
-    public void Catalog_RequiresRegisteredTargetPathInBothDirections()
-    {
-        ResourceExplanationResource root =
-            Collection("graph/root", "Root");
-        ResourceExplanationResource target =
-            Collection("graph/target", "Target");
-
-        Assert.Throws<ArgumentException>(() =>
-            ResourceExplanationCatalog.Create(
-                [root, target],
-                [
-                    new(
-                        root.Identity,
-                        ResourceExplanationRelationshipKind.Navigation,
-                        target.Identity,
-                        targetPath: null),
-                ]));
-
-        var external =
-            new ResourceExplanationIdentity.Catalog("external");
-        Assert.Throws<ArgumentException>(() =>
-            ResourceExplanationCatalog.Create(
-                [root, target],
-                [
-                    new(
-                        root.Identity,
-                        ResourceExplanationRelationshipKind.Navigation,
-                        external,
-                        target.Path),
-                ]));
-    }
-
-    [Fact]
-    public void DefaultDepth_EmitsRootFactsAndDirectLinksOnly()
+    public void DefaultDepth_EmitsRootFactsDirectLinksAndSchemaSlice()
     {
         ResourceExplanationCatalog catalog = StructuralCatalog();
         var resolved = Assert.IsType<ResourcePathResolution.Resolved>(
@@ -292,12 +257,14 @@ public class ResourceExplanationTests
                     relationshipLimit: 100))
                 .Content;
 
-        Assert.Single(document.Resources);
+        ResourceExplanationResource root = Assert.Single(document.Resources);
+        Assert.Equal(resolved.Key, root.Key);
+        Assert.NotEmpty(root.Facts);
         Assert.NotEmpty(document.Relationships);
         Assert.All(
             document.Relationships,
             relationship => Assert.Equal(
-                resolved.Identity,
+                resolved.Key,
                 relationship.Source));
         Assert.Equal(
             ResourceExplanationCompleteness.Truncated,
@@ -305,83 +272,62 @@ public class ResourceExplanationTests
         Assert.Contains(
             ResourceExplanationTruncationReason.Depth,
             document.Traversal.TruncationReasons);
+        Assert.Equal(
+            document.Traversal.EmittedSchemaDeclarationCount,
+            DeclarationCount(document.Schemas));
+        Assert.All(
+            document.Schemas,
+            schema => Assert.Contains(
+                schema.Identity.Owner.Value,
+                new[] { "resource-explanation", "schema-query" }));
     }
 
     [Fact]
-    public void RecursiveTraversal_PreservesCycleEdgesAndVisitsOnce()
+    public void RecursiveTraversal_VisitsEachResourceOnce()
     {
-        ResourceExplanationResource left =
-            Collection("graph/left", "Left");
-        ResourceExplanationResource right =
-            Collection("graph/right", "Right");
-        ResourceExplanationCatalog catalog =
-            ResourceExplanationCatalog.Create(
-                [left, right],
-                [
-                    new(
-                        left.Identity,
-                        ResourceExplanationRelationshipKind.Navigation,
-                        right.Identity,
-                        right.Path),
-                    new(
-                        right.Identity,
-                        ResourceExplanationRelationshipKind.Navigation,
-                        left.Identity,
-                        left.Path),
-                ]);
+        ResourceExplanationCatalog catalog = StructuralCatalog();
         var resolved = Assert.IsType<ResourcePathResolution.Resolved>(
-            catalog.Resolve(left.Path.Value));
+            catalog.Resolve("library"));
 
         ResourceExplanationDocument document =
             catalog.Explain(
                 resolved,
                 new ResourceExplanationRequest(
-                    depth: 4,
-                    resourceLimit: 10,
-                    relationshipLimit: 10))
+                    depth: 8,
+                    resourceLimit: 100,
+                    relationshipLimit: 100))
                 .Content;
 
-        Assert.Equal(2, document.Resources.Length);
-        Assert.Equal(2, document.Relationships.Length);
+        Assert.Equal(
+            document.Resources.Length,
+            document.Resources.Select(static resource => resource.Key)
+                .Distinct()
+                .Count());
+        Assert.All(
+            document.Relationships.SelectMany(static relationship =>
+                relationship.Targets),
+            target => Assert.Contains(
+                document.Resources,
+                resource => resource.Key == target.Resource));
         Assert.Equal(
             ResourceExplanationCompleteness.Complete,
             document.Traversal.Completeness);
     }
 
     [Fact]
-    public void Traversal_ReportsResourceAndRelationshipLimits()
+    public void Traversal_ReportsIndependentResourceRelationshipAndTargetLimits()
     {
-        ResourceExplanationResource root =
-            Collection("graph/root", "Root");
-        ResourceExplanationResource left =
-            Collection("graph/left", "Left");
-        ResourceExplanationResource right =
-            Collection("graph/right", "Right");
-        ResourceExplanationCatalog catalog =
-            ResourceExplanationCatalog.Create(
-                [root, left, right],
-                [
-                    new(
-                        root.Identity,
-                        ResourceExplanationRelationshipKind.Navigation,
-                        left.Identity,
-                        left.Path),
-                    new(
-                        root.Identity,
-                        ResourceExplanationRelationshipKind.Navigation,
-                        right.Identity,
-                        right.Path),
-                ]);
+        ResourceExplanationCatalog catalog = StructuralCatalog();
         var resolved = Assert.IsType<ResourcePathResolution.Resolved>(
-            catalog.Resolve(root.Path.Value));
+            catalog.Resolve("library"));
 
         ResourceExplanationDocument resourceLimited =
             catalog.Explain(
                 resolved,
                 new ResourceExplanationRequest(
-                    depth: 1,
+                    depth: 8,
                     resourceLimit: 2,
-                    relationshipLimit: 10))
+                    relationshipLimit: 100))
                 .Content;
         Assert.Contains(
             ResourceExplanationTruncationReason.ResourceLimit,
@@ -391,14 +337,113 @@ public class ResourceExplanationTests
             catalog.Explain(
                 resolved,
                 new ResourceExplanationRequest(
-                    depth: 1,
-                    resourceLimit: 10,
+                    depth: 8,
+                    resourceLimit: 100,
                     relationshipLimit: 1))
                 .Content;
         Assert.Contains(
             ResourceExplanationTruncationReason.RelationshipLimit,
             relationshipLimited.Traversal.TruncationReasons);
         Assert.Single(relationshipLimited.Relationships);
+
+        ResourceExplanationDocument targetLimited =
+            catalog.Explain(
+                resolved,
+                new ResourceExplanationRequest(
+                    depth: 8,
+                    resourceLimit: 100,
+                    relationshipLimit: 100,
+                    relationshipTargetLimit: 1))
+                .Content;
+        Assert.Contains(
+            ResourceExplanationTruncationReason.RelationshipTargetLimit,
+            targetLimited.Traversal.TruncationReasons);
+        Assert.Equal(
+            1,
+            targetLimited.Traversal.EmittedRelationshipTargetCount);
+        Assert.Contains(
+            targetLimited.Relationships,
+            static relationship =>
+                relationship.TargetCompleteness
+                    == ResourceExplanationTargetProjectionCompleteness
+                        .Truncated);
+    }
+
+    [Fact]
+    public void SchemaLimit_TruncatesToASelfContainedDeclarationSlice()
+    {
+        ResourceExplanationCatalog catalog = StructuralCatalog();
+        var resolved = Assert.IsType<ResourcePathResolution.Resolved>(
+            catalog.Resolve("library/sections/reference-hierarchy"));
+        ResourceExplanationDocument complete =
+            catalog.Explain(
+                resolved,
+                new ResourceExplanationRequest(
+                    depth: 2,
+                    resourceLimit: 100,
+                    relationshipLimit: 100))
+                .Content;
+        int limit =
+            complete.Traversal.EmittedSchemaDeclarationCount - 1;
+
+        ResourceExplanationDocument limited =
+            catalog.Explain(
+                resolved,
+                new ResourceExplanationRequest(
+                    depth: 2,
+                    resourceLimit: 100,
+                    relationshipLimit: 100,
+                    schemaDeclarationLimit: limit))
+                .Content;
+
+        Assert.Contains(
+            ResourceExplanationTruncationReason.SchemaDeclarationLimit,
+            limited.Traversal.TruncationReasons);
+        Assert.InRange(
+            limited.Traversal.EmittedSchemaDeclarationCount,
+            1,
+            limit);
+        Assert.Equal(
+            DeclarationCount(limited.Schemas),
+            limited.Traversal.EmittedSchemaDeclarationCount);
+        Assert.Throws<InvalidOperationException>(() =>
+            catalog.Explain(
+                resolved,
+                new ResourceExplanationRequest(
+                    depth: 0,
+                    resourceLimit: 1,
+                    relationshipLimit: 1,
+                    schemaDeclarationLimit: 1)));
+    }
+
+    [Fact]
+    public void AvailableEmptyRelationship_PreservesDeclaredTargetType()
+    {
+        ResourceExplanationCatalog catalog = StructuralCatalog();
+        var resolved = Assert.IsType<ResourcePathResolution.Resolved>(
+            catalog.Resolve("library/categories"));
+
+        ResourceExplanationDocument document =
+            catalog.Explain(
+                resolved,
+                new ResourceExplanationRequest(
+                    depth: 0,
+                    resourceLimit: 1,
+                    relationshipLimit: 100))
+                .Content;
+
+        ResourceExplanationRelationship relationship =
+            document.Relationships.Single(candidate =>
+                candidate.Relationship.Value == "collection-analysis");
+        Assert.Equal(
+            ExplanationObservationState.Available,
+            relationship.State);
+        Assert.Empty(relationship.Targets);
+        Assert.Contains(
+            document.Schemas.SelectMany(static schema =>
+                schema.ResourceTypes),
+            static declaration =>
+                declaration.Identity.Value == "analysis");
     }
 
     [Fact]
@@ -424,7 +469,7 @@ public class ResourceExplanationTests
     }
 
     [Fact]
-    public void Json_SerializesCanonicalPathsAsStrings()
+    public void Json_EmitsCanonicalPathsAndSelfContainedSchema()
     {
         ResourceExplanationCatalog catalog = StructuralCatalog();
         var resolved = Assert.IsType<ResourcePathResolution.Resolved>(
@@ -453,46 +498,21 @@ public class ResourceExplanationTests
                 .GetProperty("resources")[0]
                 .GetProperty("path")
                 .GetString());
-    }
-
-    [Fact]
-    public void Json_SeparatesNavigationCollectionIdentityFromPath()
-    {
-        ResourceExplanationCatalog catalog = StructuralCatalog();
-        var resolved = Assert.IsType<ResourcePathResolution.Resolved>(
-            catalog.Resolve("library/sections"));
-        ResourceExplanationDocument explanation =
-            catalog.Explain(
-                resolved,
-                new ResourceExplanationRequest(0, 100, 100))
-                .Content;
-
-        string json = JsonSerializer.Serialize(
-            explanation,
-            ResourceExplanationJsonContext
-                .Default
-                .ResourceExplanationDocument);
-        using JsonDocument document = JsonDocument.Parse(json);
-        JsonElement identity =
-            document.RootElement.GetProperty("root_identity");
-
+        Assert.True(
+            document.RootElement.GetProperty("schemas").GetArrayLength()
+            > 0);
+        Assert.DoesNotContain("\"octets\"", json);
         Assert.Equal(
-            "navigationCollection",
-            identity.GetProperty("kind").GetString());
-        Assert.Equal(
-            "library",
-            identity
-                .GetProperty("catalog_identity")
-                .GetProperty("catalog_name")
+            "structural-section",
+            document.RootElement
+                .GetProperty("root")
+                .GetProperty("resource_type")
+                .GetProperty("value")
                 .GetString());
-        Assert.Equal(
-            "CatalogSections",
-            identity.GetProperty("collection_kind").GetString());
-        Assert.False(identity.TryGetProperty("key", out _));
     }
 
     [Fact]
-    public void Json_SourceGeneratedContract_RoundTripsPolymorphicDocument()
+    public void Json_SourceGeneratedContract_RoundTripsTypedDocument()
     {
         ResourceExplanationCatalog catalog = StructuralCatalog();
         var resolved = Assert.IsType<ResourcePathResolution.Resolved>(
@@ -500,7 +520,7 @@ public class ResourceExplanationTests
         ResourceExplanationDocument explanation =
             catalog.Explain(
                 resolved,
-                new ResourceExplanationRequest(4, 1000, 2000))
+                new ResourceExplanationRequest(8, 1000, 2000))
                 .Content;
 
         string json = JsonSerializer.Serialize(
@@ -520,54 +540,27 @@ public class ResourceExplanationTests
                 .Default
                 .ResourceExplanationDocument);
 
-        Assert.True(
-            JsonNode.DeepEquals(
-                JsonNode.Parse(json),
-                JsonNode.Parse(roundTrippedJson)));
+        Assert.Equal(json, roundTrippedJson);
         Assert.Contains(
             roundTripped.Resources,
             static resource =>
-                resource.Identity
-                    is ResourceExplanationIdentity.Catalog);
+                resource.ResourceType.Value == "catalog");
         Assert.Contains(
             roundTripped.Resources,
             static resource =>
-                resource.Identity
-                    is ResourceExplanationIdentity.NavigationCollection);
+                resource.ResourceType.Value == "navigation-collection");
         Assert.Contains(
             roundTripped.Resources,
             static resource =>
-                resource.Identity
-                    is ResourceExplanationIdentity.Structural);
+                resource.ResourceType.Value == "structural-category");
         Assert.Contains(
             roundTripped.Resources,
             static resource =>
-                resource.Details
-                    is ResourceExplanationDetail.CatalogDetails);
+                resource.ResourceType.Value == "structural-section");
         Assert.Contains(
             roundTripped.Resources,
             static resource =>
-                resource.Details
-                    is ResourceExplanationDetail
-                        .NavigationCollectionDetails);
-        Assert.Contains(
-            roundTripped.Resources,
-            static resource =>
-                resource.Details
-                    is ResourceExplanationDetail
-                        .StructuralCategoryDetails);
-        Assert.Contains(
-            roundTripped.Resources,
-            static resource =>
-                resource.Details
-                    is ResourceExplanationDetail
-                        .StructuralSectionDetails);
-        Assert.Contains(
-            roundTripped.Resources,
-            static resource =>
-                resource.Details
-                    is ResourceExplanationDetail
-                        .StructuralItemDetails);
+                resource.ResourceType.Value == "structural-item");
     }
 
     private static ResourceExplanationCatalog StructuralCatalog()
@@ -655,23 +648,48 @@ public class ResourceExplanationTests
         return (document, registrations);
     }
 
-    private static ResourceExplanationResource Collection(
-        string path,
-        string name)
+    private static int TargetCount(
+        ResourceExplanationCatalog catalog,
+        string relationship) =>
+        catalog.Relationships
+            .Where(candidate =>
+                candidate.Relationship.Value == relationship)
+            .Sum(static candidate => candidate.Targets.Length);
+
+    private static string? OptionalText(
+        ResourceExplanationResource resource,
+        string fact)
     {
-        var resourcePath = new ResourcePath(path);
-        return new ResourceExplanationResource(
-            resourcePath,
-            new ResourceExplanationIdentity.NavigationCollection(
-                new ResourceExplanationIdentity.Catalog(
-                    $"test-{name.ToLowerInvariant()}"),
-                parentIdentity: null,
-                ResourceExplanationNavigationCollectionKind.CatalogSections),
-            ResourceExplanationResourceKind.NavigationCollection,
-            new ResourceExplanationDetail.NavigationCollectionDetails(
-                name,
-                memberCount: 0));
+        ExplanationFactObservation? observation = resource.Facts
+            .FirstOrDefault(candidate => candidate.Fact.Value == fact);
+        if (observation is null
+            || observation.State == ExplanationObservationState.Absent)
+        {
+            return null;
+        }
+        return Assert.IsType<ExplanationValue.Scalar>(
+            Assert.Single(observation.Values)).Value.Text;
     }
+
+    private static int RequiredInteger(
+        ResourceExplanationResource resource,
+        string fact)
+    {
+        ExplanationFactObservation observation = resource.Facts.Single(
+            candidate => candidate.Fact.Value == fact);
+        return (int)Assert.IsType<ExplanationValue.Scalar>(
+            Assert.Single(observation.Values)).Value.Integer!.Value;
+    }
+
+    private static int DeclarationCount(
+        IEnumerable<ExplanationSchema> schemas) =>
+        schemas.Sum(schema =>
+            schema.DataShapes.Length
+            + schema.ResourceTypes.Length
+            + schema.AddressKinds.Length
+            + schema.ResourceTypes.Sum(resource =>
+                resource.Facts.Length
+                + resource.Relationships.Length));
 
     private static DiscoveryResourceIdentity Category(string name) =>
         new(DiscoveryResourceKind.Category, name);
