@@ -283,6 +283,17 @@ public partial class PackageCommand
                     "Multiple package inspection cannot include Dependency Hierarchy.");
                 return 1;
             }
+            if (packageArgs.Length == 1)
+            {
+                // Section shapes: a lone selected section renders in its
+                // shape's native format, and a scalar section has no rows.
+                options = ApplyNativeShapeFormat(options, catalog);
+                if (ValidatePackageScalarTerminals(options) is { } scalarError)
+                {
+                    CommandError.Write(scalarError);
+                    return 1;
+                }
+            }
 
             // The alternate lens modes render their own payload and never consult the section
             // filter, so requiring -S here would force the caller to name a section that is then
@@ -462,7 +473,10 @@ public partial class PackageCommand
                 && !packageChildrenProjection
                 && !OutputFormatResolver.ValidateSingleSectionForTabular(
                     options.TabularExplicitlySet,
-                    tabularSections))
+                    tabularSections,
+                    sections => PackageOutputCapabilities.Catalog.Supports(
+                        DiscoveryOutputMode.Table,
+                        sections)))
                 return 1;
 
             // Auto-promote verbosity when -S targets specific sections
@@ -1547,7 +1561,10 @@ public partial class PackageCommand
 
             if (options.Tree && !effectiveDiscovery)
             {
-                WritePackageDependencyHierarchyTree(result, options);
+                if (IsSingleFilesSelection(options))
+                    WritePackageFilesTree(result, options);
+                else
+                    WritePackageDependencyHierarchyTree(result, options);
                 return PackageIntegrityExitCode(result);
             }
 
@@ -1710,7 +1727,20 @@ public partial class PackageCommand
             {
                 if (options.Jsonl && TryGetSingleFileSection(options, out var fileSection) && !hasProjection)
                 {
-                    WritePackageFilesJsonl(result, fileSection, options.Rows);
+                    OutputDestination.Write(
+                        options.OutputPath,
+                        null,
+                        output => WritePackageFilesJsonl(output, result, fileSection, options.Rows));
+                    return PackageIntegrityExitCode(result);
+                }
+
+                if (!hasProjection
+                    && IsPackageFileFamilySelection(options.IncludeSections))
+                {
+                    OutputDestination.Write(
+                        options.OutputPath,
+                        null,
+                        output => WritePackageFileFamilyTable(output, result, options));
                     return PackageIntegrityExitCode(result);
                 }
 
@@ -1779,7 +1809,13 @@ public partial class PackageCommand
                 }
                 else
                 {
-                    OutputFormatter.WritePackageTable(result, options, pipeline, showHeader: !options.NoHeader);
+                    // Row formats honor --out like the Markdown document does; the
+                    // table applies --rows itself, so no line window is forwarded.
+                    OutputDestination.Write(
+                        options.OutputPath,
+                        null,
+                        output => OutputFormatter.WritePackageTable(
+                            output, result, options, pipeline, showHeader: !options.NoHeader));
                 }
             }
             else

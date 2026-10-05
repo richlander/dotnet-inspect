@@ -563,13 +563,17 @@ public static class OutputFormatter
     /// windows the same section through <see cref="FormatResult"/> (#3457).
     /// </summary>
     public static void WritePackageTable(InspectionResult result, InspectionOptions options,
+        SectionPipeline<InspectionResult> pipeline, bool showHeader) =>
+        WritePackageTable(Console.Out, result, options, pipeline, showHeader);
+
+    public static void WritePackageTable(TextWriter output, InspectionResult result, InspectionOptions options,
         SectionPipeline<InspectionResult> pipeline, bool showHeader)
     {
         var writerOpts = BuildWriterOptions(result, options, pipeline);
         ConfigureTableWriterOptions(writerOpts, options.Tsv, options.Jsonl);
         var view = new InspectionResultView(
             result);
-        WriteTable(Console.Out, showHeader,
+        WriteTable(output, showHeader,
             (writer, formatter) => MarkoutSerializer.Serialize(view, writer, formatter, InspectionContext.Default, writerOpts),
             options.Rows);
     }

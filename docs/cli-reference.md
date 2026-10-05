@@ -802,6 +802,39 @@ enumeration, optional exact directory-segment `--tfm` filtering, and optional
 observe the same selected rows; `--roots` instead emits their ordered distinct
 top-level package roots. Add `--lines` only to clip rendered text.
 
+The package command renders a lone explicitly selected section in its declared
+shape's native format when no format is named, per
+[Section shapes](design/section-shapes.md): a Table streams its TSV rows, a
+Hierarchy renders its tree, and a Text prints its payload. `Package files` and
+`Dependency Hierarchy` are Hierarchies, the nuspec and README sections are
+Text, and every other section is a Table. The `Package files` tree titles the
+subject with its issued properties (source, and the target when `--tfm`
+filters), groups files under their directories, and collapses single-entry
+directory chains into one node; directory nodes are context, so `-n`, `--rows`,
+and `--count` observe files only, and `--tree` is an accepted explicit format
+for it. Selecting several sections composes Markdown as before, with a Text
+section contributing its Path/Size fact row and its body only when it is the
+whole selection. An explicit format, an environment default, `--print`,
+`--raw`, `--tree`, `--count`, a projection, a shape flag, discovery, or a lens
+keeps its existing behavior.
+
+The package file family — the nuspec, README, license, and skill sections —
+shares one Path/Size row schema, so `-S @Files --table`, `--tsv`, or `--jsonl`
+streams one listing with each member's rows in family order. Scalar sections
+(`Package Info`, `Summary`, `Statistics`, `Signature`, the SourceLink
+availability and integrity sections, and the nuspec and README Text sections)
+have no rows: selecting one of them alone with `--count`, `-n`, or `--rows`
+fails before acquisition and names an inventory section as the alternative.
+Count maps over several sections, and multi-package counts, keep their
+existing per-section meaning.
+
+```bash
+dotnet-inspect package System.Text.Json -S "Target Frameworks"
+dotnet-inspect package System.Text.Json -S "Package README file"
+dotnet-inspect package System.Text.Json -S "Package files" -n 5
+dotnet-inspect package System.Text.Json -S @Files --tsv
+```
+
 For an exact online package version, requesting one literal root `README.md` or
 `skills/**/SKILL.md` path with `--content` acquires directly through the
 PackageHouse semantic Files route rather than the legacy extraction route.

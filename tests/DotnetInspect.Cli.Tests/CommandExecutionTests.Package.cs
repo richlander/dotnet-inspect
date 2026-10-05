@@ -182,9 +182,9 @@ public partial class CommandExecutionTests
 
         // Negative case: with no window, the count and the render already agreed, and must still.
         var (bareCountExit, bareCountOutput, _) = await RunAppAsync(
-            "package", Package, "-S", "Package Info", "--count");
+            "package", Package, "-S", "Target Frameworks", "--count");
         var (bareRowsExit, bareRowsOutput, _) = await RunAppAsync(
-            "package", Package, "-S", "Package Info", "--jsonl");
+            "package", Package, "-S", "Target Frameworks", "--jsonl");
         Assert.Equal(0, bareCountExit);
         Assert.Equal(0, bareRowsExit);
         var bareRows = bareRowsOutput.ReplaceLineEndings("\n").Split('\n', StringSplitOptions.RemoveEmptyEntries).Length;
@@ -192,12 +192,12 @@ public partial class CommandExecutionTests
         Assert.Equal(bareRows, int.Parse(bareCountOutput.Trim(), CultureInfo.InvariantCulture));
 
         var (countExit, countOutput, _) = await RunAppAsync(
-            "package", Package, "-S", "Package Info", "--rows", "2..3", "--count");
+            "package", Package, "-S", "Target Frameworks", "--rows", "2..3", "--count");
         Assert.Equal(0, countExit);
         Assert.Equal(2, int.Parse(countOutput.Trim(), CultureInfo.InvariantCulture));
 
         var (jsonlExit, jsonlOutput, _) = await RunAppAsync(
-            "package", Package, "-S", "Package Info", "--rows", "2..3", "--jsonl");
+            "package", Package, "-S", "Target Frameworks", "--rows", "2..3", "--jsonl");
         Assert.Equal(0, jsonlExit);
         Assert.Equal(2, jsonlOutput.ReplaceLineEndings("\n").Split('\n', StringSplitOptions.RemoveEmptyEntries).Length);
 
@@ -205,13 +205,13 @@ public partial class CommandExecutionTests
         // two, and the header survives it. Derive that expectation from the unwindowed render so
         // the assertion pins the windowing semantics rather than this package's field list.
         var (fullTsvExit, fullTsvOutput, _) = await RunAppAsync(
-            "package", Package, "-S", "Package Info", "--tsv");
+            "package", Package, "-S", "Target Frameworks", "--tsv");
         Assert.Equal(0, fullTsvExit);
         var fullTsvLines = fullTsvOutput.ReplaceLineEndings("\n").Split('\n', StringSplitOptions.RemoveEmptyEntries);
         Assert.True(fullTsvLines.Length > 3, "The section must have at least three data rows for the window to exclude one.");
 
         var (tsvExit, tsvOutput, _) = await RunAppAsync(
-            "package", Package, "-S", "Package Info", "--rows", "2..3", "--tsv");
+            "package", Package, "-S", "Target Frameworks", "--rows", "2..3", "--tsv");
         Assert.Equal(0, tsvExit);
         var tsvLines = tsvOutput.ReplaceLineEndings("\n").Split('\n', StringSplitOptions.RemoveEmptyEntries);
         Assert.Equal<string>([fullTsvLines[0], fullTsvLines[2], fullTsvLines[3]], tsvLines);
@@ -737,7 +737,7 @@ public partial class CommandExecutionTests
             // category advertises only the composition formats.
             Assert.Contains(
                 "| @Files | category | package/categories/files "
-                + "| --markdown, --plaintext, --json |  |  |  |",
+                + "| --markdown, --plaintext, --json, --table, --tsv, --jsonl |  |  |  |",
                 output);
 
             var (jsonExit, json, jsonError) = await RunAppAsync(
@@ -759,6 +759,187 @@ public partial class CommandExecutionTests
         }
     }
 
+    [Fact]
+    public async Task Package_LoneTableSection_StreamsTsvNatively()
+    {
+        // Section shapes: a lone selected Table renders its native row stream
+        // when no format is named; an explicit --markdown keeps the document.
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            var native = await RunAppAsync(
+                "package", packagePath, "-S", "Target Frameworks");
+            var markdown = await RunAppAsync(
+                "package", packagePath, "-S", "Target Frameworks", "--markdown");
+
+            Assert.Equal(0, native.Exit);
+            Assert.Empty(native.Error);
+            string[] lines = native.Output.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries);
+            Assert.Equal("tfm", lines[0]);
+            Assert.Contains("net10.0", lines);
+            Assert.Contains("net8.0", lines);
+            Assert.DoesNotContain("## Target Frameworks", native.Output);
+
+            Assert.Equal(0, markdown.Exit);
+            Assert.Contains("## Target Frameworks", markdown.Output);
+            Assert.Contains("| TFM |", markdown.Output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_LoneTextSection_PrintsItsPayloadNatively()
+    {
+        // A lone Text section is the payload itself; the composition shows
+        // its fact row, and the body appears only for the whole selection.
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.NativeText",
+            "README.md",
+            "# Native text body");
+        try
+        {
+            var native = await RunAppAsync(
+                "package", packagePath, "-S", "Package README file");
+            var composed = await RunAppAsync(
+                "package", packagePath, "-S", "Package README file", "-S", "Target Frameworks");
+
+            Assert.Equal(0, native.Exit);
+            Assert.Empty(native.Error);
+            Assert.StartsWith("# Native text body", native.Output.TrimStart());
+            Assert.DoesNotContain("| Path | Size |", native.Output);
+
+            Assert.Equal(0, composed.Exit);
+            Assert.Contains("## Package README file", composed.Output);
+            Assert.Contains("| README.md |", composed.Output);
+            Assert.DoesNotContain("# Native text body", composed.Output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_LoneFilesSection_RendersItsTreeNatively()
+    {
+        // The whole-package file inventory is a Hierarchy: its native form is
+        // a tree whose title carries the issued properties, directory nodes
+        // are context, and -n selects files before the tree is built.
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            var native = await RunAppAsync(
+                "package", packagePath, "-S", "Package files");
+            var explicitTree = await RunAppAsync(
+                "package", packagePath, "-S", "Package files", "--tree", "-n", "1");
+            var tsv = await RunAppAsync(
+                "package", packagePath, "-S", "Package files", "--tsv");
+            var count = await RunAppAsync(
+                "package", packagePath, "-S", "Package files", "--count");
+
+            Assert.Equal(0, native.Exit);
+            Assert.Empty(native.Error);
+            string[] lines = native.Output.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries);
+            Assert.Equal("Test.LibraryFiles 1.0.0 (File)", lines[0]);
+            Assert.Contains(lines, line => line.EndsWith("Latest.One.dll", StringComparison.Ordinal));
+            Assert.Contains(lines, line => line.Contains("lib", StringComparison.Ordinal));
+            Assert.DoesNotContain("| Path | Size |", native.Output);
+
+            Assert.Equal(0, explicitTree.Exit);
+            Assert.Empty(explicitTree.Error);
+            string[] windowed = explicitTree.Output.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries);
+            Assert.Equal("Test.LibraryFiles 1.0.0 (File)", windowed[0]);
+            Assert.Single(
+                windowed,
+                line => line.Contains(".dll", StringComparison.Ordinal)
+                    || line.Contains(".xml", StringComparison.Ordinal));
+
+            Assert.Equal(0, tsv.Exit);
+            Assert.StartsWith("path\tsize", tsv.Output);
+            Assert.Equal("4", count.Output.Trim());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_FileFamily_StreamsOneHomogeneousListing()
+    {
+        // The file family shares the Path/Size row schema, so -S @Files with a
+        // row format streams one listing instead of rejecting the selection.
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.FamilyListing",
+            "README.md",
+            "# readme",
+            extraFiles: ("LICENSE.md", "MIT"));
+        try
+        {
+            var tsv = await RunAppAsync(
+                "package", packagePath, "-S", "@Files", "--tsv");
+            var jsonl = await RunAppAsync(
+                "package", packagePath, "-S", "@Files", "--jsonl");
+
+            Assert.Equal(0, tsv.Exit);
+            Assert.Empty(tsv.Error);
+            string[] lines = tsv.Output.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries);
+            Assert.Equal("path\tsize", lines[0]);
+            Assert.Contains(lines, line => line.StartsWith("Test.FamilyListing.nuspec\t", StringComparison.Ordinal));
+            Assert.Contains(lines, line => line.StartsWith("README.md\t", StringComparison.Ordinal));
+            Assert.Contains(lines, line => line.StartsWith("LICENSE.md\t", StringComparison.Ordinal));
+            Assert.Equal(4, lines.Length);
+
+            Assert.Equal(0, jsonl.Exit);
+            Assert.Equal(
+                3,
+                jsonl.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries).Length);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("Package Info", "--count")]
+    [InlineData("Package README file", "--count")]
+    [InlineData("Package nuspec file", "--rows", "1")]
+    [InlineData("Signature", "--count")]
+    public async Task Package_LoneScalarSection_RejectsRowTerminals(
+        string section,
+        params string[] terminal)
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.ScalarTerminals",
+            "README.md",
+            "# readme");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                ["package", packagePath, "-S", section, .. terminal]);
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains($"Section '{section}' is scalar", error);
+            Assert.Contains("Select an inventory section", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
     [Fact]
     public async Task Package_DiscoverSection_ListsPackageInfoFields()
     {
@@ -1112,7 +1293,7 @@ public partial class CommandExecutionTests
         try
         {
             var (exit, output, error) = await RunAppAsync(
-                "package", packagePath, "-S", "Dependencies",
+                "package", packagePath, "-S", "Dependencies", "--markdown",
                 "--tfm", "net9.0",
                 "--source", Path.Combine(tempDir, "missing-feed")
                 );
@@ -1351,7 +1532,7 @@ public partial class CommandExecutionTests
                 "-S", "Dependency Hierarchy",
                 "--json", "--rows", "2", "--tail");
             var directDependencyTail = await RunAppAsync(
-                "package", packagePath, "-S", "Dependencies",
+                "package", packagePath, "-S", "Dependencies", "--markdown",
                 "--tfm", "net9.0", "--source", tempDir,
                 "--count", "--rows", "1", "--tail");
 
@@ -3088,7 +3269,7 @@ public partial class CommandExecutionTests
         var (packagePath, tempDir) = CreateLocalLibPackage();
         try
         {
-            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "Package files");
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "Package files", "--markdown");
 
             Assert.Equal(0, exit);
             Assert.Contains("## Package files", output);
@@ -3384,20 +3565,23 @@ public partial class CommandExecutionTests
                     "package", packagePath, packagePath,
                     "-S", "Package Info", "--count");
 
-            Assert.Equal(0, singleExit);
-            Assert.Empty(singleError);
+            // Signature and Package Info are scalar records: a lone selection
+            // has no Count (Section shapes), while the multi-package count map
+            // keeps its aggregate per-package meaning.
+            Assert.Equal(1, singleExit);
+            Assert.Empty(singleOutput);
+            Assert.Contains("Section 'Signature' is scalar", singleError);
             Assert.Equal(0, multiExit);
             Assert.Empty(multiError);
-            Assert.Equal(
-                2 * int.Parse(singleOutput.Trim(), CultureInfo.InvariantCulture),
-                int.Parse(multiOutput.Trim(), CultureInfo.InvariantCulture));
-            Assert.Equal(0, singleInfoExit);
-            Assert.Empty(singleInfoError);
+            Assert.True(
+                int.Parse(multiOutput.Trim(), CultureInfo.InvariantCulture) > 0);
+            Assert.Equal(1, singleInfoExit);
+            Assert.Empty(singleInfoOutput);
+            Assert.Contains("Section 'Package Info' is scalar", singleInfoError);
             Assert.Equal(0, multiInfoExit);
             Assert.Empty(multiInfoError);
-            Assert.Equal(
-                2 * int.Parse(singleInfoOutput.Trim(), CultureInfo.InvariantCulture),
-                int.Parse(multiInfoOutput.Trim(), CultureInfo.InvariantCulture));
+            Assert.True(
+                int.Parse(multiInfoOutput.Trim(), CultureInfo.InvariantCulture) > 0);
         }
         finally
         {
@@ -3442,11 +3626,11 @@ public partial class CommandExecutionTests
         {
             // "Grounding" was this section's canonical name, not a nickname, so scripts
             // spelling it must keep working after the rename.
-            var (groundingExit, groundingOutput, _) = await RunAppAsync("package", packagePath, "-S", "Grounding");
+            var (groundingExit, groundingOutput, _) = await RunAppAsync("package", packagePath, "-S", "Grounding", "--markdown");
             Assert.Equal(0, groundingExit);
             Assert.Contains("## Package README file", groundingOutput);
 
-            var (nuspecExit, nuspecOutput, _) = await RunAppAsync("package", packagePath, "-S", "Files: Nuspec");
+            var (nuspecExit, nuspecOutput, _) = await RunAppAsync("package", packagePath, "-S", "Files: Nuspec", "--markdown");
             Assert.Equal(0, nuspecExit);
             Assert.Contains("## Package nuspec file", nuspecOutput);
         }
@@ -3647,7 +3831,7 @@ public partial class CommandExecutionTests
         var (packagePath, tempDir) = CreateLocalReadmePackage("Test.AgentDocs.Signal", "README.md", "readme", "agents");
         try
         {
-            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "Signals");
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "Signals", "--markdown");
 
             Assert.Equal(0, exit);
             Assert.Contains("| Documentation | Agent documentation | Yes | AGENTS.md |", output);
@@ -4068,11 +4252,13 @@ public partial class CommandExecutionTests
                 "--columns",
                 "Field",
                 "--table");
+            // An unknown column is diagnosed on an inventory section; a lone
+            // scalar section already rejects --count before projection.
             var selectedUnknownColumn = await RunAppAsync(
                 "package",
                 firstPackage,
                 "-S",
-                "Signature",
+                "Target Frameworks",
                 "--count",
                 "--columns",
                 "Bogus");
@@ -4080,13 +4266,14 @@ public partial class CommandExecutionTests
             Assert.Equal(1, count.Exit);
             Assert.Equal(0, renderedColumn.Exit);
             Assert.Equal(0, rendered.Exit);
-            Assert.Equal(0, selectedCount.Exit);
+            // A lone scalar section has no Count under Section shapes.
+            Assert.Equal(1, selectedCount.Exit);
             Assert.Equal(0, selectedRendered.Exit);
             Assert.Equal(1, selectedUnknownColumn.Exit);
             Assert.Empty(count.Output);
             Assert.Empty(renderedColumn.Error);
             Assert.Empty(rendered.Error);
-            Assert.Empty(selectedCount.Error);
+            Assert.Contains("Section 'Signature' is scalar", selectedCount.Error);
             Assert.Empty(selectedRendered.Error);
             Assert.Contains(
                 "No columns matched projection: Bogus",
@@ -4793,7 +4980,7 @@ public partial class CommandExecutionTests
         var (packagePath, tempDir) = CreateLocalRefPackage("System.Runtime");
         try
         {
-            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "Signals");
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "Signals", "--markdown");
 
             Assert.Equal(0, exit);
             Assert.Contains("## Signals", output);
@@ -5017,7 +5204,7 @@ public partial class CommandExecutionTests
         var (packagePath, tempDir) = CreateLocalRefPackage("System.Runtime");
         try
         {
-            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "Signals");
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "Signals", "--markdown");
 
             Assert.Equal(0, exit);
             Assert.Contains("## Signals", output);

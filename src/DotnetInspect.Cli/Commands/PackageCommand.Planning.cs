@@ -716,9 +716,15 @@ public partial class PackageCommand
                 PackageSections.DependencyHierarchy);
         bool packageChildrenProjection =
             options.IncludeSections is not { Count: > 0 };
+        // The whole-package file inventory is a Hierarchy, so its tree is a
+        // permitted lowering (docs/design/section-shapes.md#hierarchy).
+        bool filesTreeProjection =
+            options.IncludeSections is { Count: 1 }
+            && options.IncludeSections.Contains(PackageSections.Files);
 
         if (!dependencyHierarchyProjection
-            && !packageChildrenProjection)
+            && !packageChildrenProjection
+            && !filesTreeProjection)
         {
             CommandError.Write(
                 options.IncludeSections is { Count: 1 }
