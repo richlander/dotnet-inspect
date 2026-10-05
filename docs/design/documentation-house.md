@@ -264,14 +264,18 @@ CLI / Browser -------------------------> Queries
 
 DocumentationHouse invokes only a source-neutral deferred authored-
 documentation operation after the operation reaches the source stage. The
-SourceHouse integration assembly implements the adapter that creates that
-operation over one pre-authorized exact `AuthoredOnly` request and plan.
-DocumentationHouse never references SourceHouse types, chooses PDB policy, or
-widens source authorization. SourceHouse does not reference DocumentationHouse.
-PackageHouse and PlatformHouse likewise do not call DocumentationHouse;
-integration assemblies above both owners bind their resource-free evidence to
-exact shared Library content references in the source-neutral House
-contribution contract. Live content access comes only from the transferred
+SourceHouse adapter, compiled in the `Documentation` folder of the SourceHouse
+assembly, creates that operation over one pre-authorized exact `AuthoredOnly`
+request and plan. DocumentationHouse never references SourceHouse types,
+chooses PDB policy, or widens source authorization. SourceHouse, PackageHouse,
+and PlatformHouse never call DocumentationHouse: each owner assembly references
+only the DocumentationHouse.Contracts floor, and only its `Documentation`
+adapter folder uses a DocumentationHouse type, binding the owner's
+resource-free evidence to exact shared Library content references in the
+source-neutral House contribution contract. That folder boundary is a code
+review convention; no gate checks it, so it is `unverified`. The assembly
+boundary that matters for acyclicity is gated by the build: Contracts
+references no owner, and no owner references the DocumentationHouse core. Live content access comes only from the transferred
 Library operation lease. This keeps every dependency acyclic and avoids
 `PackageHouse -> DocumentationHouse -> PackageHouse` and equivalent platform
 and source cycles.
@@ -842,13 +846,14 @@ DotnetInspector.PlatformQueries
   - owns no package, installed-pack, or host acquisition
 ```
 
-PackageHouse, PlatformHouse, SourceHouse, direct-Library composition, and
-Workspace do not depend on DocumentationHouse contracts or implementation.
-Integration assemblies depend toward both the source owner and the
-source-neutral DocumentationHouse floor and cannot change either owner's
-evidence. The DocumentationHouse core does not reference an integration
-assembly; it invokes only the source-neutral deferred-operation contract and
-passes the Library lease to it solely by consuming invocation. Queries and
+PackageHouse, PlatformHouse, SourceHouse, and direct-Library composition
+depend on the source-neutral DocumentationHouse.Contracts floor only through
+the adapter each carries in its `Documentation` folder; none depends on the
+DocumentationHouse implementation, and Workspace depends on neither. Adapters
+depend toward both the source owner and the Contracts floor and cannot change
+either owner's evidence. The DocumentationHouse core does not reference an
+owner or adapter; it invokes only the source-neutral deferred-operation
+contract and passes the Library lease to it solely by consuming invocation. Queries and
 hosts compose the applicable adapter above both owners, capture explicit
 authorization, obtain one exact Library operation lease, and transfer it before
 the House operation starts. `CompiledDocumentationQuery` owns no source adapter
