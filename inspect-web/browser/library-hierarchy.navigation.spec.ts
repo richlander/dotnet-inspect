@@ -1002,15 +1002,36 @@ test("owner-issued explicit-interface rows activate without resident enrichment"
   expect(JSON.parse(
     await page.locator("html").getAttribute(
       "data-member-group-document-request") ?? "[]",
-  )[6]).toBe("explicit-interface-implementation");
+  )).toEqual([
+    "Example.Package",
+    "1.0.0",
+    "net10.0",
+    `${core.name}.dll`,
+    "Example.Widget",
+    "IDisposable.Dispose",
+    "explicit-interface-implementation",
+    "csharp",
+    "private",
+    "all",
+    false,
+  ]);
   expect(JSON.parse(
     await page.locator("html").getAttribute(
       "data-member-document-request") ?? "[]",
-  ).slice(6, 10)).toEqual([
+  )).toEqual([
+    "Example.Package",
+    "1.0.0",
+    "net10.0",
+    `${core.name}.dll`,
+    "Example.Widget",
+    "IDisposable.Dispose",
     "explicit-interface-implementation",
     1,
     "widget-idisposable-dispose",
     "private",
+    "all",
+    false,
+    "csharp",
   ]);
 });
 
