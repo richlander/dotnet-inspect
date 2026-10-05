@@ -114,7 +114,13 @@ offers raised, lowered, and already-transformed printing paths. `PrintRaised`
 runs the default passes and requested style lenses before printing; `Print`
 prints the supplied tree. Printer options can affect spelling, naming, and
 explicitly byte-divergent taste choices. Preserve the effective options when
-comparing output.
+comparing output. The class is split into partial files by role, not by size:
+`CSharpPrinter.cs` holds entry points, options, printer state, and body
+preparation; `.Statements`, `.Expressions`, `.Patterns`, `.Operators`,
+`.TypesAndConstants`, `.Members`, and `.RaisedExpressions` spell decided
+structure; `.Declarations`, `.UnsafeContext`, and `.Numerics` still carry the
+print-time decisions the [thin-writer plan](design/value-typed-emission.md)
+retires one class at a time, so a decision's file names the debt.
 
 [`MemberBodyProducer`](../src/ILInspector.Decompiler/MemberBodyProducer.cs)
 is the reusable body/member/type composition entry. It adapts recovered body
