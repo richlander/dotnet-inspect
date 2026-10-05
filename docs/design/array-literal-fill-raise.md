@@ -66,15 +66,18 @@ run declines.
 ## Spilled elements
 
 csc evaluates an element that needs its own control flow (a conditional) into
-a stack slot between the `dup`/index pushes and the `stelem`. A slot is part
-of the run, as element `k`'s value, when all of the following hold:
+a stack slot between the array/index pushes and the `stelem`. The place can
+be a stack slot or a local: csc keeps the array in a local when it is read in
+a loop, and in Debug builds. A slot is part of the run, as element `k`'s
+value, when all of the following hold:
 
 - it is stored immediately before element `k`'s store, for `k ≥ 1`;
 - it has exactly one store and exactly one load;
 - that one load is the element store's value.
 
 Its value evaluates after the element-0…`k-1` stores and after the
-effect-free array-slot load and constant index, exactly as in the IL. A
+effect-free array load (slot or local) and constant index, exactly as in the
+IL. A
 spilled value that reads the place declines, like any element value. A slot
 read anywhere else is a shared carrier; it declines.
 
@@ -101,6 +104,7 @@ Without this, a cross-assembly enum fill raised as
 | Chains of two and four, a copy ahead of the run, spilled conditional element, nested `object[][]` | `ArrayLiteralCopyChainTests` positive facts |
 | Alias read before the run, element reading an alias, second escape, multi-store alias, local copy, blocked run leaving the chain untouched, shared spill, spill reading the place | `ArrayLiteralCopyChainTests` decline facts |
 | Real witnesses through the full pipeline | `ArrayLiteralCopyChainTests.RealDupChainsRaise` (Newtonsoft.Json `GetArgArray`, `FormatWith` ×3) |
+| Spilled elements in a local array (synthetic and csc-compiled, including a shared merge slot that must decline) | `ArrayLiteralCopyChainTests.SpilledConditionalElementInALocalArray_JoinsTheRun`, `CompiledLocalArraySpillsRender` |
 | Element coercion | `EnumCastPrinterTests.CrossAssemblyEnumArray_CastsElementStore` (compiles the render) |
 
 ## Out of scope

@@ -262,6 +262,43 @@ public class ArrayLiteralCopyChainTests
         Assert.Empty(function.Descendants.OfType<ArrayLiteral>());
     }
 
+    // The spilled-element rule applies to a local place too: the array local's
+    // load is as effect-free as a slot load (#9427 round 1: it threw here).
+    [Fact]
+    public void SpilledConditionalElementInALocalArray_JoinsTheRun()
+    {
+        var function = Build(
+            new StoreLocal(0, ObjectArray, Allocate(2)),
+            new StoreElement(Object, new LoadLocal(0, ObjectArray), Index(0), Effect("A")),
+            new StoreStackSlot(3, new Conditional(Effect("Test"), Effect("B"), Effect("C"))),
+            new StoreElement(Object, new LoadLocal(0, ObjectArray), Index(1), new LoadStackSlot(3, Object)),
+            SinkOf(new LoadLocal(0, ObjectArray)));
+
+        RunPass(function);
+
+        var literal = Literal(function);
+        Assert.IsType<StoreLocal>(literal.Parent);
+        Assert.IsType<Conditional>(literal.Elements[1]);
+        Assert.Equal(0, SlotMentions(function, 3));
+    }
+
+    // A slot copy of a local array is not a chain: locals never join one, and
+    // the copy is an observation of the place before the run.
+    [Fact]
+    public void SlotCopyOfALocalArray_DoesNotFold()
+    {
+        var function = Build(
+            new StoreLocal(0, ObjectArray, Allocate(2)),
+            new StoreElement(Object, new LoadLocal(0, ObjectArray), Index(0), Effect("A")),
+            new StoreStackSlot(257, new LoadLocal(0, ObjectArray)),
+            Fill(257, 1, Effect("B")),
+            SinkOf(Slot(257)));
+
+        RunPass(function);
+
+        Assert.Empty(function.Descendants.OfType<ArrayLiteral>());
+    }
+
     // A run interrupted by an unrelated statement does not raise, and the
     // copy statements stay: nothing is retired unless the literal commits.
     [Fact]
@@ -339,6 +376,22 @@ public class ArrayLiteralCopyChainTests
 
         Assert.Contains(expected, output);
         Assert.DoesNotContain("S_257", output);
+    }
+
+    // csc-compiled local-array fills with spilled conditional elements render
+    // through the full pipeline (Release and Debug builds keep the local).
+    [Theory]
+    [InlineData(nameof(ArrayLiteralCopyChainSamples.LocalSharedSpill))]
+    [InlineData(nameof(ArrayLiteralCopyChainSamples.LocalSpilledConditional))]
+    public void CompiledLocalArraySpillsRender(string method)
+    {
+        using var source = MetadataSource.Open(typeof(ArrayLiteralCopyChainSamples).Assembly.Location);
+        var function = IrImporter.Import(source, typeof(ArrayLiteralCopyChainSamples).FullName!, method);
+        Assert.NotNull(function);
+        var result = CSharpPrinter.PrintRaised(function, reference => IrImporter.Import(source, reference));
+
+        Assert.True(result.Succeeded, string.Join("\n", result.Diagnostics.Select(diagnostic => diagnostic.Message)));
+        Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
     }
 
     // "Name#n" selects the overload with n parameters; a bare name selects the first.

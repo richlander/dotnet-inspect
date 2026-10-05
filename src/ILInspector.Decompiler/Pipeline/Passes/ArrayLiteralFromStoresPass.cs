@@ -33,8 +33,9 @@ namespace ILInspector.Decompiler.Pipeline;
 /// commits. Locals never join a chain, because a typed local can be re-bound or
 /// addressed. An element csc evaluated into its own single-store, single-load
 /// slot immediately before the element store (a conditional element) joins the
-/// run as that element's value: it evaluates after the effect-free array slot
-/// load and constant index exactly as in the IL.</para>
+/// run as that element's value, for a local or slot place alike: it evaluates
+/// after the effect-free array load and constant index exactly as in the
+/// IL.</para>
 /// </summary>
 public sealed class ArrayLiteralFromStoresPass : IIrPass
 {
@@ -97,8 +98,10 @@ public sealed class ArrayLiteralFromStoresPass : IIrPass
         // the chain names the same array reference, so the chain is one place:
         // its copy statements inside the fold range retire with the raise, and
         // every place check below applies to the union of its members. Locals
-        // never join a chain — a typed local can be re-bound or addressed.
-        var slotStores = place.IsSlot ? CountSlotStores(function) : null;
+        // never join a chain — a typed local can be re-bound or addressed. The
+        // store counts also serve the spilled-element rule, which applies to
+        // local and slot places alike.
+        var slotStores = CountSlotStores(function);
 
         // Find the contiguous fill run somewhere later in the same block: n
         // element stores targeting the place, in increasing constant-index
@@ -123,7 +126,7 @@ public sealed class ArrayLiteralFromStoresPass : IIrPass
         // Walk the run. Besides chain copies, an element value csc evaluated
         // into its own spill slot right before the element store (a
         // conditional element: S_3 = c ? a : b; S_257[1] = S_3;) belongs to
-        // the run: its value evaluates after the effect-free array slot load
+        // the run: its value evaluates after the effect-free array load
         // and constant index exactly as in the IL, so it moves into its
         // element position.
         var elements = new IrExpression[length];
@@ -153,7 +156,7 @@ public sealed class ArrayLiteralFromStoresPass : IIrPass
                 && IsElementStore(block.Children[end + 1], place, k)
                 && ((StoreElement)block.Children[end + 1]).Value is LoadStackSlot spillLoad
                 && spillLoad.Slot == spill.Slot
-                && slotStores!.GetValueOrDefault(spill.Slot) == 1
+                && slotStores.GetValueOrDefault(spill.Slot) == 1
                 && CountSlotLoads(function, spill.Slot) == 1)
             {
                 absorbed[k] = spill;
@@ -256,9 +259,9 @@ public sealed class ArrayLiteralFromStoresPass : IIrPass
     // A direct copy `S_a = S_b;` joins the place's chain when S_b is already a
     // member and S_a is a synthetic slot with no other store anywhere in the
     // function. The chain root itself is single-store by the escape check.
-    static bool TryJoinChain(IrNode statement, Place place, IReadOnlyDictionary<int, int>? slotStores)
+    static bool TryJoinChain(IrNode statement, Place place, IReadOnlyDictionary<int, int> slotStores)
     {
-        if (slotStores is null
+        if (!place.IsSlot
             || statement is not StoreStackSlot { Value: LoadStackSlot source } copy
             || !place.Members.Contains(source.Slot)
             || place.Members.Contains(copy.Slot)
