@@ -3,6 +3,7 @@ using System.Collections.Immutable;
 using DotnetInspector.Queries;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
+using QuerySpace.Explanation;
 using QuerySpace.Vocabulary;
 
 namespace DotnetInspector.Sections;
@@ -203,7 +204,7 @@ public static class ProductVocabularyProjection
         VocabularyMapDefinition map,
         VocabularyTerm term)
     {
-        ImmutableArray<VocabularyMapValue> values =
+        ImmutableArray<ExplanationValue> values =
             term.GetRequiredValues(map.Identity);
         if (values.Length == 0)
             return null;
@@ -211,26 +212,26 @@ public static class ProductVocabularyProjection
         if (map.Target is VocabularyMapTarget.Terms)
         {
             return VocabularyValue.FromText(
-                ((VocabularyMapValue.Term)values[0]).Identity.Value);
+                ((ExplanationValue.VocabularyTerm)values[0]).Identity.Value);
         }
 
-        var scalar = (VocabularyMapValue.Scalar)values[0];
+        var scalar = (ExplanationValue.Scalar)values[0];
         if (map.Cardinality is VocabularyMapCardinality.OneOrMore
             or VocabularyMapCardinality.ZeroOrMore)
         {
             return VocabularyValue.FromTextList(
                 values.Select(value =>
-                    ((VocabularyMapValue.Scalar)value).Value.Text!));
+                    ((ExplanationValue.Scalar)value).Value.Text!));
         }
 
         return scalar.Value.Kind switch
         {
-            VocabularyScalarKind.Text =>
+            ExplanationScalarKind.Text =>
                 VocabularyValue.FromText(scalar.Value.Text!),
-            VocabularyScalarKind.Integer =>
-                VocabularyValue.FromInteger(checked((int)scalar.Value.Integer)),
-            VocabularyScalarKind.Boolean =>
-                VocabularyValue.FromBoolean(scalar.Value.Boolean),
+            ExplanationScalarKind.Integer =>
+                VocabularyValue.FromInteger(checked((int)scalar.Value.Integer!.Value)),
+            ExplanationScalarKind.Boolean =>
+                VocabularyValue.FromBoolean(scalar.Value.Boolean!.Value),
             _ => throw new InvalidOperationException(
                 $"Unsupported scalar kind '{scalar.Value.Kind}'."),
         };
@@ -246,7 +247,7 @@ public static class ProductVocabularyProjection
         [
             .. term.GetRequiredValues(map.Identity)
                 .Select(value =>
-                    ((VocabularyMapValue.Scalar)value).Value.Text!),
+                    ((ExplanationValue.Scalar)value).Value.Text!),
         ];
     }
 
@@ -296,21 +297,21 @@ public static class ProductVocabularyProjection
             VocabularyMapTarget.Terms => VocabularyValueKind.Text,
             VocabularyMapTarget.Scalar
             {
-                Kind: VocabularyScalarKind.Text
+                Kind: ExplanationScalarKind.Text
             } when map.Cardinality is VocabularyMapCardinality.OneOrMore
                 or VocabularyMapCardinality.ZeroOrMore =>
                 VocabularyValueKind.TextList,
             VocabularyMapTarget.Scalar
             {
-                Kind: VocabularyScalarKind.Text
+                Kind: ExplanationScalarKind.Text
             } => VocabularyValueKind.Text,
             VocabularyMapTarget.Scalar
             {
-                Kind: VocabularyScalarKind.Integer
+                Kind: ExplanationScalarKind.Integer
             } => VocabularyValueKind.Integer,
             VocabularyMapTarget.Scalar
             {
-                Kind: VocabularyScalarKind.Boolean
+                Kind: ExplanationScalarKind.Boolean
             } => VocabularyValueKind.Boolean,
             _ => throw new InvalidOperationException(
                 $"Unsupported map target for '{map.Identity}'."),
