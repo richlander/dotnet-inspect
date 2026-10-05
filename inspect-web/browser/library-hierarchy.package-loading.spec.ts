@@ -313,7 +313,7 @@ test("Package Overview disambiguates duplicate Library names", async ({
   ).toContainText(secondAsset);
 });
 
-test("lazy Library acquisition keeps partial Package totals unavailable", async ({
+test("lazy Library acquisition does not restore the removed Package overview row", async ({
   page,
 }) => {
   const unavailableAsset = "lib/net10.0/Example.Unavailable.dll";
@@ -358,8 +358,10 @@ test("lazy Library acquisition keeps partial Package totals unavailable", async 
     "aria-selected", "true");
   await chooseSubject(page, "package", "Package");
 
-  await expect(page.locator(".package-overview-surface .api-surface-head p"))
-    .toHaveText("Type Count unavailable · Member Count unavailable");
+  const overview = page.locator(".package-overview-surface");
+  await expect(overview.locator(".api-surface-head")).toHaveCount(0);
+  await expect(overview).not.toContainText("0 types");
+  await expect(overview).not.toContainText("0 members");
 });
 
 test("Package Overview opens an owner-issued RID Package child", async ({
