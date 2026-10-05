@@ -829,6 +829,43 @@ public sealed class PolicyEvaluatorTests
     }
 
     [Fact]
+    public void CheckedInPolicyKeepsLocalAdaptersOutOfBrowserHosts()
+    {
+        string repository = FindRepositoryRoot();
+        DependencyPolicyDocument policy = PolicyLoader.Load(
+            Path.Combine(repository, "eng", "dependency-policy.json"));
+        DependencyRule rule = Assert.Single(
+            policy.Rules,
+            candidate => candidate.Id
+                == "browser-hosts-never-reference-local-adapters");
+        Assert.Equal(
+            [
+                DependencyGraphKind.Project,
+                DependencyGraphKind.Assembly,
+            ],
+            rule.Graphs);
+        Assert.Equal(["DotnetInspect.Web*"], rule.Targets);
+        Assert.NotNull(rule.Deny);
+        Assert.Equal(
+            [
+                "DotnetInspector.PlatformHouse.Local",
+                "DotnetInspector.Sections.Local",
+            ],
+            rule.Deny);
+
+        AssertCheckedInRuleRejectsRepositoryDependency(
+            "browser-hosts-never-reference-local-adapters",
+            "DotnetInspect.Web.Core",
+            "DotnetInspector.PlatformHouse.Local",
+            "src/DotnetInspect.Web.Core/DotnetInspect.Web.Core.csproj");
+        AssertCheckedInRuleRejectsRepositoryDependency(
+            "browser-hosts-never-reference-local-adapters",
+            "DotnetInspect.Web",
+            "DotnetInspector.Sections.Local",
+            "src/DotnetInspect.Web/DotnetInspect.Web.csproj");
+    }
+
+    [Fact]
     public void CheckedInBroadProductRulesExcludeCallerGraphFixtures()
     {
         string repository = FindRepositoryRoot();
@@ -989,20 +1026,16 @@ public sealed class PolicyEvaluatorTests
                 "DotnetInspector.PackageQueries",
                 "DotnetInspector.Packages",
                 "DotnetInspector.PlatformHouse",
-                "DotnetInspector.PlatformHouse.Execution.Installed",
-                "DotnetInspector.PlatformHouse.Execution.Packages",
-                "DotnetInspector.PlatformHouse.Installed",
+                "DotnetInspector.PlatformHouse.Local",
                 "DotnetInspector.PlatformHouse.Packages",
                 "DotnetInspector.PlatformQueries",
                 "DotnetInspector.Platforms",
-                "DotnetInspector.Platforms.Installed",
-                "DotnetInspector.Platforms.Packages",
                 "DotnetInspector.Presentation",
                 "DotnetInspector.Queries",
                 "DotnetInspector.ResearchQueries",
                 "DotnetInspector.ResearchSections",
                 "DotnetInspector.Sections",
-                "DotnetInspector.Sections.Installed",
+                "DotnetInspector.Sections.Local",
                 "DotnetInspector.Services",
                 "DotnetInspector.SourceSelection",
                 "DotnetInspector.Vocabulary",
@@ -1071,21 +1104,16 @@ public sealed class PolicyEvaluatorTests
                 "DotnetInspector.PackageQueries",
                 "DotnetInspector.Packages",
                 "DotnetInspector.PlatformHouse",
-                "DotnetInspector.PlatformHouse.Execution",
-                "DotnetInspector.PlatformHouse.Execution.Installed",
-                "DotnetInspector.PlatformHouse.Execution.Packages",
-                "DotnetInspector.PlatformHouse.Installed",
+                "DotnetInspector.PlatformHouse.Local",
                 "DotnetInspector.PlatformHouse.Packages",
                 "DotnetInspector.PlatformQueries",
                 "DotnetInspector.Platforms",
-                "DotnetInspector.Platforms.Installed",
-                "DotnetInspector.Platforms.Packages",
                 "DotnetInspector.Presentation",
                 "DotnetInspector.Queries",
                 "DotnetInspector.ResearchQueries",
                 "DotnetInspector.ResearchSections",
                 "DotnetInspector.Sections",
-                "DotnetInspector.Sections.Installed",
+                "DotnetInspector.Sections.Local",
                 "DotnetInspector.Services",
                 "DotnetInspector.SourceHouse",
                 "DotnetInspector.SourceSelection",
