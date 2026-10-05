@@ -74,12 +74,17 @@ public static class SelectResolver
         ["Performance: Closures and delegates"] = SectionNames.PerformanceClosures,
         ["Performance: Loop hot paths"] = SectionNames.PerformanceLoops,
         ["Performance: Allocation hotspots"] = SectionNames.PerformanceHotspots,
-        // Package file family: both the original names and the interim "Files:" spellings.
+        // Package file family: the interim "Files:" spellings and the former
+        // long names, lowered to the concise canonical sections adopted under
+        // docs/design/section-shapes.md. Compatibility-only; disposition is
+        // owned by cli-change-classification.md like the rest of this table.
         ["Files: Nuspec"] = DotnetInspect.Cli.Views.PackageSections.FilesNuspec,
         ["Files: License"] = DotnetInspect.Cli.Views.PackageSections.FilesLicenses,
-        ["Files"] = DotnetInspect.Cli.Views.PackageSections.Files,
-        // file". The agent-grounding intent the name carried is served by "Package skill
-        // files", which is a different section, so this alias follows the behavior.
+        ["Package files"] = DotnetInspect.Cli.Views.PackageSections.Files,
+        ["Package nuspec file"] = DotnetInspect.Cli.Views.PackageSections.FilesNuspec,
+        ["Package README file"] = DotnetInspect.Cli.Views.PackageSections.FilesReadme,
+        ["Package license files"] = DotnetInspect.Cli.Views.PackageSections.FilesLicenses,
+        ["Package skill files"] = DotnetInspect.Cli.Views.PackageSections.FilesSkills,
     };
 
     /// <summary>

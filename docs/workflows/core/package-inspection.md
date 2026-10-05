@@ -218,7 +218,7 @@ lib/netstandard2.0/System.CommandLine.dll
 
 ```bash
 dotnet-inspect package Microsoft.Data.SqlClient@6.1.0 \
-  --tfm net8.0 -S "Package files" --paths
+  --tfm net8.0 -S Files --paths
 ```
 
 ```expect
@@ -236,7 +236,7 @@ apply.
 
 ```bash
 dotnet-inspect package Microsoft.Data.SqlClient@6.1.0 \
-  --tfm net8.0 -S "Package files" --roots
+  --tfm net8.0 -S Files --roots
 ```
 
 ```expect
@@ -273,7 +273,7 @@ wc -l | tr -d ' '
 ### 6a. Print the README
 
 ```bash
-dotnet-inspect package System.CommandLine@2.0.3 -S "Package README file" --print
+dotnet-inspect package System.CommandLine@2.0.3 -S README --print
 ```
 
 ```expect
@@ -285,14 +285,14 @@ to print selected file bodies. Markdown content can be scoped to the YAML header
 or body:
 
 ```text
-dotnet-inspect package Markout -S "Package README file"
+dotnet-inspect package Markout -S README
 dotnet-inspect package Markout -S "Package Info" --fields Version --value
-dotnet-inspect package Markout -S "Package README file" --print
-dotnet-inspect project ./src/App -S "Skills"
-dotnet-inspect project ./src/App -S "Skills" --paths
-dotnet-inspect project ./src/App -S "Skills" --print --row 1
-dotnet-inspect project ./src/App -S "Skills" --print --row 1 --jsonl
-dotnet-inspect package Markout -S "Package skill files"
+dotnet-inspect package Markout -S README --print
+dotnet-inspect project ./src/App -S Skills
+dotnet-inspect project ./src/App -S Skills --paths
+dotnet-inspect project ./src/App -S Skills --print --row 1
+dotnet-inspect project ./src/App -S Skills --print --row 1 --jsonl
+dotnet-inspect package Markout -S Skills
 dotnet-inspect package Markout --path @agents --content --frontmatter
 dotnet-inspect package Markout Polly --path @agents --path @readme --match first --content --jsonl
 ```
@@ -318,9 +318,9 @@ dotnet-inspect package query Newtonsoft.Json \
 The package command answers the latter from package contents:
 
 ```bash
-dotnet-inspect package wix@7.0.0 -S "Package license files"
-dotnet-inspect package wix@7.0.0 -S "Package license files" --count
-dotnet-inspect package wix@7.0.0 -S "Package license files" --print --raw
+dotnet-inspect package wix@7.0.0 -S Licenses
+dotnet-inspect package wix@7.0.0 -S Licenses --count
+dotnet-inspect package wix@7.0.0 -S Licenses --print --raw
 dotnet-inspect package wix@7.0.0 --path @license --content --raw
 ```
 
@@ -346,7 +346,7 @@ license-document content to make that decision.
 ### 6c. Resolve package skill paths
 
 ```bash
-dotnet-inspect package Markout@0.33.0 -S "Package skill files" --paths
+dotnet-inspect package Markout@0.33.0 -S Skills --paths
 ```
 
 ```expect

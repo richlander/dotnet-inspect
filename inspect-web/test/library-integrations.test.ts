@@ -1,32 +1,120 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { renderLibraryIntegrationsSurface, type LibraryIntegrationsOptions } from "../src/library-integrations.ts";
-import type { BrowserPackageIntegrations } from "../src/facades/inspect-web-analysis.d.ts";
+import {
+  renderLibraryIntegrationsSurface,
+  type LibraryIntegrationsOptions,
+} from "../src/library-integrations.ts";
+import type {
+  BrowserPackageIntegrations,
+  BrowserPackageOpportunities,
+} from "../src/facades/inspect-web-analysis.d.ts";
 
-const data: BrowserPackageIntegrations = {
-  package: "Example.Package", version: "1.0.0", framework: "net10.0",
+const integrations: BrowserPackageIntegrations = {
+  package: "Example.Package",
+  version: "1.0.0",
+  framework: "net10.0",
   categories: [
-    { integration: "Dependency Injection", signals: [
-      { name: "Example.Extensions.ZAdd()", shape: "Method", kind: "Extension method" },
-      { name: "Example.Service", shape: "Type", kind: "Implementation" },
-      { name: "Example.Extensions.Add()", shape: "Method", kind: "Extension method" },
-    ] },
-    { integration: "Logging", signals: [
-      { name: "Example.Logger.Write(ILogger logger)", shape: "Method", kind: "Parameter" },
-    ] },
+    {
+      integration: "Dependency Injection",
+      signals: [
+        {
+          name: "Example.Extensions.ZAdd()",
+          shape: "Method",
+          kind: "Extension method",
+        },
+        {
+          name: "Example.Service",
+          shape: "Type",
+          kind: "Implementation",
+        },
+        {
+          name: "Example.Extensions.Add()",
+          shape: "Method",
+          kind: "Extension method",
+        },
+      ],
+    },
+    {
+      integration: "Logging",
+      signals: [{
+        name: "Example.Logger.Write(ILogger logger)",
+        shape: "Method",
+        kind: "Parameter",
+      }],
+    },
   ],
-  totalSignals: 4, isComplete: true, inspectionError: null,
-  compileLibrary: { status: "Selected", targetFramework: "net10.0", message: null },
+  totalSignals: 4,
+  isComplete: true,
+  inspectionError: null,
+  compileLibrary: {
+    status: "Selected",
+    targetFramework: "net10.0",
+    message: null,
+  },
+  inspection: null,
+};
+
+const suggestions: BrowserPackageOpportunities = {
+  package: "Example.Package",
+  version: "1.0.0",
+  activeFramework: "net10.0",
+  categories: [
+    {
+      integration: "Dependency Injection",
+      items: [{
+        api: "Example.Widget",
+        integrationType:
+          "Microsoft.Extensions.DependencyInjection IServiceCollection registration",
+        lookFor: "AddWidget",
+        sourceDefinitionId: "Example.Widget",
+        sourceAssembly: "Example.Core",
+        sourceAssemblyVersion: "1.0.0.0",
+        sourceAssemblyCulture: null,
+        sourceAssemblyPublicKeyToken: null,
+      }],
+    },
+    {
+      integration: "AI",
+      items: [{
+        api: "Example.ChatWidget",
+        integrationType: "Microsoft.Extensions.AI IChatClient extension",
+        lookFor: "AddChatClient",
+        sourceDefinitionId: "Example.ChatWidget",
+        sourceAssembly: "Example.Core",
+        sourceAssemblyVersion: "1.0.0.0",
+        sourceAssemblyCulture: null,
+        sourceAssemblyPublicKeyToken: null,
+      }],
+    },
+  ],
+  totalOpportunities: 2,
+  isComplete: true,
+  inspectionError: null,
+  compileLibrary: {
+    status: "Selected",
+    targetFramework: "net10.0",
+    message: null,
+  },
   inspection: null,
 };
 
 function render(overrides: Partial<LibraryIntegrationsOptions> = {}) {
   return renderLibraryIntegrationsSurface({
     libraryName: "Example.Core",
-    assemblyIdentity: "Example.Core, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null",
+    assemblyIdentity:
+      "Example.Core, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null",
     assetPath: "lib/net10.0/Example.Core.dll",
     coordinate: "net10.0 / Example.Package@1.0.0",
-    requireLibrary: false, pickerHtml: "", loading: false, error: "", data,
+    requireLibrary: false,
+    pickerHtml: "",
+    integrationsFresh: true,
+    integrationsLoading: false,
+    integrationsError: "",
+    integrationsData: integrations,
+    suggestionsFresh: true,
+    suggestionsLoading: false,
+    suggestionsError: "",
+    suggestionsData: suggestions,
     escapeHtml: value => String(value).replaceAll("&", "&amp;")
       .replaceAll("<", "&lt;").replaceAll(">", "&gt;")
       .replaceAll('"', "&quot;").replaceAll("'", "&#39;"),
@@ -34,7 +122,7 @@ function render(overrides: Partial<LibraryIntegrationsOptions> = {}) {
   });
 }
 
-test("Integrations uses the shared Analysis heading and bottom identity", () => {
+test("Integrations uses one Analysis tab and merges detected and suggested entries", () => {
   const html = render();
   assert.equal(html.match(/<h1\b/g)?.length, 1);
   assert.match(html, /<h1 id="library-analysis-title">Analysis<\/h1>/);
@@ -42,92 +130,173 @@ test("Integrations uses the shared Analysis heading and bottom identity", () => 
     html,
     /data-analysis-mode="integrations" aria-selected="true"/,
   );
-  assert.match(html, /2 categories.*4 signals/);
-  assert.match(html, /library-integrations-scroll"><section class="integration-category"/);
-  assert.match(html, /<footer[\s\S]*lib\/net10.0\/Example.Core.dll.*Example.Core, Version=1.0.0.0/);
-  assert.match(html, /<footer[\s\S]*net10.0 \/ Example.Package@1.0.0/);
-  assert.doesNotMatch(html, /type-heading|type-chip-list|Ecosystem integrations|library-integrations-controls/);
+  assert.doesNotMatch(html, /data-analysis-mode="opportunities"/);
+  assert.match(html, /3 categories.*4 detected.*2 suggested/);
+  assert.match(
+    html,
+    /<h2 id="integration-category-0">Dependency Injection<\/h2><span>1 type &middot; 2 APIs &middot; 1 suggested<\/span>/,
+  );
+  assert.equal(
+    html.match(/aria-labelledby="integration-category-/g)?.length,
+    3,
+  );
+  assert.equal(html.match(/class="signal-row"/g)?.length, 4);
+  assert.equal(html.match(/class="opp-row"/g)?.length, 2);
+  assert.match(
+    html,
+    /<footer[\s\S]*lib\/net10.0\/Example.Core.dll.*Example.Core, Version=1.0.0.0/,
+  );
+  assert.match(
+    html,
+    /<footer[\s\S]*net10.0 \/ Example.Package@1.0.0/,
+  );
 });
 
-test("category order, type-first sorting, kind/name sorting and counts are retained without mutating data", () => {
-  const original = JSON.stringify(data);
+test("detected rows retain category order and type-first sorting without mutating data", () => {
+  const original = JSON.stringify(integrations);
   const html = render();
-  const names = [...html.matchAll(/class="signal-name">([^<]*)<\/span>/g)].map(match => match[1]);
-  assert.deepEqual(names, ["Service", "Add()", "ZAdd()", "Write(ILogger logger)"]);
-  assert.ok(html.indexOf(">Dependency Injection</h2>") < html.indexOf(">Logging</h2>"));
-  assert.match(html, /1 type &middot; 2 APIs/);
-  assert.match(html, /0 types &middot; 1 API/);
-  assert.match(html, /signal-badge signal-type">T/);
-  assert.match(html, /signal-badge signal-api">&#402;/);
-  assert.match(html, /role="listitem" title="Example.Extensions.Add\(\).*Method.*Extension method"/);
-  assert.equal(JSON.stringify(data), original);
+  const names = [...html.matchAll(/class="signal-name">([^<]*)<\/span>/g)]
+    .map(match => match[1]);
+  assert.deepEqual(
+    names,
+    ["Service", "Add()", "ZAdd()", "Write(ILogger logger)"],
+  );
+  assert.ok(
+    html.indexOf(">Dependency Injection</h2>")
+      < html.indexOf(">Logging</h2>"),
+  );
+  assert.ok(html.indexOf(">Logging</h2>") < html.indexOf(">AI</h2>"));
+  assert.equal(JSON.stringify(integrations), original);
 });
 
-test("generic and parameter suffixes stay on the short name", () => {
-  const html = render({ data: {
-    ...data, totalSignals: 1,
-    categories: [{ integration: "Example", signals: [
-      { name: "Acme.Widget.Make<Acme.Item>(System.String input)", shape: "Method", kind: "Factory" },
-    ] }],
-  } });
-  assert.match(html, /1 category.*1 signal/);
-  assert.match(html, /class="signal-name">Make&lt;Acme.Item&gt;\(System.String input\)<\/span>/);
-  assert.match(html, /class="signal-ns">Acme.Widget<\/span>/);
-});
-
-test("platform selection stays outside the scroller and takes precedence over retained results", () => {
-  const pickerHtml = '<select class="scope-select platform-library-select" data-platform-analysis-library aria-label="Select a platform library"><option>Example.Core</option></select>';
-  const html = render({ requireLibrary: true, pickerHtml, loading: true, error: "earlier failure" });
-  assert.match(html, /library-integrations-with-controls/);
-  assert.match(html, /library-integrations-controls[\s\S]*data-platform-analysis-library[\s\S]*library-integrations-scroll/);
-  assert.match(html, /Pick a library to scan/);
-  assert.match(html, /<footer/);
-  assert.doesNotMatch(html, /role="listitem"|earlier failure|4 signals/);
-});
-
-for (const [name, overrides, expected] of [
-  ["loading", { loading: true, error: "earlier failure" }, /Reading the public surface of Example.Core/],
-  ["query failure", { error: "Scan unavailable." }, /Integration scan failed[\s\S]*Scan unavailable/],
-  ["pending", { data: null }, /Loading/],
-] satisfies Array<[string, Partial<LibraryIntegrationsOptions>, RegExp]>) {
-  test(`${name} retains the frame without exposing retained results or successful absence`, () => {
-    const html = render(overrides);
-    assert.match(html, expected);
-    assert.match(html, /<footer/);
-    assert.doesNotMatch(html, /role="listitem"|4 signals|No ecosystem integrations detected/);
+test("either evidence source can populate the shared list independently", () => {
+  const detectedOnly = render({
+    suggestionsFresh: true,
+    suggestionsData: {
+      ...suggestions,
+      categories: [],
+      totalOpportunities: 0,
+    },
   });
-}
+  const suggestedOnly = render({
+    integrationsFresh: true,
+    integrationsData: {
+      ...integrations,
+      categories: [],
+      totalSignals: 0,
+    },
+  });
 
-test("a complete empty scan retains its explicit absence result", () => {
-  const html = render({ data: { ...data, categories: [], totalSignals: 0 } });
-  assert.match(html, /0 categories.*0 signals/);
-  assert.match(html, /No ecosystem integrations detected/);
-  assert.doesNotMatch(html, /metadata-warning|partial/);
+  assert.equal(detectedOnly.match(/class="signal-row"/g)?.length, 4);
+  assert.doesNotMatch(detectedOnly, /class="opp-row"/);
+  assert.match(detectedOnly, /4 detected.*0 suggested/);
+  assert.equal(suggestedOnly.match(/class="opp-row"/g)?.length, 2);
+  assert.doesNotMatch(suggestedOnly, /class="signal-row"/);
+  assert.match(suggestedOnly, /0 detected.*2 suggested/);
 });
 
-test("partial results retain rows and diagnostics without claiming completeness", () => {
-  const html = render({ data: { ...data, isComplete: false, inspectionError: "Cannot read <participant>." } });
-  assert.match(html, /4 signals.*partial/);
-  assert.match(html, /This library could not be scanned completely/);
-  assert.match(html, /Cannot read &lt;participant&gt;/);
-  assert.equal(html.match(/role="listitem"/g)?.length, 4);
-});
-
-test("incomplete zero-row scans do not claim absence, even without diagnostic text", () => {
-  for (const inspectionError of [null, "Participant unavailable."]) {
-    const html = render({ data: { ...data, isComplete: false, inspectionError, categories: [], totalSignals: 0 } });
-    assert.match(html, /Integration scan incomplete/);
-    assert.match(html, /This library could not be scanned completely/);
-    assert.doesNotMatch(html, /No ecosystem integrations detected|shows no known/);
-  }
-});
-
-test("rendered facts, context and errors use the supplied text escape boundary", () => {
+test("one source can fail without hiding results from the other", () => {
   const html = render({
-    assemblyIdentity: 'Example."Core"', assetPath: "lib/Core&Other.dll",
-    coordinate: "Example<Package>@1", error: "Read <failed>",
+    suggestionsData: null,
+    suggestionsError: "Suggestion query unavailable.",
   });
-  assert.match(html, /title="lib\/Core&amp;Other.dll.*Example.&quot;Core&quot;"/);
+
+  assert.equal(html.match(/class="signal-row"/g)?.length, 4);
+  assert.doesNotMatch(html, /class="opp-row"/);
+  assert.match(html, /4 detected.*0 suggested.*partial/);
+  assert.match(html, /Suggested integrations: Suggestion query unavailable/);
+});
+
+test("a scan still running shows available rows and a visible pending state", () => {
+  const html = render({
+    suggestionsData: null,
+    suggestionsLoading: true,
+  });
+
+  assert.equal(html.match(/class="signal-row"/g)?.length, 4);
+  assert.match(html, /4 detected.*0 suggested.*scanning/);
+  assert.match(html, /The integration scan is still running/);
+});
+
+test("a failed source remains visible while the other source is still scanning", () => {
+  const html = render({
+    integrationsData: null,
+    integrationsError: "Detected query unavailable.",
+    suggestionsData: null,
+    suggestionsLoading: true,
+  });
+
+  assert.match(html, /Scanning integrations/);
+  assert.match(html, /Part of the integration scan failed/);
+  assert.match(html, /Detected integrations: Detected query unavailable/);
+});
+
+test("platform selection stays outside the shared scroller", () => {
+  const pickerHtml =
+    '<select class="scope-select platform-library-select" data-platform-analysis-library aria-label="Select a platform library"><option>Example.Core</option></select>';
+  const html = render({
+    requireLibrary: true,
+    pickerHtml,
+    integrationsLoading: true,
+    suggestionsLoading: true,
+  });
+
+  assert.match(html, /library-integrations-with-controls/);
+  assert.match(
+    html,
+    /library-integrations-controls[\s\S]*data-platform-analysis-library[\s\S]*library-integrations-scroll/,
+  );
+  assert.match(html, /Pick a library to scan/);
+  assert.doesNotMatch(html, /role="listitem"|4 detected|2 suggested/);
+});
+
+test("complete and incomplete empty scans remain distinct", () => {
+  const emptyIntegrations = {
+    ...integrations,
+    categories: [],
+    totalSignals: 0,
+  };
+  const emptySuggestions = {
+    ...suggestions,
+    categories: [],
+    totalOpportunities: 0,
+  };
+  const complete = render({
+    integrationsData: emptyIntegrations,
+    suggestionsData: emptySuggestions,
+  });
+  const incomplete = render({
+    integrationsData: {
+      ...emptyIntegrations,
+      isComplete: false,
+      inspectionError: "Participant unavailable.",
+    },
+    suggestionsData: emptySuggestions,
+  });
+
+  assert.match(complete, /No ecosystem integrations found/);
+  assert.doesNotMatch(complete, /partial|metadata-warning/);
+  assert.match(incomplete, /Integration scan incomplete/);
+  assert.match(incomplete, /Participant unavailable/);
+  assert.doesNotMatch(incomplete, /No ecosystem integrations found/);
+});
+
+test("rendered facts, context, and errors use the supplied text escape boundary", () => {
+  const html = render({
+    assemblyIdentity: 'Example."Core"',
+    assetPath: "lib/Core&Other.dll",
+    coordinate: "Example<Package>@1",
+    integrationsData: null,
+    suggestionsData: null,
+    integrationsError: "Read <failed>",
+    suggestionsError: "Suggest <failed>",
+  });
+
+  assert.match(
+    html,
+    /title="lib\/Core&amp;Other.dll.*Example.&quot;Core&quot;"/,
+  );
   assert.match(html, /Example&lt;Package&gt;/);
-  assert.match(html, /Read &lt;failed&gt;/);
+  assert.match(html, /Detected integrations: Read &lt;failed&gt;/);
+  assert.match(html, /Suggested integrations: Suggest &lt;failed&gt;/);
 });
