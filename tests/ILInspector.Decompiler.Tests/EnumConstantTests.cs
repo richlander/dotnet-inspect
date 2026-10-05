@@ -162,7 +162,7 @@ public class EnumConstantTests
             TypeShapes = new Dictionary<TypeRef, TypeShape> { [enumType] = TypeShape.Enum },
         };
 
-        string output = CSharpPrinter.Print(function).Output!.Trim();
+        string output = DecidedPrint.Print(function).Output!.Trim();
 
         Assert.Contains(")(flag ? 1 : 0)", output);
         Assert.DoesNotContain("= flag ? 1 : 0;", output);
@@ -187,7 +187,7 @@ public class EnumConstantTests
         var signature = new MethodSignature(TypeRef.CoreLib("System", "Void"), [], HasThis: false, GenericParameterCount: 0);
         var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [TypeRef.Pointer(uintType), uintType], container);
 
-        string output = CSharpPrinter.Print(function).Output!.Trim();
+        string output = DecidedPrint.Print(function).Output!.Trim();
 
         Assert.Contains("*V_0 = V_1;", output);
         Assert.DoesNotContain("(int)", output);
@@ -216,7 +216,7 @@ public class EnumConstantTests
         var signature = new MethodSignature(boolType, [], HasThis: false, GenericParameterCount: 0);
         var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
 
-        string output = CSharpPrinter.Print(function).Output!.Trim();
+        string output = DecidedPrint.Print(function).Output!.Trim();
 
         Assert.Contains("a == b", output);
         Assert.DoesNotContain("!(a != b)", output);
@@ -249,7 +249,7 @@ public class EnumConstantTests
         var signature = new MethodSignature(boolType, [], HasThis: false, GenericParameterCount: 0);
         var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
 
-        string output = CSharpPrinter.Print(function).Output!.Trim();
+        string output = DecidedPrint.Print(function).Output!.Trim();
 
         Assert.Contains("!(a > b)", output);
         Assert.DoesNotContain("!a > b", output);
@@ -279,7 +279,7 @@ public class EnumConstantTests
         var signature = new MethodSignature(boolType, [], HasThis: false, GenericParameterCount: 0);
         var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
 
-        string output = CSharpPrinter.Print(function).Output!.Trim();
+        string output = DecidedPrint.Print(function).Output!.Trim();
 
         Assert.DoesNotContain("a != b", output);
         Assert.Contains("op_Equality", output);
@@ -314,7 +314,7 @@ public class EnumConstantTests
         var signature = new MethodSignature(boolType, [], HasThis: false, GenericParameterCount: 0);
         var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
 
-        string output = CSharpPrinter.Print(function).Output!.Trim();
+        string output = DecidedPrint.Print(function).Output!.Trim();
 
         Assert.Contains("!(a == b)", output);
         Assert.DoesNotContain("a != b", output);
@@ -336,7 +336,7 @@ public class EnumConstantTests
         container.Add(block);
         var signature = new MethodSignature(boolType, [], HasThis: false, GenericParameterCount: 0);
         var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
-        return CSharpPrinter.Print(function).Output!.Trim();
+        return DecidedPrint.Print(function).Output!.Trim();
     }
 
     [Theory]
@@ -397,7 +397,7 @@ public class EnumConstantTests
             [new Parameter("a", timeSpan), new Parameter("b", timeSpan)], HasThis: false, GenericParameterCount: 0);
         var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
 
-        string output = CSharpPrinter.Print(function).Output!.Trim();
+        string output = DecidedPrint.Print(function).Output!.Trim();
 
         Assert.Contains("if (a >= b)", output);
         Assert.DoesNotContain("!(a < b)", output);
@@ -453,7 +453,7 @@ public class EnumConstantTests
         var signature = new MethodSignature(intType, [], HasThis: false, GenericParameterCount: 0);
         var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
 
-        string output = CSharpPrinter.Print(function).Output!.Trim();
+        string output = DecidedPrint.Print(function).Output!.Trim();
 
         Assert.Contains(".op_Addition(a, b)", output);
         Assert.DoesNotContain("a + b", output);
@@ -477,7 +477,7 @@ public class EnumConstantTests
         var signature = new MethodSignature(intType, [], HasThis: false, GenericParameterCount: 0);
         var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
 
-        string output = CSharpPrinter.Print(function).Output!.Trim();
+        string output = DecidedPrint.Print(function).Output!.Trim();
 
         Assert.Contains(".op_Implicit(value)", output);
         Assert.DoesNotContain("return (int)value;", output);
@@ -502,7 +502,7 @@ public class EnumConstantTests
         var signature = new MethodSignature(intType, [], HasThis: false, GenericParameterCount: 0);
         var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
 
-        string output = CSharpPrinter.Print(function).Output!.Trim();
+        string output = DecidedPrint.Print(function).Output!.Trim();
 
         Assert.Contains("return a + b;", output);
         Assert.DoesNotContain("op_Addition", output);
@@ -527,7 +527,7 @@ public class EnumConstantTests
             TypeShapes = new Dictionary<TypeRef, TypeShape> { [byteType] = TypeShape.ValueType },
         };
 
-        string output = CSharpPrinter.Print(function).Output!.Trim();
+        string output = DecidedPrint.Print(function).Output!.Trim();
 
         Assert.Contains("obj is byte", output);
         Assert.DoesNotContain(" as byte", output);
@@ -555,7 +555,7 @@ public class EnumConstantTests
             TypeShapes = new Dictionary<TypeRef, TypeShape> { [byteType] = TypeShape.ValueType },
         };
 
-        string output = CSharpPrinter.Print(function).Output!.Trim();
+        string output = DecidedPrint.Print(function).Output!.Trim();
 
         Assert.Contains("obj is byte", output);
         Assert.DoesNotContain("!= 0", output);
@@ -583,7 +583,7 @@ public class EnumConstantTests
         // cross-assembly struct.
         var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [objType], container);
 
-        string output = CSharpPrinter.Print(function).Output!.Trim();
+        string output = DecidedPrint.Print(function).Output!.Trim();
 
         Assert.Contains("obj is BigInteger", output);
         Assert.DoesNotContain(" as BigInteger", output);
@@ -604,7 +604,7 @@ public class EnumConstantTests
             TypeShapes = new Dictionary<TypeRef, TypeShape> { [enumType] = TypeShape.Enum },
         };
         // Strip the leading "return " and trailing ";" to get the operand text.
-        string output = CSharpPrinter.Print(function).Output!.Trim();
+        string output = DecidedPrint.Print(function).Output!.Trim();
         return output["return ".Length..].TrimEnd(';');
     }
 
@@ -615,7 +615,7 @@ public class EnumConstantTests
             var function = IrImporter.Import(source, typeName, methodName);
             Assert.NotNull(function);
             IrPasses.Run(function);
-            return CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n");
+            return DecidedPrint.Print(function).Output!.ReplaceLineEndings("\n");
         }
     }
 }

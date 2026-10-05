@@ -80,6 +80,8 @@ public sealed class InspectionQueryContext : IDisposable
     public RowSelectionIntent<string>? NameFamilyRowSelection
     { get; init; }
 
+    public bool NameFamilyRoleTypeRows { get; init; }
+
     public RowSelectionIntent<string>? DependencyStructureRowSelection
     { get; init; }
 

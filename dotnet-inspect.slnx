@@ -14,6 +14,9 @@
     <Project Path="fixtures/analysis/ILInspector.Analysis.CallerGraphLookalikeCaller/ILInspector.Analysis.CallerGraphLookalikeCaller.csproj" />
     <Project Path="fixtures/analysis/ILInspector.Analysis.CallerGraphTarget/ILInspector.Analysis.CallerGraphTarget.csproj" />
     <Project Path="fixtures/analysis/ILInspector.Analysis.CallerGraphTargetV2/ILInspector.Analysis.CallerGraphTargetV2.csproj" />
+    <Project Path="fixtures/analysis/ILInspector.Analysis.CallerGraphVersionSkewCaller/ILInspector.Analysis.CallerGraphVersionSkewCaller.csproj" />
+    <Project Path="fixtures/analysis/ILInspector.Analysis.CallerGraphVersionSkewTargetV1/ILInspector.Analysis.CallerGraphVersionSkewTargetV1.csproj" />
+    <Project Path="fixtures/analysis/ILInspector.Analysis.CallerGraphVersionSkewTargetV2/ILInspector.Analysis.CallerGraphVersionSkewTargetV2.csproj" />
     <Project Path="fixtures/analysis/ILInspector.Analysis.CallFunctionPointerScopeFixtures/ILInspector.Analysis.CallFunctionPointerScopeFixtures.csproj" />
     <Project Path="fixtures/analysis/ILInspector.Analysis.CallGenericScopeFixtures/ILInspector.Analysis.CallGenericScopeFixtures.csproj" />
     <Project Path="fixtures/analysis/ILInspector.Analysis.CalleeResolutionFixtures/ILInspector.Analysis.CalleeResolutionFixtures.csproj" />
@@ -306,8 +309,10 @@
     <Project Path="tools/PackageHouse.CliBenchmarks/PackageHouse.CliBenchmarks.csproj" />
     <Project Path="tools/MethodClassificationScorecard/MethodClassificationScorecard.csproj" />
     <Project Path="tools/LibraryInfoCountScorecard/LibraryInfoCountScorecard.csproj" />
+    <Project Path="tools/LibraryFamilyRoleScorecard/LibraryFamilyRoleScorecard.csproj" />
     <Project Path="tools/OwnershipIncidenceScorecard/OwnershipIncidenceScorecard.csproj" />
     <Project Path="tools/QuerySpaceScorecard/QuerySpaceScorecard.csproj" />
+    <Project Path="tools/ReturnToSenderTargetScorecard/ReturnToSenderTargetScorecard.csproj" />
     <Project Path="tools/TypeFindPopulationScorecard/TypeFindPopulationScorecard.csproj" />
     <Project Path="tools/CSharpDiffHarness/CSharpDiffHarness.csproj" />
     <Project Path="tools/DecompilerHarness/DecompilerHarness.csproj" />

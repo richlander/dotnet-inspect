@@ -524,7 +524,39 @@ public static class SubjectRelationsPopulationOperation
         SubjectRelationPopulationCountOutcome? count,
         SubjectRelationPopulationRowsOutcome? rows,
         SubjectRelationPopulationContinuationAuthority?
-            continuationAuthority = null)
+            continuationAuthority = null) =>
+        Settle(
+            request,
+            evidence,
+            count,
+            rows,
+            countHasOwnerAcceptedExactWitness: false,
+            continuationAuthority);
+
+    internal static SubjectRelationPopulationResult
+        SettleWithOwnerAcceptedExactCount(
+            SubjectRelationsInspectionRequest request,
+            SubjectRelationPopulationEvidence evidence,
+            SubjectRelationPopulationCountOutcome? count,
+            SubjectRelationPopulationRowsOutcome? rows,
+            SubjectRelationPopulationContinuationAuthority?
+                continuationAuthority = null) =>
+        Settle(
+            request,
+            evidence,
+            count,
+            rows,
+            countHasOwnerAcceptedExactWitness: true,
+            continuationAuthority);
+
+    private static SubjectRelationPopulationResult Settle(
+        SubjectRelationsInspectionRequest request,
+        SubjectRelationPopulationEvidence evidence,
+        SubjectRelationPopulationCountOutcome? count,
+        SubjectRelationPopulationRowsOutcome? rows,
+        bool countHasOwnerAcceptedExactWitness,
+        SubjectRelationPopulationContinuationAuthority?
+            continuationAuthority)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(evidence);
@@ -551,11 +583,21 @@ public static class SubjectRelationsPopulationOperation
                 + "terminal.",
                 nameof(rows));
         }
-        if (count is SubjectRelationPopulationCountOutcome.Counted
-            && !evidence.IsComplete)
+        if (count
+                is SubjectRelationPopulationCountOutcome.Counted
+            && !evidence.IsComplete
+            && !countHasOwnerAcceptedExactWitness)
         {
             throw new ArgumentException(
                 "Exact relation Count requires complete producer evidence.",
+                nameof(count));
+        }
+        if (countHasOwnerAcceptedExactWitness
+            && count
+                is not SubjectRelationPopulationCountOutcome.Counted)
+        {
+            throw new ArgumentException(
+                "An owner-accepted exact Count witness requires Counted.",
                 nameof(count));
         }
         if (rows is SubjectRelationPopulationRowsOutcome.Read read)

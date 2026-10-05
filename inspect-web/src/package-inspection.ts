@@ -7,7 +7,7 @@ import {
 } from "./data.ts";
 import type {
   BrowserPackageDependencies,
-  BrowserPackagePruningResult,
+  BrowserPackageVulnerabilityResult,
 } from "./facades/inspect-web-package.d.ts";
 import type {
   BrowserLibraryDependencyStructure,
@@ -87,11 +87,10 @@ export interface PackageInspectionState {
   packageDependenciesLoading: boolean;
   packageDependenciesError: string;
   packageDependenciesKey: string;
-  packagePruning: BrowserPackagePruningResult | null;
-  packagePruningLoading: boolean;
-  packagePruningError: string;
-  packagePruningKey: string;
-  packagePruningFamily: string;
+  packageVulnerabilities: BrowserPackageVulnerabilityResult | null;
+  packageVulnerabilitiesLoading: boolean;
+  packageVulnerabilitiesError: string;
+  packageVulnerabilitiesKey: string;
   workspaceDependencies: Record<string, DependencyGroupData>;
   workspaceDependencyErrors: Record<string, string>;
   workspaceDependencyLoads: Set<string>;
@@ -135,10 +134,9 @@ export interface PackageInspectionDependencies {
     packageModel: PackageIdentity
       & Pick<AppPackage, "assemblyId" | "selectedCompileAssetId">,
   ): Promise<BrowserPackageDependencies>;
-  queryPruning(
+  queryVulnerabilities(
     packageModel: AppPackage,
-    family: string,
-  ): Promise<BrowserPackagePruningResult>;
+  ): Promise<BrowserPackageVulnerabilityResult>;
   queryPackageIntegrations(
     packageModel: AppPackage,
     library: string,
@@ -225,10 +223,9 @@ export interface PackageInspectionCoordinator {
     packageModel: AppPackage,
     signature: string,
   ): Promise<void>;
-  loadPruning(
+  loadVulnerabilities(
     packageModel: AppPackage,
     signature: string,
-    family: string,
   ): Promise<void>;
   ensureWorkspaceDependencies(): Promise<void>;
   loadIntegrations(
@@ -289,8 +286,8 @@ export function createPackageInspectionCoordinator(
 ): PackageInspectionCoordinator {
   const { state } = dependencies;
   let packageResultGeneration = 0;
-  let pruningRequestSequence = 0;
   let metadataRequestSequence = 0;
+  let vulnerabilityRequestSequence = 0;
 
   const platformCoordinates = (
     packageModel: AppPackage,
@@ -366,10 +363,10 @@ export function createPackageInspectionCoordinator(
       state.packageDependenciesLoading = false;
       state.packageDependenciesError = "";
       state.packageDependenciesKey = "";
-      state.packagePruning = null;
-      state.packagePruningLoading = false;
-      state.packagePruningError = "";
-      state.packagePruningKey = "";
+      state.packageVulnerabilities = null;
+      state.packageVulnerabilitiesLoading = false;
+      state.packageVulnerabilitiesError = "";
+      state.packageVulnerabilitiesKey = "";
       state.packageIntegrations = null;
       state.packageIntegrationsLoading = false;
       state.packageIntegrationsError = "";
@@ -464,35 +461,37 @@ export function createPackageInspectionCoordinator(
       }
     },
 
-    async loadPruning(packageModel, signature, family) {
-      if (state.packagePruningKey === signature
-        && state.packagePruningLoading) {
+    async loadVulnerabilities(packageModel, signature) {
+      if (state.packageVulnerabilitiesKey === signature
+        && (state.packageVulnerabilities
+          || state.packageVulnerabilitiesError)) {
         dependencies.render();
         return;
       }
-      const requestSequence = ++pruningRequestSequence;
+      const requestSequence = ++vulnerabilityRequestSequence;
       const generation = packageResultGeneration;
       const ownsRequest = () =>
-        state.packagePruningKey === signature
-        && pruningRequestSequence === requestSequence
+        state.packageVulnerabilitiesKey === signature
+        && vulnerabilityRequestSequence === requestSequence
         && generation === packageResultGeneration;
-      state.packagePruningKey = signature;
-      state.packagePruning = null;
-      state.packagePruningError = "";
-      state.packagePruningLoading = true;
+      state.packageVulnerabilitiesKey = signature;
+      state.packageVulnerabilities = null;
+      state.packageVulnerabilitiesError = "";
+      state.packageVulnerabilitiesLoading = true;
       dependencies.render();
       try {
-        const result = await dependencies.queryPruning(packageModel, family);
+        const result = await dependencies.queryVulnerabilities(packageModel);
         if (ownsRequest()) {
-          state.packagePruning = result;
+          state.packageVulnerabilities = result;
         }
       } catch (error) {
         if (ownsRequest()) {
-          state.packagePruningError = dependencies.describeError(error);
+          state.packageVulnerabilitiesError =
+            dependencies.describeError(error);
         }
       } finally {
         if (ownsRequest()) {
-          state.packagePruningLoading = false;
+          state.packageVulnerabilitiesLoading = false;
           dependencies.render();
         }
       }

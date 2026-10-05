@@ -24,6 +24,9 @@ public static class InspectionViewFacetCatalog
             "library.references",
             InspectionViewFacetExecution.LibraryReferences),
         Binding(
+            "library.ecosystem-dependencies",
+            InspectionViewFacetExecution.LibraryEcosystemDependencies),
+        Binding(
             "library.reference-hierarchy",
             InspectionViewFacetExecution.LibraryReferenceHierarchy),
         Binding(
@@ -129,6 +132,17 @@ public static class InspectionViewFacetCatalog
                 100,
                 ViewFacetRole.LibraryReferences),
             "Direct assembly references for the active Library.",
+            AppliesToLibrary),
+        Active(
+            Descriptor(
+                "library.ecosystem-dependencies",
+                StructuralSubjectKind.Library,
+                "Ecosystem Dependencies",
+                "Product-relative ecosystem recognition and candidate evidence "
+                    + "for direct assembly references in the active Library.",
+                125),
+            "Product-relative ecosystem recognition and candidate evidence "
+                + "for direct assembly references in the active Library.",
             AppliesToLibrary),
         Active(
             Descriptor(
@@ -337,6 +351,7 @@ internal enum InspectionViewFacetExecution
     PackageDependencies,
     PackageDependencyHierarchy,
     LibraryReferences,
+    LibraryEcosystemDependencies,
     LibraryReferenceHierarchy,
     LibraryIntegrations,
     LibraryAnalysis,

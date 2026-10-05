@@ -81,7 +81,7 @@ internal static class ChangePlanTestSuite
             ("src/DotnetInspector.Cache/PersistentCache.cs",
                 "code,decompiler,ilroundtrip,shipped,web"),
             ("src/DotnetInspector.Sections/InspectionEnvelope.cs",
-                "code,ilroundtrip,shipped,web"),
+                "code,decompiler,ilroundtrip,shipped,web"),
             ("src/UntrustedDocuments/HardenedJson.cs",
                 "code,decompiler,ilroundtrip,shipped,web"),
             ("src/DotnetInspect.Cli/DotnetInspect.Cli.csproj",
@@ -114,6 +114,10 @@ internal static class ChangePlanTestSuite
             ("tests/ILInspector.JsExportSurface.Tests/Fixtures/"
                 + "ts-jsexport-runtime/R.ts", "code,web"),
             ("tests/DotnetInspect.Web.Tests/BrowserEngineLayeringTests.cs",
+                "code,web"),
+            // The product vocabulary pin lives here so that moving it runs
+            // both the CLI and Inspect Web suites (vocabulary.md#ownership).
+            ("tests/DotnetInspect.Web.Tests/ProductVocabularyPin.cs",
                 "code,web"),
             ("tests/DotnetInspect.Web.Tests/Directory.Build.props",
                 "code,web"),

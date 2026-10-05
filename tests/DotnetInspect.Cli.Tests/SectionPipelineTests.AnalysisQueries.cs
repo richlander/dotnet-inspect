@@ -596,6 +596,107 @@ public partial class SectionPipelineTests
 
     [Fact]
     [Trait("Speed", "Slow")]
+    public void OptimizationOpportunitiesQuery_CountUsesScalarResult()
+    {
+        var registry = LibrarySections.CreateQueryRegistry();
+        using var service = SourceLinkService.OpenPrefetched(
+            typeof(SectionPipelineTests).Assembly.Location,
+            _ => { });
+        using var context = new InspectionQueryContext
+        {
+            AssemblyPath =
+                typeof(SectionPipelineTests).Assembly.Location,
+            Model = new LibraryInspection(),
+            Logger = new Output.VerboseLogger(false),
+            MetadataContext = service.Context,
+            BodyAnalysisFeatures =
+                Analysis.LibraryBodyAnalysisFeatures
+                    .OptimizationOpportunities,
+            CountOnly = true,
+        };
+
+        InspectionQueryResults results = registry.Run(
+            [OptimizationOpportunitiesQuery.Definition],
+            context);
+
+        var counted =
+            Assert.IsType<OptimizationOpportunitiesResult.Counted>(
+                results.Get(
+                    OptimizationOpportunitiesQuery.Definition));
+        Assert.True(counted.Counts.Total > 0);
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void OptimizationOpportunitiesQuery_FilteredCountRetainsRows()
+    {
+        var registry = LibrarySections.CreateQueryRegistry();
+        using var service = SourceLinkService.OpenPrefetched(
+            typeof(SectionPipelineTests).Assembly.Location,
+            _ => { });
+        using var context = new InspectionQueryContext
+        {
+            AssemblyPath =
+                typeof(SectionPipelineTests).Assembly.Location,
+            Model = new LibraryInspection
+            {
+                PerformanceTriageOptions =
+                    new PerformanceTriageOptions
+                    {
+                        Shapes = ["small-array"],
+                    },
+            },
+            Logger = new Output.VerboseLogger(false),
+            MetadataContext = service.Context,
+            BodyAnalysisFeatures =
+                Analysis.LibraryBodyAnalysisFeatures
+                    .OptimizationOpportunities,
+            CountOnly = true,
+        };
+
+        InspectionQueryResults results = registry.Run(
+            [OptimizationOpportunitiesQuery.Definition],
+            context);
+
+        Assert.IsType<OptimizationOpportunitiesResult.Available>(
+            results.Get(
+                OptimizationOpportunitiesQuery.Definition));
+    }
+
+    [Fact]
+    public void OptimizationOpportunitiesQuery_CountProjectsTypedKinds()
+    {
+        var counts = new Analysis.OptimizationOpportunityCounts(
+            2,
+            new Dictionary<
+                Analysis.OptimizationOpportunityKind,
+                int>
+            {
+                [Analysis.OptimizationOpportunityKind.Boxing] = 2,
+            }.ToImmutableDictionary());
+        var inspection = new LibraryInspection();
+
+        LibraryMetadataService.ApplyOptimizationOpportunitiesResult(
+            "counted.dll",
+            inspection,
+            new Output.VerboseLogger(false),
+            new OptimizationOpportunitiesResult.Counted(
+                counts,
+                []));
+
+        Assert.Same(counts, inspection.PerformanceTriageCounts);
+        Assert.Empty(inspection.PerformanceTriageOpportunities);
+        Assert.Null(inspection.OptimizationOpportunities);
+        Assert.True(
+            LibrarySections.PerformanceBoxing.CanRender(
+                inspection));
+        Assert.False(
+            LibrarySections.PerformanceArrays.CanRender(
+                inspection));
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
     public void OptimizationOpportunitiesQuery_AllocationFanoutRemainsOptIn()
     {
         Analysis.LibraryBodyAnalysisExecution execution =

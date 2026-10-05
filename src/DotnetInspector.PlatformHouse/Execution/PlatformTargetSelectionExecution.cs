@@ -40,7 +40,8 @@ public sealed class PlatformTargetSelectionContext
         TargetSettlement.SettledTarget!;
     public PlatformTargetSettlement.Selected TargetSettlement { get; }
     public IReadOnlyList<PlatformTargetDiscoveryCandidate>
-        SelectedCandidates { get; }
+        SelectedCandidates
+    { get; }
     public IReadOnlyList<PlatformSourceSettlement> SourceSettlements { get; }
     public PlatformHouseConsumedWork ConsumedWork { get; }
 
@@ -69,11 +70,70 @@ public delegate ValueTask<PlatformHouseOutcome<TValue>>
     where TValue : notnull;
 
 /// <summary>
+/// Resource-free result of exact target selection without downstream
+/// realization.
+/// </summary>
+public abstract class PlatformTargetSelectionOutcome
+{
+    private protected PlatformTargetSelectionOutcome()
+    {
+    }
+
+    public sealed class Selected : PlatformTargetSelectionOutcome
+    {
+        internal Selected(PlatformTargetSelectionContext selection)
+        {
+            Target = selection.Target;
+            ConsumedWork = selection.ConsumedWork;
+        }
+
+        public PlatformFamilyTarget Target { get; }
+        public PlatformHouseConsumedWork ConsumedWork { get; }
+    }
+
+    public sealed class Terminal : PlatformTargetSelectionOutcome
+    {
+        internal Terminal(PlatformHouseReceipt receipt) => Receipt = receipt;
+
+        public PlatformHouseReceipt Receipt { get; }
+    }
+}
+
+/// <summary>
 /// Executes the typed preferred/fallback target policy and continues the same
 /// closed House operation after one exact target is frozen.
 /// </summary>
 public static class PlatformHouseTargetSelector
 {
+    /// <summary>
+    /// Selects one exact target through the owner-issued preferred/fallback
+    /// policy without realizing a Platform population.
+    /// </summary>
+    public static async ValueTask<PlatformTargetSelectionOutcome> SelectAsync(
+        PlatformHouseRequest request,
+        IReadOnlyList<PlatformTargetDiscoverySource> sources)
+    {
+        PlatformTargetSelectionContext? selected = null;
+        PlatformHouseOutcome<TargetSelectionMarker> terminal =
+            await ExecuteAsync<TargetSelectionMarker>(
+                    request,
+                    sources,
+                    selection =>
+                    {
+                        selected = selection;
+                        return ValueTask.FromResult(
+                            Incomplete<TargetSelectionMarker>(
+                                request,
+                                selection.ConsumedWork,
+                                selection.SourceSettlements,
+                                "target-selection-only"));
+                    })
+                .ConfigureAwait(false);
+        return selected is not null
+            ? new PlatformTargetSelectionOutcome.Selected(selected)
+            : new PlatformTargetSelectionOutcome.Terminal(terminal.Receipt);
+    }
+
     public static async ValueTask<PlatformHouseOutcome<TValue>> ExecuteAsync<
         TValue>(
         PlatformHouseRequest request,
@@ -691,6 +751,8 @@ public static class PlatformHouseTargetSelector
         PlatformTargetDiscoveryAttempt Attempt,
         PlatformTargetDiscoveryStage Stage,
         PlatformSourceAssociationRouteIdentity? AssociationRoute);
+
+    sealed class TargetSelectionMarker;
 
     sealed class StageWinner
     {

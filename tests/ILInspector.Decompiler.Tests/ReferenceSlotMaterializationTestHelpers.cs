@@ -21,7 +21,7 @@ internal static class ReferenceSlotMaterializationTestHelpers
         Assert.DoesNotContain(CoercionSinks.ScopeNodes(function.Body),
             node => node is StoreStackSlot store && slots.Contains(store.Slot)
                 || node is LoadStackSlot load && slots.Contains(load.Slot));
-        Assert.Contains($"{keyword} S_", CSharpPrinter.Print(function).Output);
+        Assert.Contains($"{keyword} S_", DecidedPrint.Print(function).Output);
         Assert.Empty(CoercionInvariant.Check(function));
         function.CheckInvariant(includeSemantics: true);
     }

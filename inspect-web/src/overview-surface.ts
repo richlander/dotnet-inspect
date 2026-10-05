@@ -11,7 +11,6 @@ export interface OverviewSurfaceOptions {
   activeFramework: string;
   totalTypes: number | null;
   totalMembers: number | null;
-  coordinateFieldsHtml?: string;
   contentHtml: string;
   escapeHtml: (value: unknown) => string;
 }
@@ -52,8 +51,8 @@ export function renderPackageOverviewContent(
       ${options.packageChildrenHtml}
     </div>
     <aside class="package-overview-resources" aria-label="Package resources">
-      ${options.documentsHtml}
       ${options.comparisonHtml}
+      ${options.documentsHtml}
     </aside>
   </div>`;
 }
@@ -75,7 +74,7 @@ export function renderOverviewSurface(
   const {
     subject, subjectLabel, displayName, iconHtml, details = [], enablements = [],
     packageId, packageVersion, activeFramework, totalTypes, totalMembers,
-    coordinateFieldsHtml, contentHtml, escapeHtml,
+    contentHtml, escapeHtml,
   } = options;
   const coordinate = `${packageId}@${packageVersion}`;
   const typeCount = totalTypes === null
@@ -84,14 +83,14 @@ export function renderOverviewSurface(
   const memberCount = totalMembers === null
     ? "Member Count unavailable"
     : `${totalMembers.toLocaleString()} member${totalMembers === 1 ? "" : "s"}`;
-  return `<section class="overview-surface ${subject}-overview-surface${coordinateFieldsHtml ? " overview-with-controls" : ""}" aria-labelledby="${subject}-overview-title">
-    <header class="api-surface-head overview-surface-head">
+  const surfaceHeader = subject === "package"
+    ? ""
+    : `<header class="api-surface-head overview-surface-head">
       <span class="overview-surface-label">Overview</span>
       <p>${typeCount} &middot; ${memberCount}</p>
-    </header>
-    ${coordinateFieldsHtml ? `<section class="overview-controls" aria-label="Package coordinate">
-      <div class="package-coordinate-fields">${coordinateFieldsHtml}</div>
-    </section>` : ""}
+    </header>`;
+  return `<section class="overview-surface ${subject}-overview-surface" aria-labelledby="${subject}-overview-title">
+    ${surfaceHeader}
     <div class="overview-scroll">
       <header class="overview-identity">
         ${iconHtml}

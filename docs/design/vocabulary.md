@@ -85,9 +85,14 @@ removes the former `categories` member from structured vocabulary sections.
 ## Ownership
 
 Each vocabulary is declared by the owner of its terms as one immutable
-`VocabularyDefinition` beside that owner's catalog. A host composes the
-declarations it ships into one exactly identified snapshot, under the tier-1
-composition rule the
+`VocabularyDefinition` beside that owner's catalog. Because a vocabulary
+identity carries its catalog identity and the product catalog name is a
+product concept, an owner declares through a deterministic factory over the
+host's `VocabularyCatalogIdentity` (`StyleOptionVocabularies`,
+`BodyShapeVocabulary`, `ApiAccessibilityVocabulary`); the vocabulary's stable
+identity, display label, maps, terms, and order are the owner's, and equal
+inputs yield equal declarations. A host composes the declarations it ships into
+one exactly identified snapshot, under the tier-1 composition rule the
 [QuerySpace library boundary](query-space-library.md#two-assemblies-and-two-participation-tiers)
 states. No component owns the complete list of product vocabularies.
 
@@ -104,31 +109,49 @@ The term owners, and therefore the declaring owners, are:
 The declaration type lives in the `QuerySpace.Primitives` floor under the
 [QuerySpace library boundary](query-space-library.md#two-assemblies-and-two-participation-tiers),
 so an `ILInspector` owner can declare without referencing any product
-assembly. A facet that is bounded by a vocabulary names it by identity on its
-facet descriptor, through the opaque value-vocabulary identity that
-[Query Space Composition](query-space-composition.md) already defines; after
-[#9250](https://github.com/richlander/dotnet-inspect/issues/9250) step 5 the
-Body Shapes `Kind` facet names `csharp.body-kinds`, and today no facet sets
-one. The product vocabulary document, its sections, fields,
-operators, rows, and wire projection are declared section schemas owned by
-`DotnetInspector.Sections`.
+assembly. A Query Space facet that is bounded by a vocabulary names it by
+identity on its facet descriptor, through the opaque value-vocabulary identity
+that [Query Space Composition](query-space-composition.md) already defines; no
+facet sets one today. The Body Shapes `Kind` predicate that accepts
+`csharp.body-kinds` is a CLI section query key, not a Query Space facet, so it
+has no descriptor to carry that identity. Its typed link lands with the
+explanation adoption in
+[#9250](https://github.com/richlander/dotnet-inspect/issues/9250) step 7,
+which chooses the carrier. The product vocabulary document, its sections,
+fields, operators, rows, and wire projection are declared section schemas
+owned by `DotnetInspector.Sections`.
 
-CLI and browser/WASM compose the same declarations and consume the same
-snapshot and wire projection. Hosts may select a section for a purpose-specific
-control, but they do not restate its values, labels, order, defaults, or
-selection semantics. Equal declaration lists yield one snapshot identity, so
-drift between the hosts is detectable by identity; the shared equal-identity
-test that [#9250](https://github.com/richlander/dotnet-inspect/issues/9250)
-step 5 adds is the gate that observes it. Until then both hosts run one
-composition and the CLI suite's pinned digest is the only identity gate.
+Each host composes the vocabularies it ships. The CLI and Inspect Web each
+pass their own list of owner declarations, with the product query inputs that
+accept each one, to `ProductVocabularyComposition` in
+`DotnetInspector.Sections`. That composition adds only the product catalog
+identity and the `vocabulary.sections` index, whose `accepted_by` values name
+product query inputs and therefore stay with the host rather than with a term
+owner. It rejects a declaration under another catalog and a contribution with
+no accepting input. Hosts may select a section for a purpose-specific control,
+but they do not restate its values, labels, order, defaults, or selection
+semantics. Equal contribution lists yield one snapshot identity, so drift
+between the hosts is detectable by identity. The gate is one pinned digest,
+`ProductVocabularyPin` in `tests/DotnetInspect.Web.Tests`, which the CLI suite
+compiles as a linked file. The CLI suite
+(`ProductVocabularySnapshotTests`) and the Inspect Web suite
+(`BrowserVocabularyCompositionTests`) each assert their own host's composed
+snapshot against that one value. No test project references both hosts, so the
+shared pin stands in for a direct comparison: changing the pin for one host's
+list fails the other host's suite until that host composes the same
+snapshot. The pin lives in the Inspect Web suite because CI selects jobs by
+changed path: a change under `tests/DotnetInspect.Web.Tests` runs both the
+Inspect Web and CLI lanes, while a CLI-only change does not run the Inspect
+Web lane.
 
-Until [#9250](https://github.com/richlander/dotnet-inspect/issues/9250) lands,
-`DotnetInspector.Vocabulary` composes the owner catalogs itself and therefore
-references `ILInspector.Decompiler`; the `vocabulary-dependencies` policy rule
-records that interim edge, and the project retires with the migration. The
-declaration types already live in `QuerySpace.Primitives` and the document
-and wire types in `DotnetInspector.Sections`; the interim project holds only
-the composition and the compatibility projection.
+Until [#9250](https://github.com/richlander/dotnet-inspect/issues/9250)
+step 6 retires it, `DotnetInspector.Vocabulary` holds only the CLI-compatible
+document projection, the section-name constants, and the inspection wrapper.
+It references `ILInspector.Decompiler` and `DotnetInspector.Queries` only for
+the owners' identity and label constants; the `vocabulary-dependencies` policy
+rule records that interim edge, and the project retires with the migration.
+The declaration types live in `QuerySpace.Primitives`, and the composition,
+document, and wire types in `DotnetInspector.Sections`.
 
 Static vocabulary answers "what may I ask?" Target-aware facets remain query
 results: they add availability, counts, or rejection reasons for one inspected

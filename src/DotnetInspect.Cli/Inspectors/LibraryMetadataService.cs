@@ -72,8 +72,10 @@ internal static class LibraryMetadataService
             bool applicabilityOnly =
                 options.Discover is not null
                 && options.Effective;
-            if (requiredQueries?.Contains(
+            if ((requiredQueries?.Contains(
                     LibraryNameFamilyQuery.Definition) == true
+                || requiredQueries?.Contains(
+                    LibraryFamilyRoleQuery.Definition) == true)
                 && assemblyReference is
                 {
                     Registration.ArtifactRegistration: null,
@@ -209,6 +211,8 @@ internal static class LibraryMetadataService
                             options.NameFamilyPopulation,
                         NameFamilyRowSelection =
                             options.NameFamilyRowSelection,
+                        NameFamilyRoleTypeRows =
+                            options.NameFamilyRoleTypeRows,
                         DependencyStructureRowSelection =
                             options.DependencyStructureRowSelection,
                     };
@@ -363,6 +367,8 @@ internal static class LibraryMetadataService
                         options.NameFamilyPopulation,
                     NameFamilyRowSelection =
                         options.NameFamilyRowSelection,
+                    NameFamilyRoleTypeRows =
+                        options.NameFamilyRoleTypeRows,
                     DependencyStructureRowSelection =
                         options.DependencyStructureRowSelection,
                 };
@@ -2363,6 +2369,17 @@ internal static class LibraryMetadataService
         }
 
         if (results.TryGet(
+                LibraryFamilyRoleQuery.Definition,
+                out LibraryFamilyRoleQueryResult? familyRoles))
+        {
+            ApplyLibraryFamilyRoleResult(
+                path,
+                inspection,
+                logger,
+                familyRoles);
+        }
+
+        if (results.TryGet(
                 LibraryDependencyStructureQuery.Definition,
                 out LibraryDependencyStructureQueryResult?
                     dependencyStructure))
@@ -2571,6 +2588,7 @@ internal static class LibraryMetadataService
     {
         inspection.OptimizationOpportunitiesQueryResult = result;
         inspection.PerformanceTriageOpportunities = [];
+        inspection.PerformanceTriageCounts = null;
         inspection.OptimizationOpportunities = null;
 
         switch (result)
@@ -2590,6 +2608,12 @@ internal static class LibraryMetadataService
                     inspection.OptimizationOpportunities =
                         rows.Count > 0 ? rows : null;
                 }
+                break;
+
+            case OptimizationOpportunitiesResult.Counted counted:
+                ReportOptimizationDiagnostics(counted.Diagnostics);
+                inspection.PerformanceTriageCounts =
+                    counted.Counts;
                 break;
 
             case OptimizationOpportunitiesResult.NoMetadata:
@@ -2700,6 +2724,38 @@ internal static class LibraryMetadataService
                 throw new InvalidOperationException(
                     "Unknown Library name-family result "
                         + $"'{result.GetType().Name}'.");
+        }
+    }
+
+    internal static void ApplyLibraryFamilyRoleResult(
+        string path,
+        LibraryInspection inspection,
+        VerboseLogger logger,
+        LibraryFamilyRoleQueryResult result)
+    {
+        inspection.FamilyRoleQueryResult = result;
+
+        switch (result)
+        {
+            case LibraryFamilyRoleQueryResult.Available:
+            case LibraryFamilyRoleQueryResult.NameFamiliesUnavailable:
+            case LibraryFamilyRoleQueryResult.NameFamiliesRejected:
+            case LibraryFamilyRoleQueryResult.StructuralRejected:
+            case LibraryFamilyRoleQueryResult.CompositionRejected:
+            case LibraryFamilyRoleQueryResult.PopulationUnavailable:
+            case LibraryFamilyRoleQueryResult.SelectionFailed:
+                break;
+
+            case LibraryFamilyRoleQueryResult.Failed failed:
+                logger.LogWarning(
+                    $"Error collecting Library name-family roles in {path}: "
+                    + failed.Error.Message);
+                break;
+
+            default:
+                throw new InvalidOperationException(
+                    "Unknown Library family-role result "
+                    + $"'{result.GetType().Name}'.");
         }
     }
 

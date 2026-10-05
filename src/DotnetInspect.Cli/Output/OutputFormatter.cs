@@ -2,6 +2,7 @@ using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Models;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
+using DotnetInspector.ResearchQueries;
 using DotnetInspect.Cli.Views;
 using System.Globalization;
 using System.Text.Json;
@@ -1438,9 +1439,50 @@ public static class OutputFormatter
                 count);
         }
         ApplyClassificationCounts(projection, inspection, writerOptions.IncludeSections, rows);
+        ApplyNameFamilyRoleCounts(
+            projection,
+            inspection,
+            writerOptions.IncludeSections,
+            rows);
+        ApplyPerformanceCounts(
+            projection,
+            inspection,
+            writerOptions.IncludeSections,
+            rows,
+            fields,
+            columns);
         ApplyILCoordinateCardinality(
             projection, inspection, writerOptions.IncludeSections, rows, fields, columns);
         return projection;
+    }
+
+    internal static void ApplyNameFamilyRoleCounts(
+        CountProjection projection,
+        LibraryInspection inspection,
+        IReadOnlyCollection<string>? includedSections,
+        RowWindow? rows)
+    {
+        if (includedSections is null
+            || inspection.FamilyRoleQueryResult
+                is not LibraryFamilyRoleQueryResult.Available
+                { Count: int count })
+        {
+            return;
+        }
+
+        if (includedSections.Contains(SectionNames.NameFamilyRoles))
+        {
+            projection.SetRows(
+                SectionNames.NameFamilyRoles,
+                WindowedCount(count, rows));
+        }
+        else if (includedSections.Contains(
+                     SectionNames.NameFamilyRoleTypes))
+        {
+            projection.SetRows(
+                SectionNames.NameFamilyRoleTypes,
+                WindowedCount(count, rows));
+        }
     }
 
     /// <summary>
@@ -1470,13 +1512,65 @@ public static class OutputFormatter
         {
             projection.SetRows(SectionNames.PInvokeMethods, WindowedCount(pInvokeCount, rows));
         }
+    }
 
-        static int WindowedCount(int count, RowWindow? rows)
+    private static int WindowedCount(int count, RowWindow? rows)
+    {
+        if (rows is not { IsUnlimited: false } window)
+            return count;
+        (int keepStart, int keepEnd) = window.Resolve(count);
+        return keepEnd - keepStart;
+    }
+
+    internal static void ApplyPerformanceCounts(
+        CountProjection projection,
+        LibraryInspection inspection,
+        IReadOnlyCollection<string>? includedSections,
+        RowWindow? rows,
+        string[]? fields = null,
+        string[]? columns = null)
+    {
+        if (includedSections is null
+            || inspection.PerformanceTriageCounts is not
+                { } counts)
         {
-            if (rows is not { IsUnlimited: false } window)
-                return count;
-            (int keepStart, int keepEnd) = window.Resolve(count);
-            return keepEnd - keepStart;
+            return;
+        }
+
+        DocumentSchema? schema =
+            fields is { Length: > 0 }
+            || columns is { Length: > 0 }
+                ? InspectionContext.Default
+                    .GetSchemaInfo<LibraryInspectionView>()!
+                    .ToDocumentSchema()
+                : null;
+        foreach (string section in includedSections)
+        {
+            if (!PerformanceKinds.Sections.Contains(
+                    section,
+                    StringComparer.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            bool projected = schema is null
+                || ProjectionMatchesSection(
+                    schema,
+                    section,
+                    fields,
+                    columns);
+            int count = projected
+                ? counts.Count(
+                    PerformanceKinds.KindForSection(section))
+                : 0;
+            if (rows is { IsUnlimited: false } window)
+            {
+                (int keepStart, int keepEnd) =
+                    window.Resolve(count);
+                count = keepEnd - keepStart;
+            }
+
+            projection.SetRows(section, count);
         }
     }
 

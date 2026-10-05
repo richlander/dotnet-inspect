@@ -216,8 +216,6 @@ async function render() {
     onPackageChildLibrarySelect() {},
     onRuntimeIdentifierPackageLoad() {},
     onDependencyGroupSelect: index => { groupIndex = index; void patchGroup(); },
-    onPruningEvaluate() {},
-    onPruningFamilySelect() {},
     onDependencyOpen: id => { void navigate(id); },
     onDependencyLoad: id => { void navigate(id); },
     onGraphTypeSelect() {},

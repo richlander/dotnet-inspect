@@ -12,7 +12,7 @@ import {
 } from "./rendered-interaction.ts";
 import type {
   BrowserCapabilityCatalogSearchResult,
-  BrowserResourceExplanationResourceKind,
+  BrowserCapabilityCatalogSearchResourceKind,
 } from "./facades/inspect-web-package.d.ts";
 
 type LensDefinition = readonly [id: string, label: string];
@@ -335,7 +335,7 @@ function isPackageAdditionResult(result: SpotlightResult): result is SpotlightPa
 }
 
 function capabilityKindLabel(
-  kind: BrowserResourceExplanationResourceKind,
+  kind: BrowserCapabilityCatalogSearchResourceKind,
 ): string {
   switch (kind) {
     case "InspectionDocument":

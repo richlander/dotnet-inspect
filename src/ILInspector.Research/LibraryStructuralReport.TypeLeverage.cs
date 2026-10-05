@@ -177,10 +177,107 @@ public static partial class LibraryStructuralReport
     public static LibraryStructuralBodyTypeLeverageShard
         CreateBodyTypeLeverageShard(
             MetadataLibrarySignatureUseResult typeInventory,
+            AnalysisLibraryBodyUseResult bodyUse) =>
+        CreateBodyTypeLeverageShards(
+            [typeInventory],
+            bodyUse)[0];
+
+    public static ImmutableArray<LibraryStructuralBodyTypeLeverageShard>
+        CreateBodyTypeLeverageShards(
+            IEnumerable<MetadataLibrarySignatureUseResult> typeInventories,
             AnalysisLibraryBodyUseResult bodyUse)
     {
-        ArgumentNullException.ThrowIfNull(typeInventory);
+        ArgumentNullException.ThrowIfNull(typeInventories);
         ArgumentNullException.ThrowIfNull(bodyUse);
+        MetadataLibrarySignatureUseResult[] inventories =
+            [.. typeInventories];
+        Dictionary<
+            MetadataTypeDefinitionAddress,
+            AnalysisLibraryBodyUseType> bodyTypes =
+                bodyUse.Types.ToDictionary(
+                    static type => type.Type);
+        Dictionary<string, int> bodyTypeCounts =
+            bodyUse.Types
+                .GroupBy(
+                    static type => type.Name.Namespace,
+                    StringComparer.Ordinal)
+                .ToDictionary(
+                    static group => group.Key,
+                    static group => group.Count(),
+                    StringComparer.Ordinal);
+        var edgesByNamespace =
+            new Dictionary<
+                string,
+                List<(
+                    MetadataTypeDefinitionAddress Source,
+                    MetadataTypeDefinitionAddress Target)>>(
+                StringComparer.Ordinal);
+        foreach (AnalysisLibraryBodyUseOccurrence occurrence
+            in bodyUse.Occurrences)
+        {
+            if (!bodyTypes.TryGetValue(
+                    occurrence.Source,
+                    out AnalysisLibraryBodyUseType? source)
+                || !bodyTypes.TryGetValue(
+                    occurrence.Target,
+                    out AnalysisLibraryBodyUseType? target)
+                || !StringComparer.Ordinal.Equals(
+                    source.Name.Namespace,
+                    target.Name.Namespace))
+            {
+                continue;
+            }
+            if (!edgesByNamespace.TryGetValue(
+                    source.Name.Namespace,
+                    out List<(
+                        MetadataTypeDefinitionAddress Source,
+                        MetadataTypeDefinitionAddress Target)>? edges))
+            {
+                edges = [];
+                edgesByNamespace.Add(
+                    source.Name.Namespace,
+                    edges);
+            }
+            edges.Add((occurrence.Source, occurrence.Target));
+        }
+
+        var shards =
+            ImmutableArray.CreateBuilder<
+                LibraryStructuralBodyTypeLeverageShard>(
+                inventories.Length);
+        foreach (MetadataLibrarySignatureUseResult typeInventory
+            in inventories)
+        {
+            string @namespace = ValidateBodyTypeInventory(
+                typeInventory,
+                bodyUse,
+                bodyTypes,
+                bodyTypeCounts);
+            edgesByNamespace.TryGetValue(
+                @namespace,
+                out List<(
+                    MetadataTypeDefinitionAddress Source,
+                    MetadataTypeDefinitionAddress Target)>? edges);
+            shards.Add(
+                ProjectBodyTypeLeverageShard(
+                    typeInventory,
+                    bodyUse,
+                    ExecuteBodyTypeLeverageGraph(
+                        typeInventory,
+                        edges ?? [])));
+        }
+        return shards.DrainToImmutable();
+    }
+
+    private static string ValidateBodyTypeInventory(
+        MetadataLibrarySignatureUseResult typeInventory,
+        AnalysisLibraryBodyUseResult bodyUse,
+        IReadOnlyDictionary<
+            MetadataTypeDefinitionAddress,
+            AnalysisLibraryBodyUseType> bodyTypes,
+        IReadOnlyDictionary<string, int> bodyTypeCounts)
+    {
+        ArgumentNullException.ThrowIfNull(typeInventory);
         string @namespace =
             typeInventory.Receipt.ExactNamespace
             ?? throw new ArgumentException(
@@ -209,9 +306,6 @@ public static partial class LibraryStructuralReport
                 nameof(bodyUse));
         }
 
-        Dictionary<MetadataTypeDefinitionAddress, AnalysisLibraryBodyUseType>
-            bodyTypes = bodyUse.Types.ToDictionary(
-                static type => type.Type);
         foreach (MetadataLibrarySignatureType type
             in typeInventory.Types)
         {
@@ -227,11 +321,12 @@ public static partial class LibraryStructuralReport
                     nameof(bodyUse));
             }
         }
-        if (bodyUse.Types.Count(type =>
-                StringComparer.Ordinal.Equals(
-                    type.Name.Namespace,
-                    @namespace))
-            != typeInventory.Types.Length)
+        int bodyTypeCount = bodyTypeCounts.TryGetValue(
+            @namespace,
+            out int count)
+                ? count
+                : 0;
+        if (bodyTypeCount != typeInventory.Types.Length)
         {
             throw new ArgumentException(
                 "The body-use Type inventory has different exact-namespace "
@@ -239,12 +334,7 @@ public static partial class LibraryStructuralReport
                 nameof(bodyUse));
         }
 
-        return ProjectBodyTypeLeverageShard(
-            typeInventory,
-            bodyUse,
-            ExecuteBodyTypeLeverageGraph(
-                typeInventory,
-                bodyUse));
+        return @namespace;
     }
 
     public static LibraryStructuralSalienceDocument
@@ -325,6 +415,21 @@ public static partial class LibraryStructuralReport
             typeInventory.Types,
             bodyUse.Occurrences.Select(static occurrence =>
                 (occurrence.Source, occurrence.Target)),
+            TypeLeverageRelationship.BodyUse);
+    }
+
+    private static TypeLeverageGraphExecution
+        ExecuteBodyTypeLeverageGraph(
+            MetadataLibrarySignatureUseResult typeInventory,
+            IEnumerable<(
+                MetadataTypeDefinitionAddress Source,
+                MetadataTypeDefinitionAddress Target)> sourceEdges)
+    {
+        ArgumentNullException.ThrowIfNull(typeInventory);
+        ArgumentNullException.ThrowIfNull(sourceEdges);
+        return ExecuteTypeLeverageGraph(
+            typeInventory.Types,
+            sourceEdges,
             TypeLeverageRelationship.BodyUse);
     }
 

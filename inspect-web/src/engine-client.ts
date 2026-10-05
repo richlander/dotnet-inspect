@@ -46,7 +46,7 @@ type PackageOperations =
   | "queryPackageRoot"
   | "queryPackageSummary"
   | "queryPackageDependencies"
-  | "queryPackagePruning"
+  | "queryPackageVulnerabilities"
   | "queryPackageVersions"
   | "queryWorkspacePackageOccurrences"
   | "resolvePackageDependencyVersion"

@@ -151,6 +151,10 @@ public static class LibrarySections
                 HasMethodBodies)
             .Add<NameFamilies>(
                 LibraryNameFamilyQuery.Definition)
+            .Add<NameFamilyRoles>(
+                LibraryFamilyRoleQuery.Definition)
+            .Add<NameFamilyRoleTypes>(
+                LibraryFamilyRoleQuery.Definition)
             .Add<DependencyStructure>(
                 LibraryDependencyStructureQuery.Definition,
                 HasMethodBodies)
@@ -411,6 +415,9 @@ public static class LibrarySections
                 LibraryNameFamilyQuery.Definition,
                 ExecuteLibraryNameFamilyQuery)
             .Add(
+                LibraryFamilyRoleQuery.Definition,
+                ExecuteLibraryFamilyRoleQuery)
+            .Add(
                 LibraryDependencyStructureQuery.Definition,
                 ExecuteLibraryDependencyStructureQuery)
             .AddSourceLinkQueries(RequireSourceLinkContext)
@@ -652,6 +659,61 @@ public static class LibrarySections
         }
     }
 
+    internal static LibraryFamilyRoleQueryResult
+        ExecuteLibraryFamilyRoleQuery(
+            InspectionQueryContext context)
+    {
+        if (context.AssemblyReference is not { } assembly)
+        {
+            return new LibraryFamilyRoleQueryResult.Failed(
+                new InvalidOperationException(
+                    "Library name-family roles require an artifact-backed "
+                        + "assembly descriptor."));
+        }
+
+        try
+        {
+            LibraryFamilyRoleQueryPlan operation =
+                LibraryFamilyRoleQuery.CreatePlan(
+                    context.NameFamilyPopulation);
+            RowSelectionIntent<string> rows =
+                context.NameFamilyRowSelection
+                ?? RowSelectionIntent<string>.Create([]);
+            QuerySpaceRequest request =
+                context.NameFamilyRoleTypeRows
+                    ? LibraryFamilyRoleQuery.CreateTypeRequest(
+                        operation,
+                        rows,
+                        context.CountOnly
+                            ? QuerySpaceTerminalRequirement.Count
+                            : QuerySpaceTerminalRequirement.Rows)
+                    : LibraryFamilyRoleQuery.CreateFamilyRequest(
+                        operation,
+                        rows,
+                        context.CountOnly
+                            ? QuerySpaceTerminalRequirement.Count
+                            : QuerySpaceTerminalRequirement.Rows);
+            return context.Query(
+                session => LibraryFamilyRoleInspection.Execute(
+                    assembly,
+                    session,
+                    context.MetadataContext?
+                        .InspectSourceProvenance(),
+                    operation,
+                    request),
+                static error =>
+                    new LibraryFamilyRoleQueryResult.Failed(error));
+        }
+        catch (CostDeclarationException)
+        {
+            throw;
+        }
+        catch (Exception error)
+        {
+            return new LibraryFamilyRoleQueryResult.Failed(error);
+        }
+    }
+
     internal static LibraryDependencyStructureQueryResult
         ExecuteLibraryDependencyStructureQuery(
             InspectionQueryContext context)
@@ -693,14 +755,18 @@ public static class LibrarySections
         => ExecuteOptimizationOpportunitiesQuery(
             context.MetadataContext?.HasMetadata != false,
             () => context.BodyAnalysis().Optimization,
-            context.Model.PerformanceTriageOptions.IncludesAllocationFanout);
+            context.Model.PerformanceTriageOptions.IncludesAllocationFanout,
+            countOnly:
+                context.CountOnly
+                && !context.Model.PerformanceTriageOptions.HasFilters);
 
     internal static OptimizationOpportunitiesResult
         ExecuteOptimizationOpportunitiesQuery(
             bool hasMetadata,
             Func<ILInspector.Analysis.LibraryOptimizationAnalysisResult>
                 acquireAnalysis,
-            bool includeAllocationFanout)
+            bool includeAllocationFanout,
+            bool countOnly = false)
     {
         ArgumentNullException.ThrowIfNull(acquireAnalysis);
 
@@ -709,9 +775,13 @@ public static class LibrarySections
 
         try
         {
-            return OptimizationOpportunitiesQuery.Execute(
-                acquireAnalysis(),
-                includeAllocationFanout);
+            ILInspector.Analysis.LibraryOptimizationAnalysisResult analysis =
+                acquireAnalysis();
+            return countOnly
+                ? OptimizationOpportunitiesQuery.ExecuteCount(analysis)
+                : OptimizationOpportunitiesQuery.Execute(
+                    analysis,
+                    includeAllocationFanout);
         }
         catch (CostDeclarationException)
         {
@@ -1146,11 +1216,11 @@ public static class LibrarySections
             model.EcosystemDependencyRecognitionInspection?.Content
                 is EcosystemDependencyRecognitionOutcome.Complete
                 {
-                    Document.Classification.Recognized.Length: > 0,
+                    Document.Classification.Matches.Length: > 0,
                 }
                 or EcosystemDependencyRecognitionOutcome.Incomplete
                 {
-                    Document.Classification.Recognized.Length: > 0,
+                    Document.Classification.Matches.Length: > 0,
                 };
     }
 
@@ -1245,6 +1315,36 @@ public static class LibrarySections
         public static bool CanRender(LibraryInspection model) => true;
     }
 
+    public sealed class NameFamilyRoles
+        : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => SectionNames.NameFamilyRoles;
+        public static bool IsExpensive => true;
+        public static bool ExplicitOnly => true;
+        public static bool ProbeEffectiveness => false;
+        public static SectionCapabilities Capabilities =>
+            SectionCapabilities.MayDownloadPdb;
+        public static SectionSizeClass SizeClass =>
+            SectionSizeClass.Verbose;
+        public static SectionCost Cost => SectionCost.Unbounded;
+        public static bool CanRender(LibraryInspection model) => true;
+    }
+
+    public sealed class NameFamilyRoleTypes
+        : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => SectionNames.NameFamilyRoleTypes;
+        public static bool IsExpensive => true;
+        public static bool ExplicitOnly => true;
+        public static bool ProbeEffectiveness => false;
+        public static SectionCapabilities Capabilities =>
+            SectionCapabilities.MayDownloadPdb;
+        public static SectionSizeClass SizeClass =>
+            SectionSizeClass.Verbose;
+        public static SectionCost Cost => SectionCost.Unbounded;
+        public static bool CanRender(LibraryInspection model) => true;
+    }
+
     public sealed class DependencyStructure
         : ISectionDescriptor<LibraryInspection>
     {
@@ -1286,9 +1386,12 @@ public static class LibrarySections
     // Registration supplies the pre-scan method-body applicability gate; these predicates report
     // actual post-scan row effectiveness.
     private static bool HasPerformanceKind(LibraryInspection model, string section)
-        => PerformanceKinds.Any(
-            section,
-            model.PerformanceTriageOpportunities);
+        => model.PerformanceTriageCounts is { } counts
+            ? counts.Count(
+                PerformanceKinds.KindForSection(section)) > 0
+            : PerformanceKinds.Any(
+                section,
+                model.PerformanceTriageOpportunities);
 
     public sealed class PerformanceBoxing : ISectionDescriptor<LibraryInspection>
     {
