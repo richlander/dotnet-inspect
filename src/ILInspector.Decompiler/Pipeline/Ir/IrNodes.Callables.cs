@@ -195,6 +195,14 @@ public sealed class Lambda : IrExpression
         MaterializedStackSlotLocals { get; init; } =
             ImmutableDictionary<int, MaterializedStackSlotLocal>.Empty;
     /// <summary>
+    /// <see cref="IrFunction.ResidualSlotBindings"/> of the raised body, carried
+    /// so the body's residual-bound locals keep their provenance (and their bare
+    /// declarations) when the body is re-entered for printing or census.
+    /// </summary>
+    public ImmutableDictionary<int, ResidualSlotBinding>
+        ResidualSlotBindings { get; init; } =
+            ImmutableDictionary<int, ResidualSlotBinding>.Empty;
+    /// <summary>
     /// Enclosing binders that the final raised body references after
     /// capture substitution. Explicit non-parameter capture evidence is combined
     /// with parameter-owned argument references from the transplanted body.
@@ -346,6 +354,14 @@ public sealed class LocalFunctionStatement : IrNode
     internal ImmutableDictionary<int, MaterializedStackSlotLocal>
         MaterializedStackSlotLocals { get; init; } =
             ImmutableDictionary<int, MaterializedStackSlotLocal>.Empty;
+    /// <summary>
+    /// <see cref="IrFunction.ResidualSlotBindings"/> of the raised body, carried
+    /// so the body's residual-bound locals keep their provenance (and their bare
+    /// declarations) when the body is re-entered for printing or census.
+    /// </summary>
+    public ImmutableDictionary<int, ResidualSlotBinding>
+        ResidualSlotBindings { get; init; } =
+            ImmutableDictionary<int, ResidualSlotBinding>.Empty;
     /// <summary>
     /// Enclosing binders that the final raised body references after
     /// capture substitution. Explicit non-parameter capture evidence is combined

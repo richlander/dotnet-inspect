@@ -593,6 +593,7 @@ public sealed class LambdaRaisingPass : IIrPass
             LocalNameImportCauses = body.LocalNameImportCauses,
             MaterializedStackSlotLocals =
                 body.MaterializedStackSlotLocals,
+            ResidualSlotBindings = body.ResidualSlotBindings,
             CapturedBinderNames = capturedBinderNames.IsDefault ? [] : capturedBinderNames,
         };
         lambda.InheritSourceOffset(provenance);

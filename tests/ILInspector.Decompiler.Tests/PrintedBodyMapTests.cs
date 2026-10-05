@@ -332,7 +332,7 @@ public class PrintedBodyMapTests
             [],
             container);
 
-        CSharpPrinter.Print(function, out var ranges);
+        CSharpPrinter.Print(function.BindResidualSlots(), out var ranges);
         var map = PrintedBodyMap.Create(ranges);
 
         Assert.Contains(
@@ -471,7 +471,7 @@ public class PrintedBodyMapTests
             [],
             container);
 
-        CSharpPrinter.Print(function, out var ranges);
+        CSharpPrinter.Print(function.BindResidualSlots(), out var ranges);
 
         AssertSurfaceKind(ranges, load, "a.Get(S_0, S_0)", "InvocationExpression");
         var map = PrintedBodyMap.Create(ranges);
@@ -1450,6 +1450,13 @@ public class PrintedBodyMapTests
             materialized ? [pointerType] : [],
             container);
 
+        if (!materialized)
+        {
+            // Residual storage binding replaces the slot store with a plan-owned
+            // local store before printing; track the replacement node.
+            function.BindResidualSlots();
+            store = function.Descendants.OfType<StoreLocal>().Single();
+        }
         var result = CSharpPrinter.Print(function, out var ranges);
 
         Assert.NotNull(result.Output);

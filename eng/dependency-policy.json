@@ -118,7 +118,6 @@
       "allowOnly": [
         "CSharpText",
         "DotnetInspector.Cache",
-        "DotnetInspector.DocumentationHouse.Direct",
         "DotnetInspector.Ecosystems",
         "DotnetInspector.Libraries",
         "DotnetInspector.LibraryMetadata",
@@ -175,7 +174,6 @@
         "CSharpText",
         "DotnetInspector.Cache",
         "DotnetInspector.DocumentationHouse.Contracts",
-        "DotnetInspector.DocumentationHouse.Direct",
         "DotnetInspector.Ecosystems",
         "DotnetInspector.InspectionContracts",
         "DotnetInspector.Libraries",

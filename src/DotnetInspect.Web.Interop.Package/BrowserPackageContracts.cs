@@ -459,6 +459,11 @@ public sealed record BrowserPackageQueryEvidence(
     long? Number,
     BrowserPackageQueryTerm? Term = null);
 
+public sealed record BrowserPackageQueryEcosystemAdmission(
+    string EcosystemId,
+    string Basis,
+    string Registration);
+
 public sealed record BrowserPackageQueryDeclaredDependency(
     string Id,
     string VersionRange);
@@ -574,6 +579,12 @@ public sealed record BrowserPackageQueryRow(
         PackageQueryDurableRowContract.Vocabulary,
         PackageQueryDurableRowContract.Manifest)]
     public BrowserPackageQueryManifest? Manifest { get; init; }
+
+    public BrowserPackageQueryEcosystemAdmission? EcosystemAdmission
+    {
+        get;
+        init;
+    }
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter<BrowserPackageQueryFailureKind>))]
