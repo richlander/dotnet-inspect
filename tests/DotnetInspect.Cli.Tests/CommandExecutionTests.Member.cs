@@ -938,6 +938,35 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_CallerScope_WithLoneSelectedSection_ComposesBothSections()
+    {
+        // A caller scope adds Callers on the user's behalf, so "-S Calls --bin X"
+        // is a two-section composition and must not take the one-section
+        // native TSV path (PR 9419 round-2 finding: it rendered a method
+        // summary instead of either section).
+        var testDirectory = Path.GetDirectoryName(TestAssemblyPath)!;
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(MemberCallGraphFixture).FullName!, "--library", TestAssemblyPath,
+            nameof(MemberCallGraphFixture.Inner), "-S", "Calls", "--bin", testDirectory);
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## Calls", output);
+        Assert.Contains("## Callers", output);
+        Assert.DoesNotContain("kind\tname\treturn_type", output);
+
+        // Without the scope the lone Table streams TSV as usual.
+        var (loneExit, lone, loneError) = await RunAppAsync(
+            "member", typeof(MemberCallGraphFixture).FullName!, "--library", TestAssemblyPath,
+            nameof(MemberCallGraphFixture.Inner), "-S", "Calls");
+
+        Assert.Equal(0, loneExit);
+        Assert.Empty(loneError);
+        Assert.DoesNotContain("## Calls", lone);
+        Assert.StartsWith("il_offset\t", lone);
+    }
+
+    [Fact]
     public async Task MemberCommand_PlacesTypedConstructorChainOnDeclaration()
     {
         var (exit, output, error) = await RunAppAsync(

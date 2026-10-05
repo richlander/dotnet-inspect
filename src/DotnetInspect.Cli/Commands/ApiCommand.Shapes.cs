@@ -29,15 +29,19 @@ public partial class ApiCommand
     /// </summary>
     internal static ApiOptions ApplyNativeShapeOutput(
         ApiOptions options,
-        IReadOnlyDictionary<string, SectionShape> shapes)
+        IReadOnlyDictionary<string, SectionShape> shapes,
+        IReadOnlyCollection<string>? effectiveSections)
     {
         if (options.SelectDeferredToListing)
             return options;
 
+        // The effective selection includes sections the command will add on
+        // the user's behalf (Callers under a caller scope), so a lone -S that
+        // becomes a composition never takes a one-section native format.
         SectionNativeOutput? nativeOutput =
             SectionShapeOutputPolicy.ResolveNativeOutput(
                 options.SelectionIsExplicit,
-                options.IncludeSections,
+                effectiveSections,
                 shapes,
                 options.HasExplicitOutputIntent || options.NativeTextPayload);
 

@@ -369,6 +369,7 @@ public partial record ApiOptions : IProjectionOptions
         || (!HasExplicitOutputIntent
             && SelectionIsExplicit
             && IncludeSections is { Count: 1 } sections
+            && this is not MemberOptions { HasCallerScope: true }
             && Sections.ApiSectionShapes.IsText(sections.First()));
 
     /// <summary>
