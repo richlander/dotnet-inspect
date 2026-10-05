@@ -145,8 +145,8 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("queryMemberDocument"),
     queryMemberGroupDocument: () =>
       unexpected("queryMemberGroupDocument"),
-    queryTypeDocument: () =>
-      unexpected("queryTypeDocument"),
+    queryTypeOverviewDocument: () =>
+      unexpected("queryTypeOverviewDocument"),
     queryPlatformMemberDeclaration: () =>
       unexpected("queryPlatformMemberDeclaration"),
     queryPlatformMemberDocument: () =>
@@ -155,12 +155,12 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("queryPlatformMemberGroupDocument"),
     queryUploadedLibraryMemberDocument: () =>
       unexpected("queryUploadedLibraryMemberDocument"),
-    queryPlatformTypeDocument: () =>
-      unexpected("queryPlatformTypeDocument"),
+    queryPlatformTypeOverviewDocument: () =>
+      unexpected("queryPlatformTypeOverviewDocument"),
     queryUploadedLibraryMemberGroupDocument: () =>
       unexpected("queryUploadedLibraryMemberGroupDocument"),
-    queryUploadedLibraryTypeDocument: () =>
-      unexpected("queryUploadedLibraryTypeDocument"),
+    queryUploadedLibraryTypeOverviewDocument: () =>
+      unexpected("queryUploadedLibraryTypeOverviewDocument"),
     queryTypeProjection: () => unexpected("queryTypeProjection"),
     queryPackageMetadataTable: () =>
       unexpected("queryPackageMetadataTable"),
@@ -679,7 +679,7 @@ test("uploaded Library Member document queries use the retained exact image", as
           diagnostics: [],
         };
       },
-      async queryUploadedLibraryTypeDocument(
+      async queryUploadedLibraryTypeOverviewDocument(
         declaredName,
         bytes,
         typeIdentity,
@@ -739,7 +739,7 @@ test("uploaded Library Member document queries use the retained exact image", as
     false,
   ]);
   const population =
-    state.client.metadata.queryUploadedLibraryTypeDocument(
+    state.client.metadata.queryUploadedLibraryTypeOverviewDocument(
       identity,
       "Example.Widget",
       "metadata",
@@ -2443,11 +2443,11 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryMemberDeclaration",
       "queryMemberDocument",
       "queryMemberGroupDocument",
-      "queryTypeDocument",
+      "queryTypeOverviewDocument",
       "queryPlatformMemberDeclaration",
       "queryPlatformMemberDocument",
       "queryPlatformMemberGroupDocument",
-      "queryPlatformTypeDocument",
+      "queryPlatformTypeOverviewDocument",
       "queryPackageHeapEntries",
       "queryPackageMetadata",
       "queryPackageMetadataTable",
@@ -2457,7 +2457,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryTypeProjection",
       "queryUploadedLibraryMemberDocument",
       "queryUploadedLibraryMemberGroupDocument",
-      "queryUploadedLibraryTypeDocument",
+      "queryUploadedLibraryTypeOverviewDocument",
     ],
     analysis: [
       "queryCloneCandidates",

@@ -16,18 +16,18 @@ namespace DotnetInspect.Web.Interop.Metadata;
 
 [SupportedOSPlatform("browser")]
 [JsExportJsonOutput(
-    nameof(MetadataExports.QueryTypeDocument),
-    typeof(BrowserTypeDocumentInspection))]
+    nameof(MetadataExports.QueryTypeOverviewDocument),
+    typeof(BrowserTypeOverviewDocumentInspection))]
 [JsExportJsonOutput(
-    nameof(MetadataExports.QueryPlatformTypeDocument),
-    typeof(BrowserTypeDocumentInspection))]
+    nameof(MetadataExports.QueryPlatformTypeOverviewDocument),
+    typeof(BrowserTypeOverviewDocumentInspection))]
 [JsExportJsonOutput(
-    nameof(MetadataExports.QueryUploadedLibraryTypeDocument),
-    typeof(BrowserTypeDocumentInspection))]
+    nameof(MetadataExports.QueryUploadedLibraryTypeOverviewDocument),
+    typeof(BrowserTypeOverviewDocumentInspection))]
 public static partial class MetadataExports
 {
     [JSExport]
-    public static async Task<string> QueryTypeDocument(
+    public static async Task<string> QueryTypeOverviewDocument(
         string packageId,
         string version,
         string targetFramework,
@@ -53,8 +53,8 @@ public static partial class MetadataExports
             scope.SurfaceParticipant(
                 coordinate,
                 coordinate.CompileAsset(assemblyName));
-        BrowserTypeDocumentInspection inspection =
-            await ExecuteTypeDocumentAsync(
+        BrowserTypeOverviewDocumentInspection inspection =
+            await ExecuteTypeOverviewDocumentAsync(
                     scope.UseSurfaceParticipant(
                         participant,
                         (group, member) =>
@@ -69,11 +69,11 @@ public static partial class MetadataExports
                     spelling,
                     accessibility)
                 .ConfigureAwait(false);
-        return SerializeTypeDocument(inspection);
+        return SerializeTypeOverviewDocument(inspection);
     }
 
     [JSExport]
-    public static async Task<string> QueryPlatformTypeDocument(
+    public static async Task<string> QueryPlatformTypeOverviewDocument(
         string targetFramework,
         string platformVersion,
         string assemblyName,
@@ -90,8 +90,8 @@ public static partial class MetadataExports
                     pack,
                     CancellationToken.None)
                 .ConfigureAwait(false);
-        BrowserTypeDocumentInspection inspection =
-            await ExecuteTypeDocumentAsync(
+        BrowserTypeOverviewDocumentInspection inspection =
+            await ExecuteTypeOverviewDocumentAsync(
                     resolution.Scope.UseParticipant(
                         resolution.Participant,
                         (group, member) =>
@@ -106,12 +106,12 @@ public static partial class MetadataExports
                     spelling,
                     accessibility)
                 .ConfigureAwait(false);
-        return SerializeTypeDocument(inspection);
+        return SerializeTypeOverviewDocument(inspection);
     }
 
     [JSExport]
     public static async Task<string>
-        QueryUploadedLibraryTypeDocument(
+        QueryUploadedLibraryTypeOverviewDocument(
             string declaredName,
             byte[] content,
             string typeIdentity,
@@ -119,8 +119,8 @@ public static partial class MetadataExports
             string accessibility)
     {
         ArgumentNullException.ThrowIfNull(content);
-        BrowserTypeDocumentInspection inspection =
-            await ExecuteTypeDocumentAsync(
+        BrowserTypeOverviewDocumentInspection inspection =
+            await ExecuteTypeOverviewDocumentAsync(
                     EmbeddedLibraryInspection.MaterializeAsync(
                         declaredName,
                         ImmutableArray.CreateRange(content),
@@ -131,11 +131,11 @@ public static partial class MetadataExports
                     spelling,
                     accessibility)
                 .ConfigureAwait(false);
-        return SerializeTypeDocument(inspection);
+        return SerializeTypeOverviewDocument(inspection);
     }
 
-    private static async Task<BrowserTypeDocumentInspection>
-        ExecuteTypeDocumentAsync(
+    private static async Task<BrowserTypeOverviewDocumentInspection>
+        ExecuteTypeOverviewDocumentAsync(
             ValueTask<AssemblyContextLibraryAdapterResult> materialization,
             string typeIdentity,
             string spelling,
@@ -144,8 +144,8 @@ public static partial class MetadataExports
         ArgumentException.ThrowIfNullOrWhiteSpace(typeIdentity);
         MetadataTypeDefinitionName type =
             BrowserExactMemberPolicy.ParseTypeIdentity(typeIdentity);
-        TypeDocumentInspectionPlan plan =
-            TypeDocumentInspectionPlans.DeclaredMemberRows(
+        TypeOverviewDocumentInspectionPlan plan =
+            TypeOverviewDocumentInspectionPlans.DeclaredMemberRows(
                 type,
                 BrowserExactMemberPolicy.Bounds,
                 ParseSpelling(spelling),
@@ -153,7 +153,7 @@ public static partial class MetadataExports
                 includeHidden: false,
                 BrowserExactMemberPolicy.Bounds.MaxMembers);
         AssemblyContextLibraryInspectionRun<
-            InspectionEnvelope<TypeDocumentInspectionOutcome>> run =
+            InspectionEnvelope<TypeOverviewDocumentInspectionOutcome>> run =
                 await AssemblyContextLibraryInspection.ExecuteAsync(
                     materialization,
                     (reference, owner) =>
@@ -161,7 +161,7 @@ public static partial class MetadataExports
                             reference,
                             owner,
                             lease =>
-                                TypeDocumentInspectionOperation.Execute(
+                                TypeOverviewDocumentInspectionOperation.Execute(
                                     new(reference, plan),
                                     lease)))
                 .ConfigureAwait(false);
@@ -177,7 +177,7 @@ public static partial class MetadataExports
         if (run.Result is not { } envelope)
         {
             const string detail =
-                "The exact Library owner could not issue the Type document lease.";
+                "The exact Library owner could not issue the Type overview document lease.";
             return Failed(
                 detail,
                 new InspectionShare.NonProjectable(
@@ -192,50 +192,50 @@ public static partial class MetadataExports
                 $"{diagnostic.Code}: {diagnostic.Summary}"),
             .. run.CleanupFailures,
         ];
-        return ProjectTypeDocument(
+        return ProjectTypeOverviewDocument(
             envelope.Content,
             envelope.Share,
             diagnostics);
     }
 
-    private static BrowserTypeDocumentInspection ProjectTypeDocument(
-        TypeDocumentInspectionOutcome outcome,
+    private static BrowserTypeOverviewDocumentInspection ProjectTypeOverviewDocument(
+        TypeOverviewDocumentInspectionOutcome outcome,
         InspectionShare share,
         string[] diagnostics) =>
         outcome switch
         {
-            TypeDocumentInspectionOutcome.Available available =>
+            TypeOverviewDocumentInspectionOutcome.Available available =>
                 ProjectAvailable(available.Document, share, diagnostics),
-            TypeDocumentInspectionOutcome.Rejected rejected =>
+            TypeOverviewDocumentInspectionOutcome.Rejected rejected =>
                 new(
-                    BrowserTypeDocumentOutcome.Rejected,
-                    $"The Type document was rejected ({rejected.Reason}).",
+                    BrowserTypeOverviewDocumentOutcome.Rejected,
+                    $"The Type overview document was rejected ({rejected.Reason}).",
                     null,
                     share,
                     diagnostics),
-            TypeDocumentInspectionOutcome.Incomplete incomplete =>
+            TypeOverviewDocumentInspectionOutcome.Incomplete incomplete =>
                 new(
-                    BrowserTypeDocumentOutcome.Incomplete,
-                    $"The Type document reached {incomplete.Bound} "
+                    BrowserTypeOverviewDocumentOutcome.Incomplete,
+                    $"The Type overview document reached {incomplete.Bound} "
                         + $"({incomplete.Measured}/{incomplete.Limit}).",
                     null,
                     share,
                     diagnostics),
-            TypeDocumentInspectionOutcome.Failed failed =>
+            TypeOverviewDocumentInspectionOutcome.Failed failed =>
                 Failed(
-                    $"The Type document failed ({failed.Reason}).",
+                    $"The Type overview document failed ({failed.Reason}).",
                     share,
                     diagnostics),
             _ => throw new InvalidOperationException(
-                "Unknown Type document outcome."),
+                "Unknown Type overview document outcome."),
         };
 
-    private static BrowserTypeDocumentInspection ProjectAvailable(
-        TypeDocument document,
+    private static BrowserTypeOverviewDocumentInspection ProjectAvailable(
+        TypeOverviewDocument document,
         InspectionShare share,
         string[] diagnostics) =>
         new(
-            BrowserTypeDocumentOutcome.Available,
+            BrowserTypeOverviewDocumentOutcome.Available,
             null,
             new(
                 document.Subject.Type.ToEscapedFullName(),
@@ -245,7 +245,7 @@ public static partial class MetadataExports
                 [
                     .. document.Subject.Signature.GenericParameters.Select(
                         parameter =>
-                            new BrowserTypeDocumentGenericParameter(
+                            new BrowserTypeOverviewDocumentGenericParameter(
                                 parameter.Name.ToString(),
                                 parameter.MetadataIndex,
                                 parameter.DefinitionSegmentIndex,
@@ -255,38 +255,38 @@ public static partial class MetadataExports
             share,
             diagnostics);
 
-    private static BrowserTypeDocumentDeclarations ProjectDeclarations(
-        TypeDocumentDeclarations declarations) =>
+    private static BrowserTypeOverviewDocumentDeclarations ProjectDeclarations(
+        TypeOverviewDocumentDeclarations declarations) =>
         declarations switch
         {
-            TypeDocumentDeclarations.NotRequested =>
+            TypeOverviewDocumentDeclarations.NotRequested =>
                 new(
-                    BrowserTypeDocumentDeclarationsOutcome.NotRequested,
+                    BrowserTypeOverviewDocumentDeclarationsOutcome.NotRequested,
                     null,
                     null),
-            TypeDocumentDeclarations.Available available =>
+            TypeOverviewDocumentDeclarations.Available available =>
                 ProjectAvailableDeclarations(available.Population),
-            TypeDocumentDeclarations.Rejected rejected =>
+            TypeOverviewDocumentDeclarations.Rejected rejected =>
                 new(
-                    BrowserTypeDocumentDeclarationsOutcome.Rejected,
+                    BrowserTypeOverviewDocumentDeclarationsOutcome.Rejected,
                     $"The declaration population was rejected ({rejected.Reason}).",
                     null),
-            TypeDocumentDeclarations.Incomplete incomplete =>
+            TypeOverviewDocumentDeclarations.Incomplete incomplete =>
                 new(
-                    BrowserTypeDocumentDeclarationsOutcome.Incomplete,
+                    BrowserTypeOverviewDocumentDeclarationsOutcome.Incomplete,
                     $"The declaration population reached {incomplete.Bound} "
                         + $"({incomplete.Measured}/{incomplete.Limit}).",
                     null),
-            TypeDocumentDeclarations.Failed failed =>
+            TypeOverviewDocumentDeclarations.Failed failed =>
                 new(
-                    BrowserTypeDocumentDeclarationsOutcome.Failed,
+                    BrowserTypeOverviewDocumentDeclarationsOutcome.Failed,
                     $"The declaration population failed ({failed.Reason}).",
                     null),
             _ => throw new InvalidOperationException(
-                "Unknown Type document declarations outcome."),
+                "Unknown Type overview document declarations outcome."),
         };
 
-    private static BrowserTypeDocumentDeclarations
+    private static BrowserTypeOverviewDocumentDeclarations
         ProjectAvailableDeclarations(
             TypeMemberGroupPopulationResult population)
     {
@@ -298,14 +298,14 @@ public static partial class MetadataExports
             || population.SelectorCounts is not { } selectorCounts)
         {
             return new(
-                BrowserTypeDocumentDeclarationsOutcome.Incomplete,
-                "The Type document did not contain the complete requested "
+                BrowserTypeOverviewDocumentDeclarationsOutcome.Incomplete,
+                "The Type overview document did not contain the complete requested "
                     + "declaration inventory.",
                 null);
         }
 
         return new(
-            BrowserTypeDocumentDeclarationsOutcome.Available,
+            BrowserTypeOverviewDocumentDeclarationsOutcome.Available,
             null,
             new(
                 population.Binding.Spelling.ToString(),
@@ -338,6 +338,7 @@ public static partial class MetadataExports
                             $"{Kind(group.Binding.Category)}:"
                                 + group.Binding.Name,
                             group.Binding.Name.ToString(),
+                            DisplayName(group),
                             Kind(group.Binding.Category),
                             group.BaselineOrdinal,
                             Receivers(group.Receivers),
@@ -350,9 +351,19 @@ public static partial class MetadataExports
                                 group.Traits.Extensions),
                             group.ExactMemberCount
                                 ?? throw new InvalidOperationException(
-                                    "The Browser Type document requested exact "
+                                    "The Browser Type overview document requested exact "
                                         + "Member counts."))),
                 ]));
+    }
+
+    private static string DisplayName(TypeMemberGroupShape group)
+    {
+        string name = group.Binding.Name.ToString();
+        return group.SharedGenericParameters is { Length: > 0 } parameters
+            ? $"{name}<{string.Join(
+                ", ",
+                parameters.Select(parameter => parameter.ToString()))}>"
+            : name;
     }
 
     private static string Kind(MemberGroupCategory category) =>
@@ -382,12 +393,12 @@ public static partial class MetadataExports
         .Select(candidate => candidate.Item2),
     ];
 
-    private static BrowserTypeDocumentInspection Failed(
+    private static BrowserTypeOverviewDocumentInspection Failed(
         string detail,
         InspectionShare share,
         string[] diagnostics) =>
         new(
-            BrowserTypeDocumentOutcome.Failed,
+            BrowserTypeOverviewDocumentOutcome.Failed,
             detail,
             null,
             share,
@@ -417,10 +428,10 @@ public static partial class MetadataExports
                 nameof(accessibility)),
         };
 
-    private static string SerializeTypeDocument(
-        BrowserTypeDocumentInspection inspection) =>
+    private static string SerializeTypeOverviewDocument(
+        BrowserTypeOverviewDocumentInspection inspection) =>
         JsonSerializer.Serialize(
             inspection,
             BrowserMetadataJsonContext.Default
-                .BrowserTypeDocumentInspection);
+                .BrowserTypeOverviewDocumentInspection);
 }

@@ -12,6 +12,13 @@ using Markout.Formatting;
 
 namespace DotnetInspect.Cli.Options;
 
+internal enum ExactTypeDocumentSelection
+{
+    Unspecified,
+    Overview,
+    Complete,
+}
+
 /// <summary>
 /// Base options shared by type and member commands.
 /// </summary>
@@ -356,6 +363,7 @@ public partial record ApiOptions
 
 public record TypeOptions : ApiOptions
 {
+    internal ExactTypeDocumentSelection DocumentSelection { get; init; }
     public string? WorkspacePacket { get; init; }
     public WorkspaceShareFormat? ShareFormat { get; init; }
     public string? TypeFilter { get; init; }

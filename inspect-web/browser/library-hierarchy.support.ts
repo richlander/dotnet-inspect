@@ -1490,7 +1490,7 @@ async function installFacades(
           diagnostics: [],
         };
       }
-      function typeDocument(
+      function typeOverviewDocument(
         surface, typeIdentity, spelling, accessibility) {
         const declarations = typeMemberPopulation(
           surface, typeIdentity, spelling, accessibility);
@@ -1540,7 +1540,7 @@ async function installFacades(
             },
             { once: true }));
       }
-      export async function queryTypeDocument(
+      export async function queryTypeOverviewDocument(
         id, version, framework, assembly, typeIdentity, spelling, accessibility) {
         document.documentElement.dataset.typeMemberPopulationRequest =
           JSON.stringify([
@@ -1548,13 +1548,13 @@ async function installFacades(
             accessibility,
           ]);
         await waitForTypeMemberPopulationGate();
-        return typeDocument(
+        return typeOverviewDocument(
           surfaceFor(id, version, framework),
           typeIdentity,
           spelling,
           accessibility);
       }
-      export async function queryPlatformTypeDocument(
+      export async function queryPlatformTypeOverviewDocument(
         framework, version, assembly, pack, typeIdentity, spelling, accessibility) {
         document.documentElement.dataset.platformTypeMemberPopulationRequest =
           JSON.stringify([
@@ -1562,13 +1562,13 @@ async function installFacades(
             accessibility,
           ]);
         await waitForTypeMemberPopulationGate();
-        return typeDocument(
+        return typeOverviewDocument(
           surfaceFor("Microsoft.NETCore.App", version, framework),
           typeIdentity,
           spelling,
           accessibility);
       }
-      export async function queryUploadedLibraryTypeDocument(
+      export async function queryUploadedLibraryTypeOverviewDocument(
         declaredName, content, typeIdentity, spelling, accessibility) {
         document.documentElement.dataset.uploadedTypeMemberPopulationRequest =
           JSON.stringify([
@@ -1576,7 +1576,7 @@ async function installFacades(
             accessibility,
           ]);
         await waitForTypeMemberPopulationGate();
-        return typeDocument(
+        return typeOverviewDocument(
           surfaces[0],
           typeIdentity,
           spelling,

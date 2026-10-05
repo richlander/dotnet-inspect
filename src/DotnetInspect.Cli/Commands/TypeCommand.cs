@@ -169,6 +169,52 @@ public static class TypeCommand
         };
     }
 
+    private static bool TryNormalizeDocumentSelection(
+        TypeOptions options,
+        out TypeOptions normalized,
+        out string? error)
+    {
+        normalized = options;
+        error = null;
+        if (options.IncludeSections is not { Count: > 0 } sections)
+            return true;
+
+        bool overview = sections.Contains(SectionNames.Overview);
+        bool complete = sections.Contains(SectionNames.Complete);
+        if (!overview && !complete)
+            return true;
+        if (overview && complete)
+        {
+            error =
+                $"sections '{SectionNames.Overview}' and "
+                + $"'{SectionNames.Complete}' are mutually exclusive.";
+            return false;
+        }
+        if (sections.Count != 1)
+        {
+            string selected =
+                overview
+                    ? SectionNames.Overview
+                    : SectionNames.Complete;
+            error =
+                $"section '{selected}' selects an exact-Type document and "
+                + "cannot be combined with content sections.";
+            return false;
+        }
+
+        normalized = options with
+        {
+            DocumentSelection = overview
+                ? ExactTypeDocumentSelection.Overview
+                : ExactTypeDocumentSelection.Complete,
+            IncludeSections = null,
+            ExactIncludeSectionsOverride = null,
+            Select = null,
+            SelectDefault = false,
+        };
+        return true;
+    }
+
     private static async Task<int> ExecuteCoreAsync(
         TypeOptions options,
         ResolvedMemberInspectionPlan plan,
@@ -213,6 +259,14 @@ public static class TypeCommand
         if (error.HasValue) return error.Value;
 
         options = (TypeOptions)preamble.Options;
+        if (!TryNormalizeDocumentSelection(
+                options,
+                out options,
+                out string? documentSelectionError))
+        {
+            CommandError.Write(documentSelectionError!);
+            return 1;
+        }
         var typePipeline = preamble.TypePipeline;
         var memberPipeline = preamble.MemberPipeline;
 
@@ -250,7 +304,7 @@ public static class TypeCommand
         if (resolvedSource is null
             && loadedSurface is null
             && (exactTypeCapabilities is not null
-                || !TypeDocumentTreeCommand.CanExecute(options))
+                || !TypeOverviewDocumentTreeCommand.CanExecute(options))
             && TryCreateSharedExactTypeRequest(
                 options,
                 out ExactTypeInspectionRequest? exactTypeRequest))
@@ -436,7 +490,7 @@ public static class TypeCommand
             {
                 if (loadedSurface is null
                     && preselectedType is null
-                    && await TypeDocumentTreeCommand.TryExecuteAsync(
+                    && await TypeOverviewDocumentTreeCommand.TryExecuteAsync(
                             source,
                             options,
                             cancellationToken)

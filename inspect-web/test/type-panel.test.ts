@@ -2554,7 +2554,7 @@ test("overload rows show the name and unqualified parameter types", () => {
     "Run(int value)");
 });
 
-test("member rows say what a member is rather than which kind it is", () => {
+test("overview member rows do not borrow exact signatures", () => {
   const writeTo = {
     key: "method:WriteTo",
     name: "WriteTo",
@@ -2628,9 +2628,9 @@ test("member rows say what a member is rather than which kind it is", () => {
           : [],
   });
 
-  // A single method shows its compact parameter list; a property its type.
-  assert.match(html, /<span class="sig-name">WriteTo<\/span><span class="sig-punct">\(<\/span><span class="sig-type">Utf8JsonWriter<\/span>/);
-  assert.match(html, /RootElement<\/span>\s*<small><span class="sig-type">JsonElement<\/span><\/small>/);
+  assert.match(html, /<span class="type-name">WriteTo<\/span>/);
+  assert.match(html, /<span class="type-name">RootElement<\/span>/);
+  assert.doesNotMatch(html, /Utf8JsonWriter|JsonElement/);
   assert.doesNotMatch(html, /<small>method<\/small>|<small>property<\/small>/);
   // Nested overloads have no branch glyph, reserve the shared achievement
   // rail, color keyword types, and retain accessible heat descriptions
@@ -2669,6 +2669,7 @@ test("a filtered singleton retains exact selection without an overload row", () 
   const group = {
     key: "method:Parse",
     name: "Parse",
+    displayName: "Parse<TValue>",
     kind: "method",
     sourceOverloadCount: 1,
     overloads: [{
@@ -2701,6 +2702,8 @@ test("a filtered singleton retains exact selection without an overload row", () 
   assert.match(
     html,
     /data-nav-member="method:Parse" role="option" aria-selected="true"/);
+  assert.match(html, /Parse&lt;TValue&gt;/);
+  assert.doesNotMatch(html, /System\.IO\.Stream/);
   assert.doesNotMatch(html, /data-nav-overload|family-count/);
   assert.equal(
     html.match(/item-achievement-glyph top-leverage/g)?.length,

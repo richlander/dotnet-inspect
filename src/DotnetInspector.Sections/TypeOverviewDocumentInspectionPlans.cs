@@ -2,9 +2,9 @@ using ILInspector.Metadata;
 
 namespace DotnetInspector.Sections;
 
-public static class TypeDocumentInspectionPlans
+public static class TypeOverviewDocumentInspectionPlans
 {
-    public static TypeDocumentInspectionPlan DeclaredMemberRows(
+    public static TypeOverviewDocumentInspectionPlan DeclaredMemberRows(
         MetadataTypeDefinitionName type,
         ApiSurfaceExtractionBounds bounds,
         TypeMemberGroupSpelling spelling,
@@ -26,7 +26,7 @@ public static class TypeDocumentInspectionPlans
                 TypeMemberGroupReceiverFilter.All,
                 includeHidden));
 
-    public static TypeDocumentInspectionPlan DeclaredMemberCount(
+    public static TypeOverviewDocumentInspectionPlan DeclaredMemberCount(
         MetadataTypeDefinitionName type,
         ApiSurfaceExtractionBounds bounds,
         TypeMemberGroupSpelling spelling,

@@ -102,7 +102,7 @@ public partial class OutputFormatterTests
             packageName: null,
             packageVersion: null,
             memberFilter: [],
-            verbosity: Verbosity.Normal,
+            expandOverloads: true,
             memberLimit: 1);
 
         var expandedMethods = Assert.Single(expanded.Members);
@@ -131,7 +131,7 @@ public partial class OutputFormatterTests
             packageName: null,
             packageVersion: null,
             memberFilter: [],
-            verbosity: Verbosity.Normal,
+            expandOverloads: true,
             memberLimit: 1);
 
         var operators = Assert.Single(view.Members);

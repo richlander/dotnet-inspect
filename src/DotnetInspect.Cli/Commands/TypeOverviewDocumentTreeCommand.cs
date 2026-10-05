@@ -11,7 +11,7 @@ using Markout;
 
 namespace DotnetInspect.Cli.Commands;
 
-internal static class TypeDocumentTreeCommand
+internal static class TypeOverviewDocumentTreeCommand
 {
     private static readonly ApiSurfaceExtractionBounds s_bounds =
         new(
@@ -37,11 +37,11 @@ internal static class TypeDocumentTreeCommand
                 && !options.PlainText
                 && !options.MarkdownExplicitlySet);
         return nativeTree
-            && !options.HasSectionQuery
-            && (options.Count
-                || options.Tree
-                || options.ShapeOutput
-                || options.Verbosity == Verbosity.Minimal)
+            && (!options.HasSectionQuery
+                || options.DocumentSelection
+                    is ExactTypeDocumentSelection.Overview)
+            && options.DocumentSelection
+                is not ExactTypeDocumentSelection.Complete
             && !string.IsNullOrWhiteSpace(options.TypeName)
             && !TypeMatcher.IsTypeGlobPattern(options.TypeName)
             && string.IsNullOrWhiteSpace(options.TypeFilter)
@@ -94,10 +94,10 @@ internal static class TypeDocumentTreeCommand
         if (assemblyPath is null)
             return 1;
 
-        TypeDocumentTreeExecution? execution =
+        TypeOverviewDocumentTreeExecution? execution =
             await ExactLibraryInspectionExecutor.ExecuteAsync(
                     assemblyPath,
-                    "Type document tree",
+                    "Type overview document tree",
                     session =>
                         Execute(
                             session,
@@ -108,10 +108,10 @@ internal static class TypeDocumentTreeCommand
                 .ConfigureAwait(false);
         if (execution is null)
             return 1;
-        if (execution is TypeDocumentTreeExecution.NotMatched)
+        if (execution is TypeOverviewDocumentTreeExecution.NotMatched)
             return null;
         if (execution
-            is not TypeDocumentTreeExecution.Completed completed)
+            is not TypeOverviewDocumentTreeExecution.Completed completed)
         {
             return 1;
         }
@@ -123,7 +123,7 @@ internal static class TypeDocumentTreeCommand
             source.PackageVersion);
     }
 
-    private static TypeDocumentTreeExecution Execute(
+    private static TypeOverviewDocumentTreeExecution Execute(
         ExactLibraryInspectionSession session,
         string typeName,
         TypeOptions options,
@@ -142,7 +142,7 @@ internal static class TypeDocumentTreeCommand
                         ? LibraryTypeAccessibility.All
                         : LibraryTypeAccessibility.Public);
         if (listing is null)
-            return new TypeDocumentTreeExecution.Failed();
+            return new TypeOverviewDocumentTreeExecution.Failed();
 
         LibraryTypeShape[] matches =
         [
@@ -152,38 +152,38 @@ internal static class TypeDocumentTreeCommand
                     typeName)),
         ];
         if (matches.Length != 1)
-            return new TypeDocumentTreeExecution.NotMatched();
+            return new TypeOverviewDocumentTreeExecution.NotMatched();
 
         TypeMemberGroupAccessibilityFilter accessibility =
             options.IncludeAll
                 ? TypeMemberGroupAccessibilityFilter.All
                 : TypeMemberGroupAccessibilityFilter.Public;
-        TypeDocumentInspectionPlan plan =
+        TypeOverviewDocumentInspectionPlan plan =
             options.Count
-                ? TypeDocumentInspectionPlans.DeclaredMemberCount(
+                ? TypeOverviewDocumentInspectionPlans.DeclaredMemberCount(
                     matches[0].Identity,
                     s_bounds,
                     TypeMemberGroupSpelling.CSharp,
                     accessibility,
                     includeHidden: options.IncludeAll)
-                : TypeDocumentInspectionPlans.DeclaredMemberRows(
+                : TypeOverviewDocumentInspectionPlans.DeclaredMemberRows(
                     matches[0].Identity,
                     s_bounds,
                     TypeMemberGroupSpelling.CSharp,
                     accessibility,
                     includeHidden: options.IncludeAll,
                     s_bounds.MaxMembers);
-        InspectionEnvelope<TypeDocumentInspectionOutcome>? envelope =
-            session.ExecuteTypeDocument(
+        InspectionEnvelope<TypeOverviewDocumentInspectionOutcome>? envelope =
+            session.ExecuteTypeOverviewDocument(
                 plan,
                 cancellationToken);
         return envelope is null
-            ? new TypeDocumentTreeExecution.Failed()
-            : new TypeDocumentTreeExecution.Completed(envelope);
+            ? new TypeOverviewDocumentTreeExecution.Failed()
+            : new TypeOverviewDocumentTreeExecution.Completed(envelope);
     }
 
     private static int Write(
-        InspectionEnvelope<TypeDocumentInspectionOutcome> envelope,
+        InspectionEnvelope<TypeOverviewDocumentInspectionOutcome> envelope,
         TypeOptions options,
         string? packageName,
         string? packageVersion)
@@ -191,13 +191,13 @@ internal static class TypeDocumentTreeCommand
         if (WriteDiagnostics(envelope.Diagnostics))
             return 1;
         if (envelope.Content
-            is not TypeDocumentInspectionOutcome.Available available)
+            is not TypeOverviewDocumentInspectionOutcome.Available available)
         {
             WriteDocumentFailure(envelope.Content);
             return 1;
         }
         if (available.Document.Declarations
-            is not TypeDocumentDeclarations.Available declarations)
+            is not TypeOverviewDocumentDeclarations.Available declarations)
         {
             WriteDeclarationFailure(
                 available.Document.Declarations);
@@ -244,7 +244,7 @@ internal static class TypeDocumentTreeCommand
         if (population.Composition is not { } composition)
         {
             CommandError.Write(
-                "The Type document did not return its declaration count.");
+                "The Type overview document did not return its declaration count.");
             return 1;
         }
 
@@ -297,8 +297,7 @@ internal static class TypeDocumentTreeCommand
                         StringComparer.Ordinal)
                     .Select(group =>
                     {
-                        string name =
-                            group.Binding.Name.ToString();
+                        string name = DisplayName(group);
                         return new TreeNode(
                             IsOverloadGrouped(category)
                             && group.ExactMemberCount > 1
@@ -404,7 +403,7 @@ internal static class TypeDocumentTreeCommand
                     break;
                 default:
                     throw new InvalidOperationException(
-                        "Unknown Type document diagnostic severity.");
+                        "Unknown Type overview document diagnostic severity.");
             }
         }
 
@@ -412,50 +411,50 @@ internal static class TypeDocumentTreeCommand
     }
 
     private static void WriteDocumentFailure(
-        TypeDocumentInspectionOutcome outcome)
+        TypeOverviewDocumentInspectionOutcome outcome)
     {
         switch (outcome)
         {
-            case TypeDocumentInspectionOutcome.Rejected rejected:
+            case TypeOverviewDocumentInspectionOutcome.Rejected rejected:
                 CommandError.Write(
-                    "The Type document was rejected.",
+                    "The Type overview document was rejected.",
                     $"Reason: {rejected.Reason}");
                 break;
-            case TypeDocumentInspectionOutcome.Incomplete incomplete:
+            case TypeOverviewDocumentInspectionOutcome.Incomplete incomplete:
                 CommandError.Write(
-                    "The Type document exceeded an inspection bound.",
+                    "The Type overview document exceeded an inspection bound.",
                     [
                         $"Bound: {incomplete.Bound}",
                         $"Limit: {incomplete.Limit}",
                         $"Measured: {incomplete.Measured}",
                     ]);
                 break;
-            case TypeDocumentInspectionOutcome.Failed failed:
+            case TypeOverviewDocumentInspectionOutcome.Failed failed:
                 CommandError.Write(
-                    "The Type document failed.",
+                    "The Type overview document failed.",
                     $"Reason: {failed.Reason}");
                 break;
             default:
                 throw new InvalidOperationException(
-                    "Unknown Type document outcome.");
+                    "Unknown Type overview document outcome.");
         }
     }
 
     private static void WriteDeclarationFailure(
-        TypeDocumentDeclarations declarations)
+        TypeOverviewDocumentDeclarations declarations)
     {
         switch (declarations)
         {
-            case TypeDocumentDeclarations.NotRequested:
+            case TypeOverviewDocumentDeclarations.NotRequested:
                 CommandError.Write(
-                    "The Type document did not request declarations.");
+                    "The Type overview document did not request declarations.");
                 break;
-            case TypeDocumentDeclarations.Rejected rejected:
+            case TypeOverviewDocumentDeclarations.Rejected rejected:
                 CommandError.Write(
                     "The Type declaration population was rejected.",
                     $"Reason: {rejected.Reason}");
                 break;
-            case TypeDocumentDeclarations.Incomplete incomplete:
+            case TypeOverviewDocumentDeclarations.Incomplete incomplete:
                 CommandError.Write(
                     "The Type declaration population exceeded an "
                         + "inspection bound.",
@@ -465,14 +464,14 @@ internal static class TypeDocumentTreeCommand
                         $"Measured: {incomplete.Measured}",
                     ]);
                 break;
-            case TypeDocumentDeclarations.Failed failed:
+            case TypeOverviewDocumentDeclarations.Failed failed:
                 CommandError.Write(
                     "The Type declaration population failed.",
                     $"Reason: {failed.Reason}");
                 break;
             default:
                 throw new InvalidOperationException(
-                    "Unknown Type document declarations outcome.");
+                    "Unknown Type overview document declarations outcome.");
         }
     }
 
@@ -483,7 +482,7 @@ internal static class TypeDocumentTreeCommand
         {
             case null:
                 CommandError.Write(
-                    "The Type document did not return declaration rows.");
+                    "The Type overview document did not return declaration rows.");
                 break;
             case TypeMemberGroupRowsOutcome.Rejected rejected:
                 CommandError.Write(
@@ -554,20 +553,30 @@ internal static class TypeDocumentTreeCommand
             or MemberGroupCategory.Operator
             or MemberGroupCategory.ExplicitInterfaceImplementation;
 
-    private abstract record TypeDocumentTreeExecution
+    private static string DisplayName(TypeMemberGroupShape group)
     {
-        private TypeDocumentTreeExecution()
+        string name = group.Binding.Name.ToString();
+        return group.SharedGenericParameters is { Length: > 0 } parameters
+            ? $"{name}<{string.Join(
+                ", ",
+                parameters.Select(parameter => parameter.ToString()))}>"
+            : name;
+    }
+
+    private abstract record TypeOverviewDocumentTreeExecution
+    {
+        private TypeOverviewDocumentTreeExecution()
         {
         }
 
         internal sealed record Completed(
-            InspectionEnvelope<TypeDocumentInspectionOutcome> Envelope)
-            : TypeDocumentTreeExecution;
+            InspectionEnvelope<TypeOverviewDocumentInspectionOutcome> Envelope)
+            : TypeOverviewDocumentTreeExecution;
 
         internal sealed record NotMatched
-            : TypeDocumentTreeExecution;
+            : TypeOverviewDocumentTreeExecution;
 
         internal sealed record Failed
-            : TypeDocumentTreeExecution;
+            : TypeOverviewDocumentTreeExecution;
     }
 }

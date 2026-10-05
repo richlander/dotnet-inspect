@@ -70,9 +70,9 @@ internal sealed class ExactLibraryInspectionSession(
             cancellationToken);
     }
 
-    public InspectionEnvelope<TypeDocumentInspectionOutcome>?
-        ExecuteTypeDocument(
-            TypeDocumentInspectionPlan plan,
+    public InspectionEnvelope<TypeOverviewDocumentInspectionOutcome>?
+        ExecuteTypeOverviewDocument(
+            TypeOverviewDocumentInspectionPlan plan,
             CancellationToken cancellationToken)
     {
         LibraryOperationLeaseIssueOutcome leaseIssue =
@@ -81,13 +81,13 @@ internal sealed class ExactLibraryInspectionSession(
             is not LibraryOperationLeaseIssueOutcome.Issued issued)
         {
             CommandError.Write(
-                "The exact Library owner could not issue the Type document "
+                "The exact Library owner could not issue the Type overview document "
                     + "inspection operation lease.");
             return null;
         }
 
         using LibraryOperationLease lease = issued.Lease;
-        return TypeDocumentInspectionOperation.Execute(
+        return TypeOverviewDocumentInspectionOperation.Execute(
             new(reference, plan),
             lease,
             cancellationToken);

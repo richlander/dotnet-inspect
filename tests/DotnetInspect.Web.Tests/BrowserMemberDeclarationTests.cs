@@ -31,6 +31,8 @@ public sealed class BrowserMemberDeclarationTests
         "ILInspector.Decompiler.Fixtures.NewUnsafe.dll";
     const string SpellingType =
         "ILInspector.Decompiler.Fixtures.NewUnsafe.MemorySafetySpellingFixture";
+    const string GenericGroupType =
+        "ILInspector.Decompiler.Fixtures.NewUnsafe.GenericCallerContractFixture`1";
     const string ExtensionType =
         "ILInspector.Decompiler.Fixtures.NewUnsafe.MemorySafetyReceiverExtensions";
     const string ReadonlyPropertyType =
@@ -472,9 +474,9 @@ public sealed class BrowserMemberDeclarationTests
             "System.Text.Json.JsonElement+ArrayEnumerator";
         BrowserTypeMemberPopulation enumeratorPopulation =
             AvailablePopulation(
-                TypeDocument(
+                TypeOverviewDocument(
                     await MetadataExports
-                        .QueryUploadedLibraryTypeDocument(
+                        .QueryUploadedLibraryTypeOverviewDocument(
                             Path.GetFileName(
                                 typeof(JsonDocument).Assembly.Location),
                             runtimeImage,
@@ -606,9 +608,9 @@ public sealed class BrowserMemberDeclarationTests
             privatePropertyDocument.DisplaySignature,
             StringComparison.Ordinal);
 
-        BrowserTypeDocumentInspection packagePopulation =
-            TypeDocument(
-                await MetadataExports.QueryTypeDocument(
+        BrowserTypeOverviewDocumentInspection packagePopulation =
+            TypeOverviewDocument(
+                await MetadataExports.QueryTypeOverviewDocument(
                     PackageId,
                     Version,
                     Framework,
@@ -617,12 +619,31 @@ public sealed class BrowserMemberDeclarationTests
                     "csharp",
                     "public"));
         Assert.Equal(
-            BrowserTypeDocumentOutcome.Available,
+            BrowserTypeOverviewDocumentOutcome.Available,
             packagePopulation.Outcome);
         BrowserTypeMemberPopulation packageMembers =
             AvailablePopulation(packagePopulation);
-        BrowserTypeDocument packageDocument =
-            Assert.IsType<BrowserTypeDocument>(
+        BrowserTypeMemberPopulation genericMembers =
+            AvailablePopulation(
+                TypeOverviewDocument(
+                    await MetadataExports
+                        .QueryUploadedLibraryTypeOverviewDocument(
+                        AssemblyFileName,
+                        image,
+                        GenericGroupType,
+                        "csharp",
+                        "public")));
+        BrowserTypeMemberPopulationGroup mixedGeneric = Assert.Single(
+            genericMembers.Groups,
+            group => group.Name == "ContractChoice");
+        Assert.Equal("ContractChoice", mixedGeneric.DisplayName);
+        BrowserTypeMemberPopulationGroup uniformGeneric = Assert.Single(
+            genericMembers.Groups,
+            group => group.Name == "Uniform");
+        Assert.Equal("Uniform<TMarker>", uniformGeneric.DisplayName);
+        Assert.Equal(2, uniformGeneric.CompleteCount);
+        BrowserTypeOverviewDocument packageDocument =
+            Assert.IsType<BrowserTypeOverviewDocument>(
                 packagePopulation.Document);
         Assert.Equal(SpellingType, packageDocument.TypeIdentity);
         Assert.True(packageDocument.TypeDefinitionToken > 0);
@@ -655,9 +676,9 @@ public sealed class BrowserMemberDeclarationTests
         Assert.Equal(
             packageMembers.SelectorCounts.Traits.Extensions,
             packageMembers.Groups.Sum(group => group.Traits.Extensions));
-        BrowserTypeDocumentInspection metadataPopulation =
-            TypeDocument(
-                await MetadataExports.QueryTypeDocument(
+        BrowserTypeOverviewDocumentInspection metadataPopulation =
+            TypeOverviewDocument(
+                await MetadataExports.QueryTypeOverviewDocument(
                     PackageId,
                     Version,
                     Framework,
@@ -727,9 +748,9 @@ public sealed class BrowserMemberDeclarationTests
             group => group.Name == "PointerFreeUnsafeMethod");
         Assert.True(metadataMethod.BaselineOrdinal > 0);
         Assert.Equal(1, metadataMethod.CompleteCount);
-        BrowserTypeDocumentInspection privatePopulation =
-            TypeDocument(
-                await MetadataExports.QueryTypeDocument(
+        BrowserTypeOverviewDocumentInspection privatePopulation =
+            TypeOverviewDocument(
+                await MetadataExports.QueryTypeOverviewDocument(
                     PackageId,
                     Version,
                     Framework,
@@ -745,9 +766,9 @@ public sealed class BrowserMemberDeclarationTests
             static group =>
                 Assert.True(group.BaselineOrdinal > 0));
 
-        BrowserTypeDocumentInspection allPopulation =
-            TypeDocument(
-                await MetadataExports.QueryTypeDocument(
+        BrowserTypeOverviewDocumentInspection allPopulation =
+            TypeOverviewDocument(
+                await MetadataExports.QueryTypeOverviewDocument(
                     PackageId,
                     Version,
                     Framework,
@@ -765,17 +786,17 @@ public sealed class BrowserMemberDeclarationTests
                 + allMembers.Composition.Private,
             allMembers.Groups.Sum(group => group.CompleteCount));
 
-        BrowserTypeDocumentInspection uploadedPopulation =
-            TypeDocument(
+        BrowserTypeOverviewDocumentInspection uploadedPopulation =
+            TypeOverviewDocument(
                 await MetadataExports
-                    .QueryUploadedLibraryTypeDocument(
+                    .QueryUploadedLibraryTypeOverviewDocument(
                         AssemblyFileName,
                         image,
                         ExtensionType,
                         "csharp",
                         "public"));
         Assert.Equal(
-            BrowserTypeDocumentOutcome.Available,
+            BrowserTypeOverviewDocumentOutcome.Available,
             uploadedPopulation.Outcome);
         BrowserTypeMemberPopulation uploadedMembers =
             AvailablePopulation(uploadedPopulation);
@@ -1087,10 +1108,10 @@ public sealed class BrowserMemberDeclarationTests
                 document.Rows,
                 static row => Assert.Equal("Extension", row.Receiver));
 
-            BrowserTypeDocumentInspection population =
-                TypeDocument(
+            BrowserTypeOverviewDocumentInspection population =
+                TypeOverviewDocument(
                     await MetadataExports
-                        .QueryPlatformTypeDocument(
+                        .QueryPlatformTypeOverviewDocument(
                             framework,
                             version,
                             AssemblyFileName,
@@ -1099,7 +1120,7 @@ public sealed class BrowserMemberDeclarationTests
                             "csharp",
                             "public"));
             Assert.Equal(
-                BrowserTypeDocumentOutcome.Available,
+                BrowserTypeOverviewDocumentOutcome.Available,
                 population.Outcome);
             BrowserTypeMemberPopulation members =
                 AvailablePopulation(population);
@@ -1565,23 +1586,23 @@ public sealed class BrowserMemberDeclarationTests
         ?? throw new InvalidOperationException(
             "The browser Member export returned null.");
 
-    static BrowserTypeDocumentInspection TypeDocument(
+    static BrowserTypeOverviewDocumentInspection TypeOverviewDocument(
         string json) =>
         JsonSerializer.Deserialize(
             json,
             BrowserMetadataJsonContext.Default
-                .BrowserTypeDocumentInspection)
+                .BrowserTypeOverviewDocumentInspection)
         ?? throw new InvalidOperationException(
-            "The browser Type document export returned null.");
+            "The browser Type overview document export returned null.");
 
     static BrowserTypeMemberPopulation AvailablePopulation(
-        BrowserTypeDocumentInspection inspection)
+        BrowserTypeOverviewDocumentInspection inspection)
     {
-        BrowserTypeDocument document =
-            Assert.IsType<BrowserTypeDocument>(
+        BrowserTypeOverviewDocument document =
+            Assert.IsType<BrowserTypeOverviewDocument>(
                 inspection.Document);
         Assert.Equal(
-            BrowserTypeDocumentDeclarationsOutcome.Available,
+            BrowserTypeOverviewDocumentDeclarationsOutcome.Available,
             document.Declarations.Outcome);
         return Assert.IsType<BrowserTypeMemberPopulation>(
             document.Declarations.Population);

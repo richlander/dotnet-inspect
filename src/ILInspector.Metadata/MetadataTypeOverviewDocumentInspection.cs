@@ -2,9 +2,9 @@ using System.Reflection.Metadata;
 
 namespace ILInspector.Metadata;
 
-public sealed record MetadataTypeDocumentInspectionRequest
+public sealed record MetadataTypeOverviewDocumentInspectionRequest
 {
-    public MetadataTypeDocumentInspectionRequest(
+    public MetadataTypeOverviewDocumentInspectionRequest(
         MetadataTypeDefinitionName type,
         MetadataTypeMemberGroupPopulationRequest? declarations = null,
         MetadataTypeDefinitionAddress? expectedDeclarationPopulationType =
@@ -36,62 +36,62 @@ public sealed record MetadataTypeDocumentInspectionRequest
     { get; }
 }
 
-public sealed record MetadataTypeDocument(
+public sealed record MetadataTypeOverviewDocument(
     MetadataTypeDeclarationEvidence Subject,
-    MetadataTypeDocumentDeclarations Declarations);
+    MetadataTypeOverviewDocumentDeclarations Declarations);
 
-public abstract record MetadataTypeDocumentDeclarations
+public abstract record MetadataTypeOverviewDocumentDeclarations
 {
-    private protected MetadataTypeDocumentDeclarations()
+    private protected MetadataTypeOverviewDocumentDeclarations()
     {
     }
 
     public sealed record NotRequested
-        : MetadataTypeDocumentDeclarations;
+        : MetadataTypeOverviewDocumentDeclarations;
 
     public sealed record BindingMismatch
-        : MetadataTypeDocumentDeclarations;
+        : MetadataTypeOverviewDocumentDeclarations;
 
     public sealed record Inspected(
         MetadataTypeMemberGroupPopulationOutcome Outcome)
-        : MetadataTypeDocumentDeclarations;
+        : MetadataTypeOverviewDocumentDeclarations;
 }
 
-public enum MetadataTypeDocumentBound
+public enum MetadataTypeOverviewDocumentBound
 {
     MetadataRows,
 }
 
-public abstract record MetadataTypeDocumentInspectionOutcome
+public abstract record MetadataTypeOverviewDocumentInspectionOutcome
 {
-    private protected MetadataTypeDocumentInspectionOutcome()
+    private protected MetadataTypeOverviewDocumentInspectionOutcome()
     {
     }
 
-    public sealed record Available(MetadataTypeDocument Document)
-        : MetadataTypeDocumentInspectionOutcome;
+    public sealed record Available(MetadataTypeOverviewDocument Document)
+        : MetadataTypeOverviewDocumentInspectionOutcome;
 
     public sealed record TypeNotFound
-        : MetadataTypeDocumentInspectionOutcome;
+        : MetadataTypeOverviewDocumentInspectionOutcome;
 
     public sealed record TypeAmbiguous
-        : MetadataTypeDocumentInspectionOutcome;
+        : MetadataTypeOverviewDocumentInspectionOutcome;
 
     public sealed record Incomplete(
-        MetadataTypeDocumentBound Bound,
+        MetadataTypeOverviewDocumentBound Bound,
         long Limit,
         long Measured)
-        : MetadataTypeDocumentInspectionOutcome;
+        : MetadataTypeOverviewDocumentInspectionOutcome;
 
     public sealed record Failed
-        : MetadataTypeDocumentInspectionOutcome;
+        : MetadataTypeOverviewDocumentInspectionOutcome;
 }
 
-internal static class MetadataTypeDocumentInspection
+internal static class MetadataTypeOverviewDocumentInspection
 {
-    internal static MetadataTypeDocumentInspectionOutcome Read(
+    internal static MetadataTypeOverviewDocumentInspectionOutcome Read(
         MetadataReader reader,
-        MetadataTypeDocumentInspectionRequest request,
+        MetadataTypeOverviewDocumentInspectionRequest request,
         ApiSurfaceExtractionBounds bounds,
         Func<
             MetadataTypeDefinitionAddress,
@@ -119,20 +119,20 @@ internal static class MetadataTypeDocumentInspection
                 return resolution switch
                 {
                     MetadataExactTypeDefinitionResolution.TypeNotFound =>
-                        new MetadataTypeDocumentInspectionOutcome
+                        new MetadataTypeOverviewDocumentInspectionOutcome
                             .TypeNotFound(),
                     MetadataExactTypeDefinitionResolution.TypeAmbiguous =>
-                        new MetadataTypeDocumentInspectionOutcome
+                        new MetadataTypeOverviewDocumentInspectionOutcome
                             .TypeAmbiguous(),
                     MetadataExactTypeDefinitionResolution.Incomplete
                         incomplete =>
-                            new MetadataTypeDocumentInspectionOutcome
+                            new MetadataTypeOverviewDocumentInspectionOutcome
                                 .Incomplete(
-                                    MetadataTypeDocumentBound.MetadataRows,
+                                    MetadataTypeOverviewDocumentBound.MetadataRows,
                                     incomplete.Limit,
                                     incomplete.Measured),
                     MetadataExactTypeDefinitionResolution.Failed =>
-                        new MetadataTypeDocumentInspectionOutcome.Failed(),
+                        new MetadataTypeOverviewDocumentInspectionOutcome.Failed(),
                     _ => throw new InvalidOperationException(
                         "Unknown exact Type definition resolution."),
                 };
@@ -154,26 +154,26 @@ internal static class MetadataTypeDocumentInspection
                         is MetadataOperationDimension.MetadataRows
                     && failure.BudgetLimit is { } limit
                     && failure.BudgetAttempted is { } measured
-                        ? new MetadataTypeDocumentInspectionOutcome
+                        ? new MetadataTypeOverviewDocumentInspectionOutcome
                             .Incomplete(
-                                MetadataTypeDocumentBound.MetadataRows,
+                                MetadataTypeOverviewDocumentBound.MetadataRows,
                                 limit,
                                 measured)
-                        : new MetadataTypeDocumentInspectionOutcome.Failed();
+                        : new MetadataTypeOverviewDocumentInspectionOutcome.Failed();
             }
 
             MetadataTypeDeclarationEvidence subject =
                 ((MetadataTypeDeclarationResult.Posted)declaration)
                     .Evidence;
-            MetadataTypeDocumentDeclarations declarations =
+            MetadataTypeOverviewDocumentDeclarations declarations =
                 request.Declarations is null
-                    ? new MetadataTypeDocumentDeclarations.NotRequested()
+                    ? new MetadataTypeOverviewDocumentDeclarations.NotRequested()
                     : request.ExpectedDeclarationPopulationType
                         is { } expected
                         && expected != subject.Type
-                            ? new MetadataTypeDocumentDeclarations
+                            ? new MetadataTypeOverviewDocumentDeclarations
                                 .BindingMismatch()
-                            : new MetadataTypeDocumentDeclarations.Inspected(
+                            : new MetadataTypeOverviewDocumentDeclarations.Inspected(
                                 MetadataTypeMemberGroupPopulationInspection
                                     .ReadResolved(
                                         reader,
@@ -181,14 +181,14 @@ internal static class MetadataTypeDocumentInspection
                                         bounds,
                                         resolved,
                                         cancellationToken));
-            return new MetadataTypeDocumentInspectionOutcome.Available(
+            return new MetadataTypeOverviewDocumentInspectionOutcome.Available(
                 new(subject, declarations));
         }
         catch (Exception exception) when (
             MetadataTypeMemberCompositionInspection.IsMetadataFailure(
                 exception))
         {
-            return new MetadataTypeDocumentInspectionOutcome.Failed();
+            return new MetadataTypeOverviewDocumentInspectionOutcome.Failed();
         }
     }
 }

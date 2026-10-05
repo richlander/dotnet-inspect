@@ -161,8 +161,8 @@ public sealed class MetadataDeclarationSession : IDisposable
             cancellationToken);
     }
 
-    public MetadataTypeDocumentInspectionOutcome InspectTypeDocument(
-        MetadataTypeDocumentInspectionRequest request,
+    public MetadataTypeOverviewDocumentInspectionOutcome InspectTypeOverviewDocument(
+        MetadataTypeOverviewDocumentInspectionRequest request,
         ApiSurfaceExtractionBounds bounds,
         CancellationToken cancellationToken = default)
     {
@@ -171,9 +171,9 @@ public sealed class MetadataDeclarationSession : IDisposable
         ArgumentNullException.ThrowIfNull(bounds);
         cancellationToken.ThrowIfCancellationRequested();
         if (_imageAdmission is MetadataImageAdmissionResult.Rejected)
-            return new MetadataTypeDocumentInspectionOutcome.Failed();
+            return new MetadataTypeOverviewDocumentInspectionOutcome.Failed();
 
-        return MetadataTypeDocumentInspection.Read(
+        return MetadataTypeOverviewDocumentInspection.Read(
             _assemblySession!.GetMetadataReaderForDeclarationSession(),
             request,
             bounds,

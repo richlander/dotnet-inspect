@@ -9,9 +9,9 @@ using InertText;
 
 namespace DotnetInspector.Sections;
 
-public sealed record TypeDocumentInspectionPlan
+public sealed record TypeOverviewDocumentInspectionPlan
 {
-    public TypeDocumentInspectionPlan(
+    public TypeOverviewDocumentInspectionPlan(
         MetadataTypeDefinitionName type,
         ApiSurfaceExtractionBounds bounds,
         TypeMemberGroupPopulationRequest? declarations = null)
@@ -27,11 +27,11 @@ public sealed record TypeDocumentInspectionPlan
     public TypeMemberGroupPopulationRequest? Declarations { get; }
 }
 
-public sealed record TypeDocumentInspectionRequest
+public sealed record TypeOverviewDocumentInspectionRequest
 {
-    public TypeDocumentInspectionRequest(
+    public TypeOverviewDocumentInspectionRequest(
         LibraryReference library,
-        TypeDocumentInspectionPlan plan)
+        TypeOverviewDocumentInspectionPlan plan)
     {
         Library = library
             ?? throw new ArgumentNullException(nameof(library));
@@ -40,28 +40,28 @@ public sealed record TypeDocumentInspectionRequest
     }
 
     public LibraryReference Library { get; }
-    public TypeDocumentInspectionPlan Plan { get; }
+    public TypeOverviewDocumentInspectionPlan Plan { get; }
 }
 
-public sealed record TypeDocumentGenericParameter(
+public sealed record TypeOverviewDocumentGenericParameter(
     int DefinitionSegmentIndex,
     int MetadataIndex,
     [property: JsonConverter(typeof(InertStringJsonConverter))]
         InertString Name,
     GenericParameterAttributes Attributes);
 
-public sealed record TypeDocumentDeclarationSignature(
-    ImmutableArray<TypeDocumentGenericParameter> GenericParameters);
+public sealed record TypeOverviewDocumentDeclarationSignature(
+    ImmutableArray<TypeOverviewDocumentGenericParameter> GenericParameters);
 
 public sealed record TypeSubject
 {
     public TypeSubject(
-        LibraryTypeDocumentSubjectCorrespondence libraryCorrespondence,
+        LibraryTypeOverviewDocumentSubjectCorrespondence libraryCorrespondence,
         LibraryAssemblyIdentity assembly,
         Guid moduleVersionId,
         MetadataTypeDefinitionName type,
         int typeDefinitionToken,
-        TypeDocumentDeclarationSignature signature,
+        TypeOverviewDocumentDeclarationSignature signature,
         MetadataTypeDeclarationCategory category,
         TypeAttributes attributes,
         bool isByRefLike,
@@ -97,7 +97,7 @@ public sealed record TypeSubject
     }
 
     [JsonIgnore]
-    public LibraryTypeDocumentSubjectCorrespondence LibraryCorrespondence { get; }
+    public LibraryTypeOverviewDocumentSubjectCorrespondence LibraryCorrespondence { get; }
     [JsonIgnore]
     public LibraryReference RequestedLibrary =>
         LibraryCorrespondence.RequestedLibrary;
@@ -111,7 +111,7 @@ public sealed record TypeSubject
     public Guid ModuleVersionId { get; }
     public MetadataTypeDefinitionName Type { get; }
     public int TypeDefinitionToken { get; }
-    public TypeDocumentDeclarationSignature Signature { get; }
+    public TypeOverviewDocumentDeclarationSignature Signature { get; }
     public MetadataTypeDeclarationCategory Category { get; }
     public TypeAttributes Attributes { get; }
     public bool IsByRefLike { get; }
@@ -121,52 +121,52 @@ public sealed record TypeSubject
 
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
 [JsonDerivedType(
-    typeof(TypeDocumentDeclarations.NotRequested),
+    typeof(TypeOverviewDocumentDeclarations.NotRequested),
     "not-requested")]
 [JsonDerivedType(
-    typeof(TypeDocumentDeclarations.Available),
+    typeof(TypeOverviewDocumentDeclarations.Available),
     "available")]
 [JsonDerivedType(
-    typeof(TypeDocumentDeclarations.Rejected),
+    typeof(TypeOverviewDocumentDeclarations.Rejected),
     "rejected")]
 [JsonDerivedType(
-    typeof(TypeDocumentDeclarations.Incomplete),
+    typeof(TypeOverviewDocumentDeclarations.Incomplete),
     "incomplete")]
 [JsonDerivedType(
-    typeof(TypeDocumentDeclarations.Failed),
+    typeof(TypeOverviewDocumentDeclarations.Failed),
     "failed")]
-public abstract record TypeDocumentDeclarations
+public abstract record TypeOverviewDocumentDeclarations
 {
-    private protected TypeDocumentDeclarations()
+    private protected TypeOverviewDocumentDeclarations()
     {
     }
 
-    public sealed record NotRequested : TypeDocumentDeclarations;
+    public sealed record NotRequested : TypeOverviewDocumentDeclarations;
 
     public sealed record Available(
         TypeMemberGroupPopulationResult Population)
-        : TypeDocumentDeclarations;
+        : TypeOverviewDocumentDeclarations;
 
     public sealed record Rejected(
         TypeMemberGroupPopulationInspectionRejection Reason)
-        : TypeDocumentDeclarations;
+        : TypeOverviewDocumentDeclarations;
 
     public sealed record Incomplete(
         TypeMemberGroupPopulationBound Bound,
         long Limit,
         long Measured)
-        : TypeDocumentDeclarations;
+        : TypeOverviewDocumentDeclarations;
 
     public sealed record Failed(
         TypeMemberGroupPopulationInspectionFailure Reason)
-        : TypeDocumentDeclarations;
+        : TypeOverviewDocumentDeclarations;
 }
 
-public sealed record TypeDocument
+public sealed record TypeOverviewDocument
 {
-    public TypeDocument(
+    public TypeOverviewDocument(
         TypeSubject subject,
-        TypeDocumentDeclarations declarations,
+        TypeOverviewDocumentDeclarations declarations,
         int assemblyBytes)
     {
         Subject = subject
@@ -175,7 +175,7 @@ public sealed record TypeDocument
             ?? throw new ArgumentNullException(nameof(declarations));
         ArgumentOutOfRangeException.ThrowIfNegative(assemblyBytes);
         if (declarations
-                is TypeDocumentDeclarations.Available available
+                is TypeOverviewDocumentDeclarations.Available available
             && !Matches(
                 subject,
                 available.Population.Binding))
@@ -189,7 +189,7 @@ public sealed record TypeDocument
     }
 
     public TypeSubject Subject { get; }
-    public TypeDocumentDeclarations Declarations { get; }
+    public TypeOverviewDocumentDeclarations Declarations { get; }
     public int AssemblyBytes { get; }
 
     private static bool Matches(
@@ -202,7 +202,7 @@ public sealed record TypeDocument
             == binding.TypeDefinitionToken;
 }
 
-public enum TypeDocumentInspectionRejection
+public enum TypeOverviewDocumentInspectionRejection
 {
     LeaseReferenceMismatch,
     AssemblyIdentityMismatch,
@@ -210,7 +210,7 @@ public enum TypeDocumentInspectionRejection
     TypeAmbiguous,
 }
 
-public enum TypeDocumentInspectionFailure
+public enum TypeOverviewDocumentInspectionFailure
 {
     NotManagedAssembly,
     ManagedModule,
@@ -219,42 +219,42 @@ public enum TypeDocumentInspectionFailure
     EmptyModuleVersionId,
 }
 
-public enum TypeDocumentInspectionBound
+public enum TypeOverviewDocumentInspectionBound
 {
     MetadataRows,
 }
 
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "outcome")]
 [JsonDerivedType(
-    typeof(TypeDocumentInspectionOutcome.Available),
+    typeof(TypeOverviewDocumentInspectionOutcome.Available),
     "available")]
 [JsonDerivedType(
-    typeof(TypeDocumentInspectionOutcome.Rejected),
+    typeof(TypeOverviewDocumentInspectionOutcome.Rejected),
     "rejected")]
 [JsonDerivedType(
-    typeof(TypeDocumentInspectionOutcome.Incomplete),
+    typeof(TypeOverviewDocumentInspectionOutcome.Incomplete),
     "incomplete")]
 [JsonDerivedType(
-    typeof(TypeDocumentInspectionOutcome.Failed),
+    typeof(TypeOverviewDocumentInspectionOutcome.Failed),
     "failed")]
-public abstract record TypeDocumentInspectionOutcome
+public abstract record TypeOverviewDocumentInspectionOutcome
 {
-    private protected TypeDocumentInspectionOutcome()
+    private protected TypeOverviewDocumentInspectionOutcome()
     {
     }
 
-    public sealed record Available(TypeDocument Document)
-        : TypeDocumentInspectionOutcome;
+    public sealed record Available(TypeOverviewDocument Document)
+        : TypeOverviewDocumentInspectionOutcome;
 
-    public sealed record Rejected(TypeDocumentInspectionRejection Reason)
-        : TypeDocumentInspectionOutcome;
+    public sealed record Rejected(TypeOverviewDocumentInspectionRejection Reason)
+        : TypeOverviewDocumentInspectionOutcome;
 
     public sealed record Incomplete(
-        TypeDocumentInspectionBound Bound,
+        TypeOverviewDocumentInspectionBound Bound,
         long Limit,
         long Measured)
-        : TypeDocumentInspectionOutcome;
+        : TypeOverviewDocumentInspectionOutcome;
 
-    public sealed record Failed(TypeDocumentInspectionFailure Reason)
-        : TypeDocumentInspectionOutcome;
+    public sealed record Failed(TypeOverviewDocumentInspectionFailure Reason)
+        : TypeOverviewDocumentInspectionOutcome;
 }

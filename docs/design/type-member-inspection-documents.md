@@ -148,6 +148,18 @@ work. A generic Type overview therefore retains a declaration such as
 `System.Collections.Generic.Dictionary<TKey, TValue>` even though its Member
 Rows still omit exact parameter lists.
 
+Method generic parameters are compact Member-group spelling when, and only
+when, every exact declaration in the name-based group has the same generic
+parameter count and parameter names. Such a row may spell `Create<T>()` as
+`Create<T>` without decoding the return type or value-parameter list. Mixed
+generic and non-generic groups, mixed generic arities, and equal-arity groups
+with different generic parameter names retain one bare name-based row such as
+`Run` or `Create`; they are not split into new presentation-defined groups.
+Count-only and Composition Count requests do no generic-name work. A Rows
+request compares GenericParam rows and their UTF-8 names during the admitted
+declaration scan, then materializes generic parameter strings only for returned
+rows whose group retains one truthful shared spelling.
+
 Complete exact declarations are a separate section query:
 
 ```console
@@ -1396,6 +1408,12 @@ The implementation must preserve at least:
 - a generic Type overview retains the Type generic parameter list required to
   spell a declaration such as `Dictionary<TKey, TValue>` without decoding any
   exact Member parameter list;
+- a singleton or uniformly generic Method group may retain one shared generic
+  parameter spelling such as `M<TValue>`, while mixed generic/non-generic,
+  mixed-arity, and differently named groups remain one bare name-based row;
+- Count-only and Composition Count overview requests do no Method generic-name
+  decoding, and Rows decode no return type or value-parameter signature merely
+  to establish a shared generic spelling;
 - `TypeDocument(JsonDocument)` returns every exact declaration and full
   signature only for the explicit `Complete` section query;
 - the default CLI Type view consumes `TypeOverviewDocument`, renders `Dispose`

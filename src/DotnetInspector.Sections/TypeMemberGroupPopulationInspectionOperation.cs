@@ -347,6 +347,11 @@ public static class TypeMemberGroupPopulationInspectionOperation
                             MemberGroupRole.Declared);
                         return new TypeMemberGroupShape(
                             rowBinding,
+                            row.SharedGenericParameters is { } parameters
+                                ? [
+                                    .. parameters.Select(Field),
+                                ]
+                                : null,
                             checked(startOrdinal + index + 1),
                             Receivers(row.Receivers),
                             TraitCounts(row.Traits),

@@ -8,6 +8,12 @@ public static class SectionNames
     /// <summary>Headless compact context section.</summary>
     public const string Summary = "Summary";
 
+    /// <summary>Compact exact-Type declaration document.</summary>
+    public const string Overview = "Overview";
+
+    /// <summary>Complete exact-Type declaration document.</summary>
+    public const string Complete = "Complete";
+
     // ===== Type Sections (ApiTypeSectionDescriptors) =====
 
     /// <summary>Section for class types.</summary>

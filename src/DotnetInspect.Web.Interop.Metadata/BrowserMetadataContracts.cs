@@ -300,8 +300,8 @@ public enum BrowserMemberDocumentOutcome
     Failed,
 }
 
-[JsonConverter(typeof(JsonStringEnumConverter<BrowserTypeDocumentOutcome>))]
-public enum BrowserTypeDocumentOutcome
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserTypeOverviewDocumentOutcome>))]
+public enum BrowserTypeOverviewDocumentOutcome
 {
     Available,
     Rejected,
@@ -310,8 +310,8 @@ public enum BrowserTypeDocumentOutcome
 }
 
 [JsonConverter(
-    typeof(JsonStringEnumConverter<BrowserTypeDocumentDeclarationsOutcome>))]
-public enum BrowserTypeDocumentDeclarationsOutcome
+    typeof(JsonStringEnumConverter<BrowserTypeOverviewDocumentDeclarationsOutcome>))]
+public enum BrowserTypeOverviewDocumentDeclarationsOutcome
 {
     NotRequested,
     Available,
@@ -339,29 +339,29 @@ public sealed record BrowserMemberDocument(
     string Receiver,
     Wire.DocumentationQueryOutcome? Documentation);
 
-public sealed record BrowserTypeDocumentInspection(
-    BrowserTypeDocumentOutcome Outcome,
+public sealed record BrowserTypeOverviewDocumentInspection(
+    BrowserTypeOverviewDocumentOutcome Outcome,
     string? Detail,
-    BrowserTypeDocument? Document,
+    BrowserTypeOverviewDocument? Document,
     InspectionShare Share,
     string[] Diagnostics);
 
-public sealed record BrowserTypeDocument(
+public sealed record BrowserTypeOverviewDocument(
     string TypeIdentity,
     int TypeDefinitionToken,
     string Category,
     bool IsByRefLike,
-    BrowserTypeDocumentGenericParameter[] GenericParameters,
-    BrowserTypeDocumentDeclarations Declarations);
+    BrowserTypeOverviewDocumentGenericParameter[] GenericParameters,
+    BrowserTypeOverviewDocumentDeclarations Declarations);
 
-public sealed record BrowserTypeDocumentGenericParameter(
+public sealed record BrowserTypeOverviewDocumentGenericParameter(
     string Name,
     int MetadataIndex,
     int DefinitionSegmentIndex,
     string Attributes);
 
-public sealed record BrowserTypeDocumentDeclarations(
-    BrowserTypeDocumentDeclarationsOutcome Outcome,
+public sealed record BrowserTypeOverviewDocumentDeclarations(
+    BrowserTypeOverviewDocumentDeclarationsOutcome Outcome,
     string? Detail,
     BrowserTypeMemberPopulation? Population);
 
@@ -400,6 +400,7 @@ public sealed record BrowserTypeMemberSelectorCounts(
 public sealed record BrowserTypeMemberPopulationGroup(
     string Key,
     string Name,
+    string DisplayName,
     string Kind,
     int BaselineOrdinal,
     string[] Receivers,
@@ -558,7 +559,7 @@ public sealed record BrowserExceptionSurface(
 [JsonSerializable(
     typeof(Wire.AuthoredDocumentationOutcome.Incomplete),
     TypeInfoPropertyName = "AuthoredDocumentationIncomplete")]
-[JsonSerializable(typeof(BrowserTypeDocumentInspection))]
+[JsonSerializable(typeof(BrowserTypeOverviewDocumentInspection))]
 [JsonSerializable(typeof(BrowserWorkspacePackage[]))]
 [JsonSerializable(
     typeof(InspectionEnvelope<JsonElement>),

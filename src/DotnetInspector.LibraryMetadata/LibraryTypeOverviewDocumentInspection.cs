@@ -3,11 +3,11 @@ using ILInspector.Metadata;
 
 namespace DotnetInspector.LibraryMetadata;
 
-public sealed record LibraryTypeDocumentInspectionRequest
+public sealed record LibraryTypeOverviewDocumentInspectionRequest
 {
-    public LibraryTypeDocumentInspectionRequest(
+    public LibraryTypeOverviewDocumentInspectionRequest(
         LibraryReference library,
-        MetadataTypeDocumentInspectionRequest document,
+        MetadataTypeOverviewDocumentInspectionRequest document,
         ApiSurfaceExtractionBounds bounds)
     {
         Library = library
@@ -19,13 +19,13 @@ public sealed record LibraryTypeDocumentInspectionRequest
     }
 
     public LibraryReference Library { get; }
-    public MetadataTypeDocumentInspectionRequest Document { get; }
+    public MetadataTypeOverviewDocumentInspectionRequest Document { get; }
     public ApiSurfaceExtractionBounds Bounds { get; }
 }
 
-public sealed class LibraryTypeDocumentSubjectCorrespondence
+public sealed class LibraryTypeOverviewDocumentSubjectCorrespondence
 {
-    internal LibraryTypeDocumentSubjectCorrespondence(
+    internal LibraryTypeOverviewDocumentSubjectCorrespondence(
         LibraryReference requestedLibrary,
         LibraryContentReference definingApiContent)
     {
@@ -53,19 +53,19 @@ public sealed class LibraryTypeDocumentSubjectCorrespondence
     public LibraryContentReference DefiningApiContent { get; }
 }
 
-public sealed record LibraryTypeDocumentCorrespondence(
-    LibraryTypeDocumentSubjectCorrespondence Subject,
+public sealed record LibraryTypeOverviewDocumentCorrespondence(
+    LibraryTypeOverviewDocumentSubjectCorrespondence Subject,
     AssemblyReferenceIdentity AssemblyIdentity,
     int AssemblyBytes,
-    MetadataTypeDocumentInspectionOutcome Document);
+    MetadataTypeOverviewDocumentInspectionOutcome Document);
 
-public enum LibraryTypeDocumentInspectionRejection
+public enum LibraryTypeOverviewDocumentInspectionRejection
 {
     LeaseReferenceMismatch,
     AssemblyIdentityMismatch,
 }
 
-public enum LibraryTypeDocumentInspectionFailure
+public enum LibraryTypeOverviewDocumentInspectionFailure
 {
     NotManagedAssembly,
     ManagedModule,
@@ -74,43 +74,43 @@ public enum LibraryTypeDocumentInspectionFailure
     EmptyModuleVersionId,
 }
 
-public enum LibraryTypeDocumentInspectionBound
+public enum LibraryTypeOverviewDocumentInspectionBound
 {
     MetadataRows,
 }
 
-public abstract record LibraryTypeDocumentInspectionOutcome
+public abstract record LibraryTypeOverviewDocumentInspectionOutcome
 {
-    private protected LibraryTypeDocumentInspectionOutcome()
+    private protected LibraryTypeOverviewDocumentInspectionOutcome()
     {
     }
 
     public sealed record Completed(
-        LibraryTypeDocumentCorrespondence Correspondence)
-        : LibraryTypeDocumentInspectionOutcome;
+        LibraryTypeOverviewDocumentCorrespondence Correspondence)
+        : LibraryTypeOverviewDocumentInspectionOutcome;
 
     public sealed record Rejected(
-        LibraryTypeDocumentInspectionRejection Reason)
-        : LibraryTypeDocumentInspectionOutcome;
+        LibraryTypeOverviewDocumentInspectionRejection Reason)
+        : LibraryTypeOverviewDocumentInspectionOutcome;
 
     public sealed record Incomplete(
-        LibraryTypeDocumentInspectionBound Bound,
+        LibraryTypeOverviewDocumentInspectionBound Bound,
         long Measured)
-        : LibraryTypeDocumentInspectionOutcome;
+        : LibraryTypeOverviewDocumentInspectionOutcome;
 
     public sealed record Failed(
-        LibraryTypeDocumentInspectionFailure Reason)
-        : LibraryTypeDocumentInspectionOutcome;
+        LibraryTypeOverviewDocumentInspectionFailure Reason)
+        : LibraryTypeOverviewDocumentInspectionOutcome;
 }
 
 /// <summary>
 /// Inspects one exact Type declaration and its optional declared
 /// Member-group population while owner-backed Library content is borrowed.
 /// </summary>
-public static class LibraryTypeDocumentInspection
+public static class LibraryTypeOverviewDocumentInspection
 {
-    public static LibraryTypeDocumentInspectionOutcome Execute(
-        LibraryTypeDocumentInspectionRequest request,
+    public static LibraryTypeOverviewDocumentInspectionOutcome Execute(
+        LibraryTypeOverviewDocumentInspectionRequest request,
         LibraryOperationLease lease,
         CancellationToken cancellationToken = default)
     {
@@ -120,8 +120,8 @@ public static class LibraryTypeDocumentInspection
 
         if (!ReferenceEquals(request.Library, lease.Reference))
         {
-            return new LibraryTypeDocumentInspectionOutcome.Rejected(
-                LibraryTypeDocumentInspectionRejection
+            return new LibraryTypeOverviewDocumentInspectionOutcome.Rejected(
+                LibraryTypeOverviewDocumentInspectionRejection
                     .LeaseReferenceMismatch);
         }
 
@@ -133,16 +133,16 @@ public static class LibraryTypeDocumentInspection
             cancellationToken);
     }
 
-    private static LibraryTypeDocumentInspectionOutcome Inspect(
+    private static LibraryTypeOverviewDocumentInspectionOutcome Inspect(
         scoped LibraryContentView view,
-        LibraryTypeDocumentInspectionRequest request,
+        LibraryTypeOverviewDocumentInspectionRequest request,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (view.Content.IsEmpty)
         {
             return Failed(
-                LibraryTypeDocumentInspectionFailure.MalformedMetadata);
+                LibraryTypeOverviewDocumentInspectionFailure.MalformedMetadata);
         }
 
         int assemblyBytes = view.Content.Length;
@@ -156,10 +156,10 @@ public static class LibraryTypeDocumentInspection
                 cancellationToken));
     }
 
-    private static LibraryTypeDocumentInspectionOutcome Inspect(
+    private static LibraryTypeOverviewDocumentInspectionOutcome Inspect(
         Stream content,
         LibraryContentReference reference,
-        LibraryTypeDocumentInspectionRequest request,
+        LibraryTypeOverviewDocumentInspectionRequest request,
         int assemblyBytes,
         CancellationToken cancellationToken)
     {
@@ -170,13 +170,13 @@ public static class LibraryTypeDocumentInspection
             if (!session.HasMetadata)
             {
                 return Failed(
-                    LibraryTypeDocumentInspectionFailure
+                    LibraryTypeOverviewDocumentInspectionFailure
                         .NotManagedAssembly);
             }
             if (!session.IsAssembly)
             {
                 return Failed(
-                    LibraryTypeDocumentInspectionFailure.ManagedModule);
+                    LibraryTypeOverviewDocumentInspectionFailure.ManagedModule);
             }
 
             AssemblyReferenceIdentity identity =
@@ -186,8 +186,8 @@ public static class LibraryTypeDocumentInspection
             if (expectedIdentity is null
                 || !identity.IsEquivalentTo(expectedIdentity.Identity))
             {
-                return new LibraryTypeDocumentInspectionOutcome.Rejected(
-                    LibraryTypeDocumentInspectionRejection
+                return new LibraryTypeOverviewDocumentInspectionOutcome.Rejected(
+                    LibraryTypeOverviewDocumentInspectionRejection
                         .AssemblyIdentityMismatch);
             }
 
@@ -195,7 +195,7 @@ public static class LibraryTypeDocumentInspection
             if (moduleVersionId == Guid.Empty)
             {
                 return Failed(
-                    LibraryTypeDocumentInspectionFailure
+                    LibraryTypeOverviewDocumentInspectionFailure
                         .EmptyModuleVersionId);
             }
             using var metadataOperation = new MetadataOperationContext(
@@ -206,19 +206,19 @@ public static class LibraryTypeDocumentInspection
             if (declaration.ImageAdmission
                 is MetadataImageAdmissionResult.Rejected rejection)
             {
-                return new LibraryTypeDocumentInspectionOutcome.Incomplete(
-                    LibraryTypeDocumentInspectionBound.MetadataRows,
+                return new LibraryTypeOverviewDocumentInspectionOutcome.Incomplete(
+                    LibraryTypeOverviewDocumentInspectionBound.MetadataRows,
                     rejection.Failure.ImageMetadataRows);
             }
 
             cancellationToken.ThrowIfCancellationRequested();
-            MetadataTypeDocumentInspectionOutcome document =
-                declaration.InspectTypeDocument(
+            MetadataTypeOverviewDocumentInspectionOutcome document =
+                declaration.InspectTypeOverviewDocument(
                     request.Document,
                     request.Bounds,
                     cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
-            return new LibraryTypeDocumentInspectionOutcome.Completed(
+            return new LibraryTypeOverviewDocumentInspectionOutcome.Completed(
                 new(
                     new(
                         request.Library,
@@ -230,7 +230,7 @@ public static class LibraryTypeDocumentInspection
         catch (UnsupportedMetadataFormatException)
         {
             return Failed(
-                LibraryTypeDocumentInspectionFailure
+                LibraryTypeOverviewDocumentInspectionFailure
                     .UnsupportedWindowsMetadata);
         }
         catch (Exception exception) when (
@@ -240,11 +240,11 @@ public static class LibraryTypeDocumentInspection
                 or OverflowException)
         {
             return Failed(
-                LibraryTypeDocumentInspectionFailure.MalformedMetadata);
+                LibraryTypeOverviewDocumentInspectionFailure.MalformedMetadata);
         }
     }
 
-    private static LibraryTypeDocumentInspectionOutcome.Failed Failed(
-        LibraryTypeDocumentInspectionFailure reason) =>
+    private static LibraryTypeOverviewDocumentInspectionOutcome.Failed Failed(
+        LibraryTypeOverviewDocumentInspectionFailure reason) =>
         new(reason);
 }

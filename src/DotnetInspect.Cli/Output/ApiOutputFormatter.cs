@@ -559,7 +559,7 @@ public static class ApiOutputFormatter
         string? packageVersion,
         HashSet<string> memberFilter,
         HashSet<string>? kindFilter = null,
-        Verbosity verbosity = Verbosity.Minimal,
+        bool expandOverloads = false,
         int? memberLimit = null)
     {
         bool filtersMatchedMembers = FilterShapeMembers(type, memberFilter, kindFilter).Any();
@@ -570,7 +570,7 @@ public static class ApiOutputFormatter
             packageVersion,
             memberFilter,
             kindFilter,
-            verbosity,
+            expandOverloads,
             memberLimit);
         if (view.Members is { Count: > 0 })
         {
@@ -760,11 +760,10 @@ public static class ApiOutputFormatter
         string? packageVersion,
         HashSet<string> memberFilter,
         HashSet<string>? kindFilter = null,
-        Verbosity verbosity = Verbosity.Minimal,
+        bool expandOverloads = false,
         int? memberLimit = null)
     {
         bool hasFilter = memberFilter.Count > 0 || kindFilter?.Count > 0;
-        bool expandOverloads = verbosity >= Verbosity.Normal;
         List<TreeNode> nodes = [];
 
         // Group members by kind

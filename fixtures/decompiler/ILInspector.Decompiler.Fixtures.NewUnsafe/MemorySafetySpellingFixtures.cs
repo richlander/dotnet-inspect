@@ -96,6 +96,10 @@ public sealed class GenericCallerContractFixture<T>
     public T ContractChoice(T value) => value;
 
     public unsafe T ContractChoice<TMarker>(T value) => value;
+
+    public T Uniform<TMarker>(T value) => value;
+
+    public T Uniform<TMarker>(T value, int ignored) => value;
 }
 
 public static class GenericCallerContractCalls

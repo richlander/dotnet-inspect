@@ -240,6 +240,7 @@ public sealed record TypeMemberGroupPopulationInspectionRequest
 
 public sealed record TypeMemberGroupShape(
     TypeMemberGroupRowBinding Binding,
+    ImmutableArray<InertString>? SharedGenericParameters,
     int BaselineOrdinal,
     MemberGroupReceiverForms Receivers,
     TypeMemberTraitCounts Traits,

@@ -78,11 +78,11 @@ type MetadataOperationName =
   | "queryMemberDeclaration"
   | "queryMemberDocument"
   | "queryMemberGroupDocument"
-  | "queryTypeDocument"
+  | "queryTypeOverviewDocument"
   | "queryPlatformMemberDeclaration"
   | "queryPlatformMemberDocument"
   | "queryPlatformMemberGroupDocument"
-  | "queryPlatformTypeDocument"
+  | "queryPlatformTypeOverviewDocument"
   | "queryPackageMetadataTable"
   | "queryPlatformMetadataTable"
   | "queryPackageHeapEntries"
@@ -95,7 +95,7 @@ type MetadataFacadeOperationName =
   | MetadataOperationName
   | "queryUploadedLibraryMemberDocument"
   | "queryUploadedLibraryMemberGroupDocument"
-  | "queryUploadedLibraryTypeDocument";
+  | "queryUploadedLibraryTypeOverviewDocument";
 
 type AnalysisOperationName =
   | "queryCloneCandidates"
@@ -212,13 +212,13 @@ type MetadataWorkerClient =
     ) => Promise<Awaited<ReturnType<
       MetadataFacade["queryUploadedLibraryMemberGroupDocument"]
     >>>;
-    readonly queryUploadedLibraryTypeDocument: (
+    readonly queryUploadedLibraryTypeOverviewDocument: (
       libraryIdentity: string,
       typeIdentity: string,
       spelling: string,
       accessibility: string,
     ) => Promise<Awaited<ReturnType<
-      MetadataFacade["queryUploadedLibraryTypeDocument"]
+      MetadataFacade["queryUploadedLibraryTypeOverviewDocument"]
     >>>;
   };
 
@@ -1289,15 +1289,15 @@ export const engineWorkerOrdinaryOperations = {
         >
       ) => facades.metadata.queryMemberGroupDocument(...args),
     ),
-    queryTypeDocument: valueOperation(
+    queryTypeOverviewDocument: valueOperation(
       "ordinary-metadata-query-type-member-population",
       7,
       (
         facades,
         ...args: Parameters<
-          MetadataFacade["queryTypeDocument"]
+          MetadataFacade["queryTypeOverviewDocument"]
         >
-      ) => facades.metadata.queryTypeDocument(...args),
+      ) => facades.metadata.queryTypeOverviewDocument(...args),
     ),
     queryPlatformMemberDeclaration: valueOperation(
       "ordinary-metadata-query-platform-member-declaration",
@@ -1372,15 +1372,15 @@ export const engineWorkerOrdinaryOperations = {
         );
       },
     ),
-    queryPlatformTypeDocument: valueOperation(
+    queryPlatformTypeOverviewDocument: valueOperation(
       "ordinary-metadata-query-platform-type-member-population",
       7,
       (
         facades,
         ...args: Parameters<
-          MetadataFacade["queryPlatformTypeDocument"]
+          MetadataFacade["queryPlatformTypeOverviewDocument"]
         >
-      ) => facades.metadata.queryPlatformTypeDocument(...args),
+      ) => facades.metadata.queryPlatformTypeOverviewDocument(...args),
     ),
     queryUploadedLibraryMemberGroupDocument: valueOperation(
       "ordinary-metadata-query-uploaded-library-member-group-document",
@@ -1421,7 +1421,7 @@ export const engineWorkerOrdinaryOperations = {
         );
       },
     ),
-    queryUploadedLibraryTypeDocument: valueOperation(
+    queryUploadedLibraryTypeOverviewDocument: valueOperation(
       "ordinary-metadata-query-uploaded-library-type-member-population",
       4,
       (
@@ -1443,7 +1443,7 @@ export const engineWorkerOrdinaryOperations = {
               + "in this Worker epoch.",
           );
         }
-        return facades.metadata.queryUploadedLibraryTypeDocument(
+        return facades.metadata.queryUploadedLibraryTypeOverviewDocument(
           retained.declaredName,
           retained.content,
           typeIdentity,
@@ -2334,8 +2334,8 @@ export function bindEngineWorkerOrdinaryClient(
       queryMemberGroupDocument: bind(
         engineWorkerOrdinaryOperations.metadata.queryMemberGroupDocument,
       ),
-      queryTypeDocument: bind(
-        engineWorkerOrdinaryOperations.metadata.queryTypeDocument,
+      queryTypeOverviewDocument: bind(
+        engineWorkerOrdinaryOperations.metadata.queryTypeOverviewDocument,
       ),
       queryPlatformMemberDeclaration: bind(
         engineWorkerOrdinaryOperations.metadata
@@ -2353,17 +2353,17 @@ export function bindEngineWorkerOrdinaryClient(
         engineWorkerOrdinaryOperations.metadata
           .queryUploadedLibraryMemberDocument,
       ),
-      queryPlatformTypeDocument: bind(
+      queryPlatformTypeOverviewDocument: bind(
         engineWorkerOrdinaryOperations.metadata
-          .queryPlatformTypeDocument,
+          .queryPlatformTypeOverviewDocument,
       ),
       queryUploadedLibraryMemberGroupDocument: bind(
         engineWorkerOrdinaryOperations.metadata
           .queryUploadedLibraryMemberGroupDocument,
       ),
-      queryUploadedLibraryTypeDocument: bind(
+      queryUploadedLibraryTypeOverviewDocument: bind(
         engineWorkerOrdinaryOperations.metadata
-          .queryUploadedLibraryTypeDocument,
+          .queryUploadedLibraryTypeOverviewDocument,
       ),
       queryTypeProjection: bind(
         engineWorkerOrdinaryOperations.metadata.queryTypeProjection,

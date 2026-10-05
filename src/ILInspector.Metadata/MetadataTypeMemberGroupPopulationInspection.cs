@@ -118,6 +118,7 @@ public sealed record MetadataTypeMemberGroupPopulationBinding(
 
 public sealed record MetadataTypeMemberGroupRow(
     string Name,
+    ImmutableArray<string>? SharedGenericParameters,
     MetadataTypeMemberGroupCategory Category,
     MetadataTypeMemberGroupReceiverForms Receivers,
     MetadataTypeMemberTraitCounts Traits,
@@ -285,16 +286,7 @@ internal static class MetadataTypeMemberGroupPopulationInspection
             if (left.Kind != right.Kind)
                 return false;
 
-            BlobReader leftName = reader.GetBlobReader(left.Name);
-            BlobReader rightName = reader.GetBlobReader(right.Name);
-            if (leftName.RemainingBytes != rightName.RemainingBytes)
-                return false;
-            while (leftName.RemainingBytes > 0)
-            {
-                if (leftName.ReadByte() != rightName.ReadByte())
-                    return false;
-            }
-            return true;
+            return StringHandlesEqual(reader, left.Name, right.Name);
         }
 
         public int GetHashCode(GroupKey key)
@@ -310,6 +302,10 @@ internal static class MetadataTypeMemberGroupPopulationInspection
 
     private sealed class GroupState
     {
+        private StringHandle[]? _sharedGenericParameters;
+        private bool _hasGenericParameterShape;
+        private bool _genericParameterShapeDiffers;
+
         public int Count;
         public MetadataTypeMemberGroupReceiverForms Receivers;
         public int Static;
@@ -326,6 +322,79 @@ internal static class MetadataTypeMemberGroupPopulationInspection
                 Virtual,
                 Interface,
                 Extensions);
+
+        public void ObserveGenericParameters(
+            MetadataReader reader,
+            MethodDefinitionHandle methodHandle)
+        {
+            if (_genericParameterShapeDiffers)
+                return;
+
+            GenericParameterHandleCollection parameters =
+                reader.GetMethodDefinition(methodHandle)
+                    .GetGenericParameters();
+            if (!_hasGenericParameterShape)
+            {
+                _sharedGenericParameters =
+                    parameters.Count == 0
+                        ? []
+                        : new StringHandle[parameters.Count];
+                int index = 0;
+                foreach (GenericParameterHandle handle in parameters)
+                {
+                    _sharedGenericParameters[index++] =
+                        reader.GetGenericParameter(handle).Name;
+                }
+                _hasGenericParameterShape = true;
+                return;
+            }
+
+            if (parameters.Count != _sharedGenericParameters!.Length)
+            {
+                _genericParameterShapeDiffers = true;
+                _sharedGenericParameters = null;
+                return;
+            }
+
+            int parameterIndex = 0;
+            foreach (GenericParameterHandle handle in parameters)
+            {
+                StringHandle name =
+                    reader.GetGenericParameter(handle).Name;
+                if (!StringHandlesEqual(
+                        reader,
+                        _sharedGenericParameters[parameterIndex++],
+                        name))
+                {
+                    _genericParameterShapeDiffers = true;
+                    _sharedGenericParameters = null;
+                    return;
+                }
+            }
+        }
+
+        public ImmutableArray<string>? DecodeSharedGenericParameters(
+            MetadataReader reader,
+            ref long retainedTextCharacters)
+        {
+            if (_genericParameterShapeDiffers
+                || !_hasGenericParameterShape)
+            {
+                return null;
+            }
+
+            StringHandle[] parameters = _sharedGenericParameters!;
+            var names = ImmutableArray.CreateBuilder<string>(
+                parameters.Length);
+            foreach (StringHandle handle in parameters)
+            {
+                string name = reader.GetString(handle);
+                retainedTextCharacters = checked(
+                    retainedTextCharacters + name.Length);
+                names.Add(name);
+            }
+            return names.MoveToImmutable();
+        }
     }
 
     private struct PopulationSink : IClassifiedMemberSink
@@ -447,6 +516,13 @@ internal static class MetadataTypeMemberGroupPopulationInspection
                 group.Virtual = checked(group.Virtual + 1);
             if (member.IsExplicitInterfaceImplementation)
                 group.Interface = checked(group.Interface + 1);
+            if (_order is not null
+                && member.Handle.Kind is HandleKind.MethodDefinition)
+            {
+                group.ObserveGenericParameters(
+                    _reader,
+                    (MethodDefinitionHandle)member.Handle);
+            }
         }
 
         public MetadataTypeMemberGroupPopulation Complete(
@@ -523,8 +599,22 @@ internal static class MetadataTypeMemberGroupPopulationInspection
                 }
 
                 GroupState group = _groups![key];
+                ImmutableArray<string>? sharedGenericParameters =
+                    group.DecodeSharedGenericParameters(
+                        _reader,
+                        ref retainedTextCharacters);
+                if (retainedTextCharacters
+                    > _bounds.MaxRetainedTextCharacters)
+                {
+                    return new(
+                        [],
+                        null,
+                        IncompleteRetainedTextCharacters:
+                            retainedTextCharacters);
+                }
                 rows.Add(new(
                     name,
+                    sharedGenericParameters,
                     Category(key.Kind),
                     group.Receivers,
                     group.TraitCounts,
@@ -561,6 +651,23 @@ internal static class MetadataTypeMemberGroupPopulationInspection
                 _ => throw new InvalidOperationException(
                     "Unknown classified Member kind."),
             };
+    }
+
+    private static bool StringHandlesEqual(
+        MetadataReader reader,
+        StringHandle left,
+        StringHandle right)
+    {
+        BlobReader leftName = reader.GetBlobReader(left);
+        BlobReader rightName = reader.GetBlobReader(right);
+        if (leftName.RemainingBytes != rightName.RemainingBytes)
+            return false;
+        while (leftName.RemainingBytes > 0)
+        {
+            if (leftName.ReadByte() != rightName.ReadByte())
+                return false;
+        }
+        return true;
     }
 
     private static bool Matches(

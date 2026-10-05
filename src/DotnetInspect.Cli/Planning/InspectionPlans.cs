@@ -550,6 +550,8 @@ public static class ApiSectionDemandIndex
         Declare(
             declarations,
             InspectionTargetRequirement.Type,
+            SectionNames.Overview,
+            SectionNames.Complete,
             SectionNames.TypeInfo,
             "Values",
             "Type Parameters",

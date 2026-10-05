@@ -558,19 +558,105 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("Read(", output);
     }
 
-    [Fact]
-    public async Task Type_SingleType_NormalVerbosity_StaysShapeAndExpandsOverloads()
+    [Theory]
+    [InlineData("q")]
+    [InlineData("m")]
+    [InlineData("n")]
+    [InlineData("d")]
+    public async Task Type_SingleType_VerbosityDoesNotSelectComplete(
+        string verbosity)
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", "System.Text.Json.JsonSerializer", "-v:n");
+            "type",
+            "System.Text.Json.JsonSerializer",
+            $"-v:{verbosity}");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
         Assert.Contains("├─", output);
         Assert.Contains("Methods (10 logical, 107 overloads)", output);
-        Assert.Contains("Deserialize<TValue>(System.IO.Stream utf8Json", output);
-        Assert.DoesNotContain("Deserialize (40 overloads)", output);
+        Assert.Contains("Deserialize (40 overloads)", output);
+        Assert.Contains(
+            "DeserializeAsyncEnumerable<TValue> (8 overloads)",
+            output);
+        Assert.Contains("DeserializeAsync (10 overloads)", output);
+        Assert.DoesNotContain(
+            "Deserialize<TValue>(System.IO.Stream utf8Json",
+            output);
         Assert.DoesNotContain("# System.Text.Json.JsonSerializer", output);
+    }
+
+    [Fact]
+    public async Task Type_SingleType_ExplicitOverviewUsesCompactDocument()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            "System.Text.Json.JsonSerializer",
+            "-S",
+            "Overview");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("Deserialize (40 overloads)", output);
+        Assert.Contains(
+            "DeserializeAsyncEnumerable<TValue> (8 overloads)",
+            output);
+        Assert.Contains("DeserializeAsync (10 overloads)", output);
+        Assert.DoesNotContain(
+            "Deserialize<TValue>(System.IO.Stream utf8Json",
+            output);
+    }
+
+    [Fact]
+    public async Task Type_SingleType_ExplicitCompleteExpandsExactDeclarations()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            "System.Text.Json.JsonSerializer",
+            "-S",
+            "Complete");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains(
+            "Deserialize<TValue>(System.IO.Stream utf8Json",
+            output);
+        Assert.DoesNotContain("Deserialize (40 overloads)", output);
+    }
+
+    [Fact]
+    public async Task Type_SingleType_DocumentSectionsAreMutuallyExclusive()
+    {
+        var (exit, _, error) = await RunAppAsync(
+            "type",
+            "System.Text.Json.JsonDocument",
+            "-S",
+            "Overview",
+            "-S",
+            "Complete");
+
+        Assert.Equal(1, exit);
+        Assert.Contains(
+            "sections 'Overview' and 'Complete' are mutually exclusive",
+            error);
+    }
+
+    [Fact]
+    public async Task
+        Type_SingleType_DocumentSectionCannotMixWithContentSection()
+    {
+        var (exit, _, error) = await RunAppAsync(
+            "type",
+            "System.Text.Json.JsonDocument",
+            "-S",
+            "Overview",
+            "-S",
+            "Methods");
+
+        Assert.Equal(1, exit);
+        Assert.Contains(
+            "section 'Overview' selects an exact-Type document",
+            error);
     }
 
     [Fact]

@@ -7,15 +7,15 @@ using QuerySpace.Composition;
 
 namespace DotnetInspector.Sections;
 
-public static class TypeDocumentInspectionOperation
+public static class TypeOverviewDocumentInspectionOperation
 {
     private const string SharePath =
         "type-member-group-population-inspection/share";
     private const string ShareReason =
         "A complete portable Workspace scenario was not supplied.";
 
-    public static InspectionEnvelope<TypeDocumentInspectionOutcome> Execute(
-        TypeDocumentInspectionRequest request,
+    public static InspectionEnvelope<TypeOverviewDocumentInspectionOutcome> Execute(
+        TypeOverviewDocumentInspectionRequest request,
         LibraryOperationLease lease,
         CancellationToken cancellationToken = default)
     {
@@ -45,7 +45,7 @@ public static class TypeDocumentInspectionOperation
                     request.Library.ApiAssembly.AssemblyIdentity
                         ?.Identity
                     ?? throw new InvalidOperationException(
-                        "A Type document requires a managed API assembly identity.");
+                        "A Type overview document requires a managed API assembly identity.");
                 if (!TypeMemberGroupPopulationInspectionOperation
                     .IsCompatible(
                         candidateContinuation,
@@ -89,8 +89,8 @@ public static class TypeDocumentInspectionOperation
                     metadataDeclarations = null;
                 }
             }
-            LibraryTypeDocumentInspectionOutcome source =
-                LibraryTypeDocumentInspection.Execute(
+            LibraryTypeOverviewDocumentInspectionOutcome source =
+                LibraryTypeOverviewDocumentInspection.Execute(
                     new(
                         request.Library,
                         new(
@@ -113,82 +113,82 @@ public static class TypeDocumentInspectionOperation
         }
     }
 
-    private static InspectionEnvelope<TypeDocumentInspectionOutcome>
+    private static InspectionEnvelope<TypeOverviewDocumentInspectionOutcome>
         Project(
-            LibraryTypeDocumentInspectionOutcome outcome,
-            TypeDocumentInspectionPlan plan,
+            LibraryTypeOverviewDocumentInspectionOutcome outcome,
+            TypeOverviewDocumentInspectionPlan plan,
             TypeMemberGroupPopulationInspectionPlan? declarationsPlan,
             TypeMemberGroupPopulationInspectionRejection?
                 declarationRejection,
             int startOrdinal) =>
         outcome switch
         {
-            LibraryTypeDocumentInspectionOutcome.Completed completed =>
+            LibraryTypeOverviewDocumentInspectionOutcome.Completed completed =>
                 Project(
                     completed.Correspondence,
                     plan,
                     declarationsPlan,
                     declarationRejection,
                     startOrdinal),
-            LibraryTypeDocumentInspectionOutcome.Rejected rejected =>
+            LibraryTypeOverviewDocumentInspectionOutcome.Rejected rejected =>
                 Rejected(
                     rejected.Reason switch
                     {
-                        LibraryTypeDocumentInspectionRejection
+                        LibraryTypeOverviewDocumentInspectionRejection
                                 .LeaseReferenceMismatch =>
-                            TypeDocumentInspectionRejection
+                            TypeOverviewDocumentInspectionRejection
                                 .LeaseReferenceMismatch,
-                        LibraryTypeDocumentInspectionRejection
+                        LibraryTypeOverviewDocumentInspectionRejection
                                 .AssemblyIdentityMismatch =>
-                            TypeDocumentInspectionRejection
+                            TypeOverviewDocumentInspectionRejection
                                 .AssemblyIdentityMismatch,
                         _ => throw new InvalidOperationException(
-                            "Unknown Library Type document rejection."),
+                            "Unknown Library Type overview document rejection."),
                     }),
-            LibraryTypeDocumentInspectionOutcome.Incomplete incomplete =>
+            LibraryTypeOverviewDocumentInspectionOutcome.Incomplete incomplete =>
                 Incomplete(
-                    TypeDocumentInspectionBound.MetadataRows,
+                    TypeOverviewDocumentInspectionBound.MetadataRows,
                     plan.Bounds.MaxMetadataRows,
                     incomplete.Measured),
-            LibraryTypeDocumentInspectionOutcome.Failed failed =>
+            LibraryTypeOverviewDocumentInspectionOutcome.Failed failed =>
                 Failed(
                     failed.Reason switch
                     {
-                        LibraryTypeDocumentInspectionFailure
+                        LibraryTypeOverviewDocumentInspectionFailure
                                 .NotManagedAssembly =>
-                            TypeDocumentInspectionFailure
+                            TypeOverviewDocumentInspectionFailure
                                 .NotManagedAssembly,
-                        LibraryTypeDocumentInspectionFailure.ManagedModule =>
-                            TypeDocumentInspectionFailure.ManagedModule,
-                        LibraryTypeDocumentInspectionFailure
+                        LibraryTypeOverviewDocumentInspectionFailure.ManagedModule =>
+                            TypeOverviewDocumentInspectionFailure.ManagedModule,
+                        LibraryTypeOverviewDocumentInspectionFailure
                                 .UnsupportedWindowsMetadata =>
-                            TypeDocumentInspectionFailure
+                            TypeOverviewDocumentInspectionFailure
                                 .UnsupportedWindowsMetadata,
-                        LibraryTypeDocumentInspectionFailure
+                        LibraryTypeOverviewDocumentInspectionFailure
                                 .MalformedMetadata =>
-                            TypeDocumentInspectionFailure.MalformedMetadata,
-                        LibraryTypeDocumentInspectionFailure
+                            TypeOverviewDocumentInspectionFailure.MalformedMetadata,
+                        LibraryTypeOverviewDocumentInspectionFailure
                                 .EmptyModuleVersionId =>
-                            TypeDocumentInspectionFailure
+                            TypeOverviewDocumentInspectionFailure
                                 .EmptyModuleVersionId,
                         _ => throw new InvalidOperationException(
-                            "Unknown Library Type document failure."),
+                            "Unknown Library Type overview document failure."),
                     }),
             _ => throw new InvalidOperationException(
-                "Unknown Library Type document outcome."),
+                "Unknown Library Type overview document outcome."),
         };
 
-    private static InspectionEnvelope<TypeDocumentInspectionOutcome>
+    private static InspectionEnvelope<TypeOverviewDocumentInspectionOutcome>
         Project(
-            LibraryTypeDocumentCorrespondence correspondence,
-            TypeDocumentInspectionPlan plan,
+            LibraryTypeOverviewDocumentCorrespondence correspondence,
+            TypeOverviewDocumentInspectionPlan plan,
             TypeMemberGroupPopulationInspectionPlan? declarationsPlan,
             TypeMemberGroupPopulationInspectionRejection?
                 declarationRejection,
             int startOrdinal) =>
         correspondence.Document switch
         {
-            MetadataTypeDocumentInspectionOutcome.Available available =>
+            MetadataTypeOverviewDocumentInspectionOutcome.Available available =>
                 Available(
                     correspondence,
                     plan,
@@ -196,29 +196,29 @@ public static class TypeDocumentInspectionOperation
                     declarationRejection,
                     available.Document,
                     startOrdinal),
-            MetadataTypeDocumentInspectionOutcome.TypeNotFound =>
-                Rejected(TypeDocumentInspectionRejection.TypeNotFound),
-            MetadataTypeDocumentInspectionOutcome.TypeAmbiguous =>
-                Rejected(TypeDocumentInspectionRejection.TypeAmbiguous),
-            MetadataTypeDocumentInspectionOutcome.Incomplete incomplete =>
+            MetadataTypeOverviewDocumentInspectionOutcome.TypeNotFound =>
+                Rejected(TypeOverviewDocumentInspectionRejection.TypeNotFound),
+            MetadataTypeOverviewDocumentInspectionOutcome.TypeAmbiguous =>
+                Rejected(TypeOverviewDocumentInspectionRejection.TypeAmbiguous),
+            MetadataTypeOverviewDocumentInspectionOutcome.Incomplete incomplete =>
                 Incomplete(
-                    TypeDocumentInspectionBound.MetadataRows,
+                    TypeOverviewDocumentInspectionBound.MetadataRows,
                     incomplete.Limit,
                     incomplete.Measured),
-            MetadataTypeDocumentInspectionOutcome.Failed =>
-                Failed(TypeDocumentInspectionFailure.MalformedMetadata),
+            MetadataTypeOverviewDocumentInspectionOutcome.Failed =>
+                Failed(TypeOverviewDocumentInspectionFailure.MalformedMetadata),
             _ => throw new InvalidOperationException(
-                "Unknown Metadata Type document outcome."),
+                "Unknown Metadata Type overview document outcome."),
         };
 
-    private static InspectionEnvelope<TypeDocumentInspectionOutcome>
+    private static InspectionEnvelope<TypeOverviewDocumentInspectionOutcome>
         Available(
-            LibraryTypeDocumentCorrespondence correspondence,
-            TypeDocumentInspectionPlan plan,
+            LibraryTypeOverviewDocumentCorrespondence correspondence,
+            TypeOverviewDocumentInspectionPlan plan,
             TypeMemberGroupPopulationInspectionPlan? declarationsPlan,
             TypeMemberGroupPopulationInspectionRejection?
                 declarationRejection,
-            MetadataTypeDocument document,
+            MetadataTypeOverviewDocument document,
             int startOrdinal)
     {
         LibraryAssemblyIdentity assembly =
@@ -227,12 +227,12 @@ public static class TypeDocumentInspectionOperation
         if (document.Subject.Type.ModuleVersionId == Guid.Empty)
         {
             return Failed(
-                TypeDocumentInspectionFailure.EmptyModuleVersionId);
+                TypeOverviewDocumentInspectionFailure.EmptyModuleVersionId);
         }
 
-        TypeDocumentDeclarations declarations =
+        TypeOverviewDocumentDeclarations declarations =
             declarationRejection is { } rejected
-                ? new TypeDocumentDeclarations.Rejected(rejected)
+                ? new TypeOverviewDocumentDeclarations.Rejected(rejected)
                 : ProjectDeclarations(
                     correspondence,
                     plan,
@@ -241,7 +241,7 @@ public static class TypeDocumentInspectionOperation
                     document.Subject.Type.ModuleVersionId,
                     startOrdinal);
         return Envelope(
-            new TypeDocumentInspectionOutcome.Available(
+            new TypeOverviewDocumentInspectionOutcome.Available(
                 new(
                     new(
                         correspondence.Subject,
@@ -254,7 +254,7 @@ public static class TypeDocumentInspectionOperation
                                 document.Subject.Signature
                                     .GenericParameters
                                     .Select(parameter =>
-                                        new TypeDocumentGenericParameter(
+                                        new TypeOverviewDocumentGenericParameter(
                                             parameter
                                                 .DefinitionSegmentIndex,
                                             parameter.MetadataIndex,
@@ -269,26 +269,26 @@ public static class TypeDocumentInspectionOperation
                     correspondence.AssemblyBytes)));
     }
 
-    private static TypeDocumentDeclarations ProjectDeclarations(
-        LibraryTypeDocumentCorrespondence correspondence,
-        TypeDocumentInspectionPlan plan,
+    private static TypeOverviewDocumentDeclarations ProjectDeclarations(
+        LibraryTypeOverviewDocumentCorrespondence correspondence,
+        TypeOverviewDocumentInspectionPlan plan,
         TypeMemberGroupPopulationInspectionPlan? declarationsPlan,
-        MetadataTypeDocumentDeclarations declarations,
+        MetadataTypeOverviewDocumentDeclarations declarations,
         Guid moduleVersionId,
         int startOrdinal) =>
         declarations switch
         {
-            MetadataTypeDocumentDeclarations.NotRequested
+            MetadataTypeOverviewDocumentDeclarations.NotRequested
                 when plan.Declarations is null =>
-                    new TypeDocumentDeclarations.NotRequested(),
-            MetadataTypeDocumentDeclarations.NotRequested =>
+                    new TypeOverviewDocumentDeclarations.NotRequested(),
+            MetadataTypeOverviewDocumentDeclarations.NotRequested =>
                 throw new InvalidOperationException(
                     "The requested Type Member-group population was not inspected."),
-            MetadataTypeDocumentDeclarations.BindingMismatch =>
-                new TypeDocumentDeclarations.Rejected(
+            MetadataTypeOverviewDocumentDeclarations.BindingMismatch =>
+                new TypeOverviewDocumentDeclarations.Rejected(
                     TypeMemberGroupPopulationInspectionRejection
                         .StaleContinuation),
-            MetadataTypeDocumentDeclarations.Inspected inspected =>
+            MetadataTypeOverviewDocumentDeclarations.Inspected inspected =>
                 ProjectDeclarations(
                     TypeMemberGroupPopulationInspectionOperation
                         .ProjectPopulation(
@@ -301,51 +301,51 @@ public static class TypeDocumentInspectionOperation
                                     "A Metadata population requires a Sections plan."),
                             startOrdinal)),
             _ => throw new InvalidOperationException(
-                "Unknown Metadata Type document Member-group outcome."),
+                "Unknown Metadata Type overview document Member-group outcome."),
         };
 
-    private static TypeDocumentDeclarations ProjectDeclarations(
+    private static TypeOverviewDocumentDeclarations ProjectDeclarations(
         TypeMemberGroupPopulationInspectionOutcome outcome) =>
         outcome switch
         {
             TypeMemberGroupPopulationInspectionOutcome.Available available =>
-                new TypeDocumentDeclarations.Available(
+                new TypeOverviewDocumentDeclarations.Available(
                     available.Content.Members),
             TypeMemberGroupPopulationInspectionOutcome.Rejected rejected =>
-                new TypeDocumentDeclarations.Rejected(rejected.Reason),
+                new TypeOverviewDocumentDeclarations.Rejected(rejected.Reason),
             TypeMemberGroupPopulationInspectionOutcome.Incomplete
                 incomplete =>
-                    new TypeDocumentDeclarations.Incomplete(
+                    new TypeOverviewDocumentDeclarations.Incomplete(
                         incomplete.Bound,
                         incomplete.Limit,
                         incomplete.Measured),
             TypeMemberGroupPopulationInspectionOutcome.Failed failed =>
-                new TypeDocumentDeclarations.Failed(failed.Reason),
+                new TypeOverviewDocumentDeclarations.Failed(failed.Reason),
             _ => throw new InvalidOperationException(
                 "Unknown Type Member-group population outcome."),
         };
 
-    private static InspectionEnvelope<TypeDocumentInspectionOutcome>
-        Rejected(TypeDocumentInspectionRejection reason) =>
-        Envelope(new TypeDocumentInspectionOutcome.Rejected(reason));
+    private static InspectionEnvelope<TypeOverviewDocumentInspectionOutcome>
+        Rejected(TypeOverviewDocumentInspectionRejection reason) =>
+        Envelope(new TypeOverviewDocumentInspectionOutcome.Rejected(reason));
 
-    private static InspectionEnvelope<TypeDocumentInspectionOutcome>
+    private static InspectionEnvelope<TypeOverviewDocumentInspectionOutcome>
         Incomplete(
-            TypeDocumentInspectionBound bound,
+            TypeOverviewDocumentInspectionBound bound,
             long limit,
             long measured) =>
         Envelope(
-            new TypeDocumentInspectionOutcome.Incomplete(
+            new TypeOverviewDocumentInspectionOutcome.Incomplete(
                 bound,
                 limit,
                 measured));
 
-    private static InspectionEnvelope<TypeDocumentInspectionOutcome>
-        Failed(TypeDocumentInspectionFailure reason) =>
-        Envelope(new TypeDocumentInspectionOutcome.Failed(reason));
+    private static InspectionEnvelope<TypeOverviewDocumentInspectionOutcome>
+        Failed(TypeOverviewDocumentInspectionFailure reason) =>
+        Envelope(new TypeOverviewDocumentInspectionOutcome.Failed(reason));
 
-    private static InspectionEnvelope<TypeDocumentInspectionOutcome>
-        Envelope(TypeDocumentInspectionOutcome outcome) =>
+    private static InspectionEnvelope<TypeOverviewDocumentInspectionOutcome>
+        Envelope(TypeOverviewDocumentInspectionOutcome outcome) =>
         new(
             outcome,
             new InspectionShare.NonProjectable(

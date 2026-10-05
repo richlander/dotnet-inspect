@@ -139,10 +139,10 @@ public sealed class MetadataTypeMemberGroupPopulationTests
                     startOrdinal: 1)),
                 RuntimeJsonPath).Rows);
 
-        Assert.Equal(
+        AssertRowsEqual(
             all.Items.Take(3).Select(WithoutExactCount),
             first.Items);
-        Assert.Equal(
+        AssertRowsEqual(
             all.Items.Skip(3).Take(3).Select(WithoutExactCount),
             second.Items);
         Assert.All(
@@ -151,7 +151,7 @@ public sealed class MetadataTypeMemberGroupPopulationTests
         Assert.True(outOfRange.ContinuationOutOfRange);
         Assert.Empty(outOfRange.Items);
         Assert.Null(outOfRange.NextOrdinal);
-        Assert.Equal(all.Items.Skip(1), remaining.Items);
+        AssertRowsEqual(all.Items.Skip(1), remaining.Items);
         Assert.Null(remaining.NextOrdinal);
     }
 
@@ -352,6 +352,41 @@ public sealed class MetadataTypeMemberGroupPopulationTests
             row => row.Name == "DuplicateNameA");
         Assert.Equal(MetadataTypeMemberGroupCategory.Method, duplicate.Category);
         Assert.Equal(2, duplicate.ExactMemberCount);
+    }
+
+    [Fact]
+    public void Rows_ExposeOnlyTruthfulSharedGenericParameterSpelling()
+    {
+        MetadataTypeMemberGroupRows rows = Required(
+            Inspect(
+                BuildGenericGroupImage(),
+                Request(
+                    Name("Fixtures", "GenericGroups"),
+                    rows: new(int.MaxValue)))
+            .Rows);
+
+        Assert.Equal(
+            ["T"],
+            Assert.Single(rows.Items, row => row.Name == "Singleton")
+                .SharedGenericParameters);
+        Assert.Equal(
+            ["TValue"],
+            Assert.Single(rows.Items, row => row.Name == "Uniform")
+                .SharedGenericParameters);
+        Assert.Null(
+            Assert.Single(rows.Items, row => row.Name == "Mixed")
+                .SharedGenericParameters);
+        Assert.Null(
+            Assert.Single(rows.Items, row => row.Name == "Arity")
+                .SharedGenericParameters);
+        Assert.Null(
+            Assert.Single(rows.Items, row => row.Name == "Names")
+                .SharedGenericParameters);
+        Assert.Empty(
+            Assert.Single(rows.Items, row => row.Name == "Ordinary")
+                .SharedGenericParameters
+                ?? throw new Xunit.Sdk.XunitException(
+                    "A uniformly non-generic group must publish an empty spelling."));
     }
 
     [Fact]
@@ -1009,6 +1044,159 @@ public sealed class MetadataTypeMemberGroupPopulationTests
         return bytes;
     }
 
+    static byte[] BuildGenericGroupImage()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("GenericGroups.dll"),
+            metadata.GetOrAddGuid(
+                new Guid("E1131E3D-ECA8-432F-8390-4C4E929AB925")),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("GenericGroups"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        AssemblyReferenceHandle runtime = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("System.Runtime"),
+            new Version(11, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        TypeReferenceHandle objectType = metadata.AddTypeReference(
+            runtime,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("Object"));
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("Fixtures"),
+            metadata.GetOrAddString("GenericGroups"),
+            objectType,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        BlobHandle ordinarySignature = metadata.GetOrAddBlob(
+            (byte[])[0x00, 0x00, 0x01]);
+        BlobHandle genericOneSignature = GenericVoidSignature(
+            metadata,
+            arity: 1);
+        BlobHandle genericTwoSignature = GenericVoidSignature(
+            metadata,
+            arity: 2);
+        MethodAttributes attributes =
+            MethodAttributes.Public
+            | MethodAttributes.Static
+            | MethodAttributes.HideBySig;
+
+        MethodDefinitionHandle singleton = AddMethod(
+            metadata,
+            "Singleton",
+            attributes,
+            genericOneSignature);
+        MethodDefinitionHandle uniformOne = AddMethod(
+            metadata,
+            "Uniform",
+            attributes,
+            genericOneSignature);
+        MethodDefinitionHandle uniformTwo = AddMethod(
+            metadata,
+            "Uniform",
+            attributes,
+            genericOneSignature);
+        MethodDefinitionHandle mixedGeneric = AddMethod(
+            metadata,
+            "Mixed",
+            attributes,
+            genericOneSignature);
+        AddMethod(
+            metadata,
+            "Mixed",
+            attributes,
+            ordinarySignature);
+        MethodDefinitionHandle arityOne = AddMethod(
+            metadata,
+            "Arity",
+            attributes,
+            genericOneSignature);
+        MethodDefinitionHandle arityTwo = AddMethod(
+            metadata,
+            "Arity",
+            attributes,
+            genericTwoSignature);
+        MethodDefinitionHandle namesT = AddMethod(
+            metadata,
+            "Names",
+            attributes,
+            genericOneSignature);
+        MethodDefinitionHandle namesU = AddMethod(
+            metadata,
+            "Names",
+            attributes,
+            genericOneSignature);
+        AddMethod(
+            metadata,
+            "Ordinary",
+            attributes,
+            ordinarySignature);
+
+        AddGenericParameter(metadata, singleton, "T", 0);
+        AddGenericParameter(metadata, uniformOne, "TValue", 0);
+        AddGenericParameter(metadata, uniformTwo, "TValue", 0);
+        AddGenericParameter(metadata, mixedGeneric, "T", 0);
+        AddGenericParameter(metadata, arityOne, "T", 0);
+        AddGenericParameter(metadata, arityTwo, "TFirst", 0);
+        AddGenericParameter(metadata, arityTwo, "TSecond", 1);
+        AddGenericParameter(metadata, namesT, "T", 0);
+        AddGenericParameter(metadata, namesU, "U", 0);
+
+        var image = new BlobBuilder();
+        new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly)
+            .Serialize(image);
+        return image.ToArray();
+    }
+
+    static BlobHandle GenericVoidSignature(
+        MetadataBuilder metadata,
+        int arity)
+    {
+        var signature = new BlobBuilder();
+        new BlobEncoder(signature).MethodSignature(
+            SignatureCallingConvention.Default,
+            genericParameterCount: arity,
+            isInstanceMethod: false).Parameters(
+                0,
+                returnType => returnType.Void(),
+                _ => { });
+        return metadata.GetOrAddBlob(signature);
+    }
+
+    static void AddGenericParameter(
+        MetadataBuilder metadata,
+        MethodDefinitionHandle method,
+        string name,
+        int index) =>
+        metadata.AddGenericParameter(
+            method,
+            GenericParameterAttributes.None,
+            metadata.GetOrAddString(name),
+            index);
+
     static MethodDefinitionHandle AddMethod(
         MetadataBuilder metadata,
         string name,
@@ -1057,6 +1245,40 @@ public sealed class MetadataTypeMemberGroupPopulationTests
     static MetadataTypeMemberGroupRow WithoutExactCount(
         MetadataTypeMemberGroupRow row) =>
         row with { ExactMemberCount = null };
+
+    static void AssertRowsEqual(
+        IEnumerable<MetadataTypeMemberGroupRow> expected,
+        IEnumerable<MetadataTypeMemberGroupRow> actual)
+    {
+        MetadataTypeMemberGroupRow[] expectedRows = [.. expected];
+        MetadataTypeMemberGroupRow[] actualRows = [.. actual];
+        Assert.Equal(expectedRows.Length, actualRows.Length);
+
+        for (int index = 0; index < expectedRows.Length; index++)
+        {
+            MetadataTypeMemberGroupRow expectedRow = expectedRows[index];
+            MetadataTypeMemberGroupRow actualRow = actualRows[index];
+            Assert.Equal(expectedRow.Name, actualRow.Name);
+            Assert.Equal(expectedRow.Category, actualRow.Category);
+            Assert.Equal(expectedRow.Receivers, actualRow.Receivers);
+            Assert.Equal(expectedRow.Traits, actualRow.Traits);
+            Assert.Equal(
+                expectedRow.ExactMemberCount,
+                actualRow.ExactMemberCount);
+
+            if (expectedRow.SharedGenericParameters is null)
+            {
+                Assert.Null(actualRow.SharedGenericParameters);
+            }
+            else
+            {
+                Assert.NotNull(actualRow.SharedGenericParameters);
+                Assert.Equal<string>(
+                    expectedRow.SharedGenericParameters.Value,
+                    actualRow.SharedGenericParameters.Value);
+            }
+        }
+    }
 
     static MetadataTypeDefinitionName Name(
         string @namespace,

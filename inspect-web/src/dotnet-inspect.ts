@@ -802,7 +802,7 @@ import type {
   BrowserMemberDocumentInspection,
   BrowserMemberGroupDocumentInspection,
   BrowserMemberGroupDocumentRow,
-  BrowserTypeDocumentInspection,
+  BrowserTypeOverviewDocumentInspection,
   BrowserTypeMetadata,
 } from "./facades/inspect-web-metadata.d.ts";
 import type {
@@ -893,22 +893,22 @@ let inspectMemberDocument:
   EngineClient["metadata"]["queryMemberDocument"];
 let inspectMemberGroupDocument:
   EngineClient["metadata"]["queryMemberGroupDocument"];
-let inspectTypeDocument:
-  EngineClient["metadata"]["queryTypeDocument"];
+let inspectTypeOverviewDocument:
+  EngineClient["metadata"]["queryTypeOverviewDocument"];
 let inspectPlatformMemberDeclaration:
   EngineClient["metadata"]["queryPlatformMemberDeclaration"];
 let inspectPlatformMemberDocument:
   EngineClient["metadata"]["queryPlatformMemberDocument"];
 let inspectPlatformMemberGroupDocument:
   EngineClient["metadata"]["queryPlatformMemberGroupDocument"];
-let inspectPlatformTypeDocument:
-  EngineClient["metadata"]["queryPlatformTypeDocument"];
+let inspectPlatformTypeOverviewDocument:
+  EngineClient["metadata"]["queryPlatformTypeOverviewDocument"];
 let inspectUploadedLibraryMemberGroupDocument:
   EngineClient["metadata"]["queryUploadedLibraryMemberGroupDocument"];
 let inspectUploadedLibraryMemberDocument:
   EngineClient["metadata"]["queryUploadedLibraryMemberDocument"];
-let inspectUploadedLibraryTypeDocument:
-  EngineClient["metadata"]["queryUploadedLibraryTypeDocument"];
+let inspectUploadedLibraryTypeOverviewDocument:
+  EngineClient["metadata"]["queryUploadedLibraryTypeOverviewDocument"];
 let inspectPackageHeapEntries:
   EngineClient["metadata"]["queryPackageHeapEntries"];
 let inspectPackageMetadata:
@@ -1111,19 +1111,19 @@ async function loadEngineModule() {
       queryMemberDeclaration: inspectMemberDeclaration,
       queryMemberDocument: inspectMemberDocument,
       queryMemberGroupDocument: inspectMemberGroupDocument,
-      queryTypeDocument: inspectTypeDocument,
+      queryTypeOverviewDocument: inspectTypeOverviewDocument,
       queryPlatformMemberDeclaration: inspectPlatformMemberDeclaration,
       queryPlatformMemberDocument: inspectPlatformMemberDocument,
       queryPlatformMemberGroupDocument:
         inspectPlatformMemberGroupDocument,
-      queryPlatformTypeDocument:
-        inspectPlatformTypeDocument,
+      queryPlatformTypeOverviewDocument:
+        inspectPlatformTypeOverviewDocument,
       queryUploadedLibraryMemberGroupDocument:
         inspectUploadedLibraryMemberGroupDocument,
       queryUploadedLibraryMemberDocument:
         inspectUploadedLibraryMemberDocument,
-      queryUploadedLibraryTypeDocument:
-        inspectUploadedLibraryTypeDocument,
+      queryUploadedLibraryTypeOverviewDocument:
+        inspectUploadedLibraryTypeOverviewDocument,
       queryPackageHeapEntries: inspectPackageHeapEntries,
       queryPackageMetadata: inspectPackageMetadata,
       queryPackageMetadataTable: inspectPackageMetadataTable,
@@ -1194,6 +1194,7 @@ declare global {
 interface AppMemberGroup {
   key: string;
   name: string;
+  displayName?: string;
   kind: string;
   overloads: AppMemberSurface[];
   completeCount: number;
@@ -1421,7 +1422,7 @@ const initialState = {
   memberTraitFilter: "",
   memberTextFilter: "",
   typeMemberPopulation:
-    null as BrowserTypeDocumentInspection | null,
+    null as BrowserTypeOverviewDocumentInspection | null,
   typeMemberPopulationLoading: false,
   typeMemberPopulationError: "",
   typeMemberPopulationKey: "",
@@ -6830,6 +6831,7 @@ function declaredMemberGroups(type: AppTypeSurface): AppMemberGroup[] {
       const shape: AppMemberGroup = {
         key: group.key,
         name: group.name,
+        displayName: group.displayName,
         kind: group.kind,
         completeCount: group.completeCount,
         completeCountStatus: "available",
@@ -12802,7 +12804,7 @@ function renderApiLens(item: AppTypeSurface) {
         <button class="api-row has-item-achievement-rail${achievementClasses ? ` ${achievementClasses}` : ""}" data-member="${escapeHtml(group.key)}">
           ${renderItemAchievementRail(achievements, escapeHtml)}
           <span class="member-icon">${escapeHtml(group.kind?.slice(0, 1)?.toUpperCase() || "M")}</span>
-          <code>${highlight(overload?.signature ?? group.name)}</code>
+          <code>${highlight(group.displayName ?? group.name)}</code>
           <small>${sourceOverloadCount === 1 ? escapeHtml(group.kind) : `${sourceOverloadCount} overloads`}${outsideMarker}</small>
         </button>`;
         }).join("") || `<div class="empty-list">${
@@ -21408,7 +21410,7 @@ function loadSelectedTypeMemberPopulation():
   load.promise = (async () => {
     try {
       const result = state.rootKind === "library"
-        ? inspectUploadedLibraryTypeDocument(
+        ? inspectUploadedLibraryTypeOverviewDocument(
             type.assemblyId,
             type.definitionId ?? type.id,
             state.memberSpelling,
@@ -21416,7 +21418,7 @@ function loadSelectedTypeMemberPopulation():
         : pkg.isRuntimePack
         ? (() => {
             const row = platformLibraryForRequest(pkg, type.assemblyId);
-            return inspectPlatformTypeDocument(
+            return inspectPlatformTypeOverviewDocument(
               pkg.activeFramework,
               pkg.version,
               platformAssemblyRequest(row),
@@ -21425,7 +21427,7 @@ function loadSelectedTypeMemberPopulation():
               state.memberSpelling,
               state.memberAccessibilityFilter);
           })()
-        : inspectTypeDocument(
+        : inspectTypeOverviewDocument(
             pkg.id,
             pkg.version,
             pkg.activeFramework,

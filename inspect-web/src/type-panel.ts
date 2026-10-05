@@ -219,6 +219,7 @@ export function unqualifiedType(type: string): string {
 export interface MemberGroup {
   key: string;
   name: string;
+  displayName?: string;
   kind: string;
   overloads: readonly MemberOverloadSummary[];
   completeCount?: number;
@@ -797,33 +798,6 @@ export interface MemberNavHeatCue {
   tone: "progress" | "problem";
 }
 
-const valueMemberKinds = new Set(["property", "field", "event"]);
-
-// A single member's row says what it is, not which kind it is (the icon
-// carries the kind): a method shows its compact parameter list, and a
-// property, field, or event shows its value type.
-function singleMemberLabelHtml(
-  group: MemberGroup,
-  escapeHtml: (value: string) => string,
-  highlight: (value: string) => string,
-): string {
-  const overload = group.overloads[0];
-  return overload && !valueMemberKinds.has(group.kind) && overload.parameters
-    ? overloadNavLabelHtml(group.name, overload, escapeHtml, highlight)
-    : escapeHtml(group.name);
-}
-
-function singleMemberDetailHtml(
-  group: MemberGroup,
-  escapeHtml: (value: string) => string,
-  shortKind: (kind: string) => string,
-): string {
-  const overload = group.overloads[0];
-  if (valueMemberKinds.has(group.kind) && overload?.returnType)
-    return typeSpellingHtml(unqualifiedType(overload.returnType), escapeHtml);
-  return overload?.parameters ? "" : escapeHtml(shortKind(group.kind));
-}
-
 export interface MemberNavOverloadHeat {
   /** Tint strength in (0, 1]; null leaves the row untinted. */
   heatStrength: number | null;
@@ -921,8 +895,8 @@ export function renderMemberNav(options: MemberNavOptions): string {
                 ? renderItemAchievementRail(achievements, escapeHtml)
                 : ""}
               <span class="member-icon">${escapeHtml(group.kind?.slice(0, 1)?.toUpperCase() || "M")}</span>
-              <span class="type-name${family ? " family-name" : ""}">${graphOnly || isMulti ? escapeHtml(group.name) : singleMemberLabelHtml(group, escapeHtml, highlight)}</span>
-              <small>${graphOnly ? `graph target · ${escapeHtml(shortKind(group.kind))}` : isMulti ? `<span class="family-count">${overloadCount}×</span>` : singleMemberDetailHtml(group, escapeHtml, shortKind)}${outsideMarker}${cue === null ? "" : ` <span class="family-heat-cue ${cue.tone}">${escapeHtml(cue.text)}</span>`}</small>
+              <span class="type-name${family ? " family-name" : ""}">${escapeHtml(group.displayName ?? group.name)}</span>
+              <small>${graphOnly ? `graph target · ${escapeHtml(shortKind(group.kind))}` : isMulti ? `<span class="family-count">${overloadCount}×</span>` : ""}${outsideMarker}${cue === null ? "" : ` <span class="family-heat-cue ${cue.tone}">${escapeHtml(cue.text)}</span>`}</small>
             </button>`;
           }
           const overload = entry.group.overloads[entry.index];

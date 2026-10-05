@@ -183,7 +183,8 @@ public partial class ApiCommand
                 packageVersion,
                 options.MemberFilter,
                 options.KindFilter,
-                options.Verbosity,
+                typeOptions.DocumentSelection
+                    is ExactTypeDocumentSelection.Complete,
                 typeOptions.MemberLimit);
             return 0;
         }
