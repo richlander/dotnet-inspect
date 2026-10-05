@@ -611,6 +611,79 @@ public class ResourceExplanationTests
     }
 
     [Fact]
+    public void Catalog_RejectsDuplicateTypedAddressValues()
+    {
+        CatalogAdmissionFixture fixture = CatalogAdmissionFixture.Create();
+        ExplanationSchema schema = fixture.Schema("The resource name.");
+        ExplanationResourceSnapshot first = fixture.Snapshot(
+            schema,
+            "first",
+            "probe/first",
+            "shared");
+        ExplanationResourceSnapshot second = fixture.Snapshot(
+            schema,
+            "second",
+            "probe/second",
+            "shared");
+
+        Assert.Throws<ArgumentException>(() =>
+            ResourceExplanationCatalog.Create(
+                [.. fixture.BaseSchemas, schema],
+                [first, second]));
+    }
+
+    [Fact]
+    public void Combine_RequiresEquivalentSchemaRevisions()
+    {
+        CatalogAdmissionFixture fixture = CatalogAdmissionFixture.Create();
+        ExplanationSchema firstSchema =
+            fixture.Schema("The resource name.");
+        ExplanationSchema equivalentSchema =
+            fixture.Schema("The resource name.");
+        ResourceExplanationCatalog first =
+            ResourceExplanationCatalog.Create(
+                [.. fixture.BaseSchemas, firstSchema],
+                [
+                    fixture.Snapshot(
+                        firstSchema,
+                        "first",
+                        "probe/first",
+                        "first"),
+                ]);
+        ResourceExplanationCatalog equivalent =
+            ResourceExplanationCatalog.Create(
+                [.. fixture.BaseSchemas, equivalentSchema],
+                [
+                    fixture.Snapshot(
+                        equivalentSchema,
+                        "second",
+                        "probe/second",
+                        "second"),
+                ]);
+
+        Assert.Equal(
+            2,
+            ResourceExplanationCatalog.Combine(first, equivalent)
+                .Resources.Length);
+
+        ExplanationSchema conflictingSchema =
+            fixture.Schema("A conflicting resource name.");
+        ResourceExplanationCatalog conflicting =
+            ResourceExplanationCatalog.Create(
+                [.. fixture.BaseSchemas, conflictingSchema],
+                [
+                    fixture.Snapshot(
+                        conflictingSchema,
+                        "third",
+                        "probe/third",
+                        "third"),
+                ]);
+
+        Assert.Throws<ArgumentException>(() =>
+            ResourceExplanationCatalog.Combine(first, conflicting));
+    }
+
+    [Fact]
     public void AvailableEmptyRelationship_PreservesDeclaredTargetType()
     {
         ResourceExplanationCatalog catalog = StructuralCatalog();
@@ -897,6 +970,171 @@ public class ResourceExplanationTests
     private static ExplanationValue ExplanationText(string value) =>
         new ExplanationValue.Scalar(
             ExplanationScalarValue.FromText(value));
+
+    private sealed class CatalogAdmissionFixture
+    {
+        private CatalogAdmissionFixture(
+            ExplanationSchema[] baseSchemas,
+            ExplanationDataShapeIdentity textShape,
+            ExplanationPublicAddressKindIdentity pathKind,
+            ExplanationOwnerIdentity owner,
+            ExplanationSchemaIdentity schemaIdentity,
+            ExplanationSchemaVersion version,
+            ExplanationResourceTypeIdentity resourceType,
+            ExplanationPublicAddressKindIdentity alternateKind,
+            ExplanationFactIdentity fact,
+            ExplanationDataShapeIdentity recordShape,
+            ExplanationFieldIdentity field)
+        {
+            BaseSchemas = baseSchemas;
+            TextShape = textShape;
+            PathKind = pathKind;
+            Owner = owner;
+            SchemaIdentity = schemaIdentity;
+            Version = version;
+            ResourceType = resourceType;
+            AlternateKind = alternateKind;
+            Fact = fact;
+            RecordShape = recordShape;
+            Field = field;
+        }
+
+        internal ExplanationSchema[] BaseSchemas { get; }
+
+        private ExplanationDataShapeIdentity TextShape { get; }
+
+        private ExplanationPublicAddressKindIdentity PathKind { get; }
+
+        private ExplanationOwnerIdentity Owner { get; }
+
+        private ExplanationSchemaIdentity SchemaIdentity { get; }
+
+        private ExplanationSchemaVersion Version { get; }
+
+        private ExplanationResourceTypeIdentity ResourceType { get; }
+
+        private ExplanationPublicAddressKindIdentity AlternateKind { get; }
+
+        private ExplanationFactIdentity Fact { get; }
+
+        private ExplanationDataShapeIdentity RecordShape { get; }
+
+        private ExplanationFieldIdentity Field { get; }
+
+        internal static CatalogAdmissionFixture Create()
+        {
+            ExplanationSchema[] baseSchemas =
+                [.. StructuralCatalog().Schemas];
+            ExplanationSchema core = baseSchemas.Single(
+                static schema =>
+                    schema.Identity.Owner.Value == "resource-explanation");
+            ExplanationDataShapeIdentity textShape =
+                core.DataShapes.Single(
+                    static shape => shape.Identity.Value == "text").Identity;
+            ExplanationPublicAddressKindIdentity pathKind =
+                Assert.Single(core.AddressKinds).Identity;
+            var owner = new ExplanationOwnerIdentity("catalog-probe");
+            var schemaIdentity =
+                new ExplanationSchemaIdentity(owner, "installed");
+            var resourceType =
+                new ExplanationResourceTypeIdentity(
+                    schemaIdentity,
+                    "resource");
+            var alternateKind =
+                new ExplanationPublicAddressKindIdentity(
+                    schemaIdentity,
+                    "alternate");
+            var recordShape =
+                new ExplanationDataShapeIdentity(
+                    schemaIdentity,
+                    "record");
+            return new(
+                baseSchemas,
+                textShape,
+                pathKind,
+                owner,
+                schemaIdentity,
+                new(1),
+                resourceType,
+                alternateKind,
+                new(resourceType, "name"),
+                recordShape,
+                new(recordShape, "value"));
+        }
+
+        internal ExplanationSchema Schema(string factMeaning) =>
+            new(
+                SchemaIdentity,
+                Version,
+                [
+                    new ExplanationDataShapeDeclaration.Record(
+                        RecordShape,
+                        "Record",
+                        "A catalog-admission record.",
+                        new(4096, 2, 2),
+                        [
+                            new(
+                                Field,
+                                "Value",
+                                "The record value.",
+                                TextShape,
+                                ExplanationCardinality.RequiredOne),
+                        ]),
+                ],
+                [
+                    new ExplanationResourceTypeDeclaration(
+                        ResourceType,
+                        "Resource",
+                        "A catalog-admission resource.",
+                        TextShape,
+                        [
+                            new(
+                                Fact,
+                                "Name",
+                                factMeaning,
+                                RecordShape,
+                                ExplanationCardinality.RequiredOne,
+                                ExplanationObservationStates.Available),
+                        ],
+                        addressKinds: [PathKind, AlternateKind]),
+                ],
+                [
+                    new(
+                        AlternateKind,
+                        "Alternate address",
+                        "An alternate catalog address.",
+                        TextShape),
+                ]);
+
+        internal ExplanationResourceSnapshot Snapshot(
+            ExplanationSchema schema,
+            string identity,
+            string path,
+            string alternate) =>
+            ExplanationConformance.CreateSnapshot(
+                [.. BaseSchemas, schema],
+                new(Owner, ResourceType, ExplanationText(identity)),
+                Version,
+                ExplanationSnapshotScope.Installed,
+                [
+                    new(PathKind, ExplanationText(path)),
+                    new(AlternateKind, ExplanationText(alternate)),
+                ],
+                [
+                    new(
+                        Fact,
+                        ExplanationObservationState.Available,
+                        [
+                            new ExplanationValue.Record(
+                            [
+                                new(
+                                    Field,
+                                    [ExplanationText(identity)]),
+                            ]),
+                        ]),
+                ],
+                []);
+    }
 
     private static DiscoveryResourceIdentity Category(string name) =>
         new(DiscoveryResourceKind.Category, name);

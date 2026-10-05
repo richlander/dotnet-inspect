@@ -158,6 +158,39 @@ public sealed class ExplanationPrimitivesTests
     }
 
     [Fact]
+    public void Snapshot_RejectsMultipleAddressesOfOneKind()
+    {
+        ExplanationSchema schema = CreateSchema(
+            new(
+                maximumCanonicalByteCount: 4096,
+                maximumDepth: 8,
+                maximumNodeCount: 32));
+
+        Assert.Throws<ArgumentException>(() =>
+            ExplanationConformance.CreateSnapshot(
+                [schema],
+                Key(1),
+                Version,
+                ExplanationSnapshotScope.Installed,
+                [
+                    new(AddressKind, Text("nodes/1")),
+                    new(AddressKind, Text("aliases/1")),
+                ],
+                [
+                    new(
+                        NameFact,
+                        ExplanationObservationState.Available,
+                        [Text("one")]),
+                ],
+                [
+                    new(
+                        Children,
+                        ExplanationObservationState.Available,
+                        []),
+                ]));
+    }
+
+    [Fact]
     public void OptionalObservation_UsesAbsentInsteadOfAvailableEmpty()
     {
         ExplanationSchema schema = CreateSchema(

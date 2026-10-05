@@ -257,7 +257,10 @@ public sealed record ExplanationResourceSnapshot
         Facts = facts.IsDefault ? [] : facts;
         Relationships = relationships.IsDefault ? [] : relationships;
         if (Addresses.Any(static address => address is null)
-            || Addresses.Distinct().Count() != Addresses.Length
+            || Addresses.Select(static address => address.Kind)
+                .Distinct()
+                .Count()
+                != Addresses.Length
             || Facts.Any(static fact => fact is null)
             || Facts.Select(static fact => fact.Fact).Distinct().Count()
                 != Facts.Length
@@ -275,7 +278,7 @@ public sealed record ExplanationResourceSnapshot
                     != key.ResourceType))
         {
             throw new ArgumentException(
-                "Snapshot addresses and observations must be non-null, "
+                "Snapshot address kinds and observations must be non-null, "
                 + "unique, and scoped to the snapshot resource type.");
         }
     }

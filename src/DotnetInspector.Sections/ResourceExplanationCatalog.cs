@@ -74,6 +74,10 @@ public sealed class ResourceExplanationCatalog
         var resourcesByPath =
             new Dictionary<string, CatalogResource>(
                 StringComparer.OrdinalIgnoreCase);
+        var resourcesByAddress =
+            new Dictionary<
+                ExplanationPublicAddress,
+                ExplanationResourceKey>();
         var catalogResources =
             ImmutableArray.CreateBuilder<CatalogResource>(
                 snapshotArray.Length);
@@ -87,6 +91,16 @@ public sealed class ResourceExplanationCatalog
                 throw new ArgumentException(
                     $"Duplicate explanation resource key '{snapshot.Key}'.",
                     nameof(snapshots));
+            }
+            foreach (ExplanationPublicAddress address in snapshot.Addresses)
+            {
+                if (!resourcesByAddress.TryAdd(address, snapshot.Key))
+                {
+                    throw new ArgumentException(
+                        $"Duplicate explanation address kind '{address.Kind}' "
+                        + $"and value on resource '{snapshot.Key}'.",
+                        nameof(snapshots));
+                }
             }
             if (!resourcesByPath.TryAdd(path.Value, resource))
             {
@@ -913,19 +927,136 @@ public sealed class ResourceExplanationCatalog
                 nameof(catalogs));
         }
 
-        ExplanationSchema[] schemas =
-        [
-            .. catalogs
-                .SelectMany(static catalog => catalog.Schemas)
-                .GroupBy(static schema =>
-                    (schema.Identity, schema.Version))
-                .Select(static group => group.First()),
-        ];
+        var schemasByRevision =
+            new Dictionary<
+                (ExplanationSchemaIdentity Identity,
+                    ExplanationSchemaVersion Version),
+                ExplanationSchema>();
+        var schemas = new List<ExplanationSchema>();
+        foreach (ResourceExplanationCatalog catalog in catalogs)
+        {
+            foreach (ExplanationSchema schema in catalog.Schemas)
+            {
+                var revision = (schema.Identity, schema.Version);
+                if (schemasByRevision.TryGetValue(
+                        revision,
+                        out ExplanationSchema? existing))
+                {
+                    if (!SchemasEquivalent(existing, schema))
+                    {
+                        throw new ArgumentException(
+                            $"Explanation schema revision "
+                            + $"'{schema.Identity}' version "
+                            + $"'{schema.Version}' has conflicting "
+                            + "declarations.",
+                            nameof(catalogs));
+                    }
+                    continue;
+                }
+
+                schemasByRevision.Add(revision, schema);
+                schemas.Add(schema);
+            }
+        }
         return Create(
             schemas,
             catalogs.SelectMany(static catalog =>
                 catalog._catalogResources.Select(
                     static resource => resource.Snapshot)));
+    }
+
+    private static bool SchemasEquivalent(
+        ExplanationSchema left,
+        ExplanationSchema right) =>
+        left.Identity == right.Identity
+        && left.Version == right.Version
+        && left.DataShapes.SequenceEqual(
+            right.DataShapes,
+            ExplanationDataShapeDeclarationComparer.Instance)
+        && left.ResourceTypes.SequenceEqual(
+            right.ResourceTypes,
+            ExplanationResourceTypeDeclarationComparer.Instance)
+        && left.AddressKinds.SequenceEqual(right.AddressKinds);
+
+    private sealed class ExplanationDataShapeDeclarationComparer :
+        IEqualityComparer<ExplanationDataShapeDeclaration>
+    {
+        internal static readonly
+            ExplanationDataShapeDeclarationComparer Instance = new();
+
+        public bool Equals(
+            ExplanationDataShapeDeclaration? left,
+            ExplanationDataShapeDeclaration? right)
+        {
+            if (ReferenceEquals(left, right))
+                return true;
+            if (left is null
+                || right is null
+                || left.Identity != right.Identity
+                || left.DisplayName != right.DisplayName
+                || left.Meaning != right.Meaning
+                || left.Budget != right.Budget)
+            {
+                return false;
+            }
+
+            return (left, right) switch
+            {
+                (
+                    ExplanationDataShapeDeclaration.Scalar leftScalar,
+                    ExplanationDataShapeDeclaration.Scalar rightScalar) =>
+                    leftScalar.ScalarKind == rightScalar.ScalarKind,
+                (
+                    ExplanationDataShapeDeclaration.VocabularyTerm
+                        leftVocabulary,
+                    ExplanationDataShapeDeclaration.VocabularyTerm
+                        rightVocabulary) =>
+                    leftVocabulary.Vocabulary == rightVocabulary.Vocabulary,
+                (
+                    ExplanationDataShapeDeclaration.Record leftRecord,
+                    ExplanationDataShapeDeclaration.Record rightRecord) =>
+                    leftRecord.Fields.SequenceEqual(rightRecord.Fields),
+                (
+                    ExplanationDataShapeDeclaration.Choice leftChoice,
+                    ExplanationDataShapeDeclaration.Choice rightChoice) =>
+                    leftChoice.Cases.SequenceEqual(rightChoice.Cases),
+                (
+                    ExplanationDataShapeDeclaration.Reference leftReference,
+                    ExplanationDataShapeDeclaration.Reference
+                        rightReference) =>
+                    leftReference.Target == rightReference.Target,
+                _ => false,
+            };
+        }
+
+        public int GetHashCode(
+            ExplanationDataShapeDeclaration declaration) =>
+            declaration.Identity.GetHashCode();
+    }
+
+    private sealed class ExplanationResourceTypeDeclarationComparer :
+        IEqualityComparer<ExplanationResourceTypeDeclaration>
+    {
+        internal static readonly
+            ExplanationResourceTypeDeclarationComparer Instance = new();
+
+        public bool Equals(
+            ExplanationResourceTypeDeclaration? left,
+            ExplanationResourceTypeDeclaration? right) =>
+            ReferenceEquals(left, right)
+            || (left is not null
+                && right is not null
+                && left.Identity == right.Identity
+                && left.DisplayName == right.DisplayName
+                && left.Meaning == right.Meaning
+                && left.IdentityShape == right.IdentityShape
+                && left.Facts.SequenceEqual(right.Facts)
+                && left.Relationships.SequenceEqual(right.Relationships)
+                && left.AddressKinds.SequenceEqual(right.AddressKinds));
+
+        public int GetHashCode(
+            ExplanationResourceTypeDeclaration declaration) =>
+            declaration.Identity.GetHashCode();
     }
 
     public ResourcePathResolution Resolve(string requestedPath)
