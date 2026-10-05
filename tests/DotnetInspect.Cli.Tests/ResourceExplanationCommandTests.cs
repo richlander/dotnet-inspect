@@ -19,6 +19,57 @@ public sealed class ResourceExplanationCommandTests : IDisposable
     }
 
     [Fact]
+    public async Task Explain_PackageSection_ReportsDeclaredShapeAndCardinality()
+    {
+        // Package structural sections are explainable with the shape and
+        // cardinality their owner declared; the structural identity carries
+        // the catalog so a package section never collides with a library one.
+        var human = await RunAsync(
+            "explain",
+            "package/sections/package-files");
+
+        Assert.Equal(0, human.ExitCode);
+        Assert.Empty(human.Error);
+        Assert.Contains(
+            "Shape: hierarchy | Cardinality: inventory",
+            human.Output);
+
+        var json = await RunAsync(
+            "explain",
+            "package/sections/package-readme-file",
+            "--json");
+
+        Assert.Equal(0, json.ExitCode);
+        Assert.Empty(json.Error);
+        using JsonDocument document = JsonDocument.Parse(json.Output);
+        JsonElement root = document.RootElement.GetProperty("resources")[0];
+        Assert.Equal(
+            "package",
+            root.GetProperty("identity").GetProperty("catalog_name").GetString());
+        JsonElement details = root.GetProperty("details");
+        Assert.Equal("Text", details.GetProperty("shape").GetString());
+        Assert.Equal("Scalar", details.GetProperty("cardinality").GetString());
+
+        var catalog = await RunAsync("explain", "package");
+
+        Assert.Equal(0, catalog.ExitCode);
+        Assert.Empty(catalog.Error);
+        Assert.Contains("Kind: Catalog | Name: Package", catalog.Output);
+
+        var library = await RunAsync(
+            "explain",
+            "library/sections/references",
+            "--json");
+
+        Assert.Equal(0, library.ExitCode);
+        JsonElement libraryDetails =
+            JsonDocument.Parse(library.Output).RootElement
+                .GetProperty("resources")[0]
+                .GetProperty("details");
+        Assert.False(libraryDetails.TryGetProperty("shape", out _));
+    }
+
+    [Fact]
     public async Task ExactSection_RendersResourceAndRelatedPaths()
     {
         var result = await RunAsync(
@@ -503,9 +554,11 @@ public sealed class ResourceExplanationCommandTests : IDisposable
     [Fact]
     public async Task SearchLimitBoundsReturnedResults()
     {
+        // "package" is an exact structural catalog path since the Package
+        // adoption of Section shapes, so search uses a non-path term.
         var result = await RunAsync(
             "explain",
-            "package",
+            "query",
             "-n",
             "1",
             "--json");

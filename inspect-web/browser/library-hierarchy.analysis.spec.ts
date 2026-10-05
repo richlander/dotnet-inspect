@@ -48,10 +48,11 @@ async function expectCompactAnalysisHeader(page: Page) {
   const tabs = header.getByRole("tablist", { name: "Analysis views" });
   await expect(tabs).toBeVisible();
   for (const name of [
+    "Complexity",
+    "Relationships",
     "Performance",
     "Integrations",
     "Opportunities",
-    "Metrics",
   ]) {
     const tab = tabs.getByRole("tab", { name, exact: true });
     await expect(tab).toBeInViewport({ ratio: 1 });

@@ -692,12 +692,24 @@ dotnet-inspect package Newtonsoft.Json -S "Package Info" --fields Version --valu
 dotnet-inspect project ./src/DotnetInspect.Cli -S Skills --jsonl
 ```
 
-Library `-D --details` is structural and does not acquire the target. It adds a
-`Formats` column to the top-level catalog, or reports one exact category or
-section in detail. A category reports the formats supported by its complete
-expansion plus the formats of each member; it never selects or drops members to
-satisfy a format. Use the result to choose an exact section before requesting a
-single-result projection such as `--tree` or `--mermaid`.
+Library and Package `-D --details` are structural and do not acquire the
+target. They add the owner-issued section properties to the top-level catalog,
+or report one exact category or section in detail: `Formats`, and, where the
+owner declares them, `Shape` (`table`, `hierarchy`, or `text`, per
+[Section shapes](design/section-shapes.md)), `Cardinality` (`scalar` or
+`inventory`), and `Terminals`. Package declares all of them; Library declares
+cardinality for `Library Info`. A category reports the formats supported by its
+complete expansion plus the formats of each member; it never selects or drops
+members to satisfy a format. Use the result to choose an exact section before
+requesting a single-result projection such as `--tree` or `--mermaid`.
+`explain package/sections/<section>` reports the same shape and cardinality
+for one package section, beside its formats and members.
+
+```bash
+dotnet-inspect package System.Text.Json -D --details
+dotnet-inspect package System.Text.Json -D "Package files" --details --json
+dotnet-inspect explain package/sections/package-files
+```
 
 ## Common examples
 
@@ -755,15 +767,16 @@ full-inventory gesture. Normal, Detailed, and explicit output formats list
 every Library.
 
 Unselected Markdown, plain text, JSON, envelope, table, TSV, and JSONL output
-all consume that same Package children document. JSON carries subject,
-completion, total and selected Counts, and typed child rows. Row formats expose
-the exact asset ID, asset path, child role, and a copyable, shell-quoted
-`selector` for the same Library occurrence or RID Package. Library selectors
-retain the selected target and replayable
-source/configuration options; a local tool pointer's RID selectors retain its
-adjacent Package directory as a local source. Output fails visibly when replay
-context cannot be disclosed safely. Package children output does not run the
-unrelated all-binary Signals scan or inspect selected Libraries. `--count`
+all consume that same Package children document. The tree title prints the
+subject identity followed by the owner-issued properties of the displayed
+children — source, selected target, and asset root, as in
+`System.Text.Json 10.0.12 (NuGet; net10.0; lib)` — and nothing else. JSON
+carries subject, completion, total and selected Counts, and typed child rows.
+Row formats expose the exact asset ID, asset path, target, and child role;
+they carry no replay command, because host navigation is not package content
+(see [Section shapes](design/section-shapes.md#properties)). Package children
+output does not run the unrelated all-binary Signals scan or inspect selected
+Libraries. `--count`
 counts the owner-issued child population without producing rows; `--rows`
 windows the same ordered identities, and `--fields` or `--columns` projects
 child-row columns. Windows retain the

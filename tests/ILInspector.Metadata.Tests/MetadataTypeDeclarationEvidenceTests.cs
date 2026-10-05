@@ -365,6 +365,29 @@ public sealed class MetadataTypeDeclarationEvidenceTests
             [1, 1],
             posted.Evidence.DefinitionIdentity
                 .IntroducedGenericParameterCounts);
+        Assert.Collection(
+            posted.Evidence.Signature.GenericParameters,
+            parameter =>
+            {
+                Assert.Equal(0, parameter.DefinitionSegmentIndex);
+                Assert.Equal(0, parameter.MetadataIndex);
+                Assert.Equal("T", parameter.Name.ToString());
+                Assert.Equal(
+                    GenericParameterAttributes
+                        .ReferenceTypeConstraint
+                        | GenericParameterAttributes
+                            .DefaultConstructorConstraint,
+                    parameter.Attributes);
+            },
+            parameter =>
+            {
+                Assert.Equal(1, parameter.DefinitionSegmentIndex);
+                Assert.Equal(1, parameter.MetadataIndex);
+                Assert.Equal("U", parameter.Name.ToString());
+                Assert.Equal(
+                    GenericParameterAttributes.None,
+                    parameter.Attributes);
+            });
         var open = Assert.IsType<
             MetadataTypeIdentity.GenericInstance>(
                 posted.Evidence.OpenSelfIdentity);
@@ -2130,6 +2153,7 @@ public sealed class MetadataTypeDeclarationEvidenceTests
 }
 
 public sealed class TypeDeclarationGenericOuter<T>
+    where T : class, new()
 {
     public sealed class Inner<U>
     {

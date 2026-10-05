@@ -3,8 +3,8 @@ using System.Text.Json.Serialization;
 
 namespace DotnetInspector.Sections;
 
-[JsonConverter(typeof(JsonStringEnumConverter<SectionSemanticShape>))]
-public enum SectionSemanticShape
+[JsonConverter(typeof(JsonStringEnumConverter<SectionCardinalityKind>))]
+public enum SectionCardinalityKind
 {
     Scalar,
     Inventory,
@@ -20,32 +20,32 @@ public enum SectionTerminalCapability
 public sealed record SectionCardinalityDeclaration
 {
     public static SectionCardinalityDeclaration Scalar { get; } =
-        new(SectionSemanticShape.Scalar, []);
+        new(SectionCardinalityKind.Scalar, []);
 
     public static SectionCardinalityDeclaration Inventory { get; } =
         new(
-            SectionSemanticShape.Inventory,
+            SectionCardinalityKind.Inventory,
             [
                 SectionTerminalCapability.Rows,
                 SectionTerminalCapability.Count,
             ]);
 
     public SectionCardinalityDeclaration(
-        SectionSemanticShape shape,
+        SectionCardinalityKind kind,
         IEnumerable<SectionTerminalCapability>? terminals)
         : this(
-            shape,
+            kind,
             (terminals ?? []).ToImmutableArray())
     {
     }
 
     [JsonConstructor]
     public SectionCardinalityDeclaration(
-        SectionSemanticShape shape,
+        SectionCardinalityKind kind,
         ImmutableArray<SectionTerminalCapability> terminals)
     {
-        if (!Enum.IsDefined(shape))
-            throw new ArgumentOutOfRangeException(nameof(shape));
+        if (!Enum.IsDefined(kind))
+            throw new ArgumentOutOfRangeException(nameof(kind));
 
         ImmutableArray<SectionTerminalCapability> declared =
             terminals.IsDefault ? [] : terminals;
@@ -76,14 +76,14 @@ public sealed record SectionCardinalityDeclaration
                 "Rows and Count must be declared together.",
                 nameof(terminals));
         }
-        if (shape == SectionSemanticShape.Scalar
+        if (kind == SectionCardinalityKind.Scalar
             && !declared.IsEmpty)
         {
             throw new ArgumentException(
                 "A scalar section cannot declare Rows or Count.",
                 nameof(terminals));
         }
-        if (shape == SectionSemanticShape.Inventory
+        if (kind == SectionCardinalityKind.Inventory
             && (!rows || declared.Length != 2))
         {
             throw new ArgumentException(
@@ -91,11 +91,11 @@ public sealed record SectionCardinalityDeclaration
                 nameof(terminals));
         }
 
-        Shape = shape;
+        Kind = kind;
         Terminals = declared;
     }
 
-    public SectionSemanticShape Shape { get; }
+    public SectionCardinalityKind Kind { get; }
 
     public ImmutableArray<SectionTerminalCapability> Terminals { get; }
 }

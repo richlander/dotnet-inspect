@@ -764,7 +764,9 @@ public sealed class TypeMemberGroupPopulationInspectionOperationTests
                 count: new()),
             TypeMemberGroupPopulationInspectionRejection.TypeNotFound);
 
-        byte[] duplicate = BuildDuplicateTypeImage();
+        byte[] duplicate =
+            LibraryInspectionTestLibrary.BuildMetadataImage(
+                duplicatePublicType: true);
         await using LibraryInspectionTestLibrary ambiguous =
             await LibraryInspectionTestLibrary.CreateAsync(
                 duplicate,
@@ -955,47 +957,4 @@ public sealed class TypeMemberGroupPopulationInspectionOperationTests
                     [.. segments]))
             .Name;
 
-    private static byte[] BuildDuplicateTypeImage()
-    {
-        var metadata = new MetadataBuilder();
-        metadata.AddModule(
-            0,
-            metadata.GetOrAddString("DuplicateTypes.dll"),
-            metadata.GetOrAddGuid(Guid.NewGuid()),
-            default,
-            default);
-        metadata.AddAssembly(
-            metadata.GetOrAddString("DuplicateTypes"),
-            new Version(1, 0, 0, 0),
-            default,
-            default,
-            default,
-            default);
-        metadata.AddTypeDefinition(
-            TypeAttributes.NotPublic,
-            default,
-            metadata.GetOrAddString("<Module>"),
-            default,
-            MetadataTokens.FieldDefinitionHandle(1),
-            MetadataTokens.MethodDefinitionHandle(1));
-        for (int i = 0; i < 2; i++)
-        {
-            metadata.AddTypeDefinition(
-                TypeAttributes.Public,
-                metadata.GetOrAddString("N"),
-                metadata.GetOrAddString("C"),
-                default,
-                MetadataTokens.FieldDefinitionHandle(1),
-                MetadataTokens.MethodDefinitionHandle(1));
-        }
-
-        var peBuilder = new ManagedPEBuilder(
-            PEHeaderBuilder.CreateLibraryHeader(),
-            new MetadataRootBuilder(metadata),
-            new BlobBuilder(),
-            flags: CorFlags.ILOnly);
-        var image = new BlobBuilder();
-        peBuilder.Serialize(image);
-        return image.ToArray();
-    }
 }
