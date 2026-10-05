@@ -60,6 +60,7 @@ public class DiffOptionsParserTests
         var analysisOption = new Option<string[]>("--analysis") { AllowMultipleArgumentsPerToken = false };
         var legendOption = new Option<bool>("--legend");
         var compactOption = new Option<bool>("--compact");
+        var annotatedSourceIlOption = new Option<bool>("--il");
 
         diffCommand.Arguments.Add(argsArg);
         diffCommand.Options.Add(packageOption);
@@ -93,6 +94,7 @@ public class DiffOptionsParserTests
         diffCommand.Options.Add(analysisOption);
         diffCommand.Options.Add(legendOption);
         diffCommand.Options.Add(compactOption);
+        diffCommand.Options.Add(annotatedSourceIlOption);
         diffCommand.Options.Add(opts.Envelope);
         opts.AddOutputOptionsTo(diffCommand);
         opts.AddNuGetOptionsTo(diffCommand);
@@ -108,7 +110,7 @@ public class DiffOptionsParserTests
             implementationOption,
             historyOption, atOption, maxProbesOption, samplePercentOption, majorVersionsOption, prereleaseOption, countOption,
             typeFilterOption, memberFilterOption, opts.NoHeaders, nameOnlyOption, breakingOption, additiveOption,
-            changedOption, allocRegressionsOption, pdbSourceOption, legacyAuthoredSourceOption, findingOption, analysisOption, legendOption, repoOption, compactOption);
+            changedOption, allocRegressionsOption, pdbSourceOption, legacyAuthoredSourceOption, findingOption, analysisOption, legendOption, repoOption, compactOption, annotatedSourceIlOption);
 
         return (root, opts, args);
     }
@@ -222,6 +224,17 @@ public class DiffOptionsParserTests
         Assert.Equal(
             ["Analysis Diff", "Implementation Diff"],
             Assert.IsType<string[]>(options.Select));
+    }
+
+    [Fact]
+    public void IlOptionRequestsAnnotatedSourceIlMedium()
+    {
+        DiffOptions options = ParseSuccess(
+            "diff",
+            "--package", "Example@1.0.0..2.0.0",
+            "--il");
+
+        Assert.True(options.IncludeAnnotatedSourceIl);
     }
 
     [Fact]

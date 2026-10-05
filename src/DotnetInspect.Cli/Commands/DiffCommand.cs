@@ -121,6 +121,8 @@ public partial class DiffCommand
         }
         implementationTransport =
             RequestsCompleteImplementationDiff(options);
+        bool annotatedSourceTransport =
+            SelectsAnnotatedSourceDiff(options);
         var hasPlatform = !string.IsNullOrEmpty(options.PlatformVersionRange);
         var hasPackage = !string.IsNullOrEmpty(options.PackageVersionRange);
         var hasLibrary = !string.IsNullOrEmpty(options.LibraryVersionRange);
@@ -129,6 +131,31 @@ public partial class DiffCommand
             CommandError.Write(
                 "Complete Implementation Diff transport currently requires "
                     + "one local --library pair.");
+            return 1;
+        }
+        if (options.IncludeAnnotatedSourceIl
+            && !annotatedSourceTransport)
+        {
+            CommandError.Write(
+                "--il requires -S \"Annotated Source Diff\".");
+            return 1;
+        }
+        if (annotatedSourceTransport
+            && (!options.JsonOutput
+                || options.EnvelopeOutput
+                || !hasPackage
+                || hasPlatform
+                || hasLibrary
+                || options.IncludeSections?.SetEquals(
+                    [DiffSections.AnnotatedSourceDiff.Name]) != true
+                || options.ExactIncludeSections?.SetEquals(
+                    [DiffSections.AnnotatedSourceDiff.Name]) != true
+                || HasIncompatibleAnnotatedSourceDiffProjection(options)))
+        {
+            CommandError.Write(
+                "Annotated Source Diff requires one exact package Type and "
+                    + "Member, -S \"Annotated Source Diff\", and --json; "
+                    + "other sections, projections, and sources are not supported.");
             return 1;
         }
 
@@ -202,6 +229,7 @@ public partial class DiffCommand
         }
         if (transportOption is not null
             && !analysisTransport
+            && !annotatedSourceTransport
             && ((!implementationTransport
                     && options.HasContentProjection)
                 || implementationTransport
@@ -321,6 +349,15 @@ public partial class DiffCommand
 
             try
             {
+                if (annotatedSourceTransport)
+                {
+                    return await ExecuteAnnotatedSourceDiffAsync(
+                        inputs,
+                        options,
+                        context,
+                        logger,
+                        cancellationToken);
+                }
                 if (analysisPlan is not null)
                     return ExecuteAnalysisSet(inputs, options, analysisPlan);
                 if (transportOption is not null
@@ -978,6 +1015,10 @@ public partial class DiffCommand
     private static bool SelectsImplementationDiff(DiffOptions options)
         => options.IncludeSections?.Contains(DiffSections.ImplementationDiff.Name) == true;
 
+    private static bool SelectsAnnotatedSourceDiff(DiffOptions options)
+        => options.IncludeSections?.Contains(
+            DiffSections.AnnotatedSourceDiff.Name) == true;
+
     private static bool SelectsComplexityContext(DiffOptions options)
         => options.IncludeSections?.Contains(DiffSections.ComplexityContext.Name) == true;
 
@@ -1037,6 +1078,31 @@ public partial class DiffCommand
             || options.AllocRegressionsOnly
             || options.Legend
             || options.EnvelopeOutput && options.JsonOutput;
+
+    private static bool HasIncompatibleAnnotatedSourceDiffProjection(
+        DiffOptions options)
+        => options.Breaking
+            || options.Additive
+            || options.SelectDefault
+            || options.Columns is not null
+            || options.Fields is not null
+            || options.Rows is not null
+            || options.Tabular
+            || options.Tsv
+            || options.Jsonl
+            || options.NoHeader
+            || options.NameOnly
+            || options.Tree
+            || options.VerbosityExplicitlySet
+            || options.Discover is not null
+            || options.Schema
+            || options.Analysis is not null
+            || options.IncludePdbSource
+            || options.SourceRepositories.Length > 0
+            || options.ChangedOnly
+            || options.AllocRegressionsOnly
+            || options.Legend
+            || options.EnvelopeOutput;
 
     private static bool HasIncompatibleAnalysisTransportProjection(
         DiffOptions options)
@@ -2936,7 +3002,8 @@ public partial class DiffCommand
             DiffOptions options)
     {
         if (options.PackageVersionRange is null
-            || !SelectsImplementationDiff(options)
+            || !(SelectsImplementationDiff(options)
+                || SelectsAnnotatedSourceDiff(options))
             || options.MemberFilter.Count != 1
             || options.TypeFilter.Count != 1
             || options.IncludePdbSource
@@ -2987,6 +3054,114 @@ public partial class DiffCommand
             selector,
             $"{typeName}.{selector.RequestedText}");
     }
+
+    static async Task<int> ExecuteAnnotatedSourceDiffAsync(
+        DiffInputs inputs,
+        DiffOptions options,
+        CommandContext context,
+        VerboseLogger logger,
+        CancellationToken cancellationToken)
+    {
+        WorkspaceImplementationTarget? target =
+            TryCreateWorkspaceImplementationTarget(inputs, options);
+        if (target is null)
+        {
+            CommandError.Write(
+                "Annotated Source Diff requires exactly one resolvable Type, "
+                    + "one Member selector, and one package-root assembly at "
+                    + "each endpoint.");
+            return 1;
+        }
+
+        AnnotatedSourceDiffDocumentQueryResult result =
+            await WorkspaceImplementationComparisonRunner
+                .ExecuteAnnotatedSourceDiffAsync(
+                    inputs.From.AssemblySet,
+                    inputs.To.AssemblySet,
+                    inputs.Name,
+                    target.DeclaringType,
+                    target.Selector,
+                    options.IncludeAnnotatedSourceIl,
+                    context.HttpClient,
+                    options.SourceOptions,
+                    context.CreatePackageSourceComposition,
+                    logger.Log,
+                    cancellationToken);
+        switch (result)
+        {
+            case AnnotatedSourceDiffDocumentQueryResult.Published published:
+                Console.WriteLine(
+                    AnnotatedSourceDiffJson.Serialize(
+                        published.Document,
+                        indented: !options.CompactJson));
+                return published.Document.Before.Outcome
+                        is AnnotatedSourceDiffSideOutcomeKind.Failed
+                            or AnnotatedSourceDiffSideOutcomeKind.Unavailable
+                            or AnnotatedSourceDiffSideOutcomeKind.NotApplicable
+                    || published.Document.After.Outcome
+                        is AnnotatedSourceDiffSideOutcomeKind.Failed
+                            or AnnotatedSourceDiffSideOutcomeKind.Unavailable
+                            or AnnotatedSourceDiffSideOutcomeKind.NotApplicable
+                        ? 1
+                        : 0;
+            case AnnotatedSourceDiffDocumentQueryResult.Absent:
+                CommandError.Write(
+                    "The selected Member is absent from both package endpoints.");
+                return 1;
+            case AnnotatedSourceDiffDocumentQueryResult.Unavailable unavailable:
+                CommandError.Write(
+                    "Annotated Source Diff is unavailable: "
+                        + unavailable.Reason + ".");
+                return 1;
+            case AnnotatedSourceDiffDocumentQueryResult.PreparationFailed failed:
+                CommandError.Write(
+                    "Annotated Source Diff preparation failed: "
+                        + DescribePreparationFailure(failed.Failure));
+                return 1;
+            case AnnotatedSourceDiffDocumentQueryResult.Cancelled:
+                cancellationToken.ThrowIfCancellationRequested();
+                CommandError.Write("Annotated Source Diff was cancelled.");
+                return 1;
+            default:
+                throw new InvalidOperationException(
+                    "Unknown Annotated Source diff query result.");
+        }
+    }
+
+    static string DescribePreparationFailure(
+        WorkspaceImplementationComparisonResult failure)
+        => failure switch
+        {
+            WorkspaceImplementationComparisonResult.PopulationRejected rejected =>
+                $"{rejected.Rejection}",
+            WorkspaceImplementationComparisonResult.ParticipantImageUnavailable
+                unavailable =>
+                $"{unavailable.Side} participant "
+                    + $"{unavailable.Assembly.Name}: "
+                    + unavailable.Failure,
+            WorkspaceImplementationComparisonResult.ProjectionRejected rejected =>
+                $"{rejected.Rejection}",
+            WorkspaceImplementationComparisonResult.AdmissionRejected rejected =>
+                $"{rejected.Rejection}",
+            WorkspaceImplementationComparisonResult.PlanningRejected rejected =>
+                $"{rejected.Rejection}",
+            WorkspaceImplementationComparisonResult.CompositionUnavailable
+                unavailable =>
+                $"{unavailable.Side} composition: "
+                    + unavailable.Result.Reason,
+            WorkspaceImplementationComparisonResult.CompositionRejected rejected =>
+                $"{rejected.Side} composition: "
+                    + rejected.Result.Reason,
+            WorkspaceImplementationComparisonResult.HandoffFailed handoff =>
+                $"target handoff: {handoff.Kind}",
+            WorkspaceImplementationComparisonResult.Cancelled =>
+                "cancelled",
+            WorkspaceImplementationComparisonResult.Published =>
+                throw new InvalidOperationException(
+                    "A published comparison is not a preparation failure."),
+            _ => throw new InvalidOperationException(
+                "Unknown workspace comparison failure."),
+        };
 
     internal static WorkspaceImplementationTypeSelection?
         ResolveWorkspaceImplementationTypeName(
@@ -3410,6 +3585,7 @@ public record DiffOptions : IProjectionOptions
     public bool JsonOutput { get; init; }
     public bool EnvelopeOutput { get; init; }
     public bool CompactJson { get; init; }
+    public bool IncludeAnnotatedSourceIl { get; init; }
     public bool VerbosityExplicitlySet { get; init; }
     public bool HasRenderedLineWindow { get; init; }
     public bool TabularExplicitlySet { get; init; }

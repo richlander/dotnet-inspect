@@ -117,6 +117,11 @@ public static class InspectionCommandDefinitions
             [.. DiffAnalysisCommandCapability.Identities]);
         var legendOption = new Option<bool>("--legend") { Description = "Show legend explaining change symbols" };
         var compactOption = new Option<bool>("--compact") { Description = "Minified complete Diff JSON (use with unprojected --json or --envelope)" };
+        var annotatedSourceIlOption = new Option<bool>("--il")
+        {
+            Description =
+                "Annotated Source Diff only: include IL beside the default C# comparison",
+        };
 
 #if DEBUG
         var evidenceEnvelopeOption =
@@ -161,6 +166,7 @@ public static class InspectionCommandDefinitions
         diffCommand.Options.Add(opts.RowWhere);
         diffCommand.Options.Add(legendOption);
         diffCommand.Options.Add(compactOption);
+        diffCommand.Options.Add(annotatedSourceIlOption);
 #if DEBUG
         diffCommand.Options.Add(evidenceEnvelopeOption);
         diffCommand.Validators.Add(result =>
@@ -297,7 +303,7 @@ public static class InspectionCommandDefinitions
             argsArg, packageOption, platformOption, libraryOption, frameworkOption, tfmOption, allOption,
             implementationOption,
             historyOption, atOption, maxProbesOption, samplePercentOption, majorVersionsOption, prereleaseOption, opts.Count,
-            typeFilterOption, memberFilterOption, opts.NoHeaders, nameOnlyOption, breakingOption, additiveOption, changedOption, allocRegressionsOption, pdbSourceOption, legacyAuthoredSourceOption, findingOption, analysisOption, legendOption, repoOption, compactOption);
+            typeFilterOption, memberFilterOption, opts.NoHeaders, nameOnlyOption, breakingOption, additiveOption, changedOption, allocRegressionsOption, pdbSourceOption, legacyAuthoredSourceOption, findingOption, analysisOption, legendOption, repoOption, compactOption, annotatedSourceIlOption);
 
         diffCommand.SetAction(async (parseResult, ct) =>
         {

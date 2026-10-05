@@ -23,13 +23,80 @@ internal static class WorkspaceImplementationComparisonRunner
         Func<DesktopPackageSourceComposition>? createComposition = null,
         Action<string>? log = null,
         CancellationToken cancellationToken = default)
+        => await ExecuteWithSidesAsync(
+            before,
+            after,
+            packageName,
+            declaringType,
+            httpClient,
+            sourceOptions,
+            createComposition,
+            log,
+            (beforeSide, afterSide) =>
+                WorkspaceImplementationComparisonQuery.Execute(
+                    new(
+                        beforeSide,
+                        afterSide,
+                        declaringType,
+                        selector,
+                        ResearchProducerCatalog.Kinds),
+                    cancellationToken),
+            cancellationToken);
+
+    internal static async Task<AnnotatedSourceDiffDocumentQueryResult>
+        ExecuteAnnotatedSourceDiffAsync(
+        AssemblySet before,
+        AssemblySet after,
+        string packageName,
+        MetadataTypeDefinitionName declaringType,
+        MemberTargetSelector selector,
+        bool includeIl,
+        HttpClient httpClient,
+        NuGetSourceOptions? sourceOptions = null,
+        Func<DesktopPackageSourceComposition>? createComposition = null,
+        Action<string>? log = null,
+        CancellationToken cancellationToken = default)
+        => await ExecuteWithSidesAsync(
+            before,
+            after,
+            packageName,
+            declaringType,
+            httpClient,
+            sourceOptions,
+            createComposition,
+            log,
+            (beforeSide, afterSide) =>
+                AnnotatedSourceDiffDocumentQuery.Execute(
+                    new(
+                        beforeSide,
+                        afterSide,
+                        declaringType,
+                        selector,
+                        includeIl),
+                    cancellationToken),
+            cancellationToken);
+
+    static async Task<TResult> ExecuteWithSidesAsync<TResult>(
+        AssemblySet before,
+        AssemblySet after,
+        string packageName,
+        MetadataTypeDefinitionName declaringType,
+        HttpClient httpClient,
+        NuGetSourceOptions? sourceOptions,
+        Func<DesktopPackageSourceComposition>? createComposition,
+        Action<string>? log,
+        Func<
+            WorkspaceImplementationComparisonSide,
+            WorkspaceImplementationComparisonSide,
+            TResult> execute,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(before);
         ArgumentNullException.ThrowIfNull(after);
         ArgumentException.ThrowIfNullOrWhiteSpace(packageName);
         ArgumentNullException.ThrowIfNull(declaringType);
-        ArgumentNullException.ThrowIfNull(selector);
         ArgumentNullException.ThrowIfNull(httpClient);
+        ArgumentNullException.ThrowIfNull(execute);
 
         await using var workspace = new InspectionWorkspace();
         var ownedTemporaryDirectories = new List<string>();
@@ -60,20 +127,15 @@ internal static class WorkspaceImplementationComparisonRunner
                 cancellationToken);
             using AssemblyContextGroup afterGroup = afterSide.Group;
 
-            return WorkspaceImplementationComparisonQuery.Execute(
+            return execute(
                 new(
-                    new(
-                        beforeGroup,
-                        beforeSide.Root,
-                        beforeSide.Bindings),
-                    new(
-                        afterGroup,
-                        afterSide.Root,
-                        afterSide.Bindings),
-                    declaringType,
-                    selector,
-                    ResearchProducerCatalog.Kinds),
-                cancellationToken);
+                    beforeGroup,
+                    beforeSide.Root,
+                    beforeSide.Bindings),
+                new(
+                    afterGroup,
+                    afterSide.Root,
+                    afterSide.Bindings));
         }
         finally
         {
