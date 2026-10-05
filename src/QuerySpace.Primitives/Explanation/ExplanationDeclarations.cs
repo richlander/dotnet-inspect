@@ -383,6 +383,7 @@ public sealed record ExplanationFactDeclaration
             maximumValueCount);
         ValidateStates(
             admittedStates,
+            cardinality,
             unavailableDataShape,
             failureDataShape);
         Identity = identity;
@@ -416,6 +417,7 @@ public sealed record ExplanationFactDeclaration
 
     internal static void ValidateStates(
         ExplanationObservationStates states,
+        ExplanationCardinality cardinality,
         ExplanationDataShapeIdentity? unavailableDataShape,
         ExplanationDataShapeIdentity? failureDataShape)
     {
@@ -440,6 +442,13 @@ public sealed record ExplanationFactDeclaration
             throw new ArgumentException(
                 "Unavailable and failed states each require exactly one "
                 + "typed outcome-data shape.");
+        }
+        if (states.HasFlag(ExplanationObservationStates.Absent)
+            && cardinality != ExplanationCardinality.OptionalOne)
+        {
+            throw new ArgumentException(
+                "Absent observations require optional-one cardinality.",
+                nameof(states));
         }
     }
 }
@@ -469,6 +478,7 @@ public sealed record ExplanationRelationshipDeclaration
             throw new ArgumentOutOfRangeException(nameof(cardinality));
         ExplanationFactDeclaration.ValidateStates(
             admittedStates,
+            cardinality,
             unavailableDataShape,
             failureDataShape);
         Identity = identity;

@@ -695,7 +695,7 @@ internal static class ResourceExplanationVocabulary
                     displayName,
                     $"The optional {displayName.ToLowerInvariant()} fact.",
                     TextShape,
-                    ExplanationCardinality.RequiredOne,
+                    ExplanationCardinality.OptionalOne,
                     ExplanationObservationStates.Available
                         | ExplanationObservationStates.Absent);
 

@@ -1561,7 +1561,7 @@ public sealed class ResourceExplanationCatalog
         {
             resourceTypes.Add(relationship.Source.ResourceType);
             ExplanationRelationshipDeclaration declaration =
-                ResourceExplanationVocabulary.ResourceType(
+                ResourceType(
                     relationship.Source.ResourceType).Relationships.Single(
                         candidate =>
                             candidate.Identity
@@ -1596,8 +1596,7 @@ public sealed class ResourceExplanationCatalog
             if (selectedResources.ContainsKey(type))
                 continue;
             ExplanationResourceTypeDeclaration original =
-                _schemas.SelectMany(static schema => schema.ResourceTypes)
-                    .Single(resource => resource.Identity == type);
+                ResourceType(type);
             selectedResources.Add(type, original);
             AddShape(original.IdentityShape);
             foreach (ExplanationFactDeclaration fact in original.Facts)
@@ -1702,6 +1701,11 @@ public sealed class ResourceExplanationCatalog
                     break;
             }
         }
+
+        ExplanationResourceTypeDeclaration ResourceType(
+            ExplanationResourceTypeIdentity identity) =>
+            _schemas.SelectMany(static schema => schema.ResourceTypes)
+                .Single(resource => resource.Identity == identity);
     }
 
     private static ProjectedRelationships ProjectRelationships(

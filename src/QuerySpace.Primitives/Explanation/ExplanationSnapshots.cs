@@ -478,7 +478,7 @@ public static class ExplanationConformance
         switch (observation.State)
         {
             case ExplanationObservationState.Available:
-                ValidateCardinality(
+                ValidateAvailableCardinality(
                     declaration.Cardinality,
                     declaration.MaximumValueCount,
                     observation.Values.Length);
@@ -518,7 +518,7 @@ public static class ExplanationConformance
         switch (observation.State)
         {
             case ExplanationObservationState.Available:
-                ValidateCardinality(
+                ValidateAvailableCardinality(
                     declaration.Cardinality,
                     maximumValueCount: null,
                     observation.Targets.Length);
@@ -797,6 +797,21 @@ public static class ExplanationConformance
             throw new InvalidOperationException(
                 $"Observed count '{count}' does not conform to "
                 + $"cardinality '{cardinality}'.");
+        }
+    }
+
+    private static void ValidateAvailableCardinality(
+        ExplanationCardinality cardinality,
+        int? maximumValueCount,
+        int count)
+    {
+        ValidateCardinality(cardinality, maximumValueCount, count);
+        if (cardinality == ExplanationCardinality.OptionalOne
+            && count == 0)
+        {
+            throw new InvalidOperationException(
+                "An available optional-one observation must carry one "
+                + "value or target; use Absent when none exists.");
         }
     }
 

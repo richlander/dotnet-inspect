@@ -135,6 +135,107 @@ public sealed class ExplanationPrimitivesTests
     }
 
     [Fact]
+    public void ObservationDeclaration_AbsentRequiresOptionalOne()
+    {
+        Assert.Throws<ArgumentException>(() =>
+            new ExplanationFactDeclaration(
+                NameFact,
+                "Name",
+                "The node name.",
+                TextShape,
+                ExplanationCardinality.RequiredOne,
+                ExplanationObservationStates.Available
+                    | ExplanationObservationStates.Absent));
+        Assert.Throws<ArgumentException>(() =>
+            new ExplanationRelationshipDeclaration(
+                Children,
+                "Children",
+                "Child nodes.",
+                ResourceType,
+                ExplanationCardinality.OrderedMany,
+                ExplanationObservationStates.Available
+                    | ExplanationObservationStates.Absent));
+    }
+
+    [Fact]
+    public void OptionalObservation_UsesAbsentInsteadOfAvailableEmpty()
+    {
+        ExplanationSchema schema = CreateSchema(
+            new(
+                maximumCanonicalByteCount: 4096,
+                maximumDepth: 8,
+                maximumNodeCount: 32),
+            nameCardinality: ExplanationCardinality.OptionalOne,
+            nameStates: ExplanationObservationStates.Available
+                | ExplanationObservationStates.Absent,
+            childrenCardinality: ExplanationCardinality.OptionalOne,
+            childrenStates: ExplanationObservationStates.Available
+                | ExplanationObservationStates.Absent);
+        ExplanationResourceKey key = Key(1);
+        var address = new ExplanationPublicAddress(
+            AddressKind,
+            Text("nodes/1"));
+        var children = new ExplanationRelationshipObservation(
+            Children,
+            ExplanationObservationState.Available,
+            []);
+
+        Assert.Throws<InvalidOperationException>(() =>
+            ExplanationConformance.CreateSnapshot(
+                [schema],
+                key,
+                Version,
+                ExplanationSnapshotScope.Installed,
+                [address],
+                [
+                    new(
+                        NameFact,
+                        ExplanationObservationState.Available,
+                        []),
+                ],
+                [children]));
+
+        Assert.Throws<InvalidOperationException>(() =>
+            ExplanationConformance.CreateSnapshot(
+                [schema],
+                key,
+                Version,
+                ExplanationSnapshotScope.Installed,
+                [address],
+                [
+                    new(
+                        NameFact,
+                        ExplanationObservationState.Absent),
+                ],
+                [children]));
+
+        ExplanationResourceSnapshot snapshot =
+            ExplanationConformance.CreateSnapshot(
+                [schema],
+                key,
+                Version,
+                ExplanationSnapshotScope.Installed,
+                [address],
+                [
+                    new(
+                        NameFact,
+                        ExplanationObservationState.Absent),
+                ],
+                [
+                    new(
+                        Children,
+                        ExplanationObservationState.Absent),
+                ]);
+
+        Assert.Equal(
+            ExplanationObservationState.Absent,
+            Assert.Single(snapshot.Facts).State);
+        Assert.Equal(
+            ExplanationObservationState.Absent,
+            Assert.Single(snapshot.Relationships).State);
+    }
+
+    [Fact]
     public void UnavailableRelationship_CarriesOutcomeDataAndNoTargets()
     {
         ExplanationDataShapeIdentity outcomeShape =
@@ -178,7 +279,15 @@ public sealed class ExplanationPrimitivesTests
     private static ExplanationSchema CreateSchema(
         ExplanationValueBudget nodeBudget,
         ExplanationDataShapeIdentity? outcomeShape = null,
-        ExplanationRelationshipIdentity? optionalRelationship = null)
+        ExplanationRelationshipIdentity? optionalRelationship = null,
+        ExplanationCardinality nameCardinality =
+            ExplanationCardinality.RequiredOne,
+        ExplanationObservationStates nameStates =
+            ExplanationObservationStates.Available,
+        ExplanationCardinality childrenCardinality =
+            ExplanationCardinality.OrderedMany,
+        ExplanationObservationStates childrenStates =
+            ExplanationObservationStates.Available)
     {
         var shapes = new List<ExplanationDataShapeDeclaration>
         {
@@ -240,8 +349,8 @@ public sealed class ExplanationPrimitivesTests
                     "Children",
                     "Child nodes.",
                     ResourceType,
-                    ExplanationCardinality.OrderedMany,
-                    ExplanationObservationStates.Available),
+                    childrenCardinality,
+                    childrenStates),
             };
         if (optionalRelationship is { } optional)
         {
@@ -279,8 +388,8 @@ public sealed class ExplanationPrimitivesTests
                             "Name",
                             "The node name.",
                             TextShape,
-                            ExplanationCardinality.RequiredOne,
-                            ExplanationObservationStates.Available),
+                            nameCardinality,
+                            nameStates),
                     ],
                     relationships,
                     [AddressKind]),

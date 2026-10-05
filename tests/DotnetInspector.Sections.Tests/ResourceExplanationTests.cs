@@ -410,7 +410,7 @@ public class ResourceExplanationTests
     }
 
     [Fact]
-    public void SchemaDeclarationCount_IncludesSchemasFieldsAndCases()
+    public void SchemaDeclarationCount_IncludesComposedRelationships()
     {
         var baseSchemas = StructuralCatalog().Schemas;
         ExplanationSchema core = baseSchemas.Single(
@@ -433,10 +433,14 @@ public class ResourceExplanationTests
         var @case = new ExplanationChoiceCaseIdentity(choiceShape, "value");
         var resourceType =
             new ExplanationResourceTypeIdentity(schemaIdentity, "resource");
+        var targetType =
+            new ExplanationResourceTypeIdentity(schemaIdentity, "target");
         var recordFact =
             new ExplanationFactIdentity(resourceType, "record");
         var choiceFact =
             new ExplanationFactIdentity(resourceType, "choice");
+        var relationship =
+            new ExplanationRelationshipIdentity(resourceType, "target");
         var budget = new ExplanationValueBudget(4096, 4, 16);
         var schema =
             new ExplanationSchema(
@@ -491,6 +495,21 @@ public class ResourceExplanationTests
                                 ExplanationCardinality.RequiredOne,
                                 ExplanationObservationStates.Available),
                         ],
+                        [
+                            new(
+                                relationship,
+                                "Target",
+                                "An available-empty target relationship.",
+                                targetType,
+                                ExplanationCardinality.OrderedMany,
+                                ExplanationObservationStates.Available),
+                        ],
+                        [pathKind]),
+                    new ExplanationResourceTypeDeclaration(
+                        targetType,
+                        "Target",
+                        "One target resource.",
+                        textShape,
                         addressKinds: [pathKind]),
                 ]);
         ExplanationResourceKey key =
@@ -523,7 +542,12 @@ public class ResourceExplanationTests
                                 ExplanationText("choice")),
                         ]),
                 ],
-                []);
+                [
+                    new(
+                        relationship,
+                        ExplanationObservationState.Available,
+                        []),
+                ]);
         ResourceExplanationCatalog catalog =
             ResourceExplanationCatalog.Create(
                 [.. baseSchemas, schema],
@@ -540,7 +564,7 @@ public class ResourceExplanationTests
                     relationshipLimit: 1))
                 .Content;
 
-        Assert.Equal(11, document.Traversal.EmittedSchemaDeclarationCount);
+        Assert.Equal(13, document.Traversal.EmittedSchemaDeclarationCount);
         Assert.Throws<InvalidOperationException>(() =>
             catalog.Explain(
                 resolved,
@@ -548,7 +572,42 @@ public class ResourceExplanationTests
                     depth: 0,
                     resourceLimit: 1,
                     relationshipLimit: 1,
-                    schemaDeclarationLimit: 10)));
+                    schemaDeclarationLimit: 12)));
+    }
+
+    [Fact]
+    public void OptionalStructuralFactsDeclareOptionalOne()
+    {
+        ResourceExplanationCatalog catalog = StructuralCatalog();
+        var resolved = Assert.IsType<ResourcePathResolution.Resolved>(
+            catalog.Resolve("library/sections/references"));
+        ResourceExplanationDocument document =
+            catalog.Explain(
+                resolved,
+                new(
+                    depth: 0,
+                    resourceLimit: 1,
+                    relationshipLimit: 100))
+                .Content;
+        ResourceExplanationResource root =
+            Assert.Single(document.Resources);
+
+        ExplanationResourceTypeDeclaration declaration =
+            document.Schemas
+                .SelectMany(static schema => schema.ResourceTypes)
+                .Single(static resource =>
+                    resource.Identity.Value == "structural-section");
+        foreach (string factName in new[] { "shape", "cardinality" })
+        {
+            Assert.Equal(
+                ExplanationObservationState.Absent,
+                root.Facts.Single(fact =>
+                    fact.Fact.Value == factName).State);
+            Assert.Equal(
+                ExplanationCardinality.OptionalOne,
+                declaration.Facts.Single(fact =>
+                    fact.Identity.Value == factName).Cardinality);
+        }
     }
 
     [Fact]
