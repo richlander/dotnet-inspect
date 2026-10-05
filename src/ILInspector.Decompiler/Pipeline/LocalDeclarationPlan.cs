@@ -446,7 +446,7 @@ internal sealed class LocalDeclarationPlan
                         }
                     }
                     break;
-                case Fixed { LocalIsStackSlot: false } pin:
+                case Fixed pin:
                     _fixedLocals.Add(pin.LocalIndex);
                     break;
                 case CatchClause { VariableIndex: { } local }:
@@ -801,7 +801,7 @@ internal sealed class LocalDeclarationPlan
                 } resource:
                     AddOwned(resource.LocalIndex, resource);
                     break;
-                case Fixed { LocalIsStackSlot: false } pin:
+                case Fixed pin:
                     AddOwned(pin.LocalIndex, pin);
                     break;
                 case CatchClause clause:

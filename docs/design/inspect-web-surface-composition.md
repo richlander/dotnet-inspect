@@ -1011,14 +1011,25 @@ an inset reference-section heading. The subject path retains navigation context.
 
 ```text
 References                                  direct reference count or state
+direct AssemblyRef graph
 reference names, versions, cultures, and public-key tokens
 Library asset and assembly identity              TFM · package@version
 ```
 
-One independently scrolling region begins with the reference rows and uses the
-available width. The quiet header and bottom context remain in place while the
-list scrolls. Full Library assembly identity and asset path remain available in
-the footer rather than being discarded with the old heading.
+One independently scrolling region begins with a bounded one-hop AssemblyRef
+graph and follows it with the complete reference rows. The graph uses the
+existing shared Mermaid viewport and pan/zoom controls, keeps the selected
+assembly as its root, and projects only the direct references already returned
+by the Library query. It performs no additional acquisition or transitive
+inference. The preview is capped at 80 total nodes; when a Library exceeds that
+bound, the graph reports its shown count and the complete list remains
+authoritative immediately below it.
+
+The graph and list use the available width. The quiet header and bottom context
+remain in place while the content scrolls. Full Library assembly identity and
+asset path remain available in the footer rather than being discarded with the
+old heading. This follows the Package Dependencies composition: structural
+graph first, complete direct-answer list second.
 
 Loading, query failure, inspection failure, and successful zero-reference results
 retain the same frame and remain visibly distinct. Existing Library selection,
@@ -1026,17 +1037,19 @@ query freshness, direct AssemblyRef semantics, counts, order, and field values
 are unchanged.
 
 At narrow widths the existing Types return control shares the quiet header.
-Reference names and identity fields wrap within rows; header status and footer
-values may elide as complete strings with their full text retained. Long values
-and many rows create local scrolling, not page-level horizontal overflow.
+The graph uses the constrained inline height at narrow widths. Reference names
+and identity fields wrap within rows; header status and footer values may elide
+as complete strings with their full text retained. Long values and many rows
+create local scrolling, not page-level horizontal overflow.
 
 The browser-only presentation scope was explicitly approved for
 [the one-step adoption tracker](https://github.com/richlander/dotnet-inspect/issues/6165).
 Its one production consumer is Library References; adoption retires only that
 consumer's generic hero and inset reference section. Browser HTML lowering
 continues over the existing typed `BrowserPackageDependencies` reference result.
-This is a placement change, not a new query or rendering architecture. Metadata
-and Package Dependencies are the local composition precedents.
+This remains a browser-only projection over the existing query rather than a
+new query or rendering architecture. Metadata and Package Dependencies are the
+local composition precedents.
 
 Focused renderer and production-composition browser gates cover wide/narrow
 geometry, long names and identities, many/zero rows, pending and failed results,
@@ -1046,17 +1059,18 @@ separate work.
 ### Library Analysis
 
 The Library inspector order is **Overview**, **References**, **Compare**,
-**Analysis**, and **Metadata**. Analysis contains direct **Performance**,
-**Integrations**, **Opportunities**, and **Metrics** tabs, following Compare's
-single-inspector mode composition. Integrations and Metrics are not separate
+**Analysis**, and **Metadata**. Analysis contains direct **Relationships**,
+**Complexity**, **Performance**, and **Integrations** tabs, following
+Compare's single-inspector mode composition. These modes are not separate
 persistent inspectors.
 
-Performance is the default. The selected tab is session-local Browser
+Relationships is the default. The selected tab is session-local Browser
 presentation state and preserves the selected Library. Only the selected tab
-starts its existing query; cached results retain their existing
+starts its existing query work; cached results retain their existing
 Library/coordinate freshness checks. Each mode keeps its own loading, failure,
-partial, empty, and available outcomes. No mode combines evidence or infers an
-outcome from another.
+partial, empty, and available outcomes. Integrations presents its detected and
+suggested evidence together while preserving the independent completion and
+failure state of each source.
 
 Tabs use manual activation: Left/Right and Home/End move focus, Enter/Space
 select, and rerenders preserve focused-tab identity. The selected tab labels the
@@ -1071,7 +1085,7 @@ existing Types control occupies the title's place and the tabs use the second
 header row.
 
 ```text
-Analysis  count/state   [Performance]  Integrations  Opportunities  Metrics
+Analysis  count/state   [Relationships]  Complexity  Performance  Integrations
 optional platform Library selector
 mode-owned content
 Library asset and assembly identity              TFM · package@version
@@ -1079,12 +1093,15 @@ Library asset and assembly identity              TFM · package@version
 
 Performance retains product triage order, opportunity and loop counts, shape
 and confidence labels, and stable-selector Member navigation. Integrations
-retains category order, type-first signal sorting, badges, and counts.
-Opportunities retains Type navigation, suggested-package loading, "look for"
-search actions, and source identity. Metrics retains the Research-issued
-Complexity Explorer and Relationship Crossing views. Structural salience does
-not render in Metrics; its Browser presentation belongs to the ordinary Type
-inventory defined by
+merges detected signals and suggested integrations into one category-ordered
+list. It retains type-first signal sorting, badges, and counts together with
+Type navigation, suggested-package loading, "look for" search actions, and
+source identity. Either evidence source may populate independently, and a
+failure or partial result from one remains visible without hiding results from
+the other. Complexity and Relationships retain the Research-issued Complexity
+Explorer and Relationship Crossing views. Structural salience does not render
+in these modes; its Browser presentation belongs to the ordinary Type inventory
+defined by
 [Library structural report](library-structural-report.md#browserwasm).
 
 The platform selector stays above scrolling results and keeps its existing
@@ -1093,9 +1110,9 @@ and package/version/framework context. Browser HTML lowering consumes the
 existing typed mode results; no producer, query, acquisition, CLI section, or
 result contract changes.
 
-Focused renderer and production-composition browser gates cover all four direct
-tabs, lazy loading, focus retention across asynchronous completion, wide/narrow
-layout, Library switching, row actions, and platform controls.
+Focused renderer and production-composition browser gates cover all four
+direct tabs, lazy loading, focus retention across asynchronous completion,
+wide/narrow layout, Library switching, row actions, and platform controls.
 
 ### Package Metadata
 

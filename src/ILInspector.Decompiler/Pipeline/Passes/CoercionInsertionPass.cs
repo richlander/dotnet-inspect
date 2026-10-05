@@ -454,8 +454,10 @@ public static class CoercionDomain
 
 /// <summary>
 /// Wraps every typed-sink value that requires coercion in a
-/// <see cref="Coerce"/> node (value-typed-emission.md, slice 3). Runs last: the
-/// tree the printer receives is the decided tree. Output-neutral for sinks that
+/// <see cref="Coerce"/> node (value-typed-emission.md, slice 3). Runs at the
+/// end of the pipeline, before <see cref="ResidualSlotBindingPass"/> re-runs
+/// the same decision over bound locals: the tree the printer receives is the
+/// decided tree. Output-neutral for sinks that
 /// render through CoerceText — the node renders through the same function with
 /// the same target; the render-text corpus A/B is the empirical gate on that
 /// claim.
@@ -464,7 +466,14 @@ public sealed class CoercionInsertionPass : IIrPass
 {
     public string Name => "coercion-insertion";
 
-    public void Run(IrFunction function, PassContext context)
+    public void Run(IrFunction function, PassContext context) => Insert(function, context);
+
+    /// <summary>
+    /// One insertion run over the body's current sinks; returns how many it
+    /// wrapped. <see cref="ResidualSlotBindingPass"/> re-runs it to a fixpoint
+    /// after binding, with the same decision, so the two cannot drift.
+    /// </summary>
+    internal static int Insert(IrFunction function, PassContext context)
     {
         var shapes = function.TypeShapes;
         // Deepest-first: wrapping an outer sink clones its subtree, so a nested
@@ -484,6 +493,7 @@ public sealed class CoercionInsertionPass : IIrPass
             coercion.InheritSourceOffset(value);
             value.ReplaceWith(coercion);
         }
+        return sinks.Count;
     }
 
     static int Depth(IrNode node)
