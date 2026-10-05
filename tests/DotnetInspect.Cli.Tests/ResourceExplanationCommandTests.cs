@@ -90,6 +90,47 @@ public sealed class ResourceExplanationCommandTests : IDisposable
     }
 
     [Fact]
+    public async Task DefaultHumanExplanation_PreservesTargetlessRelationships()
+    {
+        var json = await RunAsync(
+            "explain",
+            "library/categories",
+            "--json");
+        var human = await RunAsync(
+            "explain",
+            "library/categories");
+
+        Assert.Equal(0, json.ExitCode);
+        Assert.Empty(json.Error);
+        Assert.Equal(0, human.ExitCode);
+        Assert.Empty(human.Error);
+        using JsonDocument document = JsonDocument.Parse(json.Output);
+        string[] targetlessRelationships =
+        [
+            .. document.RootElement
+                .GetProperty("relationships")
+                .EnumerateArray()
+                .Where(static relationship =>
+                    relationship.GetProperty("targets")
+                        .GetArrayLength() == 0)
+                .Select(static relationship =>
+                    relationship.GetProperty("relationship")
+                        .GetProperty("value")
+                        .GetString()!),
+        ];
+
+        Assert.NotEmpty(targetlessRelationships);
+        Assert.All(
+            targetlessRelationships,
+            relationship =>
+                Assert.Contains(
+                    $"({relationship})",
+                    human.Output));
+        Assert.Contains("| Available | (none) |", human.Output);
+        Assert.Contains("| Complete |", human.Output);
+    }
+
+    [Fact]
     public async Task DiscoveryPath_CanBePassedUnchangedToExplain()
     {
         var human = await RunAsync(

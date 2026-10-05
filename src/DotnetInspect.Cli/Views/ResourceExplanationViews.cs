@@ -189,6 +189,9 @@ public sealed class ResourceExplanationView
     [MarkoutIgnoreColumnWhen(
         nameof(SourcesUniform),
         nameof(ResourceExplanationRelationshipRow.Source))]
+    [MarkoutIgnoreColumnWhen(
+        nameof(TargetOwnersEmpty),
+        nameof(ResourceExplanationRelationshipRow.TargetOwner))]
     public List<ResourceExplanationRelationshipRow> Relationships
     {
         get;
@@ -319,13 +322,11 @@ public sealed class ResourceExplanationView
                     :
                     [
                         .. document.Relationships.SelectMany(relationship =>
-                            relationship.Targets.Select(target =>
-                                ResourceExplanationRelationshipRow.Create(
-                                    document.Schemas,
-                                    relationship,
-                                    target,
-                                    pathsByIdentity.GetValueOrDefault(
-                                        relationship.Source)))),
+                            ResourceExplanationRelationshipRow.Create(
+                                document.Schemas,
+                                relationship,
+                                pathsByIdentity.GetValueOrDefault(
+                                    relationship.Source))),
                     ],
             Traversal =
                 context is not null
@@ -364,6 +365,11 @@ public sealed class ResourceExplanationView
         || rows.Select(static row => row.Source)
             .Distinct(StringComparer.Ordinal)
             .Count() <= 1;
+
+    public static bool TargetOwnersEmpty(
+        List<ResourceExplanationRelationshipRow>? rows) =>
+        rows is null
+        || rows.All(static row => row.TargetOwner.Length == 0);
 
     private sealed record RootDetails(
         string? Identity,
@@ -586,8 +592,10 @@ public sealed record ResourceExplanationResourceRow(
 public sealed record ResourceExplanationRelationshipRow(
     string Source,
     string Relationship,
+    string State,
     string Target,
-    string TargetOwner)
+    string TargetOwner,
+    string TargetProjection)
 {
     public string Source { get; init; } =
         LibraryViewText.Contain(Source);
@@ -595,27 +603,56 @@ public sealed record ResourceExplanationRelationshipRow(
     public string Relationship { get; init; } =
         LibraryViewText.Contain(Relationship);
 
+    public string State { get; init; } =
+        LibraryViewText.Contain(State);
+
     public string Target { get; init; } =
         LibraryViewText.Contain(Target);
 
     public string TargetOwner { get; init; } =
         LibraryViewText.Contain(TargetOwner);
 
-    public static ResourceExplanationRelationshipRow Create(
+    public string TargetProjection { get; init; } =
+        LibraryViewText.Contain(TargetProjection);
+
+    public static IEnumerable<ResourceExplanationRelationshipRow> Create(
         IEnumerable<ExplanationSchema> schemas,
         ResourceExplanationRelationship relationship,
-        ResourceExplanationRelationshipTarget target,
-        string? sourcePath) =>
-        new(
-            sourcePath ?? "(external)",
+        string? sourcePath)
+    {
+        ExplanationRelationshipDeclaration declaration =
             schemas.SelectMany(static schema => schema.ResourceTypes)
                 .SelectMany(static resource => resource.Relationships)
-                .Single(declaration =>
-                    declaration.Identity == relationship.Relationship)
-                .DisplayName,
-            TargetDisplay(target),
-            ResourceExplanationResourceRow.DisplayOwner(
-                target.Resource.Owner.Value));
+                .Single(candidate =>
+                    candidate.Identity == relationship.Relationship);
+        string relationshipDisplay =
+            $"{declaration.DisplayName} "
+            + $"({relationship.Relationship.Value})";
+        if (relationship.Targets.IsEmpty)
+        {
+            yield return CreateRow(target: null);
+            yield break;
+        }
+
+        foreach (ResourceExplanationRelationshipTarget target
+                 in relationship.Targets)
+        {
+            yield return CreateRow(target);
+        }
+
+        ResourceExplanationRelationshipRow CreateRow(
+            ResourceExplanationRelationshipTarget? target) =>
+            new(
+                sourcePath ?? "(external)",
+                relationshipDisplay,
+                relationship.State.ToString(),
+                target is null ? "(none)" : TargetDisplay(target),
+                target is null
+                    ? ""
+                    : ResourceExplanationResourceRow.DisplayOwner(
+                        target.Resource.Owner.Value),
+                relationship.TargetCompleteness.ToString());
+    }
 
     private static string TargetDisplay(
         ResourceExplanationRelationshipTarget target)
