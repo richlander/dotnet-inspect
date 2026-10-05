@@ -31,14 +31,17 @@ source-receipt translation, and detached publication.
 Compatible all-definition request sets now execute as one physical MethodDef
 traversal with independent terminal-specialized lanes. Each lane retains its
 own gate, optional module lookup, traversal ordinal, Producer Planning work,
-completion, and exact source coverage. A settled lane keeps its result when a
-later lane aborts or encounters source failure, and source failure reaches only
-active lanes whose type scope required the failed enumeration. Sparse breadth
-and incompatible requests remain separate groups. Exact-method and exact-type
-requests may opt into bounded generated execution-body expansion. The source
-uses targeted nested metadata for state-machine bodies and the existing lifted
-ownership authority for bounded body-dependent discovery; its receipt separates
-candidate definitions, probe bodies and bytes, relationship nodes, and
+completion, exact source coverage, and terminal body and encoded-IL bounds.
+Bound exhaustion is source-incomplete for that lane and its receipt preserves
+the admitted work; another shared lane continues under its own limits. A
+settled lane keeps its result when a later lane aborts or encounters source
+failure, and source failure reaches only active lanes whose type scope required
+the failed enumeration. Sparse breadth and incompatible requests remain
+separate groups. Exact-method and exact-type requests may opt into bounded
+generated execution-body expansion. The source uses targeted nested metadata
+for state-machine bodies and the existing lifted ownership authority for
+bounded body-dependent discovery; its receipt separates candidate definitions,
+probe bodies and bytes, relationship nodes, and
 authenticated origins from terminal work. Metadata-predicate breadth, body
 packets, and collapsed sparse request groups remain **unverified**.
 
@@ -511,11 +514,15 @@ Migration is incremental:
    in relationship-node work. Both targeted paths retain their acquired
    evidence per TypeDef, so sibling sources reuse it without hiding the work
    charged by the first lookup.
-6. Add referenced-body expansion only with a consumer that requires it.
-7. Let the host-neutral request-set planner from #8574 group compatible
+6. Add request-owned terminal body and encoded-IL bounds before migrating a
+   body-producing consumer. This slice is implemented with exact per-lane
+   receipts and typed source-incomplete exhaustion; exact-member Calls Count is
+   its immediate stacked production adopter.
+7. Add referenced-body expansion only with a consumer that requires it.
+8. Let the host-neutral request-set planner from #8574 group compatible
    requests. Method Classification implements the first mixed-terminal CLI
    operation; a body-producer CLI adoption and Browser/Wasm operation remain.
-8. Move remaining producers and delete each superseded legacy scan and index
+9. Move remaining producers and delete each superseded legacy scan and index
    when its final consumer moves.
 
 Wrapping `LibraryBodyAnalysisBuilder.Build`, constructing every legacy result
@@ -544,6 +551,11 @@ The exact-breadth slice is gated in Release:
 - `MethodQuerySource_ExactTypeBreadthVisitsOnlyDeclaredMethods`
 - `MethodQuerySource_ReceiptSeparatesExaminedSelectedAndAcquiredWork`
 - `MethodQuerySource_ExactExistsPublishesVisitedSparsePrefix`
+
+Terminal work bounds are gated in Release:
+
+- `Execute_TerminalBodyBoundIsLaneLocal`
+- `Execute_TerminalEncodedIlByteBoundPublishesPartialWork`
 
 The first production adoption is gated in Release:
 

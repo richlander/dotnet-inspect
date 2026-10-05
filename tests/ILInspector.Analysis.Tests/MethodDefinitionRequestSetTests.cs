@@ -261,6 +261,104 @@ public sealed class MethodDefinitionRequestSetTests
     }
 
     [Fact]
+    public void Execute_TerminalBodyBoundIsLaneLocal()
+    {
+        var boundedLimits = new MethodDefinitionTerminalWorkLimits(
+            maximumBodies: 1,
+            maximumEncodedIlBytes: long.MaxValue);
+        var completeLimits = new MethodDefinitionTerminalWorkLimits(
+            maximumBodies: int.MaxValue,
+            maximumEncodedIlBytes: long.MaxValue);
+        MethodDefinitionSourceAssociation bounded =
+            Association(
+                BodyReadingProducer.Instance,
+                ProducerTerminal.Count,
+                terminalWorkLimits: boundedLimits);
+        MethodDefinitionSourceAssociation complete =
+            Association(
+                BodyReadingProducer.Instance,
+                ProducerTerminal.Count,
+                terminalWorkLimits: completeLimits);
+
+        MethodDefinitionSourceRequestSetExecution execution =
+            Execute(AcceptedPlan([bounded, complete]));
+
+        MethodDefinitionSourceReceipt boundedReceipt =
+            execution.ResultOf(bounded).SourceReceipt;
+        Assert.Equal(
+            MethodDefinitionSourceCompletion.SourceIncomplete,
+            boundedReceipt.Completion);
+        Assert.Same(boundedLimits, boundedReceipt.TerminalWorkLimits);
+        Assert.Contains(
+            "terminal physical-body limit",
+            Assert.IsType<MethodDefinitionSourceFailure>(
+                    boundedReceipt.SourceFailure)
+                .Message,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            1,
+            boundedReceipt.Coverage.TerminalWork.BodiesAdmitted);
+        Assert.Equal(
+            MethodDefinitionTerminalWorkLimitKind.Bodies,
+            boundedReceipt.Coverage.TerminalWork.ReachedLimit);
+        Assert.NotNull(
+            boundedReceipt.Coverage.TerminalWork
+                .ReachedAtMethodToken);
+        Assert.Equal(
+            1,
+            boundedReceipt.Coverage.BodiesAcquired.Count);
+
+        MethodDefinitionSourceReceipt completeReceipt =
+            execution.ResultOf(complete).SourceReceipt;
+        Assert.Equal(
+            MethodDefinitionSourceCompletion.Exhausted,
+            completeReceipt.Completion);
+        Assert.Null(completeReceipt.SourceFailure);
+        Assert.True(
+            completeReceipt.Coverage.TerminalWork.BodiesAdmitted > 1);
+        Assert.Null(
+            completeReceipt.Coverage.TerminalWork.ReachedLimit);
+    }
+
+    [Fact]
+    public void Execute_TerminalEncodedIlByteBoundPublishesPartialWork()
+    {
+        var limits = new MethodDefinitionTerminalWorkLimits(
+            maximumBodies: int.MaxValue,
+            maximumEncodedIlBytes: 1);
+        MethodDefinitionSourceAssociation association =
+            Association(
+                BodyReadingProducer.Instance,
+                ProducerTerminal.Count,
+                terminalWorkLimits: limits);
+
+        MethodDefinitionSourceRequestSetExecution execution =
+            Execute(AcceptedPlan([association]));
+
+        MethodDefinitionSourceReceipt receipt =
+            execution.ResultOf(association).SourceReceipt;
+        Assert.Equal(
+            MethodDefinitionSourceCompletion.SourceIncomplete,
+            receipt.Completion);
+        Assert.Contains(
+            "terminal encoded-IL-byte limit",
+            Assert.IsType<MethodDefinitionSourceFailure>(
+                    receipt.SourceFailure)
+                .Message,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            MethodDefinitionTerminalWorkLimitKind.EncodedIlBytes,
+            receipt.Coverage.TerminalWork.ReachedLimit);
+        Assert.InRange(
+            receipt.Coverage.TerminalWork.EncodedIlBytes,
+            0,
+            1);
+        Assert.True(
+            receipt.Coverage.BodiesAcquired.Count
+            > receipt.Coverage.TerminalWork.BodiesAdmitted);
+    }
+
+    [Fact]
     public void Execute_SourceFailureAffectsOnlyRequestsInFailedTypeScope()
     {
         ImmutableArray<byte> image =
@@ -582,7 +680,8 @@ public sealed class MethodDefinitionRequestSetTests
     static MethodDefinitionSourceAssociation Association<TResult>(
         ProducerDeclaration<TResult> producer,
         ProducerTerminal terminal,
-        MethodDefinitionSourceBreadth? breadth = null)
+        MethodDefinitionSourceBreadth? breadth = null,
+        MethodDefinitionTerminalWorkLimits? terminalWorkLimits = null)
     {
         WorkDescription work =
             Assert.IsType<ProducerPlanResult.Accepted>(
@@ -594,7 +693,8 @@ public sealed class MethodDefinitionRequestSetTests
                 QueryRequest(terminal),
                 work,
                 producer,
-                breadth ?? MethodDefinitionSourceBreadth.AllDefinitions);
+                breadth ?? MethodDefinitionSourceBreadth.AllDefinitions,
+                terminalWorkLimits);
         return MethodDefinitionSourceAssociation.Create(request);
     }
 

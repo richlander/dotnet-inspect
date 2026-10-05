@@ -526,7 +526,8 @@ public readonly ref struct MethodDefinitionView
                 + "declare the body layer.");
         }
 
-        MethodBodyBlock body = _unit.GetBody();
+        MethodBodyBlock body =
+            _unit.GetBody(producer.Execution.TerminalWork);
         producer.CountUnit(
             ref producer.LastBodyUnit,
             Token,
@@ -691,12 +692,18 @@ internal struct MethodDefinitionUnit(
         }
     }
 
-    public MethodBodyBlock GetBody()
+    public MethodBodyBlock GetBody(
+        MethodDefinitionTerminalWorkBudget terminalWork)
     {
         _requestSourceCoverage?.RecordBodyAttempted(MethodHandle);
+        terminalWork.RequireBodyCapacity(
+            MetadataTokens.GetToken(MethodHandle));
         if (_body is not null)
         {
             _requestSourceCoverage?.RecordBodyAcquired(MethodHandle);
+            terminalWork.Admit(
+                MetadataTokens.GetToken(MethodHandle),
+                _body.GetILReader().Length);
             return _body;
         }
 
@@ -706,6 +713,9 @@ internal struct MethodDefinitionUnit(
         _body = body;
         _physicalSourceCoverage.RecordBodyAcquired(MethodHandle);
         _requestSourceCoverage?.RecordBodyAcquired(MethodHandle);
+        terminalWork.Admit(
+            MetadataTokens.GetToken(MethodHandle),
+            body.GetILReader().Length);
         return body;
     }
 

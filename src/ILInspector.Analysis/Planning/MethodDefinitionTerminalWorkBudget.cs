@@ -1,0 +1,75 @@
+namespace ILInspector.Analysis.Planning;
+
+internal sealed class MethodDefinitionTerminalWorkBudget
+{
+    readonly MethodDefinitionTerminalWorkLimits _limits;
+    readonly HashSet<int> _admittedMethods = [];
+    long _encodedIlBytes;
+    MethodDefinitionTerminalWorkLimitKind? _reachedLimit;
+    int? _reachedAtMethodToken;
+
+    internal MethodDefinitionTerminalWorkBudget(
+        MethodDefinitionTerminalWorkLimits limits) =>
+        _limits = limits;
+
+    internal void RequireBodyCapacity(int methodToken)
+    {
+        if (_admittedMethods.Contains(methodToken))
+            return;
+        if (_admittedMethods.Count >= _limits.MaximumBodies)
+        {
+            ReachLimit(
+                methodToken,
+                MethodDefinitionTerminalWorkLimitKind.Bodies);
+        }
+    }
+
+    internal void Admit(int methodToken, int encodedIlBytes)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(encodedIlBytes);
+        if (_admittedMethods.Contains(methodToken))
+            return;
+
+        RequireBodyCapacity(methodToken);
+
+        if (encodedIlBytes > _limits.MaximumEncodedIlBytes - _encodedIlBytes)
+        {
+            ReachLimit(
+                methodToken,
+                MethodDefinitionTerminalWorkLimitKind.EncodedIlBytes);
+        }
+
+        _admittedMethods.Add(methodToken);
+        _encodedIlBytes += encodedIlBytes;
+    }
+
+    internal MethodDefinitionTerminalWorkCoverage Build() =>
+        new(
+            _admittedMethods.Count,
+            _encodedIlBytes,
+            _reachedLimit,
+            _reachedAtMethodToken);
+
+    void ReachLimit(
+        int methodToken,
+        MethodDefinitionTerminalWorkLimitKind limit)
+    {
+        _reachedLimit = limit;
+        _reachedAtMethodToken = methodToken;
+        string dimension = limit switch
+        {
+            MethodDefinitionTerminalWorkLimitKind.Bodies =>
+                "terminal physical-body",
+            MethodDefinitionTerminalWorkLimitKind.EncodedIlBytes =>
+                "terminal encoded-IL-byte",
+            _ => throw new ArgumentOutOfRangeException(nameof(limit)),
+        };
+        throw new MethodDefinitionTerminalWorkLimitExceededException(
+            $"Method source {dimension} limit was exhausted at "
+            + $"0x{methodToken:X8}.");
+    }
+}
+
+internal sealed class MethodDefinitionTerminalWorkLimitExceededException(
+    string message)
+    : InvalidOperationException(message);
