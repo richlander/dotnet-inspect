@@ -24,6 +24,16 @@ public enum PortablePdbAcquisitionNetworkRoute
     SymbolServer,
 }
 
+/// <summary>
+/// Controls whether package-name compatibility may authorize the Microsoft
+/// symbol server in addition to typed platform provenance.
+/// </summary>
+public enum MicrosoftSymbolServerPackagePolicy
+{
+    CompatibilityNamePrefix,
+    TypedPlatformOnly,
+}
+
 public enum PortablePdbNetworkAttemptOutcome
 {
     Succeeded,
@@ -334,6 +344,8 @@ public partial class SymbolPackageDownloader
     private readonly IPackageSourceAuthorization? _sourceAuthorization;
     private readonly bool _usePersistentMissCache;
     private readonly SymbolAcquisitionLimits? _limits;
+    private readonly MicrosoftSymbolServerPackagePolicy
+        _microsoftSymbolServerPackagePolicy;
     internal const long DefaultMaximumSymbolBytes = 500_000_000;
 
     /// <summary>
@@ -387,14 +399,39 @@ public partial class SymbolPackageDownloader
         IPdbStore pdbStore,
         IPackageSourceAuthorization sourceAuthorization,
         bool usePersistentMissCache = false)
+        : this(
+            client,
+            pdbStore,
+            sourceAuthorization,
+            MicrosoftSymbolServerPackagePolicy
+                .CompatibilityNamePrefix,
+            usePersistentMissCache)
+    {
+    }
+
+    public SymbolPackageDownloader(
+        HttpClient client,
+        IPdbStore pdbStore,
+        IPackageSourceAuthorization sourceAuthorization,
+        MicrosoftSymbolServerPackagePolicy
+            microsoftSymbolServerPackagePolicy,
+        bool usePersistentMissCache = false)
     {
         ArgumentNullException.ThrowIfNull(client);
         ArgumentNullException.ThrowIfNull(pdbStore);
         ArgumentNullException.ThrowIfNull(sourceAuthorization);
+        if (!Enum.IsDefined(
+                microsoftSymbolServerPackagePolicy))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(microsoftSymbolServerPackagePolicy));
+        }
         _client = client;
         _pdbStore = pdbStore;
         _sourceAuthorization = sourceAuthorization;
         _usePersistentMissCache = usePersistentMissCache;
+        _microsoftSymbolServerPackagePolicy =
+            microsoftSymbolServerPackagePolicy;
     }
 
     /// <summary>
@@ -411,6 +448,26 @@ public partial class SymbolPackageDownloader
             client,
             pdbStore,
             sourceAuthorization,
+            limits,
+            MicrosoftSymbolServerPackagePolicy
+                .CompatibilityNamePrefix,
+            usePersistentMissCache)
+    {
+    }
+
+    public SymbolPackageDownloader(
+        HttpClient client,
+        IPdbStore pdbStore,
+        IPackageSourceAuthorization sourceAuthorization,
+        SymbolAcquisitionLimits limits,
+        MicrosoftSymbolServerPackagePolicy
+            microsoftSymbolServerPackagePolicy,
+        bool usePersistentMissCache = false)
+        : this(
+            client,
+            pdbStore,
+            sourceAuthorization,
+            microsoftSymbolServerPackagePolicy,
             usePersistentMissCache)
     {
         _limits =
@@ -452,7 +509,8 @@ public partial class SymbolPackageDownloader
                     sourceOptions,
                     cancellationToken,
                     portablePdbStamp,
-                    evidence).ConfigureAwait(false);
+                    evidence)
+                    .ConfigureAwait(false);
             evidence?.Complete(result);
             return result;
         }
@@ -513,8 +571,14 @@ public partial class SymbolPackageDownloader
                 ? $"{guid}{stamp:X8}"
                 : symbolKey;
 
-        // For Microsoft packages or platform assemblies, try MSDL first
-        bool isMicrosoftPackage = isPlatformAssembly || IsMicrosoftPackage(packageName);
+        // Legacy callers retain the package-name compatibility route. Typed
+        // settlement selects MSDL only from platform provenance.
+        bool isMicrosoftPackage =
+            isPlatformAssembly
+            || (_microsoftSymbolServerPackagePolicy
+                    == MicrosoftSymbolServerPackagePolicy
+                        .CompatibilityNamePrefix
+                && IsMicrosoftPackage(packageName));
         if (isMicrosoftPackage && pdbFileNameUsable)
         {
             log?.Invoke(isPlatformAssembly ? "Platform library, trying MSDL symbol server" : "Microsoft package detected, trying MSDL symbol server first");

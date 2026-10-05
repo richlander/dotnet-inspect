@@ -1454,27 +1454,18 @@ public class PdbAcquisitionServiceTests
                         [NuGetFetch.PackageSource.NuGetOrg])),
                 TestContext.Current.CancellationToken);
 
-        var failed =
+        var acquired =
             Assert.IsType<
-                PortablePdbSettlementResult.Failed>(result);
-        Assert.Equal(
-            PortablePdbSettlementFailureKind.UnsupportedProvenance,
-            failed.Failure);
-        PortablePdbSettlementReceipt skipped =
-            Assert.Single(
-                failed.Receipts,
-                receipt =>
-                    receipt.Candidate
-                    == PortablePdbSettlementCandidate
-                        .ExternalProviders);
-        Assert.Equal(
-            PortablePdbSettlementAttemptOutcome.Skipped,
-            skipped.Outcome);
-        Assert.False(skipped.Authorized);
-        Assert.Equal(
-            PortablePdbSettlementSkipReason.UnsupportedProvenance,
-            skipped.SkipReason);
-        Assert.Empty(handler.RequestUris);
+                PortablePdbSettlementResult.Acquired>(result);
+        Assert.NotEqual(
+            PortablePdbSettlementSource.MicrosoftSymbolServer,
+            acquired.Source);
+        Assert.NotEmpty(handler.RequestUris);
+        Assert.DoesNotContain(
+            handler.RequestUris,
+            uri => uri.Host.Equals(
+                "msdl.microsoft.com",
+                StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]

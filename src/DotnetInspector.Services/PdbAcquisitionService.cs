@@ -90,7 +90,8 @@ public static class PdbAcquisitionService
         IPdbStore? pdbStore,
         IPackageSourceAuthorization? sourceAuthorization,
         SymbolAcquisitionLimits? limits = null,
-        PortablePdbAcquisitionEvidenceCollector? evidence = null)
+        PortablePdbAcquisitionEvidenceCollector? evidence = null,
+        bool allowMicrosoftPackageNameHeuristic = true)
     {
         PortablePdbAcquisitionResult result =
             await AcquireContentCoreAsync(
@@ -107,7 +108,9 @@ public static class PdbAcquisitionService
                 pdbStore,
                 sourceAuthorization,
                 limits,
-                evidence).ConfigureAwait(false);
+                evidence,
+                allowMicrosoftPackageNameHeuristic)
+            .ConfigureAwait(false);
 
         if (result is PortablePdbAcquisitionResult.Acquired acquired)
         {
@@ -169,8 +172,15 @@ public static class PdbAcquisitionService
         IPdbStore? pdbStore,
         IPackageSourceAuthorization? sourceAuthorization,
         SymbolAcquisitionLimits? limits = null,
-        PortablePdbAcquisitionEvidenceCollector? evidence = null)
+        PortablePdbAcquisitionEvidenceCollector? evidence = null,
+        bool allowMicrosoftPackageNameHeuristic = true)
     {
+        MicrosoftSymbolServerPackagePolicy packagePolicy =
+            allowMicrosoftPackageNameHeuristic
+                ? MicrosoftSymbolServerPackagePolicy
+                    .CompatibilityNamePrefix
+                : MicrosoftSymbolServerPackagePolicy
+                    .TypedPlatformOnly;
         var downloader = pdbStore is null
             ? new SymbolPackageDownloader(httpClient)
             : sourceAuthorization is null
@@ -182,11 +192,13 @@ public static class PdbAcquisitionService
                         httpClient,
                         pdbStore,
                         sourceAuthorization,
-                        limits)
+                        limits,
+                        packagePolicy)
                 : new SymbolPackageDownloader(
                     httpClient,
                     pdbStore,
-                    sourceAuthorization);
+                    sourceAuthorization,
+                    packagePolicy);
         return await downloader.AcquirePdbAsync(
                 context.PdbId!.Guid,
                 context.PdbId.Age,
@@ -358,7 +370,8 @@ public static class PdbAcquisitionService
                         pdbStore,
                         sourceAuthorization,
                         limits,
-                        evidence)
+                        evidence,
+                        allowMicrosoftPackageNameHeuristic: false)
                     .ConfigureAwait(false);
     }
 

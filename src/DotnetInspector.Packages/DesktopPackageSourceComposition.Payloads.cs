@@ -6,6 +6,73 @@ namespace DotnetInspector.Packages;
 public sealed partial class DesktopPackageSourceComposition
 {
     /// <summary>
+    /// Executes one semantic content query for a caller-pinned coordinate.
+    /// PackageHouse owns cache, ranged, and complete transfer planning.
+    /// </summary>
+    public Task<PackageHouseSettlement> AcquireContentAsync(
+        PackageSourceCoordinate coordinate,
+        PackageHouseContentQuery query,
+        PackageStoreProvider createStore,
+        NuGetSourceOptions? sourceOptions = null,
+        Action<string>? log = null,
+        CancellationToken cancellationToken = default,
+        PackagePayloadLimits? limits = null,
+        IPackagePayloadTransferPolicy? transferPolicy = null,
+        string? requiredProducerKey = null,
+        long rangedSizeCut = PackageRangedRead.DefaultSizeCut,
+        IPackageLibraryNamespaceFacts?
+            libraryNamespaceFacts = null)
+    {
+        ArgumentNullException.ThrowIfNull(coordinate);
+        ArgumentNullException.ThrowIfNull(query);
+        ArgumentNullException.ThrowIfNull(createStore);
+        PackageHouseTargetContext? targetContext =
+            query.Narrowing
+                is PackageHouseContentNarrowing.TfmWide tfmWide
+                    ? tfmWide.Target
+                    : null;
+        var request = new PackageHouseRequest(
+            new PackageHouseDemand.Exact(coordinate),
+            PackageHouseOperation.Create(
+                PackageHouseOperationProfile.Acquire,
+                _options.RequestTimeout,
+                _options.OperationTimeout),
+            targetContext: targetContext,
+            contentQuery: query);
+        PackageSourceOperationLease? sourceOperation =
+            IssueHouseOperation(cancellationToken);
+        try
+        {
+            IPackageSourceAuthorization authorization =
+                AuthorizeHouseSources(
+                    coordinate.PackageId,
+                    sourceOptions,
+                    requiredProducerKey);
+            var house = new PackageHouse(
+                authorization,
+                PackagePayloadAcquisitionPlan.ForContentQueries(
+                    createStore,
+                    limits,
+                    transferPolicy,
+                    log,
+                    rangedSizeCut,
+                    libraryNamespaceFacts),
+                log,
+                _versionSettlement);
+            Task<PackageHouseSettlement> execution =
+                house.ExecuteAsync(
+                    request,
+                    sourceOperation);
+            sourceOperation = null;
+            return execution;
+        }
+        finally
+        {
+            sourceOperation?.Dispose();
+        }
+    }
+
+    /// <summary>
     /// Acquires and resolves one exact file from a caller-pinned coordinate.
     /// PackageHouse owns cache and transfer planning; manifest resolution and
     /// generation-bound reading are owned by <see cref="PackageFileAcquisition"/>.
