@@ -20,6 +20,12 @@ internal sealed class PlatformFindSearchWorkspace : IAsyncDisposable
     private readonly Dictionary<
         AssemblyAcquisitionRegistration,
         SearchAssemblySource> _sources;
+    private readonly Dictionary<
+        AssemblyAcquisitionRegistration,
+        ExactLibrarySourceCoordinate.Platform> _memberCoordinates;
+    private readonly Dictionary<
+        FindSourceIdentity,
+        SearchAssemblySource> _memberSemanticSources = [];
     private bool _disposed;
 
     private PlatformFindSearchWorkspace(
@@ -27,11 +33,15 @@ internal sealed class PlatformFindSearchWorkspace : IAsyncDisposable
         AssemblyContextGroup group,
         Dictionary<
             AssemblyAcquisitionRegistration,
-            SearchAssemblySource> sources)
+            SearchAssemblySource> sources,
+        Dictionary<
+            AssemblyAcquisitionRegistration,
+            ExactLibrarySourceCoordinate.Platform> memberCoordinates)
     {
         _workspace = workspace;
         _group = group;
         _sources = sources;
+        _memberCoordinates = memberCoordinates;
     }
 
     internal static async ValueTask<PlatformFindSearchWorkspace> OpenAsync(
@@ -142,13 +152,24 @@ internal sealed class PlatformFindSearchWorkspace : IAsyncDisposable
             var sources = new Dictionary<
                 AssemblyAcquisitionRegistration,
                 SearchAssemblySource>();
+            var memberCoordinates = new Dictionary<
+                AssemblyAcquisitionRegistration,
+                ExactLibrarySourceCoordinate.Platform>(
+                    ReferenceEqualityComparer.Instance);
             foreach (PlatformAssemblySnapshot snapshot in snapshots)
             {
                 sources.Add(
                     snapshot.Assembly.Registration,
                     snapshot.Source);
+                memberCoordinates.Add(
+                    snapshot.Assembly.Registration,
+                    snapshot.Coordinate);
             }
-            return new(workspace, group, sources);
+            return new(
+                workspace,
+                group,
+                sources,
+                memberCoordinates);
         }
         catch (Exception operationFailure)
         {
@@ -266,17 +287,36 @@ internal sealed class PlatformFindSearchWorkspace : IAsyncDisposable
             stopAfterType);
     }
 
-    internal AssemblyContextResult<AssemblyMemberMatches> QueryMembers(
-        IReadOnlyList<string> patterns,
-        bool includeAll,
-        int? limit)
+    internal MemberFindSemanticPopulation QueryMembers(
+        MemberFindQuestion question)
     {
         ThrowIfDisposed();
-        return AssemblyContextMemberMatchesQuery.Execute(
+        ArgumentNullException.ThrowIfNull(question);
+        _memberSemanticSources.Clear();
+        return MemberFindSourceEvaluator.EvaluateAssemblyContext(
+            question,
             _group,
-            patterns,
-            includeAll,
-            limit);
+            (subject, memberOrder) =>
+            {
+                SearchAssemblySource source = SourceFor(subject);
+                ExactLibrarySourceCoordinate.Platform coordinate =
+                    _memberCoordinates.TryGetValue(
+                        subject.Registration,
+                        out ExactLibrarySourceCoordinate.Platform?
+                            candidate)
+                        ? candidate
+                        : throw new InvalidOperationException(
+                            "A Platform Member source requires an exact coordinate.");
+                var identity = new FindSourceIdentity(
+                    coordinate,
+                    subject.Provenance,
+                    packageRequest: null,
+                    contextOrder: 0,
+                    memberOrder,
+                    subject.Identity);
+                _memberSemanticSources.Add(identity, source);
+                return identity;
+            });
     }
 
     internal SearchAssemblySource SourceFor(
@@ -290,6 +330,19 @@ internal sealed class PlatformFindSearchWorkspace : IAsyncDisposable
             : throw new InvalidOperationException(
                 "The platform Find query returned an unknown assembly "
                     + "participant.");
+    }
+
+    internal SearchAssemblySource SourceFor(
+        FindSourceIdentity source)
+    {
+        ThrowIfDisposed();
+        ArgumentNullException.ThrowIfNull(source);
+        return _memberSemanticSources.TryGetValue(
+                source,
+                out SearchAssemblySource? searchSource)
+            ? searchSource
+            : throw new InvalidOperationException(
+                "The semantic Member query returned an unknown source.");
     }
 
     public async ValueTask DisposeAsync()
@@ -418,6 +471,10 @@ internal sealed class PlatformFindSearchWorkspace : IAsyncDisposable
             SearchAssemblySource.FromPlatformPopulation(
                 member,
                 assembly),
+            new ExactLibrarySourceCoordinate.Platform(
+                new(member.Target.Family),
+                new ManagedMetadataIdentity.Assembly(
+                    assembly.Identity)),
             content.LongLength);
     }
 
@@ -437,5 +494,6 @@ internal sealed class PlatformFindSearchWorkspace : IAsyncDisposable
     private sealed record PlatformAssemblySnapshot(
         ResolvedAssemblyReference Assembly,
         SearchAssemblySource Source,
+        ExactLibrarySourceCoordinate.Platform Coordinate,
         long ContentLength);
 }
