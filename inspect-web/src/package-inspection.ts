@@ -266,6 +266,7 @@ export function createPackageInspectionCoordinator(
   const { state } = dependencies;
   let packageResultGeneration = 0;
   let metadataRequestSequence = 0;
+  let vulnerabilityRequestSequence = 0;
 
   const platformCoordinates = (
     packageModel: AppPackage,
@@ -442,9 +443,11 @@ export function createPackageInspectionCoordinator(
         dependencies.render();
         return;
       }
+      const requestSequence = ++vulnerabilityRequestSequence;
       const generation = packageResultGeneration;
       const ownsRequest = () =>
         state.packageVulnerabilitiesKey === signature
+        && vulnerabilityRequestSequence === requestSequence
         && generation === packageResultGeneration;
       state.packageVulnerabilitiesKey = signature;
       state.packageVulnerabilities = null;

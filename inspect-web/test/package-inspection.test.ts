@@ -1181,6 +1181,47 @@ test("invalidation clears package results, failures, keys, and loads without cha
   assert.strictEqual(state.workspaceDependencyErrors, workspaceDependencyErrors);
 });
 
+test("newer same-coordinate vulnerability evidence owns settlement", async () => {
+  const firstA = deferred<BrowserPackageVulnerabilityResult>();
+  const packageB = deferred<BrowserPackageVulnerabilityResult>();
+  const secondA = deferred<BrowserPackageVulnerabilityResult>();
+  const requests = [firstA, packageB, secondA];
+  const state = inspectionState();
+  const coordinator = createPackageInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryVulnerabilities: async () => requests.shift()!.promise,
+    }));
+  const packageA = packageModel({ version: "1.0.0" });
+  const packageBModel = packageModel({ version: "2.0.0" });
+  const firstALoad =
+    coordinator.loadVulnerabilities(packageA, "Example.Package@1.0.0");
+  const packageBLoad =
+    coordinator.loadVulnerabilities(packageBModel, "Example.Package@2.0.0");
+  const secondALoad =
+    coordinator.loadVulnerabilities(packageA, "Example.Package@1.0.0");
+  const newerEvidence = {
+    ...vulnerabilityResult(),
+    version: "1.0.0",
+    availability: "Partial" as const,
+    failures: ["RateLimitOrForbidden" as const],
+  };
+
+  secondA.resolve(newerEvidence);
+  await secondALoad;
+  firstA.resolve({
+    ...vulnerabilityResult(),
+    version: "1.0.0",
+  });
+  packageB.resolve({
+    ...vulnerabilityResult(),
+    version: "2.0.0",
+  });
+  await Promise.all([firstALoad, packageBLoad]);
+
+  assert.strictEqual(state.packageVulnerabilities, newerEvidence);
+  assert.equal(state.packageVulnerabilitiesLoading, false);
+});
+
 test("invalidated package completions cannot publish, render, or start follow-up work", async () => {
   for (const outcome of ["success", "failure"]) {
     const removed = packageModel();
