@@ -21197,7 +21197,9 @@ function loadSelectedTypeMemberPopulation():
         return receipt;
       }
       const expectedDeclarationSource =
-        typeMemberPopulationSource(type) === "implementation"
+        state.rootKind === "library"
+        || pkg.isRuntimePack
+        || typeMemberPopulationSource(type) === "implementation"
           ? "Implementation"
           : "Surface";
       const sourceMismatch =
