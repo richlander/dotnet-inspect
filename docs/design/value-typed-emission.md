@@ -875,14 +875,17 @@ sink rule, each load's parent shape and the consuming sink target
 parameter, `Box` type, `StoreLocal` type, argument store type, indirect store
 type, element target, the body's return type, a call or object-creation
 argument's declared parameter type after MethodSpec substitution when that
-type is closed, or the other operand of a comparison); and the function's type
+type is closed, or the other operand of a comparison when that operand is not
+a constant); and the function's type
 shapes and enum backing. That inventory is closed. The argument and comparison
 sinks are the same "consuming sink's target type" the one slot-evidence rule
 (`TestifiedSlotTypes`) has always stated for an untyped load; they joined its
 derivation for the #9248 remainder, where a reference `??` join or an
 enum/constant join spilled to a slot and consumed only by such a sink had no
 testimony and failed visibly at residual storage binding. An open generic
-parameter never testifies. For a raised lambda body
+parameter never testifies, and a constant comparison operand never does: it
+carries only its stack width, and `c ? CfgFlags.Top : e` compared against
+`0` keeps the enum naming route (`EnumCastPrinterTests`). For a raised lambda body
 the return type is the body's own signature, the closure method's; the deleted
 printer read it from the delegate's shape and fell back to `void`, so a
 delegate it could not read (`Predicate<T>`, for example) is a named, expected

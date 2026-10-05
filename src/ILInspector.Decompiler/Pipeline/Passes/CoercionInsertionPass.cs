@@ -199,8 +199,11 @@ public static class CoercionSinks
     /// where one is derivable: a typed store, the body's return, a call or
     /// object-creation argument's declared parameter type (after MethodSpec
     /// substitution, so an open generic parameter never testifies), or the
-    /// other operand of a comparison (value-typed-emission.md, Instance 2:
-    /// "an untyped load contributes its consuming sink's target type").
+    /// other operand of a comparison when that operand is not a constant
+    /// (value-typed-emission.md, Instance 2: "an untyped load contributes its
+    /// consuming sink's target type"). A constant sibling carries only its IL
+    /// stack width, and taking it would pre-empt the enum naming route the
+    /// way <see cref="BitwiseEnumSinkType"/> already refuses to.
     /// Argument and comparison sinks joined this list for the #9248 remainder:
     /// a reference <c>??</c> join or an enum/constant join spilled to a slot and
     /// consumed only by such a sink had no testimony and failed visibly at
@@ -217,8 +220,8 @@ public static class CoercionSinks
             Return ret when ReferenceEquals(ret.Value, load) => returnType,
             Call call => ArgumentParameterType(call.Callee.ParameterTypes, call.Callee.HasThis ? 1 : 0, call.Arguments, load),
             NewObject ctor => ArgumentParameterType(ctor.Constructor.ParameterTypes, 0, ctor.Arguments, load),
-            Comparison comparison when ReferenceEquals(comparison.Left, load) => ClosedType(comparison.Right.ResultType),
-            Comparison comparison when ReferenceEquals(comparison.Right, load) => ClosedType(comparison.Left.ResultType),
+            Comparison { Right: not Constant } comparison when ReferenceEquals(comparison.Left, load) => ClosedType(comparison.Right.ResultType),
+            Comparison { Left: not Constant } comparison when ReferenceEquals(comparison.Right, load) => ClosedType(comparison.Left.ResultType),
             _ => null,
         };
 

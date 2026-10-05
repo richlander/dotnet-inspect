@@ -96,6 +96,25 @@ public class ArgumentSinkTestimonyTests
     }
 
     [Fact]
+    public void ConstantComparisonSiblingDoesNotTestify()
+    {
+        // The same web compared against a constant: the constant carries only
+        // its IL stack width, so it is not sink evidence and the enum naming
+        // route (EnumCastPrinterTests, `c ? CfgFlags.Top : e` against 0) keeps
+        // its say. The load stays underivable.
+        var block = new Block(0);
+        block.Add(new IfStatement(
+            new LoadArgument(0, "choose", Bool),
+            BlockOf(new StoreStackSlot(0, new Constant(0, Int32))),
+            BlockOf(new StoreStackSlot(0, new LoadArgument(1, "value", Int64)))));
+        block.Add(new Return(new Comparison(ComparisonKind.Equal, isUnsigned: false, new LoadStackSlot(0, type: null), new Constant(0, Int32))));
+        var function = Function(Bool, block, [new Parameter("choose", Bool), new Parameter("value", Int64)]);
+
+        var testimony = CoercionSinks.AnalyzeSlotTypeTestimony(function.Body, function.Signature.ReturnType, function.TypeShapes);
+        Assert.Equal(CoercionSinks.SlotTypeTestimonyStatus.Underivable, testimony[0].Status);
+    }
+
+    [Fact]
     public void TwoReferenceCoalesceAtAnObjectCarrierReceivesTheLeftWitness()
     {
         // `alpha ?? beta` with unrelated reference operands has no assignment
