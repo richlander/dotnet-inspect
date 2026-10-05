@@ -56,7 +56,7 @@ static class Program
         string? emitRenderAbStructuralDiffs = null;
         bool idempotenceCheck = false;
         bool slotResidualCensus = false;
-        bool slotUnifierCensus = false;
+        bool residualBindingCensus = false;
         bool fixtureSourceInventory = false;
         string? structuralReview = null;
 
@@ -360,7 +360,7 @@ static class Program
                     case "--emit-render-ab-structural-diffs": emitRenderAbStructuralDiffs = NextArg(args, ref i, flag); break;
                     case "--idempotence-check": idempotenceCheck = true; break;
                     case "--slot-residual-census": slotResidualCensus = true; break;
-                    case "--slot-unifier-census": slotUnifierCensus = true; break;
+                    case "--residual-binding-census": residualBindingCensus = true; break;
                     case "--fixture-source-inventory": fixtureSourceInventory = true; break;
                     case "--structural-review": structuralReview = NextArg(args, ref i, flag); break;
                     case "--help" or "-h": showHelp = true; break;
@@ -786,9 +786,9 @@ static class Program
                     corpusMethodCap,
                     maxExamples));
 
-        if (slotUnifierCensus)
+        if (residualBindingCensus)
             return RunAggregate(
-                () => SlotUnifierCensus.Run(
+                () => ResidualBindingCensus.Run(
                     assemblies,
                     corpusMethodCap,
                     maxExamples));
@@ -2394,9 +2394,12 @@ static class Program
                                 intervening-pass, and materialization deltas,
                                 plus post-F2 classes and entry decisions.
                                 Uses --corpus-method-cap to bound the sweep.
-          --slot-unifier-census   run the full pipeline and report the
-                                CSharpPrinter's own stack-slot unifier telemetry.
-                                Uses --corpus-method-cap to bound the sweep.
+          --residual-binding-census
+                                run the full pipeline and report the locals
+                                ResidualSlotBindingPass issued for webs that
+                                materialization declined, grouped by binding kind
+                                and veto flags. Uses --corpus-method-cap to bound
+                                the sweep.
           --fixture-source-inventory
                                 list the registered source-backed fixtures: Built
                                 (FixtureCatalog) and Generated

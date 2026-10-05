@@ -1017,7 +1017,6 @@ public sealed class PolicyEvaluatorTests
             [
                 "CSharpText",
                 "DotnetInspector.Cache",
-                "DotnetInspector.DocumentationHouse.Direct",
                 "DotnetInspector.Ecosystems",
                 "DotnetInspector.Libraries",
                 "DotnetInspector.LibraryMetadata",
@@ -1095,7 +1094,6 @@ public sealed class PolicyEvaluatorTests
                 "CSharpText",
                 "DotnetInspector.Cache",
                 "DotnetInspector.DocumentationHouse.Contracts",
-                "DotnetInspector.DocumentationHouse.Direct",
                 "DotnetInspector.Ecosystems",
                 "DotnetInspector.Libraries",
                 "DotnetInspector.LibraryMetadata",

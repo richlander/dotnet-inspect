@@ -636,6 +636,24 @@ function parseRow(value: unknown): BrowserPackageQueryRowPayload {
     owners: row.owners.map(item =>
       stringValue(item, "package-query owner")),
     manifest: parseManifest(row.manifest),
+    ecosystemAdmission: row.ecosystemAdmission === null
+      ? null
+      : (() => {
+          const admission = objectValue(
+            row.ecosystemAdmission,
+            "package-query Ecosystem admission");
+          return {
+            ecosystemId: stringValue(
+              admission.ecosystemId,
+              "package-query Ecosystem admission identity"),
+            basis: stringValue(
+              admission.basis,
+              "package-query Ecosystem admission basis"),
+            registration: stringValue(
+              admission.registration,
+              "package-query Ecosystem admission registration"),
+          };
+        })(),
   };
 }
 
@@ -1148,6 +1166,7 @@ function toQueryRow(
     totalDownloads: row.totalDownloads,
     description: row.description,
     producer: row.producer,
+    ecosystemAdmission: row.ecosystemAdmission,
   };
   if (rootRequest !== null && rootRequest !== undefined)
     result.rootRequest = rootRequest;
