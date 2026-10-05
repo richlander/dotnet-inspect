@@ -17,6 +17,7 @@
     <PublishAot>true</PublishAot>
     <InvariantGlobalization>true</InvariantGlobalization>
     <OptimizationPreference>Speed</OptimizationPreference>
+    <IlcOrderFile>$(MSBuildThisFileDirectory)body-use-scorecard.order</IlcOrderFile>
     <AssemblyName>body-use-scorecard</AssemblyName>
     <RootNamespace>ILInspector.AnalysisHarness</RootNamespace>
   </PropertyGroup>

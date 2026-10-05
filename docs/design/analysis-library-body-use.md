@@ -403,6 +403,8 @@ The four implementations and timing loop live in the stable
 assembly. The report host consumes its cells through
 [`BodyUseScorecard.cs`](../../tools/AnalysisHarness/BodyUseScorecard.cs), so
 report-only growth does not add methods to the timing-kernel assembly.
+The NativeAOT host supplies an explicit order for the measured call chain;
+the order names real kernel methods and does not use synthetic padding.
 NLinq traverses the shared
 [`MethodDefinitionRows`](../../tests/DotnetInspector.PerformanceOracles/MethodDefinitionRows.cs)
 source. Its exact upstream pin and checksums remain in
