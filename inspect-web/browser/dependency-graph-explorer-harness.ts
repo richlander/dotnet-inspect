@@ -205,10 +205,6 @@ async function render() {
           <section class="document-section" id="dep-list-section"></section>
           <section class="document-section" id="assembly-references">Assembly references</section>
         </div>
-        <footer class="api-surface-footer package-dependencies-surface-footer">
-          <span>${pkg.id}@${pkg.version}</span>
-          <span>${pkg.activeFramework}</span>
-        </footer>
       </section>
     </main>`;
   bindGraphExplore(document, () => explorer.open(target()));

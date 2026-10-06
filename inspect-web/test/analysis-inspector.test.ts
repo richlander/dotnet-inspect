@@ -68,6 +68,6 @@ for (const mode of [
     assert.match(html, new RegExp(`data-analysis-mode="${mode}" aria-selected="true"`));
     assert.match(html, new RegExp(`role="tabpanel" aria-labelledby="analysis-mode-${mode}"`));
     assert.match(html, /Pending scan/);
-    assert.match(html, /Microsoft.Extensions.AI@10.0.0/);
+    assert.doesNotMatch(html, /metadata-surface-footer/);
   });
 }

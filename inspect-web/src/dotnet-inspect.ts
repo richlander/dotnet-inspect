@@ -12469,9 +12469,6 @@ function renderApiLens(item: AppTypeSurface) {
             </section>`
           : ""}
       </div>
-      <footer class="api-surface-footer">
-        <span>Select a row to inspect its API</span>
-      </footer>
     </section>`;
 }
 
@@ -12492,6 +12489,7 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
           <header class="api-surface-head member-surface-head">
             <h1 id="member-surface-title">${escapeHtml(member.name)}</h1>
             <p>${count} ${count === 1 ? "overload" : "overloads"} <span>· ${escapeHtml(member.kind)}</span></p>
+            <button class="member-back" id="member-back" title="Back to ${escapeHtml(typeDisplayName(type))}">← Type</button>
           </header>
           <div class="member-surface-scroll">
             <div class="api-list api-surface-list member-surface-list">
@@ -12562,6 +12560,7 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
         <header class="api-surface-head member-surface-head">
           <h1 id="member-surface-title">${escapeHtml(member.name)}</h1>
           <p>${document.count} ${document.count === 1 ? "overload" : "overloads"} <span>· ${escapeHtml(member.kind)}</span></p>
+          <button class="member-back" id="member-back" title="Back to ${escapeHtml(typeDisplayName(type))}">← Type</button>
         </header>
         <div class="member-surface-scroll">
           <div class="api-list api-surface-list member-surface-list">
@@ -12583,10 +12582,6 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
             }).join("")}
           </div>
         </div>
-        <footer class="api-surface-footer member-surface-footer">
-          <button class="member-back" id="member-back">← ${escapeHtml(typeDisplayName(type))}</button>
-          <span>Choose an overload to inspect</span>
-        </footer>
       </section>`;
   }
   const overload = selectedOverload ?? member.overloads[0];

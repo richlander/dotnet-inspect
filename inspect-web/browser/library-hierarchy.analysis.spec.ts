@@ -126,19 +126,15 @@ async function expectCompactAnalysisHeader(page: Page) {
     "Integrations",
   ]) {
     const tab = tabs.getByRole("tab", { name, exact: true });
+    await tab.scrollIntoViewIfNeeded();
     await expect(tab).toBeInViewport({ ratio: 1 });
     expect(await tab.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
   }
   const headerBox = await header.boundingBox();
   const tabsBox = await tabs.boundingBox();
   const resultsBox = await frame.getByRole("tabpanel").boundingBox();
-  const narrow = (page.viewportSize()?.width ?? 0) <= 600;
-  expect(headerBox!.height).toBe(narrow ? 104 : 40);
-  if (narrow) {
-    expect(tabsBox!.y - headerBox!.y).toBeGreaterThanOrEqual(20);
-  } else {
-    expect(Math.abs(tabsBox!.y - headerBox!.y)).toBeLessThanOrEqual(1);
-  }
+  expect(headerBox!.height).toBe(40);
+  expect(Math.abs(tabsBox!.y - headerBox!.y)).toBeLessThanOrEqual(1);
   expect(tabsBox!.y + tabsBox!.height).toBeLessThanOrEqual(headerBox!.y + headerBox!.height);
   expect(headerBox!.x + headerBox!.width - tabsBox!.x - tabsBox!.width).toBeLessThanOrEqual(16);
   expect(Math.abs(resultsBox!.y - headerBox!.y - headerBox!.height)).toBeLessThanOrEqual(1);
@@ -169,7 +165,7 @@ for (const width of [1440, 390, 320]) {
     await performance.press("Enter");
     await expect(performance).toHaveAttribute("aria-selected", "true");
     await expect(frame.locator("h1")).toHaveText("Analysis");
-    await expect(frame.locator("footer")).toContainText(core.asset);
+    await expect(frame.locator("footer")).toHaveCount(0);
     await expect(inspectorTab(page, "data-library-lens", "analysis"))
       .toHaveAttribute("aria-selected", "true");
     await expectCompactAnalysisHeader(page);
@@ -181,7 +177,7 @@ for (const width of [1440, 390, 320]) {
     await expect(integrations).toHaveAttribute("aria-selected", "true");
     await expect(frame.locator(".signal-row")).toHaveCount(3);
     await expect(frame.locator(".opp-row")).toHaveCount(3);
-    await expect(frame.locator("footer")).toContainText(core.asset);
+    await expect(frame.locator("footer")).toHaveCount(0);
     await page.screenshot({ path: testInfo.outputPath("integration-tabs-integrations.png") });
 
     await frame.locator("[data-opp-type]").first().click();
@@ -230,8 +226,7 @@ for (const width of [1440, 390]) {
     await expect(frame.locator("header")).toContainText("2 public members");
     await expect(frame.locator("header")).toContainText("6 opportunities");
     await expect(frame.locator("header")).toContainText("2 non-public");
-    await expect(frame.locator("footer")).toContainText(core.asset);
-    await expect(frame.locator("footer")).toContainText("Example.Core, Version=1.0.0.0");
+    await expect(frame.locator("footer")).toHaveCount(0);
     await expect(page.locator("html")).toHaveAttribute("data-analysis-request", "asset:core");
     await expect(page.locator("#inspector-panel > .type-heading")).toHaveCount(0);
     const panelBox = await page.locator("#inspector-panel").boundingBox();
@@ -262,7 +257,6 @@ for (const width of [1440, 390]) {
     const frame = page.locator(".library-analysis-surface");
     await expect(frame.locator(".perf-row")).toHaveCount(80);
     const header = await frame.locator("header").boundingBox();
-    const footer = await frame.locator("footer").boundingBox();
     const scroll = frame.locator(".library-analysis-scroll");
     const geometry = await scroll.evaluate(element => ({
       width: element.clientWidth, scrollWidth: element.scrollWidth,
@@ -276,7 +270,7 @@ for (const width of [1440, 390]) {
     await scroll.evaluate(element => { element.scrollTop = element.scrollHeight; });
     await expect(frame.locator(".perf-row").last()).toBeInViewport();
     expect(await frame.locator("header").boundingBox()).toEqual(header);
-    expect(await frame.locator("footer").boundingBox()).toEqual(footer);
+    await expect(frame.locator("footer")).toHaveCount(0);
   });
 
   for (const scenario of ["empty", "partial", "partial-empty", "query-error"] as const) {
@@ -306,7 +300,7 @@ for (const width of [1440, 390]) {
         await expect(frame).toContainText("A method body could not be analyzed.");
         await expect(frame).not.toContainText("No public allocation hot spots");
       }
-      await expect(frame.locator("footer")).toBeInViewport();
+      await expect(frame.locator("footer")).toHaveCount(0);
     });
   }
 
@@ -321,7 +315,7 @@ for (const width of [1440, 390]) {
     const picker = frame.locator(".library-analysis-controls select");
     await expect(picker).toBeVisible();
     await expect(picker).toHaveValue("System.Text.Json");
-    await expect(frame.locator("footer")).toContainText("PhysicalPayload.dll");
+    await expect(frame.locator("footer")).toHaveCount(0);
     await expect(page.locator("html"))
       .toHaveAttribute("data-platform-analysis-request", "System.Text.Json.dll:netcore.app");
     const controls = await frame.locator(".library-analysis-controls").boundingBox();
@@ -592,7 +586,7 @@ test("production Analysis keeps deferred Library results out of the incoming ana
     "deferred");
   await openAnalysis(page);
   await expect(page.locator(".library-analysis-surface")).toContainText("Analyzing allocations");
-  await expect(page.locator(".library-analysis-surface footer")).toContainText(core.asset);
+  await expect(page.locator("#inspector-panel > section > footer")).toHaveCount(0);
   await releaseFacade(page, "fixture-analysis-ready:asset:core");
   await expect(page.locator(".library-analysis-scroll .perf-row")).toHaveCount(2);
   await chooseSubject(page, "package", "Package");
@@ -600,7 +594,7 @@ test("production Analysis keeps deferred Library results out of the incoming ana
   await chooseInspector(page, "data-library-lens", "analysis", "Analysis");
   await selectPerformanceAnalysis(page);
   await expect(page.locator(".library-analysis-surface")).toContainText("Analyzing allocations");
-  await expect(page.locator(".library-analysis-surface footer")).toContainText(other.asset);
+  await expect(page.locator("#inspector-panel > section > footer")).toHaveCount(0);
   await expect(page.locator(".library-analysis-surface")).not.toContainText(core.name);
   await releaseFacade(page, "fixture-analysis-ready:asset:other");
   await expect(page.locator(".library-analysis-scroll .perf-name").first())
@@ -617,8 +611,7 @@ for (const width of [1440, 390]) {
     await expect(frame.locator("header")).toContainText("4 categories");
     await expect(frame.locator("header")).toContainText("3 detected");
     await expect(frame.locator("header")).toContainText("3 suggested");
-    await expect(frame.locator("footer")).toContainText(core.asset);
-    await expect(frame.locator("footer")).toContainText("Example.Core, Version=1.0.0.0");
+    await expect(frame.locator("footer")).toHaveCount(0);
     await expect(frame.locator("[data-opp-type]")).toHaveCount(3);
     await expect(frame.locator("[data-opp-package]")).toHaveCount(1);
     await expect(frame.locator("[data-opp-lookfor]")).toHaveCount(5);
@@ -652,7 +645,6 @@ for (const width of [1440, 390]) {
     const frame = page.locator(".library-integrations-surface");
     await expect(frame.locator(".opp-row")).toHaveCount(81);
     const header = await frame.locator("header").boundingBox();
-    const footer = await frame.locator("footer").boundingBox();
     const scroll = frame.locator(".library-integrations-scroll");
     const geometry = await scroll.evaluate(element => ({
       width: element.clientWidth, scrollWidth: element.scrollWidth,
@@ -666,7 +658,7 @@ for (const width of [1440, 390]) {
     await scroll.evaluate(element => { element.scrollTop = element.scrollHeight; });
     await expect(frame.locator(".opp-row").last()).toBeInViewport();
     expect(await frame.locator("header").boundingBox()).toEqual(header);
-    expect(await frame.locator("footer").boundingBox()).toEqual(footer);
+    await expect(frame.locator("footer")).toHaveCount(0);
   });
 
   for (const scenario of ["empty", "partial", "partial-empty", "query-error"] as const) {
@@ -693,7 +685,7 @@ for (const width of [1440, 390]) {
       } else if (scenario === "query-error") {
         await expect(frame).toContainText("Suggested integrations: Opportunity query unavailable.");
       }
-      await expect(frame.locator("footer")).toBeInViewport();
+      await expect(frame.locator("footer")).toHaveCount(0);
     });
   }
 
@@ -715,7 +707,7 @@ for (const width of [1440, 390]) {
     await expect(picker).toHaveValue("System.Facade");
     await picker.selectOption("System.Text.Json");
     await expect(frame.locator(".opp-type-ns").nth(1)).toContainText("System.Text.Json");
-    await expect(frame.locator("footer")).toContainText("PhysicalPayload.dll");
+    await expect(frame.locator("footer")).toHaveCount(0);
     await expect(page.locator("html")).toHaveAttribute(
       "data-platform-library-request",
       JSON.stringify([
@@ -808,7 +800,7 @@ test("production Integrations keeps deferred suggested results out of the incomi
   await installFacades(page, surface, [], "ready", "ready", undefined, "deferred");
   await openIntegrations(page);
   await expect(page.locator(".library-integrations-surface header")).toContainText("scanning");
-  await expect(page.locator(".library-integrations-surface footer")).toContainText(core.asset);
+  await expect(page.locator("#inspector-panel > section > footer")).toHaveCount(0);
   await releaseFacade(page, "fixture-opportunities-ready:asset:core");
   await expect(page.locator(".library-integrations-scroll .opp-row")).toHaveCount(3);
   await chooseSubject(page, "package", "Package");
@@ -821,7 +813,7 @@ test("production Integrations keeps deferred suggested results out of the incomi
   );
   await page.locator('[data-analysis-mode="integrations"]').click();
   await expect(page.locator(".library-integrations-surface header")).toContainText("scanning");
-  await expect(page.locator(".library-integrations-surface footer")).toContainText(other.asset);
+  await expect(page.locator("#inspector-panel > section > footer")).toHaveCount(0);
   await expect(page.locator(".library-integrations-surface")).not.toContainText(core.name);
   await releaseFacade(page, "fixture-opportunities-ready:asset:other");
   await expect(page.locator(".library-integrations-scroll .opp-type-ns").nth(1)).toContainText(other.name);
@@ -842,8 +834,7 @@ for (const width of [1440, 390]) {
     await expect(frame.locator("header")).toContainText("3 detected");
     await expect(frame.locator("header")).toContainText("3 suggested");
     await expect(frame.locator(".opp-row")).toHaveCount(3);
-    await expect(frame.locator("footer")).toContainText(core.asset);
-    await expect(frame.locator("footer")).toContainText("Example.Core, Version=1.0.0.0");
+    await expect(frame.locator("footer")).toHaveCount(0);
     await expect(page.locator("#inspector-panel > .type-heading")).toHaveCount(0);
     const panelBox = await page.locator("#inspector-panel").boundingBox();
     const frameBox = await frame.boundingBox();
@@ -873,7 +864,6 @@ for (const width of [1440, 390]) {
     const frame = page.locator(".library-integrations-surface");
     await expect(frame.locator(".signal-row")).toHaveCount(81);
     const header = await frame.locator("header").boundingBox();
-    const footer = await frame.locator("footer").boundingBox();
     const scroll = frame.locator(".library-integrations-scroll");
     const geometry = await scroll.evaluate(element => ({
       width: element.clientWidth, scrollWidth: element.scrollWidth,
@@ -886,7 +876,7 @@ for (const width of [1440, 390]) {
     await scroll.evaluate(element => { element.scrollTop = element.scrollHeight; });
     await expect(frame.locator('[role="listitem"]').last()).toBeInViewport();
     expect(await frame.locator("header").boundingBox()).toEqual(header);
-    expect(await frame.locator("footer").boundingBox()).toEqual(footer);
+    await expect(frame.locator("footer")).toHaveCount(0);
   });
 
   for (const scenario of ["empty", "partial", "partial-empty", "query-error"] as const) {
@@ -913,7 +903,7 @@ for (const width of [1440, 390]) {
       } else if (scenario === "query-error") {
         await expect(frame).toContainText("Detected integrations: Integration query unavailable.");
       }
-      await expect(frame.locator("footer")).toBeInViewport();
+      await expect(frame.locator("footer")).toHaveCount(0);
     });
   }
 
@@ -944,7 +934,7 @@ for (const width of [1440, 390]) {
     );
     await page.locator('[data-analysis-mode="integrations"]').click();
     await expect(frame.locator(".signal-ns").first()).toContainText("System.Facade");
-    await expect(frame.locator("footer")).toContainText("System.Facade.dll");
+    await expect(frame.locator("footer")).toHaveCount(0);
     await expect(page.locator("html")).toHaveAttribute("data-platform-integration-request", "System.Facade.dll:netcore.app");
   });
 }
@@ -953,7 +943,7 @@ test("production Integrations keeps deferred Library results out of the incoming
   await installFacades(page, surface, [], "ready", "deferred");
   await openIntegrations(page);
   await expect(page.locator(".library-integrations-surface header")).toContainText("scanning");
-  await expect(page.locator(".library-integrations-surface footer")).toContainText(core.asset);
+  await expect(page.locator("#inspector-panel > section > footer")).toHaveCount(0);
   await releaseFacade(page, "fixture-integrations-ready:asset:core");
   await expect(page.locator(".library-integrations-scroll .signal-row")).toHaveCount(3);
   await chooseSubject(page, "package", "Package");
@@ -966,7 +956,7 @@ test("production Integrations keeps deferred Library results out of the incoming
   );
   await page.locator('[data-analysis-mode="integrations"]').click();
   await expect(page.locator(".library-integrations-surface header")).toContainText("scanning");
-  await expect(page.locator(".library-integrations-surface footer")).toContainText(other.asset);
+  await expect(page.locator("#inspector-panel > section > footer")).toHaveCount(0);
   await expect(page.locator(".library-integrations-surface")).not.toContainText(core.name);
   await releaseFacade(page, "fixture-integrations-ready:asset:other");
   await expect(page.locator(".library-integrations-scroll .signal-ns").first()).toContainText(other.name);
@@ -994,9 +984,7 @@ for (const width of [1440, 390]) {
     await expect(frame.locator(".reference-list-section")).toContainText(
       "Assembly references");
     await expect(frame.locator("header")).toContainText("1 direct reference");
-    await expect(frame.locator("footer")).toContainText(core.asset);
-    await expect(frame.locator("footer")).toContainText("Example.Core, Version=1.0.0.0");
-    await expect(frame.locator("footer")).toContainText("Example.Package@1.0.0");
+    await expect(frame.locator("footer")).toHaveCount(0);
     await expect(page.locator("#inspector-panel > .type-heading")).toHaveCount(0);
     await expect(frame.locator("h2")).toHaveCount(2);
     const panelBox = await page.locator("#inspector-panel").boundingBox();
@@ -1033,9 +1021,8 @@ for (const width of [1440, 390]) {
     await expect(frame.locator(".reference-graph-section")).toContainText(
       "Reference graph shows 79 of 80 direct references");
     await expect(frame.locator("header")).toContainText("80 direct references");
-    await expect(frame.locator("footer span").first()).toHaveAttribute("title", new RegExp(longCore.name));
+    await expect(frame.locator("footer")).toHaveCount(0);
     const headerBox = await frame.locator("header").boundingBox();
-    const footerBox = await frame.locator("footer").boundingBox();
     const scroller = frame.locator(".library-references-scroll");
     const geometry = await scroller.evaluate(element => ({
       width: element.clientWidth, scrollWidth: element.scrollWidth,
@@ -1049,7 +1036,7 @@ for (const width of [1440, 390]) {
     await scroller.evaluate(element => { element.scrollTop = element.scrollHeight; });
     await expect(frame.locator(".dep-list li").last()).toBeInViewport();
     expect(await frame.locator("header").boundingBox()).toEqual(headerBox);
-    expect(await frame.locator("footer").boundingBox()).toEqual(footerBox);
+    await expect(frame.locator("footer")).toHaveCount(0);
   });
 
   for (const scenario of ["empty", "query-error", "inspection-error"] as const) {
@@ -1061,8 +1048,7 @@ for (const width of [1440, 390]) {
       await expect(frame.locator("h2")).toHaveText(scenario === "empty"
         ? "No direct references" : scenario === "query-error"
           ? "Reference query failed" : "Reference inspection failed");
-      await expect(frame.locator("footer")).toBeInViewport();
-      await expect(frame.locator("footer")).toContainText(core.asset);
+      await expect(frame.locator("footer")).toHaveCount(0);
       await expect(frame.locator(".dep-list")).toHaveCount(0);
       if (scenario !== "empty") {
         await expect(frame).not.toContainText("0 direct references");
@@ -1077,14 +1063,14 @@ test("production References retains a loading frame and does not show a previous
   await installFacades(page, surface, [], "deferred");
   await openReferences(page);
   await expect(page.locator(".library-references-surface")).toContainText("Reading direct AssemblyRef rows");
-  await expect(page.locator(".library-references-surface footer")).toContainText(core.asset);
+  await expect(page.locator("#inspector-panel > section > footer")).toHaveCount(0);
   await releaseFacade(page, "fixture-references-ready:asset:core");
   await expect(page.locator(".library-references-scroll")).toContainText("Example.Core.Dependency");
   await chooseSubject(page, "package", "Package");
   await selectLibrary(page, other.id);
   await chooseInspector(page, "data-library-lens", "references", "References");
   await expect(page.locator(".library-references-surface")).toContainText("Reading direct AssemblyRef rows");
-  await expect(page.locator(".library-references-surface footer")).toContainText(other.asset);
+  await expect(page.locator("#inspector-panel > section > footer")).toHaveCount(0);
   await expect(page.locator(".library-references-surface")).not.toContainText("Example.Core");
   await releaseFacade(page, "fixture-references-ready:asset:other");
   await expect(page.locator(".library-references-scroll")).toContainText("Example.Other.Dependency");
