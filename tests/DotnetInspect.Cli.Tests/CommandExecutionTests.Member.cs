@@ -1213,6 +1213,34 @@ public partial class CommandExecutionTests
             envelope.RootElement.GetProperty("content").GetProperty("text").GetString()!.TrimEnd());
         Assert.StartsWith($"section\tlines\tcharacters\n{SectionNames.ApiDeclarations}\t", declarationsRow);
 
+        // Every format the type route advertises for a Text executes there
+        // (round-2 finding: IL was advertised on the type route without a payload).
+        var (typeCatalogExit, typeCatalog, _) = await RunAppAsync(
+            "type", "DotnetInspect.Cli.Tests.CommandExecutionTests+ConstructorChainTarget",
+            "--library", TestAssemblyPath, "--all", "-D", "--details", "--json");
+        Assert.Equal(0, typeCatalogExit);
+        using JsonDocument typeCatalogDocument = JsonDocument.Parse(typeCatalog);
+        var typeFailures = new List<string>();
+        foreach (JsonElement row in typeCatalogDocument.RootElement.EnumerateArray())
+        {
+            if (row.GetProperty("kind").GetString() != "section"
+                || !row.TryGetProperty("shape", out JsonElement shape)
+                || shape.GetString() != "text")
+            {
+                continue;
+            }
+            string section = row.GetProperty("name").GetString()!;
+            foreach (JsonElement format in row.GetProperty("formats").EnumerateArray())
+            {
+                var (exit, output, error) = await RunAppAsync(
+                    "type", "DotnetInspect.Cli.Tests.CommandExecutionTests+ConstructorChainTarget",
+                    "--library", TestAssemblyPath, "--all", "-S", section, format.GetString()!);
+                if (exit != 0 || output.Trim().Length == 0)
+                    typeFailures.Add($"{section} {format.GetString()}: exit {exit}: {error.Trim()}");
+            }
+        }
+        Assert.True(typeFailures.Count == 0, string.Join(Environment.NewLine, typeFailures));
+
         // A fact row is not an inventory: Count and --rows stay rejected.
         var (countExit, _, countError) = await RunAppAsync([.. member, "-S", SectionNames.DecompiledSource, "--count"]);
         Assert.Equal(1, countExit);

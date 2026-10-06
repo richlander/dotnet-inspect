@@ -88,7 +88,7 @@ internal static class ApiOutputCapabilities
                 && cardinality.Kind == SectionCardinalityKind.Inventory;
             // A Text with a bare payload lowers to its fact row in the row
             // formats (and to a facts-plus-content JSON value, below).
-            bool factRowText = ApiCommand.HasTextRowFormats(view, section);
+            bool factRowText = ApiCommand.HasTextRowFormats(view, catalog, section);
             ImmutableArray<DiscoveryOutputMode> formats =
                 shape == SectionShape.Text && !rowInventoryText && !factRowText
                     ? TextFormats
@@ -132,6 +132,6 @@ internal static class ApiOutputCapabilities
 
         return ApiCommand.DocumentProjectedSections.Contains(section)
             || ApiCommand.DedicatedJsonSections.Contains(section)
-            || ApiCommand.HasTextPayloadJson(view, section);
+            || ApiCommand.HasTextPayloadJson(view, catalog, section);
     }
 }

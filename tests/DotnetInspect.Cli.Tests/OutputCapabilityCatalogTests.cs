@@ -146,9 +146,18 @@ public class OutputCapabilityCatalogTests
         Assert.Equal(ApiOutputCapabilities.TableFormats, typeView.FormatsForSection(SectionNames.PerformanceTriage));
         Assert.Equal(OutputCapabilityCatalog.StandardSectionFormats, typeView.FormatsForSection(SectionNames.Methods));
         Assert.Equal(OutputCapabilityCatalog.StandardSectionFormats, typeView.FormatsForSection(SectionNames.TypeInfo));
-        // API Declarations has a bare payload only on the type command's view.
+        // The new Text formats follow where the payload exists (round-2 finding):
+        // the type command's view has the API declarations and the whole-type
+        // decompiled source, not IL or PDB Source; the member command's type
+        // view has none; an exact member has them all.
         Assert.Equal(OutputCapabilityCatalog.StandardSectionFormats, typeView.FormatsForSection(SectionNames.ApiDeclarations));
+        Assert.Equal(OutputCapabilityCatalog.StandardSectionFormats, typeView.FormatsForSection(SectionNames.DecompiledSource));
+        Assert.Equal(ApiOutputCapabilities.TextFormats, typeView.FormatsForSection(SectionNames.IL));
+        Assert.Equal(ApiOutputCapabilities.TextFormats, typeView.FormatsForSection(SectionNames.PdbSource));
+        Assert.Equal(ApiOutputCapabilities.TextFormats, typeView.FormatsForSection(SectionNames.SourceDiff));
         Assert.Equal(ApiOutputCapabilities.TextFormats, memberTypeView.FormatsForSection(SectionNames.ApiDeclarations));
+        Assert.Equal(ApiOutputCapabilities.TextFormats, memberTypeView.FormatsForSection(SectionNames.DecompiledSource));
+        Assert.Equal(OutputCapabilityCatalog.StandardSectionFormats, detail.FormatsForSection(SectionNames.SourceDiff));
         Assert.Equal(OutputCapabilityCatalog.StandardSectionFormats, listing.FormatsForSection(SectionNames.Classes));
     }
 

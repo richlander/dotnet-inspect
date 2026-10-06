@@ -63,38 +63,48 @@ public partial class ApiCommand
     private static readonly string[] FactRowKeys = ["section", "lines", "characters"];
 
     /// <summary>
-    /// Whether <paramref name="section"/> lowers to a fact row on this route. The
-    /// type API declarations exist as a bare payload only on the <c>type</c>
-    /// command's own view, exactly as their JSON does.
+    /// Whether a bare-payload Text has its payload on this route and catalog,
+    /// as measured on the production paths: an exact member populates every
+    /// member-code Text; the <c>type</c> command's own view populates only the
+    /// type API declarations and the whole-type decompiled source; the member
+    /// command's type view populates none of them.
     /// </summary>
-    internal static bool HasFactRow(Planning.StructuralViewIdentity view, string section) =>
-        FactRowTextSections.Contains(section)
-        && HasBarePayload(view, section);
+    internal static bool HasBarePayload(
+        Planning.StructuralViewIdentity view,
+        Planning.InspectionCatalogIdentity catalog,
+        string section) =>
+        BarePayloadTextSections.Contains(section)
+        && catalog switch
+        {
+            Planning.InspectionCatalogIdentity.ApiMemberDetail =>
+                !section.Equals(SectionNames.ApiDeclarations, StringComparison.OrdinalIgnoreCase),
+            Planning.InspectionCatalogIdentity.ApiMember =>
+                view == Planning.StructuralViewIdentity.Type
+                && (section.Equals(SectionNames.ApiDeclarations, StringComparison.OrdinalIgnoreCase)
+                    || section.Equals(SectionNames.DecompiledSource, StringComparison.OrdinalIgnoreCase)),
+            _ => false,
+        };
 
     /// <summary>
     /// Whether a bare-payload Text's row formats execute on this route, through
     /// the generic fact row or, for <c>Source Diff</c>, its owner's structured rows.
     /// </summary>
-    internal static bool HasTextRowFormats(Planning.StructuralViewIdentity view, string section) =>
-        HasBarePayload(view, section);
+    internal static bool HasTextRowFormats(
+        Planning.StructuralViewIdentity view,
+        Planning.InspectionCatalogIdentity catalog,
+        string section) =>
+        HasBarePayload(view, catalog, section);
 
     /// <summary>
     /// Whether a bare-payload Text's <c>--json</c> is the generic facts-plus-content
     /// value on this route (dedicated JSON lowerings are counted separately).
     /// </summary>
-    internal static bool HasTextPayloadJson(Planning.StructuralViewIdentity view, string section) =>
+    internal static bool HasTextPayloadJson(
+        Planning.StructuralViewIdentity view,
+        Planning.InspectionCatalogIdentity catalog,
+        string section) =>
         TextPayloadJsonSections.Contains(section)
-        && HasBarePayload(view, section);
-
-    /// <summary>
-    /// Whether a bare-payload Text has its payload on this route. The type API
-    /// declarations exist as a bare payload only on the <c>type</c> command's
-    /// own view, exactly as their dedicated JSON does.
-    /// </summary>
-    internal static bool HasBarePayload(Planning.StructuralViewIdentity view, string section) =>
-        BarePayloadTextSections.Contains(section)
-        && !(TypeCommandJsonSections.Contains(section)
-            && view != Planning.StructuralViewIdentity.Type);
+        && HasBarePayload(view, catalog, section);
 
     /// <summary>The lone selected fact-row Text section, if the selection is exactly one.</summary>
     internal static string? LoneFactRowTextSection(ApiOptions options) =>
