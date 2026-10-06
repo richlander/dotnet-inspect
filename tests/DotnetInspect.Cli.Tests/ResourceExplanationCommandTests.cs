@@ -126,8 +126,8 @@ public sealed class ResourceExplanationCommandTests : IDisposable
         Assert.Equal("table", TextFact(typeInfoRoot, "shape"));
         Assert.Equal("scalar", TextFact(typeInfoRoot, "cardinality"));
 
-        // Source is a scalar Text until its Lines inventory is executed by
-        // the CLI; the declaration follows the behavior, not the plan.
+        // Source is the Text with a declared Lines inventory, executed by the
+        // CLI on Complete execution.
         var source = await RunAsync(
             "explain",
             "member-detail/sections/source",
@@ -140,7 +140,7 @@ public sealed class ResourceExplanationCommandTests : IDisposable
         Assert.Equal("structural-section", ResourceType(sourceRoot));
         Assert.Equal("member-detail/sections/source", sourceRoot.GetProperty("path").GetString());
         Assert.Equal("text", TextFact(sourceRoot, "shape"));
-        Assert.Equal("scalar", TextFact(sourceRoot, "cardinality"));
+        Assert.Equal("inventory", TextFact(sourceRoot, "cardinality"));
 
         // Call Graph is a Graph: no shape, but the tree and Mermaid formats.
         var callGraph = await RunAsync(

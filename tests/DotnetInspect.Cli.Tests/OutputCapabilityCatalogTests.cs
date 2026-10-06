@@ -128,8 +128,10 @@ public class OutputCapabilityCatalogTests
 
         Assert.Equal(ApiOutputCapabilities.TextFormats, detail.FormatsForSection(SectionNames.DecompiledSource));
         Assert.Equal(ApiOutputCapabilities.TextFormats, detail.FormatsForSection(SectionNames.IL));
+        // Source is the Text with a Lines inventory: its rows lower to the row
+        // formats, beside its dedicated JSON document.
         Assert.Equal(
-            [DiscoveryOutputMode.Markdown, DiscoveryOutputMode.PlainText, DiscoveryOutputMode.Json],
+            OutputCapabilityCatalog.StandardSectionFormats,
             detail.FormatsForSection(SectionNames.Source));
         Assert.Equal(
             [DiscoveryOutputMode.Markdown, DiscoveryOutputMode.PlainText, DiscoveryOutputMode.Json],
@@ -170,11 +172,7 @@ public class OutputCapabilityCatalogTests
                     InspectionCatalogIdentity.ApiMemberOverload))
                 .FormatsForSection(SectionNames.Methods));
         Assert.Equal(
-            [
-                DiscoveryOutputMode.Markdown,
-                DiscoveryOutputMode.PlainText,
-                DiscoveryOutputMode.Json,
-            ],
+            OutputCapabilityCatalog.StandardSectionFormats,
             catalog.FormatsForSection(SectionNames.Source));
         Assert.Equal(
             ApiOutputCapabilities.TextFormats,

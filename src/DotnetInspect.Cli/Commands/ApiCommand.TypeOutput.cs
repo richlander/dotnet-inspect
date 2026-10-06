@@ -1052,6 +1052,22 @@ public partial class ApiCommand
             {
                 projection.RecordRows(SectionNames.CallGraph, graphRows);
             }
+            // Source declares exact lines as its row unit (Source document
+            // cardinality); its rendered code fence has no table rows, so the
+            // owned line inventory replaces whatever the render recorded.
+            if (options.IncludeSections?.Contains(SectionNames.Source) == true
+                && ProjectionIncludesSection(
+                    schema, SectionNames.Source, options))
+            {
+                if (!TryProjectSourceLines(options, out var sourceLines, out string sourceFailure))
+                {
+                    CommandError.Write(sourceFailure);
+                    return 1;
+                }
+                projection.SetRows(
+                    SectionNames.Source,
+                    SelectedSourceLineCount(options.Rows, sourceLines));
+            }
             if (!TryReportEmptyProjection(
                     projection.WroteAnyContent,
                     options,
@@ -1118,10 +1134,25 @@ public partial class ApiCommand
         {
             if (TryGetNativeApiPayload(view, options, out var raw))
             {
-                OutputFormatter.WriteLfLine(sink, raw.TrimEnd());
+                // A --rows selection of Source lines prints those lines exactly,
+                // trailing whitespace included; an unwindowed payload keeps its
+                // existing trimmed presentation.
+                bool selectedSourceLines =
+                    options.Rows is not null && IsLoneSourceSelection(options);
+                OutputFormatter.WriteLfLine(sink, selectedSourceLines ? raw : raw.TrimEnd());
                 ApiOutputFormatter.WriteCallGraphWarning(view);
                 return 0;
             }
+        }
+
+        if (options.Tabular && IsLoneSourceSelection(options))
+        {
+            if (!TryProjectSourceLines(options, out var sourceLines, out string sourceFailure))
+            {
+                CommandError.Write(sourceFailure);
+                return 1;
+            }
+            return WriteSourceLineTable(sink, options, sourceLines);
         }
 
         if (options.Tabular)
@@ -1685,7 +1716,14 @@ public partial class ApiCommand
             return false;
 
         raw = GetApiPayloadContent(view, included.First()) ?? "";
-        return raw.Length > 0;
+        // A --rows selection of Source lines can legitimately be empty (the
+        // empty final line after a trailing terminator); it is still the native
+        // payload, not a missing one.
+        bool selectedSourceLines =
+            options.Rows is not null
+            && included.First().Equals(SectionNames.Source, StringComparison.OrdinalIgnoreCase)
+            && view.MemberCode?.SourceCode is not null;
+        return raw.Length > 0 || selectedSourceLines;
     }
 
     private static string? GetApiPayloadContent(TypeView view, string section)
