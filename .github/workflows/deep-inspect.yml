@@ -196,6 +196,48 @@ jobs:
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: dotnet run --project tests/ILInspector.Decompiler.Tests -c Release -- --gate no-corpus
 
+      - name: Discover expected decompiler gate tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: >-
+          dotnet run --project tests/ILInspector.Decompiler.Tests -c Release --no-build --
+          --gate-discovery-receipt "$RUNNER_TEMP/decompiler-gates-discovery.jsonl"
+          --gate pre-merge --pre-enumerate-theories on --no-ansi
+
+      - name: Run bounded decompiler receipt
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        id: gates
+        continue-on-error: true
+        timeout-minutes: 5
+        env:
+          DOTNET_INSPECT_DECOMPILER_TEST_RECEIPT: ${{ runner.temp }}/decompiler-gates-execution.jsonl
+        run: >-
+          dotnet run --project tests/ILInspector.Decompiler.Tests -c Release --no-build --
+          --gate pre-merge --pre-enumerate-theories on --no-ansi
+          --auto-reporters off --report-xunit-xml
+          --report-xunit-xml-filename decompiler-gates.xml
+          --results-directory "$RUNNER_TEMP"
+
+      - name: Compare bounded decompiler receipt against known-red
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: >-
+          dotnet run eng/check-decompiler-gate.cs --
+          "$RUNNER_TEMP/decompiler-gates.xml"
+          "$RUNNER_TEMP/decompiler-gates-execution.jsonl"
+          eng/decompiler-gate-known-red.txt
+          eng/decompiler-gate-expected-classes.txt
+          "$RUNNER_TEMP/decompiler-gates-discovery.jsonl"
+
+      - name: Upload bounded decompiler receipt
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: deep-inspect-decompiler-gates-report
+          path: |
+            ${{ runner.temp }}/decompiler-gates.xml
+            ${{ runner.temp }}/decompiler-gates-execution.jsonl
+            ${{ runner.temp }}/decompiler-gates-discovery.jsonl
+          if-no-files-found: warn
+
       - name: Run NuGetFetch tests (offline)
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: dotnet run --project tests/NuGetFetch.Tests -c Release -- --filter-not-trait "Network=Live"

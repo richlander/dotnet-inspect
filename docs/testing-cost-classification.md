@@ -100,9 +100,9 @@ the dependency-policy job selected only for pushes to `main`.
   presets: `dotnet run --project tests/ILInspector.Decompiler.Tests -c Release
   -- --gate fast` expands to `--filter-not-trait "Speed=Slow"`, while `--gate
   slow` expands to `--filter-trait "Speed=Slow"`. The path-gated
-  `decompiler-gates` PR job owns the fast subset and a bounded compile-back
-  receipt; daily Deep Inspect's `--gate no-corpus` run owns every excluded
-  non-corpus test, including broad whole-pipeline sweeps. See
+  `decompiler-gates` PR job owns the fast subset. Daily Deep Inspect runs the
+  bounded compile-back receipt and `--gate no-corpus`, which owns every
+  excluded non-corpus test, including broad whole-pipeline sweeps. See
   [`docs/decompiler-correctness-pipeline.md`](decompiler-correctness-pipeline.md)
   for that suite's full `Area`/`Speed` trait combination and its
   `--gate fast`/`--gate slow` equivalents.

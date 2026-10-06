@@ -300,6 +300,24 @@ internal static class ReleaseCandidateWorkflowContract
             "Deep Inspect query step");
         foreach ((string name, string command) in new[]
         {
+            ("Discover expected decompiler gate tests", "--gate-discovery-receipt"),
+            ("Run bounded decompiler receipt", "--gate pre-merge"),
+            ("Compare bounded decompiler receipt against known-red", "eng/check-decompiler-gate.cs"),
+        })
+        {
+            YamlMappingNode[] matches = testSteps.Children
+                .Select(node => RequireMapping(node, "Deep Inspect test step"))
+                .Where(step => GetOptionalScalar(step, "name") == name)
+                .ToArray();
+            if (matches.Length != 1 || !GetRequiredScalar(
+                    matches[0],
+                    "run",
+                    $"Deep Inspect {name}").Contains(command, StringComparison.Ordinal))
+                throw new InvalidOperationException(
+                    $"Daily Deep Inspect must run {name} once.");
+        }
+        foreach ((string name, string command) in new[]
+        {
             ("Pack pointer package", "dotnet pack src/DotnetInspect.Cli -c Release -p:SelfContained=true -p:OfficialBuild=true -p:CreateRidSpecificToolPackages=false -p:DotnetInspectWebsiteUrl=https://dotnet-inspect.net"),
             ("Pack any (non-AOT) package", "dotnet pack src/DotnetInspect.Cli -c Release -r any -p:PublishAot=false -p:OfficialBuild=true -p:DotnetInspectWebsiteUrl=https://dotnet-inspect.net"),
             ("Pack linux-x64 AOT package", "dotnet pack src/DotnetInspect.Cli -c Release -r linux-x64 -p:OfficialAotBuild=true -p:DotnetInspectWebsiteUrl=https://dotnet-inspect.net"),

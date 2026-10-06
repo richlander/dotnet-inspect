@@ -84,6 +84,18 @@ internal static partial class WorkflowContract
             "decompiler-gates",
             "Run DecompilerHarness tests",
             "dotnet run --project tests/DecompilerHarness.Tests -c Release --no-build");
+        YamlSequenceNode decompilerSteps = GetRequiredSequence(
+            GetRequiredMapping(jobs, "decompiler-gates", "jobs"),
+            "steps",
+            "jobs.decompiler-gates");
+        if (decompilerSteps.Children
+            .Select(node => RequireMapping(node, "jobs.decompiler-gates step"))
+            .Any(step => GetOptionalScalar(step, "name") is
+                "Discover expected gate tests" or "Run decompiler gates"))
+        {
+            throw new InvalidOperationException(
+                "The bounded decompiler receipt belongs in daily Deep Inspect.");
+        }
         YamlSequenceNode packSteps = GetRequiredSequence(
             GetRequiredMapping(jobs, "pack", "jobs"),
             "steps",
@@ -303,7 +315,6 @@ internal static partial class WorkflowContract
         var allowedIf = new Dictionary<string, string>(
             StringComparer.Ordinal)
         {
-            ["decompiler-gates/Upload gate report"] = "always()",
             ["decompiler-gates/Check decompiler test ilasm/ildasm result"] =
                 "always() && steps.iltools_decompiler.outcome == 'failure'",
             ["csharp-diff-smoke/Upload C# Diff smoke artifact"] = "always()",
@@ -313,7 +324,6 @@ internal static partial class WorkflowContract
             StringComparer.Ordinal)
         {
             "decompiler-gates/Install ilasm/ildasm for decompiler tests",
-            "decompiler-gates/Run decompiler gates",
         };
         var allowedShell = new Dictionary<string, string>(
             StringComparer.Ordinal)
@@ -329,13 +339,9 @@ internal static partial class WorkflowContract
         {
             ["decompiler-gates/Install ilasm/ildasm for decompiler tests"] =
                 "iltools_decompiler",
-            ["decompiler-gates/Run decompiler gates"] = "gates",
         };
         var allowedTimeoutMinutes = new Dictionary<string, string>(
-            StringComparer.Ordinal)
-        {
-            ["decompiler-gates/Run decompiler gates"] = "5",
-        };
+            StringComparer.Ordinal);
         var seenIf = new HashSet<string>(StringComparer.Ordinal);
         var seenContinueOnError =
             new HashSet<string>(StringComparer.Ordinal);

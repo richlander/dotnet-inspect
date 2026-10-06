@@ -496,48 +496,13 @@ jobs:
       - name: Validate dependency policy
         run: dotnet run --project eng/DependencyPolicy -c Release --no-build
 
-  # Decompiler fast tests and bounded compile-back receipt, pre-merge.
-  #
-  # This path-gated job owns the decompiler's PR-fast unit and harness suites,
-  # keeping them parallel with the bounded test job. It also runs a bounded set
-  # of direct compile-back gates whose failures are attributable to a specific
-  # fixture and assertion. The broad whole-pipeline docket, lowered-fidelity,
-  # cluster, and printer sweeps run daily through Deep Inspect's
-  # `--gate no-corpus` selection.
-  #
-  # Currently-open receipt failures are pinned in
-  # eng/decompiler-gate-known-red.txt; the checker fails on any unpinned
-  # failure, on any pin that starts passing, and on any gate test that neither
-  # passes nor fails, so the pin list is a ratchet in both directions rather
-  # than a permanent exemption.
-  #
-  # NOTE: this path-gated job must never be named as a required status check
-  # directly. A required check that does not run on a given PR is reported as
-  # "Expected" forever and blocks that merge permanently, and this job is
-  # skipped on any PR that touches no decompiler-relevant path. Its result
-  # reaches `ci-required`, the aggregate job at the end of this file that is
-  # intended to serve as the merge gate and be the one context the ruleset
-  # requires.
-  #
-  # SkeletonEmitTests remains a whole-module skeleton check, but #3872 made its
-  # eight cases tractable by selecting the asserted method before per-method
-  # import/render/recompile work. The skeleton itself is not narrowed; a
-  # duplicate-unrelated-type mutation pins that contract.
-  #
-  # Completeness is case-granular (#3837). MTP JSON-RPC discovery and the
-  # execution receipt carry the same stable TestNodeUid. The checker requires
-  # every discovered ID to start exactly one test. That
-  # last condition is what makes the design fail closed: non-serializable theory
-  # data falls back to one delayed discovery case that starts several tests, so
-  # a set-only case-ID comparison would still be incomplete.
+  # Focused decompiler tests run beside the bounded test job. Daily Deep
+  # Inspect owns the complete non-corpus suite and bounded compile-back receipt.
+  # This path-gated job reaches the required check through `ci-required`.
   decompiler-gates:
     needs: changes
     if: fromJSON(needs.changes.outputs.plan).validations.decompilerGates
     runs-on: ubuntu-26.04
-    # The receipt step must time out before the job so the checker and artifact
-    # upload can turn a hang into a loud, diagnosable failure. A healthy job is
-    # expected to finish within the repository's approximately 10-minute PR
-    # budget; the remaining gap protects runner/setup variance on failure.
     timeout-minutes: 15
     env:
       DOTNET_INSPECT_TIPS: q
@@ -549,16 +514,7 @@ jobs:
         with:
           dotnet-version: '11.0.100-rc.1.26425.128'
 
-      # Caches packages only. Do not add build outputs (artifacts/, bin/, obj/)
-      # here. The completeness check compares a discovery receipt against XML
-      # and the execution receipt, and both steps below run with --no-build
-      # against whatever the Build step produced. That comparison is only
-      # meaningful because all artifacts provably come from one build: the
-      # checkout is fresh, nothing
-      # restores binaries, and Build is fail-fast, so neither step can run
-      # against a stale or partial binary. Caching build outputs would break
-      # that silently -- the gate would still pass, while comparing a receipt
-      # and a report from different builds.
+      # Keep a clean build for the fixture assemblies used by the fast tests.
       - name: Cache NuGet packages
         uses: actions/cache@v6
         with:
@@ -567,13 +523,7 @@ jobs:
           restore-keys: |
             nuget-${{ runner.os }}-${{ runner.arch }}-
 
-      # The gates decompile and recompile the fixture assemblies, so the whole
-      # solution must be built: building only the test project leaves the
-      # fixtures absent and the gates fail with a FileNotFoundException that
-      # reads exactly like a product regression.
-      #
-      # Deliberately not continue-on-error: the two --no-build steps below
-      # depend on this having succeeded.
+      # The fixture assemblies are not all project references of the test host.
       - name: Build
         run: dotnet build dotnet-inspect.slnx -c Release
 
@@ -592,61 +542,6 @@ jobs:
       - name: Run DecompilerHarness tests
         run: dotnet run --project tests/DecompilerHarness.Tests -c Release --no-build
 
-      # Enumerate what the preset selects, without running it. This is the
-      # reference the completeness check compares the results against; the
-      # report's own summary counters cannot serve, because an honestly
-      # truncated report declares its own smaller total and agrees with itself.
-      #
-      # Uses --gate pre-merge, the same preset as the run below, so the two
-      # cannot drift. Sub-second, and not continue-on-error: if discovery fails
-      # there is no reference and the gate must not proceed.
-      - name: Discover expected gate tests
-        run: |
-          dotnet run --project tests/ILInspector.Decompiler.Tests -c Release --no-build -- \
-            --gate-discovery-receipt "$RUNNER_TEMP/decompiler-gates-discovery.jsonl" \
-            --gate pre-merge --pre-enumerate-theories on --no-ansi
-
-      # continue-on-error so the pinned known-red failures do not fail the job
-      # here; eng/check-decompiler-gate.cs decides pass/fail from the report.
-      #
-      # The step timeout is the point, not a formality. This PR exists because
-      # a *job* timeout cancels the job, and a cancelled job runs no further
-      # steps and satisfies no `failure()` condition — it fails silently. A
-      # step timeout well under the job timeout converts a hang into a failed
-      # step that the job survives, so the checker still runs, finds a missing
-      # or truncated report, and fails the job loudly. Do not raise this to the
-      # job timeout.
-      #
-      # Re-measure and re-tune both timeout numbers together whenever the preset
-      # or its collection topology changes.
-      #
-      # --no-build is required, not an optimization. Without it `dotnet run`
-      # builds implicitly, which would (a) break the guarantee that this run and
-      # the discovery receipt above describe the same binary, and (b) hide a
-      # build failure inside a continue-on-error step, where it would surface
-      # only as a missing report.
-      - name: Run decompiler gates
-        id: gates
-        continue-on-error: true
-        timeout-minutes: 5
-        env:
-          DOTNET_INSPECT_DECOMPILER_TEST_RECEIPT: ${{ runner.temp }}/decompiler-gates-execution.jsonl
-        run: |
-          dotnet run --project tests/ILInspector.Decompiler.Tests -c Release --no-build -- \
-            --gate pre-merge --pre-enumerate-theories on --no-ansi \
-            --auto-reporters off --report-xunit-xml \
-            --report-xunit-xml-filename decompiler-gates.xml \
-            --results-directory "$RUNNER_TEMP"
-
-      - name: Compare against pinned known-red
-        run: |
-          dotnet run eng/check-decompiler-gate.cs -- \
-            "$RUNNER_TEMP/decompiler-gates.xml" \
-            "$RUNNER_TEMP/decompiler-gates-execution.jsonl" \
-            eng/decompiler-gate-known-red.txt \
-            eng/decompiler-gate-expected-classes.txt \
-            "$RUNNER_TEMP/decompiler-gates-discovery.jsonl"
-
       - name: Check decompiler test ilasm/ildasm result
         if: always() && steps.iltools_decompiler.outcome == 'failure'
         run: |
@@ -654,16 +549,6 @@ jobs:
           echo "This lane cannot certify oracle-backed results. See the decompiler tool installation step." >&2
           exit 1
 
-      - name: Upload gate report
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: decompiler-gates-report
-          path: |
-            ${{ runner.temp }}/decompiler-gates.xml
-            ${{ runner.temp }}/decompiler-gates-execution.jsonl
-            ${{ runner.temp }}/decompiler-gates-discovery.jsonl
-          if-no-files-found: warn
 
   # Cheap C# Diff harness coverage. Path-gated separately from the full test
   # lane so CSharpDiffHarness/card changes get focused snapshot/baseline JSONL
