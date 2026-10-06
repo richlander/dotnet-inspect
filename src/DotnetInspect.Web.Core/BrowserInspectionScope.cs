@@ -479,6 +479,7 @@ internal sealed class BrowserInspectionScope : IAsyncDisposable
         string assemblyName)
     {
         ArgumentNullException.ThrowIfNull(coordinate);
+        coordinate = Coordinate(coordinate);
         if (!coordinate.Selection.IsSelected)
         {
             throw new InvalidOperationException(

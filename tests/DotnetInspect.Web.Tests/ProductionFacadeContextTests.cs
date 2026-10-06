@@ -175,6 +175,7 @@ public sealed class ProductionFacadeContextTests
         [CallGraphAssembly] =
         [
             "ExpandPlatformCallGraph",
+            "QueryDirectUseClusters",
             "QueryMemberCallGraph",
         ],
         [CatalogAssembly] =

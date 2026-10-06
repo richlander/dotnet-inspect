@@ -250,5 +250,23 @@ public sealed record MemberDocument : MemberDeclaration
 [JsonSerializable(typeof(TypeDocument))]
 [JsonSerializable(typeof(MemberOverviewDocument))]
 [JsonSerializable(typeof(MemberDocument))]
+[JsonSerializable(
+    typeof(MemberDocumentResolutionOutcome),
+    TypeInfoPropertyName = "MemberDocumentResolutionOutcome")]
+[JsonSerializable(
+    typeof(MemberDocumentResolutionOutcome.Overview),
+    TypeInfoPropertyName = "MemberDocumentResolutionOverviewOutcome")]
+[JsonSerializable(
+    typeof(MemberDocumentResolutionOutcome.Exact),
+    TypeInfoPropertyName = "MemberDocumentResolutionExactOutcome")]
+[JsonSerializable(
+    typeof(MemberDocumentResolutionOutcome.Rejected),
+    TypeInfoPropertyName = "MemberDocumentResolutionRejectedOutcome")]
+[JsonSerializable(
+    typeof(MemberDocumentResolutionOutcome.Incomplete),
+    TypeInfoPropertyName = "MemberDocumentResolutionIncompleteOutcome")]
+[JsonSerializable(
+    typeof(MemberDocumentResolutionOutcome.Failed),
+    TypeInfoPropertyName = "MemberDocumentResolutionFailedOutcome")]
 public partial class TypeMemberInspectionDocumentJsonContext
     : JsonSerializerContext;

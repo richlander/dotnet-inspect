@@ -4,10 +4,11 @@ using QuerySpace.Vocabulary;
 namespace DotnetInspector.Sections;
 
 /// <summary>
-/// The one host-neutral request surface for product vocabulary explanation:
-/// every host resolves a <c>vocabularies</c> path against its own composed
-/// snapshot and explains it under <see cref="ResourceExplanationRequest.ForHost"/>,
-/// so equal snapshots yield equal Document Content in every host.
+/// The host-neutral request surface for product vocabulary explanation:
+/// resolves a <c>vocabularies</c> path against a host's composed snapshot and
+/// explains it under <see cref="ResourceExplanationRequest.ForHost"/>. Inspect
+/// Web requests through it; the CLI issues the same request through its own
+/// <c>explain</c> dispatch, so equal snapshots yield equal Document Content.
 /// </summary>
 public sealed class VocabularyExplanation
 {

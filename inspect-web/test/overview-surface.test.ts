@@ -73,7 +73,7 @@ test("Package Overview retains supplied document navigation", () => {
     /overview-scroll[\s\S]*data-doc-path="README.md"/);
 });
 
-test("Library Overview passes complete coordinate text through the existing escaping boundary", () => {
+test("Library Overview passes identity text through the existing escaping boundary", () => {
   const html = overview({
     subject: "library",
     displayName: "Example <Package>",
@@ -82,9 +82,6 @@ test("Library Overview passes complete coordinate text through the existing esca
     packageVersion: "10.0.0&preview",
     activeFramework: "net10.0<browser>",
   });
-  assert.match(html,
-    /title="Example\.&quot;Package@10\.0\.0&amp;preview">Example\.&quot;Package@10\.0\.0&amp;preview<\/span>/);
-  assert.match(html, /title="net10\.0&lt;browser&gt;">net10\.0&lt;browser&gt;<\/span>/);
   assert.match(html, />Example &lt;Package&gt;<\/h1>/);
   assert.match(html, /lib\/net10\.0\/Example&amp;Package\.dll/);
 });

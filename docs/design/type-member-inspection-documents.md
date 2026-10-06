@@ -7,11 +7,12 @@ document family tracked by
 [#8430](https://github.com/richlander/dotnet-inspect/issues/8430).
 
 The design is approved. The four public document declarations, their shared
-exact-Member declaration shape, population correspondence guards, and
-source-generated JSON contracts are implemented. Existing production
-operations still return explicitly named transitional content shapes; later
-adoption slices must switch those producers without presenting the target
-contract as current behavior.
+exact-Member declaration shape, population correspondence guards,
+source-generated JSON contracts, and selector-driven Member document
+resolution are implemented. Existing production operations still return
+explicitly named transitional content shapes; later adoption slices must
+switch those producers without presenting the target contract as current
+behavior.
 The transitional exact-Member producer remains C#-spelling-only and rejects
 Metadata spelling until a later producer slice can emit true Metadata
 declarations.
@@ -329,6 +330,7 @@ production adoption as focused slices:
 2. Establish the public document declarations, population bindings, Rows and
    Count correspondence, and serialization contracts. Complete.
 3. Implement `MemberOverviewDocument` and exact `MemberDocument` resolution.
+   Complete.
 4. Adopt the resolved Member subject mapping in Contextual Resource
    Explanation.
 5. Implement compact `TypeOverviewDocument`.
