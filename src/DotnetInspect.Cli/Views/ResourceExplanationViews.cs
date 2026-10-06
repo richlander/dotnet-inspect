@@ -108,12 +108,15 @@ public sealed class ResourceExplanationView
     public List<string> AcceptedBy { get; init; } = [];
 
     [MarkoutJoin("; ")]
-    public List<string> Fields { get; init; } = [];
+    public List<string> Maps { get; init; } = [];
+
+    [MarkoutJoin("; ")]
+    public List<string> MapValues { get; init; } = [];
 
     [MarkoutJoin(", ")]
     public List<string> Defaults { get; init; } = [];
 
-    public string? ValueRows
+    public string? AllValues
     {
         get;
         init => field = value is null
@@ -220,67 +223,7 @@ public sealed class ResourceExplanationView
 
     public static ResourceExplanationView Create(
         ResourceExplanationDocument document) =>
-        Create(document, context: null);
-
-    public static ResourceExplanationView Create(
-        MemberContextualExplanationDocument document)
-    {
-        ArgumentNullException.ThrowIfNull(document);
-        MemberContextualExplanationSubject? subject = document.Subject;
-        string? source = subject is null
-            ? null
-            : string.Join(
-                " / ",
-                new[]
-                {
-                    subject.Package,
-                    subject.Library,
-                    subject.Framework,
-                }.Where(static value =>
-                    !string.IsNullOrWhiteSpace(value)));
-        (string title, string context, string? identity) =
-            (document.Kind, subject) switch
-            {
-                (MemberContextualExplanationKind.Command, null) =>
-                    ("Explain member", "Member command", null),
-                (
-                    MemberContextualExplanationKind.MemberGroup,
-                    MemberGroupContextualExplanationSubject group) =>
-                    (
-                        $"Explain {group.TypeName}.{group.Group.Name}",
-                        "MemberGroup",
-                        $"{group.Group.Category} / {group.Group.Role}"),
-                (
-                    MemberContextualExplanationKind.ExactMember,
-                    ExactMemberContextualExplanationSubject exact) =>
-                    (
-                        $"Explain {exact.TypeName}.{exact.StableSelector}",
-                        "Exact Member",
-                        exact.CanonicalSignature),
-                _ => throw new InvalidOperationException(
-                    "The contextual Member explanation kind and subject "
-                        + "do not agree."),
-            };
-        return Create(
-            document.Resource,
-            new(
-                title,
-                context,
-                identity,
-                source,
-                document.DefaultFacet?.Value,
-                [
-                    .. document.SelectedSections.Select(
-                        section =>
-                            LibraryViewText.Contain(section)!),
-                ],
-                [
-                    .. document.RelatedOperations.Select(operation =>
-                        new MemberExplanationOperationRow(
-                            operation.Id.Value,
-                            operation.Summary)),
-                ]));
-    }
+        Create(document, ContextualDetails.Create(document));
 
     private static ResourceExplanationView Create(
         ResourceExplanationDocument document,
@@ -290,7 +233,7 @@ public sealed class ResourceExplanationView
         var pathsByIdentity =
             document.Resources.ToDictionary(
                 static resource => resource.Key,
-                static resource => resource.Path.Value);
+                static resource => resource.Path?.Value);
         ResourceExplanationResource root = document.Resources[0];
         ResourceExplanationResourceRow rootRow =
             ResourceExplanationResourceRow.Create(root);
@@ -299,7 +242,8 @@ public sealed class ResourceExplanationView
         {
             Title =
                 context?.Title
-                ?? $"Explain {document.RequestedPath.Value}",
+                ?? $"Explain {document.RequestedPath?.Value
+                    ?? rootRow.Name}",
             Kind = rootRow.Kind,
             Name = rootRow.Name,
             Owner = rootRow.Owner,
@@ -317,9 +261,10 @@ public sealed class ResourceExplanationView
             Values = details.Values,
             Examples = details.Examples,
             AcceptedBy = details.AcceptedBy ?? [],
-            Fields = details.Fields ?? [],
+            Maps = details.Maps ?? [],
+            MapValues = details.MapValues ?? [],
             Defaults = details.Defaults ?? [],
-            ValueRows = details.ValueRows,
+            AllValues = details.AllValues,
             Effects = details.Effects,
             ConsumerKind = details.ConsumerKind,
             Gesture = details.Gesture,
@@ -333,10 +278,13 @@ public sealed class ResourceExplanationView
             SelectedContent = context?.SelectedContent ?? [],
             RelatedOperations = context?.RelatedOperations ?? [],
             ExpandedResources =
-            [
-                .. document.Resources.Skip(1).Select(
-                    ResourceExplanationResourceRow.Create),
-            ],
+                context is not null
+                    ? []
+                    :
+                    [
+                        .. document.Resources.Skip(1).Select(
+                            ResourceExplanationResourceRow.Create),
+                    ],
             Relationships =
                 context is not null
                     ? []
@@ -370,7 +318,61 @@ public sealed class ResourceExplanationView
         string? Source,
         string? DefaultView,
         List<string> SelectedContent,
-        List<MemberExplanationOperationRow> RelatedOperations);
+        List<MemberExplanationOperationRow> RelatedOperations)
+    {
+        internal static ContextualDetails? Create(
+            ResourceExplanationDocument document)
+        {
+            ResourceExplanationResource root = document.Resources[0];
+            if (root.Owner.Value != "member"
+                || root.ResourceType.Schema.Value
+                    != "contextual-explanation")
+                return null;
+
+            string source = string.Join(
+                " / ",
+                new[]
+                {
+                    ResourceExplanationFactView.OptionalText(
+                        root,
+                        "package"),
+                    ResourceExplanationFactView.OptionalText(
+                        root,
+                        "library"),
+                    ResourceExplanationFactView.OptionalText(
+                        root,
+                        "framework"),
+                }.Where(static value =>
+                    !string.IsNullOrWhiteSpace(value)));
+            return new(
+                ResourceExplanationFactView.RequiredText(root, "title"),
+                ResourceExplanationFactView.RequiredText(root, "context"),
+                ResourceExplanationFactView.OptionalText(root, "subject"),
+                source.Length == 0 ? null : source,
+                ResourceExplanationFactView.OptionalText(
+                    root,
+                    "default-view"),
+                [
+                    .. ResourceExplanationFactView.Texts(
+                        root,
+                        "selected-content"),
+                ],
+                [
+                    .. document.Resources
+                        .Where(static resource =>
+                            resource.ResourceType.Value
+                                == "related-operation")
+                        .Select(operation =>
+                            new MemberExplanationOperationRow(
+                                ResourceExplanationFactView.RequiredText(
+                                    operation,
+                                    "identity"),
+                                ResourceExplanationFactView.RequiredText(
+                                    operation,
+                                    "summary"))),
+                ]);
+        }
+    }
 
     public static bool ItemKindsEmpty(
         List<ResourceExplanationResourceRow>? rows) =>
@@ -410,9 +412,10 @@ public sealed class ResourceExplanationView
         string? Shape = null,
         string? Cardinality = null,
         List<string>? AcceptedBy = null,
-        List<string>? Fields = null,
+        List<string>? Maps = null,
+        List<string>? MapValues = null,
         List<string>? Defaults = null,
-        string? ValueRows = null)
+        string? AllValues = null)
     {
         internal static RootDetails Create(
             ResourceExplanationResource resource)
@@ -498,9 +501,24 @@ public sealed class ResourceExplanationView
                         "accepted-by"),
                 ],
                 [
-                    .. ResourceExplanationFactView.Texts(
-                        resource,
-                        "fields"),
+                    .. ResourceExplanationFactView.Records(resource, "maps")
+                        .Select(static map =>
+                            $"{map.Text("identity")} "
+                            + $"({(map.OptionalText("target-vocabulary")
+                                is { } target
+                                    ? $"term {target}"
+                                    : map.Text("value-kind"))}, "
+                            + $"{map.Text("cardinality")}, "
+                            + $"{map.Text("coverage")}): "
+                            + $"{map.Text("name")}. {map.Text("summary")}"),
+                ],
+                [
+                    .. ResourceExplanationFactView.Records(
+                            resource,
+                            "map-entries")
+                        .Select(static entry =>
+                            $"{entry.Text("map")} = "
+                            + entry.ChoiceDisplay("value")),
                 ],
                 [
                     .. ResourceExplanationFactView.Texts(
@@ -508,10 +526,8 @@ public sealed class ResourceExplanationView
                         "defaults"),
                 ],
                 resource.ResourceType.Value == "value-vocabulary"
-                    ? $"vocabulary -S \"{
-                        ResourceExplanationFactView.RequiredText(
-                            resource,
-                            "name")}\""
+                    && resource.Path is { } path
+                    ? $"explain {path.Value} --depth 1"
                     : null);
         }
 
@@ -591,7 +607,7 @@ public sealed record ResourceExplanationResourceRow(
         ResourceExplanationResource resource)
     {
         return new(
-            resource.Path.Value,
+            resource.Path?.Value ?? "(context)",
             DisplayType(resource.ResourceType.Value),
             ResourceExplanationFactView.RequiredText(resource, "name"),
             DisplayOwner(resource.Owner.Value),
@@ -850,6 +866,24 @@ internal static class ResourceExplanationFactView
                     $"Explanation fact '{identity}' contains non-text."));
     }
 
+    internal static IEnumerable<ResourceExplanationRecordView> Records(
+        ResourceExplanationResource resource,
+        string identity)
+    {
+        ExplanationFactObservation? fact = resource.Facts.FirstOrDefault(
+            candidate => candidate.Fact.Value == identity);
+        if (fact is null
+            || fact.State == ExplanationObservationState.Absent)
+        {
+            return [];
+        }
+        return AvailableValues(resource, identity).Select(value =>
+            value is ExplanationValue.Record record
+                ? new ResourceExplanationRecordView(record)
+                : throw new InvalidOperationException(
+                    $"Explanation fact '{identity}' contains a non-record."));
+    }
+
     private static ImmutableArray<ExplanationValue> AvailableValues(
         ResourceExplanationResource resource,
         string identity)
@@ -863,6 +897,48 @@ internal static class ResourceExplanationFactView
         }
         return fact.Values;
     }
+}
+
+/// <summary>Reads one record fact value by field identity.</summary>
+internal readonly record struct ResourceExplanationRecordView(
+    ExplanationValue.Record Record)
+{
+    internal string Text(string field) =>
+        OptionalText(field)
+        ?? throw new InvalidOperationException(
+            $"Record field '{field}' has no value.");
+
+    internal string? OptionalText(string field) =>
+        Values(field) switch
+        {
+            [] => null,
+            [ExplanationValue.Scalar { Value.Text: { } text }] => text,
+            _ => throw new InvalidOperationException(
+                $"Record field '{field}' is not one text value."),
+        };
+
+    internal string ChoiceDisplay(string field) =>
+        Values(field) is [ExplanationValue.Choice
+            {
+                Value: ExplanationValue.Scalar { Value: { } scalar },
+            }]
+            ? scalar.Kind switch
+            {
+                ExplanationScalarKind.Text => scalar.Text!,
+                ExplanationScalarKind.Integer =>
+                    scalar.Integer!.Value.ToString(
+                        System.Globalization.CultureInfo.InvariantCulture),
+                ExplanationScalarKind.Boolean =>
+                    scalar.Boolean!.Value ? "true" : "false",
+                _ => throw new InvalidOperationException(
+                    $"Record field '{field}' has an unsupported scalar."),
+            }
+            : throw new InvalidOperationException(
+                $"Record field '{field}' is not one scalar choice.");
+
+    private ImmutableArray<ExplanationValue> Values(string field) =>
+        Record.Fields.Single(candidate => candidate.Field.Value == field)
+            .Values;
 }
 
 [MarkoutContext(typeof(ResourceExplanationView))]

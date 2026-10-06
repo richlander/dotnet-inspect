@@ -478,7 +478,8 @@ independently decides *to* call the family, and *which target type* to hand it:
 | `switch` case label | route through `EnumConstantText` |
 | array-element store | derive the semantic element type (`StoreElementTargetType`), route through `Coerce` |
 | array-literal element | route through `Coerce` at the literal's `newarr` element type (the sink its raised element store had; [array literal fill raise](array-literal-fill-raise.md#element-coercion)) |
-| `box` / `return` / call args / stores | route through `Coerce` with the sink's declared type |
+| integer `box` operand | exact sink, decided pre-print: `Coerce(boxType, operand, Exact)` where the operand's natural type differs |
+| other `box` / `return` / call args / stores | route through `Coerce` with the sink's declared type |
 | constant typing | `TypedConstantsPass` retypes **`int`-only**, does not pierce `Convert` |
 
 Every row is a call site that must *remember* to route, with the right target
@@ -589,6 +590,36 @@ type once — from the array/field/parameter/return type, not the storage opcode
 and attaches it, rather than the printer re-deriving (and sometimes mis-reading) it
 per print.
 
+**Exact sinks: a box operand.** A `box` names a type but converts nothing: it
+boxes whatever C# type the spelled operand naturally has. Implicit-conversion
+rules, which serve every other sink, are therefore wrong there. A fitting
+literal stays bare and boxes `int`, and an implicit widening stays bare and
+boxes the narrower source. So an integer box operand is an **exact** sink:
+`CoercionSinks` enumerates it with `SinkScope.Exact`. `CoercionInsertionPass`
+wraps it in `Coerce(boxType, operand, CoercionKind.Exact)` whenever the
+operand's natural C# type differs from the box type
+(`CoercionDomain.IsAtNaturalType`):
+
+- an integer constant spells as an unsuffixed decimal literal whatever its
+  IR type, so its natural type follows the C# literal rule: `int` when the
+  value fits, else `uint`, else `long`;
+- any other value has its `CSharpExpressionType.Effective` type.
+
+The printer spells an exact coercion through the ordinary coercion rendering
+and adds an explicit cast only where that rendering is bare:
+`new object[] { s, (short)1 }`, `(int)c`, `(ulong)0`. Every path that spells
+a box operand reads the decided node, including unbox-over-box
+(`(short)(object)((short)1)`), boxed equality, and an interface receiver. The
+integer primitives are the exact box types. Char, bool, floating-point, enum,
+and out-of-domain boxes spell their own literal, member, or cast through the
+printer's `CoerceText`, unchanged. The witnesses are the corpus's 29
+wrong-type boxes in 5 methods: Microsoft.CodeAnalysis `Boxes..cctor` and
+`JsonWriter.AppendCharAsUnicode`, Microsoft.CodeAnalysis.CSharp
+`Binder.DoUncheckedConversion`, `VersionResourceSerializer..ctor`, and
+`IrImporter.BuildBlock` (#9437). `BoxExactCoercionTests` gates the decision.
+It recompiles and runs each csc sample, and compares every boxed value's
+runtime type with the original method's.
+
 ### 2. `Coerce(value, targetType)` — the node
 
 A single C#-surface coercion node, distinct from the existing `Convert` node.
@@ -656,9 +687,10 @@ later or targeted deciders, keyed by value kind. Merge-node arms at non-enum
 in-domain joins are enumerated as `PrinterOwned` sinks: the pass does not wrap
 them, but the checker sees and counts them, so "0 violations" can never be
 misread as covering them. The remaining residuals — slot loads (instance 2's
-lane), `Box` operands, `StoreIndirect` targets, `switch` labels, lambda
-returns — stay outside the enumeration with their reasons documented at
-`CoercionSinks`. What the checker guarantees is **routing agreement** for
+lane), non-integer `Box` operands, `StoreIndirect` targets, `switch` labels,
+lambda returns — stay outside the enumeration with their reasons documented
+at `CoercionSinks`. Integer `Box` operands graduated as exact sinks (see
+"Exact sinks: a box operand"). What the checker guarantees is **routing agreement** for
 wrappable sinks plus a visible residual ledger for the rest; each residual is
 printer-owned — rendered by its own `CoerceText` branch — until it graduates
 into the enumeration and its count goes to zero. Slot loads graduate through
@@ -1291,9 +1323,8 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    (CoerceText's own targeted branches render them, statement-position
    formatting included; primitive same-family `Conditional` values route
    through `CoercionRendering.CanSpellSlotCoercion` and distribute target
-   casts into arms), `Box` operands (the unbox-over-box spelling renders
-   through `ConvertText`, and a bare constant under `(object)` boxes the
-   literal's own type), `StoreIndirect` targets (printer's `IndirectStoreType`
+   casts into arms), non-integer `Box` operands (integer box operands are
+   now exact sinks; see "Exact sinks: a box operand"), `StoreIndirect` targets (printer's `IndirectStoreType`
    not yet shared), `switch` labels (outside the rewritable tree), and operand
    positions (`TryCoerceEnumOperand` — reconciliation, not sinks). Slices 1–3
    deliver the coercion choke point; step 4 is independent — and the

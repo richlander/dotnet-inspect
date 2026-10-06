@@ -877,7 +877,7 @@ already carries the kind.
   not add to N, because search narrows the rows the reader asked to see. N
   counts declarations, the same unit as the Member heading and the
   accessibility counts, and comes from product-issued Counts of the group's
-  [exact-overload population](type-member-inspection-documents.md#member-overloads-row-space),
+  [exact-overload population](type-member-inspection-documents.md#memberoverviewdocument),
   not from host arithmetic over rows. The row shows no marker while those
   Counts are outstanding or when nothing is out of view, and it never shows
   `+0`. When those Counts fail or are incomplete, the row shows `+?` in the

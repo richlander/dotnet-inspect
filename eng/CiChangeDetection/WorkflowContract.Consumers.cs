@@ -76,6 +76,12 @@ internal static partial class WorkflowContract
         ValidateRequiredRunStep(
             jobs,
             "decompiler-gates",
+            "Build fast decompiler test graphs",
+            "dotnet build tests/ILInspector.Decompiler.Tests -c Release\n" +
+            "dotnet build tests/DecompilerHarness.Tests -c Release\n");
+        ValidateRequiredRunStep(
+            jobs,
+            "decompiler-gates",
             "Run decompiler unit tests (fast)",
             "dotnet run --project tests/ILInspector.Decompiler.Tests -c Release " +
                 "--no-build -- --gate fast");

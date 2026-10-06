@@ -1052,12 +1052,16 @@ body:has(:not([hidden]) > [role="dialog"][aria-modal="true"])
 .type-browser.library-subject-nav {
   grid-template-rows: 40px auto minmax(0, 1fr) 27px;
 }
-.type-browser.package-framework-nav {
-  grid-template-rows: 40px minmax(0, 1fr) 27px;
+.type-browser.package-version-nav {
+  grid-template-rows: minmax(0, auto) auto minmax(0, 1fr);
 }
-.type-browser.package-framework-nav.has-version-control {
-  grid-template-rows: 40px auto minmax(0, 1fr) 27px;
-}
+.package-version-nav [hidden] { display: none; }
+.package-navigation-controls label { display: block; margin-bottom: 8px; color: var(--muted); font: 11px var(--mono); }
+.package-navigation-controls input[type="search"] { width: 100%; min-width: 0; height: 30px; margin-top: 6px; padding: 0 8px; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); color: var(--text); font: 11px var(--mono); }
+.package-navigation-controls p { color: var(--dim); font: 11px var(--mono); }
+.package-frameworks .type-row { width: 100%; }
+.package-version-nav .package-frameworks { min-height: 0; max-height: 35vh; overflow: auto; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.package-version-nav .package-frameworks .section-title { padding: 0 14px; }
 .type-browser.workspace-nav {
   grid-template-rows: 40px minmax(0, 1fr);
 }
@@ -1767,10 +1771,13 @@ kbd {
 .package-dependencies-surface,
 .package-vulnerabilities-surface,
 .package-metadata-surface { min-width: 0; min-height: 0; height: 100%; display: grid; grid-template-rows: 40px auto minmax(0, 1fr) 34px; background: var(--bg); }
-.package-vulnerabilities-surface { grid-template-rows: 40px minmax(0, 1fr) 34px; }
-.package-dependencies-surface { container: package-dependencies / inline-size; }
+.package-vulnerabilities-surface { grid-template-rows: 40px minmax(0, 1fr); }
+.package-dependencies-surface {
+  container: package-dependencies / inline-size;
+  grid-template-rows: 40px minmax(0, 1fr);
+}
 .overview-surface { min-width: 0; min-height: 0; height: 100%; display: grid; grid-template-rows: 40px minmax(0, 1fr) 34px; container: overview-surface / inline-size; background: var(--bg); }
-.package-overview-surface { grid-template-rows: minmax(0, 1fr) 34px; }
+.package-overview-surface { grid-template-rows: minmax(0, 1fr); }
 .overview-surface-label { color: var(--muted); font: 10px var(--mono); letter-spacing: .12em; text-transform: uppercase; }
 .overview-identity { display: flex; align-items: flex-start; gap: 14px; padding: 24px 16px 0; }
 .overview-identity .subject-icon { flex: 0 0 40px; width: 40px; height: 40px; font-size: 30px; }
@@ -1821,7 +1828,7 @@ kbd {
 .package-overview-content {
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1.45fr) minmax(320px, .75fr);
+  grid-template-columns: minmax(0, 1fr);
   align-items: start;
   gap: 28px;
   padding: 0 16px 24px;
@@ -2289,6 +2296,46 @@ kbd {
 .graph-legend { display: flex; flex-wrap: wrap; gap: 10px 18px; padding: 12px 10px; border-top: 1px solid var(--line); color: var(--muted); font: 11px var(--mono); }
 .graph-legend span { display: inline-flex; align-items: center; gap: 7px; }
 .legend-swatch { width: 12px; height: 12px; display: inline-block; border: 1px solid; border-radius: 2px; }
+.direct-use-cluster-inspection { border-top: 1px solid var(--line); }
+.direct-use-cluster-inspection > .section-title { padding: 10px; }
+.direct-use-boundary-list,
+.direct-use-cluster-list { display: grid; gap: 8px; padding: 0 10px 10px; }
+.direct-use-boundary,
+.direct-use-cluster {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+  padding: 9px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 3px;
+  background: var(--panel);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+.direct-use-boundary:hover,
+.direct-use-cluster:hover,
+.direct-use-boundary.selected,
+.direct-use-cluster.selected { border-color: var(--accent); background: var(--panel-active); }
+.direct-use-boundary:focus-visible,
+.direct-use-cluster:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.direct-use-boundary strong,
+.direct-use-cluster strong { overflow-wrap: anywhere; font: 600 11px/1.35 var(--mono); }
+.direct-use-boundary span,
+.direct-use-cluster span { color: var(--muted); font: 10px/1.4 var(--mono); }
+.direct-use-cluster-status,
+.direct-use-cluster-empty { margin: 0; padding: 10px; color: var(--muted); font: 11px/1.5 var(--mono); }
+.direct-use-cluster-status { display: flex; align-items: center; gap: 8px; }
+.direct-use-call-sites { padding: 0 10px 12px; }
+.direct-use-call-sites h4 { margin: 2px 0 8px; font: 600 11px/1.4 var(--mono); }
+.direct-use-call-site-list { display: grid; gap: 7px; }
+.direct-use-call-site { min-width: 0; padding: 9px 10px; border: 1px solid var(--line); background: var(--panel); }
+.direct-use-call-site > div { display: flex; min-width: 0; justify-content: space-between; gap: 10px; }
+.direct-use-call-site code { min-width: 0; overflow-wrap: anywhere; color: var(--text); font: 10px/1.4 var(--mono); }
+.direct-use-call-site span,
+.direct-use-call-site small { color: var(--muted); font: 9px/1.4 var(--mono); }
+.direct-use-call-site small { display: block; margin-top: 6px; overflow-wrap: anywhere; }
+.direct-use-call-arrow { padding: 3px 0; color: var(--blue); font: 9px/1.4 var(--mono); }
 .legend-swatch.target { background: var(--graph-target-fill); border-color: var(--graph-target-stroke); }
 .legend-swatch.baseline-connector { background: var(--graph-different-type-fill); border-color: var(--graph-different-type-stroke); }
 .legend-swatch.supply-chain-boundary { background: var(--graph-same-type-fill); border-color: var(--graph-same-type-stroke); }
@@ -3283,10 +3330,7 @@ kbd {
     grid-template-rows: 40px auto auto auto minmax(0, 1fr);
   }
   .type-browser.library-subject-nav { grid-template-rows: 40px auto minmax(0, 1fr); }
-  .type-browser.package-framework-nav { grid-template-rows: 40px minmax(0, 1fr); }
-  .type-browser.package-framework-nav.has-version-control {
-    grid-template-rows: 40px auto minmax(0, 1fr);
-  }
+  .type-browser.package-version-nav { grid-template-rows: minmax(0, auto) auto minmax(0, 1fr); }
   .member-nav { grid-template-rows: 40px 34px auto minmax(0, 1fr); }
   .detail-scroll { padding: 22px 18px 60px; }
   .api-surface-head { min-height: 40px; padding-inline: 12px; }

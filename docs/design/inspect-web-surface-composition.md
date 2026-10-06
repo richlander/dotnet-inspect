@@ -661,7 +661,7 @@ Package Dependencies uses the same viewer and action-row placement. Explore is
 available once dependency groups have been read, including a selected group with
 no connected packages. The viewer contains the manifest-group selector, exact-group
 notice, graph, and workspace/diagram diagnostics. Package coordinate controls,
-dependency lists, assembly references, and the coordinate footer remain on the
+dependency lists and assembly references remain on the
 underlying page. The viewer identifies the inspected package; group buttons
 identify the selected manifest framework independently of the active coordinate.
 The shared header uses the package coordinate as its subject, the active target
@@ -810,13 +810,19 @@ Overview identity.
 platform compatibility warning              (when present)
 icon · subject name
 subject-specific identity details and content
-package@version                                    active framework
+Library only: package@version                     active framework
 ```
 
 Package Overview starts directly with its identity and content rather than
-reserving a quiet `Overview` header row. Its Version selector sits at the top
-of the Package navigation pane, immediately above the TFM list. Library
-Overview retains the shared quiet header and does not gain coordinate controls.
+reserving a quiet `Overview` header row. The Package navigation pane lists target frameworks first, then
+versions in owner-issued release order, with the active version selected,
+text filtering, and a prerelease toggle. The list headings identify the pane
+without an additional Package Navigation row.
+The active coordinate remains visible regardless of filters. Loading and
+failed inventory states retain that coordinate; failure offers explicit retry.
+Target framework selection uses the same navigation pane and updates the active
+coordinate and its Libraries.
+Library Overview retains the shared quiet header and does not gain coordinate controls.
 One independently scrolling content region starts with a larger icon and
 readable name, the surface's single visible level-one heading. Both subjects
 reuse the package's existing icon selection and fallback. Library retains its
@@ -824,8 +830,7 @@ own name, asset path and full assembly identity. The identity is part of the
 full-width content, not a new inset card.
 
 When the product classifies the package/platform target relation as
-incompatible, Package Overview renders one warning immediately below the
-Version control:
+incompatible, Package Overview retains one compatibility warning:
 
 > This package is incompatible with the Workspace platform. Some operations may
 > be blocked, and some results may be incorrect.
@@ -840,12 +845,20 @@ operation-level compatibility failure remains visible in that operation's
 surface; the Overview warning provides persistent package context rather than
 replacing the failure.
 
-Package content retains package facts, comparison targets, and document links.
-At wide inspector widths, Package facts own the primary column while package
-comparison targets remain at the top of the secondary package-resources column
-and package documents follow beneath them. At constrained widths, the same
-complete sections return to one ordered stack: Package Info, Comparison targets,
-then Documentation.
+Package Overview retains package facts, Libraries, and document links in its
+full-width content, with Documentation directly beneath Libraries. Frameworks
+and versions remain in the master pane for both Overview and Compare. The icon and package name identify the subject without an additional
+Package label. Package Compare uses the same full-width frame, content alignment,
+as Overview, starts directly with Comparison targets without repeating
+the package icon or name, and owns that work area; Library,
+Type, and Member **Change target** actions return there. Choosing settings
+continues to configure the existing session-local comparison state.
+
+`System.Text.Json@10.0.0` motivates the version inventory, net10.0/net9.0
+framework choices, Library inventory, and README placement. The existing
+`library-hierarchy.package-loading.spec.ts` production-composition gate exercises
+coordinate switching and its pending, success, failure, and navigation behavior.
+Package layout and navigation unit gates cover the new ordering and selection.
 
 Library navigation owns one single-select inventory containing `All libraries`
 followed by every exact admitted Library. `All libraries` is the default
@@ -862,30 +875,33 @@ Type preserves the active aggregate or exact Library subject so the Type
 inventory contains the corresponding contributed Types.
 
 `System.Text.Json@10.0.0` is the motivating ordinary package: Package Overview
-keeps its README and comparison setup visible without duplicating structural
+keeps its README and framework choices visible without duplicating structural
 navigation, while Library defaults to the package aggregate and can narrow to
 `System.Text.Json.dll`. Its exact Library Overview uses six public namespaces
 as primary navigation while five type-kind counts remain a compact secondary
 summary.
 
-The bottom context row preserves the exact package/version and active
-framework. At narrow widths the Frameworks (Package), Libraries (Library), or
-Types (Type and Member) return control remains available above the working
-surface; the local name and icon remain visible in the content below it.
+Package navigation and inspectors end directly at the data bar, without a
+bottom keyboard-hint or repeated-coordinate row. The persistent subject path
+and selected navigation rows retain package, version, and framework context.
+Library Overview retains its bottom context row. At narrow widths the
+Frameworks & versions (Package), Libraries (Library), or Types (Type and Member)
+return control remains available above the working surface; Overview retains
+its local name and icon in the content below it.
 Controls wrap within their row, and header/footer values may elide as complete
 strings. Local subject names wrap rather than disappearing.
 Long identifiers, asset paths, and document names remain contained without
 page-level horizontal overflow. Many rows scroll inside Overview while its
-header, any controls, and coordinates remain in place.
+header and any controls remain in place; Library coordinates stay in its footer.
 
-Overview presents the already-loaded package. Changing its selected TFM or
-version from the Package navigation pane keeps the
+Overview presents the already-loaded package. Changing its version from the Package
+navigation pane, or its selected TFM from that pane, keeps the
 package shell, inspected target, navigation, and data bar visible, whether the
 target is cached or needs acquisition. Only the
 inspector content becomes busy, with a compact text-and-spinner status rather
 than the full-page bot interstitial. Pending content does not publish a new URL
 or expose the previous coordinate's results as the requested coordinate.
-Completion refreshes the content and TFM navigation from the returned package;
+Completion refreshes the content and version navigation from the returned package;
 keyboard focus returns to the initiating coordinate control. Failure restores
 the previous content and coordinate with the existing visible retry notice.
 Opening a new package retains the acquisition interstitial.
@@ -934,15 +950,14 @@ The surface contains:
 
 ```text
 Dependencies                         package and reference count or state
-Version · Framework
 target-framework groups and graph
 package dependencies and assembly references
-package@version                                             active framework
 ```
 
 The quiet header labels the lens and reports the selected dependency group's
 package count together with the selected assembly's direct reference count.
-A compact control row keeps Version and Framework available. Dependency-group
+Version navigation remains available in the Package master pane; the framework
+shortcut opens the master pane's framework choices. Dependency-group
 selection remains with the result because it selects a manifest group rather
 than changing the active package coordinate.
 
@@ -971,10 +986,9 @@ surfaces retain their existing inline sizing.
 beside the inline graph experience. `System.Text.Json@10.0.0` is the neighboring
 zero-dependency case.
 
-The fixed bottom context row preserves the exact package coordinate and active
-framework. Loading, query failure, no-dependency, no-exact-group, graph
-failure, and partial-workspace states retain the same header, controls, scroll
-owner, and context row. Failures remain visibly distinct from successful
+Package Dependencies has no bottom context row. Loading, query failure,
+no-dependency, no-exact-group, graph failure, and partial-workspace states retain
+the same header, controls, and scroll owner. Failures remain visibly distinct from successful
 empty results.
 
 At narrow widths, the `Types` return control shares the quiet header, controls
@@ -987,14 +1001,13 @@ Integrations, Analysis, Package Metadata, or the Metadata Explorer.
 
 Package Vulnerabilities is available for exact nuget.org package coordinates.
 It uses the complete package inspector area with the Package Overview
-Frameworks navigation pane; version changes update the package coordinate, but
+Frameworks & versions navigation pane; version changes update the package coordinate, but
 framework selection does not alter vulnerability identity.
 
 ```text
 Vulnerabilities                    reviewed advisory count and coverage
 coverage basis and acquisition failures
 reviewed advisory cards
-package@version                         GitHub reviewed advisories
 ```
 
 Opening the lens starts explicit network acquisition through
@@ -1713,9 +1726,9 @@ with the absence of a synthesized `Default feed` control.
 ### Package Vulnerabilities working surface
 
 1. Open a nuget.org Package and confirm that Vulnerabilities appears after
-   Dependencies, uses the Frameworks navigation pane, and retains the exact
-   package/version context while framework selection does not trigger another
-   advisory request.
+   Dependencies, uses the Frameworks & versions navigation pane, and retains
+   the exact package/version context while framework selection does not
+   trigger another advisory request.
 2. Exercise a matching reviewed advisory and confirm that GHSA and optional CVE
    identity, severity, published and updated dates, and the GitHub destination
    remain visible.

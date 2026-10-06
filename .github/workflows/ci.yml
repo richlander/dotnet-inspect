@@ -514,7 +514,8 @@ jobs:
         with:
           dotnet-version: '11.0.100-rc.1.26425.128'
 
-      # Keep a clean build for the fixture assemblies used by the fast tests.
+      # Build the fast test hosts and their declared fixture graphs. The
+      # parallel test job retains the full Release solution build.
       - name: Cache NuGet packages
         uses: actions/cache@v6
         with:
@@ -523,9 +524,10 @@ jobs:
           restore-keys: |
             nuget-${{ runner.os }}-${{ runner.arch }}-
 
-      # The fixture assemblies are not all project references of the test host.
-      - name: Build
-        run: dotnet build dotnet-inspect.slnx -c Release
+      - name: Build fast decompiler test graphs
+        run: |
+          dotnet build tests/ILInspector.Decompiler.Tests -c Release
+          dotnet build tests/DecompilerHarness.Tests -c Release
 
       - name: Install ilasm/ildasm for decompiler tests
         id: iltools_decompiler
