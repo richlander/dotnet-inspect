@@ -289,7 +289,7 @@ public static partial class MetadataExports
     }
 
     private static BrowserMemberDocumentInspection ProjectAvailableMember(
-        MemberDocument document,
+        MemberDocumentInspectionContent document,
         BrowserMemberGroupDocumentDiagnostic[] diagnostics) =>
         new(
             BrowserMemberDocumentOutcome.Available,
