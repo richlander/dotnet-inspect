@@ -42,7 +42,7 @@ behind an `Exact` verdict. That violates
 | `ILInspector.Metadata` | Issues structured declaration and type facts. Spells no C# on new paths. | [Method declaration evidence](metadata-method-declaration-evidence.md) and its sibling Metadata evidence designs |
 | `ILInspector.CSharp` | Owns the one C# type speller, declaration and shell composition, rendering, and the coordinates it issues with rendered text. Decides declaration representability. | [Declaration representability](csharp-declaration-representability.md#representability-outcome); [Product libraries](csharp-member-recompilation.md#product-libraries) |
 | `CSharpText` | Model-free grammars, layout, and source-range recognition that `ILInspector.CSharp` builds on | [Overview](../overview.md) |
-| Shared type identity (placement undecided) | Structured type identity rich enough for Decompiler types: by-ref, pointer, function pointer, and custom modifiers | [Type identity and the TypeRef duplication](fact-planned-compile-back-harness.md#type-identity-and-the-typeref-duplication) |
+| Shared type identity (placement undecided) | Shared structured type identity, with the contents its owner section lists. Consumer-specific adornments stay with each consumer. | [Type identity and the TypeRef duplication](fact-planned-compile-back-harness.md#type-identity-and-the-typeref-duplication) |
 | `ILInspector.Decompiler` | Composes bodies from decided IR and hands body-shaped declaration facts to `ILInspector.CSharp` as neutral data | [Decompiler architecture](../decompiler-architecture.md#position-in-the-product); [The output half](value-typed-emission.md#the-output-half--structure-not-strings) |
 | ReturnToSender (tools) | Selects targets, concatenates product artifacts, compiles, and compares. Its end state originates no C# (#2782). | [RTS harness](fact-planned-compile-back-harness.md#returntosender-harness); #2782 |
 | Display consumers | Read roles and coordinates: member parts, member source diff, body diff, and the annotated source viewer | [Member text parts](member-text-parts.md#signature); [Member source diff](member-source-diff-presentation.md#shared-declaration-boundary); [Implementation diff](implementation-diff.md#ownership); [Annotated source](annotated-source-viewer-interaction.md#source-presentation) |
@@ -65,17 +65,18 @@ owning slices.
    text with coordinates that `ILInspector.CSharp` issues. The replaceable body range exists today. Later
    slices add signature and body spans, then type-reference spans with
    identity.
-4. **Representability outcome.** Declarations carry the
+4. **Representability outcome.** Each declaration decision returns the
    [representability outcome](csharp-declaration-representability.md#representability-outcome)
-   unchanged. RTS treats anything but `Representable` as non-success and
+   unchanged; only `Representable` carries an accepted request. RTS treats anything but `Representable` as non-success and
    never fills it with harness C#. A display fallback declaration is not part
    of that contract; offering one to display consumers would be its own
    focused claim.
 
 ## Sequencing
 
-Each slice deletes duplicated spelling or text re-derivation in the consumer it
-serves. RTS is the first adopter of every declaration slice.
+Each implementation slice deletes duplicated spelling or text re-derivation in
+the consumer it serves. Among consumers, RTS adopts each declaration slice
+first; the product declaration writer is a producer, not a consumer.
 
 1. **First RTS adoptions.** These two can land in either order:
    - **Explicit-interface method declarations** (#9531). Owner: CSharp; RTS
@@ -95,14 +96,17 @@ serves. RTS is the first adopter of every declaration slice.
    declaration writer as the first adopter and RTS next.
 5. **Shared type identity decision.** Choose the placement left open in
    [Type identity and the TypeRef duplication](fact-planned-compile-back-harness.md#type-identity-and-the-typeref-duplication).
-   `ApiTypeShape` has no by-ref, pointer, function-pointer, or custom-modifier
-   kinds, so the Decompiler printer can adopt the speller and retire its own
-   type spelling only after this decision, in a later slice.
+   `ApiTypeShape` has no by-ref, pointer, or function-pointer kinds, so the
+   Decompiler printer can adopt the speller and retire its own type spelling
+   only after this decision, in a later slice that also supplies its own
+   adornments, such as custom modifiers. This step is a decision; it deletes
+   nothing by itself.
 6. **Composed-artifact coordinates.** A focused pattern design for signature
    and body spans issued by `ILInspector.CSharp`, with the first adopter named
    in that design. Later adopters:
    - member parts in the CLI and Browser/Wasm hosts;
-   - member source diff;
+   - member source diff, for its decompiled endpoint (authored PDB source has
+     no product coordinates);
    - the annotated source declaration;
    - body diff statement kinds.
 7. **Expression-level surface.** Unchanged from
@@ -114,8 +118,8 @@ serves. RTS is the first adopter of every declaration slice.
 ## Gates
 
 Each slice names its own gates. Every slice that RTS consumes keeps the RTS
-parity gate (#2776) green, and none may turn a legacy `Exact` row into a silent
-loss (#6199). A slice counts toward this map only when it deletes the harness
+parity gate (#2776) green and follows #6199's completion rule for lost `Exact`
+rows and scope reductions. A slice counts toward this map only when it deletes the harness
 origination or consumer re-derivation it replaces.
 
 ## Non-claims
