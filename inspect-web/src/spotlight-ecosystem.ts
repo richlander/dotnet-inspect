@@ -1,4 +1,8 @@
-import type { BrowserEcosystemPackageClassification, BrowserEcosystemPackageCandidate, BrowserEcosystemPackageInventory } from "./facades/inspect-web-package.d.ts";
+import type {
+  BrowserEcosystemPackageClassification,
+  BrowserEcosystemPackageCandidate,
+  BrowserEcosystemPackageInventory,
+} from "./facades/inspect-web-package.d.ts";
 import type { PlatformCatalogTarget } from "./platform-index.ts";
 import type { SpotlightResult } from "./spotlight.ts";
 
@@ -21,6 +25,7 @@ export function createSpotlightEcosystemClassification(options: {
   updateResults: () => void;
 }) {
   let inventoryTarget: PlatformCatalogTarget | null = null;
+  let inventoryRevision = 0;
   let inventory: BrowserEcosystemPackageInventory | null = null;
   let requestKey = "";
   let annotations = new Map<string, BrowserEcosystemPackageClassification>();
@@ -28,27 +33,34 @@ export function createSpotlightEcosystemClassification(options: {
   return {
     error: () => failure,
     project(results: SpotlightResult[], traversalTfm: string, target: PlatformCatalogTarget | null): SpotlightResult[] {
-      const candidates = [...new Map(results.flatMap(result => {
+      const candidatesByCoordinate = new Map<string, BrowserEcosystemPackageCandidate>();
+      for (const result of results) {
         const value = coordinate(result);
-        return value ? [[coordinateKey(value), { id: value.id, version: value.version ?? null }] as const] : [];
-      })).values()];
+        if (value) candidatesByCoordinate.set(
+          coordinateKey(value), { id: value.id, version: value.version ?? null });
+      }
+      const candidates = [...candidatesByCoordinate.values()];
       const candidatesJson = JSON.stringify(candidates);
       if (target !== inventoryTarget) {
         inventoryTarget = target;
+        inventoryRevision++;
         inventory = target
           ? { tfm: target.tfm, version: target.version, supplies: target.supplies }
           : null;
       }
-      const key = JSON.stringify([traversalTfm, candidatesJson, inventory]);
+      const key = JSON.stringify([traversalTfm, candidatesJson, inventoryRevision]);
       if (key !== requestKey) {
         requestKey = key;
         annotations = new Map();
         failure = "";
         if (candidates.length > 0) {
+          const requestedInventory = inventory ?? { tfm: traversalTfm, version: "", supplies: null };
           // Promise.resolve also contains a synchronous transport failure.
-          void Promise.resolve().then(() => options.classify(traversalTfm, candidates, inventory ?? { tfm: traversalTfm, version: "", supplies: null })).then(values => {
+          void Promise.resolve().then(() => options.classify(
+            traversalTfm, candidates, requestedInventory)).then(values => {
             if (requestKey !== key) return undefined;
-            annotations = new Map(values.map(value => [coordinateKey(value), value]));
+            annotations = new Map();
+            for (const value of values) annotations.set(coordinateKey(value), value);
             options.updateResults();
             return undefined;
           }, (error: unknown) => {
