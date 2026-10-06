@@ -291,7 +291,14 @@ than an inspected artifact:
   candidates, eager rows, and Planner rows. Publish it for the target RID and
   run `return-to-sender-target-scorecard <check|time> <assembly>...`;
   `repeat-one` records exact base/head repeated terminal evidence, while
-  `once` supports process-start measurements.
+  `once` supports process-start measurements. `select-repeat <rounds> <cap>
+  <assembly>...` compares complete eligibility-before-ranking against the
+  operation-owned rank-first capped plan, requires identical selected-target
+  fingerprints, and reports ranked and deeply evaluated body counts.
+  `select-one Eager|RankFirst <cap> <assembly>...` supports exact base/head
+  process-start measurement of either capped physical plan. DecompilerHarness
+  corpus execution with `--corpus-fidelity-oracle rts-native` or
+  `rts-cutover` consumes the rank-first plan before native RTS evaluation.
 
 **The scorecard** scores QuerySpace (Base), LINQ, NLinq, and QuerySpace for
 Exists, Count,
