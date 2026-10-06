@@ -36,7 +36,8 @@ public sealed record TypeOverviewDocument
                 row.Binding.Population != members.Binding
                 || !row.ExactMemberCount.HasValue)
             || rows.Continuation is { } continuation
-                && continuation.Binding != members.Binding)
+                && (continuation.Binding != members.Binding
+                    || !continuation.IncludeExactMemberCount))
         {
             throw new ArgumentException(
                 "Type overview Rows and exact-Member Counts must share the document population binding and ordering.",
@@ -250,6 +251,25 @@ public sealed record MemberDocument : MemberDeclaration
 [JsonSerializable(typeof(TypeDocument))]
 [JsonSerializable(typeof(MemberOverviewDocument))]
 [JsonSerializable(typeof(MemberDocument))]
+[JsonSerializable(
+    typeof(TypeOverviewDocumentInspectionOutcome),
+    TypeInfoPropertyName = "TypeOverviewDocumentInspectionOutcome")]
+[JsonSerializable(
+    typeof(TypeOverviewDocumentInspectionOutcome.Available),
+    TypeInfoPropertyName =
+        "TypeOverviewDocumentInspectionAvailableOutcome")]
+[JsonSerializable(
+    typeof(TypeOverviewDocumentInspectionOutcome.Rejected),
+    TypeInfoPropertyName =
+        "TypeOverviewDocumentInspectionRejectedOutcome")]
+[JsonSerializable(
+    typeof(TypeOverviewDocumentInspectionOutcome.Incomplete),
+    TypeInfoPropertyName =
+        "TypeOverviewDocumentInspectionIncompleteOutcome")]
+[JsonSerializable(
+    typeof(TypeOverviewDocumentInspectionOutcome.Failed),
+    TypeInfoPropertyName =
+        "TypeOverviewDocumentInspectionFailedOutcome")]
 [JsonSerializable(
     typeof(MemberDocumentResolutionOutcome),
     TypeInfoPropertyName = "MemberDocumentResolutionOutcome")]
