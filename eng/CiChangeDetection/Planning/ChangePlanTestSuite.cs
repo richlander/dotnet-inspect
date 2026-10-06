@@ -33,7 +33,6 @@ internal static class ChangePlanTestSuite
             AssertRoutingCanaries(policy);
             AssertConservativePolicies(scratch);
             AssertEventSemantics(policy);
-            AssertRoundTripImplication();
             AssertParserFixtures();
             AssertSerialization(repository, policy);
             AssertStrictDeserialization(repository, policy);
@@ -70,25 +69,24 @@ internal static class ChangePlanTestSuite
         (string Path, string Selected)[] canaries =
         [
             ("src/NetworkAccess/NetworkDestinationPolicy.cs",
-                "code,decompiler,shipped,web"),
+                "code,decompiler,web"),
             ("src/UnionPolyfill.cs",
-                "code,decompiler,shipped,web"),
-            ("src/DotnetInspect.Cli/Program.cs", "code,shipped"),
+                "code,decompiler,web"),
+            ("src/DotnetInspect.Cli/Program.cs", "code"),
             ("src/ILInspector.Decompiler/Raise.cs",
-                "code,csharpdiff,decompiler,shipped,web"),
+                "code,csharpdiff,decompiler,web"),
             ("src/ILInspector.Metadata/Reader.cs",
-                "code,decompiler,ilroundtrip,shipped,web"),
+                "code,decompiler,web"),
             ("src/DotnetInspector.Cache/PersistentCache.cs",
-                "code,decompiler,ilroundtrip,shipped,web"),
+                "code,decompiler,web"),
             ("src/DotnetInspector.Sections/InspectionEnvelope.cs",
-                "code,decompiler,ilroundtrip,shipped,web"),
+                "code,decompiler,web"),
             ("src/UntrustedDocuments/HardenedJson.cs",
-                "code,decompiler,ilroundtrip,shipped,web"),
+                "code,decompiler,web"),
             ("src/DotnetInspect.Cli/DotnetInspect.Cli.csproj",
-                "code,packaging,shipped"),
+                "code,packaging"),
             ("src/Directory.Build.props",
-                "code,csharpdiff,decompiler,ildiff,ilroundtrip,packaging,"
-                + "shipped"),
+                "code,csharpdiff,decompiler,ildiff,packaging"),
             ("tests/DotnetInspector.Queries.Tests/Q.cs",
                 "code"),
             ("tests/DotnetInspector.Cache.Tests/C.cs",
@@ -122,7 +120,7 @@ internal static class ChangePlanTestSuite
             ("tests/DotnetInspect.Web.Tests/Directory.Build.props",
                 "code,web"),
             ("tests/DotnetInspector.ILRoundtrip.Tests/T.cs",
-                "code,ilroundtrip"),
+                "code"),
             ("tests/DecompilerHarness.Tests/Closure.cs",
                 "code,decompiler"),
             ("tests/Other/T.cs", "code,decompiler"),
@@ -170,38 +168,38 @@ internal static class ChangePlanTestSuite
             ("eng/run-method-semantics-platform-probe.sh", "code,web"),
             ("eng/run-local-path-admission-platform-probe.sh", "code,web"),
             ("eng/test-ts-jsexport-typescript.sh",
-                "web,web-comprehensive"),
+                "web"),
             ("eng/generate-inspect-web-multi-facade-canary.sh",
-                "web,web-comprehensive"),
+                "web"),
             ("eng/test-inspect-web-multi-facade-canary.sh",
-                "web,web-comprehensive"),
+                "web"),
             ("eng/generate-inspect-web-managed-operation-bridge-canary.sh",
-                "web,web-comprehensive"),
+                "web"),
             ("eng/test-inspect-web-managed-operation-bridge-canary.sh",
-                "web,web-comprehensive"),
+                "web"),
             ("eng/test-inspect-web-package-adoption-gate.sh", "web"),
             ("eng/test-inspect-web-published-application.sh", "web"),
             ("eng/test-inspect-web-source-comparison-gate.sh", "web"),
-            ("src/MsdlProxy/MsdlProxyFunction.cs", "code,shipped,web"),
+            ("src/MsdlProxy/MsdlProxyFunction.cs", "code,web"),
             ("tests/MsdlProxy.Tests/MsdlProxyFunctionTests.cs", "code,web"),
             ("tools/InspectWeb.AsyncLoweringVerifier/verify-async-lowering.cs",
                 "code,decompiler,web"),
             ("tools/InspectWeb.PlatformIndexGenerator/genindex.cs",
                 "code,decompiler,web"),
             ("tests/InspectWeb.MultiFacadeCanary/Alpha/Exports.cs",
-                "code,web,web-comprehensive"),
+                "code,web"),
             ("tests/InspectWeb.ManagedOperationBridgeCanary/Bridge/Exports.cs",
-                "code,web,web-comprehensive"),
+                "code,web"),
             ("eng/validate-release-candidate.cs", "packaging,web"),
             ("eng/validate-release-candidate.sh", "packaging,web"),
             ("eng/verify-nuget-retry-package.cs", "code,packaging"),
             ("eng/verify-release-candidate-artifact.sh", "packaging,web"),
             ("eng/generate-inspect-web-engine-facade.sh",
-                "web,web-comprehensive"),
+                "web"),
             ("inspect-web/scripts/compile-engine-facades.ts",
-                "web,web-comprehensive"),
+                "web"),
             ("eng/InspectWebAsyncLoweringReceipt.targets",
-                "code,csharpdiff,decompiler,ildiff,ilroundtrip,web"),
+                "code,csharpdiff,decompiler,ildiff,web"),
             ("eng/verify-inspect-web-async-deployment.sh", "web"),
             ("eng/BannedSymbols.txt", "code,docs,web"),
             (".gitattributes", "code"),
@@ -211,28 +209,24 @@ internal static class ChangePlanTestSuite
             ("eng/check-decompiler-gate.cs", "decompiler"),
             ("eng/decompiler-gate-known-red.txt", "decompiler,docs"),
             ("eng/decompiler-gate-skip-projects.txt", "decompiler,docs"),
-            ("eng/restore-ilassembler.sh", "code,ilroundtrip"),
+            ("eng/restore-ilassembler.sh", "code"),
             ("inspect-web/README.md", "docs"),
             ("inspect-web/index.html", "web"),
             ("prototypes/annotated-source-viewer/app.js",
                 "web"),
             ("Directory.Build.props",
-                "code,csharpdiff,decompiler,ildiff,ilroundtrip,packaging,"
-                + "shipped,web"),
+                "code,csharpdiff,decompiler,ildiff,packaging,web"),
             ("Directory.Build.targets",
-                "code,csharpdiff,decompiler,ildiff,ilroundtrip,packaging,"
-                + "shipped,web"),
+                "code,csharpdiff,decompiler,ildiff,packaging,web"),
             ("Directory.Packages.props",
-                "code,csharpdiff,decompiler,ildiff,ilroundtrip,packaging,"
-                + "shipped,web"),
+                "code,csharpdiff,decompiler,ildiff,packaging,web"),
             ("dotnet-inspect.slnx",
-                "code,csharpdiff,decompiler,ildiff,ilroundtrip,web"),
-            ("global.json", "decompiler,packaging,shipped"),
+                "code,csharpdiff,decompiler,ildiff,web"),
+            ("global.json", "code,decompiler,packaging,web"),
             (".github/workflows/ci.yml",
-                "code,csharpdiff,decompiler,ildiff,packaging,shipped,web,"
-                + "web-comprehensive,skills,tla"),
+                "code,csharpdiff,decompiler,ildiff,packaging,web,skills,tla"),
             (".github/workflows/deep-inspect.yml",
-                "code,web,web-comprehensive"),
+                "code,web"),
             (".github/workflows/release.yml",
                 "code,packaging,web"),
             (".github/workflows/deploy-inspect-web.yml",
@@ -294,16 +288,16 @@ internal static class ChangePlanTestSuite
         })
         {
             RoutingSelections actual = policy.Route(Evidence(path));
-            if (!actual.Web || !actual.WebComprehensive)
+            if (!actual.Web)
             {
                 throw new InvalidOperationException(
-                    $"{path} did not select comprehensive inspect-web validation.");
+                    $"{path} did not select inspect-web validation.");
             }
         }
 
         // A change set is the union of its records.
         if (Render(policy.Route(Evidence("README.md", "src/a/b.cs")))
-            != "code,decompiler,docs,shipped")
+            != "code,decompiler,docs")
         {
             throw new InvalidOperationException(
                 "Multi-record routing did not union its records.");
@@ -338,7 +332,7 @@ internal static class ChangePlanTestSuite
             // A missing inspect-web inventory broadens `web` to every src
             // change rather than narrowing it.
             if (Render(policy.Route(Evidence("src/DotnetInspect.Cli/Program.cs")))
-                != "code,decompiler,shipped,web")
+                != "code,decompiler,web")
             {
                 throw new InvalidOperationException(
                     "A missing inspect-web inventory did not broaden the "
@@ -415,17 +409,13 @@ internal static class ChangePlanTestSuite
             ValidationSelections selections =
                 ValidationSelections.FromRouting(all, kind);
             if (!(selections.Test
-                && selections.RepositoryGuards
                 && !selections.DependencyPolicy
                 && selections.CSharpDiffSmoke
                 && selections.DecompilerGates
                 && selections.Markdownlint
                 && selections.IlDiffSmoke
-                && selections.IlRoundTrip
                 && selections.Pack
-                && selections.BuildNet10
                 && selections.InspectWeb
-                && selections.InspectWebComprehensive
                 && selections.SkillGate
                 && selections.Tla))
             {
@@ -438,14 +428,11 @@ internal static class ChangePlanTestSuite
         ValidationSelections pushed =
             ValidationSelections.FromRouting(all, PlanEventKind.Push);
         if (pushed.Test
-            || pushed.RepositoryGuards
             || !pushed.DependencyPolicy
             || pushed.CSharpDiffSmoke
             || pushed.DecompilerGates
             || pushed.IlDiffSmoke
-            || pushed.IlRoundTrip
             || pushed.Pack
-            || pushed.BuildNet10
             || pushed.SkillGate)
         {
             throw new InvalidOperationException(
@@ -454,7 +441,6 @@ internal static class ChangePlanTestSuite
 
         if (!pushed.Markdownlint
             || !pushed.InspectWeb
-            || pushed.InspectWebComprehensive
             || !pushed.Tla)
         {
             throw new InvalidOperationException(
@@ -471,20 +457,19 @@ internal static class ChangePlanTestSuite
         {
             ValidationSelections directPreMerge =
                 ValidationSelections.FromRouting(directOwner, kind);
-            if (!directPreMerge.InspectWeb
-                || !directPreMerge.InspectWebComprehensive)
+            if (!directPreMerge.InspectWeb)
             {
                 throw new InvalidOperationException(
-                    $"Direct inspect-web owner change lost comprehensive {kind} validation.");
+                    $"Direct inspect-web owner change lost {kind} validation.");
             }
         }
 
         ValidationSelections directPush =
             ValidationSelections.FromRouting(directOwner, PlanEventKind.Push);
-        if (!directPush.InspectWeb || directPush.InspectWebComprehensive)
+        if (!directPush.InspectWeb)
         {
             throw new InvalidOperationException(
-                "Direct inspect-web owner push did not retain only the fast backstop.");
+                "Direct inspect-web owner push lost its validation.");
         }
 
         // A neighbouring documentation-only candidate selects only
@@ -494,7 +479,6 @@ internal static class ChangePlanTestSuite
             policy.Route(Evidence("docs/design/ci-change-plan.md")),
             PlanEventKind.PullRequestSyntheticCandidate);
         if (!docsOnly.Markdownlint
-            || docsOnly.RepositoryGuards
             || docsOnly.Test
             || docsOnly.DecompilerGates
             || docsOnly.InspectWeb
@@ -508,70 +492,21 @@ internal static class ChangePlanTestSuite
             ValidationSelections.FromRouting(
                 policy.Route(Evidence("src/NuGetFetch/PackageSource.cs")),
                 PlanEventKind.PullRequestSyntheticCandidate);
-        if (!csharpSource.RepositoryGuards || !csharpSource.Test)
+        if (!csharpSource.Test)
         {
             throw new InvalidOperationException(
-                "A C# source candidate did not select the repository guards.");
+                "A C# source candidate did not select the test lane.");
         }
 
         ValidationSelections emptyPreMerge =
             ValidationSelections.FromRouting(
                 policy.Route(ChangeEvidence.Create([])),
                 PlanEventKind.MergeGroup);
-        if (emptyPreMerge.RepositoryGuards || emptyPreMerge.Test)
+        if (emptyPreMerge.Test)
         {
             throw new InvalidOperationException(
                 "An empty pre-merge candidate selected a content gate.");
         }
-    }
-
-    private static void AssertRoundTripImplication()
-    {
-        // Every routed ilroundtrip rule must also reach the test lane, and the
-        // plan type must refuse the combination outright.
-        ChangeRoutingPolicy policy = ChangeRoutingPolicy.Load(
-            Path.Combine(Path.GetPathRoot(Environment.CurrentDirectory)
-                ?? "/", "nonexistent-ci-plan-policy-root"));
-        foreach (string path in new[]
-        {
-            "tests/DotnetInspector.ILRoundtrip.Tests/T.cs",
-            "eng/restore-ilassembler.sh",
-            "src/ILInspector.Metadata/Reader.cs",
-            "src/ILInspector.MetadataPrimitives/P.cs",
-            "src/DotnetInspector.Cache/PersistentCache.cs",
-            "src/DotnetInspector.Sections/InspectionEnvelope.cs",
-            "src/UntrustedDocuments/HardenedJson.cs",
-            "Directory.Build.props",
-            "Directory.Build.targets",
-            "dotnet-inspect.sln",
-            "dotnet-inspect.slnx",
-        })
-        {
-            RoutingSelections routing = policy.Route(Evidence(path));
-            if (!routing.IlRoundtrip || !routing.Code)
-            {
-                throw new InvalidOperationException(
-                    $"{path} did not select ilroundtrip and code.");
-            }
-        }
-
-        AssertRefusal(
-            PlanRefusalCategory.PlanSerialization,
-            () => new ValidationSelections(
-                test: false,
-                repositoryGuards: false,
-                dependencyPolicy: false,
-                cSharpDiffSmoke: false,
-                decompilerGates: false,
-                markdownlint: false,
-                ilDiffSmoke: false,
-                ilRoundTrip: true,
-                pack: false,
-                buildNet10: false,
-                inspectWeb: false,
-                inspectWebComprehensive: false,
-                skillGate: false,
-                tla: false));
     }
 
     /// <summary>
@@ -669,7 +604,7 @@ internal static class ChangePlanTestSuite
             policy);
 
         const string Golden =
-            "{\"schemaVersion\":6,\"status\":\"planned\",\"provenance\":"
+            "{\"schemaVersion\":7,\"status\":\"planned\",\"provenance\":"
             + "{\"kind\":\"pullRequestSyntheticCandidate\",\"baseObjectId\":"
             + "\"1111111111111111111111111111111111111111\","
             + "\"candidateObjectId\":"
@@ -677,12 +612,11 @@ internal static class ChangePlanTestSuite
             + "{\"recordCount\":2,\"sha256\":"
             + "\"e2942177c268e91967eeb66ed6c48b8e8e426158f30a8f3371de8322"
             + "439a2a05\"},\"validations\":{\"test\":false,"
-            + "\"repositoryGuards\":false,"
             + "\"dependencyPolicy\":false,"
             + "\"csharpDiffSmoke\":false,\"decompilerGates\":false,"
             + "\"markdownlint\":true,\"ilDiffSmoke\":false,"
-            + "\"ilRoundTrip\":false,\"pack\":false,\"buildNet10\":false,"
-            + "\"inspectWeb\":false,\"inspectWebComprehensive\":false,"
+            + "\"pack\":false,"
+            + "\"inspectWeb\":false,"
             + "\"skillGate\":false,\"tla\":true},"
             + "\"scopes\":{\"tla\":{\"artifact\":\"ci-plan-tla-paths0\","
             + "\"framing\":\"pathBytesNulTerminated\",\"recordCount\":1,"
@@ -779,12 +713,12 @@ internal static class ChangePlanTestSuite
                     "\"status\": \"planned\"")),
             ("non-canonical property order",
                 text.Replace(
-                    "{\"schemaVersion\":6,\"status\":\"planned\"",
-                    "{\"status\":\"planned\",\"schemaVersion\":6")),
+                    "{\"schemaVersion\":7,\"status\":\"planned\"",
+                    "{\"status\":\"planned\",\"schemaVersion\":7")),
             ("escaped member name",
                 text.Replace("schemaVersion", "schema\\u0056ersion")),
             ("non-canonical number",
-                text.Replace("\"schemaVersion\":6", "\"schemaVersion\":6e0")),
+                text.Replace("\"schemaVersion\":7", "\"schemaVersion\":7e0")),
             ("control character", $"\n{text}"),
             ("truncated document", text[..^1]),
             ("unknown member",
@@ -792,13 +726,13 @@ internal static class ChangePlanTestSuite
             ("missing member", text.Replace(",\"diagnostics\":[]", "")),
             ("duplicate member",
                 text.Replace(
-                    "\"schemaVersion\":6",
-                    "\"schemaVersion\":6,\"schemaVersion\":6")),
+                    "\"schemaVersion\":7",
+                    "\"schemaVersion\":7,\"schemaVersion\":7")),
             ("mistyped boolean", text.Replace("\"test\":false", "\"test\":0")),
             ("mistyped count",
                 text.Replace("\"recordCount\":1", "\"recordCount\":\"1\"")),
             ("unsupported version",
-                text.Replace("\"schemaVersion\":6", "\"schemaVersion\":5")),
+                text.Replace("\"schemaVersion\":7", "\"schemaVersion\":6")),
             ("unsupported status",
                 text.Replace("\"planned\"", "\"refused\"")),
             ("invalid digest",
@@ -807,12 +741,6 @@ internal static class ChangePlanTestSuite
                 text.Replace(BaseObjectId, BaseObjectId[..7])),
             ("zero object ID",
                 text.Replace(BaseObjectId, new string('0', 40))),
-            ("broken invariant",
-                text.Replace("\"ilRoundTrip\":false", "\"ilRoundTrip\":true")),
-            ("broken inspect-web invariant",
-                text.Replace(
-                    "\"inspectWebComprehensive\":false",
-                    "\"inspectWebComprehensive\":true")),
             ("unsupported diagnostic",
                 text.Replace("\"diagnostics\":[]", "\"diagnostics\":[\"x\"]")),
             ("malformed descriptor",
@@ -1723,29 +1651,14 @@ internal static class ChangePlanTestSuite
             selected.Add("ildiff");
         }
 
-        if (selections.IlRoundtrip)
-        {
-            selected.Add("ilroundtrip");
-        }
-
         if (selections.Packaging)
         {
             selected.Add("packaging");
         }
 
-        if (selections.Shipped)
-        {
-            selected.Add("shipped");
-        }
-
         if (selections.Web)
         {
             selected.Add("web");
-        }
-
-        if (selections.WebComprehensive)
-        {
-            selected.Add("web-comprehensive");
         }
 
         if (selections.Skills)
