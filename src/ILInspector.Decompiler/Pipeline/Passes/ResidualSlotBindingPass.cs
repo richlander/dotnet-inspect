@@ -50,6 +50,9 @@ public sealed class ResidualSlotBindingPass : IIrPass
 {
     public string Name => "residual-slot-binding";
 
+    public PassAnalysisKind PreservedAnalyses
+        => PassAnalysisKind.BranchTargets;
+
     public void Run(IrFunction function, PassContext context)
     {
         // Coercion insertion ran after the final join binding and may have
