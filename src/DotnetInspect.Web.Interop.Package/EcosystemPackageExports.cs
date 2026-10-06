@@ -3,7 +3,6 @@ using System.Runtime.Versioning;
 using System.Text.Json;
 using DotnetInspector.Ecosystems;
 using DotnetInspector.Packages;
-using NuGet.Versioning;
 
 namespace DotnetInspect.Web.Interop.Package;
 
@@ -30,7 +29,7 @@ public static partial class PackageExports
         PlatformPruneInventory? inventory = input?.Supplies is { } supplies
             ? PlatformPruneInventory.Compose(new[] { "Microsoft.NETCore.App", "Microsoft.AspNetCore.App" }
                 .Select(family => PlatformPruneInventory.FromExactFamily(
-                    new(family, input.Tfm, NuGetVersion.Parse(input.Version)),
+                    family, input.Tfm, input.Version,
                     supplies.Where(supply => string.Equals(supply.Family, family, StringComparison.OrdinalIgnoreCase))
                         .Select(supply => $"{supply.Package}|{supply.Version}"))))
             : null;
@@ -47,7 +46,7 @@ public static partial class PackageExports
             var platform = (result as EcosystemPackageResult.Known)?.Package.PlatformOwnedInfo;
             return new BrowserEcosystemPackageClassification(
                 candidate.Id, candidate.Version, ecosystem?.Id.Value, ecosystem?.Title,
-                platform?.Layer.ToString(), platform?.IsPruned);
+                platform?.LayerName, platform?.IsPruned);
         })];
         return JsonSerializer.Serialize(
             results, BrowserPackageJsonContext.Default.BrowserEcosystemPackageClassificationArray);
