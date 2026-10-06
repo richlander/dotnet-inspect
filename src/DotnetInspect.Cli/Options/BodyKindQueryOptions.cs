@@ -25,7 +25,11 @@ public sealed record BodyKindQueryOptions
         ["="],
         "C# body kind (case-sensitive; exactly one required)",
         [.. BodyShapeSearch.SupportedKinds],
-        "--where \"Kind=ObjectCreationExpression\"");
+        "--where \"Kind=ObjectCreationExpression\"",
+        ValueVocabulary: new(
+            BodyShapeVocabulary.BodyKindsLabel,
+            ResourceExplanationCatalog.VocabularyPath(
+                BodyShapeVocabulary.BodyKindsId).Value));
 
     /// <summary>The exact stable ID from the C# Body Kinds vocabulary.</summary>
     public string? Kind { get; init; }

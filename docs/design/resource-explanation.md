@@ -1014,9 +1014,17 @@ Product Vocabulary owner. The host's composed snapshot and its
   because hosts supply no external snapshots.
 
 The explanation of a vocabulary is not its full value listing. It points to
-the ordinary `vocabulary` command for bulk rows. The initial query adapter
-preserves an optional opaque value-vocabulary identity and query-local operand
-constraints as separate facts. It does not claim whole-vocabulary acceptance
+the ordinary `vocabulary` command for bulk rows.
+
+A CLI query key whose values are one vocabulary's identities, such as the
+Body Shapes `Kind` key, carries that vocabulary's name and canonical path on
+its query-key descriptor, and query discovery presents the path. This is a
+navigation link for the key's legal values, not a Query Space facet
+relationship.
+
+For Query Space facets, the initial query adapter preserves an optional
+opaque value-vocabulary identity and query-local operand constraints as
+separate facts. It does not claim whole-vocabulary acceptance
 or a reusable subset identity. A later query-owner adoption may issue a typed
 complete, constrained-subset, or open-domain relationship for explanation to
 preserve.
@@ -1260,11 +1268,11 @@ The original installed-resource slices remain:
 6. **In progress:** Package Query adopts operation query-resource variants,
    canonical paths, required-context links, and its current-host production
    binding. Remaining Query Space owners and row-query resources stay staged.
-7. **In progress:** Product Vocabulary adopts resource schemas, snapshots, and
-   typed term-map links under
-   [Value-vocabulary resources](#value-vocabulary-resources), CLI first. The
-   query-input link from a CLI query key to its value vocabulary remains
-   staged.
+7. **Complete for the CLI:** Product Vocabulary adopts resource schemas,
+   snapshots, and typed term-map links under
+   [Value-vocabulary resources](#value-vocabulary-resources), and a CLI query
+   key that accepts a value vocabulary links to its resource. The Browser
+   follows its explanation consumer in step 4.
 8. Register the stable explanation result contract; then let the focused
    envelope-contract catalog adopt explanation paths and machine-readable
    schemas.
