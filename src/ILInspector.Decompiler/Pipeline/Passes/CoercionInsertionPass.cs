@@ -40,6 +40,18 @@ public static class CoercionSinks
     public readonly record struct SlotTypeTestimony(TypeRef? Type, SlotTypeTestimonyStatus Status);
 
     /// <summary>
+    /// Whether a slot store testified at <paramref name="slotType"/> whose value is
+    /// a non-slot load of <paramref name="valueType"/> requires a
+    /// <see cref="Coerce"/>: the slot-store sink scope from <c>Enumerate</c>
+    /// combined with <see cref="RequiresCoercion"/>. Slot materialization asks it
+    /// before replacing a copy store's slot load with a typed local load.
+    /// </summary>
+    public static bool RequiresSlotStoreCoercion(TypeRef valueType, TypeRef slotType, IrFunction function)
+        => CoercionRendering.CanSpellSlotCoercion(valueType, slotType, function.TypeShapes, function.EnumUnderlyingTypes)
+            && CoercionDomain.InDomain(slotType, function.TypeShapes)
+            && !valueType.Equals(slotType);
+
+    /// <summary>
     /// One shared decision for pass and checker: an enumerated sink requires a
     /// <see cref="Coerce"/> when its target is in the invariant's domain, the
     /// value is not provably at the target, and the value's type is not owned
