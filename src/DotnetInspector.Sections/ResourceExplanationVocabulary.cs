@@ -20,6 +20,8 @@ internal static class ResourceExplanationVocabulary
         new("analysis-requests");
     internal static readonly ExplanationOwnerIdentity FindingsOwner =
         new("findings");
+    internal static readonly ExplanationOwnerIdentity ProductVocabularyOwner =
+        new("product-vocabulary");
 
     internal static readonly ExplanationSchemaIdentity CoreSchemaIdentity =
         new(ResourceExplanationOwner, "installed");
@@ -35,6 +37,9 @@ internal static class ResourceExplanationVocabulary
         new(AnalysisOwner, "installed");
     internal static readonly ExplanationSchemaIdentity FindingsSchemaIdentity =
         new(FindingsOwner, "installed");
+    internal static readonly ExplanationSchemaIdentity
+        ProductVocabularySchemaIdentity =
+            new(ProductVocabularyOwner, "installed");
     internal static readonly ExplanationSchemaVersion Version = new(1);
 
     internal static readonly ExplanationDataShapeIdentity TextShape =
@@ -81,6 +86,12 @@ internal static class ResourceExplanationVocabulary
             new(AnalysisSchemaIdentity, "operation-surface");
     internal static readonly ExplanationResourceTypeIdentity IssuedFindingType =
         new(FindingsSchemaIdentity, "issued-finding");
+    internal static readonly ExplanationResourceTypeIdentity
+        ValueVocabularyType =
+            new(ProductVocabularySchemaIdentity, "value-vocabulary");
+
+    /// <summary>The most term examples one value vocabulary carries.</summary>
+    internal const int ExampleCount = 5;
 
     internal static readonly ImmutableArray<ExplanationSchema> Schemas =
         CreateSchemas();
@@ -353,6 +364,10 @@ internal static class ResourceExplanationVocabulary
                         "collection-analysis",
                         "Collection member",
                         AnalysisType),
+                    Relationship(
+                        "collection-vocabulary",
+                        "Collection member",
+                        ValueVocabularyType),
                 ]);
 
         ExplanationResourceTypeDeclaration catalog =
@@ -579,6 +594,31 @@ internal static class ResourceExplanationVocabulary
                 "Issued Finding",
                 "One Finding descriptor issued at an operation surface.",
                 []);
+        ExplanationResourceTypeDeclaration valueVocabulary =
+            Type(
+                ValueVocabularyType,
+                "Value vocabulary",
+                "One product vocabulary whose values rich-query inputs "
+                + "accept.",
+                [
+                    TextFact("identity", "Identity"),
+                    TextFact("name", "Name"),
+                    TextFact("summary", "Summary"),
+                    IntegerFact("members", "Members"),
+                    OpaqueExternalIdentitiesFact(
+                        "accepted-by",
+                        "Accepted by",
+                        64),
+                    TextsFact("fields", "Fields", 64),
+                    TextsFact("defaults", "Defaults", 64),
+                    TextsFact("examples", "Examples", ExampleCount),
+                ],
+                [
+                    Relationship(
+                        "term-map-target",
+                        "Term map target",
+                        ValueVocabularyType),
+                ]);
 
         return
         [
@@ -618,6 +658,11 @@ internal static class ResourceExplanationVocabulary
                 Version,
                 [],
                 [finding]),
+            new(
+                ProductVocabularySchemaIdentity,
+                Version,
+                [],
+                [valueVocabulary]),
         ];
 
         ExplanationResourceTypeDeclaration Type(
@@ -683,6 +728,22 @@ internal static class ResourceExplanationVocabulary
                     OpaqueExternalIdentityShape,
                     ExplanationCardinality.RequiredOne,
                     ExplanationObservationStates.Available);
+
+        Func<
+            ExplanationResourceTypeIdentity,
+            ExplanationFactDeclaration> OpaqueExternalIdentitiesFact(
+            string identity,
+            string displayName,
+            int maximumCount) =>
+            resourceType =>
+                new(
+                    Fact(resourceType, identity),
+                    displayName,
+                    $"The ordered {displayName.ToLowerInvariant()} facts.",
+                    OpaqueExternalIdentityShape,
+                    ExplanationCardinality.OrderedMany,
+                    ExplanationObservationStates.Available,
+                    maximumValueCount: maximumCount);
 
         Func<
             ExplanationResourceTypeIdentity,
