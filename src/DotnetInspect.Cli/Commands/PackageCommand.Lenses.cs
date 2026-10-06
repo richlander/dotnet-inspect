@@ -308,7 +308,7 @@ public partial class PackageCommand
             && inspection.Content switch
             {
                 EcosystemDependencyRecognitionOutcome.Incomplete incomplete =>
-                    incomplete.Document.Classification.Recognized.IsEmpty,
+                    incomplete.Document.Classification.Matches.IsEmpty,
                 EcosystemDependencyRecognitionOutcome.Unavailable => true,
                 _ => false,
             };

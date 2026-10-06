@@ -107,7 +107,7 @@ internal static class NativePasses
     public static PdbScopeEntryLocalPass PdbScopeEntryLocal => new();
     [Native(NativeCategory.EmitArtifact, "lexical blocks erased by codegen retained where PDB names and reconstructed uses establish disjoint declaration scopes")]
     public static PdbLocalScopePass PdbLocalScope => new();
-    [Native(NativeCategory.EmitArtifact, "a spilled array allocation plus its later contiguous element-store run (e.g. a params array) folded back to one array-literal expression, placed at the fill run's position")]
+    [Native(NativeCategory.EmitArtifact, "a spilled array allocation plus its later contiguous element-store run (e.g. a params array), including stores through the dup copies of the allocation slot, folded back to one array-literal expression, placed at the fill run's position")]
     public static ArrayLiteralFromStoresPass ArrayLiteralFromStores => new();
     [Native(NativeCategory.EmitArtifact, "a spilled fluent call chain re-composed by folding each single-use scratch receiver/argument temp back into the chained call it feeds")]
     public static FluentChainRecompositionPass FluentChainRecomposition => new();
@@ -135,6 +135,8 @@ internal static class NativePasses
     public static ResidualSlotBindingPass ResidualSlotBinding => new();
     [Native(NativeCategory.IlErasure, "missing Param-row names assigned final collision-free presentation spellings after exact nested binders are known")]
     public static ParameterNameAllocationPass ParameterNameAllocation => new();
+    [Native(NativeCategory.IlErasure, "up-front locals' zero-initializers decided by definite assignment on the final tree, residual-bound locals excluded, issued for the function and each raised nested body")]
+    public static DefiniteAssignmentPass DefiniteAssignment => new();
     [Native(NativeCategory.EmitArtifact, "decided synthetic stack slots (one testified type, every store exact, coercion-renderable, or covered by issued assignment testimony) materialized as typed locals, retiring their slot nodes from the printer")]
     public static SlotMaterializationPass SlotMaterialization => new();
     [Native(NativeCategory.EmitArtifact, "reference assignment testimony refreshed immediately before stack-slot storage consumes it")]

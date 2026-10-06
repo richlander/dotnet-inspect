@@ -8,6 +8,8 @@ using DotnetInspector.Cache;
 using DotnetInspector.Fixtures;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
+using DotnetInspector.PlatformHouse;
+using DotnetInspector.Platforms;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
@@ -32,6 +34,103 @@ public sealed class ExternalCallGraphCommandTests
 
     public ExternalCallGraphCommandTests() =>
         PersistentCache.Initialize("dotnet-inspect-test");
+
+    [Fact]
+    public void FirstUsePlatformTargetPolicyMatchesExactFrameworkBand()
+    {
+        PlatformSourceCapabilityIdentity installed =
+            PlatformSourceCapabilityIdentity.Create("installed");
+        PlatformSourceCapabilityIdentity package =
+            PlatformSourceCapabilityIdentity.Create("package");
+
+        Assert.True(
+            DesktopPackageDependencyMemberCallGraphContinuationSource
+                .TryCreateTargetPolicy(
+                    "runtime",
+                    "net11.0",
+                    installed,
+                    package,
+                    out PlatformVersionlessRuntimeTargetPolicy? policy));
+        Assert.NotNull(policy);
+        Assert.Equal(
+            PlatformVersion.Parse("11.0.0"),
+            policy.MinimumPreferredVersion);
+        Assert.IsType<PlatformTargetDiscoveryScope.ExactFramework>(
+            policy.Fallback.Scope);
+        Assert.False(
+            DesktopPackageDependencyMemberCallGraphContinuationSource
+                .TryCreateTargetPolicy(
+                    "runtime",
+                    "netstandard2.0",
+                    installed,
+                    package,
+                    out _));
+    }
+
+    [Fact]
+    public void PackageBackedPlatformWorkChargesBeforeSourceAdmission()
+    {
+        var exhausted = new AssemblyReferenceResolutionWorkLedger(
+            new(
+                maxPackageRouteOccurrences: 1,
+                maxPackageCandidateOperations: 1,
+                maxSourceOperations: 1,
+                maxAcquisitions: 0,
+                maxRealizedAssemblies: 10,
+                maxTransferBytes: 10,
+                maxRetainedAssemblyBytes: 10,
+                maxWorkspaceReplacements: 1,
+                deadline: DateTimeOffset.UtcNow.AddMinutes(1)));
+        var source = new PlatformHouseWorkBudget(
+            maxSourceOperations: 1,
+            maxTargetCandidates: 0,
+            maxAssemblies: 10,
+            maxXmlDocuments: 0,
+            maxPortablePdbs: 0,
+            maxSourceDocuments: 0,
+            maxBytes: 10,
+            maxForwardingHops: 0,
+            maxDuration: TimeSpan.FromMinutes(1));
+
+        AssemblyReferenceResolutionWorkExhaustedException failure =
+            Assert.Throws<
+                AssemblyReferenceResolutionWorkExhaustedException>(
+                () =>
+                    DesktopPackageDependencyMemberCallGraphContinuationSource
+                        .AdmitPackageBackedWork(
+                            source,
+                            exhausted,
+                            retainAssemblies: true));
+
+        Assert.Equal(
+            AssemblyReferenceResolutionWorkKind.Acquisition,
+            failure.Exhaustion.Kind);
+
+        var bounded = new AssemblyReferenceResolutionWorkLedger(
+            new(
+                maxPackageRouteOccurrences: 1,
+                maxPackageCandidateOperations: 1,
+                maxSourceOperations: 1,
+                maxAcquisitions: 1,
+                maxRealizedAssemblies: 7,
+                maxTransferBytes: 6,
+                maxRetainedAssemblyBytes: 4,
+                maxWorkspaceReplacements: 1,
+                deadline: DateTimeOffset.UtcNow.AddMinutes(1)));
+        PlatformHouseWorkBudget admitted =
+            DesktopPackageDependencyMemberCallGraphContinuationSource
+                .AdmitPackageBackedWork(
+                    source,
+                    bounded,
+                    retainAssemblies: true);
+
+        Assert.Equal(7, admitted.MaxAssemblies);
+        Assert.Equal(4, admitted.MaxBytes);
+        Assert.Equal(
+            0,
+            bounded.GetRemainingAllowance(
+                AssemblyReferenceResolutionWorkKind.Acquisition));
+    }
 
     [Fact]
     public void Command_ExposesExactRootAndAutomaticTraversal()
@@ -718,14 +817,14 @@ public sealed class ExternalCallGraphCommandTests
             node =>
                 node.Subject
                     is InspectionGraphSubject.MemberSubject
-                    {
-                        Identity:
+                {
+                    Identity:
                             InspectionGraphMemberIdentity.CallGraph
-                            {
-                                Member.Name:
+                    {
+                        Member.Name:
                                     "HandleTransientHttpError",
-                            },
-                    });
+                    },
+                });
         PackageDependencyMemberCallGraphPackageSubject package =
             Assert.Single(
                 available.Document.PackageSubjects,

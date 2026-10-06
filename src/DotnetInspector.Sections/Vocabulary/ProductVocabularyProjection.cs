@@ -1,129 +1,39 @@
 using System.Collections.Immutable;
 
 using DotnetInspector.Queries;
-using DotnetInspector.Sections;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
+using QuerySpace.Explanation;
 using QuerySpace.Vocabulary;
 
-namespace DotnetInspector.Vocabulary;
+namespace DotnetInspector.Sections;
 
 /// <summary>
-/// Composes the product vocabulary snapshot from the declarations its owners
-/// publish. The owners declare values, labels, order, and maps; this composition
-/// adds only the product catalog identity and the section index that records
-/// which typed inputs accept each vocabulary.
+/// Projects a host-composed product vocabulary snapshot to the Product
+/// Vocabulary document: fields, operators, and rows per section. A snapshot
+/// that lacks a product section fails visibly.
 /// </summary>
-internal static class ProductVocabularySnapshot
+public static class ProductVocabularyProjection
 {
-    internal const string CatalogId = "dotnet-inspect.product";
-    internal const string SectionsId = "vocabulary.sections";
-    internal const string AccessibilityId = ApiAccessibilityVocabulary.AccessibilityId;
-    internal const string StyleTiersId = StyleOptionVocabularies.StyleTiersId;
-    internal const string StyleChoicesId = StyleOptionVocabularies.StyleChoicesId;
-    internal const string BodyKindsId = BodyShapeVocabulary.BodyKindsId;
-
-    internal static VocabularySnapshot Create()
+    /// <summary>Projects <paramref name="snapshot"/> to the Product Vocabulary document.</summary>
+    public static VocabularyDocument ToDocument(VocabularySnapshot snapshot)
     {
-        var catalog = new VocabularyCatalogIdentity(CatalogId);
-
-        VocabularyDefinition accessibilityVocabulary =
-            ApiAccessibilityVocabulary.Declare(catalog);
-        VocabularyDefinition styleTiersVocabulary =
-            StyleOptionVocabularies.DeclareStyleTiers(catalog);
-        VocabularyDefinition styleChoicesVocabulary =
-            StyleOptionVocabularies.DeclareStyleChoices(catalog);
-        VocabularyDefinition bodyKindsVocabulary =
-            BodyShapeVocabulary.Declare(catalog);
-
-        VocabularyDefinition sectionIndex = CreateSectionIndex(
-            new VocabularyIdentity(catalog, SectionsId),
-            [
-                (
-                    accessibilityVocabulary,
-                    ["api.type-inventory", "api.member-inventory"]),
-                (
-                    styleTiersVocabulary,
-                    ["decompiler.style-picker"]),
-                (
-                    styleChoicesVocabulary,
-                    ["decompiler.style-picker", "decompiler.render"]),
-                (
-                    bodyKindsVocabulary,
-                    ["decompiler.body-kind"]),
-            ]);
-
-        return VocabularySnapshot.Create(
-            1,
-            catalog,
-            [
-                sectionIndex,
-                accessibilityVocabulary,
-                styleTiersVocabulary,
-                styleChoicesVocabulary,
-                bodyKindsVocabulary,
-            ]);
-    }
-
-    private static VocabularyDefinition CreateSectionIndex(
-        VocabularyIdentity identity,
-        ImmutableArray<(
-            VocabularyDefinition Vocabulary,
-            ImmutableArray<string> AcceptedBy)> vocabularies)
-    {
-        VocabularyMapDefinition acceptedBy = VocabularyMapDefinition.Scalar(
-            identity,
-            "accepted_by",
-            "Accepted By",
-            "Typed query inputs that consume these values.",
-            VocabularyScalarKind.Text,
-            VocabularyMapCardinality.OneOrMore);
-        VocabularyMapDefinition values = VocabularyMapDefinition.Scalar(
-            identity,
-            "values",
-            "Values",
-            "Number of legal values.",
-            VocabularyScalarKind.Integer);
-
-        return new(
-            identity,
-            VocabularyCatalog.SectionsSection,
-            "Product-owned vocabularies available as rich-query inputs.",
-            [acceptedBy, values],
-            vocabularies.Select(item => new VocabularyTerm(
-                new(identity, item.Vocabulary.Identity.Value),
-                item.Vocabulary.DisplayLabel,
-                item.Vocabulary.Summary,
-                [
-                    new(
-                        acceptedBy.Identity,
-                        item.AcceptedBy.Select(VocabularyMapValue.Text)),
-                    new(
-                        values,
-                        VocabularyMapValue.Integer(item.Vocabulary.Terms.Length)),
-                ])));
-    }
-}
-
-internal static class ProductVocabularyCompatibility
-{
-    internal static VocabularyDocument Create(VocabularySnapshot snapshot)
-    {
+        ArgumentNullException.ThrowIfNull(snapshot);
         VocabularyDefinition index = Get(
             snapshot,
-            ProductVocabularySnapshot.SectionsId);
+            ProductVocabularyComposition.SectionsId);
         VocabularyDefinition accessibility = Get(
             snapshot,
-            ProductVocabularySnapshot.AccessibilityId);
+            ApiAccessibilityVocabulary.AccessibilityId);
         VocabularyDefinition tiers = Get(
             snapshot,
-            ProductVocabularySnapshot.StyleTiersId);
+            StyleOptionVocabularies.StyleTiersId);
         VocabularyDefinition choices = Get(
             snapshot,
-            ProductVocabularySnapshot.StyleChoicesId);
+            StyleOptionVocabularies.StyleChoicesId);
         VocabularyDefinition bodyKinds = Get(
             snapshot,
-            ProductVocabularySnapshot.BodyKindsId);
+            BodyShapeVocabulary.BodyKindsId);
 
         return new(
             2,
@@ -294,7 +204,7 @@ internal static class ProductVocabularyCompatibility
         VocabularyMapDefinition map,
         VocabularyTerm term)
     {
-        ImmutableArray<VocabularyMapValue> values =
+        ImmutableArray<ExplanationValue> values =
             term.GetRequiredValues(map.Identity);
         if (values.Length == 0)
             return null;
@@ -302,26 +212,26 @@ internal static class ProductVocabularyCompatibility
         if (map.Target is VocabularyMapTarget.Terms)
         {
             return VocabularyValue.FromText(
-                ((VocabularyMapValue.Term)values[0]).Identity.Value);
+                ((ExplanationValue.VocabularyTerm)values[0]).Identity.Value);
         }
 
-        var scalar = (VocabularyMapValue.Scalar)values[0];
+        var scalar = (ExplanationValue.Scalar)values[0];
         if (map.Cardinality is VocabularyMapCardinality.OneOrMore
             or VocabularyMapCardinality.ZeroOrMore)
         {
             return VocabularyValue.FromTextList(
                 values.Select(value =>
-                    ((VocabularyMapValue.Scalar)value).Value.Text!));
+                    ((ExplanationValue.Scalar)value).Value.Text!));
         }
 
         return scalar.Value.Kind switch
         {
-            VocabularyScalarKind.Text =>
+            ExplanationScalarKind.Text =>
                 VocabularyValue.FromText(scalar.Value.Text!),
-            VocabularyScalarKind.Integer =>
-                VocabularyValue.FromInteger(checked((int)scalar.Value.Integer)),
-            VocabularyScalarKind.Boolean =>
-                VocabularyValue.FromBoolean(scalar.Value.Boolean),
+            ExplanationScalarKind.Integer =>
+                VocabularyValue.FromInteger(checked((int)scalar.Value.Integer!.Value)),
+            ExplanationScalarKind.Boolean =>
+                VocabularyValue.FromBoolean(scalar.Value.Boolean!.Value),
             _ => throw new InvalidOperationException(
                 $"Unsupported scalar kind '{scalar.Value.Kind}'."),
         };
@@ -337,7 +247,7 @@ internal static class ProductVocabularyCompatibility
         [
             .. term.GetRequiredValues(map.Identity)
                 .Select(value =>
-                    ((VocabularyMapValue.Scalar)value).Value.Text!),
+                    ((ExplanationValue.Scalar)value).Value.Text!),
         ];
     }
 
@@ -387,21 +297,21 @@ internal static class ProductVocabularyCompatibility
             VocabularyMapTarget.Terms => VocabularyValueKind.Text,
             VocabularyMapTarget.Scalar
             {
-                Kind: VocabularyScalarKind.Text
+                Kind: ExplanationScalarKind.Text
             } when map.Cardinality is VocabularyMapCardinality.OneOrMore
                 or VocabularyMapCardinality.ZeroOrMore =>
                 VocabularyValueKind.TextList,
             VocabularyMapTarget.Scalar
             {
-                Kind: VocabularyScalarKind.Text
+                Kind: ExplanationScalarKind.Text
             } => VocabularyValueKind.Text,
             VocabularyMapTarget.Scalar
             {
-                Kind: VocabularyScalarKind.Integer
+                Kind: ExplanationScalarKind.Integer
             } => VocabularyValueKind.Integer,
             VocabularyMapTarget.Scalar
             {
-                Kind: VocabularyScalarKind.Boolean
+                Kind: ExplanationScalarKind.Boolean
             } => VocabularyValueKind.Boolean,
             _ => throw new InvalidOperationException(
                 $"Unsupported map target for '{map.Identity}'."),

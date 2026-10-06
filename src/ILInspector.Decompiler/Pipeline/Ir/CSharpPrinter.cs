@@ -221,6 +221,10 @@ public sealed partial class CSharpPrinter
                     NewValue = "return !c && B;",
                 });
         }
+        // A lens rewrites statements after the pipeline's own definite
+        // assignment decision; re-take it on the tree the printer reads.
+        if (appliedLenses.Count > 0)
+            DefiniteAssignmentPass.Issue(function);
         return appliedLenses;
     }
 
@@ -376,17 +380,22 @@ public sealed partial class CSharpPrinter
     }
 
     /// <summary>
-    /// Runs the print analysis on an already-raised tree purely to capture the
-    /// definite-assignment dataflow facts — the per-block <c>in</c>/<c>out</c>
-    /// sets that decide which locals keep <c>= default</c>. The same walk that
-    /// produces the output fills the sink, so the facts are the shipped
-    /// analysis, not a parallel model. The rendered C# is discarded.
+    /// Captures the definite-assignment dataflow facts of an already-raised
+    /// tree — the per-block <c>in</c>/<c>out</c> sets behind the issued
+    /// zero-initialized locals — by running the shipped analysis with a facts
+    /// sink. The printer contributes only the local labels its declaration
+    /// plan would print.
     /// </summary>
     public static DataflowFacts CollectDataflowFacts(IrFunction function)
     {
         var facts = new DataflowFacts();
-        var printer = new CSharpPrinter(function) { _facts = facts };
-        printer.PrintBody(function);
+        DefiniteAssignment.Compute(function, CollectBranchTargets(function), facts);
+        var printer = new CSharpPrinter(function);
+        printer.PrepareBody(function);
+        facts.LocalNames = [
+            .. Enumerable.Range(0, function.Locals.Length)
+                .Select(printer.LocalFactLabel),
+        ];
         return facts;
     }
 
@@ -625,12 +634,6 @@ public sealed partial class CSharpPrinter
     readonly HashSet<IrNode> _declaringStores = [];
     LocalDeclarationPlan? _localDeclarationPlan;
 
-    /// <summary>Locals that may be read before they are definitely assigned, so their declaration must keep its `= default` zero-initializer (a bare declaration would be CS0165).</summary>
-    HashSet<int> _readBeforeAssign = [];
-
-    /// <summary>Optional sink for the definite-assignment dataflow facts; null on the shipped print path (the analysis records nothing then).</summary>
-    DataflowFacts? _facts;
-
     /// <summary>Offsets some surviving goto targets — labels print wherever the block lives, top-level or inside a flat EH body.</summary>
     HashSet<int> _labelTargets = [];
 
@@ -798,6 +801,8 @@ public sealed partial class CSharpPrinter
     void PrepareBody(IrFunction function)
     {
         EnsureNoResidualStackSlots(function);
+        if (IrInvariants.Enabled)
+            DefiniteAssignmentPass.CheckFresh(function);
         _labelTargets = CollectBranchTargets(function);
         _localDeclarationPlan =
             LocalDeclarationPlan.Create(
@@ -839,12 +844,6 @@ public sealed partial class CSharpPrinter
                 dedupDiscriminator:
                     $"{_labelScopeSuffix}\0{binding.LocalIndex.ToString(CultureInfo.InvariantCulture)}");
         }
-        _readBeforeAssign = DefiniteAssignment.Compute(function, _labelTargets, _facts);
-        if (_facts is not null)
-            _facts.LocalNames = [
-                .. Enumerable.Range(0, function.Locals.Length)
-                    .Select(LocalFactLabel),
-            ];
     }
 
     /// <summary>

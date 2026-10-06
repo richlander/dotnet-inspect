@@ -97,17 +97,16 @@ public sealed partial class CSharpPrinter
     {
         var type = function.Locals[index];
         string scoped = _scopedLocals.Contains(index) ? "scoped " : "";
-        // A residual-bound local (value-typed-emission.md, "Residual storage
-        // binding") is never zero-initialised: a piece read with no reaching
-        // store is a binding gap, and `= default` would turn that gap into
-        // compiling C# that silently drops the term. The bare declaration
-        // keeps it CS0165-visible.
-        return type.Kind == TypeRefKind.ByRef
-            ? $"{TypeText(type)} {LocalName(index)} = ref System.Runtime.CompilerServices.Unsafe.NullRef<{TypeText(type.ElementType!)}>();"
-            : _readBeforeAssign.Contains(index)
-                && !function.ResidualSlotBindings.ContainsKey(index)
-                ? $"{scoped}{TypeText(type)} {LocalName(index)} = default;"
-                : $"{scoped}{TypeText(type)} {LocalName(index)};";
+        if (type.Kind == TypeRefKind.ByRef)
+            return $"{TypeText(type)} {LocalName(index)} = ref System.Runtime.CompilerServices.Unsafe.NullRef<{TypeText(type.ElementType!)}>();";
+        // The initializer is decided before printing (DefiniteAssignmentPass,
+        // value-typed-emission.md Instance 3); the writer only spells it.
+        var zeroInitialized = function.ZeroInitializedLocals
+            ?? throw new InvalidOperationException(
+                $"{function.Name}: local V_{index} is declared up front but definite assignment was not decided before printing (run DefiniteAssignmentPass).");
+        return zeroInitialized.Contains(index)
+            ? $"{scoped}{TypeText(type)} {LocalName(index)} = default;"
+            : $"{scoped}{TypeText(type)} {LocalName(index)};";
     }
 
     string FixedLocalName(Fixed fixedStatement)

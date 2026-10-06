@@ -242,6 +242,9 @@ public class LibraryInspectionView
         nameof(EcosystemDependencyCoverageIsComplete),
         nameof(PackageEcosystemDependencyRow.Coverage))]
     [MarkoutIgnoreColumnWhen(
+        nameof(EcosystemDependencyAssemblyEvidenceIsEmpty),
+        nameof(PackageEcosystemDependencyRow.AssemblyEvidence))]
+    [MarkoutIgnoreColumnWhen(
         nameof(EcosystemDependencyRequestedTargetFrameworkIsEmpty),
         nameof(PackageEcosystemDependencyRow.RequestedTargetFramework))]
     [MarkoutIgnoreColumnWhen(
@@ -253,7 +256,7 @@ public class LibraryInspectionView
     public List<PackageEcosystemDependencyRow>? EcosystemDependenciesSection =>
         RecognitionDocument is { } document
             ? (_data.EcosystemDependencyRows
-                    ?? document.Classification.Recognized)
+                    ?? document.Classification.Matches)
                 .Select(entry =>
                     PackageEcosystemDependencyRow.Create(
                         entry,
@@ -264,6 +267,10 @@ public class LibraryInspectionView
     public static bool EcosystemDependencyCoverageIsComplete(
         List<PackageEcosystemDependencyRow>? rows) =>
         InspectionResultView.EcosystemDependencyCoverageIsComplete(rows);
+
+    public static bool EcosystemDependencyAssemblyEvidenceIsEmpty(
+        List<PackageEcosystemDependencyRow>? rows) =>
+        InspectionResultView.EcosystemDependencyAssemblyEvidenceIsEmpty(rows);
 
     public static bool EcosystemDependencyRequestedTargetFrameworkIsEmpty(
         List<PackageEcosystemDependencyRow>? rows) =>
@@ -1030,6 +1037,88 @@ public class LibraryInspectionView
         }
     }
 
+    public bool HasArchitecturalFamilies =>
+        _data.ArchitecturalFamilyQueryResult
+            is LibraryArchitecturalFamilyQueryResult.Available
+        { FamilyRows.IsEmpty: false };
+
+    [MarkoutSection(
+        Name = SectionNames.ArchitecturalFamilies,
+        ShowWhenProperty = nameof(HasArchitecturalFamilies))]
+    public List<ArchitecturalFamilyRow>? ArchitecturalFamiliesSection
+    {
+        get
+        {
+            if (_data.ArchitecturalFamilyQueryResult
+                is not LibraryArchitecturalFamilyQueryResult.Available available)
+            {
+                return null;
+            }
+
+            return
+            [
+                .. available.FamilyRows.Select(family =>
+                    new ArchitecturalFamilyRow(
+                        MarkoutInline.Code(FamilyName(family.Identity)),
+                        FamilyKind(family.Identity.Kind),
+                        family.TypeCount,
+                        family.FoundationCount,
+                        family.HubCount,
+                        family.OrchestratorCount,
+                        family.NoIssuedStructuralRoleCount,
+                        family.SeaLevelCount,
+                        family.MountainPeakCount,
+                        family.DistinctNamespaceCount,
+                        LibraryArchitecturalFamilyQuery.PopulationToken(
+                            available.Population.Kind),
+                        available.Population.Provenance.State.ToString(),
+                        family.StructuralDisposition.ToString())),
+            ];
+        }
+    }
+
+    public bool HasArchitecturalFamilyTypes =>
+        _data.ArchitecturalFamilyQueryResult
+            is LibraryArchitecturalFamilyQueryResult.Available
+        { TypeRows.IsEmpty: false };
+
+    [MarkoutSection(
+        Name = SectionNames.ArchitecturalFamilyTypes,
+        ShowWhenProperty = nameof(HasArchitecturalFamilyTypes))]
+    public List<ArchitecturalFamilyTypeRow>? ArchitecturalFamilyTypesSection
+    {
+        get
+        {
+            if (_data.ArchitecturalFamilyQueryResult
+                is not LibraryArchitecturalFamilyQueryResult.Available available)
+            {
+                return null;
+            }
+
+            return
+            [
+                .. available.TypeRows.Select(type =>
+                    new ArchitecturalFamilyTypeRow(
+                        MarkoutInline.Code(
+                            type.Name.ToMetadataFullName()),
+                        type.Type.ModuleVersionId.ToString("N")
+                            + ":0x"
+                            + type.Type.Definition.Value.ToString("X8"),
+                        type.DefinitionKind.ToString(),
+                        FamilyName(type.OneWordSuffix),
+                        FamilyName(type.TwoWordSuffix),
+                        type.SourceDisposition?.ToString(),
+                        type.SignatureIncomingDegree,
+                        type.SignatureOutgoingDegree,
+                        type.StructuralRole?.ToString(),
+                        type.StructuralPole?.ToString(),
+                        LibraryArchitecturalFamilyQuery.PopulationToken(
+                            available.Population.Kind),
+                        type.StructuralDisposition.ToString())),
+            ];
+        }
+    }
+
     [MarkoutSection(
         Name = SectionNames.MemberMetrics,
         ShowWhenProperty = nameof(HasImplementationProfiles))]
@@ -1102,6 +1191,22 @@ public class LibraryInspectionView
             return rows.Count > 0 ? rows : null;
         }
     }
+
+    private static string FamilyName(
+        LibraryNameFamilyIdentity? family) =>
+        family is null
+            ? string.Empty
+            : family.Kind == LibraryNameFamilyKind.OneWordSuffix
+            ? family.Words[0]
+            : family.Words[0]
+                + family.Separator
+                + family.Words[1];
+
+    private static string FamilyKind(
+        LibraryNameFamilyKind kind) =>
+        kind == LibraryNameFamilyKind.OneWordSuffix
+            ? "one word"
+            : "two word";
 
     private static List<LibraryMetricRow> LibraryMetricRows(
         LibraryStructuralReportDocument document)

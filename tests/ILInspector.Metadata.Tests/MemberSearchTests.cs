@@ -17,6 +17,16 @@ namespace ILInspector.Metadata.Tests
             Assert.Equal("method", hit.Kind);
             Assert.False(hit.IsGlob);
             Assert.Equal("MemberSearchProbeAlpha", hit.Pattern);
+            Assert.Equal(0, hit.PatternOrdinal);
+            Assert.Equal(
+                typeof(MemberSearchProbeAlphaFixture).FullName,
+                hit.DeclaringTypeName.ToMetadataFullName());
+            Assert.Equal(
+                "MemberSearchProbeAlpha",
+                hit.Anchor.MemberName);
+            Assert.NotEmpty(hit.Anchor.StableSelector);
+            Assert.True(hit.DeclarationOrder >= 0);
+            Assert.True(hit.MemberOrder >= 0);
         }
 
         [Fact]

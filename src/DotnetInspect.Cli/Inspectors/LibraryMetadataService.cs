@@ -72,8 +72,10 @@ internal static class LibraryMetadataService
             bool applicabilityOnly =
                 options.Discover is not null
                 && options.Effective;
-            if (requiredQueries?.Contains(
+            if ((requiredQueries?.Contains(
                     LibraryNameFamilyQuery.Definition) == true
+                || requiredQueries?.Contains(
+                    LibraryArchitecturalFamilyQuery.Definition) == true)
                 && assemblyReference is
                 {
                     Registration.ArtifactRegistration: null,
@@ -209,6 +211,8 @@ internal static class LibraryMetadataService
                             options.NameFamilyPopulation,
                         NameFamilyRowSelection =
                             options.NameFamilyRowSelection,
+                        ArchitecturalFamilyTypeRows =
+                            options.ArchitecturalFamilyTypeRows,
                         DependencyStructureRowSelection =
                             options.DependencyStructureRowSelection,
                     };
@@ -363,6 +367,8 @@ internal static class LibraryMetadataService
                         options.NameFamilyPopulation,
                     NameFamilyRowSelection =
                         options.NameFamilyRowSelection,
+                    ArchitecturalFamilyTypeRows =
+                        options.ArchitecturalFamilyTypeRows,
                     DependencyStructureRowSelection =
                         options.DependencyStructureRowSelection,
                 };
@@ -2363,6 +2369,17 @@ internal static class LibraryMetadataService
         }
 
         if (results.TryGet(
+                LibraryArchitecturalFamilyQuery.Definition,
+                out LibraryArchitecturalFamilyQueryResult? architecturalFamilies))
+        {
+            ApplyLibraryArchitecturalFamilyResult(
+                path,
+                inspection,
+                logger,
+                architecturalFamilies);
+        }
+
+        if (results.TryGet(
                 LibraryDependencyStructureQuery.Definition,
                 out LibraryDependencyStructureQueryResult?
                     dependencyStructure))
@@ -2571,6 +2588,7 @@ internal static class LibraryMetadataService
     {
         inspection.OptimizationOpportunitiesQueryResult = result;
         inspection.PerformanceTriageOpportunities = [];
+        inspection.PerformanceTriageCounts = null;
         inspection.OptimizationOpportunities = null;
 
         switch (result)
@@ -2590,6 +2608,12 @@ internal static class LibraryMetadataService
                     inspection.OptimizationOpportunities =
                         rows.Count > 0 ? rows : null;
                 }
+                break;
+
+            case OptimizationOpportunitiesResult.Counted counted:
+                ReportOptimizationDiagnostics(counted.Diagnostics);
+                inspection.PerformanceTriageCounts =
+                    counted.Counts;
                 break;
 
             case OptimizationOpportunitiesResult.NoMetadata:
@@ -2700,6 +2724,38 @@ internal static class LibraryMetadataService
                 throw new InvalidOperationException(
                     "Unknown Library name-family result "
                         + $"'{result.GetType().Name}'.");
+        }
+    }
+
+    internal static void ApplyLibraryArchitecturalFamilyResult(
+        string path,
+        LibraryInspection inspection,
+        VerboseLogger logger,
+        LibraryArchitecturalFamilyQueryResult result)
+    {
+        inspection.ArchitecturalFamilyQueryResult = result;
+
+        switch (result)
+        {
+            case LibraryArchitecturalFamilyQueryResult.Available:
+            case LibraryArchitecturalFamilyQueryResult.NameFamiliesUnavailable:
+            case LibraryArchitecturalFamilyQueryResult.NameFamiliesRejected:
+            case LibraryArchitecturalFamilyQueryResult.StructuralRejected:
+            case LibraryArchitecturalFamilyQueryResult.CompositionRejected:
+            case LibraryArchitecturalFamilyQueryResult.PopulationUnavailable:
+            case LibraryArchitecturalFamilyQueryResult.SelectionFailed:
+                break;
+
+            case LibraryArchitecturalFamilyQueryResult.Failed failed:
+                logger.LogWarning(
+                    $"Error collecting Library architectural families in {path}: "
+                    + failed.Error.Message);
+                break;
+
+            default:
+                throw new InvalidOperationException(
+                    "Unknown Architectural Families result "
+                    + $"'{result.GetType().Name}'.");
         }
     }
 

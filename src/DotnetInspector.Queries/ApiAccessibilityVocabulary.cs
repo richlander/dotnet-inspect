@@ -1,3 +1,4 @@
+using QuerySpace.Explanation;
 using QuerySpace.Vocabulary;
 
 namespace DotnetInspector.Queries;
@@ -26,13 +27,13 @@ public static class ApiAccessibilityVocabulary
             "order",
             "Order",
             "Product-owned presentation order.",
-            VocabularyScalarKind.Integer);
+            ExplanationScalarKind.Integer);
         VocabularyMapDefinition defaultMap = VocabularyMapDefinition.Scalar(
             identity,
             "default",
             "Default",
             "Whether this value participates without an explicit selection.",
-            VocabularyScalarKind.Boolean);
+            ExplanationScalarKind.Boolean);
 
         return new(
             identity,
@@ -44,8 +45,8 @@ public static class ApiAccessibilityVocabulary
                 bucket.Label,
                 summary: null,
                 [
-                    new(order, VocabularyMapValue.Integer(bucket.Order)),
-                    new(defaultMap, VocabularyMapValue.Boolean(bucket.IsDefault)),
+                    new(order, ExplanationValue.Integer(bucket.Order)),
+                    new(defaultMap, ExplanationValue.Boolean(bucket.IsDefault)),
                 ])));
     }
 }

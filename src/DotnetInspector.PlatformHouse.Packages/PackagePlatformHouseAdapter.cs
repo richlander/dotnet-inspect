@@ -166,6 +166,20 @@ public sealed class PackagePlatformHouseAdapter
             fromDiscovery: false);
 
     public Task<PackagePlatformHouseResult<PackageReferenceRealization>>
+        RealizeReferenceAsync(
+            PlatformHouseRequest request,
+            PlatformHouseWorkBudget remainingWork,
+            PackageSourceOperationLease operation) =>
+        RealizeReference(
+            request,
+            null,
+            null,
+            selectedTarget: null,
+            remainingWork,
+            operation,
+            fromDiscovery: false);
+
+    public Task<PackagePlatformHouseResult<PackageReferenceRealization>>
         RealizeSelectedReferenceAsync(
             PlatformHouseRequest request,
             PlatformFamilyTarget target,
@@ -372,6 +386,19 @@ public sealed class PackagePlatformHouseAdapter
             request,
             selectedTarget: null,
             request.Work,
+            runtimeIdentifier,
+            operation);
+
+    public Task<PackagePlatformHouseResult<PackageImplementationRealization>>
+        RealizeImplementationAsync(
+            PlatformHouseRequest request,
+            PlatformHouseWorkBudget remainingWork,
+            string runtimeIdentifier,
+            PackageSourceOperationLease operation) =>
+        RealizeImplementation(
+            request,
+            selectedTarget: null,
+            remainingWork,
             runtimeIdentifier,
             operation);
 

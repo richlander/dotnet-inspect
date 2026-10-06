@@ -97,6 +97,9 @@ source idioms, synthesized-body constructs, locals, and final coercions or
 spellability diagnostics. This is not a strict one-pass-per-phase partition:
 some transforms repeat after another transform exposes new opportunities.
 Read the registry and its ordering comments before inserting a pass.
+[Decompiler Pass Composition](design/decompiler-pass-composition.md) validates
+the finite set of ordering and exclusion relationships whose violation changes
+correctness or destroys reconstruction evidence; it does not reorder passes.
 
 [`PassContext`](../src/ILInspector.Decompiler/Pipeline/PassContext.cs) carries
 stepping, an optional structuring stop-reason sink, sibling-body import, and
@@ -125,8 +128,8 @@ defined, so a retirement slice can scope itself from the file list:
 | Decision class (#2095 inventory) | Defined in |
 | --- | --- |
 | Coercion routing (`CoerceText` and the enum routing family) | `.Numerics`; called from `.Statements`, `.Expressions`, `.Members` |
-| Join target compatibility | `.Numerics` |
-| Definite assignment (consumer of `DefiniteAssignment.cs`) | `.Declarations` |
+| Join target compatibility | Decided pre-print in `Pipeline/PrimitiveJoinTargetCompatibility.cs` (#2095); `.Numerics` keeps only the join-arm spelling |
+| Definite assignment | Decided pre-print by `Pipeline/Passes/DefiniteAssignmentPass.cs` over `DefiniteAssignment.cs` (#2095); `.Declarations` spells the issued initializer |
 | Unsafe-context inference | `.UnsafeContext`; `_unsafeDepth` is read and updated from `.Statements` |
 | Cast-need predicates | `.Numerics`, plus `NeedsObjectBridgeForGenericUnbox` in `.Expressions` |
 | `var` inference (`SpellVar`, `VarInfersDeclaredType`) | `.Declarations` |

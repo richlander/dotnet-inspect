@@ -2052,7 +2052,7 @@ public class EhStructuringPassTests
         Assert.Empty(function.Regions);
         Assert.Single(function.Descendants.OfType<TryFinally>());
 
-        var output = CSharpPrinter.Print(function).Output!;
+        var output = DecidedPrint.Print(function).Output!;
         Assert.Contains("try", output);
         Assert.Contains("finally", output);
     }
@@ -2074,7 +2074,7 @@ public class EhStructuringPassTests
         Assert.Empty(function.Descendants.OfType<Leave>());
         Assert.DoesNotContain("leave-target-in-container", diagnostics.Stops);
 
-        var output = CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n");
+        var output = DecidedPrint.Print(function).Output!.ReplaceLineEndings("\n");
         Assert.Contains("while (true)", output);
         Assert.Contains("try", output);
         Assert.Contains("finally", output);
@@ -2151,7 +2151,7 @@ public class EhStructuringPassTests
         Assert.NotNull(clause.Filter);
         Assert.NotNull(clause.VariableIndex);
 
-        var output = CSharpPrinter.Print(function).Output!;
+        var output = DecidedPrint.Print(function).Output!;
         Assert.Contains("catch (Exception V_0) when", output);
         Assert.Contains("V_0 is IOException", output);
         Assert.Contains("||", output);
@@ -2171,7 +2171,7 @@ public class EhStructuringPassTests
         Assert.NotNull(clause.Filter);
         Assert.Null(clause.VariableIndex);
 
-        var output = CSharpPrinter.Print(function).Output!;
+        var output = DecidedPrint.Print(function).Output!;
         Assert.Contains("catch when (handle)", output);
     }
 
@@ -2189,7 +2189,7 @@ public class EhStructuringPassTests
         Assert.Equal(0, clause.VariableIndex);
         Assert.Contains(clause.Body.Descendants.OfType<LoadLocal>(), load => load.Index == 0);
 
-        var output = CSharpPrinter.Print(function).Output!;
+        var output = DecidedPrint.Print(function).Output!;
         Assert.Contains("catch (Exception V_0) when", output);
         Assert.Contains("V_0 is IOException", output);
         Assert.Contains("V_0 is OutOfMemoryException", output);
@@ -2209,7 +2209,7 @@ public class EhStructuringPassTests
         Assert.NotNull(clause.Filter);
         Assert.Equal(0, clause.VariableIndex);
 
-        var output = CSharpPrinter.Print(function).Output!;
+        var output = DecidedPrint.Print(function).Output!;
         Assert.Contains("catch (Exception V_0) when", output);
         Assert.Contains("V_0 is ArgumentException", output);
         Assert.Contains("V_0 is IOException", output);
@@ -2230,7 +2230,7 @@ public class EhStructuringPassTests
         Assert.NotNull(clause.Filter);
         Assert.Equal(0, clause.VariableIndex);
 
-        var output = CSharpPrinter.Print(function).Output!;
+        var output = DecidedPrint.Print(function).Output!;
         Assert.Contains("catch (Exception V_0) when", output);
         Assert.Contains("!disposing", output);
         Assert.Contains("FileStreamHelpers.IsIoRelatedException(V_0)", output);
@@ -2249,7 +2249,7 @@ public class EhStructuringPassTests
         Assert.NotNull(clause.Filter);
         Assert.Equal(0, clause.VariableIndex);
 
-        var output = CSharpPrinter.Print(function).Output!;
+        var output = DecidedPrint.Print(function).Output!;
         Assert.Contains("catch (Exception V_0) when (captureException)", output);
     }
 
@@ -2266,7 +2266,7 @@ public class EhStructuringPassTests
         Assert.NotNull(clause.Filter);
         Assert.Equal(0, clause.VariableIndex);
 
-        var output = CSharpPrinter.Print(function).Output!;
+        var output = DecidedPrint.Print(function).Output!;
         Assert.Contains("catch (Exception V_0) when (ExceptionHandling.IsHandledByGlobalHandler(V_0))", output);
     }
 
@@ -2284,7 +2284,7 @@ public class EhStructuringPassTests
         Assert.Null(clauses[0].Filter);
         Assert.NotNull(clauses[1].Filter);
 
-        var output = CSharpPrinter.Print(function).Output!;
+        var output = DecidedPrint.Print(function).Output!;
         Assert.Contains("catch (FormatException)", output);
         Assert.Contains("catch when (handle)", output);
     }
@@ -2300,7 +2300,7 @@ public class EhStructuringPassTests
         Assert.Empty(function.Regions);
         var clause = Assert.Single(Assert.Single(function.Descendants.OfType<TryCatch>()).Clauses);
         Assert.NotNull(clause.Filter);
-        var output = CSharpPrinter.Print(function).Output;
+        var output = DecidedPrint.Print(function).Output;
         Assert.NotNull(output);
         Assert.Contains("catch (Exception", output);
         Assert.Contains("when (true)", output);
@@ -2321,7 +2321,7 @@ public class EhStructuringPassTests
         Assert.Equal(0, clause.VariableIndex);
         Assert.NotNull(clause.Filter);
 
-        var output = CSharpPrinter.Print(function).Output!;
+        var output = DecidedPrint.Print(function).Output!;
         Assert.Contains("catch (FileNotFoundException V_0) when", output);
         Assert.Contains("permitDeserialization == false", output);
     }
@@ -2520,7 +2520,7 @@ public class EhStructuringPassTests
         Assert.Equal(Object, clause.ExceptionType);
         Assert.Null(clause.VariableIndex);
 
-        var output = CSharpPrinter.Print(function).Output!;
+        var output = DecidedPrint.Print(function).Output!;
         Assert.Contains("catch", output);
         Assert.DoesNotContain("catch (", output);
     }
@@ -2537,7 +2537,7 @@ public class EhStructuringPassTests
         Assert.Single(function.Descendants.OfType<TryFinally>());
         Assert.Single(function.Descendants.OfType<TryCatch>());
 
-        var output = CSharpPrinter.Print(function).Output!;
+        var output = DecidedPrint.Print(function).Output!;
         Assert.Contains("catch", output);
         Assert.Contains("finally", output);
         Assert.Contains("goto IL_0038;", output);

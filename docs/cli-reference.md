@@ -341,7 +341,8 @@ stderr rather than mixed into structured output.
 | `graph integrations` | Induce extension, observed Integration, and Integration-opportunity relationships over an explicit package set; `-n`, `--tail`, and `--rows` select complete logical edges after graph construction. |
 | `graph calls TYPE MEMBER` | Explain one package member's supply-chain exits across its dependency graph, retaining highlighted boundaries and their shortest baseline connectors. |
 | `graph libraries` | Discover deterministic direct-use clusters and exact cross-library relationships between two local Libraries. |
-| `graph cluster N` | Inspect exact calls and optional public-entrypoint paths for one pair-local Direct-Use Cluster ordinal. |
+| `graph packages` | Discover deterministic direct-use clusters across the complete implementation-Library matrix of two exact Packages. |
+| `graph cluster N` | Inspect exact calls for one local-Library-pair or Package-pair Direct-Use Cluster ordinal; the local route also supports public-entrypoint paths. |
 | `depends [Type]` | With a positional type, walk its hierarchy inside `--package`, `--library`, `--project`, or platform search scopes. Without a positional type, combine repeatable explicit `--package`, `--nuspec`, `--library`, and `--project` roots, or exclusive `--package-prefix`, into one dependency graph and evidence document. |
 | `extensions X` | Find extension methods and C# extension properties for a type. |
 | `implements X` | Find concrete implementors or subclasses. |
@@ -408,9 +409,20 @@ dotnet-inspect library --platform System.Text.Json \
 ```
 
 Library recognition classifies the selected Library's declared assembly
-references. It does not resolve or traverse those references. Unrecognized
-references do not become ecosystem rows, while JSON still reports the
-recognition status as complete.
+references. Package declarations use product-profile associations directly.
+Assembly references first match an authored exact or family association and
+then require a compatible same-name AssemblyDef from one exact shipped
+Package-asset evidence entry. Detail rows distinguish `Profile match`,
+`Catalog-backed`, and `Candidate`; catalog-backed rows name the exact Package
+asset. Candidates matched an ecosystem association without corroborating
+AssemblyDef evidence and therefore do not enter the compact Package or Library
+Info ecosystem rollup.
+
+Recognition does not resolve or traverse assembly references. Unrecognized
+references do not become ecosystem rows, while JSON still reports recognition
+status as complete. Complete means every available direct observation was
+classified against the shipped profile; it does not claim runtime binding or
+high-confidence provenance.
 
 `Core Packages` are inert registered package roots. Catalog inspection performs
 no source work; a later bounded operation that selects the ecosystem may resolve
@@ -679,6 +691,8 @@ dotnet-inspect member JsonSerializer --package System.Text.Json -D --schema
 dotnet-inspect vocabulary -D
 dotnet-inspect vocabulary -S @Decompiler
 dotnet-inspect vocabulary -S "C# Body Kinds" -n 10
+dotnet-inspect explain vocabularies
+dotnet-inspect explain vocabularies/csharp.body-kinds
 dotnet-inspect library System.Text.Json -S Signals
 dotnet-inspect library System.Text.Json -S @Audit
 dotnet-inspect library System.Text.Json -S References
@@ -1623,6 +1637,48 @@ field, column, Count, discovery, print, and shape projection. Markdown, table,
 TSV, and JSONL lower only the already selected family rows and show at most
 five labeled Type examples per family.
 
+Exact `-S "Architectural Families"` composes those suffix families with the
+Library's exhaustive signature-only structural evidence. Each family row
+reports foundation, hub, orchestrator, unclassified-role, sea-level, and
+mountain-peak Type counts together with its population, source provenance, and
+structural-evidence disposition:
+
+```bash
+dotnet-inspect library FluentValidation.dll \
+  --package FluentValidation@12.1.1 --tfm net8.0 \
+  -S "Architectural Families" -n 10 --head
+dotnet-inspect library FluentValidation.dll \
+  --package FluentValidation@12.1.1 --tfm net8.0 \
+  -S "Architectural Families" --name-family-population ordinary --count
+```
+
+Exact `-S "Architectural Family Types"` exposes the supporting Type rows from
+the same managed operation. Each row retains its artifact-scoped Type
+identity, one- and two-word families, source disposition, signature degrees,
+issued structural role and pole, and structural-evidence disposition:
+
+```bash
+dotnet-inspect library FluentValidation.dll \
+  --package FluentValidation@12.1.1 --tfm net8.0 \
+  -S "Architectural Family Types" -n 20 --head
+```
+
+Both sections are explicit-only. `-n`, `--head`, `--tail`, and `--rows`
+select the chosen family or Type rows before Markout lowering; `--count`
+counts that row set. `--name-family-population` applies to either exact
+section. The operation reuses the complete name-family population and one
+exhaustive signature-only structural acquisition; it does not request method
+bodies or Library Metrics implementation profiles.
+
+Exact `--json` from either section emits the same complete architectural-family
+composition document rather than only the selected presentation rows. It
+contains every exact Type row, every population and family support address,
+both owners' methodology and work receipts, structural qualifications, and
+composition accounting. `--envelope` emits identical Content plus a currently
+`nonProjectable` Share. Complete transports require one exact Library and
+target framework and reject row, field, column, Count, discovery, print,
+shape, and competing presentation projections.
+
 See [API and implementation population scope](design/api-population-scope.md)
 for the distinction between API visibility, implementation completeness, and
 package-library selection.
@@ -2071,6 +2127,21 @@ dotnet-inspect graph calls \
 dotnet-inspect graph libraries \
   --library ./Consumer.dll \
   --library ./Provider.dll
+dotnet-inspect graph packages \
+  --package Microsoft.Extensions.Http.Polly@11.0.0-rc.1.26425.128 \
+  --package Polly.Extensions.Http@3.0.0 \
+  --tfm netstandard2.0
+dotnet-inspect graph packages \
+  --package Microsoft.Extensions.Http.Polly@11.0.0-rc.1.26425.128 \
+  --package Polly.Extensions.Http@3.0.0 \
+  --tfm netstandard2.0 \
+  -S "Library Pairs,Call Sites" \
+  --json
+dotnet-inspect graph cluster 1 \
+  --package Microsoft.Extensions.Http.Polly@11.0.0-rc.1.26425.128 \
+  --package Polly.Extensions.Http@3.0.0 \
+  --tfm netstandard2.0 \
+  --table
 dotnet-inspect graph cluster 3 \
   --library ./Consumer.dll \
   --library ./Provider.dll
@@ -2112,8 +2183,26 @@ graph edge in the completed typed document. Head/Tail and strict Window select
 those edges before Markdown, table, TSV, JSONL, JSON, Mermaid, plaintext graph,
 or Count lowering; selection does not reduce package acquisition or hide
 retained graph failures. Add `--lines` only to clip rendered text explicitly.
-`graph libraries` and `graph cluster` retain independent section row sets;
-their adopted Direct Use Clusters and Call Sites cohorts are described below.
+`graph libraries`, `graph packages`, and `graph cluster` retain independent
+section row sets; their adopted Direct Use Clusters and Call Sites cohorts are
+described below.
+
+`graph packages` requires exactly two Package coordinates and one explicit
+`--tfm`. It acquires only those Package subjects, enumerates the complete
+cross-Package implementation-Library matrix, and evaluates both call
+directions for each Library pair. The explicit `--tfm` is one shared
+acquisition request; each Package may independently select a different
+compatible implementation asset framework. The default `Direct Use Clusters`
+rows use a canonical Package-pair-wide cluster ordinal. `Library Pairs`
+exposes every admitted matrix cell, including complete empty pairs, while
+`Call Sites` exposes the physical calls supporting each cluster. `--columns`
+and `--fields` both project the selected section's row vocabulary. Reversing
+the two `--package` values does not change canonical row order or cluster
+assignment. The operation does not traverse Package dependencies; use
+`graph calls` for the dependency-aware member workflow. `graph cluster N`
+accepts the same Package pair and defaults to the selected cluster's
+`Call Sites`. Package-backed `Public Root Paths` is not yet available; that
+exact section continues to require the local-Library route.
 
 `graph calls` is the integration-style complement to the general
 `member -S "Call Graph"` view. It starts from one exact member in
@@ -2133,6 +2222,13 @@ with unique ownership also retains its exact package id, version, and selected
 framework. Inspect Web loads that coordinate through its ordinary package path
 only when the user selects the graph node, then opens the exact member;
 ambiguous ownership publishes no package coordinate.
+
+For an unresolved ordinary `AssemblyRef` from a Package participant, the CLI
+evaluates reachable Package suppliers first and eligible exact Platform targets
+second. A selected supplier is admitted into a fresh immutable Workspace
+generation, and the call graph is rebuilt against that successor. Continuation
+uses finite command-owned work limits and the Workspace deadline; exhausted or
+incomplete work remains visible instead of becoming a final missing binding.
 
 The default `--baseline self+registered-ecosystems` excludes the exact root,
 explicit `--first-party-prefix` values, and the product platform registrations

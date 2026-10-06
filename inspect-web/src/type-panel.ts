@@ -661,7 +661,7 @@ export function renderTypeNav(options: TypeNavOptions): string {
   const namespaceSelectionValue =
     options.namespaceSelectionValue ?? (namespace => namespace);
   return `
-    <aside id="content-navigation-pane" class="type-browser${itemAchievements ? " has-item-achievement-rail" : ""}" aria-label="Public types">
+    <aside id="content-navigation-pane" class="type-browser${parentSubject ? " has-parent-subject" : ""}${statusHtml ? " has-status" : ""}${itemAchievements ? " has-item-achievement-rail" : ""}" aria-label="Public types">
       <div class="browser-head">
         <div>
           <span class="pane-label">PUBLIC TYPES</span>
@@ -715,7 +715,7 @@ export function renderTypeNav(options: TypeNavOptions): string {
           </label>
         </div>
       </details>
-      ${statusHtml}
+      ${statusHtml ? `<div class="type-browser-status">${statusHtml}</div>` : ""}
       <div class="type-list" role="listbox" tabindex="0" id="type-list" data-nav-scope="types" data-nav-selection="${current ? `type:${escapeHtml(current.id)}` : ""}">
         ${[...typeGroups].map(([namespace, types]) => {
           const namespaceLeverage = types.some(

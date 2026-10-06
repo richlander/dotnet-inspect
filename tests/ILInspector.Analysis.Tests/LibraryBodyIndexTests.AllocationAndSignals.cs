@@ -1286,6 +1286,33 @@ public partial class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void OptimizationOpportunityCounts_MatchCompletedPerformanceRows()
+    {
+        var index = BodyAnalysisTestExecution.Open(
+            typeof(OptimizationOpportunityFixtures).Assembly.Location);
+        ImmutableArray<OptimizationOpportunity> expected =
+            OptimizationOpportunityRowSpace.PerformanceCandidates(
+                index.Optimization.Opportunities,
+                [],
+                index.Optimization.GeneratedFrameworkTypes,
+                includeAllocationFanout: false);
+
+        OptimizationOpportunityCounts actual =
+            index.Optimization.CountPerformanceCandidates();
+
+        Assert.Equal(expected.Length, actual.Total);
+        foreach (OptimizationOpportunityKind kind in
+            Enum.GetValues<OptimizationOpportunityKind>())
+        {
+            Assert.Equal(
+                expected.Count(opportunity =>
+                    OptimizationOpportunityRowSpace.KindForShape(
+                        opportunity.Shape) == kind),
+                actual.Count(kind));
+        }
+    }
+
+    [Fact]
     public void OptimizationOpportunities_SuppressesGeneratedActionableRecordMembers()
     {
         var index = BodyAnalysisTestExecution.Open(typeof(OpportunityRecordFixture).Assembly.Location);

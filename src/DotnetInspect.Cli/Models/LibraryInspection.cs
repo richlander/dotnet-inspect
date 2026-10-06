@@ -76,11 +76,12 @@ public class LibraryInspection
     { get; set; }
 
     /// <summary>
-    /// Presentation-selected ecosystem-dependency pairs. Null retains the
-    /// complete recognized population from the recognition Document.
+    /// Presentation-selected ecosystem-dependency matches. Null retains the
+    /// complete recognized and candidate populations from the recognition
+    /// Document.
     /// </summary>
     [JsonIgnore]
-    public IReadOnlyList<EcosystemDependencyRecognitionEntry>?
+    public IReadOnlyList<EcosystemDependencyMatchEntry>?
         EcosystemDependencyRows
     { get; set; }
 
@@ -554,6 +555,20 @@ public class LibraryInspection
         }
     }
 
+    private LibraryArchitecturalFamilyQueryResult? _architecturalFamilyQueryResult;
+
+    /// <summary>Typed Architectural Families result.</summary>
+    [JsonIgnore]
+    public LibraryArchitecturalFamilyQueryResult? ArchitecturalFamilyQueryResult
+    {
+        get => _architecturalFamilyQueryResult;
+        set
+        {
+            _architecturalFamilyQueryResult = value;
+            ResetFindingProjectionCaches();
+        }
+    }
+
     private LibraryDependencyStructureQueryResult?
         _dependencyStructureQueryResult;
 
@@ -601,6 +616,10 @@ public class LibraryInspection
     public ImmutableArray<OptimizationOpportunity>
         PerformanceTriageOpportunities
     { get; set; } = [];
+
+    [JsonIgnore]
+    internal OptimizationOpportunityCounts? PerformanceTriageCounts
+    { get; set; }
 
     /// <summary>
     /// Nested performance projection: the optimization opportunities bucketed by kind, mirroring
@@ -1147,6 +1166,14 @@ public class LibraryInspection
                         SectionNames.NameFamilies,
                         LibraryNameFamilyQuery.Definition.Name,
                         nameFamilyFailure.Error.Message));
+                }
+                if (ArchitecturalFamilyQueryResult
+                    is LibraryArchitecturalFamilyQueryResult.Failed architecturalFamilyFailure)
+                {
+                    failures.Add(new LibraryInspectionFailureJson(
+                        SectionNames.ArchitecturalFamilies,
+                        LibraryArchitecturalFamilyQuery.Definition.Name,
+                        architecturalFamilyFailure.Error.Message));
                 }
                 if (DependencyStructureQueryResult
                     is LibraryDependencyStructureQueryResult.Failed

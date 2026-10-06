@@ -1,4 +1,6 @@
 using System.Collections.Immutable;
+using DotnetInspector.Packages;
+using ILInspector.Metadata;
 
 namespace DotnetInspector.Ecosystems;
 
@@ -152,15 +154,90 @@ public sealed class EcosystemDependencyProfileEntry
 {
     internal EcosystemDependencyProfileEntry(
         EcosystemDependencyDescriptor ecosystem,
-        ImmutableArray<EcosystemDependencyAssociation> associations)
+        ImmutableArray<EcosystemDependencyAssociation> associations,
+        ImmutableArray<EcosystemAssemblyDefinitionEvidence> assemblyEvidence)
     {
         Ecosystem = ecosystem;
         Associations = associations;
+        AssemblyEvidence = assemblyEvidence;
     }
 
     public EcosystemDependencyDescriptor Ecosystem { get; }
 
     public ImmutableArray<EcosystemDependencyAssociation> Associations { get; }
+
+    public ImmutableArray<EcosystemAssemblyDefinitionEvidence>
+        AssemblyEvidence { get; }
+}
+
+/// <summary>
+/// One AssemblyDef observed in one exact immutable Package asset and admitted
+/// as product-relative ecosystem-recognition evidence.
+/// </summary>
+public sealed record EcosystemAssemblyDefinitionEvidence
+{
+    internal EcosystemAssemblyDefinitionEvidence(
+        PackageCoordinate package,
+        string assetPath,
+        AssemblyReferenceIdentity assembly)
+    {
+        ArgumentNullException.ThrowIfNull(package);
+        ArgumentException.ThrowIfNullOrWhiteSpace(package.PackageId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(package.Version);
+        if (PackageCoordinateResolver.Validate(package) is { } invalid)
+        {
+            throw new ArgumentException(invalid.Message, nameof(package));
+        }
+        if (package.Framework is not null || package.RuntimeIdentifier is not null)
+        {
+            throw new ArgumentException(
+                "Assembly evidence identifies its exact Package asset by path, not by a coordinate framework or runtime identifier.",
+                nameof(package));
+        }
+
+        ArgumentException.ThrowIfNullOrWhiteSpace(assetPath);
+        if (Path.IsPathRooted(assetPath)
+            || assetPath.Contains('\\', StringComparison.Ordinal)
+            || assetPath.Split('/').Any(static segment =>
+                segment.Length == 0 || segment is "." or ".."))
+        {
+            throw new ArgumentException(
+                "An assembly-evidence asset path must be a normalized relative Package path.",
+                nameof(assetPath));
+        }
+
+        Assembly = assembly
+            ?? throw new ArgumentNullException(nameof(assembly));
+        ArgumentException.ThrowIfNullOrWhiteSpace(assembly.Name);
+        if (assembly.Version is null)
+        {
+            throw new ArgumentException(
+                "Assembly evidence requires an exact AssemblyDef version.",
+                nameof(assembly));
+        }
+        string fileName = Path.GetFileNameWithoutExtension(assetPath);
+        if (!assetPath.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
+            || !fileName.Equals(
+                assembly.Name,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ArgumentException(
+                "An assembly-evidence asset path must name its AssemblyDef.",
+                nameof(assetPath));
+        }
+
+        Package = package;
+        AssetPath = assetPath;
+    }
+
+    public PackageCoordinate Package { get; }
+
+    public string AssetPath { get; }
+
+    public AssemblyReferenceIdentity Assembly { get; }
+
+    internal bool Matches(AssemblyReferenceIdentity reference) =>
+        reference.MatchesCandidate(Assembly, ignoreVersion: true);
 }
 
 /// <summary>
@@ -270,12 +347,52 @@ public sealed class EcosystemDependencyRecognitionProfile
                 }
             }
 
+            EcosystemAssemblyDefinitionEvidence[] assemblyEvidence =
+            [
+                .. registration.AssemblyEvidence
+                    ?? throw new ArgumentException(
+                        $"Ecosystem '{registration.Ecosystem}' has no assembly-evidence sequence.",
+                        nameof(registrations)),
+            ];
+            if (assemblyEvidence.Any(static evidence => evidence is null))
+            {
+                throw new ArgumentException(
+                    $"Ecosystem '{registration.Ecosystem}' contains null assembly evidence.",
+                    nameof(registrations));
+            }
+            var evidenceKeys = new HashSet<AssemblyEvidenceKey>();
+            foreach (EcosystemAssemblyDefinitionEvidence evidence in
+                     assemblyEvidence)
+            {
+                var key = new AssemblyEvidenceKey(
+                    evidence.Package.PackageId,
+                    evidence.Package.Version!,
+                    evidence.AssetPath);
+                if (!evidenceKeys.Add(key))
+                {
+                    throw new ArgumentException(
+                        $"Ecosystem '{registration.Ecosystem}' contains duplicate assembly evidence for "
+                        + $"'{evidence.Package.PackageId}@{evidence.Package.Version}/{evidence.AssetPath}'.",
+                        nameof(registrations));
+                }
+                if (!associations.Any(association =>
+                        association.Matches(
+                            EcosystemDependencyIdentityDomain.AssemblyName,
+                            evidence.Assembly.Name)))
+                {
+                    throw new ArgumentException(
+                        $"Assembly evidence '{evidence.Assembly.Name}' does not match an authored assembly association for ecosystem '{registration.Ecosystem}'.",
+                        nameof(registrations));
+                }
+            }
+
             entries.Add(new EcosystemDependencyProfileEntry(
                 new EcosystemDependencyDescriptor(
                     descriptor.Id,
                     descriptor.Title,
                     descriptor.Order),
-                [.. associations]));
+                [.. associations],
+                [.. assemblyEvidence]));
         }
 
         _entries =
@@ -291,6 +408,8 @@ public sealed class EcosystemDependencyRecognitionProfile
             entry.Associations.Count(static association =>
                 association.Domain
                     == EcosystemDependencyIdentityDomain.AssemblyName));
+        AssemblyEvidenceCount = _entries.Sum(static entry =>
+            entry.AssemblyEvidence.Length);
     }
 
     public ImmutableArray<EcosystemDependencyProfileEntry> Entries => _entries;
@@ -298,6 +417,8 @@ public sealed class EcosystemDependencyRecognitionProfile
     public int PackageAssociationCount { get; }
 
     public int AssemblyAssociationCount { get; }
+
+    public int AssemblyEvidenceCount { get; }
 
     private readonly record struct AssociationKey(
         EcosystemDependencyIdentityDomain Domain,
@@ -315,8 +436,30 @@ public sealed class EcosystemDependencyRecognitionProfile
                 Kind,
                 StringComparer.OrdinalIgnoreCase.GetHashCode(Value));
     }
+
+    private readonly record struct AssemblyEvidenceKey(
+        string PackageId,
+        string Version,
+        string AssetPath)
+    {
+        public bool Equals(AssemblyEvidenceKey other) =>
+            PackageId.Equals(
+                other.PackageId,
+                StringComparison.OrdinalIgnoreCase)
+            && Version.Equals(other.Version, StringComparison.OrdinalIgnoreCase)
+            && AssetPath.Equals(
+                other.AssetPath,
+                StringComparison.OrdinalIgnoreCase);
+
+        public override int GetHashCode() =>
+            HashCode.Combine(
+                StringComparer.OrdinalIgnoreCase.GetHashCode(PackageId),
+                StringComparer.OrdinalIgnoreCase.GetHashCode(Version),
+                StringComparer.OrdinalIgnoreCase.GetHashCode(AssetPath));
+    }
 }
 
 internal sealed record EcosystemDependencyProfileRegistration(
     EcosystemPackId Ecosystem,
-    IReadOnlyList<EcosystemDependencyAssociation> Associations);
+    IReadOnlyList<EcosystemDependencyAssociation> Associations,
+    IReadOnlyList<EcosystemAssemblyDefinitionEvidence> AssemblyEvidence);

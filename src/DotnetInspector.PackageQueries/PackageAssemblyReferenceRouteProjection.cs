@@ -54,12 +54,14 @@ public sealed class PackageAssemblyReferenceRouteEligibilityReceipt
         MemberCallGraphFocalScopeReceipt focalScope,
         PackageDependencyTraversalOutcome traversal,
         int rootOccurrenceIndex,
+        int originProjectionIndex,
         ImmutableArray<PackageAssemblyReferenceRouteOccurrence> routes)
     {
         Generation = generation;
         FocalScope = focalScope;
         Traversal = traversal;
         RootOccurrenceIndex = rootOccurrenceIndex;
+        OriginProjectionIndex = originProjectionIndex;
         Routes = routes;
     }
 
@@ -70,6 +72,8 @@ public sealed class PackageAssemblyReferenceRouteEligibilityReceipt
     public PackageDependencyTraversalOutcome Traversal { get; }
 
     public int RootOccurrenceIndex { get; }
+
+    public int OriginProjectionIndex { get; }
 
     public PackageDependencyTraversalRootResult Root =>
         Traversal.Roots[RootOccurrenceIndex];
@@ -90,7 +94,8 @@ public sealed record PackageAssemblyReferenceRouteProjectionRequest
         PackageDependencyTraversalOutcome traversal,
         int rootOccurrenceIndex,
         ImmutableArray<PackageDependencyEdgeRealizationExecution>
-            edgeExecutions)
+            edgeExecutions,
+        int? originProjectionIndex = null)
     {
         ArgumentNullException.ThrowIfNull(generation);
         ArgumentNullException.ThrowIfNull(focalScope);
@@ -99,6 +104,13 @@ public sealed record PackageAssemblyReferenceRouteProjectionRequest
         ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(
             rootOccurrenceIndex,
             traversal.Roots.Length);
+        if (traversal.RootReachability.Length
+            != traversal.Roots.Length)
+        {
+            throw new ArgumentException(
+                "Traversal reachability must align with its root occurrences.",
+                nameof(traversal));
+        }
         if (!ReferenceEquals(
                 generation.ScopeRevision,
                 focalScope.ScopeRevision))
@@ -127,6 +139,18 @@ public sealed record PackageAssemblyReferenceRouteProjectionRequest
         Traversal = traversal;
         RootOccurrenceIndex = rootOccurrenceIndex;
         EdgeExecutions = edgeExecutions;
+        OriginProjectionIndex =
+            originProjectionIndex
+            ?? traversal.Roots[rootOccurrenceIndex].ProjectionIndex;
+        if ((uint)OriginProjectionIndex
+                >= (uint)traversal.Projections.Length
+            || !traversal.RootReachability[rootOccurrenceIndex]
+                .ProjectionDistances.ContainsKey(OriginProjectionIndex))
+        {
+            throw new ArgumentException(
+                "The referencing projection must be reachable from the exact traversal root.",
+                nameof(originProjectionIndex));
+        }
     }
 
     public AssemblyReferenceResolutionGenerationReceipt Generation { get; }
@@ -136,6 +160,8 @@ public sealed record PackageAssemblyReferenceRouteProjectionRequest
     public PackageDependencyTraversalOutcome Traversal { get; }
 
     public int RootOccurrenceIndex { get; }
+
+    public int OriginProjectionIndex { get; }
 
     public ImmutableArray<PackageDependencyEdgeRealizationExecution>
         EdgeExecutions
@@ -153,12 +179,14 @@ public abstract record PackageAssemblyReferenceRouteProjectionOutcome
         MemberCallGraphFocalScopeReceipt focalScope,
         PackageDependencyTraversalOutcome traversal,
         int rootOccurrenceIndex,
+        int originProjectionIndex,
         ImmutableArray<PackageAssemblyReferenceRouteOccurrence> routes)
     {
         Generation = generation;
         FocalScope = focalScope;
         Traversal = traversal;
         RootOccurrenceIndex = rootOccurrenceIndex;
+        OriginProjectionIndex = originProjectionIndex;
         Routes = routes;
     }
 
@@ -169,6 +197,8 @@ public abstract record PackageAssemblyReferenceRouteProjectionOutcome
     public PackageDependencyTraversalOutcome Traversal { get; }
 
     public int RootOccurrenceIndex { get; }
+
+    public int OriginProjectionIndex { get; }
 
     public ImmutableArray<PackageAssemblyReferenceRouteOccurrence> Routes
     { get; }
@@ -183,6 +213,7 @@ public abstract record PackageAssemblyReferenceRouteProjectionOutcome
                 receipt.FocalScope,
                 receipt.Traversal,
                 receipt.RootOccurrenceIndex,
+                receipt.OriginProjectionIndex,
                 receipt.Routes) =>
             Receipt = receipt;
 
@@ -198,6 +229,7 @@ public abstract record PackageAssemblyReferenceRouteProjectionOutcome
             MemberCallGraphFocalScopeReceipt focalScope,
             PackageDependencyTraversalOutcome traversal,
             int rootOccurrenceIndex,
+            int originProjectionIndex,
             ImmutableArray<PackageAssemblyReferenceRouteOccurrence> routes,
             PackageAssemblyReferenceRouteProjectionIncompleteReason
                 reason,
@@ -207,6 +239,7 @@ public abstract record PackageAssemblyReferenceRouteProjectionOutcome
                 focalScope,
                 traversal,
                 rootOccurrenceIndex,
+                originProjectionIndex,
                 routes)
         {
             Reason = reason;
@@ -256,8 +289,10 @@ public static class PackageAssemblyReferenceRouteProjection
 
         var provided =
             new Dictionary<int, PackageDependencyEdgeRealizationExecution>();
-        PackageDependencyTraversalReachability reachability =
-            traversal.RootReachability[request.RootOccurrenceIndex];
+        ImmutableDictionary<int, int> distances =
+            traversal.ReachableEdgesFromProjection(
+                request.RootOccurrenceIndex,
+                request.OriginProjectionIndex);
         foreach (PackageDependencyEdgeRealizationExecution execution
             in request.EdgeExecutions)
         {
@@ -268,9 +303,7 @@ public static class PackageAssemblyReferenceRouteProjection
                     != request.RootOccurrenceIndex
                 || (uint)subject.EdgeIndex
                     >= (uint)traversal.Edges.Length
-                || !reachability.IsEdgeAdmitted(
-                    subject.EdgeIndex,
-                    out _)
+                || !distances.ContainsKey(subject.EdgeIndex)
                 || traversal.Edges[subject.EdgeIndex].Authority
                     != PackageDependencyTraversalEdgeEmissionAuthority
                         .ResolvedCandidate
@@ -288,9 +321,7 @@ public static class PackageAssemblyReferenceRouteProjection
             edgeIndex < traversal.Edges.Length;
             edgeIndex++)
         {
-            if (reachability.IsEdgeAdmitted(
-                    edgeIndex,
-                    out int distance))
+            if (distances.TryGetValue(edgeIndex, out int distance))
             {
                 subjects.Add(
                     new(
@@ -366,6 +397,7 @@ public static class PackageAssemblyReferenceRouteProjection
                     request.FocalScope,
                     traversal,
                     request.RootOccurrenceIndex,
+                    request.OriginProjectionIndex,
                     projectedRoutes,
                     PackageAssemblyReferenceRouteProjectionIncompleteReason
                         .TraversalIncomplete,
@@ -379,6 +411,7 @@ public static class PackageAssemblyReferenceRouteProjection
                     request.FocalScope,
                     traversal,
                     request.RootOccurrenceIndex,
+                    request.OriginProjectionIndex,
                     projectedRoutes,
                     PackageAssemblyReferenceRouteProjectionIncompleteReason
                         .AdmittedEdgeWithoutCandidate,
@@ -392,6 +425,7 @@ public static class PackageAssemblyReferenceRouteProjection
                     request.FocalScope,
                     traversal,
                     request.RootOccurrenceIndex,
+                    request.OriginProjectionIndex,
                     projectedRoutes));
     }
 }

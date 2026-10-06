@@ -19,6 +19,41 @@ public enum OptimizationOpportunityKind
     Other,
 }
 
+public sealed record OptimizationOpportunityCounts
+{
+    public OptimizationOpportunityCounts(
+        int total,
+        ImmutableDictionary<OptimizationOpportunityKind, int> byKind)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(total);
+        ArgumentNullException.ThrowIfNull(byKind);
+        if (byKind.Values.Any(count => count < 0))
+        {
+            throw new ArgumentException(
+                "Optimization opportunity kind counts cannot be negative.",
+                nameof(byKind));
+        }
+        if (byKind.Values.Sum() != total)
+        {
+            throw new ArgumentException(
+                "Optimization opportunity kind counts must sum to the "
+                + "total count.",
+                nameof(byKind));
+        }
+
+        Total = total;
+        ByKind = byKind;
+    }
+
+    public int Total { get; }
+
+    public ImmutableDictionary<OptimizationOpportunityKind, int>
+        ByKind { get; }
+
+    public int Count(OptimizationOpportunityKind kind) =>
+        ByKind.GetValueOrDefault(kind);
+}
+
 public sealed class OptimizationOpportunityCuratedQuery
 {
     internal OptimizationOpportunityCuratedQuery(
@@ -35,7 +70,7 @@ public sealed class OptimizationOpportunityCuratedQuery
 
     public string Identity { get; }
 
-    internal OptimizationOpportunityKind? Kind { get; }
+    public OptimizationOpportunityKind? Kind { get; }
 
     public PortableQueryIntent Intent { get; }
 }

@@ -21,6 +21,11 @@ public abstract record OptimizationOpportunitiesResult
         ImmutableArray<AnalysisDiagnostic> Diagnostics)
         : OptimizationOpportunitiesResult;
 
+    public sealed record Counted(
+        OptimizationOpportunityCounts Counts,
+        ImmutableArray<AnalysisDiagnostic> Diagnostics)
+        : OptimizationOpportunitiesResult;
+
     /// <summary>The image contains no managed metadata and therefore has no method bodies.</summary>
     public sealed record NoMetadata : OptimizationOpportunitiesResult;
 
@@ -58,6 +63,23 @@ public static class OptimizationOpportunitiesQuery
                     ? analysis.AllocationFanoutOpportunities
                     : [],
                 analysis.GeneratedFrameworkTypes,
+                analysis.Receipt.Diagnostics);
+        }
+        catch (Exception ex)
+        {
+            return new OptimizationOpportunitiesResult.Failed(ex);
+        }
+    }
+
+    public static OptimizationOpportunitiesResult ExecuteCount(
+        LibraryOptimizationAnalysisResult analysis)
+    {
+        ArgumentNullException.ThrowIfNull(analysis);
+
+        try
+        {
+            return new OptimizationOpportunitiesResult.Counted(
+                analysis.CountPerformanceCandidates(),
                 analysis.Receipt.Diagnostics);
         }
         catch (Exception ex)
