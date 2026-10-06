@@ -746,11 +746,14 @@ public partial class CommandExecutionTests
         using JsonDocument sourceDocument = JsonDocument.Parse(source);
         JsonElement sourceRow = Assert.Single(sourceDocument.RootElement.EnumerateArray());
         Assert.Equal("text", sourceRow.GetProperty("shape").GetString());
-        Assert.Equal("scalar", sourceRow.GetProperty("cardinality").GetString());
-        Assert.Empty(sourceRow.GetProperty("terminals").EnumerateArray());
-        // Source is a Text with a dedicated JSON document and no fact row.
+        // Source is the Text with a Lines inventory: rows and count observe
+        // lines, and its rows lower to the row formats beside its JSON document.
+        Assert.Equal("inventory", sourceRow.GetProperty("cardinality").GetString());
         Assert.Equal(
-            ["--markdown", "--plaintext", "--json"],
+            ["rows", "count"],
+            sourceRow.GetProperty("terminals").EnumerateArray().Select(static t => t.GetString()));
+        Assert.Equal(
+            ["--markdown", "--plaintext", "--json", "--table", "--tsv", "--jsonl"],
             sourceRow.GetProperty("formats").EnumerateArray().Select(static f => f.GetString()));
 
         var (graphExit, graph, graphError) = await RunAppAsync(
@@ -999,6 +1002,79 @@ public partial class CommandExecutionTests
         Assert.Empty(loneError);
         Assert.DoesNotContain("## Calls", lone);
         Assert.StartsWith("il_offset\t", lone);
+    }
+
+    [Fact]
+    public async Task Source_CountAndRowsObserveExactLines()
+    {
+        // Source document cardinality, CLI slice 4 on Complete execution:
+        // --count is the exact line Count (including the empty final line
+        // after a trailing terminator), --rows selects line rows in every
+        // rendering, the row formats emit number/start/content/terminator,
+        // and default output is unchanged.
+        string[] member =
+        [
+            "member", "DotnetInspect.Cli.Tests.CommandExecutionTests+ConstructorChainTarget", ".ctor:1",
+            "--library", TestAssemblyPath, "--all", "-S", SectionNames.Source,
+        ];
+        var (nativeExit, native, _) = await RunAppAsync(member);
+        var (tsvExit, tsv, tsvError) = await RunAppAsync([.. member, "--tsv"]);
+        var (countExit, count, countError) = await RunAppAsync([.. member, "--count"]);
+
+        Assert.Equal(0, nativeExit);
+        Assert.Equal(0, tsvExit);
+        Assert.Equal(0, countExit);
+        // Source provenance notes go to stderr on every Source path; stdout
+        // carries only the count.
+        Assert.DoesNotContain("Error:", countError);
+        Assert.DoesNotContain("Error:", tsvError);
+        Assert.Matches("^[0-9]+\n$", count);
+        string[] rows = tsv.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        Assert.Equal("number\tstart\tcontent\tterminator", rows[0]);
+        int lineCount = int.Parse(count.Trim(), CultureInfo.InvariantCulture);
+        Assert.Equal(lineCount, rows.Length - 1);
+        Assert.Equal("1", rows[1].Split('\t')[0]);
+        Assert.Equal("0", rows[1].Split('\t')[1]);
+
+        // The line contents reconstruct the unchanged native payload.
+        string reconstructed = string.Join(
+            "\n",
+            rows.Skip(1).Select(static row => row.Split('\t')[2]));
+        Assert.Equal(native.TrimEnd(), reconstructed.TrimEnd());
+
+        // --rows selects line rows in native, Markdown, and Count alike.
+        var (windowExit, window, _) = await RunAppAsync([.. member, "--rows", "1..2"]);
+        var (markdownExit, markdown, _) = await RunAppAsync([.. member, "--rows", "1..2", "--markdown"]);
+        var (windowCountExit, windowCount, _) = await RunAppAsync([.. member, "--rows", "1..2", "--count"]);
+
+        Assert.Equal(0, windowExit);
+        Assert.Equal(0, markdownExit);
+        Assert.Equal(0, windowCountExit);
+        string[] nativeLines = native.Split('\n');
+        Assert.Equal(
+            string.Join("\n", nativeLines.Take(2)),
+            window.TrimEnd('\n'));
+        Assert.Contains(nativeLines[1], markdown);
+        Assert.DoesNotContain(nativeLines[2], markdown);
+        Assert.Equal("2", windowCount.Trim());
+
+        // The type command's Source is the same inventory.
+        var (typeCountExit, typeCount, _) = await RunAppAsync(
+            "type", "DotnetInspect.Cli.Tests.CommandExecutionTests+ConstructorChainTarget",
+            "--library", TestAssemblyPath, "--all", "-S", SectionNames.Source, "--count");
+
+        Assert.Equal(0, typeCountExit);
+        Assert.True(int.Parse(typeCount.Trim(), CultureInfo.InvariantCulture) >= lineCount);
+
+        // A count map over Source and another section keeps per-section meaning.
+        var (mapExit, map, _) = await RunAppAsync(
+            [.. member[..^1], $"{SectionNames.Source},{SectionNames.Signature}", "--count", "--json"]);
+
+        Assert.Equal(0, mapExit);
+        using JsonDocument mapDocument = JsonDocument.Parse(map);
+        JsonElement sourceCount = mapDocument.RootElement.EnumerateArray()
+            .Single(static r => r.GetProperty("section").GetString() == SectionNames.Source);
+        Assert.Equal(lineCount, sourceCount.GetProperty("count").GetInt32());
     }
 
     [Fact]

@@ -1052,6 +1052,22 @@ public partial class ApiCommand
             {
                 projection.RecordRows(SectionNames.CallGraph, graphRows);
             }
+            // Source declares exact lines as its row unit (Source document
+            // cardinality); its rendered code fence has no table rows, so the
+            // owned line inventory replaces whatever the render recorded.
+            if (options.IncludeSections?.Contains(SectionNames.Source) == true
+                && ProjectionIncludesSection(
+                    schema, SectionNames.Source, options))
+            {
+                if (!TryProjectSourceLines(options, out var sourceLines, out string sourceFailure))
+                {
+                    CommandError.Write(sourceFailure);
+                    return 1;
+                }
+                projection.SetRows(
+                    SectionNames.Source,
+                    SelectedSourceLineCount(options.Rows, sourceLines));
+            }
             if (!TryReportEmptyProjection(
                     projection.WroteAnyContent,
                     options,
@@ -1122,6 +1138,16 @@ public partial class ApiCommand
                 ApiOutputFormatter.WriteCallGraphWarning(view);
                 return 0;
             }
+        }
+
+        if (options.Tabular && IsLoneSourceSelection(options))
+        {
+            if (!TryProjectSourceLines(options, out var sourceLines, out string sourceFailure))
+            {
+                CommandError.Write(sourceFailure);
+                return 1;
+            }
+            return WriteSourceLineTable(sink, options, sourceLines);
         }
 
         if (options.Tabular)

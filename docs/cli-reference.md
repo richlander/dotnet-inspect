@@ -1488,15 +1488,25 @@ An explicit format, an environment default, `--print`, `--row`, `--tree`,
 `--count`, a projection, a shape flag, discovery, an envelope, or an analysis
 query keeps its existing behavior, and selecting several sections composes
 Markdown as before. Scalar sections (`Type Info`, `API Info`, and every Text
-payload until its line inventory is executed) have no rows: selecting one
-alone with `--count` or `--rows` fails before acquisition and names an
-inventory section as the alternative; a bare `-n` on it is the rendered-line
-window. `Signature` is a one-row inventory whose row is the resolved member,
-so `--count` answers `1`. Count maps over several sections keep their
-per-section meaning.
+payload other than `Source`) have no rows: selecting one alone with `--count`
+or `--rows` fails before acquisition and names an inventory section as the
+alternative; a bare `-n` on it is the rendered-line window. `Signature` is a
+one-row inventory whose row is the resolved member, so `--count` answers `1`.
+Count maps over several sections keep their per-section meaning.
+
+`Source` is the Text whose rows are its exact lines, per
+[Source document cardinality](design/source-document-cardinality.md):
+`--count` reports the line count, which includes the empty final line after a
+trailing line terminator; `--rows` selects lines, which native output,
+`--markdown`, and `--plaintext` print as text; and `--table`, `--tsv`, and
+`--jsonl` emit one row per line with its number, UTF-16 start offset, content,
+and terminator. Default output is unchanged, and `-n` remains a rendered-line
+window.
 
 ```bash
 dotnet-inspect type string --tree
+dotnet-inspect member System.String.Trim:1 -S Source --count
+dotnet-inspect member System.String.Trim:1 -S Source --rows 2..3
 dotnet-inspect type --platform System.Text.Json -n 1 --tail --json
 dotnet-inspect find JsonSerializer --platform System.Text.Json
 dotnet-inspect member JsonSerializer --package System.Text.Json -m Serialize

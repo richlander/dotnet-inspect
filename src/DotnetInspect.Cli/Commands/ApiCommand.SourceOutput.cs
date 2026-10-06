@@ -56,9 +56,22 @@ public partial class ApiCommand
         }
 
         WriteSourceNotes(source);
+        string content = source.Content;
+        // --rows selects Source line rows (Source document cardinality), so
+        // every rendering of the section -- native payload, Markdown, plain
+        // text -- shows the selected lines rather than ignoring the window.
+        if (options.Rows is not null)
+        {
+            if (!TryProjectSourceLines(options, out var lines, out string linesFailure))
+            {
+                CommandError.Write(linesFailure);
+                return false;
+            }
+            content = SelectedSourceLineText(options.Rows, lines);
+        }
         view.MemberCode ??= new MemberCodeView();
         view.MemberCode.SourceCode =
-            new CodeSection("csharp", source.Content);
+            new CodeSection("csharp", content);
         return true;
     }
 

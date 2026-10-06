@@ -77,8 +77,19 @@ internal static class ApiOutputCapabilities
             StringComparer.OrdinalIgnoreCase);
         foreach ((string section, SectionShape shape) in shapes)
         {
+            // A Text whose owner declares a row inventory (Source's Lines)
+            // lowers its rows to the row formats like a Table does.
+            bool rowInventoryText =
+                shape == SectionShape.Text
+                && catalog != InspectionCatalogIdentity.ApiType
+                && ApiMemberSectionCardinality.Declarations.TryGetValue(
+                    section,
+                    out SectionCardinalityDeclaration? cardinality)
+                && cardinality.Kind == SectionCardinalityKind.Inventory;
             ImmutableArray<DiscoveryOutputMode> formats =
-                shape == SectionShape.Text ? TextFormats : TableFormats;
+                shape == SectionShape.Text && !rowInventoryText
+                    ? TextFormats
+                    : TableFormats;
             if (ExecutesDocumentJson(view, catalog, section))
                 formats = [.. formats, DiscoveryOutputMode.Json];
             sections[section] = SectionOutputCapabilities.Create(formats);
