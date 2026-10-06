@@ -7,7 +7,7 @@ using ILInspector.Metadata;
 
 namespace DotnetInspect.Cli.Commands;
 
-internal static class TypeDocumentHierarchyCommand
+internal static class TypeOverviewHierarchyCommand
 {
     private static readonly ApiSurfaceExtractionBounds s_bounds =
         new(
@@ -42,7 +42,7 @@ internal static class TypeDocumentHierarchyCommand
             selection = ResolvedAssemblyReference.SelectFromPath(
                 apiDllPath,
                 AssemblyResolutionProvenance.Local(
-                    "Type document hierarchy"));
+                    "Type overview hierarchy"));
         }
         catch (Exception failure)
             when (failure is IOException
@@ -56,12 +56,12 @@ internal static class TypeDocumentHierarchyCommand
             return null;
         }
 
-        TypeDocumentHierarchyPresentationFormat format =
+        TypeOverviewHierarchyPresentationFormat format =
             options.Format is OutputFormat.Mermaid
-                ? TypeDocumentHierarchyPresentationFormat.Mermaid
-                : TypeDocumentHierarchyPresentationFormat.Tree;
-        TypeDocumentHierarchyPresentationPlan presentation =
-            TypeDocumentHierarchyPresentation.CreateCompactPlan(
+                ? TypeOverviewHierarchyPresentationFormat.Mermaid
+                : TypeOverviewHierarchyPresentationFormat.Tree;
+        TypeOverviewHierarchyPresentationPlan presentation =
+            TypeOverviewHierarchyPresentation.CreateCompactPlan(
                 format,
                 options.IncludeAll);
         TypeHierarchyInspectionResult? result =
@@ -70,7 +70,7 @@ internal static class TypeDocumentHierarchyCommand
                     session => Inspect(
                         session,
                         options.TypeName!,
-                        presentation.Declarations,
+                        presentation.Members,
                         presentation.Hierarchy,
                         cancellationToken),
                     cancellationToken)
@@ -83,7 +83,7 @@ internal static class TypeDocumentHierarchyCommand
         if (result is TypeHierarchyInspectionResult.NotApplicable)
         {
             if (format
-                is TypeDocumentHierarchyPresentationFormat.Mermaid)
+                is TypeOverviewHierarchyPresentationFormat.Mermaid)
             {
                 CommandError.Write(
                     "The requested Type Mermaid hierarchy could not be produced by the compact Type document path.");
@@ -92,10 +92,10 @@ internal static class TypeDocumentHierarchyCommand
 
             return null;
         }
-        InspectionEnvelope<TypeDocumentInspectionOutcome>? envelope =
+        InspectionEnvelope<TypeOverviewDocumentInspectionOutcome>? envelope =
             ((TypeHierarchyInspectionResult.Completed)result).Envelope;
         if (envelope?.Content
-            is not TypeDocumentInspectionOutcome.Available inspected)
+            is not TypeOverviewDocumentInspectionOutcome.Available inspected)
         {
             WriteFailure(envelope?.Content);
             return 1;
@@ -103,7 +103,7 @@ internal static class TypeDocumentHierarchyCommand
 
         try
         {
-            TypeDocumentHierarchyPresentation.Write(
+            TypeOverviewHierarchyPresentation.Write(
                 inspected.Document,
                 presentation,
                 Console.Out);
@@ -177,8 +177,8 @@ internal static class TypeDocumentHierarchyCommand
     static TypeHierarchyInspectionResult Inspect(
         ExactLibraryInspectionSession session,
         string typeQuery,
-        TypeMemberGroupPopulationRequest declarations,
-        InspectionHierarchyRequest<TypeDocumentHierarchyTopology>
+        TypeMemberGroupPopulationRequest members,
+        InspectionHierarchyRequest<TypeOverviewHierarchyTopology>
             hierarchy,
         CancellationToken cancellationToken)
     {
@@ -202,11 +202,17 @@ internal static class TypeDocumentHierarchyCommand
         }
 
         return new TypeHierarchyInspectionResult.Completed(
-            session.ExecuteTypeDocument(
+            session.ExecuteTypeOverviewDocument(
                 new(
                     type!,
+                    members.Rows
+                        ?? throw new InvalidOperationException(
+                            "The compact Type overview requires Member-group Rows."),
                     s_bounds,
-                    declarations,
+                    members.Spelling,
+                    members.Accessibility,
+                    members.Receiver,
+                    members.IncludeHidden,
                     hierarchy),
                 cancellationToken));
     }
@@ -237,29 +243,29 @@ internal static class TypeDocumentHierarchyCommand
     }
 
     static void WriteFailure(
-        TypeDocumentInspectionOutcome? outcome)
+        TypeOverviewDocumentInspectionOutcome? outcome)
     {
         switch (outcome)
         {
-            case TypeDocumentInspectionOutcome.Rejected rejected:
+            case TypeOverviewDocumentInspectionOutcome.Rejected rejected:
                 CommandError.Write(
-                    $"The Type document inspection was rejected: "
+                    $"The Type overview inspection was rejected: "
                         + $"{rejected.Reason}.");
                 break;
-            case TypeDocumentInspectionOutcome.Incomplete incomplete:
+            case TypeOverviewDocumentInspectionOutcome.Incomplete incomplete:
                 CommandError.Write(
-                    $"The Type document inspection reached the "
+                    $"The Type overview inspection reached the "
                         + $"{incomplete.Bound} bound "
                         + $"({incomplete.Measured}/{incomplete.Limit}).");
                 break;
-            case TypeDocumentInspectionOutcome.Failed failed:
+            case TypeOverviewDocumentInspectionOutcome.Failed failed:
                 CommandError.Write(
-                    $"The Type document inspection failed: "
+                    $"The Type overview inspection failed: "
                         + $"{failed.Reason}.");
                 break;
             default:
                 CommandError.Write(
-                    "The Type document inspection is unavailable.");
+                    "The Type overview inspection is unavailable.");
                 break;
         }
     }
@@ -272,7 +278,8 @@ internal static class TypeDocumentHierarchyCommand
             TypeHierarchyInspectionResult;
 
         public sealed record Completed(
-            InspectionEnvelope<TypeDocumentInspectionOutcome>? Envelope)
+            InspectionEnvelope<TypeOverviewDocumentInspectionOutcome>?
+                Envelope)
             : TypeHierarchyInspectionResult;
     }
 }

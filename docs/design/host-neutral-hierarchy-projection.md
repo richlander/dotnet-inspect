@@ -88,9 +88,9 @@ Type -> Category -> MemberGroup -> exact Member
 Type -> MemberGroup -> exact Member
 ```
 
-The Type document owner decides which topology is admitted by an overview or
-complete document. A presentation format does not add, remove, regroup, or
-reorder semantic nodes.
+The Type document family owner decides which topology is admitted by an
+overview or complete document. A presentation format does not add, remove,
+regroup, or reorder semantic nodes.
 
 ### Rows or Count
 

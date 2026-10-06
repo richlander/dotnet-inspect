@@ -1,13 +1,13 @@
 namespace DotnetInspector.Sections;
 
-public enum TypeDocumentHierarchyTopology
+public enum TypeOverviewHierarchyTopology
 {
     TypeCategoriesAndMemberGroups,
 }
 
-public abstract record TypeDocumentHierarchyNode
+public abstract record TypeOverviewHierarchyNode
 {
-    private TypeDocumentHierarchyNode()
+    private TypeOverviewHierarchyNode()
     {
     }
 
@@ -15,13 +15,13 @@ public abstract record TypeDocumentHierarchyNode
         MemberGroupCategory Value,
         int LogicalCount,
         int ExactMemberCount)
-        : TypeDocumentHierarchyNode;
+        : TypeOverviewHierarchyNode;
 
     public sealed record Member(TypeMemberGroupShape Value)
-        : TypeDocumentHierarchyNode;
+        : TypeOverviewHierarchyNode;
 }
 
-public static class TypeDocumentHierarchyProjection
+public static class TypeOverviewHierarchyProjection
 {
     static readonly MemberGroupCategory[] s_categoryOrder =
     [
@@ -36,9 +36,9 @@ public static class TypeDocumentHierarchyProjection
     ];
 
     public static void Write(
-        TypeDocumentInspectionContent document,
-        InspectionHierarchyRequest<TypeDocumentHierarchyTopology> request,
-        IInspectionHierarchySink<TypeDocumentHierarchyNode> sink)
+        TypeOverviewDocument document,
+        InspectionHierarchyRequest<TypeOverviewHierarchyTopology> request,
+        IInspectionHierarchySink<TypeOverviewHierarchyNode> sink)
     {
         ArgumentNullException.ThrowIfNull(document);
         ArgumentNullException.ThrowIfNull(request);
@@ -46,11 +46,7 @@ public static class TypeDocumentHierarchyProjection
         ValidateRequest(request);
 
         TypeMemberGroupPopulationResult population =
-            document.Declarations
-                is TypeDocumentDeclarations.Available available
-                ? available.Population
-                : throw new InvalidOperationException(
-                    "The Type document declarations are unavailable.");
+            document.Members;
         TypeMemberGroupRowsOutcome.Read rows =
             population.Rows is TypeMemberGroupRowsOutcome.Read read
                 ? read
@@ -59,7 +55,7 @@ public static class TypeDocumentHierarchyProjection
         if (rows.Continuation is not null)
         {
             throw new InvalidOperationException(
-                "A Type document hierarchy requires complete member-group Rows.");
+                "A Type overview hierarchy requires complete member-group Rows.");
         }
 
         int categoryCount = 0;
@@ -78,7 +74,7 @@ public static class TypeDocumentHierarchyProjection
 
             int exactMemberCount = CountExactMembers(rows.Items, category);
             sink.WriteNode(
-                new TypeDocumentHierarchyNode.Category(
+                new TypeOverviewHierarchyNode.Category(
                     category,
                     logicalCount,
                     exactMemberCount),
@@ -92,7 +88,7 @@ public static class TypeDocumentHierarchyProjection
                                 row.Binding.Category == category))
                     {
                         children.WriteNode(
-                            new TypeDocumentHierarchyNode.Member(member),
+                            new TypeOverviewHierarchyNode.Member(member),
                             isLastSibling: ++memberIndex == logicalCount);
                     }
                 });
@@ -100,43 +96,43 @@ public static class TypeDocumentHierarchyProjection
     }
 
     public static void ValidateRequest(
-        InspectionHierarchyRequest<TypeDocumentHierarchyTopology>
+        InspectionHierarchyRequest<TypeOverviewHierarchyTopology>
             request) =>
         ValidateRequestShape(request, nameof(request));
 
     public static void ValidateRequest(
-        InspectionHierarchyRequest<TypeDocumentHierarchyTopology> request,
-        TypeMemberGroupPopulationRequest? declarations,
+        InspectionHierarchyRequest<TypeOverviewHierarchyTopology> request,
+        TypeMemberGroupPopulationRequest? members,
         string parameterName)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentException.ThrowIfNullOrWhiteSpace(parameterName);
         ValidateRequestShape(request, parameterName);
-        if (declarations?.Rows is not { } rows)
+        if (members?.Rows is not { } rows)
         {
             throw new ArgumentException(
-                "A Type document hierarchy requires a member-group Rows request.",
+                "A Type overview hierarchy requires a member-group Rows request.",
                 parameterName);
         }
         if (!rows.IncludeExactMemberCount)
         {
             throw new ArgumentException(
-                "A compact Type document hierarchy requires exact-Member Counts for every member-group Row.",
+                "A compact Type overview hierarchy requires exact-Member Counts for every member-group Row.",
                 parameterName);
         }
     }
 
     private static void ValidateRequestShape(
-        InspectionHierarchyRequest<TypeDocumentHierarchyTopology> request,
+        InspectionHierarchyRequest<TypeOverviewHierarchyTopology> request,
         string parameterName)
     {
         ArgumentNullException.ThrowIfNull(request);
         if (request.Topology
-            is not TypeDocumentHierarchyTopology
+            is not TypeOverviewHierarchyTopology
                 .TypeCategoriesAndMemberGroups)
         {
             throw new ArgumentException(
-                "The Type document does not admit the requested hierarchy topology.",
+                "The Type overview does not admit the requested hierarchy topology.",
                 parameterName);
         }
         if (request.Children
@@ -155,7 +151,7 @@ public static class TypeDocumentHierarchyProjection
             })
         {
             throw new ArgumentException(
-                "The compact Type document hierarchy requires category Rows by Name, MemberGroup Rows by Name, and exact-Member Count.",
+                "The compact Type overview hierarchy requires category Rows by Name, MemberGroup Rows by Name, and exact-Member Count.",
                 parameterName);
         }
     }
@@ -199,7 +195,7 @@ public static class TypeDocumentHierarchyProjection
             if (row.ExactMemberCount is not { } exactMemberCount)
             {
                 throw new InvalidOperationException(
-                    "A Type document hierarchy requires exact-member Counts for every member group.");
+                    "A Type overview hierarchy requires exact-member Counts for every member group.");
             }
 
             count += exactMemberCount;

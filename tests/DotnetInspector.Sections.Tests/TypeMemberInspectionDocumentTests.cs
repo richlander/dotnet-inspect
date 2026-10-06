@@ -91,6 +91,44 @@ public sealed class TypeMemberInspectionDocumentTests
     }
 
     [Fact]
+    public void
+        TypeOverviewDocument_RejectsContinuationWithoutNestedCounts()
+    {
+        DocumentFixture fixture = CreateFixture();
+        var population = new TypeMemberGroupPopulationResult(
+            fixture.TypePopulation,
+            null,
+            new TypeMemberGroupRowsOutcome.Read(
+                TypeMemberGroupOrdering.Metadata,
+                [
+                    new(
+                        new(
+                            fixture.TypePopulation,
+                            Text("M"),
+                            MemberGroupCategory.Method,
+                            MemberGroupRole.Declared),
+                        BaselineOrdinal: 1,
+                        MemberGroupReceiverForms.This,
+                        ExactMemberCount: 1),
+                ],
+                new(
+                    fixture.TypePopulation,
+                    nextOrdinal: 1,
+                    includeExactMemberCount: false)),
+            null,
+            null);
+
+        ArgumentException exception =
+            Assert.Throws<ArgumentException>(
+                () => new TypeOverviewDocument(
+                    fixture.Type,
+                    population,
+                    assemblyBytes: 123));
+
+        Assert.Equal("members", exception.ParamName);
+    }
+
+    [Fact]
     public void MemberOverviewDocument_RoundTripsExactPopulation()
     {
         DocumentFixture fixture = CreateFixture();

@@ -181,6 +181,18 @@ Count-only work constructs no exact-Member rows or signatures. Bounded rows do
 only the work required for the returned compact rows and their requested
 Counts.
 
+`TypeOverviewDocumentInspectionOperation` composes the existing exact-Type and
+Type MemberGroup population operation into this final document. Its plan
+requires Rows with nested exact-Member Counts, while retaining spelling,
+accessibility, receiver, hidden admission, ordering, and continuation as one
+population intent. Bounded Rows remain valid compact documents; the
+continuation retains the same binding and nested-Count demand.
+
+The operation preserves Share and diagnostics from the source inspection. A
+Type or population rejection, bound, or failure remains a closed document
+outcome. Rows rejection, incompleteness, or failure is promoted to that same
+document boundary rather than returned inside success-shaped content.
+
 ### Hierarchy projection
 
 Hierarchy is an explicit host-neutral request over this owner's subject
@@ -199,7 +211,7 @@ MemberGroup Rows with Name, and exact-Member Count beneath each MemberGroup.
 The plan must therefore request complete compact MemberGroup Rows with an exact
 Member Count for every row.
 
-The Type document owner pushes category nodes carrying the category and its
+The Type overview owner pushes category nodes carrying the category and its
 logical and exact Counts, plus MemberGroup nodes carrying the owner-issued
 compact row. It defines category membership and order, MemberGroup order,
 nesting, Counts, and exact last-sibling facts. It rejects unsupported spelling
@@ -213,10 +225,7 @@ owns the recursive Rows-or-Count and Name-or-FullSpelling request vocabulary,
 the streaming sink, and shared format lowering. Tree and Mermaid do not
 regroup, recount, or reconstruct this owner's subjects.
 
-During transitional adoption, the existing public `TypeDocument` compact
-declaration population carries this projection. The eventual
-`TypeOverviewDocument` retains the same hierarchy semantics and correspondence.
-An expanded
+`TypeOverviewDocument` carries this compact projection directly. An expanded
 `Type -> MemberGroup -> exact Member Rows` projection belongs to the complete
 `TypeDocument`, because compact overview Counts are not exact-Member
 declarations.
@@ -351,7 +360,7 @@ production adoption as focused slices:
    Complete.
 4. Adopt the resolved Member subject mapping in Contextual Resource
    Explanation. Complete.
-5. Implement compact `TypeOverviewDocument`.
+5. Implement compact `TypeOverviewDocument`. Complete.
 6. Implement complete `TypeDocument`.
 7. Adopt the documents independently in CLI and Browser/Wasm.
 8. Retire transitional document names and superseded host-local composition.

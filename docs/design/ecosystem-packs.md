@@ -7,6 +7,9 @@ Focused cross-cutting pattern proposal for
 the demo-content stack in
 [#5772](https://github.com/richlander/dotnet-inspect/issues/5772).
 
+The focused package-classification contract below is tracked by
+[#9513](https://github.com/richlander/dotnet-inspect/issues/9513).
+
 This document defines the source-level structure by which the product can
 elevate a .NET ecosystem coherently through discovery metadata, an optional
 curated package set, recorded package-prefix declarations, and an optional
@@ -134,6 +137,87 @@ Supporting owners:
   Workspace viewer.
 - [#5772](https://github.com/richlander/dotnet-inspect/issues/5772) is the
   three-slice Aspire and ecosystem-demo delivery stack.
+
+## Package classification for discovery
+
+The Static Ecosystem Packs owner defines this product-relative claim:
+
+> Given a package acquisition coordinate, a traversal TFM, and the platform
+> supply inventory for that traversal target, return one owning product
+> ecosystem and optional platform ownership information, or an explicit
+> non-match or unavailable outcome. Package asset selection does not choose
+> the pruning target.
+
+`EcosystemPackCatalog.IsEcosystemPackage` returns a closed result family:
+
+- `Known` carries an `EcosystemPackage` naming its owning descriptor and
+  nullable `PlatformOwnedInfo`.
+- `NotEcosystem` is the equivalent of `false`; there is no evidence-free
+  `true` variant.
+- `Unavailable` names why the supplied inventory cannot answer the traversal
+  question, retaining an independently recognized ecosystem when possible.
+
+Ownership is a product presentation choice over the existing authored
+Package-ID associations from
+[Ecosystem dependency recognition](ecosystem-dependency-recognition.md).
+An exact association wins over a family association; within family matches,
+the longest matching family wins. Equal specificity uses the existing
+product order. Matching itself remains recognition-owned, including its
+case-insensitive identity and dot-segment boundaries. This single display
+owner does not change dependency recognition's many-to-many result or
+Package Query's potentially overlapping membership declarations.
+
+If no authored association matches but the platform inventory contains the
+package, its framework family supplies the fallback ecosystem: Runtime for
+`Microsoft.NETCore.App`, ASP.NET Core for `Microsoft.AspNetCore.App`.
+Unknown inventory families fail visibly rather than inventing a product
+layer. Platform ownership is established by an inventory entry, independent
+of whether the requested package version is subsumed. A recognized package
+with no entry has null platform information.
+
+`PlatformOwnedInfo` names the Runtime or ASP.NET Core layer and exposes
+nullable `IsPruned`, backed by the existing
+[platform package supply policy](platform-package-supply-policy.md) receipt.
+True means the selected package version is subsumed by the traversal
+platform; false means it is not subsumed; null preserves a non-comparable
+request or inventory. This is search annotation, not evidence that a restore
+removed an edge, and it does not apply direct-reference exemptions or change
+Workspace registration or traversal behavior.
+
+The traversal TFM is validated and normalized through
+`TraversalTargetFrameworkPolicy`. The coordinate's optional framework is the
+package-selection framework. The policy comparison receives a coordinate
+with the same package ID and version but the traversal framework. An absent
+inventory or one naming another traversal framework returns `Unavailable`;
+an empty inventory explicitly supplied by the caller remains a complete
+answer for its target. Inventory precision, pack versions, version comparison,
+and missing-data semantics remain owned by
+[platform package pruning](platform-package-pruning.md).
+
+### Classification assets and evidence
+
+The motivating published assets are
+[`System.Linq@4.3.0`](https://www.nuget.org/packages/System.Linq/4.3.0) and
+[`System.Text.Json@9.0.0`](https://www.nuget.org/packages/System.Text.Json/9.0.0).
+Both are Runtime-owned and subsumed by the checked-in exact
+`net10.0@10.0.12` inventory in
+[`platform-index.json`](../../inspect-web/assets/platform-index.json).
+Search must keep each Package subject available beside its platform Library.
+An inventory entry does not prove package-to-library correspondence.
+
+`EcosystemPackageClassificationTests` uses that existing production catalog
+as pinned evidence without network work in ordinary tests. Boundary tests
+cover newer versions, unresolved versions, mismatched projections, absent
+inventory, selection/traversal separation, platform-only ownership evidence,
+and near-miss and overlapping product associations. These tests are PR-fast.
+The separately compiled consumer suite gates the public classification API.
+
+The four-step adoption plan is recorded in #9513: shared classification,
+Browser Spotlight grouping/pruning, publication-date presentation, and CLI
+routing explanation. Browser and CLI adoption are focused successors; this
+contract does not define their grouping, ordering, metadata acquisition,
+activation, or rendering. In particular, publication-date ordering and
+platform-first same-date ties belong to the Shell consumer.
 
 ## Approved composition scope
 

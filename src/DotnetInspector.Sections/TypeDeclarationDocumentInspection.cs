@@ -14,30 +14,18 @@ public sealed record TypeDocumentInspectionPlan
     public TypeDocumentInspectionPlan(
         MetadataTypeDefinitionName type,
         ApiSurfaceExtractionBounds bounds,
-        TypeMemberGroupPopulationRequest? declarations = null,
-        InspectionHierarchyRequest<TypeDocumentHierarchyTopology>?
-            hierarchy = null)
+        TypeMemberGroupPopulationRequest? declarations = null)
     {
         Type = type ?? throw new ArgumentNullException(nameof(type));
         Bounds = bounds
             ?? throw new ArgumentNullException(nameof(bounds));
-        if (hierarchy is not null)
-        {
-            TypeDocumentHierarchyProjection.ValidateRequest(
-                hierarchy,
-                declarations,
-                nameof(hierarchy));
-        }
 
         Declarations = declarations;
-        Hierarchy = hierarchy;
     }
 
     public MetadataTypeDefinitionName Type { get; }
     public ApiSurfaceExtractionBounds Bounds { get; }
     public TypeMemberGroupPopulationRequest? Declarations { get; }
-    public InspectionHierarchyRequest<TypeDocumentHierarchyTopology>?
-        Hierarchy { get; }
 }
 
 public sealed record TypeDocumentInspectionRequest

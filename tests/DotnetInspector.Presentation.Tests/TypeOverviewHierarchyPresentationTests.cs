@@ -8,21 +8,21 @@ using InertText;
 
 namespace DotnetInspector.Presentation.Tests;
 
-public class TypeDocumentHierarchyPresentationTests
+public class TypeOverviewHierarchyPresentationTests
 {
     [Fact]
     public void CompactPlans_SeparateFormatFromSemanticRequest()
     {
-        TypeDocumentHierarchyPresentationPlan tree =
-            TypeDocumentHierarchyPresentation.CreateCompactPlan(
-                TypeDocumentHierarchyPresentationFormat.Tree,
+        TypeOverviewHierarchyPresentationPlan tree =
+            TypeOverviewHierarchyPresentation.CreateCompactPlan(
+                TypeOverviewHierarchyPresentationFormat.Tree,
                 includeNonPublic: false);
-        TypeDocumentHierarchyPresentationPlan mermaid =
-            TypeDocumentHierarchyPresentation.CreateCompactPlan(
-                TypeDocumentHierarchyPresentationFormat.Mermaid,
+        TypeOverviewHierarchyPresentationPlan mermaid =
+            TypeOverviewHierarchyPresentation.CreateCompactPlan(
+                TypeOverviewHierarchyPresentationFormat.Mermaid,
                 includeNonPublic: false);
 
-        Assert.Equal(tree.Declarations, mermaid.Declarations);
+        Assert.Equal(tree.Members, mermaid.Members);
         Assert.Equal(tree.Hierarchy, mermaid.Hierarchy);
         Assert.NotEqual(tree.Format, mermaid.Format);
         Assert.IsType<InspectionHierarchyPopulationRequest.Rows>(
@@ -32,15 +32,15 @@ public class TypeDocumentHierarchyPresentationTests
     [Fact]
     public void Tree_StreamsCompactHierarchy()
     {
-        TypeDocumentInspectionContent document =
+        TypeOverviewDocument document =
             Document("Widget`1", genericParameter: "T");
-        TypeDocumentHierarchyPresentationPlan plan =
-            TypeDocumentHierarchyPresentation.CreateCompactPlan(
-                TypeDocumentHierarchyPresentationFormat.Tree,
+        TypeOverviewHierarchyPresentationPlan plan =
+            TypeOverviewHierarchyPresentation.CreateCompactPlan(
+                TypeOverviewHierarchyPresentationFormat.Tree,
                 includeNonPublic: false);
         using var output = new StringWriter();
 
-        TypeDocumentHierarchyPresentation.Write(
+        TypeOverviewHierarchyPresentation.Write(
             document,
             plan,
             output);
@@ -59,26 +59,26 @@ public class TypeDocumentHierarchyPresentationTests
     [Fact]
     public void RootSpelling_IsIndependentFromFormat()
     {
-        TypeDocumentInspectionContent document =
+        TypeOverviewDocument document =
             Document("Widget");
-        TypeDocumentHierarchyPresentationPlan compact =
-            TypeDocumentHierarchyPresentation.CreateCompactPlan(
-                TypeDocumentHierarchyPresentationFormat.Tree,
+        TypeOverviewHierarchyPresentationPlan compact =
+            TypeOverviewHierarchyPresentation.CreateCompactPlan(
+                TypeOverviewHierarchyPresentationFormat.Tree,
                 includeNonPublic: false);
         var nameHierarchy =
             new InspectionHierarchyRequest<
-                TypeDocumentHierarchyTopology>(
+                TypeOverviewHierarchyTopology>(
                 compact.Hierarchy.Topology,
                 InspectionHierarchyNodeSpelling.Name,
                 compact.Hierarchy.Children);
         var plan =
-            new TypeDocumentHierarchyPresentationPlan(
-                TypeDocumentHierarchyPresentationFormat.Tree,
-                compact.Declarations,
+            new TypeOverviewHierarchyPresentationPlan(
+                TypeOverviewHierarchyPresentationFormat.Tree,
+                compact.Members,
                 nameHierarchy);
         using var output = new StringWriter();
 
-        TypeDocumentHierarchyPresentation.Write(
+        TypeOverviewHierarchyPresentation.Write(
             document,
             plan,
             output);
@@ -96,15 +96,15 @@ public class TypeDocumentHierarchyPresentationTests
     [Fact]
     public void Mermaid_LowersTheSameCompactHierarchy()
     {
-        TypeDocumentInspectionContent document =
+        TypeOverviewDocument document =
             Document("Widget`1", genericParameter: "T");
-        TypeDocumentHierarchyPresentationPlan plan =
-            TypeDocumentHierarchyPresentation.CreateCompactPlan(
-                TypeDocumentHierarchyPresentationFormat.Mermaid,
+        TypeOverviewHierarchyPresentationPlan plan =
+            TypeOverviewHierarchyPresentation.CreateCompactPlan(
+                TypeOverviewHierarchyPresentationFormat.Mermaid,
                 includeNonPublic: false);
         using var output = new StringWriter();
 
-        TypeDocumentHierarchyPresentation.Write(
+        TypeOverviewHierarchyPresentation.Write(
             document,
             plan,
             output);
@@ -139,15 +139,15 @@ public class TypeDocumentHierarchyPresentationTests
     [Fact]
     public void TypeSpelling_PreservesNoncanonicalBacktick()
     {
-        TypeDocumentInspectionContent document =
+        TypeOverviewDocument document =
             Document("Widget`1Extra");
-        TypeDocumentHierarchyPresentationPlan plan =
-            TypeDocumentHierarchyPresentation.CreateCompactPlan(
-                TypeDocumentHierarchyPresentationFormat.Tree,
+        TypeOverviewHierarchyPresentationPlan plan =
+            TypeOverviewHierarchyPresentation.CreateCompactPlan(
+                TypeOverviewHierarchyPresentationFormat.Tree,
                 includeNonPublic: false);
         using var output = new StringWriter();
 
-        TypeDocumentHierarchyPresentation.Write(
+        TypeOverviewHierarchyPresentation.Write(
             document,
             plan,
             output);
@@ -162,7 +162,7 @@ public class TypeDocumentHierarchyPresentationTests
             StringComparison.Ordinal);
     }
 
-    private static TypeDocumentInspectionContent Document(
+    private static TypeOverviewDocument Document(
         string typeSegment,
         string? genericParameter = null)
     {
@@ -250,7 +250,7 @@ public class TypeDocumentHierarchyPresentationTests
                 SelectorCounts: null);
         return new(
             subject,
-            new TypeDocumentDeclarations.Available(population),
+            population,
             assemblyBytes: 1);
     }
 

@@ -440,7 +440,7 @@ public static class TypeCommand
                         }
                         : options;
                 int? documentResult =
-                    await TypeDocumentHierarchyCommand.TryExecuteAsync(
+                    await TypeOverviewHierarchyCommand.TryExecuteAsync(
                         source,
                         documentOptions,
                         cancellationToken);

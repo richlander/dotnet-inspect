@@ -7,46 +7,46 @@ using Markout;
 
 namespace DotnetInspector.Presentation;
 
-public enum TypeDocumentHierarchyPresentationFormat
+public enum TypeOverviewHierarchyPresentationFormat
 {
     Tree,
     Mermaid,
 }
 
-public sealed record TypeDocumentHierarchyPresentationPlan
+public sealed record TypeOverviewHierarchyPresentationPlan
 {
     internal const int MaximumMemberGroupRows = 4096;
 
-    public TypeDocumentHierarchyPresentationPlan(
-        TypeDocumentHierarchyPresentationFormat format,
-        TypeMemberGroupPopulationRequest declarations,
-        InspectionHierarchyRequest<TypeDocumentHierarchyTopology>
+    public TypeOverviewHierarchyPresentationPlan(
+        TypeOverviewHierarchyPresentationFormat format,
+        TypeMemberGroupPopulationRequest members,
+        InspectionHierarchyRequest<TypeOverviewHierarchyTopology>
             hierarchy)
     {
         if (!Enum.IsDefined(format))
             throw new ArgumentOutOfRangeException(nameof(format));
 
         Format = format;
-        Declarations = declarations
-            ?? throw new ArgumentNullException(nameof(declarations));
+        Members = members
+            ?? throw new ArgumentNullException(nameof(members));
         Hierarchy = hierarchy
             ?? throw new ArgumentNullException(nameof(hierarchy));
-        TypeDocumentHierarchyProjection.ValidateRequest(
+        TypeOverviewHierarchyProjection.ValidateRequest(
             Hierarchy,
-            Declarations,
+            Members,
             nameof(hierarchy));
     }
 
-    public TypeDocumentHierarchyPresentationFormat Format { get; }
-    public TypeMemberGroupPopulationRequest Declarations { get; }
-    public InspectionHierarchyRequest<TypeDocumentHierarchyTopology>
+    public TypeOverviewHierarchyPresentationFormat Format { get; }
+    public TypeMemberGroupPopulationRequest Members { get; }
+    public InspectionHierarchyRequest<TypeOverviewHierarchyTopology>
         Hierarchy { get; }
 }
 
-public static class TypeDocumentHierarchyPresentation
+public static class TypeOverviewHierarchyPresentation
 {
-    public static TypeDocumentHierarchyPresentationPlan CreateCompactPlan(
-        TypeDocumentHierarchyPresentationFormat format,
+    public static TypeOverviewHierarchyPresentationPlan CreateCompactPlan(
+        TypeOverviewHierarchyPresentationFormat format,
         bool includeNonPublic)
     {
         TypeMemberGroupAccessibilityFilter accessibility =
@@ -57,7 +57,7 @@ public static class TypeDocumentHierarchyPresentation
             new TypeMemberGroupPopulationRequest(
                 count: null,
                 rows: new TypeMemberGroupRowsRequest(
-                    TypeDocumentHierarchyPresentationPlan
+                    TypeOverviewHierarchyPresentationPlan
                         .MaximumMemberGroupRows,
                     includeExactMemberCount: true),
                 spelling: TypeMemberGroupSpelling.CSharp,
@@ -65,8 +65,8 @@ public static class TypeDocumentHierarchyPresentation
                 includeHidden: includeNonPublic);
         var hierarchy =
             new InspectionHierarchyRequest<
-                TypeDocumentHierarchyTopology>(
-                TypeDocumentHierarchyTopology
+                TypeOverviewHierarchyTopology>(
+                TypeOverviewHierarchyTopology
                     .TypeCategoriesAndMemberGroups,
                 InspectionHierarchyNodeSpelling.FullSpelling,
                 new InspectionHierarchyPopulationRequest.Rows(
@@ -79,8 +79,8 @@ public static class TypeDocumentHierarchyPresentation
     }
 
     public static void Write(
-        TypeDocumentInspectionContent document,
-        TypeDocumentHierarchyPresentationPlan plan,
+        TypeOverviewDocument document,
+        TypeOverviewHierarchyPresentationPlan plan,
         TextWriter output)
     {
         ArgumentNullException.ThrowIfNull(document);
@@ -93,10 +93,10 @@ public static class TypeDocumentHierarchyPresentation
                 plan.Hierarchy.RootSpelling);
         switch (plan.Format)
         {
-            case TypeDocumentHierarchyPresentationFormat.Tree:
+            case TypeOverviewHierarchyPresentationFormat.Tree:
                 WriteTree(document, plan.Hierarchy, root, output);
                 break;
-            case TypeDocumentHierarchyPresentationFormat.Mermaid:
+            case TypeOverviewHierarchyPresentationFormat.Mermaid:
                 WriteMermaid(
                     document,
                     plan.Hierarchy,
@@ -110,8 +110,8 @@ public static class TypeDocumentHierarchyPresentation
     }
 
     private static void WriteTree(
-        TypeDocumentInspectionContent document,
-        InspectionHierarchyRequest<TypeDocumentHierarchyTopology>
+        TypeOverviewDocument document,
+        InspectionHierarchyRequest<TypeOverviewHierarchyTopology>
             hierarchy,
         string root,
         TextWriter output)
@@ -122,10 +122,10 @@ public static class TypeDocumentHierarchyPresentation
                 output,
                 new MarkdownFormatter());
         var sink =
-            new MarkoutHierarchySink<TypeDocumentHierarchyNode>(
+            new MarkoutHierarchySink<TypeOverviewHierarchyNode>(
                 writer,
                 FormatNode);
-        TypeDocumentHierarchyProjection.Write(
+        TypeOverviewHierarchyProjection.Write(
             document,
             hierarchy,
             sink);
@@ -133,42 +133,42 @@ public static class TypeDocumentHierarchyPresentation
     }
 
     private static void WriteMermaid(
-        TypeDocumentInspectionContent document,
-        InspectionHierarchyRequest<TypeDocumentHierarchyTopology>
+        TypeOverviewDocument document,
+        InspectionHierarchyRequest<TypeOverviewHierarchyTopology>
             hierarchy,
         string root,
         TextWriter output)
     {
         output.WriteLine("graph TD");
         output.Write("  n0[\"");
-        output.Write(MermaidHierarchySink<TypeDocumentHierarchyNode>
+        output.Write(MermaidHierarchySink<TypeOverviewHierarchyNode>
             .Escape(root));
         output.WriteLine("\"]");
         var sink =
-            new MermaidHierarchySink<TypeDocumentHierarchyNode>(
+            new MermaidHierarchySink<TypeOverviewHierarchyNode>(
                 output,
                 rootNodeId: 0,
                 FormatNode);
-        TypeDocumentHierarchyProjection.Write(
+        TypeOverviewHierarchyProjection.Write(
             document,
             hierarchy,
             sink);
     }
 
     private static string FormatNode(
-        TypeDocumentHierarchyNode node) =>
+        TypeOverviewHierarchyNode node) =>
         node switch
         {
-            TypeDocumentHierarchyNode.Category category =>
+            TypeOverviewHierarchyNode.Category category =>
                 FormatCategory(category),
-            TypeDocumentHierarchyNode.Member member =>
+            TypeOverviewHierarchyNode.Member member =>
                 FormatMember(member.Value),
             _ => throw new InvalidOperationException(
-                "Unknown Type document hierarchy node."),
+                "Unknown Type overview hierarchy node."),
         };
 
     private static string FormatCategory(
-        TypeDocumentHierarchyNode.Category category)
+        TypeOverviewHierarchyNode.Category category)
     {
         string noun = category.Value switch
         {
@@ -202,7 +202,7 @@ public static class TypeDocumentHierarchyPresentation
         if (member.ExactMemberCount is not { } exactMemberCount)
         {
             throw new InvalidOperationException(
-                "A Type document hierarchy member is missing its exact-member Count.");
+                "A Type overview hierarchy member is missing its exact-member Count.");
         }
 
         return exactMemberCount > 1
