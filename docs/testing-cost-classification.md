@@ -81,10 +81,12 @@ public void SomeExpensiveTheory(string assemblyName)
   `deep-inspect.yml` runs both suites fully unfiltered once on Linux, so a newly
   tagged test automatically keeps running daily. Its Windows/macOS lane uses
   the same fast CLI population as PR CI.
-- The CSharp text and inspection-query suites use the same PR filter. Deep
-  Inspect's exhaustive Linux lane runs both suites fully unfiltered; the
-  Windows/macOS platform lane also runs the full inspection-query suite because
-  runtime layout and filesystem behavior reach that owner.
+- The CSharp text suite uses the same PR filter. The inspection-query suite
+  runs a nonempty set of planning, workspace, graph, and package contracts in
+  PR CI; the complete suite runs in the daily Linux Deep Inspect test lane.
+  Deep Inspect's Windows/macOS platform lane also runs the full
+  inspection-query suite because runtime layout and filesystem behavior reach
+  that owner.
 - The offline NuGet suite excludes both `Network=Live` and `Speed=Slow` in PR
   CI. Deep Inspect's exhaustive Linux lane and Windows/macOS platform lane
   retain the offline boundary but do not exclude `Speed=Slow`. The focused

@@ -265,8 +265,36 @@ internal static class ReleaseCandidateWorkflowContract
         if (crons.Contains("0 6 * * *", StringComparer.Ordinal))
             throw new InvalidOperationException(
                 "Deep Inspect must not independently schedule release certification.");
+        if (!crons.Contains("30 11 * * *", StringComparer.Ordinal))
+            throw new InvalidOperationException(
+                "Deep Inspect must schedule the full Linux test lane daily.");
 
         YamlMappingNode jobs = GetRequiredMapping(root, "jobs", "Deep Inspect workflow");
+        YamlMappingNode testJob =
+            GetRequiredMapping(jobs, "test", "Deep Inspect jobs");
+        string testCondition = GetRequiredScalar(
+            testJob,
+            "if",
+            "Deep Inspect test lane");
+        RequireContains(
+            testCondition,
+            "github.event_name == 'schedule' && github.event.schedule == '30 11 * * *'");
+        YamlSequenceNode testSteps = GetRequiredSequence(
+            testJob,
+            "steps",
+            "Deep Inspect test lane");
+        YamlMappingNode[] querySteps = testSteps.Children
+            .Select(node => RequireMapping(node, "Deep Inspect test step"))
+            .Where(step => GetOptionalScalar(step, "name") == "Run query tests")
+            .ToArray();
+        if (querySteps.Length != 1)
+            throw new InvalidOperationException(
+                "Daily Deep Inspect must run the full inspection-query suite.");
+        RequireScalarValue(
+            querySteps[0],
+            "run",
+            "dotnet run --project tests/DotnetInspector.Queries.Tests -c Release",
+            "Deep Inspect query step");
         YamlMappingNode platformTest =
             GetRequiredMapping(jobs, "platform-test", "Deep Inspect jobs");
         RequireScalarValue(

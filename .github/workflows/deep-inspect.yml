@@ -27,6 +27,8 @@ on:
   schedule:
     # Daily authored-corpus regression detection, separate from certification.
     - cron: '0 9 * * *'
+    # Full Linux test coverage after the authored-corpus window.
+    - cron: '30 11 * * *'
     # Weekly discovery: current packages.
     - cron: '0 9 * * 1'
 
@@ -137,6 +139,7 @@ jobs:
     # fast CLI behavior and code with real OS, filesystem, runtime-layout, or
     # external-tool boundaries.
     if: >-
+      (github.event_name == 'schedule' && github.event.schedule == '30 11 * * *') ||
       inputs.lane == 'test' ||
       inputs.lane == 'release-candidate' ||
       inputs.lane == 'all'
