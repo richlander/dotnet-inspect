@@ -824,7 +824,10 @@ subject-specific identity details and content
 Package Overview starts directly with its identity and content rather than
 reserving a quiet `Overview` header row. The Package navigation pane lists target frameworks first, then
 versions in owner-issued release order, with the active version selected,
-text filtering, and a prerelease toggle. The list headings identify the pane
+text filtering, and an `Include:` group with independent Prerelease and Unlisted
+checkboxes, both unchecked initially. Listing flags come from the existing
+owner-issued version inventory; the host does not infer them from version text.
+Async inventory refresh preserves both checkbox selections. The list headings identify the pane
 without an additional Package Navigation row.
 The active coordinate remains visible regardless of filters. Loading and
 failed inventory states retain that coordinate; failure offers explicit retry.
@@ -873,6 +876,12 @@ the package icon or name, and owns that work area; Library,
 Type, and Member **Change target** actions return there. Choosing settings
 continues to configure the existing session-local comparison state.
 
+`System.Text.Json@1.0.0` (unlisted) and
+`System.Text.Json@10.0.0-preview.1.25080.5` (listed prerelease), observed through
+nuget.org Registration, motivate independent inclusion controls. Focused gates
+cover their listing projection and both independent checkbox combinations;
+remote observations remain reproducible through Registration rather than a
+mutable live assertion.
 `System.Text.Json@10.0.0` motivates the version inventory, net10.0/net9.0
 framework choices, Library inventory, and README placement. The existing
 `library-hierarchy.package-loading.spec.ts` production-composition gate exercises

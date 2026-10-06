@@ -6447,3 +6447,6 @@ button.library-api-diff-row[aria-current="true"] { background: var(--panel-raise
   .package-document-list .doc-chip { display: grid; grid-template-columns: 12px minmax(0, 1fr); }
   .package-document-list .doc-title { grid-column: 2; }
 }
+
+.package-version-inclusion { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; color: var(--muted); font: 11px var(--mono); }
+.package-version-inclusion label { margin-bottom: 0; }

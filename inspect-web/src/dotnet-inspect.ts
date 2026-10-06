@@ -9956,6 +9956,7 @@ function renderNavPane(
       frameworks: pkg.frameworks,
       activeFramework: pkg.activeFramework,
       versions,
+      unlistedVersions: entry.status === "available" ? entry.inventory.unlistedVersions ?? [] : [],
       activeVersion: pkg.version,
       statusHtml: pkg.source.kind !== "nuget.org"
         ? '<p>Version discovery is unavailable for this package source.</p>'
@@ -15518,7 +15519,8 @@ function updateVersionSelect(pkg: CatalogPackage) {
   const pane = document.querySelector(".package-version-nav");
   if (pane) {
     const filter = document.querySelector<HTMLInputElement>("#package-version-filter")?.value ?? "";
-    const prerelease = document.querySelector<HTMLInputElement>("#package-version-prerelease")?.checked ?? true;
+    const prerelease = document.querySelector<HTMLInputElement>("#package-version-prerelease")?.checked ?? false;
+    const unlisted = document.querySelector<HTMLInputElement>("#package-version-unlisted")?.checked ?? false;
     const focused = document.activeElement instanceof HTMLElement && pane.contains(document.activeElement)
       ? { id: document.activeElement.id, version: document.activeElement.dataset.packageVersion, framework: document.activeElement.dataset.packageFramework } : null;
     const scrollTop = document.querySelector("#package-version-list")?.scrollTop ?? 0;
@@ -15527,6 +15529,8 @@ function updateVersionSelect(pkg: CatalogPackage) {
     const nextPrerelease = document.querySelector<HTMLInputElement>("#package-version-prerelease");
     if (nextFilter) nextFilter.value = filter;
     if (nextPrerelease) nextPrerelease.checked = prerelease;
+    const nextUnlisted = document.querySelector<HTMLInputElement>("#package-version-unlisted");
+    if (nextUnlisted) nextUnlisted.checked = unlisted;
     const nextPane = document.querySelector(".package-version-nav");
     if (nextPane) {
       packageControls.bind(nextPane);

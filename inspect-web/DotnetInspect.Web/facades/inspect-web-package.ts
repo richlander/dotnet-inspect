@@ -1109,6 +1109,7 @@ export interface BrowserPackageVersions {
   readonly currentVersionInsertionIndex: number;
   readonly previousVersion?: string;
   readonly previousVersionUnavailableReason?: string;
+  readonly unlistedVersions?: ReadonlyArray<string>;
 }
 
 export interface BrowserPackageVulnerabilityAdvisory {
