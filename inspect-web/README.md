@@ -71,6 +71,14 @@ Queries, and Sections in both graphs. Its project references declare that same
 set rather than relying on transitive access or retaining unused low-level
 projects, and it shares the narrow platform-hazard analyzer input.
 
+The separate `inspect-web-package-facade-*-dependencies-stay-within-capability-ratchet`
+rules preserve the Package facade's evaluated-project and compiled-assembly
+ceilings. Direct assembly-reference evidence now arrives as detached
+Queries-owned rows, so the facade does not project Metadata identities for that
+result, and the unused `DotnetInspector.Networking` project edge is retired.
+The broader compiled closure and remaining exact-Library Metadata projection
+stay explicit for focused #8779 successors.
+
 The separate `inspect-web-library-facade-*-dependencies-stay-within-capability-ratchet`
 rules preserve the Library facade's smaller evaluated-project boundary and its
 larger compiled-assembly boundary. The facade currently adapts the shared
