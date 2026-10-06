@@ -214,9 +214,12 @@ public sealed partial class InspectionWorkspace
                     index < group.Participants.Length;
                     index++)
                 {
+                    WorkspaceDeclarationMember member =
+                        context.Receipt.Members[index];
                     access.Add(
-                        context.Receipt.Members[index].Occurrence,
+                        member.Occurrence,
                         new WorkspaceDeclarationMemberAccess.AssemblyContext(
+                            member,
                             group,
                             group.Participants[index].Assembly));
                 }
@@ -232,10 +235,13 @@ public sealed partial class InspectionWorkspace
                     index < context.LibraryOccurrences.Length;
                     index++)
                 {
+                    WorkspaceDeclarationMember member =
+                        context.Receipt.Members[index];
                     access.Add(
-                        context.Receipt.Members[index].Occurrence,
+                        member.Occurrence,
                         new WorkspaceDeclarationMemberAccess
                             .LibraryOccurrence(
+                                member,
                                 context.LibraryOccurrences[index],
                                 bounds));
                 }
