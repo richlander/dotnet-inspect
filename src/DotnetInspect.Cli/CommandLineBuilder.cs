@@ -1313,8 +1313,6 @@ public static class CommandLineBuilder
         // Find command
         rootCommand.Subcommands.Add(SearchCommandDefinitions.CreateFindCommand(opts));
 
-        // Product-owned query vocabulary
-
         // Product resource explanation
         rootCommand.Subcommands.Add(
             ResourceExplanationCommandDefinitions.CreateExplainCommand(opts));

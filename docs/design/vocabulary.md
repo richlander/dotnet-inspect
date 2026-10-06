@@ -45,7 +45,8 @@ replaced by `.`, under
 [Value-vocabulary resources](resource-explanation.md#value-vocabulary-resources).
 The path segment is the only path spelling. The exact identity, which queries
 accept, is the value's identity fact, so the vocabulary's depth-1 Document
-carries both; JSON output and each value's own explanation present it.
+carries both. Its expanded value rows show the identity beside the display
+name, and JSON output and each value's own explanation present it.
 
 Inspect Web requests the same explanation. The catalog-facade export
 `CatalogExports.ExplainVocabularies(path, depth)` resolves a `vocabularies`
@@ -76,8 +77,8 @@ used:
 - the command's tests (`VocabularyCommandTests`,
   `SectionPipelineTests.Vocabulary`, and `CliVocabularyDocument`).
 
-The command's vocabulary sections also left the `@API` and `@Decompiler`
-categories, which remain for other commands.
+The `@API` category, which only the command's sections used, retired with
+it. Its sections also left `@Decompiler`, which remains for other commands.
 
 Each map's per-field query operators retired with the document. Only the
 document's JSON read them, and no predicate enforced them. Resource
@@ -93,7 +94,8 @@ JSON, so every other option of the command retired too, including table, TSV,
 and JSONL output; `--columns`, `--fields`, and `--no-headers`; `-n`, `--head`,
 `--tail`, `--rows`, `--lines`, and `--tail-lines`; `--count`; `-D`,
 `--schema`, and `--tree`; and selecting several vocabularies with a glob or an
-`@` category `-S`. The release notes list them. The information stays
+`@` category `-S`. The release entry proposed on the release tracker lists
+them. The information stays
 reachable. The retirement landed only after values were explainable resources
 and Inspect Web could request the explanation, so no information or host lost
 access in between. The retirement also retargeted every remaining pointer to

@@ -660,7 +660,6 @@ internal static class DiscoveryDocumentFactory
             SectionCategoryNames.Ecosystem => "ecosystem",
             SectionCategoryNames.Libraries => "libraries",
             SectionCategoryNames.Query => "query",
-            SectionCategoryNames.Api => "api",
             SectionCategoryNames.Audit => "audit",
             SectionCategoryNames.Dependencies => "dependencies",
             SectionCategoryNames.Calls => "calls",

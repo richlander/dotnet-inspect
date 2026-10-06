@@ -252,8 +252,9 @@ Discover the stable IDs accepted by body queries:
 dnx dotnet-inspect -y -- explain vocabularies/csharp.body-kinds --depth 1
 ```
 
-The depth-1 Document lists every value with its exact identity, such as
-`ObjectCreationExpression`, which is the spelling queries accept.
+The depth-1 listing shows every value's exact Identity, such as
+`ObjectCreationExpression` or `BreakStatement`, which is the spelling queries
+accept; Name is a display label.
 
 Then use one as a typed predicate. `Kind=...` auto-selects `Body Shapes`, while
 ordinary section query options still control columns and rows:
