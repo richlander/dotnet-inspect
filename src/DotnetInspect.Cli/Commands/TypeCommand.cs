@@ -176,11 +176,21 @@ public static class TypeCommand
     {
         normalized = options;
         error = null;
-        if (options.IncludeSections is not { Count: > 0 } sections)
+        IReadOnlyCollection<string>? sections = options.IncludeSections;
+        if (sections is not { Count: > 0 }
+            && options.Select is { Length: > 0 } selectors)
+        {
+            sections = selectors;
+        }
+        if (sections is not { Count: > 0 })
             return true;
 
-        bool overview = sections.Contains(SectionNames.Overview);
-        bool complete = sections.Contains(SectionNames.Complete);
+        bool overview = sections.Contains(
+            SectionNames.Overview,
+            StringComparer.OrdinalIgnoreCase);
+        bool complete = sections.Contains(
+            SectionNames.Complete,
+            StringComparer.OrdinalIgnoreCase);
         if (!overview && !complete)
             return true;
         if (overview && complete)
@@ -229,6 +239,21 @@ public static class TypeCommand
                 "A type command requires a type inspection plan.",
                 nameof(plan));
 
+        if (!TryNormalizeDocumentSelection(
+                options,
+                out options,
+                out string? documentSelectionError))
+        {
+            CommandError.Write(documentSelectionError!);
+            return 1;
+        }
+        if (options.DocumentSelection
+            is not ExactTypeDocumentSelection.Unspecified)
+        {
+            plan = ResolvedMemberInspectionPlan
+                .FromCompatibilityOptions(options);
+        }
+
         if (!PerformanceTriageOptions.TryValidate(
                 options.PerformanceTriage,
                 out var performanceTriageError))
@@ -262,7 +287,7 @@ public static class TypeCommand
         if (!TryNormalizeDocumentSelection(
                 options,
                 out options,
-                out string? documentSelectionError))
+                out documentSelectionError))
         {
             CommandError.Write(documentSelectionError!);
             return 1;

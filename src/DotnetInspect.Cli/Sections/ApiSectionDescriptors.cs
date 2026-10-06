@@ -160,8 +160,6 @@ public static class ApiMemberSectionDescriptors
         var pipeline = new SectionPipeline<ApiType>()
             .UseCuratedCatalog()
             .WithoutComputedPoles()
-            .Add<Overview>()
-            .Add<Complete>()
             .Add<TypeInfo>()
             .Add<Values>()
             .Add<TypeParameters>()
@@ -224,26 +222,6 @@ public static class ApiMemberSectionDescriptors
     }
 
     // ===== Declarative sections (rendered via Markout [MarkoutSection]) =====
-
-    public sealed class Overview : ISectionDescriptor<ApiType>
-    {
-        public static string Name => SectionNames.Overview;
-        public static SectionShape? Shape => null;
-        public static bool IsExpensive => false;
-        public static bool ExplicitOnly => true;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Fixed;
-        public static bool CanRender(ApiType model) => true;
-    }
-
-    public sealed class Complete : ISectionDescriptor<ApiType>
-    {
-        public static string Name => SectionNames.Complete;
-        public static SectionShape? Shape => null;
-        public static bool IsExpensive => true;
-        public static bool ExplicitOnly => true;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
-        public static bool CanRender(ApiType model) => true;
-    }
 
     /// <summary>
     /// Type identity fact table.

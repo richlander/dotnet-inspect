@@ -452,6 +452,12 @@ public sealed record SectionDemandClassification(
 
 public static class ApiSectionDemandIndex
 {
+    private static readonly string[] DocumentSelectorNames =
+    [
+        SectionNames.Overview,
+        SectionNames.Complete,
+    ];
+
     private static readonly ImmutableDictionary<
         string,
         InspectionTargetRequirement> MemberRequirements =
@@ -627,6 +633,9 @@ public static class ApiSectionDemandIndex
         [
             .. declarations.Keys.Where(section =>
                 !catalogSections.Contains(
+                    section,
+                    StringComparer.OrdinalIgnoreCase)
+                && !DocumentSelectorNames.Contains(
                     section,
                     StringComparer.OrdinalIgnoreCase)),
         ];

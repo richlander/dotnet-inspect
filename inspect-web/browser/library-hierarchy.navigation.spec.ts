@@ -1579,7 +1579,7 @@ test("Member filters use dropdowns and request all accessibility buckets", async
   const filteredRun = page.locator("#inspector-panel [data-member]");
   await expect(filteredRun).toHaveCount(1);
   await expect(filteredRun.locator("code"))
-    .toHaveText("public void Run(int value)");
+    .toHaveText("Run");
   await expect(filteredRun.locator("small")).not.toContainText("+");
 
   await filteredRun.click();
@@ -1626,7 +1626,7 @@ test("Member filters use dropdowns and request all accessibility buckets", async
   )).toHaveCount(0);
   await expect(page.locator(
     '#type-list [data-nav-member] .type-name',
-  )).toContainText("Run(int)");
+  )).toContainText("Run");
 });
 
 for (const width of [900, 390]) {

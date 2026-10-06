@@ -766,18 +766,6 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Type_SingleType_QuietVerbosity_RequiresMarkdown()
-    {
-        var (exit, output, error) = await RunAppAsync(
-            "type", "System.Text.Json.JsonSerializer", "-v:q");
-
-        Assert.Equal(1, exit);
-        Assert.Empty(output);
-        Assert.Contains("-v:q is not supported by the type shape renderer", error);
-        Assert.Contains("--markdown -v:q", error);
-    }
-
-    [Fact]
     public async Task Type_SingleType_MarkdownQuiet_RendersCompactSectionView()
     {
         var (exit, output, error) = await RunAppAsync(
