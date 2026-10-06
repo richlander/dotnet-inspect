@@ -196,7 +196,7 @@ public sealed class AnalysisParticipationRegistrationTests
             explanation.Resources
                 .Where(resource =>
                     resource.ResourceType.Value == "analysis")
-                .Select(resource => resource.Path.Value));
+                .Select(resource => resource.Path!.Value));
         var resolved = Assert.IsType<ResourcePathResolution.Resolved>(
             explanation.Resolve("analyses/call-site"));
         ResourceExplanationDocument document = explanation.Explain(
