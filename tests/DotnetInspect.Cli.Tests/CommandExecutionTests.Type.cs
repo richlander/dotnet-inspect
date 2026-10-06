@@ -608,6 +608,77 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task
+        Type_SingleType_ExplicitOverviewWithLibraryUsesCompactDocument()
+    {
+        string path = Path.Combine(
+            AppContext.BaseDirectory,
+            "RealAssets",
+            "DiffAnalysis",
+            "10.0.0",
+            "System.Text.Json.dll");
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            "System.Text.Json.JsonSerializer",
+            "--library",
+            path,
+            "-S",
+            "Overview");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("Deserialize (40 overloads)", output);
+        Assert.DoesNotContain(
+            "Deserialize<TValue>(System.IO.Stream utf8Json",
+            output);
+    }
+
+    [Fact]
+    public async Task Type_SingleType_BareLibraryUsesCompactDocument()
+    {
+        string path = Path.Combine(
+            AppContext.BaseDirectory,
+            "RealAssets",
+            "DiffAnalysis",
+            "10.0.0",
+            "System.Text.Json.dll");
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            "System.Text.Json.JsonSerializer",
+            "--library",
+            path);
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("Deserialize (40 overloads)", output);
+        Assert.DoesNotContain(
+            "Deserialize<TValue>(System.IO.Stream utf8Json",
+            output);
+    }
+
+    [Theory]
+    [InlineData("--markdown")]
+    [InlineData("--json")]
+    public async Task
+        Type_SingleType_ExplicitOverviewRejectsUnsupportedPresentation(
+            string presentation)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            "System.Text.Json.JsonSerializer",
+            "-S",
+            "Overview",
+            presentation);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "Type Overview document cannot be rendered",
+            error);
+        Assert.Contains("native tree or Count presentation", error);
+    }
+
+    [Fact]
     public async Task Type_SingleType_ExplicitCompleteExpandsExactDeclarations()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -615,6 +686,25 @@ public partial class CommandExecutionTests
             "System.Text.Json.JsonSerializer",
             "-S",
             "Complete");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains(
+            "Deserialize<TValue>(System.IO.Stream utf8Json",
+            output);
+        Assert.DoesNotContain("Deserialize (40 overloads)", output);
+    }
+
+    [Fact]
+    public async Task
+        Type_SingleType_ExplicitCompleteQuietExpandsExactDeclarations()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            "System.Text.Json.JsonSerializer",
+            "-S",
+            "Complete",
+            "-v:q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);

@@ -72,11 +72,7 @@ internal static class TypeOverviewDocumentTreeCommand
             && options.RequestReadableLocalNames is false
             && options.SourceRepositories.Length == 0
             && options.DllPath is null
-            && options.PdbPath is null
-            && (options.AssemblyPath is null
-                || options.Count
-                || options.Tree
-                || options.ShapeOutput);
+            && options.PdbPath is null;
     }
 
     internal static async Task<int?> TryExecuteAsync(
@@ -85,7 +81,20 @@ internal static class TypeOverviewDocumentTreeCommand
         CancellationToken cancellationToken)
     {
         if (!CanExecute(options))
+        {
+            if (options.DocumentSelection
+                is ExactTypeDocumentSelection.Overview)
+            {
+                CommandError.Write(
+                    "The Type Overview document cannot be rendered with "
+                    + "the requested options.");
+                CommandError.WriteLine(
+                    "Use its native tree or Count presentation, or select "
+                    + "Complete for a supported rich-format compatibility view.");
+                return 1;
+            }
             return null;
+        }
 
         string? assemblyPath =
             ApiServices.FindApiDll(

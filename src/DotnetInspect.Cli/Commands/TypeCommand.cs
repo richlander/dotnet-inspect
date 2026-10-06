@@ -2352,6 +2352,8 @@ public static class TypeCommand
             && !options.NoHeader
             && !options.PlainText
             && !options.Count
+            && options.DocumentSelection
+                is ExactTypeDocumentSelection.Unspecified
             && !options.HasSectionQuery;
     }
 
