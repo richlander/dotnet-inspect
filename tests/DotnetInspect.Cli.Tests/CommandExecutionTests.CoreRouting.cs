@@ -317,16 +317,16 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Vocabulary_EnvironmentMermaidRejectsMultiSectionCount()
+    public async Task Ecosystem_EnvironmentMermaidRejectsMultiSectionCount()
     {
         string? originalFormat = Environment.GetEnvironmentVariable("DOTNET_INSPECT_FORMAT");
         try
         {
             Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", "mermaid");
             var (exit, output, error) = await RunAppAsync(
-                "vocabulary",
+                "ecosystem",
                 "-S",
-                "C# *",
+                "@Ecosystem",
                 "--count");
 
             Assert.Equal(1, exit);

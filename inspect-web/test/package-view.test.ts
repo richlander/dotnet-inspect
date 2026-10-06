@@ -203,38 +203,20 @@ test("package view binding tolerates an inactive surface", () => {
     recordingActions([])));
 });
 
-test("package navigation exposes every target framework", () => {
+test("package navigation lists versions and retains the active coordinate", () => {
   const html = renderPackageNav({
     frameworks: ["net10.0", "net9.0"],
     activeFramework: "net10.0",
-    versionFieldHtml:
-      '<label class="version-select"><span>Version</span><select id="package-version"><option>10.0.0</option></select></label>',
+    versions: ["10.0.1", "10.0.0", "9.0.0-preview.1"],
+    activeVersion: "10.0.0",
     escapeHtml: value => String(value),
   });
-
-  assert.match(html, /aria-label="Frameworks"/);
-  assert.match(html, /package-framework-nav has-version-control/);
+  assert.match(html, /aria-label="Frameworks &amp; versions"/);
   assert.match(html, /id="content-navigation-close"/);
-  assert.match(
-    html,
-    /package-navigation-controls[\s\S]*id="package-version"[\s\S]*package-framework-list/);
-  assert.match(html, /data-package-framework="net10\.0"/);
-  assert.match(html, /data-package-framework="net9\.0"/);
+  assert.match(html, /data-package-version="10\.0\.0" aria-current="page"/);
+  assert.match(html, /data-package-version="9\.0\.0-preview\.1"/);
+  assert.match(html, /id="package-version-filter"/);
+  assert.match(html, /id="package-version-prerelease"/);
   assert.match(html, /data-package-framework="net10\.0" aria-current="page"/);
-  assert.match(html, /title="Use net9\.0"/);
-  assert.match(html, />current</);
-  assert.match(html, />available</);
-});
-
-test("empty package navigation retains its detail-return action", () => {
-  const html = renderPackageNav({
-    frameworks: [],
-    activeFramework: "",
-    escapeHtml: value => String(value),
-  });
-
-  assert.match(html, /No target frameworks are available/);
-  assert.match(html, /id="content-navigation-close"/);
-  assert.doesNotMatch(html, /has-version-control/);
-  assert.doesNotMatch(html, /package-navigation-controls|package-version/);
+  assert.ok(html.indexOf("data-nav-scope=\"frameworks\"") < html.indexOf("package-version-filter"));
 });

@@ -215,8 +215,8 @@ definition of enumeration support.
 
 ## Command placement
 
-Retain `ecosystem` as the ecosystem vocabulary, analogous to `vocabulary` for
-the tool's own query vocabulary. It exposes the identities and configured
+Retain `ecosystem` as the ecosystem vocabulary, analogous to
+`explain vocabularies` for the tool's own query vocabularies. It exposes the identities and configured
 knowledge that many queries join against; it is not another relation-specific
 artifact-inspection verb.
 
@@ -229,7 +229,7 @@ workflows and evidence, not necessarily their command tokens.
 
 | Surface | Target role |
 | --- | --- |
-| `vocabulary` | Discover the tool's query terms and their meanings. |
+| `explain vocabularies` | Discover the tool's query terms and their meanings. |
 | `ecosystem` | Discover ecosystem identities, concepts/bindings and configured contributions: the ecosystem vocabulary used across queries. |
 | `find` | Locate packages, libraries, types and members, with exact reopening context. Ecosystem selection narrows its candidate population. |
 | Subject commands plus `@Relations` | Primary local direct-relation experience, with the subject's existing resolution and sharing path. |
@@ -301,7 +301,9 @@ SubjectRelationPopulationRowsRequest
   optional continuation
 
 SubjectRelationsInspectionRequest
-  exact StructuralSubjectIdentity authority
+  exact SubjectRelationFocusAuthority
+    existing structural subject, or
+    source-neutral acquired Type
   exact candidate-population authority
   SubjectRelationPopulationRequest
 ```
@@ -312,6 +314,14 @@ Browser DTOs, streams, readers, and rendering settings do not enter the
 population plan. Reconstructing an equal `StructuralSubjectIdentity` wrapper
 does not change that exact subject; process-local candidate-population
 authority remains reference-bound to its captured generation.
+
+The Subject Relations focus authority preserves existing structural subjects
+without changing their navigation identity. It also admits one source-neutral
+acquired Type authority containing the exact Workspace, assembly acquisition,
+resolution provenance, and Metadata Type identity. That Type form is the
+honest focus currency for platform, project, local, embedded, and admitted
+Library occurrences that have no Package parent. It does not manufacture
+synthetic Package ancestry or broaden navigation subjects.
 
 Metadata-backed hierarchy production consumes Assembly Inspection's
 [session-owned format-admission](assembly-inspection-query.md#session-owned-format-admission)
@@ -331,6 +341,43 @@ reuse producer authority bound to both registrations, the hierarchy target and
 kind, visibility and hidden-declaration policy, population, selection,
 ordering, projection, and next producer ordinal. This singleton path does not
 prepare the reverse index; repeated-target planning remains separately owned.
+
+For one captured `WorkspaceDeclarationPopulation`, Workspace hierarchy
+composition applies that singleton operation to each authorized occurrence in
+the receipt's stable member order. Assembly-group occurrences borrow their
+retained session from the group. Admitted-Library occurrences borrow the
+owner-attested artifact snapshot, validate its assembly identity and MVID, and
+open a session only inside the synchronous owner callback. No stream, reader,
+session, lease, or assembly bytes escape either callback, and inspected
+assemblies are not loaded.
+
+The Workspace operation executes one incoming hierarchy form at a time:
+interface matching backs `Implementers`, and base-Type matching backs
+`Derived Types`. It aggregates the singleton producer's coverage and
+diagnostics into one producer outcome, preserves independently exact Count
+when Rows are partial, and retains unavailable candidates and unrealized
+selected contexts rather than converting them to empty matches. An unrealized
+context contributes one unavailable coverage unit and its complete typed
+failure evidence, makes requested Count incomplete, and does not discard useful
+Rows from realized candidates. Canonical relation rows remain the source of the
+focused candidate rows; the coordinator does not recreate hierarchy matching
+or scan Metadata independently.
+
+Workspace Rows continuation binds the exact focus and captured population,
+selection, ordering, projection, visibility policy, Metadata operation policy,
+next global ordinal, current candidate index, and any singleton continuation
+inside that candidate. When a segment ends exactly at a candidate boundary,
+the operation performs one-row lookahead in later candidates before issuing a
+continuation. Count may continue through the whole population after Rows stop.
+Changing the focus, population generation, semantic selection, visibility, or
+operation policy makes continuation stale or incompatible.
+
+The completed Workspace hierarchy content contains the settled canonical
+population plus focused `Implementers` or `Derived Types` candidates grouped
+by exact acquired source Type. Its `InspectionEnvelope<TContent>` is
+non-projectable until a CLI or Inspect Web adapter supplies the complete
+portable Workspace scenario. Process-local continuation authority accompanies
+the envelope separately and is never transported as content.
 
 Public population facets select producer work and become part of population
 identity. They are not duplicated as a second set of public `request-*` keys.
@@ -975,7 +1022,7 @@ incomplete coverage.
 `find -D Results` exposes the result shape. `find -Q Results` should disclose
 the adopted predicate keys, required result kind, combination rules and
 shortcut equivalents; command help advertises the same expansions, and
-`vocabulary` explains the signature family and its alternatives. Discovery is
+`explain vocabularies` explains the signature family and its alternatives. Discovery is
 a separate request, not `-Q` combined with execution flags. This keeps the
 easy gesture teachable while exposing how to build a more specific query.
 
@@ -1152,9 +1199,9 @@ enable it.
 Signature uses, throws and qualified pattern candidates remain available through
 `Relations` and its filters; a `--span` predicate does not introduce a `Span`
 section, and `--throws` does not introduce an `Exceptions` section.
-The current member `Signature` view, Find `Results`, ecosystem
-catalog sections and vocabulary sections do not become category members
-merely because these workflows use them.
+The current member `Signature` view, Find `Results`, and ecosystem
+catalog sections do not become category members merely because these
+workflows use them.
 
 Selecting `@Relations` selects its distinct sections, so a curated section
 may summarize evidence also present in `Relations`. It is not a union whose

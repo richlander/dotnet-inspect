@@ -506,9 +506,9 @@ full product Vocabulary snapshot, whose labels, summaries, maps, and unrelated
 terms are not used by schema generation. The Queries owner retains the complete
 display Vocabulary declaration. CLI and Browser hosts continue to compose that
 declaration into the complete snapshot, and their composition test pins the
-compact reference to that exact identity and term set. The CLI projects the
-same complete declaration through Product Vocabulary and Resource Explanation,
-so its durable-row fields remain discoverable without schema generation.
+compact reference to that exact identity and term set. Both hosts expose the
+same complete declaration through Product Vocabulary Resource Explanation, so
+its durable-row fields remain discoverable without schema generation.
 
 Inspect Web is the first Browser/Wasm host. It obtains the generated
 `package-query.durable-row` output descriptor, resolves every binding against

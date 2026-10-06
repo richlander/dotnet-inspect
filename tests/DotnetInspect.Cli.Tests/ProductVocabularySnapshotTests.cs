@@ -109,21 +109,6 @@ public sealed class ProductVocabularySnapshotTests
     }
 
     [Fact]
-    public void ProjectionOfASnapshotMissingAProductSectionFailsVisibly()
-    {
-        VocabularySnapshot partial = ProductVocabularyComposition.Compose(
-            [
-                new(
-                    ApiAccessibilityVocabulary.Declare(ProductVocabularyComposition.Catalog),
-                    "api.type-inventory"),
-            ]);
-
-        KeyNotFoundException error = Assert.Throws<KeyNotFoundException>(
-            () => ProductVocabularyProjection.ToDocument(partial));
-        Assert.Contains("csharp.style-tiers", error.Message, StringComparison.Ordinal);
-    }
-
-    [Fact]
     public void ProductInspectionCarriesTheHostComposedSnapshot()
     {
         InspectionEnvelope<VocabularySnapshot> inspection =

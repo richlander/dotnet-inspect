@@ -9,6 +9,7 @@ import type {
 import {
   createTypeLeverageCoordinator,
   projectTypeLeverage,
+  typeLeverageFeedback,
 } from "../src/type-leverage.ts";
 import { createOperationAuthorityPage } from "../src/operation-authority.ts";
 import type { TypeLeverageLoadState } from "../src/type-leverage.ts";
@@ -549,4 +550,30 @@ test("pre-retry document completion cannot repopulate caches", async () => {
   assert.equal(documentQueries, 2);
   assert.equal(coordinator.presentation("B")?.seaLevelCount, 0);
   assert.equal(coordinator.presentation("B")?.mountainPeakCount, 0);
+});
+
+
+test("physical-only qualification supplies feedback without losing cues", () => {
+  const projection = projectTypeLeverage({
+    ...document,
+    implementation: {
+      ...document.implementation,
+      typeLeverageShards: [bodyShard, bodyToolsShard].map(value => ({
+        ...value,
+        disposition: "qualified",
+        bodyCoverage: {
+          ...bodyCoverage,
+          bodiesExamined: 7,
+          bodiesPhysicalOnly: 1,
+        },
+        diagnostics: ["The physical body has no authenticated logical owner."],
+      })),
+    },
+  });
+  assert.deepEqual(typeLeverageFeedback(projection), {
+    message: "Structural salience has qualified evidence: The physical body has no authenticated logical owner.",
+    retry: "type-leverage",
+  });
+  assert.deepEqual(projection.byType, projectTypeLeverage(document).byType);
+  assert.equal(typeLeverageFeedback(projectTypeLeverage(document)), null);
 });

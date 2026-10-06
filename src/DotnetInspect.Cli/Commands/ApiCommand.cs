@@ -1441,6 +1441,10 @@ public partial class ApiCommand
         var detailSchema = MergeSchemas(schema,
             ApiViewContext.Default.GetSchemaInfo<MemberCodeView>()!.ToDocumentSchema());
         LibraryCommand.AddCloneCandidateSchema(detailSchema);
+        // Source's rows are its exact lines (Source document cardinality); the
+        // row formats emit these columns, so projection validation and
+        // discovery read the same vocabulary the writer produces.
+        detailSchema.Add(SectionNames.Source, "column", SourceLineHeaders);
         if (!includeExactMemberColumns)
             return detailSchema;
         if (detailSchema.GetSection(SectionNames.Calls) == null)

@@ -328,13 +328,14 @@ internal static class CorpusSensor
 
     internal static async Task<CorpusSensorSnapshot> CaptureReturnToSenderCutoverForTesting(
         IReadOnlyList<string> assemblies,
-        int fidelityCap)
+        int fidelityCap,
+        int methodCap = int.MaxValue)
         => (await Capture(
             assemblies,
             validityCompileCap: 0,
             fidelityCompileCaps: [fidelityCap],
             maxExamples: 3,
-            methodCap: int.MaxValue,
+            methodCap,
             workers: null,
             sequential: true,
             fidelityOracle: CorpusFidelityOracle.ReturnToSenderCutover,
@@ -859,12 +860,15 @@ internal static class CorpusSensor
         MetadataSource source,
         CorpusProfile profile)
     {
-        // Only the opt-in profile needs stage snapshots for feature coverage.
-        // Both runners receive the capabilities used by MemberBodyProducer.
+        // Only the opt-in profile needs pass-change attribution for feature
+        // coverage. Both runners receive the capabilities used by
+        // MemberBodyProducer.
         if (profile == CorpusProfile.OptInNet11)
         {
-            return StageDump.PassesThatChanged(IrPasses.RunWithStages(function,
-                method => IrImporter.Import(source, method), source.AreProvablyDisjoint));
+            return PassExecutionReceipts.ChangedPasses(IrPasses.RunWithReceipts(
+                function,
+                method => IrImporter.Import(source, method),
+                source.AreProvablyDisjoint));
         }
 
         IrPasses.Run(function, IrPasses.Default,
@@ -1062,14 +1066,27 @@ internal static class CorpusSensor
         CorpusFidelityOracle fidelityOracle)
     {
         var reports = ImmutableArray.CreateBuilder<FidelityCapReport>();
+        Dictionary<string, string>? methodKeysByTarget =
+            IsIndependentReturnToSenderOracle(fidelityOracle)
+                ? methods.Values.ToDictionary(
+                    method => TargetKey(
+                        method.AssemblyPath,
+                        method.Type,
+                        method.Method,
+                        method.Overload),
+                    MethodKey,
+                    StringComparer.Ordinal)
+                : null;
         foreach (var cap in caps.Where(cap => cap > 0).Distinct().OrderBy(cap => cap))
         {
             var independentRtsEvaluations = IsIndependentReturnToSenderOracle(fidelityOracle)
                 ? await SelectThenEvaluateNativeFirstAsync(
                     assemblies,
-                    assembly => new IndependentReturnToSenderTargetSet(
-                        assembly,
-                        DeterministicIndependentReturnToSenderTargets(methods.Values, assembly, cap)),
+                    assembly => EnsureIndependentReturnToSenderTargetsRetained(
+                        SelectIndependentReturnToSenderTargets(
+                            assembly,
+                            cap),
+                        methodKeysByTarget!),
                     targetSet => EvaluateIndependentReturnToSenderTargets(
                         targetSet.AssemblyPath,
                         targetSet.Targets,
@@ -1153,6 +1170,18 @@ internal static class CorpusSensor
                     foreach (var result in assemblyResults)
                     {
                         string key = MethodKey(portablePath, result.Type, result.Method, result.Signature);
+                        if (!methods.ContainsKey(key)
+                            && methodKeysByTarget is not null
+                            && methodKeysByTarget.TryGetValue(
+                                TargetKey(
+                                    portablePath,
+                                    result.Type,
+                                    result.Method,
+                                    result.Overload),
+                                out string? targetKey))
+                        {
+                            key = targetKey;
+                        }
                         if (methods.TryGetValue(key, out var methodSnapshot))
                         {
                             methods[key] = methodSnapshot with
@@ -1748,11 +1777,68 @@ internal static class CorpusSensor
         int cap)
         => DeterministicCompileBackTargetAttempts(methods, assemblyPath, cap);
 
-    internal static IReadOnlyList<FidelityCheck.CompileBackTarget> DeterministicIndependentReturnToSenderTargetsForTesting(
-        IReadOnlyList<CorpusMethodSnapshot> methods,
+    internal static IReadOnlyList<FidelityCheck.CompileBackTarget> SelectIndependentReturnToSenderTargetsForTesting(
         string assemblyPath,
         int cap)
-        => DeterministicIndependentReturnToSenderTargets(methods, assemblyPath, cap);
+        => SelectIndependentReturnToSenderTargets(
+            assemblyPath,
+            cap).Targets;
+
+    static IndependentReturnToSenderTargetSet
+        SelectIndependentReturnToSenderTargets(
+            string assemblyPath,
+            int cap)
+    {
+        FidelityCheck.CappedReturnToSenderTargetSelection selection =
+            FidelityCheck.SelectReturnToSenderTargetsCapped(
+                [assemblyPath],
+                cap);
+        if (selection.Targets.Count != cap)
+        {
+            throw new InvalidOperationException(
+                $"Independent RTS requires exactly {cap} eligible targets "
+                + $"for '{PortablePath(assemblyPath)}', but owner-issued "
+                + $"selection settled {selection.Targets.Count}.");
+        }
+
+        HarnessLog.Status(
+            $"RTS target selection {PortablePath(assemblyPath)}: "
+            + $"{selection.Targets.Count} selected; "
+            + $"{selection.RankedBodyCount} ranked bodies; "
+            + $"{selection.EvaluatedBodyCount} deeply evaluated bodies; "
+            + $"{selection.DeclarationCandidateCount} declaration "
+            + $"candidates; "
+            + $"{selection.ExcludedDeclarationCandidateCount} evaluated "
+            + $"exclusions.");
+        return new(assemblyPath, selection.Targets);
+    }
+
+    static IndependentReturnToSenderTargetSet
+        EnsureIndependentReturnToSenderTargetsRetained(
+            IndependentReturnToSenderTargetSet targetSet,
+            IReadOnlyDictionary<string, string> methodKeysByTarget)
+    {
+        FidelityCheck.CompileBackTarget[] missingTargets =
+        [
+            .. targetSet.Targets.Where(
+                target => !methodKeysByTarget.ContainsKey(
+                    TargetKey(
+                        PortablePath(target.AssemblyPath),
+                        target.Type,
+                        target.Method,
+                        target.Overload)))
+        ];
+        if (missingTargets.Length == 0)
+            return targetSet;
+
+        FidelityCheck.CompileBackTarget first = missingTargets[0];
+        throw new InvalidOperationException(
+            $"Independent RTS selected {missingTargets.Length} targets absent "
+            + $"from the complete corpus member ledger for "
+            + $"'{PortablePath(targetSet.AssemblyPath)}'. Increase or omit "
+            + $"--corpus-method-cap. First missing target: "
+            + $"{first.Type}::{first.Method}#{first.Overload}.");
+    }
 
     static IReadOnlyList<FidelityCheck.CompileBackTarget> DeterministicCompileBackTargetAttemptsForAssembly(
         string assemblyPath,
@@ -1807,44 +1893,6 @@ internal static class CorpusSensor
             .ToArray();
     }
 
-    static IReadOnlyList<FidelityCheck.CompileBackTarget> DeterministicIndependentReturnToSenderTargets(
-        IEnumerable<CorpusMethodSnapshot> methods,
-        string assemblyPath,
-        int cap)
-    {
-        if (cap <= 0)
-            return [];
-
-        string portablePath = PortablePath(assemblyPath);
-        var eligible = methods
-            .Where(method => string.Equals(method.AssemblyPath, portablePath, StringComparison.Ordinal)
-                && !FidelityCheck.IsSynthesizedMember(method.Type, method.Method))
-            .OrderBy(StableMethodHash)
-            .ThenBy(MethodKey, StringComparer.Ordinal)
-            .ToArray();
-        if (eligible.Length < cap)
-        {
-            string availablePaths = string.Join(
-                ", ",
-                methods.Select(method => method.AssemblyPath)
-                    .Distinct(StringComparer.Ordinal)
-                    .Order(StringComparer.Ordinal));
-            throw new InvalidOperationException(
-                $"Independent RTS requires exactly {cap} eligible methods for '{portablePath}', "
-                + $"but found {eligible.Length}. Available snapshot paths: {availablePaths}.");
-        }
-
-        return eligible
-            .Take(cap)
-            .Select(method => new FidelityCheck.CompileBackTarget(
-                assemblyPath,
-                method.Type,
-                method.Method,
-                method.Overload,
-                method.Signature))
-            .ToArray();
-    }
-
     static int DeterministicAttemptCap(int cap)
         => cap > int.MaxValue / 10
             ? int.MaxValue
@@ -1873,6 +1921,13 @@ internal static class CorpusSensor
 
     static string MethodKey(string assemblyPath, string type, string method, string signature)
         => $"{assemblyPath}!{type}::{method}{signature}";
+
+    static string TargetKey(
+        string assemblyPath,
+        string type,
+        string method,
+        int overload)
+        => $"{assemblyPath}!{type}::{method}#{overload}";
 
     static string ValidityStatus(ValidityCheck.MethodResult result)
     {
