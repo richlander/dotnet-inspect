@@ -641,14 +641,49 @@ public static class IrPasses
         {
             new(ImportStageName, project(function), function.Fidelity),
         };
-        foreach (var pass in passes)
-        {
-            pass.Run(function, context);
-            if (IrInvariants.Enabled)
-                function.CheckInvariant(IrInvariants.CheckSemantics);
-            stages.Add(new(pass.Name, project(function), function.Fidelity));
-        }
+        RunObserved(function, passes, context,
+            (_, pass) => stages.Add(new(pass.Name, project(function), function.Fidelity)));
         return stages;
+    }
+
+    /// <summary>
+    /// Runs the default pipeline and issues one ordered receipt per completed
+    /// pass. Change attribution compares adjacent <see cref="IrPrinter.Dump"/>
+    /// projections while retaining only the preceding projection.
+    /// </summary>
+    public static IReadOnlyList<PassExecutionReceipt> RunWithReceipts(IrFunction function)
+        => RunWithReceipts(function, Default, IrPrinter.Dump, PassContext.None);
+
+    /// <summary>
+    /// As <see cref="RunWithReceipts(IrFunction)"/>, but wires the cross-method
+    /// import and type-disjointness capabilities used by metadata-backed runs.
+    /// </summary>
+    public static IReadOnlyList<PassExecutionReceipt> RunWithReceipts(
+        IrFunction function, Func<MethodRef, IrFunction?>? importMethodBody,
+        Func<TypeRef, TypeRef, bool>? typesProvablyDisjoint = null)
+        => RunWithReceipts(
+            function,
+            Default,
+            IrPrinter.Dump,
+            PassContext.ForImport(importMethodBody, typesProvablyDisjoint));
+
+    internal static IReadOnlyList<PassExecutionReceipt> RunWithReceipts(
+        IrFunction function,
+        ImmutableArray<IIrPass> passes,
+        Func<IrFunction, string> project,
+        PassContext context)
+    {
+        ValidateForExecution(passes);
+        string previous = project(function);
+        var receipts = new List<PassExecutionReceipt>(passes.Length);
+        RunObserved(function, passes, context, (index, pass) =>
+        {
+            string current = project(function);
+            receipts.Add(new(index + 1, pass.Name,
+                !string.Equals(previous, current, StringComparison.Ordinal)));
+            previous = current;
+        });
+        return receipts;
     }
 
     /// <summary>
@@ -701,6 +736,22 @@ public static class IrPasses
             // to inspect.
         }
         return stepper;
+    }
+
+    static void RunObserved(
+        IrFunction function,
+        ImmutableArray<IIrPass> passes,
+        PassContext context,
+        Action<int, IIrPass> completed)
+    {
+        for (int i = 0; i < passes.Length; i++)
+        {
+            var pass = passes[i];
+            pass.Run(function, context);
+            if (IrInvariants.Enabled)
+                function.CheckInvariant(IrInvariants.CheckSemantics);
+            completed(i, pass);
+        }
     }
 
     static void ValidateForExecution(ImmutableArray<IIrPass> passes)
