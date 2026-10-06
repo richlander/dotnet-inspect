@@ -53,6 +53,7 @@ public partial class CommandExecutionTests
         Assert.Contains("Selected Content: Signature", output);
         Assert.Contains("member.inspect", output);
         Assert.Contains("type.hierarchy", output);
+        Assert.DoesNotContain("Expanded Resources", output);
     }
 
     [Theory]
