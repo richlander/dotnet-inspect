@@ -1411,9 +1411,7 @@ discovery extracted the complete assembly API surface. On
 | `-D "Type Info"` | 805.06 ms | 46.70 ms | 48.47 ms |
 | bare `-D` | 815.52 ms | 49.52 ms | 50.15 ms |
 
-The measured candidate SHA-256 is
-`f0c6acac808ecb713bbfa8880eacac36e939d2eb6c6a89ee6bf6a51a19c8062f`;
-the inspected CoreLib SHA-256 is
+The inspected CoreLib SHA-256 is
 `9573ebabb9af0671f76f4aa958223b8a0b50c299affcb1a2f75c9ee717305fc8`.
 
 ## Required evidence

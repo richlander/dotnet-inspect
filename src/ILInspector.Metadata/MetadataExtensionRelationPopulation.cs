@@ -444,6 +444,9 @@ public abstract record MetadataExtensionRelationPopulationOutcome
 
 internal static partial class MetadataRelationInspection
 {
+    private static readonly GenericContext
+        s_extensionPresencePrefixContext = new([], []);
+
     internal static MetadataExtensionRelationPresenceOutcome
         ExecuteExtensionPresence(
             PEReader image,
@@ -578,11 +581,6 @@ internal static partial class MetadataRelationInspection
             var provider = new ExtensionReceiverMatchProvider(
                 sourceAssembly,
                 selection);
-            GenericContext context =
-                GenericContext.ForMethod(
-                    reader,
-                    receiverContext,
-                    receiverMethod);
             BlobReader signature =
                 reader.GetBlobReader(receiverMethod.Signature);
             SignatureHeader header =
@@ -617,7 +615,7 @@ internal static partial class MetadataRelationInspection
                 new SignatureDecoder<bool, GenericContext>(
                     provider,
                     reader,
-                    context);
+                    s_extensionPresencePrefixContext);
             _ = decoder.DecodeType(
                 ref signature,
                 allowTypeSpecifications: true);
@@ -651,6 +649,11 @@ internal static partial class MetadataRelationInspection
             provider = new(
                 sourceAssembly,
                 selection);
+            GenericContext context =
+                GenericContext.ForMethod(
+                    reader,
+                    receiverContext,
+                    receiverMethod);
             MethodSignature<bool> methodSignature =
                 receiverMethod.DecodeSignature(
                     provider,
