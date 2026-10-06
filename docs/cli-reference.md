@@ -1500,8 +1500,10 @@ Every other type or member Text with a bare payload (`API Declarations` on the
 `type` command, `Decompiled Source`, `Annotated Source`, `PDB Source`, `IL`,
 and the overlays) has a fact row: `--table`, `--tsv`, and `--jsonl` emit its
 section, line count, and character count. `Source Diff` keeps its own row
-form, the comparison metadata and summary. `--json` on any of them emits the
-facts plus the complete payload as `content`. A fact row is not
+form, the comparison metadata and summary. `--json` on any of them except
+`API Declarations` emits the facts plus the complete payload as `content`;
+`API Declarations` keeps its inspection envelope, whose content carries the
+complete text. A fact row is not
 an inventory, so `--count` and `--rows` stay rejected. Composed Markdown
 still shows each Text's body, so `-S "Decompiled Source,IL"` reads side by
 side.

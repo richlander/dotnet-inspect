@@ -132,6 +132,6 @@ internal static class ApiOutputCapabilities
 
         return ApiCommand.DocumentProjectedSections.Contains(section)
             || ApiCommand.DedicatedJsonSections.Contains(section)
-            || ApiCommand.HasBarePayload(view, section);
+            || ApiCommand.HasTextPayloadJson(view, section);
     }
 }

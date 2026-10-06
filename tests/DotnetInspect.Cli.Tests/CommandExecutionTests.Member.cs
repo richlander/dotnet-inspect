@@ -1192,6 +1192,27 @@ public partial class CommandExecutionTests
         Assert.Contains(native.Split('\n')[0], composed);
         Assert.DoesNotContain("| Section | Lines | Characters |", composed);
 
+        // API Declarations keeps its dedicated inspection envelope as its JSON
+        // (round-1 finding): its content carries the complete text, while its
+        // row formats show the generic fact row.
+        string[] declarations =
+        [
+            "type", "DotnetInspect.Cli.Tests.CommandExecutionTests+ConstructorChainTarget",
+            "--library", TestAssemblyPath, "--all", "-S", SectionNames.ApiDeclarations,
+        ];
+        var (declarationsJsonExit, declarationsJson, _) = await RunAppAsync([.. declarations, "--json"]);
+        var (declarationsNativeExit, declarationsNative, _) = await RunAppAsync(declarations);
+        var (declarationsRowExit, declarationsRow, _) = await RunAppAsync([.. declarations, "--tsv"]);
+
+        Assert.Equal(0, declarationsJsonExit);
+        Assert.Equal(0, declarationsNativeExit);
+        Assert.Equal(0, declarationsRowExit);
+        using JsonDocument envelope = JsonDocument.Parse(declarationsJson);
+        Assert.Equal(
+            declarationsNative.TrimEnd(),
+            envelope.RootElement.GetProperty("content").GetProperty("text").GetString()!.TrimEnd());
+        Assert.StartsWith($"section\tlines\tcharacters\n{SectionNames.ApiDeclarations}\t", declarationsRow);
+
         // A fact row is not an inventory: Count and --rows stay rejected.
         var (countExit, _, countError) = await RunAppAsync([.. member, "-S", SectionNames.DecompiledSource, "--count"]);
         Assert.Equal(1, countExit);

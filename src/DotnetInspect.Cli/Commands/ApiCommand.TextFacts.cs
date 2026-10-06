@@ -19,13 +19,12 @@ namespace DotnetInspect.Cli.Commands;
 public partial class ApiCommand
 {
     /// <summary>
-    /// The Text sections with one bare payload, which lower to a
-    /// facts-plus-content JSON value. <c>Source</c> has its line inventory and
-    /// its own JSON document; <c>Finding Census</c> is a JSON census document
-    /// whose owner rejects row projections; <c>Annotated Source Document</c>
-    /// has no bare payload.
+    /// The Text sections with one bare payload. <c>Source</c> has its line
+    /// inventory; <c>Finding Census</c> is a JSON census document whose owner
+    /// rejects row projections; <c>Annotated Source Document</c> has no bare
+    /// payload.
     /// </summary>
-    internal static IReadOnlySet<string> TextPayloadJsonSections { get; } =
+    internal static IReadOnlySet<string> BarePayloadTextSections { get; } =
         new HashSet<string>(
             [
                 SectionNames.ApiDeclarations,
@@ -46,7 +45,18 @@ public partial class ApiCommand
     /// </summary>
     internal static IReadOnlySet<string> FactRowTextSections { get; } =
         new HashSet<string>(
-            TextPayloadJsonSections.Where(static section => section != SectionNames.SourceDiff),
+            BarePayloadTextSections.Where(static section => section != SectionNames.SourceDiff),
+            StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// The bare-payload Texts whose <c>--json</c> is the generic facts-plus-content
+    /// value. <c>API Declarations</c> is not one: on the <c>type</c> command, the
+    /// only route that has its payload, its JSON is the existing dedicated
+    /// inspection envelope, whose content carries the complete text.
+    /// </summary>
+    internal static IReadOnlySet<string> TextPayloadJsonSections { get; } =
+        new HashSet<string>(
+            BarePayloadTextSections.Where(static section => section != SectionNames.ApiDeclarations),
             StringComparer.OrdinalIgnoreCase);
 
     private static readonly string[] FactRowHeaders = ["Section", "Lines", "Characters"];
@@ -66,6 +76,13 @@ public partial class ApiCommand
     /// the generic fact row or, for <c>Source Diff</c>, its owner's structured rows.
     /// </summary>
     internal static bool HasTextRowFormats(Planning.StructuralViewIdentity view, string section) =>
+        HasBarePayload(view, section);
+
+    /// <summary>
+    /// Whether a bare-payload Text's <c>--json</c> is the generic facts-plus-content
+    /// value on this route (dedicated JSON lowerings are counted separately).
+    /// </summary>
+    internal static bool HasTextPayloadJson(Planning.StructuralViewIdentity view, string section) =>
         TextPayloadJsonSections.Contains(section)
         && HasBarePayload(view, section);
 
@@ -75,7 +92,7 @@ public partial class ApiCommand
     /// own view, exactly as their dedicated JSON does.
     /// </summary>
     internal static bool HasBarePayload(Planning.StructuralViewIdentity view, string section) =>
-        TextPayloadJsonSections.Contains(section)
+        BarePayloadTextSections.Contains(section)
         && !(TypeCommandJsonSections.Contains(section)
             && view != Planning.StructuralViewIdentity.Type);
 

@@ -443,10 +443,13 @@ unchanged.
    The type and member owners' Texts lower as follows (#9456). `Source` keeps
    its `Lines` inventory. Every other Text with one bare payload — API
    declarations, decompiled, annotated, PDB, and diffed source, the overlays,
-   and IL — has a JSON value of section, line count, character count, and the
-   complete payload, and its row formats show its fact row of those facts;
-   diffed source keeps its owner's richer row form, the comparison metadata and
-   summary. A Text without a bare payload keeps its composed and dedicated
+   and IL — shows in its row formats a fact row of section, line count, and
+   character count; diffed source keeps its owner's richer row form, the
+   comparison metadata and summary. Its JSON value is those facts plus the
+   complete payload, except where an owner's dedicated JSON lowering already
+   carries the complete content: the API declarations' inspection envelope,
+   `Source`'s document, the finding census, and the annotated source
+   document keep theirs. A Text without a bare payload keeps its composed and dedicated
    lowerings. **Divergence:** a type or member Text composed with other
    sections shows its body in Markdown rather than its fact row, because
    reading two code views side by side (`-S "Decompiled Source,IL"`) is the
