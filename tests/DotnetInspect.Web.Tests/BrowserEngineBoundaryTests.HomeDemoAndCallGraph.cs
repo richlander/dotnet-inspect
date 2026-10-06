@@ -12,7 +12,9 @@ using System.Text.Json;
 using DotnetInspector.Ecosystems;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
+using DotnetInspector.PlatformHouse.Packages;
 using DotnetInspector.Platforms;
+using DotnetInspector.Platforms.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
 using DotnetInspector.Sections;
@@ -136,6 +138,7 @@ public sealed partial class BrowserEngineBoundaryTests
                 type.Api.Count(member =>
                     member.Name == nameof(HomeDemoRunFixture)));
         }
+
         finally
         {
             await BrowserPackageWorkspace.RemoveScopeAsync(scope);
@@ -236,6 +239,165 @@ public sealed partial class BrowserEngineBoundaryTests
         {
             await BrowserPackageWorkspace.RemoveScopeAsync(scope);
         }
+    }
+
+    [Fact]
+    public async Task
+        DependencyCallGraph_ContinuesIntoPackageBackedPlatformPopulation()
+    {
+        const string platformVersion = "11.0.913";
+        string runtimeDirectory =
+            Path.GetDirectoryName(typeof(object).Assembly.Location)!;
+        (string Name, byte[] Content)[] platformAssemblies =
+        [
+            (
+                "System.Private.CoreLib.dll",
+                File.ReadAllBytes(typeof(object).Assembly.Location)),
+            (
+                "System.Console.dll",
+                File.ReadAllBytes(typeof(Console).Assembly.Location)),
+            (
+                "System.Runtime.dll",
+                File.ReadAllBytes(
+                    Path.Combine(
+                        runtimeDirectory,
+                        "System.Runtime.dll"))),
+        ];
+        byte[] referencePackage = PackageEntries(
+            platformAssemblies.Select(assembly =>
+                ($"ref/net11.0/{assembly.Name}", assembly.Content))
+                .ToArray());
+        byte[] runtimePackage = PlatformPackage(platformAssemblies);
+        var handler = new ExactPlatformRangeHandler(
+            platformVersion,
+            new Dictionary<string, byte[]>(
+                StringComparer.OrdinalIgnoreCase)
+            {
+                ["microsoft.netcore.app.ref"] =
+                    referencePackage,
+                ["microsoft.netcore.app.runtime.linux-x64"] =
+                    runtimePackage,
+            });
+        using IPackageSourceClient source =
+            BrowserPackageWorkspace.CreateGallerySource(
+                handler,
+                new NuGetFetchOptions
+                {
+                    RequestTimeout = TimeSpan.FromSeconds(30),
+                    OperationTimeout = TimeSpan.FromSeconds(30),
+                });
+        IPackageSourceAuthorization authorization =
+            BrowserPackageWorkspace.SourceAuthorizationFor(source);
+        using var deadline =
+            new BrowserPackageWorkspace.BrowserPackageOperationDeadline(
+                TimeSpan.FromSeconds(30),
+                TestContext.Current.CancellationToken);
+        BrowserPackageWorkspace.BrowserSessionPackageStore store =
+            BrowserPackageWorkspace.PackageStoreFor(source);
+        await using PackageSourceSettlementLease sourceLease =
+            PackageSourceSettlementService.IssueLease(
+                authority =>
+                    ReferenceEquals(
+                        authority.Association,
+                        source.Source.Association)
+                        ? source
+                        : throw new InvalidOperationException(
+                            "The test continuation selected another package source."));
+        var candidateSource =
+            new AuthorizedPackageDependencyCandidateSource(
+                authorization,
+                sourceLease);
+        TimeSpan operationTimeout =
+            BrowserPackageWorkspace.SourceSettlementOperationTimeout(
+                deadline.Remaining);
+        PackageHouseOperation operation =
+            PackageHouseOperation.Create(
+                PackageHouseOperationProfile.Realize,
+                operationTimeout,
+                operationTimeout);
+        var packagePlan = new PackagePayloadAcquisitionPlan(
+            static (_, _) =>
+                throw new InvalidOperationException(
+                    "The test does not perform Package dependency acquisition."));
+        var packages =
+            new PackageDependencyMemberCallGraphInspectionSource(
+                new PackageDependencyTraversalCandidateAdapter(
+                    candidateSource),
+                new AuthorizedPackageDependencyManifestSource(
+                    candidateSource),
+                new PackageHouse(
+                    authorization,
+                    packagePlan),
+                (requestedOperation, token) =>
+                    sourceLease.IssueOperationLease(
+                        token,
+                        requestedOperation.RequestTimeout,
+                        requestedOperation.OperationTimeout));
+        var platform = new PackagePlatformHouseAdapter(
+            new PackagePlatformSource(
+                authorization,
+                new PackagePayloadAcquisitionPlan(
+                    (authority, _) =>
+                        ReferenceEquals(
+                            authority.Association,
+                            source.Source.Association)
+                            ? store
+                            : throw new InvalidOperationException(
+                                "The test Platform realization selected another package source."),
+                    BrowserPackageWorkspace.PackageLimits,
+                    new BrowserPackageWorkspace
+                        .BrowserPackageOperationTransferPolicy(
+                            store,
+                            deadline),
+                    access: PackagePayloadAccess.Ranged,
+                    rangedSizeCut: 0)),
+            "browser-call-graph-platform-test");
+        var continuationSource =
+            new BrowserPackageDependencyMemberCallGraphContinuationSource(
+                packages,
+                operation,
+                platform,
+                (request, _) =>
+                    sourceLease.IssueOperationLease(
+                        request.CancellationToken,
+                        operationTimeout,
+                        operationTimeout),
+                operationTimeout);
+        var work = new AssemblyReferenceResolutionWorkLedger(
+            new(
+                maxPackageRouteOccurrences: 1,
+                maxPackageCandidateOperations: 1,
+                maxSourceOperations: 4,
+                maxAcquisitions: 2,
+                maxRealizedAssemblies:
+                    BrowserInspectionScope.MaxAssembliesPerRole,
+                maxTransferBytes: 128L * 1024 * 1024,
+                maxRetainedAssemblyBytes:
+                    BrowserInspectionScope.MaxRetainedImageBytes,
+                maxWorkspaceReplacements: 1,
+                DateTimeOffset.UtcNow.AddSeconds(30)));
+        await using var workspace = new InspectionWorkspace();
+        WorkspaceRegistrationRevision registrations =
+            Assert.IsType<WorkspaceRegistrationReadResult.Available>(
+                workspace.GetRegistrationSnapshot()).Revision;
+        var target = new PlatformFamilyTarget(
+            PlatformFamily.DotNetRuntime,
+            PlatformTargetFramework.Parse("net11.0"),
+            PlatformVersion.Parse(platformVersion));
+
+        ImmutableArray<PackageAssemblyContextPlatformLibrary> libraries =
+            await continuationSource.AdmitPlatformPopulationAsync(
+                workspace,
+                registrations,
+                target,
+                work,
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(platformAssemblies.Length, libraries.Length);
+        Assert.True(
+            handler.PackageRequestsFor(
+                "microsoft.netcore.app.runtime.linux-x64") > 0);
+        Assert.True(handler.PackageRequests > 0);
     }
 
     [Fact]
