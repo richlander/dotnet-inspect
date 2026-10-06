@@ -2,6 +2,7 @@ using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Models;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
+using DotnetInspector.ResearchQueries;
 using DotnetInspect.Cli.Views;
 using System.Globalization;
 using System.Text.Json;
@@ -1438,6 +1439,11 @@ public static class OutputFormatter
                 count);
         }
         ApplyClassificationCounts(projection, inspection, writerOptions.IncludeSections, rows);
+        ApplyArchitecturalFamilyCounts(
+            projection,
+            inspection,
+            writerOptions.IncludeSections,
+            rows);
         ApplyPerformanceCounts(
             projection,
             inspection,
@@ -1448,6 +1454,35 @@ public static class OutputFormatter
         ApplyILCoordinateCardinality(
             projection, inspection, writerOptions.IncludeSections, rows, fields, columns);
         return projection;
+    }
+
+    internal static void ApplyArchitecturalFamilyCounts(
+        CountProjection projection,
+        LibraryInspection inspection,
+        IReadOnlyCollection<string>? includedSections,
+        RowWindow? rows)
+    {
+        if (includedSections is null
+            || inspection.ArchitecturalFamilyQueryResult
+                is not LibraryArchitecturalFamilyQueryResult.Available
+                { Count: int count })
+        {
+            return;
+        }
+
+        if (includedSections.Contains(SectionNames.ArchitecturalFamilies))
+        {
+            projection.SetRows(
+                SectionNames.ArchitecturalFamilies,
+                WindowedCount(count, rows));
+        }
+        else if (includedSections.Contains(
+                     SectionNames.ArchitecturalFamilyTypes))
+        {
+            projection.SetRows(
+                SectionNames.ArchitecturalFamilyTypes,
+                WindowedCount(count, rows));
+        }
     }
 
     /// <summary>
@@ -1477,14 +1512,14 @@ public static class OutputFormatter
         {
             projection.SetRows(SectionNames.PInvokeMethods, WindowedCount(pInvokeCount, rows));
         }
+    }
 
-        static int WindowedCount(int count, RowWindow? rows)
-        {
-            if (rows is not { IsUnlimited: false } window)
-                return count;
-            (int keepStart, int keepEnd) = window.Resolve(count);
-            return keepEnd - keepStart;
-        }
+    private static int WindowedCount(int count, RowWindow? rows)
+    {
+        if (rows is not { IsUnlimited: false } window)
+            return count;
+        (int keepStart, int keepEnd) = window.Resolve(count);
+        return keepEnd - keepStart;
     }
 
     internal static void ApplyPerformanceCounts(

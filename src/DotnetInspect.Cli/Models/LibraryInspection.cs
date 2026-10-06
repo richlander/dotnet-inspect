@@ -555,6 +555,20 @@ public class LibraryInspection
         }
     }
 
+    private LibraryArchitecturalFamilyQueryResult? _architecturalFamilyQueryResult;
+
+    /// <summary>Typed Architectural Families result.</summary>
+    [JsonIgnore]
+    public LibraryArchitecturalFamilyQueryResult? ArchitecturalFamilyQueryResult
+    {
+        get => _architecturalFamilyQueryResult;
+        set
+        {
+            _architecturalFamilyQueryResult = value;
+            ResetFindingProjectionCaches();
+        }
+    }
+
     private LibraryDependencyStructureQueryResult?
         _dependencyStructureQueryResult;
 
@@ -1152,6 +1166,14 @@ public class LibraryInspection
                         SectionNames.NameFamilies,
                         LibraryNameFamilyQuery.Definition.Name,
                         nameFamilyFailure.Error.Message));
+                }
+                if (ArchitecturalFamilyQueryResult
+                    is LibraryArchitecturalFamilyQueryResult.Failed architecturalFamilyFailure)
+                {
+                    failures.Add(new LibraryInspectionFailureJson(
+                        SectionNames.ArchitecturalFamilies,
+                        LibraryArchitecturalFamilyQuery.Definition.Name,
+                        architecturalFamilyFailure.Error.Message));
                 }
                 if (DependencyStructureQueryResult
                     is LibraryDependencyStructureQueryResult.Failed

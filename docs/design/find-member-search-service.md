@@ -77,21 +77,33 @@ the same Member Find operation.
 `MemberSearchService`:
 
 1. builds the same authorized source request as Type Find;
-2. executes `AssemblyContextMemberMatchesQuery` for every admitted assembly;
-3. applies an optional declaring-Type filter before the trusted result limit;
-4. attaches source provenance to Metadata-issued member facts; and
-5. returns flat `MemberFindResult` rows plus visible failure state.
+2. normalizes one host-neutral `MemberFindQuestion`;
+3. evaluates configured-package and Platform workspace populations through
+   `MemberFindSourceEvaluator`, applying the structured declaring-Type filter
+   before the trusted result limit;
+4. projects the resulting `MemberFindBlock` into the established CLI rows and
+   visible failure state; and
+5. retains `AssemblyContextMemberMatchesQuery` as the compatibility path for
+   explicit assembly-set sources until those sources issue exact semantic
+   population identity.
 
 The service does not parse exact-member selectors, choose one overload,
 reconstruct identity from signatures, or turn rejected metadata into an empty
 success.
 
-The Metadata result retains the input pattern, member name, declaring Type,
-kind, signature, return Type, digest, assembly, and whether the pattern was a
-glob. The CLI projection currently omits the match kind from rendered
-Markdown, table, TSV, JSONL, and projected JSON rows. Unprojected `--json`
-serializes `MemberFindResult` directly and therefore exposes the
-`MemberFindMatchKind` enum name.
+The Metadata result retains the input pattern and ordinal, member name,
+structured declaring `MetadataTypeDefinitionName`, producer-issued
+`MemberAnchor`, declaration and member order, display Type, kind, signature,
+return Type, digest, assembly, and whether the pattern was a glob. The
+host-neutral semantic result joins those facts to the exact source coordinate;
+its source identity separately retains owner-issued request and selection
+evidence that distinguishes requested target frameworks and runtime
+identifiers from selected package assets and Platform versions. It never
+reconstructs identity from display text. The CLI
+projection currently omits the match kind from rendered Markdown, table, TSV,
+JSONL, and projected JSON rows. Unprojected `--json` serializes
+`MemberFindResult` directly and therefore exposes the `MemberFindMatchKind`
+enum name.
 
 ## Demo
 
@@ -138,9 +150,13 @@ state appear to have two meanings.
 
 The CLI and Metadata implementation adopt the contract together:
 
-- `MemberSearch` continues to issue the existing direct/glob grammar evidence;
-- `MemberSearchService` maps non-glob evidence to
-  `MemberFindMatchKind.Direct`; and
+- `MemberSearch` issues direct/glob grammar evidence plus structured
+  declaration and member identity;
+- `MemberFindSourceEvaluator` owns classification, coverage, limits, pattern
+  settlement, and exact source association for configured-package and Platform
+  populations;
+- `MemberSearchService` projects non-glob semantic evidence to
+  `MemberFindMatchKind.Direct` without re-running matching; and
 - source-generated JSON exposes the corrected enum value.
 
 No Browser/Wasm adoption is required: this change corrects an existing

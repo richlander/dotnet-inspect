@@ -151,6 +151,10 @@ public static class LibrarySections
                 HasMethodBodies)
             .Add<NameFamilies>(
                 LibraryNameFamilyQuery.Definition)
+            .Add<ArchitecturalFamilies>(
+                LibraryArchitecturalFamilyQuery.Definition)
+            .Add<ArchitecturalFamilyTypes>(
+                LibraryArchitecturalFamilyQuery.Definition)
             .Add<DependencyStructure>(
                 LibraryDependencyStructureQuery.Definition,
                 HasMethodBodies)
@@ -411,6 +415,9 @@ public static class LibrarySections
                 LibraryNameFamilyQuery.Definition,
                 ExecuteLibraryNameFamilyQuery)
             .Add(
+                LibraryArchitecturalFamilyQuery.Definition,
+                ExecuteLibraryArchitecturalFamilyQuery)
+            .Add(
                 LibraryDependencyStructureQuery.Definition,
                 ExecuteLibraryDependencyStructureQuery)
             .AddSourceLinkQueries(RequireSourceLinkContext)
@@ -649,6 +656,61 @@ public static class LibrarySections
         catch (Exception error)
         {
             return new LibraryNameFamilyQueryResult.Failed(error);
+        }
+    }
+
+    internal static LibraryArchitecturalFamilyQueryResult
+        ExecuteLibraryArchitecturalFamilyQuery(
+            InspectionQueryContext context)
+    {
+        if (context.AssemblyReference is not { } assembly)
+        {
+            return new LibraryArchitecturalFamilyQueryResult.Failed(
+                new InvalidOperationException(
+                    "Library architectural families require an artifact-backed "
+                        + "assembly descriptor."));
+        }
+
+        try
+        {
+            LibraryArchitecturalFamilyQueryPlan operation =
+                LibraryArchitecturalFamilyQuery.CreatePlan(
+                    context.NameFamilyPopulation);
+            RowSelectionIntent<string> rows =
+                context.NameFamilyRowSelection
+                ?? RowSelectionIntent<string>.Create([]);
+            QuerySpaceRequest request =
+                context.ArchitecturalFamilyTypeRows
+                    ? LibraryArchitecturalFamilyQuery.CreateTypeRequest(
+                        operation,
+                        rows,
+                        context.CountOnly
+                            ? QuerySpaceTerminalRequirement.Count
+                            : QuerySpaceTerminalRequirement.Rows)
+                    : LibraryArchitecturalFamilyQuery.CreateFamilyRequest(
+                        operation,
+                        rows,
+                        context.CountOnly
+                            ? QuerySpaceTerminalRequirement.Count
+                            : QuerySpaceTerminalRequirement.Rows);
+            return context.Query(
+                session => LibraryArchitecturalFamilyInspection.Execute(
+                    assembly,
+                    session,
+                    context.MetadataContext?
+                        .InspectSourceProvenance(),
+                    operation,
+                    request),
+                static error =>
+                    new LibraryArchitecturalFamilyQueryResult.Failed(error));
+        }
+        catch (CostDeclarationException)
+        {
+            throw;
+        }
+        catch (Exception error)
+        {
+            return new LibraryArchitecturalFamilyQueryResult.Failed(error);
         }
     }
 
@@ -1242,6 +1304,36 @@ public static class LibrarySections
         : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.NameFamilies;
+        public static bool IsExpensive => true;
+        public static bool ExplicitOnly => true;
+        public static bool ProbeEffectiveness => false;
+        public static SectionCapabilities Capabilities =>
+            SectionCapabilities.MayDownloadPdb;
+        public static SectionSizeClass SizeClass =>
+            SectionSizeClass.Verbose;
+        public static SectionCost Cost => SectionCost.Unbounded;
+        public static bool CanRender(LibraryInspection model) => true;
+    }
+
+    public sealed class ArchitecturalFamilies
+        : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => SectionNames.ArchitecturalFamilies;
+        public static bool IsExpensive => true;
+        public static bool ExplicitOnly => true;
+        public static bool ProbeEffectiveness => false;
+        public static SectionCapabilities Capabilities =>
+            SectionCapabilities.MayDownloadPdb;
+        public static SectionSizeClass SizeClass =>
+            SectionSizeClass.Verbose;
+        public static SectionCost Cost => SectionCost.Unbounded;
+        public static bool CanRender(LibraryInspection model) => true;
+    }
+
+    public sealed class ArchitecturalFamilyTypes
+        : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => SectionNames.ArchitecturalFamilyTypes;
         public static bool IsExpensive => true;
         public static bool ExplicitOnly => true;
         public static bool ProbeEffectiveness => false;

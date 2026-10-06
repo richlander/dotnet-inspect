@@ -1435,6 +1435,43 @@ facts into a presentation view does not move into the query merely to reduce
 adapter code. This keeps the assembly owner from regressing into formatter
 logic without making view types the currency of the service boundary.
 
+### Extension relation population producer contract
+
+Assembly Inspection owns the direct extension question over one admitted
+image: which physical extension declarations name one exact structured
+receiver assembly and Type identity? The request independently selects exact
+Count and/or one bounded Rows segment, visibility, operation policy, and an
+optional source MVID for continuation. It does not resolve receiver
+definitions, infer identity from display text, acquire another image, or claim
+complete C# applicability.
+
+One forward declaration-candidate walk owns discovery order, visibility,
+coverage, diagnostics, and operation charging. Each included declaration is
+decoded far enough to establish its exact receiver identity. A nonmatching
+declaration does not require rich display projection or canonical Member
+construction; matching declarations retain canonical physical Member identity,
+structured receiver evidence, declaring and receiver-context addresses, and
+declaration tokens. Unsupported or malformed candidate evidence remains a
+typed incomplete or failed outcome rather than exact absence.
+
+Count requires complete candidate coverage. Bounded Rows retains only the
+requested logical-row segment, but the direct producer may finish the walk to
+establish exact completion and a source-bound continuation ordinal. Logical
+row and occurrence order remain Metadata discovery order; presentation sorting
+is downstream. Repeated physical declarations with the same exact logical
+identity remain occurrences inside one row.
+
+`ExtensionPopulationPushesCountAndBoundedRowsForHttpClient`,
+`ExtensionPopulationMatchesRuntimeCensusInMetadataOrder`,
+`ExtensionPopulationPreservesMixedDeclarationDiscoveryOrder`,
+`ExtensionPopulationPreservesConstructedReceiverContext`, and
+`ExtensionAndReferenceProducersRetainExactEvidence` gate the result contract.
+The NativeAOT scorecard for #9284 gates equivalent cardinality and logical-row
+identity against the prior rich census/filter reference over zero, small, and
+dense real runtime receiver populations. Kernel diagnostics report retained-
+session latency and allocation; exact base/head apphosts gate end-to-end
+latency, RSS, startup, and generated-code cost.
+
 ### Hierarchy relation producer and oracle contract
 
 Assembly Inspection owns the direct hierarchy question over one admitted

@@ -66,7 +66,9 @@ public static class PackageAssemblyReferenceRouteAdapter
             AssemblyBindingSelection referencingContextSelection,
             PackageHouse packageHouse,
             PackageSourceOperationLease packageSourceOperation,
-            CancellationToken cancellationToken = default)
+            CancellationToken cancellationToken = default,
+            Action<AssemblyReferenceResolutionWorkKind, long>? chargeWork =
+                null)
     {
         ArgumentNullException.ThrowIfNull(route);
         ArgumentNullException.ThrowIfNull(referencingContextSelection);
@@ -79,7 +81,8 @@ public static class PackageAssemblyReferenceRouteAdapter
                     route.Request,
                     referencingContextSelection,
                     packageHouse,
-                    packageSourceOperation)
+                    packageSourceOperation,
+                    chargeWork)
                 .ConfigureAwait(false);
         cancellationToken.ThrowIfCancellationRequested();
         if (!ReferenceEquals(outcome.Request, route.Request))

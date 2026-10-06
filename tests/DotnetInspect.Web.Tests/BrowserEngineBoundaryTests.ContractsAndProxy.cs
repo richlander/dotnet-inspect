@@ -666,7 +666,7 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
-    public void SourceContexts_UseFreshMemoryOnlyPdbStores()
+    public void SourceContexts_UseSharedMemoryOnlyPdbStoreAndSettlement()
     {
         AssemblyContextSourceQueryContext first =
             DotnetInspect.Web.Interop.Source.SourceExports.CreateSourceContext();
@@ -676,8 +676,12 @@ public sealed partial class BrowserEngineBoundaryTests
         var firstStore =
             Assert.IsType<InMemoryPdbStore>(first.PdbStore);
         Assert.IsType<InMemoryPdbStore>(second.PdbStore);
-        Assert.NotSame(first.PdbStore, second.PdbStore);
+        Assert.Same(first.PdbStore, second.PdbStore);
         Assert.Equal(24L * MiB, firstStore.MaxRetainedBytes);
+        Assert.Same(
+            first.PortablePdbSettlementCapability,
+            second.PortablePdbSettlementCapability);
+        Assert.NotNull(first.PortablePdbSettlementCapability);
         Assert.False(first.AllowLocalSourceReads);
         Assert.Null(first.RepositoryPaths);
         Assert.NotNull(first.SymbolAcquisitionLimits);

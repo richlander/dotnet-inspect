@@ -12,6 +12,35 @@ public static class
 {
     public static AssemblyReferenceWorkspaceContinuationDemand Create(
         AssemblyReferenceResolutionRequest request,
+        AssemblyReferenceResolutionOutcome.AcquisitionRequired
+            acquisition)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(acquisition);
+        if (!ReferenceEquals(
+                request.BindingRequest,
+                acquisition.Request)
+            || !ReferenceEquals(
+                request.BindingRequest,
+                acquisition.FinalRequest)
+            || !ReferenceEquals(
+                request.Generation,
+                acquisition.Generation))
+        {
+            throw new ArgumentException(
+                "The acquisition result must retain the resolution request's exact predecessor generation.",
+                nameof(acquisition));
+        }
+
+        return new(
+            request,
+            acquisition.RouteSet,
+            acquisition.SelectedRoute,
+            acquisition.OwnerEvidence);
+    }
+
+    public static AssemblyReferenceWorkspaceContinuationDemand Create(
+        AssemblyReferenceResolutionRequest request,
         AssemblyReferenceExternalRouteSet routeSet,
         ExternalAssemblyReferenceSupplierOutcome supplier)
     {

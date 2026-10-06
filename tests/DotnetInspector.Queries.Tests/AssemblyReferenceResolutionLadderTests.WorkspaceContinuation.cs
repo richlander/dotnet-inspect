@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 
+using DotnetInspector.ResearchQueries;
 using DotnetInspector.SourceSelection;
 using ILInspector.Metadata;
 
@@ -139,6 +140,70 @@ public sealed partial class AssemblyReferenceResolutionLadderTests
         Assert.Equal(
             AssemblyReferenceResolutionWorkKind.WorkspaceReplacement,
             exhaustion.Kind);
+    }
+
+    [Fact]
+    public async Task
+        WorkspaceContinuationProjectsConstructionWorkExhaustion()
+    {
+        await using var coordinator = new WorkspaceReplacementCoordinator();
+        using WorkspaceRealizationOperationLease predecessor =
+            await ActivateAsync(coordinator);
+        ResolvedAssemblyReference assembly = TestAssembly();
+        AssemblyBindingRequest binding = ReferenceRequest(assembly);
+        var work = new AssemblyReferenceResolutionWorkLedger(
+            new(
+                maxPackageRouteOccurrences: 1,
+                maxPackageCandidateOperations: 1,
+                maxSourceOperations: 0,
+                maxAcquisitions: 1,
+                maxRealizedAssemblies: 1,
+                maxTransferBytes: 1,
+                maxRetainedAssemblyBytes: 1,
+                maxWorkspaceReplacements: 1,
+                deadline: DateTimeOffset.UtcNow.AddMinutes(5)));
+        AssemblyReferenceResolutionRequest request =
+            ResolutionRequest(
+                predecessor,
+                binding,
+                new AssemblyBindingPolicyVersion(),
+                AssemblyBindingSelection.NameNotOwned(),
+                work);
+        TestExternalRoute route = new(binding, request.Generation);
+        var demand = new AssemblyReferenceWorkspaceContinuationDemand(
+            request,
+            RouteSet(request, route),
+            route,
+            ownerEvidence: new object());
+
+        AssemblyReferenceWorkspaceContinuationOutcome outcome =
+            await AssemblyReferenceWorkspaceContinuationOperation.ExecuteAsync(
+                coordinator,
+                predecessor,
+                demand,
+                (_, _, _) =>
+                {
+                    work.Charge(
+                        AssemblyReferenceResolutionWorkKind.SourceOperation,
+                        amount: 1);
+                    throw new InvalidOperationException(
+                        "Exhausted work must stop successor construction.");
+                },
+                TestContext.Current.CancellationToken);
+
+        var incomplete = Assert.IsType<
+            AssemblyReferenceWorkspaceContinuationOutcome.Incomplete>(
+                outcome);
+        var exhaustion = Assert.IsType<
+            AssemblyReferenceResolutionWorkExhaustion>(
+                incomplete.Evidence);
+        Assert.Equal(
+            AssemblyReferenceResolutionWorkKind.SourceOperation,
+            exhaustion.Kind);
+        Assert.NotNull(incomplete.Cleanup.Candidate);
+        Assert.True(incomplete.Cleanup.Succeeded);
+        Assert.Null(incomplete.Cleanup.Publication);
+        Assert.Same(predecessor.Realization, coordinator.Current!.Identity);
     }
 
     [Fact]
@@ -297,6 +362,115 @@ public sealed partial class AssemblyReferenceResolutionLadderTests
 
     [Fact]
     public async Task
+        PublishedSuccessorAdoptionCompletesAfterCallerCancellation()
+    {
+        await using var coordinator = new WorkspaceReplacementCoordinator();
+        using WorkspaceRealizationOperationLease predecessor =
+            await ActivateAsync(coordinator);
+        var start = Assert.IsType<
+            WorkspaceRealizationCandidateStartResult.Prepared>(
+                await coordinator.BeginCandidateAsync(
+                    predecessor.Definition.Plan,
+                    TestContext.Current.CancellationToken));
+        _ = Assert.IsType<
+            WorkspaceRealizationCandidateCompletionResult.Ready>(
+                await coordinator.CompleteCandidateAsync(
+                    start.Candidate,
+                    TestContext.Current.CancellationToken));
+        WorkspaceRealizationCutoverResult.Activated activated =
+            Assert.IsType<WorkspaceRealizationCutoverResult.Activated>(
+                coordinator.CutOver(
+                    start.Candidate,
+                    predecessor.Definition));
+        var continuation =
+            new AssemblyReferenceWorkspaceContinuationOutcome.Cancelled(
+                new(
+                    candidate: null,
+                    new(
+                        activated.Realization,
+                        activated.Predecessor)));
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => coordinator.EnterOperationAsync(cancellation.Token).AsTask());
+        var disposed = false;
+
+        using WorkspaceRealizationOperationLease successor =
+            Assert.IsType<WorkspaceRealizationOperationLease>(
+                await PackageDependencyMemberCallGraphContinuation
+                    .AdoptPublishedSuccessorOperationAsync(
+                        coordinator,
+                        continuation,
+                        () =>
+                        {
+                            disposed = true;
+                            return ValueTask.CompletedTask;
+                        }));
+
+        Assert.Same(activated.Realization.Identity, successor.Realization);
+        Assert.False(disposed);
+        predecessor.Dispose();
+        Assert.True(
+            (await activated.Predecessor!.Completion).Succeeded);
+    }
+
+    [Fact]
+    public async Task
+        PublishedSuccessorAdoptionFailureDisposesUnownedGeneration()
+    {
+        await using var publicationCoordinator =
+            new WorkspaceReplacementCoordinator();
+        using WorkspaceRealizationOperationLease publicationPredecessor =
+            await ActivateAsync(publicationCoordinator);
+        var start = Assert.IsType<
+            WorkspaceRealizationCandidateStartResult.Prepared>(
+                await publicationCoordinator.BeginCandidateAsync(
+                    publicationPredecessor.Definition.Plan,
+                    TestContext.Current.CancellationToken));
+        _ = Assert.IsType<
+            WorkspaceRealizationCandidateCompletionResult.Ready>(
+                await publicationCoordinator.CompleteCandidateAsync(
+                    start.Candidate,
+                    TestContext.Current.CancellationToken));
+        WorkspaceRealizationCutoverResult.Activated activated =
+            Assert.IsType<WorkspaceRealizationCutoverResult.Activated>(
+                publicationCoordinator.CutOver(
+                    start.Candidate,
+                    publicationPredecessor.Definition));
+        var continuation =
+            new AssemblyReferenceWorkspaceContinuationOutcome.Cancelled(
+                new(
+                    candidate: null,
+                    new(
+                        activated.Realization,
+                        activated.Predecessor)));
+        await using var foreignCoordinator =
+            new WorkspaceReplacementCoordinator();
+        using WorkspaceRealizationOperationLease foreign =
+            await ActivateAsync(foreignCoordinator);
+        var disposalCount = 0;
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () =>
+                PackageDependencyMemberCallGraphContinuation
+                    .AdoptPublishedSuccessorOperationAsync(
+                        foreignCoordinator,
+                        continuation,
+                        () =>
+                        {
+                            disposalCount++;
+                            return ValueTask.CompletedTask;
+                        })
+                    .AsTask());
+
+        Assert.Equal(1, disposalCount);
+        publicationPredecessor.Dispose();
+        Assert.True(
+            (await activated.Predecessor!.Completion).Succeeded);
+    }
+
+    [Fact]
+    public async Task
         WorkspaceContinuationRejectsForeignSelectedRouteAtDemandFormation()
     {
         await using var coordinator = new WorkspaceReplacementCoordinator();
@@ -431,6 +605,109 @@ public sealed partial class AssemblyReferenceResolutionLadderTests
             WorkspaceRealizationRetirementReason.CandidateAbandoned,
             rejected.Cleanup.Candidate.Reason);
         Assert.True(rejected.Cleanup.Succeeded);
+        Assert.Same(predecessor.Realization, coordinator.Current!.Identity);
+    }
+
+    [Fact]
+    public async Task
+        WorkspaceContinuationReleasesConstructedSuccessorBeforeRetirement()
+    {
+        await using var coordinator = new WorkspaceReplacementCoordinator();
+        using WorkspaceRealizationOperationLease predecessor =
+            await ActivateAsync(coordinator);
+        ResolvedAssemblyReference assembly = TestAssembly();
+        AssemblyBindingRequest binding = ReferenceRequest(assembly);
+        var policy = new AssemblyBindingPolicyVersion();
+        AssemblyReferenceResolutionRequest request =
+            ResolutionRequest(
+                predecessor,
+                binding,
+                policy,
+                AssemblyBindingSelection.NameNotOwned());
+        TestExternalRoute route = new(binding, request.Generation);
+        var demand = new AssemblyReferenceWorkspaceContinuationDemand(
+            request,
+            RouteSet(request, route),
+            route,
+            ownerEvidence: new object());
+        var released = false;
+
+        AssemblyReferenceWorkspaceContinuationOutcome outcome =
+            await AssemblyReferenceWorkspaceContinuationOperation.ExecuteAsync(
+                coordinator,
+                predecessor,
+                demand,
+                async (workspace, _, _) =>
+                    await ResolutionRequestAsync(
+                        workspace,
+                        new(
+                            binding.Target,
+                            SuccessorOrigin(assembly),
+                            binding.Scope),
+                        policy,
+                        AssemblyBindingSelection.Found(assembly),
+                        request.Work),
+                () =>
+                {
+                    released = true;
+                    return ValueTask.CompletedTask;
+                },
+                TestContext.Current.CancellationToken);
+
+        Assert.True(released);
+        Assert.IsType<
+            AssemblyReferenceWorkspaceContinuationOutcome.Rejected>(outcome);
+        Assert.Same(predecessor.Realization, coordinator.Current!.Identity);
+    }
+
+    [Fact]
+    public async Task
+        WorkspaceContinuationRetiresCandidateWhenSuccessorReleaseFails()
+    {
+        await using var coordinator = new WorkspaceReplacementCoordinator();
+        using WorkspaceRealizationOperationLease predecessor =
+            await ActivateAsync(coordinator);
+        ResolvedAssemblyReference assembly = TestAssembly();
+        AssemblyBindingRequest binding = ReferenceRequest(assembly);
+        var policy = new AssemblyBindingPolicyVersion();
+        AssemblyReferenceResolutionRequest request =
+            ResolutionRequest(
+                predecessor,
+                binding,
+                policy,
+                AssemblyBindingSelection.NameNotOwned());
+        TestExternalRoute route = new(binding, request.Generation);
+        var demand = new AssemblyReferenceWorkspaceContinuationDemand(
+            request,
+            RouteSet(request, route),
+            route,
+            ownerEvidence: new object());
+        var releaseFailure = new InvalidOperationException(
+            "constructed successor release failed");
+
+        AssemblyReferenceWorkspaceContinuationOutcome outcome =
+            await AssemblyReferenceWorkspaceContinuationOperation.ExecuteAsync(
+                coordinator,
+                predecessor,
+                demand,
+                async (workspace, _, _) =>
+                    await ResolutionRequestAsync(
+                        workspace,
+                        new(
+                            binding.Target,
+                            SuccessorOrigin(assembly),
+                            binding.Scope),
+                        policy,
+                        AssemblyBindingSelection.Found(assembly),
+                        request.Work),
+                () => ValueTask.FromException(releaseFailure),
+                TestContext.Current.CancellationToken);
+
+        var failed = Assert.IsType<
+            AssemblyReferenceWorkspaceContinuationOutcome.Failed>(outcome);
+        Assert.Same(releaseFailure, failed.Failure);
+        Assert.NotNull(failed.Cleanup.Candidate);
+        Assert.True(failed.Cleanup.Candidate.Succeeded);
         Assert.Same(predecessor.Realization, coordinator.Current!.Identity);
     }
 

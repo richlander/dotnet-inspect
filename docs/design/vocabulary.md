@@ -47,9 +47,8 @@ Markdown, plain text, table, TSV, JSONL, and projected JSON lower one typed
 `VocabularyView` through `MarkoutSerializer` and
 `VocabularyViewContext`. Runtime-named sections and runtime-column tables keep
 the composed snapshot authoritative for names, field labels, stable field IDs,
-and row order; today that snapshot is `VocabularyCatalog`, and after
-[#9250](https://github.com/richlander/dotnet-inspect/issues/9250) it is the
-host-composed snapshot described under [Ownership](#ownership). Each runtime section carries its summary as an ordinary
+and row order; that snapshot is the host-composed snapshot described under
+[Ownership](#ownership). Each runtime section carries its summary as an ordinary
 Markout paragraph because unwrapped child sections lower their content rather
 than their `DescriptionProperty` metadata. `VocabularyCommandTests` gates these
 formats in Release, including
@@ -94,7 +93,9 @@ identity, display label, maps, terms, and order are the owner's, and equal
 inputs yield equal declarations. A host composes the declarations it ships into
 one exactly identified snapshot, under the tier-1 composition rule the
 [QuerySpace library boundary](query-space-library.md#two-assemblies-and-two-participation-tiers)
-states. No component owns the complete list of product vocabularies.
+states. No component owns the complete list of product vocabularies; the
+Product Vocabulary document schema and the CLI's section descriptors, described
+below, each name the sections they present.
 
 The term owners, and therefore the declaring owners, are:
 
@@ -114,8 +115,11 @@ identity on its facet descriptor, through the opaque value-vocabulary identity
 that [Query Space Composition](query-space-composition.md) already defines; no
 facet sets one today. The Body Shapes `Kind` predicate that accepts
 `csharp.body-kinds` is a CLI section query key, not a Query Space facet, so it
-has no descriptor to carry that identity. Its typed link lands with the
-explanation adoption in
+has no descriptor to carry that identity. Each composed vocabulary is
+explainable at `vocabularies/<id>` under
+[Resource Explanation](resource-explanation.md#value-vocabulary-resources),
+which names its accepted query inputs. The reverse link, from the `Kind` query
+key to `vocabularies/csharp.body-kinds`, is a later slice of
 [#9250](https://github.com/richlander/dotnet-inspect/issues/9250) step 7,
 which chooses the carrier. The product vocabulary document, its sections,
 fields, operators, rows, and wire projection are declared section schemas
@@ -144,14 +148,29 @@ changed path: a change under `tests/DotnetInspect.Web.Tests` runs both the
 Inspect Web and CLI lanes, while a CLI-only change does not run the Inspect
 Web lane.
 
-Until [#9250](https://github.com/richlander/dotnet-inspect/issues/9250)
-step 6 retires it, `DotnetInspector.Vocabulary` holds only the CLI-compatible
-document projection, the section-name constants, and the inspection wrapper.
-It references `ILInspector.Decompiler` and `DotnetInspector.Queries` only for
-the owners' identity and label constants; the `vocabulary-dependencies` policy
-rule records that interim edge, and the project retires with the migration.
-The declaration types live in `QuerySpace.Primitives`, and the composition,
-document, and wire types in `DotnetInspector.Sections`.
+The declaration types live in `QuerySpace.Primitives`. The composition
+(`ProductVocabularyComposition`), the document projection
+(`ProductVocabularyProjection`), the inspection wrapper, and the document and
+wire types live in `DotnetInspector.Sections`. Each host holds its
+contribution list, and no assembly between the owners and the hosts restates
+their values. Two fixed section lists remain, both naming sections rather than
+restating values:
+
+- **Document schema.** `ProductVocabularyProjection` names each section it
+  projects, with that section's fields and operators, and fails visibly when a
+  composed snapshot lacks one. A vocabulary that a host contributes without a
+  document section appears only as an index row.
+- **CLI section descriptors.** `VocabularySections` in the CLI host declares
+  one section descriptor per document section, with its selection category.
+  `-S` resolves only sections that have a descriptor, so an unlisted section is
+  reported as unresolved.
+
+Adding a vocabulary therefore takes an owner declaration, a contribution in
+each host that ships it, a document section, and, for the CLI, a section
+descriptor. Whether the document keeps a per-section schema or projects every
+composed vocabulary generically is decided with the explanation adoption in
+[#9250](https://github.com/richlander/dotnet-inspect/issues/9250) steps 7
+and 8.
 
 Static vocabulary answers "what may I ask?" Target-aware facets remain query
 results: they add availability, counts, or rejection reasons for one inspected

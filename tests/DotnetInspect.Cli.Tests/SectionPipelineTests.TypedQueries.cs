@@ -2798,6 +2798,8 @@ public partial class SectionPipelineTests
             SectionNames.DependencyStructure,
             SectionNames.LibraryMetrics,
             SectionNames.NameFamilies,
+            SectionNames.ArchitecturalFamilies,
+            SectionNames.ArchitecturalFamilyTypes,
             SectionNames.TopLeverage,
             SectionNames.UnsafeMembers,
             IntegrationSectionNames.Integrations,

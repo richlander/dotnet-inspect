@@ -374,6 +374,11 @@ public record LibraryOptions : IProjectionOptions
     { get; init; }
 
     /// <summary>
+    /// Selects exact Type support rows for the architectural-family operation.
+    /// </summary>
+    public bool ArchitecturalFamilyTypeRows { get; init; }
+
+    /// <summary>
     /// Semantic namespace-edge selection for the exact Dependency Structure
     /// section.
     /// </summary>
