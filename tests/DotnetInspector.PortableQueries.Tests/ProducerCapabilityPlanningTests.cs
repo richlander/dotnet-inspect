@@ -118,7 +118,7 @@ public sealed class ProducerCapabilityPlanningTests
                 [fixture.CountProvision],
                 [],
                 fixture.DirectCountCandidate),
-            ProducerCapabilityPlanRejectionReason.UnknownCapability);
+            ProducerCapabilityPlanRejectionReason.CapabilityMismatch);
         AssertRejected(
             fixture.Validate(
                 [
@@ -209,7 +209,47 @@ public sealed class ProducerCapabilityPlanningTests
                             fixture.CountAssociation,
                             first),
                     ])),
-            ProducerCapabilityPlanRejectionReason.DependencyCycle);
+            ProducerCapabilityPlanRejectionReason.DependencyOrder);
+    }
+
+    [Fact]
+    public void ProducerCapabilityPlanChecksResourceOfSelectedProvisionsOnly()
+    {
+        var fixture = new CapabilityFixture();
+        ProducerCapabilityScopeIdentity foreignScope =
+            ProducerCapabilityScopeIdentity.Create(
+                fixture.Domain,
+                QuerySpaceResourceIdentity.Create(fixture.ResourceDomain));
+        ProducerCapabilityProvisionDeclaration foreignProvision =
+            ProducerCapabilityProvisionDeclaration.Create(
+                ProducerCapabilityProvisionIdentity.Create(fixture.Domain),
+                foreignScope,
+                fixture.Count,
+                fixture.Complete,
+                fixture.CountOutcome,
+                fixture.BorrowedResource,
+                fixture.DetachedResult,
+                ProducerCapabilityProperties.ExactCardinality);
+
+        Accept(fixture.Validate(
+            [fixture.RequireCount(fixture.CountAssociation)],
+            [fixture.CountProvision, foreignProvision],
+            [],
+            fixture.DirectCountCandidate));
+        AssertRejected(
+            fixture.Validate(
+                [fixture.RequireCount(fixture.CountAssociation)],
+                [fixture.CountProvision, foreignProvision],
+                [],
+                ProducerCapabilityPlanCandidate.Create(
+                    fixture.Strategy,
+                    [fixture.CountProvision.Identity, foreignProvision.Identity],
+                    [
+                        ProducerCapabilitySatisfactionCandidate.Create(
+                            fixture.CountAssociation,
+                            fixture.CountProvision.Identity),
+                    ])),
+            ProducerCapabilityPlanRejectionReason.ResourceMismatch);
     }
 
     [Fact]

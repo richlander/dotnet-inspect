@@ -69,12 +69,12 @@ known association, and a duplicate should not run its own `ValidateOffer`.
 
 | Reason | Class | Basis |
 | --- | --- | --- |
-| `DependencyCycle` | Redundant | `ordered_implies_acyclic`: `MissingDependency` plus `DependencyOrder` already exclude every cycle, so the cycle search can be deleted. The converse fails, so keep the order check. |
-| `UnknownCapability` | Redundant; early diagnostic | `accepted_capability_is_known`: every accepted satisfaction's capability is a declared provision or coverage target. It is useful only for rejecting before a strategy is examined. |
-| `ProducerDomainMismatch` on requirement scope, capability, completion, outcome | Redundant | `accepted_key_inherits`: reference equality with domain-checked declarations implies it. |
+| `DependencyCycle` | Redundant; removed | `ordered_implies_acyclic`: `MissingDependency` plus `DependencyOrder` already exclude every cycle. The converse fails, so the order check stays. [#9509](https://github.com/richlander/dotnet-inspect/issues/9509) removed the cycle search. |
+| `UnknownCapability` | Redundant; removed | `accepted_capability_is_known`: every accepted satisfaction's capability is a declared provision or coverage target. [#9509](https://github.com/richlander/dotnet-inspect/issues/9509) removed the pass; such requirements now fail `CapabilityMismatch` or `UnsatisfiedRequirement`. |
+| `ProducerDomainMismatch` on requirement scope, capability, completion, outcome | Redundant; removed | `accepted_key_inherits`: reference equality with domain-checked declarations implies it. [#9509](https://github.com/richlander/dotnet-inspect/issues/9509) removed the check. |
 | `ProducerDomainMismatch` on requirement parameters, declarations, coverages | Required | Parameters are never compared with an offer, so this is their only check. Declaration and coverage checks are the premises the redundancy relies on. |
 | `ResourceMismatch` on requirements and coverages | Required | They fix one resource and keep every covering edge on it. |
-| `ResourceMismatch` on provision declarations | Narrowable | `accepted_provision_resource`: implied for every satisfaction-path provision. Still needed for dependency-only provisions, so it can be narrowed from every declaration to selected provisions. |
+| `ResourceMismatch` on provision declarations | Narrowed | `accepted_provision_resource`: implied for every satisfaction-path provision. Still needed for dependency-only provisions. [#9509](https://github.com/richlander/dotnet-inspect/issues/9509) narrowed it from every declaration to selected provisions. |
 | `UnknownAssociation` | Diagnostic | `assemble_ignores_unknown`: a satisfaction for an association outside the requirement set never reaches the plan, at any position. It reports a producer planning bug. |
 | `DuplicateAssociation` on satisfactions | Diagnostic | `assemble_ignores_duplicates`: a later satisfaction for an already recorded association never reaches the plan, at any position. |
 | `UnknownProvision` and `InvalidCoveringPath` on satisfactions | Diagnostic | `assemble_recorded_valid`: a plan assembled from recorded candidates contains only candidates that name a selected provision and walk their path. An association left without one fails `UnsatisfiedRequirement`. |
