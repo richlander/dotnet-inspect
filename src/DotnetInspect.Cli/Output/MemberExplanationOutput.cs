@@ -8,7 +8,7 @@ namespace DotnetInspect.Cli.Output;
 internal static class MemberExplanationOutput
 {
     internal static int WritePrimary(
-        InspectionEnvelope<MemberContextualExplanationDocument> explanation,
+        InspectionEnvelope<ResourceExplanationDocument> explanation,
         OutputFormat format)
     {
         if (format is not (
@@ -31,7 +31,7 @@ internal static class MemberExplanationOutput
     }
 
     internal static void WriteCompanion(
-        InspectionEnvelope<MemberContextualExplanationDocument> explanation)
+        InspectionEnvelope<ResourceExplanationDocument> explanation)
     {
         Console.Out.Flush();
         using var buffer = new StringWriter();

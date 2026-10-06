@@ -76,12 +76,32 @@ public class CapturingLambdaStorageFinalizationTests
     [Theory]
     [InlineData(nameof(CapturingLambdaStorageFinalizationSamples.CapturedLocal))]
     [InlineData(nameof(CapturingLambdaStorageFinalizationSamples.FurtherNestedBody))]
-    [InlineData(nameof(CapturingLambdaStorageFinalizationSamples.NestedNonCapturingBody))]
     public void UnsupportedCaptureScopesKeepTheirDelegateCreation(string method)
     {
         var (function, _) = Raise(method);
         Assert.Empty(function.Descendants.OfType<Lambda>());
         Assert.NotEmpty(function.Descendants.OfType<DelegateCreation>());
+    }
+
+    // A body holding a further lambda scope keeps the prior finalization order:
+    // completion runs before capture substitution, so the spills of the captured
+    // receiver and the argument stay, and the array is not inlined into the
+    // invocation the way Callback's is. The callback itself still raises once
+    // its params fill is an array literal (#9249); the nested lambda is a
+    // natural-typed Func<int> element of the object[] literal.
+    [Fact]
+    public void NestedBodyKeepsThePriorFinalizationOrder()
+    {
+        var (function, text) = Raise(nameof(CapturingLambdaStorageFinalizationSamples.NestedNonCapturingBody));
+        var outer = Assert.Single(function.Descendants.OfType<Lambda>(), lambda => lambda.Parent is Return);
+        Assert.Null(outer.ExpressionBody);
+        var array = Assert.Single(outer.Body.Descendants.OfType<ArrayLiteral>());
+        Assert.True(array.Parent is StoreLocal or StoreStackSlot);
+        Assert.IsType<Lambda>(array.Elements[0]);
+        var invocation = Assert.Single(outer.Body.Descendants.OfType<Call>(),
+            call => call.Callee.Name == "Invoke" && call.Arguments.Count == 3);
+        Assert.All(invocation.Arguments, argument => Assert.True(argument is LoadLocal or LoadStackSlot));
+        Assert.Contains("new object[] { () => 42, value }", text);
     }
 
     [Fact]
