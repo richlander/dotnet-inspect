@@ -8,22 +8,18 @@ There is no separate vocabulary command, document, or wire format.
 
 **Status.** This is the target set by
 [#9250](https://github.com/richlander/dotnet-inspect/issues/9250) step 8.
-`explain vocabularies` and `explain vocabularies/<id>` ship in the CLI today.
-The step's remaining slices, in order, are:
+In the CLI today, `explain vocabularies`, `explain vocabularies/<id>`, and
+`explain vocabularies/<id>/values/<value>` explain every vocabulary and value
+by reading the composed snapshot generically. The step's remaining slices, in
+order, are:
 
-1. Values as resources. Explanation also stops reading through
-   `ProductVocabularyProjection` and reads the composed snapshot generically,
-   and its next step for a vocabulary becomes `--depth 1` instead of the
-   `vocabulary` command.
-   Until then, explanation and the `vocabulary` command name each vocabulary's
-   section, so adding a vocabulary also takes a projection section and a CLI
-   section descriptor.
-2. The Inspect Web export.
-3. The [retirement](#retirement) of the `vocabulary` command. Until it lands,
-   the command still runs.
+1. The Inspect Web export.
+2. The [retirement](#retirement) of the `vocabulary` command. Until it lands,
+   the command still runs, and its document projection and CLI section
+   descriptors still name each vocabulary, so adding a vocabulary also takes a
+   projection section and a CLI section descriptor.
 
-Statements below about generic reading, the export, and retired parts describe
-that target.
+Statements below about the export and retired parts describe that target.
 
 ## Product surface
 
@@ -54,8 +50,8 @@ A value's path segment is its exact identity in ASCII lower case with `:`
 replaced by `.`, under
 [Value-vocabulary resources](resource-explanation.md#value-vocabulary-resources).
 The path segment is the only path spelling. The exact identity, which queries
-accept, is the value's identity fact, so the vocabulary's depth-1 listing
-shows both.
+accept, is the value's identity fact, so the vocabulary's depth-1 Document
+carries both; JSON output and each value's own explanation present it.
 
 Inspect Web requests the same explanation. A catalog-facade export resolves a
 `vocabularies` path against the Browser-composed snapshot and returns the same
@@ -82,8 +78,8 @@ The `dotnet-inspect vocabulary` command retires, with the parts only it uses:
   (`VocabularyJson` and the `VocabularyWire*` types).
 
 Each map's per-field query operators retire with the document. Only the
-document's JSON and the explanation `fields` fact read them, and no
-predicate enforces them. The operators a query input accepts belong to that
+document's JSON read them, and no predicate enforces them. Resource
+Explanation no longer presents them. The operators a query input accepts belong to that
 input and are presented by `-Q`.
 
 `vocabulary` stays a reserved command name. Invoking it fails with an error
@@ -125,7 +121,7 @@ inputs yield equal declarations. A host composes the declarations it ships into
 one exactly identified snapshot, under the tier-1 composition rule the
 [QuerySpace library boundary](query-space-library.md#two-assemblies-and-two-participation-tiers)
 states. In the target, no component owns the complete list of product
-vocabularies; until the values slice lands, the document projection and the
+vocabularies; until the retirement lands, the document projection and the
 CLI section descriptors also name them.
 
 The term owners, and therefore the declaring owners, are:
@@ -181,13 +177,12 @@ Web lane.
 The declaration types live in `QuerySpace.Primitives`. The composition
 (`ProductVocabularyComposition`) and the inspection wrapper live in
 `DotnetInspector.Sections`, beside Resource Explanation's
-`ResourceExplanationCatalog.CreateVocabularies`, which in the target explains
-a composed snapshot generically. Each host holds its contribution list, and in
-the target no assembly between the owners and the hosts restates their values
-or names their sections. Once explanation reads the snapshot generically, adding a
-vocabulary takes an owner declaration and a contribution in each host that
-ships it; explanation, the Browser export, and the snapshot pin pick it up
-without another list.
+`ResourceExplanationCatalog.CreateVocabularies`, which explains a composed
+snapshot generically. Each host holds its contribution list, and in the target
+no assembly between the owners and the hosts restates their values or names
+their sections. After the retirement, adding a vocabulary takes an owner
+declaration and a contribution in each host that ships it; explanation, the
+Browser export, and the snapshot pin pick it up without another list.
 
 ## Vocabulary Mappings adoption
 
