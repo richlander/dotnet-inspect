@@ -81,7 +81,10 @@ explicitly runs the member decompiler even when authored source is available.
 The Browser retains the user's requested origin separately from that settled
 display: automatic fallback affects only the current member, while an explicit
 choice also becomes the request applied to the next member.
-Decompiler output has no authored part catalog, so the part selector is absent.
+Decompiler output is indexed through the same CSharpText lexical substrate and
+lowered through the same Sections part catalog. The selector therefore exposes
+every part present in the decompiled declaration; source-only parts such as XML
+documentation remain absent rather than being synthesized.
 Every Decompiled source view visually collapses only the whitespace prefix
 shared by every nonblank line. Its left-most source character therefore starts
 in the first column without changing the source or Copy text or flattening

@@ -7,6 +7,8 @@ namespace DotnetInspector.Presentation;
 /// </summary>
 public sealed class FindDiscoveryTsvWriter : IDisposable
 {
+    private const int BatchSize = 64;
+
     public static IReadOnlyList<string> Columns { get; } =
         Array.AsReadOnly(new[]
         {
@@ -17,6 +19,7 @@ public sealed class FindDiscoveryTsvWriter : IDisposable
     private readonly TextWriter _output;
     private readonly MarkoutWriter _table;
     private readonly MarkoutWriterOptions _options;
+    private readonly List<string[]> _pending = new(BatchSize);
     private bool _started;
 
     public FindDiscoveryTsvWriter(
@@ -35,28 +38,49 @@ public sealed class FindDiscoveryTsvWriter : IDisposable
 
     public void Write(FindDiscoveryRow row)
     {
-        // TableFormatter is batch-only. Lower one settled row per batch,
-        // preserving Markout's projection and cell encoding without buffering the stream.
-        MarkoutWriter table = _started
-            ? new(_output, new TableFormatter(showHeader: false), _options)
-            : _table;
-        table.WriteTable([.. Columns],
+        string[] cells =
         [
-            new[]
-            {
-                row.Coordinate.ToString(), row.Kind.ToString(),
-                row.Source.ToString(), row.Library.ToString(),
-                row.Pattern.ToString(), row.Declaration.ToString(),
-                row.Signature.ToString(), row.Match.ToString(),
-                row.Ecosystem.ToString(),
-            },
-        ]);
-        _started = true;
+            row.Coordinate.ToString(), row.Kind.ToString(),
+            row.Source.ToString(), row.Library.ToString(),
+            row.Pattern.ToString(), row.Declaration.ToString(),
+            row.Signature.ToString(), row.Match.ToString(),
+            row.Ecosystem.ToString(),
+        ];
+        if (!_started)
+        {
+            _table.WriteTable([.. Columns], [cells]);
+            _started = true;
+            _output.Flush();
+            return;
+        }
+
+        _pending.Add(cells);
+        if (_pending.Count == BatchSize)
+            Flush();
+    }
+
+    /// <summary>
+    /// Writes pending rows as one continuation batch and flushes the output.
+    /// </summary>
+    public void Flush()
+    {
+        if (_pending.Count > 0)
+        {
+            var continuationTable =
+                new MarkoutWriter(
+                    _output,
+                    new TableFormatter(showHeader: false),
+                    _options);
+            continuationTable.WriteTable(
+                [.. Columns],
+                _pending.ToArray());
+            _pending.Clear();
+        }
         _output.Flush();
     }
 
     public void Dispose()
     {
-        _output.Flush();
+        Flush();
     }
 }

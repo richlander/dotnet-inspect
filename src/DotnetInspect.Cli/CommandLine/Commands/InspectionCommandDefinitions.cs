@@ -158,6 +158,7 @@ public static class InspectionCommandDefinitions
         diffCommand.Options.Add(repoOption);
         diffCommand.Options.Add(findingOption);
         diffCommand.Options.Add(analysisOption);
+        diffCommand.Options.Add(opts.RowWhere);
         diffCommand.Options.Add(legendOption);
         diffCommand.Options.Add(compactOption);
 #if DEBUG
@@ -467,8 +468,9 @@ public static class InspectionCommandDefinitions
             new Option<string?>("--name-family-population")
             {
                 Description =
-                    "With exact -S \"Name Families\": all, ordinary, "
-                        + "generated, mixed, or unknown",
+                    "With exact -S \"Name Families\", \"Architectural "
+                        + "Families\", or \"Architectural Family Types\": all, "
+                        + "ordinary, generated, mixed, or unknown",
             };
         nameFamilyPopulationOption.CompletionSources.Add(
             ["all", "ordinary", "generated", "mixed", "unknown"]);
@@ -570,6 +572,15 @@ public static class InspectionCommandDefinitions
                     exactSelector,
                     SectionNames.NameFamilies,
                     StringComparison.OrdinalIgnoreCase);
+            bool exactArchitecturalFamilies =
+                string.Equals(
+                    exactSelector,
+                    SectionNames.ArchitecturalFamilies,
+                    StringComparison.OrdinalIgnoreCase)
+                || string.Equals(
+                    exactSelector,
+                    SectionNames.ArchitecturalFamilyTypes,
+                    StringComparison.OrdinalIgnoreCase);
             bool exactDependencyStructure =
                 string.Equals(
                     exactSelector,
@@ -579,16 +590,19 @@ public static class InspectionCommandDefinitions
                     is { Implicit: false }
                 && !exactLibraryMetrics
                 && !exactNameFamilies
+                && !exactArchitecturalFamilies
                 && !exactDependencyStructure)
             {
                 result.AddError(
                     "library --envelope accepts only the exact "
-                        + "\"Library Metrics\", \"Name Families\", or "
-                        + "\"Dependency Structure\" "
+                        + "\"Library Metrics\", \"Name Families\", "
+                        + "\"Architectural Families\", \"Architectural Family "
+                        + "Types\", or \"Dependency Structure\" "
                         + "section selection.");
             }
             if (exactLibraryMetrics
                 || exactNameFamilies
+                || exactArchitecturalFamilies
                 || exactDependencyStructure)
                 return;
 
@@ -707,6 +721,9 @@ public static class InspectionCommandDefinitions
                         parseResult,
                         opts)
                     || HasExactNameFamiliesSelector(
+                        parseResult,
+                        opts)
+                    || HasExactArchitecturalFamiliesSelector(
                         parseResult,
                         opts)
                     || HasExactDependencyStructureSelector(
@@ -922,11 +939,17 @@ public static class InspectionCommandDefinitions
                 return 1;
             }
             RowSelectionIntent<string>? nameFamilyRowSelection = null;
-            if (HasExactNameFamiliesSelector(select, selectDefault)
+            if (HasExactNameFamilySelectionSelector(
+                    select,
+                    selectDefault)
                 && !CliRowSelectionCommandRegistry
                     .TryGetPreparedSemanticIntent(
                         parseResult,
-                        SectionNames.NameFamilies,
+                        HasExactArchitecturalFamiliesSelector(
+                            select,
+                            selectDefault)
+                            ? "Architectural Families"
+                            : SectionNames.NameFamilies,
                         out nameFamilyRowSelection,
                         out string? nameFamilyRowSelectionError))
             {
@@ -951,11 +974,16 @@ public static class InspectionCommandDefinitions
             if (nameFamilyPopulationText is not null
                 && !HasExactNameFamiliesSelector(
                     select,
+                    selectDefault)
+                && !HasExactArchitecturalFamiliesSelector(
+                    select,
                     selectDefault))
             {
                 CommandError.Write(
                     "--name-family-population requires exact "
-                        + $"-S \"{SectionNames.NameFamilies}\".");
+                        + $"-S \"{SectionNames.NameFamilies}\", "
+                        + $"\"{SectionNames.ArchitecturalFamilies}\", or "
+                        + $"\"{SectionNames.ArchitecturalFamilyTypes}\".");
                 return 1;
             }
             LibraryNameFamilyPopulationKind nameFamilyPopulation =
@@ -1080,6 +1108,10 @@ public static class InspectionCommandDefinitions
                     ecosystemDependencyRowSelection,
                 NameFamilyPopulation = nameFamilyPopulation,
                 NameFamilyRowSelection = nameFamilyRowSelection,
+                ArchitecturalFamilyTypeRows =
+                    HasExactArchitecturalFamilyTypesSelector(
+                        select,
+                        selectDefault),
                 DependencyStructureRowSelection =
                     dependencyStructureRowSelection,
                 PerformanceTriage = performanceTriage,
@@ -1152,7 +1184,7 @@ public static class InspectionCommandDefinitions
             CliRowSelectionCapabilities.HeadTail
                 | CliRowSelectionCapabilities.Window
                 | CliRowSelectionCapabilities.Lines,
-            result => HasExactNameFamiliesSelector(
+            result => HasExactNameFamilySelectionSelector(
                 result,
                 opts),
             validateLowering: (result, lowering) =>
@@ -1257,6 +1289,65 @@ public static class InspectionCommandDefinitions
         return selectors is [var selector]
             && selector.Equals(
                 SectionNames.NameFamilies,
+                StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool HasExactNameFamilySelectionSelector(
+        ParseResult parseResult,
+        SharedOptions opts) =>
+        HasExactNameFamilySelectionSelector(
+            opts.ParseSelect(parseResult),
+            opts.ParseSelectDefault(parseResult));
+
+    private static bool HasExactNameFamilySelectionSelector(
+        string[]? select,
+        bool selectDefault) =>
+        HasExactNameFamiliesSelector(select, selectDefault)
+        || HasExactArchitecturalFamiliesSelector(select, selectDefault);
+
+    private static bool HasExactArchitecturalFamiliesSelector(
+        ParseResult parseResult,
+        SharedOptions opts) =>
+        HasExactArchitecturalFamiliesSelector(
+            opts.ParseSelect(parseResult),
+            opts.ParseSelectDefault(parseResult));
+
+    private static bool HasExactArchitecturalFamiliesSelector(
+        string[]? select,
+        bool selectDefault)
+    {
+        if (selectDefault)
+            return false;
+
+        string[] selectors =
+        [
+            .. (select ?? [])
+                .Distinct(StringComparer.OrdinalIgnoreCase),
+        ];
+        return selectors is [var selector]
+            && (selector.Equals(
+                    SectionNames.ArchitecturalFamilies,
+                    StringComparison.OrdinalIgnoreCase)
+                || selector.Equals(
+                    SectionNames.ArchitecturalFamilyTypes,
+                    StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool HasExactArchitecturalFamilyTypesSelector(
+        string[]? select,
+        bool selectDefault)
+    {
+        if (selectDefault)
+            return false;
+
+        string[] selectors =
+        [
+            .. (select ?? [])
+                .Distinct(StringComparer.OrdinalIgnoreCase),
+        ];
+        return selectors is [var selector]
+            && selector.Equals(
+                SectionNames.ArchitecturalFamilyTypes,
                 StringComparison.OrdinalIgnoreCase);
     }
 

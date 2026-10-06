@@ -40,9 +40,9 @@ family.
 Research takes each input's analyzed methods from the Analysis-issued
 `LibraryCallGraphAnalysisResult` of one `LibraryBodyAnalysisService` execution:
 its declared-method population, its receipt's module identity, and its
-receipt's diagnostics. Research does not accept `LibraryBodyIndex`, which
-remains an Analysis compatibility adapter for consumers outside Research
-tracked by [#7553](https://github.com/richlander/dotnet-inspect/issues/7553).
+receipt's diagnostics. The former aggregate compatibility adapter was retired
+after all consumers moved to focused results under
+[#7553](https://github.com/richlander/dotnet-inspect/issues/7553).
 
 `LibraryCallGraphAnalysisResult` is the interim carrier of that method
 population, not the population's contract. Research inputs name the concept
@@ -2257,8 +2257,10 @@ view.
 
 The document contains:
 
-- the requested C#, IL/body, and complexity mechanisms plus normalized type and
-  member selectors;
+- the independently requested C#, IL/body, and complexity mechanisms plus
+  normalized type filters and an explicit `All` or `Selected` Member
+  population. `Selected([])` is complete zero-Member work and never falls back
+  to whole-Library work;
 - one Before and one After endpoint carrying exact assembly identity, MVID, and
   a Research-owned source-kind projection of acquisition provenance. The
   projection is constructed by an explicit case mapping and carries no
@@ -2306,10 +2308,12 @@ document as Content and initially reports Share as non-projectable at
 the ordered pair faithfully. Diagnostics remain envelope-level operation
 diagnostics, not a second home for member evidence.
 
-The portable transport is `implementation-diff` schema 2. Schema 2 records
-semantic `memberSelections` as declaring-type and selector pairs; it replaces
-schema 1's internal `memberTargetIdentities`, which were not a portable request
-currency.
+The portable transport is `implementation-diff` schema 3. Schema 3 replaces
+schema 2's ambiguous `memberSelections` with an explicit `population`
+discriminator and semantic declaring-type/selector pairs for `Selected`.
+Requested mechanisms are independent: unrequested mechanisms do not execute,
+appear in coverage, or serialize their result. Schema 2 replaced schema 1's
+internal `memberTargetIdentities`, which were not a portable request currency.
 
 The first host adoption is complete CLI transport for
 `diff --library before.dll..after.dll -S "Implementation Diff" --json` and

@@ -182,7 +182,8 @@ public class ApiInventoryQueryTests
     {
         using var inspection = AssemblyInspectionSession.Open(
             typeof(ApiInventoryQueryTests).Assembly.Location);
-        var surface = inspection.ApiSurface(includeAll: true);
+        var surface =
+            inspection.CompatibilityApiSurface(includeAll: true);
         var type = Assert.Single(
             surface.Types,
             candidate => candidate.FullName == typeof(InventoryFixture).FullName);
@@ -231,7 +232,8 @@ public class ApiInventoryQueryTests
     {
         using var inspection = AssemblyInspectionSession.Open(
             typeof(ApiInventoryQueryTests).Assembly.Location);
-        var surface = inspection.ApiSurface(includeAll: true);
+        var surface =
+            inspection.CompatibilityApiSurface(includeAll: true);
         var type = Assert.Single(
             surface.Types,
             candidate => candidate.FullName == typeof(InventoryExtensions).FullName);
@@ -283,7 +285,8 @@ public class ApiInventoryQueryTests
     {
         using var inspection = AssemblyInspectionSession.Open(
             typeof(ApiInventoryQueryTests).Assembly.Location);
-        var surface = inspection.ApiSurface(includeAll: true);
+        var surface =
+            inspection.CompatibilityApiSurface(includeAll: true);
         var type = Assert.Single(
             surface.Types,
             candidate => candidate.FullName == typeof(InventoryFixture).FullName);

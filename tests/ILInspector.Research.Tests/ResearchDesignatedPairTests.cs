@@ -10,6 +10,8 @@ using Inspector.Findings;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
 
+using ILInspector.ILDiff;
+
 namespace ILInspector.Research.Tests;
 
 public partial class ResearchProducerSessionTests

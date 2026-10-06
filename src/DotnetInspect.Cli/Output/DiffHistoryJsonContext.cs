@@ -1,5 +1,6 @@
 using System.Text.Json.Serialization;
 using DotnetInspector.PackageQueries;
+using DotnetInspector.Packages;
 using DotnetInspector.Sections;
 using ILInspector.Metadata;
 
@@ -28,4 +29,16 @@ namespace DotnetInspect.Cli.Output;
 [JsonSerializable(
     typeof(MemorySafetyMemberContractResult.Unavailable),
     TypeInfoPropertyName = "MemorySafetyMemberContractUnavailable")]
+[JsonSerializable(
+    typeof(PackageHouseLibraryHandoff.Compile),
+    TypeInfoPropertyName = "PackageHouseLibraryHandoffCompile")]
+[JsonSerializable(
+    typeof(PackageHouseLibraryHandoff.Runtime),
+    TypeInfoPropertyName = "PackageHouseLibraryHandoffRuntime")]
+[JsonSerializable(
+    typeof(PackageHouseRealizationReceipt.Compile),
+    TypeInfoPropertyName = "PackageHouseRealizationReceiptCompile")]
+[JsonSerializable(
+    typeof(PackageHouseRealizationReceipt.Runtime),
+    TypeInfoPropertyName = "PackageHouseRealizationReceiptRuntime")]
 public sealed partial class DiffHistoryJsonContext : JsonSerializerContext;

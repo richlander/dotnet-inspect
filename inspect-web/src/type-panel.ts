@@ -74,6 +74,7 @@ export interface TypeSummary {
   members: number;
   accessibility?: string;
   assembly: string;
+  assemblyId?: string;
   definitionId?: string;
   platformPack?: string | null;
 }
@@ -81,6 +82,7 @@ export interface TypeSummary {
 export interface MemberOverloadSummary {
   signature: string;
   stableSelector?: string | null;
+  anchorDigest?: string | null;
   graphOnly?: boolean;
   parameters?: readonly OverloadLabelParameter[];
   returnType?: string | null;
@@ -224,6 +226,15 @@ export interface MemberGroup {
   sourceOverloadCount?: number;
 }
 
+export function memberGroupUsesFamilySurface(
+  group: {
+    readonly overloads: readonly unknown[];
+    readonly sourceOverloadCount?: number;
+  } | null | undefined,
+): boolean {
+  return (group?.overloads.length ?? 0) > 1;
+}
+
 export function familyOutsideMarkerHtml(
   group: MemberGroup,
   selectedAccessibility: string,
@@ -350,7 +361,6 @@ export interface TypePanelBindingActions {
   onKindSelect: (kind: string) => void;
   onTypeAccessibilitySelect: (accessibility: string) => void;
   onTypeTraitSelect: (trait: string) => void;
-  onTypeLeverageFilterSelect?: (filter: string) => void;
   onTypeLeverageRetry: () => void;
   onTypeNavBack: () => void;
   onListKeyDown: (event: KeyboardEvent) => boolean;
@@ -366,8 +376,6 @@ export interface TypePanelBindingActions {
   onMemberFilterKeyDown: (event: KeyboardEvent, value: string) => boolean;
   onMemberGroupOpen: (memberKey: string) => void;
   onMemberKindFilterSelect: (kind: string | undefined) => void;
-  onMethodLeverageActivate: () => void;
-  onMethodLeverageFilterSelect: (filter: string | undefined) => void;
   onMethodLeverageRetry: () => void;
   onMemberOverloadOpen: (index: number) => void;
   onMemberSelect: (memberKey: string | undefined) => void;
@@ -412,12 +420,6 @@ export function bindTypePanel(
   root.querySelector("[data-type-leverage-retry]")?.addEventListener(
     "click",
     actions.onTypeLeverageRetry);
-  root.querySelectorAll<HTMLElement>("[data-type-leverage-filter]")
-    .forEach(button =>
-      button.addEventListener(
-        "click",
-        () => actions.onTypeLeverageFilterSelect?.(
-          button.dataset.typeLeverageFilter ?? "")));
   root.querySelector("[data-type-nav-back]")?.addEventListener(
     "click",
     actions.onTypeNavBack);
@@ -460,18 +462,9 @@ export function bindTypePanel(
       select.addEventListener(
         "change",
         () => actions.onMemberKindFilterSelect(select.value)));
-  root.querySelector("[data-method-leverage-activate]")?.addEventListener(
-    "click",
-    actions.onMethodLeverageActivate);
   root.querySelector("[data-method-leverage-retry]")?.addEventListener(
     "click",
     actions.onMethodLeverageRetry);
-  root.querySelectorAll<HTMLSelectElement>(
-    "[data-method-leverage-filter]",
-  ).forEach(select =>
-    select.addEventListener(
-      "change",
-      () => actions.onMethodLeverageFilterSelect(select.value)));
   root.querySelectorAll<HTMLSelectElement>("[data-member-access-filter]")
     .forEach(select =>
       select.addEventListener(
@@ -627,7 +620,6 @@ export interface TypeNavOptions {
   kindOptions: readonly TypeSelectorOption[];
   accessibilityOptions: readonly TypeSelectorOption[];
   traitOptions: readonly TypeSelectorOption[];
-  leverageControlHtml?: string;
   library: string;
   parentSubject: "package" | "platform" | "library" | null;
   filtersExpanded: boolean;
@@ -660,7 +652,6 @@ export function renderTypeNav(options: TypeNavOptions): string {
     current, visible, typeGroups, typeFilter, namespaceFilter, kindFilter,
     accessibilityFilter, traitFilter, namespaceCount, namespaceOptionsHtml,
     kindOptions, accessibilityOptions, traitOptions,
-    leverageControlHtml = "",
     library, parentSubject, filtersExpanded, filterSummary, escapeHtml,
     typeDisplayName, typeLibraryLabel, kindIcon, statusHtml = "",
   } = options;
@@ -670,7 +661,7 @@ export function renderTypeNav(options: TypeNavOptions): string {
   const namespaceSelectionValue =
     options.namespaceSelectionValue ?? (namespace => namespace);
   return `
-    <aside id="content-navigation-pane" class="type-browser${itemAchievements ? " has-item-achievement-rail" : ""}" aria-label="Public types">
+    <aside id="content-navigation-pane" class="type-browser${parentSubject ? " has-parent-subject" : ""}${statusHtml ? " has-status" : ""}${itemAchievements ? " has-item-achievement-rail" : ""}" aria-label="Public types">
       <div class="browser-head">
         <div>
           <span class="pane-label">PUBLIC TYPES</span>
@@ -723,11 +714,8 @@ export function renderTypeNav(options: TypeNavOptions): string {
             </select>
           </label>
         </div>
-        <div class="chip-stack">
-          ${leverageControlHtml}
-        </div>
       </details>
-      ${statusHtml}
+      ${statusHtml ? `<div class="type-browser-status">${statusHtml}</div>` : ""}
       <div class="type-list" role="listbox" tabindex="0" id="type-list" data-nav-scope="types" data-nav-selection="${current ? `type:${escapeHtml(current.id)}` : ""}">
         ${[...typeGroups].map(([namespace, types]) => {
           const namespaceLeverage = types.some(
@@ -844,10 +832,16 @@ export function renderMemberNav(options: MemberNavOptions): string {
     overloadHeat, familyHeatCue,
   } = options;
   const memberAchievements = options.memberAchievements;
+  const selectedGroup = entries.find(entry =>
+    entry.kind === "member"
+    && entry.group.key === selectedMemberKey)?.group;
+  const selectedFamilyOpen =
+    memberGroupUsesFamilySurface(selectedGroup)
+    && selectedOverloadIndex != null;
   const navigationSelection = selectedMemberKey
-    ? (selectedOverloadIndex == null
-      ? `member:${selectedMemberKey}`
-      : `overload:${selectedMemberKey}:${selectedOverloadIndex}`)
+    ? (selectedFamilyOpen
+      ? `overload:${selectedMemberKey}:${selectedOverloadIndex}`
+      : `member:${selectedMemberKey}`)
     : "";
   return `
     <aside id="content-navigation-pane" class="type-browser member-nav${memberAchievements ? " has-item-achievement-rail" : ""}" aria-label="Members of ${escapeHtml(typeDisplayName(type))}">
@@ -868,9 +862,8 @@ export function renderMemberNav(options: MemberNavOptions): string {
         ${entries.map(entry => {
           if (entry.kind === "member") {
             const group = entry.group;
-            const overloadCount =
-              group.sourceOverloadCount ?? group.overloads.length;
-            const isMulti = overloadCount > 1;
+            const overloadCount = group.overloads.length;
+            const isMulti = memberGroupUsesFamilySurface(group);
             const graphOnly =
               group.overloads.some(overload => overload.graphOnly);
             const outsideMarker = familyOutsideMarkerHtml(

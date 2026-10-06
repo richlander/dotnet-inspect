@@ -66,6 +66,32 @@ unrelated domain categories.
 Minimal views should remain close to one screenful. Prefer compact fields,
 counts, and summaries over unbounded inventories.
 
+The Package primary-subject view gives bare Package output its single
+high-value native children Tree instead of the automatic Package section
+union. `Package Info` remains the explicit facts view. The Tree uses the
+selected compile-Library population and identity rows; it does not open a
+Library or summarize its Type population. A managed tool payload may collapse
+its dependency Libraries only in the
+implicit Minimal Tree, whose collapsed branch names `-v:n` as the gesture to
+the full inventory. Normal and Detailed Trees and every explicit output format
+list every child. JSON and row formats retain the owner-issued
+population, completion, role, exact asset identity, and child
+selector; row windows, projection, and scalar Count select that population
+rather than returning to the section model. Scalar Count uses owner-issued
+child cardinality without the unrelated all-binary Signals scan or Library
+inspection. Finite row windows select the ordered child population while
+preserving total cardinality and original ordinals; a zero-row window over a
+non-empty population is not an empty-Package outcome. Child selectors retain
+the selected target and safely
+replayable source/configuration arguments, including the adjacent source
+directory for local RID-pointer Packages; output fails visibly rather than
+emit an inexact or unsafe selector.
+
+Inspect Web's initial Package acquisition uses the same summary-only child
+operation. The separate broad Package-surface operation remains available to
+explicit consumers that request Type/member evidence and may therefore open
+Library binaries.
+
 For library inspection, References, Ecosystem Dependencies, Switches, Type
 Forwarders, P/Invoke Methods, and Union Types are measured or structurally
 `Verbose` inventories. They therefore enter automatic output at `-v:d`, not
@@ -84,9 +110,9 @@ coordinate field views are fixed except for the enclosing exception-region
 inventory. `SourceLink: Missing Files` retains every missing document rather
 than truncating the explicitly requested evidence.
 
-For package inspection, Target Frameworks, Package nuspec file, Dependencies,
+For package inspection, Target Frameworks, Nuspec, Dependencies,
 Ecosystem Dependencies, Vulnerabilities, Manifest, Runtime Dependencies, and
-Package skill files are `Verbose`; they enter automatic output at `-v:d`, not
+Skills are `Verbose`; they enter automatic output at `-v:d`, not
 `-v:n`. Exact section selection and the `@Package`, `@Files`, `@Dependencies`,
 or `@Audit` doors remain available. The explicit-only whole-package and
 license-file listings remain outside every automatic verbosity preset.
@@ -194,7 +220,7 @@ Diff`, and `Implementation Diff` views. Its focused, non-composable
 exact-name sections, as do the `Summary` and `Transitions` views of an
 `--analysis` result.
 Project uses `@Project` as its base category for package-authored `Skills` and
-`Package README file` documents from restored direct dependencies. Selecting
+`README` documents from restored direct dependencies. Selecting
 `@Project` explicitly requests both inventories.
 Vocabulary uses `@Vocabulary` as its base category. `@API` and `@Decompiler`
 select the vocabularies consumed by those query families; bare output retains

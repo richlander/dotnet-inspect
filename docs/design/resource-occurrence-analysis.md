@@ -242,14 +242,11 @@ an ArrayPool compatibility requirement.
 ### Repository convention
 
 `MethodBodyAnalysisContext` already provides one operation-local body context
-to focused Analysis producers. `LibraryBodyAnalysisService` already coordinates
-selected producers over an exact path or caller-owned immutable image. Its
-current `LibraryBodyIndex` return is a temporary compatibility shape for
-unmigrated consumers; the target service publication is explicitly named,
-owner-typed results. Resource Occurrence Analysis follows the service's
-execution and lifetime boundaries, not its compatibility result shape, and
-publishes `ResourceOccurrenceAnalysisResult` rather than extending
-`LibraryBodyIndex`.
+to focused Analysis producers. `LibraryBodyAnalysisService` coordinates
+selected producers over an exact path or caller-owned immutable image and
+publishes explicitly named, owner-typed results. Resource Occurrence Analysis
+follows the service's execution and lifetime boundaries and publishes
+`ResourceOccurrenceAnalysisResult`.
 
 Resolved Resource Effects already preserve exact physical invocation identity,
 bound resource kinds, source declarations, authority evidence, and visible

@@ -185,6 +185,13 @@ test.describe("published authored Source comparison transport", () => {
           headers: { "access-control-allow-origin": "*" },
         }));
       await page.route(
+        "https://symbols.nuget.org/download/symbols/System.Text.Json.pdb/**",
+        route => route.fulfill({
+          path: systemTextJsonPdb!,
+          contentType: "application/octet-stream",
+          headers: { "access-control-allow-origin": "*" },
+        }));
+      await page.route(
         "https://raw.githubusercontent.com/dotnet/dotnet/e2c1e00b3d0f96afb892fb261d5921565b400246/src/runtime/src/libraries/System.Text.Json/src/System/Text/Json/Document/JsonDocument.Parse.cs",
         route => route.fulfill({
           path: systemTextJsonSource!,
@@ -696,9 +703,18 @@ test.describe("published authored Source comparison transport", () => {
       });
       await decompiledSource.click();
       await expect(decompiledSource).toHaveAttribute("aria-pressed", "true");
-      await expect(selector).toHaveCount(0);
+      await expect(selector).toHaveValue("Body");
+      const decompiledBody = decompiledMember.parts.find(
+        part => part.kind === "Body");
+      expect(decompiledBody).toBeDefined();
+      if (!decompiledBody) throw new Error("Missing decompiled Body part.");
+      const expectedDecompiledBody = decompiledBody.spans
+        .map(span =>
+          span.leadingIndentation
+          + decompiledMember.source.text.slice(span.start, span.end))
+        .join("\n");
       await expect.poll(() => sourceCode.textContent())
-        .toBe(decompiledMember.source.text);
+        .toBe(expectedDecompiledBody);
       await authoredSource.click();
       await expect(authoredSource).toHaveAttribute("aria-pressed", "true");
       await expect(selector).toHaveValue("Body");
@@ -987,7 +1003,8 @@ test.describe("published authored Source comparison transport", () => {
       expect(fallbackMember.source.text).toContain("Value");
       expect(fallbackMember.source.pdbSourceLimitation).toBeTruthy();
       expect(fallbackMember.source.url).toBeNull();
-      expect(fallbackMember.parts).toEqual([]);
+      expect(fallbackMember.parts.map(part => part.kind)).toEqual(
+        ["Member", "Signature", "Body"]);
 
       expect(authoredType.kind).toBe("Succeeded");
       expect(authoredType.value?.kind).toBe("source");

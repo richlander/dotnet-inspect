@@ -249,7 +249,7 @@ public static class AssemblyContextTypeMethodLeverageQuery
         string typeDefinitionId)
     {
         ApiSurface surface =
-            session.ApiSurface(ApiSurfaceExtractionScope.IncludeAll);
+            session.CompatibilityApiSurface(ApiSurfaceExtractionScope.IncludeAll);
         ApiType[] matchingTypes =
         [
             .. surface.Types.Where(type =>

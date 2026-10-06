@@ -21,6 +21,7 @@ public interface IIrPass
 public static class IrPasses
 {
     public static ImmutableArray<IIrPass> Default { get; } =
+    IrPassComposition.Validate("default",
     [
         new TypedConstantsPass(),
         // Drop identity conversions (the ldlen/conv.i4 array-length idiom)
@@ -404,10 +405,11 @@ public static class IrPasses
         // mismatch) renders an honest marker instead of an uncompilable fp(x).
         new CallIndirectSpellabilityPass(),
         new RefKindDiagnosticsPass(),
-        // Last: wrap every in-domain typed-sink value not provably at its
-        // target in a Coerce node, so the printer receives a decided tree and
+        // Wrap every in-domain typed-sink value not provably at its target in
+        // a Coerce node, so the printer receives a decided tree and
         // CoercionInvariant is checkable (value-typed-emission.md, slice 3).
-        // Nothing may reshape sink values after this.
+        // Only ResidualSlotBindingPass may reshape sink values after this, and
+        // it re-runs this same decision to a fixpoint when it does.
         // F2 (#2386): a final slots-only inlining run collapses the single-use
         // spill slots that structuring/reconstruction minted after the earlier
         // ExpressionInliningPass runs, so they render as their value expression
@@ -482,12 +484,21 @@ public static class IrPasses
         new ReferenceConditionalBindingPass(),
         new PrimitiveJoinBindingPass(),
         new CoercionInsertionPass(),
+        // Every stack-slot web materialization declined becomes decided locals
+        // here, by the printer's frozen residual policy, then the shared
+        // insertion decision is re-run to a fixpoint. Last pass that may see a
+        // slot node: the printer rejects any that survive.
+        new ResidualSlotBindingPass(),
         new ScalarSelfUpdatePass(),
         // Parameter metadata is imported before nested bodies are known. Allocate
         // missing-name fallbacks only after every raise has exposed the final
         // lexical binder tree, so exact nested names reserve before synthesis.
         new ParameterNameAllocationPass(),
-    ];
+        // Decide which up-front locals keep `= default` on the final tree,
+        // with residual provenance as an input (value-typed-emission.md,
+        // Instance 3). Last: every statement-rewriting pass has run.
+        new DefiniteAssignmentPass(),
+    ], IrPassPipelineProfile.Complete);
 
     /// <summary>
     /// The "lowered" pipeline — <see cref="Default"/> with the cosmetic
@@ -504,16 +515,39 @@ public static class IrPasses
     /// output, like SharpLab's, must always be valid C#.
     /// </summary>
     public static ImmutableArray<IIrPass> Lowered { get; } =
-        [.. Default.Where(p => p is not (ForLoopPass or IncrementDecrementPass or LockSugarPass or PointerElementCompoundAssignmentPass or PointerCompoundAssignmentPass))];
+        IrPassComposition.Validate(
+            "lowered",
+            [.. Default.Where(p => p is not (ForLoopPass or IncrementDecrementPass or LockSugarPass or PointerElementCompoundAssignmentPass or PointerCompoundAssignmentPass))],
+            IrPassPipelineProfile.Complete);
 
     // Capture substitution exposes argument reads in place of environment-field
     // reads. Let the existing final slots-only inliner see those before storage
     // becomes locals; keep the rest of the emission tail in its normal order.
     internal static ImmutableArray<IIrPass> CapturingLambdaPreparation { get; } =
-        [.. Default.Take(Default.IndexOf(Default.OfType<ExpressionInliningPass>().Last()))];
+        IrPassComposition.Validate(
+            "capturing-lambda preparation",
+            [.. Default.Take(Default.IndexOf(Default.OfType<ExpressionInliningPass>().Last()))],
+            IrPassPipelineProfile.CapturingLambdaPreparation);
 
     internal static ImmutableArray<IIrPass> CapturingLambdaCompletion { get; } =
-        [.. Default.Skip(CapturingLambdaPreparation.Length)];
+        IrPassComposition.Validate(
+            "capturing-lambda completion",
+            [.. Default.Skip(CapturingLambdaPreparation.Length)],
+            IrPassPipelineProfile.Complete);
+
+    /// <summary>
+    /// <see cref="Default"/> for a reconstructed body that re-enters the host
+    /// pipeline before presentation (iterator reconstruction's intermediate
+    /// re-runs). Residual storage binding is the last decision before the
+    /// printer and runs once, at the host's tail: binding here would turn a
+    /// slot web the transplant still recognizes (a dead state-machine
+    /// <c>this</c> spill) into a local it cannot.
+    /// </summary>
+    internal static ImmutableArray<IIrPass> ForIntermediateBody { get; } =
+        IrPassComposition.Validate(
+            "intermediate body",
+            [.. Default.Where(p => p is not (ResidualSlotBindingPass or DefiniteAssignmentPass))],
+            IrPassPipelineProfile.IntermediateBody);
 
     /// <summary>
     /// The sub-pipeline for cross-method reconstruction imports (async and
@@ -528,7 +562,11 @@ public static class IrPasses
     /// <see cref="Default"/> before embedding: its body IS final output.
     /// </summary>
     public static ImmutableArray<IIrPass> ForReconstruction<TPass>() where TPass : IIrPass =>
-        [.. Default.Where(p => p is not (TPass or ReferenceSlotTargetBindingPass or ReferenceCoalesceBindingPass or ReferenceConditionalBindingPass or PrimitiveJoinBindingPass or SlotMaterializationPass or PdbScopeEntryLocalPass or PdbLocalScopePass or CheckedIntegerOperandPass or ScalarSelfUpdatePass))];
+        IrPassComposition.Validate(
+            $"reconstruction for {typeof(TPass).Name}",
+            [.. Default.Where(p => p is not (TPass or ReferenceSlotTargetBindingPass or ReferenceCoalesceBindingPass or ReferenceConditionalBindingPass or PrimitiveJoinBindingPass or SlotMaterializationPass or ResidualSlotBindingPass or PdbScopeEntryLocalPass or PdbLocalScopePass or CheckedIntegerOperandPass or ScalarSelfUpdatePass or DefiniteAssignmentPass))],
+            IrPassPipelineProfile.Reconstruction,
+            typeof(TPass));
 
     public static void Run(IrFunction function) => Run(function, Default);
 
@@ -537,6 +575,7 @@ public static class IrPasses
 
     public static void Run(IrFunction function, ImmutableArray<IIrPass> passes, PassContext context)
     {
+        ValidateForExecution(passes);
         foreach (var pass in passes)
         {
             pass.Run(function, context);
@@ -596,6 +635,7 @@ public static class IrPasses
         Func<MethodRef, IrFunction?>? importMethodBody,
         Func<TypeRef, TypeRef, bool>? typesProvablyDisjoint = null)
     {
+        ValidateForExecution(passes);
         var context = PassContext.ForImport(importMethodBody, typesProvablyDisjoint);
         var stages = new List<PipelineStage>(passes.Length + 1)
         {
@@ -661,5 +701,22 @@ public static class IrPasses
             // to inspect.
         }
         return stepper;
+    }
+
+    static void ValidateForExecution(ImmutableArray<IIrPass> passes)
+    {
+        if (passes.Equals(Default)
+            || passes.Equals(Lowered)
+            || passes.Equals(CapturingLambdaPreparation)
+            || passes.Equals(CapturingLambdaCompletion)
+            || passes.Equals(ForIntermediateBody))
+        {
+            return;
+        }
+
+        IrPassComposition.Validate(
+            "caller-supplied",
+            passes,
+            IrPassPipelineProfile.Partial);
     }
 }

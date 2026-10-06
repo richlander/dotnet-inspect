@@ -20,6 +20,13 @@ public partial class LibraryCommand
             1,
             LibraryNameFamilyInspectionJson.Write);
 
+    private static readonly InspectionEnvelopeJsonContract<
+        LibraryArchitecturalFamilyCompositionDocument> s_architecturalFamilyJson =
+        new(
+            "architectural-families",
+            1,
+            LibraryArchitecturalFamilyInspectionJson.Write);
+
     internal static bool IsExactNameFamilySelection(
         LibraryOptions options)
     {
@@ -52,10 +59,30 @@ public partial class LibraryCommand
             || options.EnvelopeOutput
             || options.JsonOutput);
 
+    internal static bool IsExactArchitecturalFamilySelection(
+        LibraryOptions options) =>
+        IsExactSectionSelection(
+            options,
+            SectionNames.ArchitecturalFamilies)
+        || IsExactSectionSelection(
+            options,
+            SectionNames.ArchitecturalFamilyTypes);
+
+    internal static bool RequestsArchitecturalFamilyTransport(
+        LibraryOptions options) =>
+        IsExactArchitecturalFamilySelection(options)
+        && (options.Count
+            || options.EnvelopeOutput
+            || options.JsonOutput);
+
     internal static bool ValidateNameFamilyTransport(
         LibraryOptions options)
     {
-        if (!IsExactNameFamilySelection(options)
+        bool exactNameFamilies =
+            IsExactNameFamilySelection(options);
+        bool exactArchitecturalFamilies =
+            IsExactArchitecturalFamilySelection(options);
+        if ((!exactNameFamilies && !exactArchitecturalFamilies)
             || (!options.EnvelopeOutput && !options.JsonOutput))
         {
             return true;
@@ -83,7 +110,7 @@ public partial class LibraryCommand
             || options.ReferenceHierarchyDepth is not null)
         {
             CommandError.Write(
-                "Complete Name Families JSON does not support row, field, "
+                "Complete name-family JSON does not support row, field, "
                     + "column, count, discovery, or presentation "
                     + "projections.");
             return false;
@@ -93,7 +120,7 @@ public partial class LibraryCommand
             && options.FormatFlagExplicitlySet)
         {
             CommandError.Write(
-                "Name Families --envelope cannot be combined with another "
+                "Name-family --envelope cannot be combined with another "
                     + "output format.");
             return false;
         }
@@ -104,13 +131,45 @@ public partial class LibraryCommand
                 StringComparison.OrdinalIgnoreCase))
         {
             CommandError.Write(
-                "Complete Name Families JSON requires one target framework; "
+                "Complete name-family JSON requires one target framework; "
                     + "--tfm all is not supported.");
             return false;
         }
 
         return true;
     }
+
+    private static bool IsExactSectionSelection(
+        LibraryOptions options,
+        string section)
+    {
+        if (options.SelectDefault)
+            return false;
+
+        if (options.IncludeSections is { } included)
+        {
+            return included.Count == 1
+                && included.Contains(section)
+                && options.ExactIncludeSections is { Count: 1 } exact
+                && exact.Contains(section);
+        }
+
+        string[] selectors =
+        [
+            .. (options.Select ?? [])
+                .Distinct(StringComparer.OrdinalIgnoreCase),
+        ];
+        return selectors is [var selector]
+            && selector.Equals(
+                section,
+                StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsExactSectionSelection(
+        IReadOnlySet<string>? sections,
+        string section) =>
+        sections is { Count: 1 }
+        && sections.Contains(section);
 
     private static int WriteNameFamilyTransport(
         LibraryInspection inspection,
@@ -188,6 +247,105 @@ public partial class LibraryCommand
         }
 
         _ = WriteNameFamilyTransport(inspection, options);
+        return true;
+    }
+
+    private static int WriteArchitecturalFamilyTransport(
+        LibraryInspection inspection,
+        LibraryOptions options)
+    {
+        switch (inspection.ArchitecturalFamilyQueryResult)
+        {
+            case LibraryArchitecturalFamilyQueryResult.Available available
+                when options.Count:
+                if (available.Count is not { } count)
+                {
+                    CommandError.Write(
+                        "Architectural Families produced no Count result.");
+                    return 1;
+                }
+                CountOutput.WriteCount(
+                    count,
+                    options.OutputPath);
+                return 0;
+
+            case LibraryArchitecturalFamilyQueryResult.Available available:
+                InspectionEnvelope<
+                    LibraryArchitecturalFamilyCompositionDocument> envelope =
+                        LibraryArchitecturalFamilyInspection.Envelope(available);
+                return InspectionEnvelopeOutput.TryWrite(
+                    envelope,
+                    s_architecturalFamilyJson,
+                    options.EnvelopeOutput,
+                    options.CompactJson,
+                    options.OutputPath)
+                        ? 0
+                        : 1;
+
+            case LibraryArchitecturalFamilyQueryResult.NameFamiliesUnavailable
+                unavailable:
+                CommandError.Write(
+                    "Architectural Families is unavailable: "
+                        + unavailable.Outcome.Detail);
+                return 1;
+
+            case LibraryArchitecturalFamilyQueryResult.NameFamiliesRejected rejected:
+                CommandError.Write(
+                    "Architectural Families name-family input was rejected: "
+                        + rejected.Outcome.Detail);
+                return 1;
+
+            case LibraryArchitecturalFamilyQueryResult.StructuralRejected rejected:
+                CommandError.Write(
+                    "Architectural Families structural input was rejected: "
+                        + rejected.Outcome.Detail);
+                return 1;
+
+            case LibraryArchitecturalFamilyQueryResult.CompositionRejected rejected:
+                CommandError.Write(
+                    "Architectural Families composition was rejected: "
+                        + rejected.Outcome.Detail);
+                return 1;
+
+            case LibraryArchitecturalFamilyQueryResult.PopulationUnavailable missing:
+                CommandError.Write(
+                    "Architectural Families population is unavailable: "
+                        + missing.RequestedPopulation);
+                return 1;
+
+            case LibraryArchitecturalFamilyQueryResult.SelectionFailed failed:
+                CommandError.Write(
+                    "Architectural Families selection failed: "
+                        + failed.Detail);
+                return 1;
+
+            case LibraryArchitecturalFamilyQueryResult.Failed failed:
+                CommandError.Write(failed.Error);
+                return 1;
+
+            case null:
+                CommandError.Write(
+                    "Architectural Families produced no terminal result.");
+                return 1;
+
+            default:
+                throw new InvalidOperationException(
+                    "Unknown Architectural Families result.");
+        }
+    }
+
+    private static bool RejectUnavailableArchitecturalFamilies(
+        LibraryInspection inspection,
+        LibraryOptions options)
+    {
+        if (!IsExactArchitecturalFamilySelection(options)
+            || inspection.ArchitecturalFamilyQueryResult
+                is LibraryArchitecturalFamilyQueryResult.Available)
+        {
+            return false;
+        }
+
+        _ = WriteArchitecturalFamilyTransport(inspection, options);
         return true;
     }
 }

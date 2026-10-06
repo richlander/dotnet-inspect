@@ -79,10 +79,10 @@ Method Classification is the first mixed-terminal production adopter. Its
 session-backed query lowers independent analyzer Rows, Count, Exists, and Head
 requests into the Method request set, while its PEReader overload remains the
 direct reference. CLI effective discovery uses exact Exists for Async Methods
-and P/Invoke Methods instead of projecting their rows. This metadata-only
-adoption does not shrink the temporary Library Body Analysis remainder; the
-unsafe-evidence-plus-live-body-producer adoption below remains required before
-claiming `LibraryBodyIndex` reduction.
+and P/Invoke Methods instead of projecting their rows. At that metadata-only
+slice, the adoption did not shrink the temporary Library Body Analysis
+remainder; the unsafe-evidence-plus-live-body-producer adoption below remained
+required before reducing the aggregate compatibility surface.
 
 Because the current structural descriptor cannot distinguish unqualified Top
 from explicit-ranking-only Top, a scope advertises Top only when its executable
@@ -96,6 +96,13 @@ stages, continuation binding, the full structural-plan meaning record, and the
 remaining gates in
 [Required gates](#required-gates) remain **unverified** until their named
 implementation slices land and run in Release.
+
+[Query Space Producer Capabilities](query-space-producer-capabilities.md) owns
+the deeper contract through which a complete requirement set reaches one
+producer, that producer chooses among direct and covering provisions, and each
+requirement retains its own satisfaction path. This design continues to own
+the surrounding query-space request associations and source-plan groups; it
+does not define producer capabilities, coverage, or strategy selection.
 
 ## Owner and exact claim
 
@@ -143,6 +150,8 @@ This owner does not define:
 - any Package, Library, Type, Member, Dependency, Graph, or Find semantics;
 - subject or source authority, acquisition, pagination, retry, caching, or
   completion-evidence construction;
+- producer capability identities, covering relationships, provision
+  strategies, or producer-owned plan selection;
 - timed batching, cross-operation collection windows, retention, or cost
   estimation;
 - row predicate, order, Head, Tail, Window, Top, projection, Count, or Exists

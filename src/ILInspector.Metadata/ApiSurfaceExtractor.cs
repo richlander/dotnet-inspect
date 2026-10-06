@@ -371,6 +371,7 @@ public static partial class ApiSurfaceExtractor
                         typeDef.GetCustomAttributes());
                 CountSummaryMembers(
                     reader,
+                    typeDefHandle,
                     typeDef,
                     apiType,
                     surface,
@@ -520,6 +521,7 @@ public static partial class ApiSurfaceExtractor
                         typeDef.GetCustomAttributes());
                 CountSummaryMembers(
                     reader,
+                    typeDefHandle,
                     typeDef,
                     apiType: null,
                     surface,
@@ -716,6 +718,43 @@ public static partial class ApiSurfaceExtractor
         ApiSurfaceExtractionScope scope,
         bool typesOnly = false,
         bool includeCompilerGenerated = false)
+        => ExtractResolved(
+            peReader,
+            source,
+            catalog,
+            bindingPolicy,
+            scope,
+            typesOnly,
+            includeCompilerGenerated,
+            includeLocalExtensionProjections: true);
+
+    internal static ApiSurface ExtractDeclarations(
+        PEReader peReader,
+        ResolvedAssemblyReference source,
+        TypeResolutionCatalog catalog,
+        IAssemblyBindingPolicy bindingPolicy,
+        ApiSurfaceExtractionScope scope,
+        bool typesOnly = false,
+        bool includeCompilerGenerated = false)
+        => ExtractResolved(
+            peReader,
+            source,
+            catalog,
+            bindingPolicy,
+            scope,
+            typesOnly,
+            includeCompilerGenerated,
+            includeLocalExtensionProjections: false);
+
+    static ApiSurface ExtractResolved(
+        PEReader peReader,
+        ResolvedAssemblyReference source,
+        TypeResolutionCatalog catalog,
+        IAssemblyBindingPolicy bindingPolicy,
+        ApiSurfaceExtractionScope scope,
+        bool typesOnly,
+        bool includeCompilerGenerated,
+        bool includeLocalExtensionProjections)
     {
         ArgumentNullException.ThrowIfNull(peReader);
         ArgumentNullException.ThrowIfNull(source);
@@ -734,7 +773,7 @@ public static partial class ApiSurfaceExtractor
             scope,
             typesOnly,
             includeCompilerGenerated,
-            includeLocalExtensionProjections: true,
+            includeLocalExtensionProjections,
             budget: null,
             constraintResolution);
         CompleteConstraintResolution(
@@ -874,6 +913,25 @@ public static partial class ApiSurfaceExtractor
             peReader, scope, bounds,
             typesOnly: false, includeCompilerGenerated,
             includeLocalExtensionProjections: true,
+            source, catalog, bindingPolicy);
+    }
+
+    internal static ApiSurfaceExtractionResult ExtractDeclarationsBounded(
+        PEReader peReader,
+        ResolvedAssemblyReference source,
+        TypeResolutionCatalog catalog,
+        IAssemblyBindingPolicy bindingPolicy,
+        ApiSurfaceExtractionScope scope,
+        ApiSurfaceExtractionBounds bounds,
+        bool includeCompilerGenerated = false)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(catalog);
+        ArgumentNullException.ThrowIfNull(bindingPolicy);
+        return ExtractBoundedCore(
+            peReader, scope, bounds,
+            typesOnly: false, includeCompilerGenerated,
+            includeLocalExtensionProjections: false,
             source, catalog, bindingPolicy);
     }
 

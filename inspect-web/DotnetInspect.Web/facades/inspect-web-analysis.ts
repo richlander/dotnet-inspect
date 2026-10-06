@@ -516,6 +516,77 @@ export interface BrowserIntegrationSignal {
   readonly shape: string;
 }
 
+export interface BrowserLibraryBodyUseCoverage {
+  readonly bodiesConsidered: number;
+  readonly bodiesExamined: number;
+  readonly bodiesPhysicalOnly: number;
+  readonly bodiesUnavailable: number;
+  readonly bodiesLimited: number;
+  readonly operandsConsidered: number;
+  readonly operandsExamined: number;
+  readonly operandsUnavailable: number;
+  readonly operandsLimited: number;
+}
+
+export interface BrowserLibraryDependencyCounts {
+  readonly invocations: number;
+  readonly functionReferences: number;
+  readonly total: number;
+}
+
+export interface BrowserLibraryDependencyCycle {
+  readonly namespaces: ReadonlyArray<string>;
+}
+
+export interface BrowserLibraryDependencyNamespace {
+  readonly namespace: string;
+  readonly isGlobalNamespace: boolean;
+  readonly typeCount: number;
+  readonly intraNamespaceRelationshipCount: number;
+  readonly cycleIndex: number | null;
+  readonly level: number;
+}
+
+export interface BrowserLibraryDependencyNamespaceEdge {
+  readonly sourceNamespace: string;
+  readonly targetNamespace: string;
+  readonly counts: BrowserLibraryDependencyCounts;
+  readonly contributingTypeEdgeCount: number;
+  readonly explainingTypeEdges: ReadonlyArray<BrowserLibraryDependencyTypeEdge>;
+  readonly remainingContributorCount: number;
+}
+
+export interface BrowserLibraryDependencyPopulation {
+  readonly examinedCallCount: number;
+  readonly internalCallCount: number;
+  readonly externalCallCount: number;
+  readonly unresolvedCallCount: number;
+  readonly incompleteBodyCount: number;
+  readonly typeCount: number;
+  readonly namespaceCount: number;
+}
+
+export interface BrowserLibraryDependencyStructure {
+  readonly outcome: string;
+  readonly methodologyVersion: string | null;
+  readonly completeness: string | null;
+  readonly population: BrowserLibraryDependencyPopulation | null;
+  readonly namespaces: ReadonlyArray<BrowserLibraryDependencyNamespace>;
+  readonly namespaceEdges: ReadonlyArray<BrowserLibraryDependencyNamespaceEdge>;
+  readonly totalNamespaceEdgeCount: number;
+  readonly cycles: ReadonlyArray<BrowserLibraryDependencyCycle>;
+  readonly diagnostics: ReadonlyArray<string>;
+  readonly failure: string | null;
+}
+
+export interface BrowserLibraryDependencyTypeEdge {
+  readonly sourceTypeKey: string;
+  readonly sourceTypeDisplay: string;
+  readonly targetTypeKey: string;
+  readonly targetTypeDisplay: string;
+  readonly counts: BrowserLibraryDependencyCounts;
+}
+
 export interface BrowserLibraryMetrics {
   readonly outcome: string;
   readonly methodologyVersion: string | null;
@@ -601,21 +672,27 @@ export interface BrowserLibrarySignatureUseCoverage {
 
 export interface BrowserLibraryStructuralSalience {
   readonly schemaVersion: number;
+  readonly surface: BrowserLibraryTypeLeverageChannel;
+  readonly implementation: BrowserLibraryTypeLeverageChannel;
+  readonly compileLibrary: BrowserCompileLibraryAvailability;
+}
+
+export interface BrowserLibraryTypeLeverageChannel {
   readonly outcome: string;
   readonly methodologyVersion: string | null;
-  readonly evidenceMode: string | null;
+  readonly evidenceMode: string;
   readonly namespaceIndex: BrowserLibraryNamespaceLeverageIndex | null;
   readonly typeLeverageShards: ReadonlyArray<BrowserLibraryTypeLeverageShard>;
   readonly failure: string | null;
-  readonly compileLibrary: BrowserCompileLibraryAvailability;
+  readonly failureKind: string | null;
 }
 
 export interface BrowserLibraryTypeLeverageRow {
   readonly typeDefinitionId: string;
   readonly typeDisplay: string;
   readonly designationEligible: boolean;
-  readonly signatureIncomingDegree: number;
-  readonly signatureOutgoingDegree: number;
+  readonly incomingDegree: number;
+  readonly outgoingDegree: number;
   readonly role: string;
   readonly pole: BrowserLibraryStructuralTypePole | null;
 }
@@ -623,7 +700,8 @@ export interface BrowserLibraryTypeLeverageRow {
 export interface BrowserLibraryTypeLeverageShard {
   readonly namespace: string;
   readonly disposition: string;
-  readonly coverage: BrowserLibrarySignatureUseCoverage;
+  readonly signatureCoverage: BrowserLibrarySignatureUseCoverage | null;
+  readonly bodyCoverage: BrowserLibraryBodyUseCoverage | null;
   readonly types: ReadonlyArray<BrowserLibraryTypeLeverageRow>;
   readonly seaLevelOrder: ReadonlyArray<string>;
   readonly mountainPeakOrder: ReadonlyArray<string>;
@@ -802,6 +880,7 @@ type $ManagedExports = {
             readonly "QueryMemberFacts.581406856": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, memberSignature: string, selectorKey: string, metadataToken: number, implementationBodySelected: boolean) => Promise<string>;
             readonly "QueryPackageImplementationProfiles.1825815599": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeDefinitionId: string, stableSelectors: string[]) => Promise<string>;
             readonly "QueryPackageIntegrations.1579276339": (packageId: string, version: string, targetFramework: string, assemblyName: string) => Promise<string>;
+            readonly "QueryPackageLibraryDependencyStructure.1579276339": (packageId: string, version: string, targetFramework: string, assemblyName: string) => Promise<string>;
             readonly "QueryPackageLibraryMetrics.1579276339": (packageId: string, version: string, targetFramework: string, assemblyName: string) => Promise<string>;
             readonly "QueryPackageLibraryStructuralSalience.1579276339": (packageId: string, version: string, targetFramework: string, assemblyName: string) => Promise<string>;
             readonly "QueryPackageOpportunities.1579276339": (packageId: string, version: string, targetFramework: string, assemblyName: string) => Promise<string>;
@@ -810,6 +889,7 @@ type $ManagedExports = {
             readonly "QueryPackageTypeMethodLeverage.1330709314": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeDefinitionId: string) => Promise<string>;
             readonly "QueryPlatformImplementationProfiles.1825815599": (targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string, typeDefinitionId: string, stableSelectors: string[]) => Promise<string>;
             readonly "QueryPlatformIntegrations.1579276339": (targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string) => Promise<string>;
+            readonly "QueryPlatformLibraryDependencyStructure.1579276339": (targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string) => Promise<string>;
             readonly "QueryPlatformLibraryMetrics.1579276339": (targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string) => Promise<string>;
             readonly "QueryPlatformLibraryStructuralSalience.1579276339": (targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string) => Promise<string>;
             readonly "QueryPlatformOpportunities.1579276339": (targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string) => Promise<string>;
@@ -920,6 +1000,18 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "Interop");
     value = $ownDataProperty(value, "Analysis");
     value = $ownDataProperty(value, "AnalysisExports");
+    value = $ownDataProperty(value, "QueryPackageLibraryDependencyStructure.1579276339");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Analysis.AnalysisExports.QueryPackageLibraryDependencyStructure.1579276339\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "DotnetInspect");
+    value = $ownDataProperty(value, "Web");
+    value = $ownDataProperty(value, "Interop");
+    value = $ownDataProperty(value, "Analysis");
+    value = $ownDataProperty(value, "AnalysisExports");
     value = $ownDataProperty(value, "QueryPackageLibraryMetrics.1579276339");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Analysis.AnalysisExports.QueryPackageLibraryMetrics.1579276339\u0027 is not callable.");
@@ -1007,6 +1099,18 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "QueryPlatformIntegrations.1579276339");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Analysis.AnalysisExports.QueryPlatformIntegrations.1579276339\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "DotnetInspect");
+    value = $ownDataProperty(value, "Web");
+    value = $ownDataProperty(value, "Interop");
+    value = $ownDataProperty(value, "Analysis");
+    value = $ownDataProperty(value, "AnalysisExports");
+    value = $ownDataProperty(value, "QueryPlatformLibraryDependencyStructure.1579276339");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Analysis.AnalysisExports.QueryPlatformLibraryDependencyStructure.1579276339\u0027 is not callable.");
     }
   }
   {
@@ -1156,6 +1260,12 @@ export async function queryPackageIntegrations(packageId: string, version: strin
   return $parsed as BrowserPackageIntegrations;
 }
 
+export async function queryPackageLibraryDependencyStructure(packageId: string, version: string, targetFramework: string, assemblyName: string): Promise<BrowserLibraryDependencyStructure> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Analysis"]["AnalysisExports"]["QueryPackageLibraryDependencyStructure.1579276339"](packageId, version, targetFramework, assemblyName);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserLibraryDependencyStructure;
+}
+
 export async function queryPackageLibraryMetrics(packageId: string, version: string, targetFramework: string, assemblyName: string): Promise<BrowserLibraryMetrics> {
   const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Analysis"]["AnalysisExports"]["QueryPackageLibraryMetrics.1579276339"](packageId, version, targetFramework, assemblyName);
   const $parsed: unknown = JSON.parse($result);
@@ -1202,6 +1312,12 @@ export async function queryPlatformIntegrations(targetFramework: string, platfor
   const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Analysis"]["AnalysisExports"]["QueryPlatformIntegrations.1579276339"](targetFramework, platformVersion, assemblyFileName, pack);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserPackageIntegrations;
+}
+
+export async function queryPlatformLibraryDependencyStructure(targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string): Promise<BrowserLibraryDependencyStructure> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Analysis"]["AnalysisExports"]["QueryPlatformLibraryDependencyStructure.1579276339"](targetFramework, platformVersion, assemblyFileName, pack);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserLibraryDependencyStructure;
 }
 
 export async function queryPlatformLibraryMetrics(targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string): Promise<BrowserLibraryMetrics> {

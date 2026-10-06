@@ -131,6 +131,13 @@ export interface BrowserEcosystemCatalogEntry {
   readonly hasWorkspaceRegistration: boolean;
 }
 
+export interface BrowserEcosystemPackageWorkspaceAdmissionResult {
+  readonly status: string;
+  readonly posting: BrowserRetainedWorkspacePosting | null;
+  readonly navigation: BrowserRetainedNavigationResult | null;
+  readonly message: string | null;
+}
+
 export interface BrowserExceptionSurface {
   readonly type: string;
   readonly description: string;
@@ -834,6 +841,7 @@ export interface BrowserWorkspaceShareView {
   readonly memberSignature: string | null;
   readonly section: string | null;
   readonly libraries: ReadonlyArray<string>;
+  readonly sourceView: string | null;
 }
 
 export interface BrowserVocabularyAvailableShare {
@@ -908,6 +916,7 @@ type $ManagedExports = {
             readonly "ActivateRetainedWorkspaceDefinition.1579276339": (retainedDefinitionId: string, label: string, canonicalLocation: string, canonicalPacket: string) => Promise<string>;
             readonly "ActivateRetainedWorkspaceDefinitionWithCredentials.1330709314": (retainedDefinitionId: string, label: string, canonicalLocation: string, canonicalPacket: string, packageSourceCredentialsJson: string) => Promise<string>;
             readonly "ActivateSpotlightDestination.976702342": (action: string) => Promise<string>;
+            readonly "AdmitEcosystemPackageToWorkspace.1160082336": (retainedDefinitionId: string, realizationId: string, packageId: string, version: string, ecosystemId: string, basis: string, registration: string) => Promise<string>;
             readonly "AdmitRetainedWorkspacePackage.2036994461": (retainedDefinitionId: string, realizationId: string, navigationId: string, typeOffset: number) => Promise<string>;
             readonly "AdmitRetainedWorkspacePlatform.2036994461": (retainedDefinitionId: string, realizationId: string, navigationId: string, typeOffset: number) => Promise<string>;
             readonly "CancelRetainedWorkspaceActivation.976702342": (receipt: string) => Promise<string>;
@@ -924,6 +933,7 @@ type $ManagedExports = {
             readonly "ListEcosystems.1310674786": () => string;
             readonly "ListHomeDemos.1310674786": () => string;
             readonly "ObserveRetainedWorkspaceSettlement.976702342": (settlementId: string) => Promise<string>;
+            readonly "PrepareEcosystemWorkspaceDefinition.1579276339": (retainedDefinitionId: string, label: string, canonicalLocation: string, ecosystemId: string) => Promise<string>;
             readonly "PreparePackageQueryWorkspaceDefinition.1330709314": (retainedDefinitionId: string, label: string, canonicalLocation: string, packageId: string, version: string) => Promise<string>;
             readonly "PrepareRetainedWorkspaceDefinition.1579276339": (retainedDefinitionId: string, label: string, canonicalLocation: string, canonicalPacket: string) => Promise<string>;
             readonly "PrepareRetainedWorkspaceDefinitionWithCredentials.1330709314": (retainedDefinitionId: string, label: string, canonicalLocation: string, canonicalPacket: string, packageSourceCredentialsJson: string) => Promise<string>;
@@ -1038,6 +1048,18 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "ActivateSpotlightDestination.976702342");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Catalog.CatalogExports.ActivateSpotlightDestination.976702342\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "DotnetInspect");
+    value = $ownDataProperty(value, "Web");
+    value = $ownDataProperty(value, "Interop");
+    value = $ownDataProperty(value, "Catalog");
+    value = $ownDataProperty(value, "CatalogExports");
+    value = $ownDataProperty(value, "AdmitEcosystemPackageToWorkspace.1160082336");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Catalog.CatalogExports.AdmitEcosystemPackageToWorkspace.1160082336\u0027 is not callable.");
     }
   }
   {
@@ -1239,6 +1261,18 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "Interop");
     value = $ownDataProperty(value, "Catalog");
     value = $ownDataProperty(value, "CatalogExports");
+    value = $ownDataProperty(value, "PrepareEcosystemWorkspaceDefinition.1579276339");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Catalog.CatalogExports.PrepareEcosystemWorkspaceDefinition.1579276339\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "DotnetInspect");
+    value = $ownDataProperty(value, "Web");
+    value = $ownDataProperty(value, "Interop");
+    value = $ownDataProperty(value, "Catalog");
+    value = $ownDataProperty(value, "CatalogExports");
     value = $ownDataProperty(value, "PreparePackageQueryWorkspaceDefinition.1330709314");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Catalog.CatalogExports.PreparePackageQueryWorkspaceDefinition.1330709314\u0027 is not callable.");
@@ -1393,6 +1427,12 @@ export async function activateSpotlightDestination(action: string): Promise<Brow
   return $parsed as BrowserSpotlightActionResult;
 }
 
+export async function admitEcosystemPackageToWorkspace(retainedDefinitionId: string, realizationId: string, packageId: string, version: string, ecosystemId: string, basis: string, registration: string): Promise<BrowserEcosystemPackageWorkspaceAdmissionResult> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Catalog"]["CatalogExports"]["AdmitEcosystemPackageToWorkspace.1160082336"](retainedDefinitionId, realizationId, packageId, version, ecosystemId, basis, registration);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserEcosystemPackageWorkspaceAdmissionResult;
+}
+
 export async function admitRetainedWorkspacePackage(retainedDefinitionId: string, realizationId: string, navigationId: string, typeOffset: number): Promise<BrowserRetainedWorkspacePackageAdmissionResult> {
   const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Catalog"]["CatalogExports"]["AdmitRetainedWorkspacePackage.2036994461"](retainedDefinitionId, realizationId, navigationId, typeOffset);
   const $parsed: unknown = JSON.parse($result);
@@ -1487,6 +1527,12 @@ export async function observeRetainedWorkspaceSettlement(settlementId: string): 
   const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Catalog"]["CatalogExports"]["ObserveRetainedWorkspaceSettlement.976702342"](settlementId);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserRetainedWorkspaceSettlementResult;
+}
+
+export async function prepareEcosystemWorkspaceDefinition(retainedDefinitionId: string, label: string, canonicalLocation: string, ecosystemId: string): Promise<BrowserRetainedWorkspacePreparationResult> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Catalog"]["CatalogExports"]["PrepareEcosystemWorkspaceDefinition.1579276339"](retainedDefinitionId, label, canonicalLocation, ecosystemId);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserRetainedWorkspacePreparationResult;
 }
 
 export async function preparePackageQueryWorkspaceDefinition(retainedDefinitionId: string, label: string, canonicalLocation: string, packageId: string, version: string): Promise<BrowserRetainedWorkspacePreparationResult> {

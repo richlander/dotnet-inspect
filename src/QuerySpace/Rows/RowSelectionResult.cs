@@ -56,14 +56,14 @@ public sealed class RowSelectionResult<T>
         IReadOnlyList<T> values) =>
         new(
             true,
-            RowSelectionSnapshot.Copy(values),
+            QuerySpaceSnapshot.Copy(values),
             null);
 
     internal static RowSelectionResult<T> Failed(
         RowWindowFailure failure) =>
         new(
             false,
-            RowSelectionSnapshot.Empty<T>(),
+            QuerySpaceSnapshot.Empty<T>(),
             failure);
 }
 
@@ -89,31 +89,13 @@ public sealed class NamedRowSelectionResult<T>
         IReadOnlyList<NamedRowSequence<T>> sequences) =>
         new(
             true,
-            RowSelectionSnapshot.Copy(sequences),
+            QuerySpaceSnapshot.Copy(sequences),
             null);
 
     internal static NamedRowSelectionResult<T> Failed(
         NamedRowWindowFailure failure) =>
         new(
             false,
-            RowSelectionSnapshot.Empty<NamedRowSequence<T>>(),
+            QuerySpaceSnapshot.Empty<NamedRowSequence<T>>(),
             failure);
-}
-
-internal static class RowSelectionSnapshot
-{
-    public static IReadOnlyList<T> Empty<T>() =>
-        Array.AsReadOnly(Array.Empty<T>());
-
-    public static IReadOnlyList<T> Copy<T>(
-        IReadOnlyList<T> values)
-    {
-        var copy = new T[values.Count];
-        for (int index = 0; index < values.Count; index++)
-            copy[index] = values[index];
-        return Own(copy);
-    }
-
-    public static IReadOnlyList<T> Own<T>(T[] values) =>
-        Array.AsReadOnly(values);
 }

@@ -5,6 +5,8 @@ using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using ILInspector.Metadata;
 
+using ILInspector.ILDiff;
+
 namespace ILInspector.ILDiff.Tests;
 
 public class IlAssemblyDiffMetadataGraphSafetyTests

@@ -1344,6 +1344,160 @@ public sealed class MetadataSource : IDisposable
         }
     }
 
+    /// <summary>
+    /// The base type as the join merge sees it: this module's own rows first,
+    /// then the shared metadata context for a definition declared elsewhere,
+    /// with every foreign definition rebound to the identity this module
+    /// itself uses for it (see <see cref="TryRebindToModuleReferences"/>).
+    /// Merge-private by design: <see cref="ResolveBaseType"/> keeps its
+    /// same-assembly contract for every other base-chain consumer
+    /// (<see cref="AreProvablyDisjoint"/>, <see cref="InterfacesOf"/>,
+    /// <see cref="SupportsCollectionInitializer"/>, the importer's declaring
+    /// base, constructor confinement), whose contracts were written against
+    /// it.
+    /// </summary>
+    TypeRef? ResolveBaseTypeForMerge(TypeRef type)
+    {
+        EnsureTypeMaps();
+        switch (type.Kind)
+        {
+            case TypeRefKind.Definition:
+                return _baseTypes!.TryGetValue(type, out var sameAssemblyBase)
+                    ? sameAssemblyBase
+                    : RebindToModuleReferences(CrossAssemblyBaseType(type));
+            case TypeRefKind.GenericInstance when type.ElementType is { } definition:
+                return _baseTypes!.TryGetValue(definition, out var openBase)
+                    ? openBase?.Instantiate(type.TypeArguments, [])
+                    : RebindToModuleReferences(CrossAssemblyBaseType(type));
+            default:
+                return null;
+        }
+    }
+
+    /// <summary>
+    /// The base type of a type defined in another assembly, read through the
+    /// shared metadata context. Null when the definition is unreachable or
+    /// declares no base, so a chain that leaves the reference closure stops
+    /// rather than guessing.
+    /// </summary>
+    TypeRef? CrossAssemblyBaseType(TypeRef type)
+        => CrossAssembly.BaseType(type, out var baseType) == MetadataFactState.Yes
+            ? baseType
+            : null;
+
+    Dictionary<(string Namespace, string Name), TypeRef>? _moduleTypeReferences;
+    string? _moduleCanonicalSelf;
+
+    /// <summary>
+    /// This module's own TypeRef rows, keyed by namespace and nested metadata
+    /// name: the identities the inspected code already uses for the types it
+    /// references, which the join merge must reuse for a definition it
+    /// reaches through another module.
+    /// </summary>
+    void EnsureModuleTypeReferences()
+    {
+        if (_moduleTypeReferences is not null)
+            return;
+        lock (_mapLock)
+        {
+            if (_moduleTypeReferences is not null)
+                return;
+            var references = new Dictionary<(string, string), TypeRef>();
+            foreach (var handle in Reader.TypeReferences)
+            {
+                var reference = TypeRefDecoder.Instance.GetTypeFromReference(Reader, handle, 0);
+                if (reference.Kind != TypeRefKind.Definition || string.IsNullOrEmpty(reference.Assembly))
+                    continue;   // module-scoped or unsupported rows carry no foreign identity
+                references.TryAdd(ReferenceKey(reference), reference);
+            }
+            _moduleCanonicalSelf = TypeRefDecoder.CanonicalSelf(Reader);
+            _moduleTypeReferences = references;
+        }
+    }
+
+    static (string Namespace, string Name) ReferenceKey(TypeRef definition)
+        => (definition.Namespace, string.Join("+", definition.MetadataNameSegments()));
+
+    /// <summary>
+    /// Rebinds every foreign definition in <paramref name="type"/> that this
+    /// module references to the module's own reference (facade identity and
+    /// resolution assembly), leaving unreferenced foreign definitions as
+    /// decoded so chains from both arms still compare. Null in, null out.
+    /// </summary>
+    TypeRef? RebindToModuleReferences(TypeRef? type)
+    {
+        if (type is null)
+            return null;
+        TryRebindToModuleReferences(type, out var rebound);
+        return rebound;
+    }
+
+    /// <summary>
+    /// The identity rule for a type the join merge reaches through another
+    /// module: it enters the IR only under the identity this module itself
+    /// uses for it. Returns <c>false</c>, with the best-effort rebinding in
+    /// <paramref name="rebound"/>, when any foreign definition component has no
+    /// reference row in this module (or the context cannot confirm the
+    /// module's row denotes the same definition), so the merge can decline it.
+    /// </summary>
+    bool TryRebindToModuleReferences(TypeRef type, out TypeRef rebound)
+    {
+        EnsureModuleTypeReferences();
+        switch (type.Kind)
+        {
+            case TypeRefKind.Definition:
+                if (string.IsNullOrEmpty(type.Assembly) || type.Assembly == _moduleCanonicalSelf)
+                {
+                    rebound = type;
+                    return true;
+                }
+                if (_moduleTypeReferences!.TryGetValue(ReferenceKey(type), out var reference)
+                    && CrossAssembly.SameDefinition(reference, type) == MetadataFactState.Yes)
+                {
+                    // A TypeRef row carries no signature hint. The merge only
+                    // walks base chains of reference types, so an ancestor it
+                    // reaches is a class or interface; say so, because the
+                    // importer's reference-type check reads that provenance.
+                    rebound = reference.ValueTypeHint == ValueTypeHint.Unknown
+                        ? reference.WithValueTypeHint(ValueTypeHint.ReferenceType)
+                        : reference;
+                    return true;
+                }
+                rebound = type;
+                return false;
+            case TypeRefKind.GenericInstance when type.ElementType is { } definition:
+            {
+                bool referenced = TryRebindToModuleReferences(definition, out var element);
+                var arguments = ImmutableArray.CreateBuilder<TypeRef>(type.TypeArguments.Length);
+                foreach (var argument in type.TypeArguments)
+                {
+                    referenced &= TryRebindToModuleReferences(argument, out var reboundArgument);
+                    arguments.Add(reboundArgument);
+                }
+                rebound = type.WithComponents(element, arguments.MoveToImmutable());
+                return referenced;
+            }
+            case TypeRefKind.SzArray or TypeRefKind.Array or TypeRefKind.ByRef or TypeRefKind.Pointer or TypeRefKind.Pinned
+                when type.ElementType is { } element:
+            {
+                bool referenced = TryRebindToModuleReferences(element, out var reboundElement);
+                rebound = type.WithComponents(reboundElement);
+                return referenced;
+            }
+            default:
+                rebound = type;
+                return true;
+        }
+    }
+
+    /// <summary>True when the named definition is declared in this module.</summary>
+    bool IsSameAssemblyDefinition(TypeRef type)
+    {
+        EnsureTypeMaps();
+        var definition = NamedDefinition(type);
+        return definition is not null && _shapes!.ContainsKey(definition);
+    }
+
     /// <summary>True when <paramref name="type"/> is <c>System.Object</c>.</summary>
     static bool IsObject(TypeRef type)
         => type is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "Object" };
@@ -1357,6 +1511,21 @@ public sealed class MetadataSource : IDisposable
         EnsureTypeMaps();
         var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType : type;
         return definition is not null && _interfaces!.Contains(definition);
+    }
+
+    /// <summary>
+    /// <see cref="IsInterface"/> for the join merge: a definition declared in
+    /// another assembly answers through the shared metadata context.
+    /// </summary>
+    bool IsInterfaceForMerge(TypeRef type)
+    {
+        EnsureTypeMaps();
+        var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType : type;
+        if (definition is null)
+            return false;
+        if (_shapes!.ContainsKey(definition))
+            return _interfaces!.Contains(definition);
+        return CrossAssembly.ClassifyShape(definition) == TypeShapeKind.Interface;
     }
 
     /// <summary>
@@ -1438,6 +1607,39 @@ public sealed class MetadataSource : IDisposable
     }
 
     /// <summary>
+    /// <see cref="Implements"/> for the join merge. The same-assembly walk
+    /// reads only this module's interface implementations; a base class or
+    /// base interface declared in another assembly (EqualityComparer&lt;T&gt;
+    /// under IEqualityComparer&lt;T&gt;) answers through the shared metadata
+    /// context, which compares interface identity across facades rather than
+    /// by spelling.
+    /// </summary>
+    bool ImplementsForMerge(TypeRef type, TypeRef iface)
+    {
+        if (Implements(type, iface))
+            return true;
+        // Bounded like MergeReferenceTypes' walks: a repeated definition (a
+        // version-skew cycle, generic or not) ends the walk.
+        var definitions = new HashSet<TypeRef>();
+        for (var current = type; current is not null && definitions.Count < 64 && definitions.Add(WalkDefinition(current)); current = ResolveBaseTypeForMerge(current))
+        {
+            if (!IsSameAssemblyDefinition(current)
+                && CrossAssembly.Implements(current, iface) == MetadataFactState.Yes)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// The identity a base-chain walk counts as visited: the generic definition
+    /// for an instance, the type itself otherwise.
+    /// </summary>
+    static TypeRef WalkDefinition(TypeRef type)
+        => type.Kind == TypeRefKind.GenericInstance && type.ElementType is { } definition ? definition : type;
+
+    /// <summary>
     /// Whether <paramref name="type"/> can legally be the receiver of C#
     /// collection-initializer `Add` entries. Exact evidence is the non-generic
     /// <c>System.Collections.IEnumerable</c> interface, resolved same-assembly or
@@ -1465,24 +1667,43 @@ public sealed class MetadataSource : IDisposable
     {
         EnsureTypeMaps();
         var seen = new HashSet<TypeRef>();
-        var pending = new Stack<TypeRef>();
-        for (var current = type; current is not null; current = ResolveBaseType(current))
-            pending.Push(current);
+        // Each pending entry carries the interface definitions on its own
+        // expansion path. Same-module metadata can be cyclic in two ways that
+        // are malformed but readable: a TypeDef's Extends column pointing back
+        // down its chain, and an InterfaceImpl row making an interface extend
+        // an instance of itself (`IA<T> : IA<List<T>>`, or the doubling
+        // `IA<T> : IA<Tuple<T,T>>` whose instances grow so fast that even
+        // hashing the 256th would never finish). The base walk ends on a
+        // repeated definition, and an interface whose definition already sits
+        // on its expansion path is yielded but not expanded. A valid hierarchy
+        // never repeats a definition on one path, so both rules visit exactly
+        // the same interfaces there, while sibling instances reached on
+        // different paths (`IZ<int>` under `IX<int>`, `IZ<string>` under
+        // `IY<string>`) still expand. The 256-interface cap stays as the last
+        // resort; every consumer acts only on a positive answer, so each bound
+        // can only decline.
+        var pending = new Stack<(TypeRef Current, ImmutableHashSet<TypeRef> Path)>();
+        var definitions = new HashSet<TypeRef>();
+        for (var current = type; current is not null && definitions.Count < 64 && definitions.Add(WalkDefinition(current)); current = ResolveBaseType(current))
+            pending.Push((current, ImmutableHashSet<TypeRef>.Empty));
         while (pending.Count > 0)
         {
-            var current = pending.Pop();
+            var (current, path) = pending.Pop();
             var definition = current.Kind == TypeRefKind.GenericInstance ? current.ElementType : current;
             if (definition is null || !_interfaceImpls!.TryGetValue(definition, out var impls))
                 continue;
             var arguments = current.Kind == TypeRefKind.GenericInstance ? current.TypeArguments : [];
+            var pathBelow = path.Add(definition);
             foreach (var open in impls)
             {
                 var iface = open.Instantiate(arguments, []);
-                if (seen.Add(iface))
-                {
-                    yield return iface;
-                    pending.Push(iface);   // an interface's own base interfaces
-                }
+                if (!seen.Add(iface))
+                    continue;
+                yield return iface;
+                if (seen.Count >= 256)
+                    yield break;
+                if (!pathBelow.Contains(WalkDefinition(iface)))
+                    pending.Push((iface, pathBelow));   // an interface's own base interfaces
             }
         }
     }
@@ -1505,18 +1726,44 @@ public sealed class MetadataSource : IDisposable
             return a;
         if (IsObject(b))
             return b;
-        if (IsInterface(a) && Implements(b, a))
+        if (IsInterfaceForMerge(a) && ImplementsForMerge(b, a))
             return a;
-        if (IsInterface(b) && Implements(a, b))
+        if (IsInterfaceForMerge(b) && ImplementsForMerge(a, b))
             return b;
-        var ancestorsA = new HashSet<TypeRef>();
-        for (var current = a; current is not null && ancestorsA.Count < 64; current = ResolveBaseType(current))
-            ancestorsA.Add(current);
+        // Keep the instances the caller handed in when the common ancestor is
+        // one of them: an arm carries the identity the function's other
+        // references to that type share. A common ancestor reached only
+        // through another module's rows is accepted under the identity rule
+        // (TryRebindToModuleReferences): this module must reference it, so no
+        // TypeRef enters the IR under an identity the function's rows do not
+        // share; otherwise the join stays honestly unknown.
+        // Both walks end on a revisited definition (the generic definition for
+        // an instance) and never run more than 64 steps. Two resolved
+        // assemblies in version skew can declare `A : B` and `B : A` (each
+        // compiled against the other's earlier shape); a generic pair
+        // `GA<T> : GB<Tuple<T,T>>` / `GB<T> : GA<Tuple<T,T>>` never revisits an
+        // equal instance at all, its instances double at every step, and a
+        // step bound alone leaves a 2^64-sized walk. In a valid ECMA-335
+        // hierarchy a definition never appears twice in its own base chain,
+        // so ending on a repeated definition can only decline, never answer
+        // wrongly; the join then declines like any chain without a shared
+        // ancestor (an honest unknown unless the caller's stack-family
+        // fallback applies).
+        var ancestorsA = new Dictionary<TypeRef, TypeRef>();
+        var definitionsA = new HashSet<TypeRef>();
+        for (var ancestor = a; ancestor is not null && definitionsA.Count < 64 && definitionsA.Add(WalkDefinition(ancestor)); ancestor = ResolveBaseTypeForMerge(ancestor))
+            ancestorsA.TryAdd(ancestor, ancestor);
+        var definitionsB = new HashSet<TypeRef>();
         var fromB = b;
-        for (int depth = 0; fromB is not null && depth < 64; depth++, fromB = ResolveBaseType(fromB))
+        for (int depth = 0; fromB is not null && depth < 64 && definitionsB.Add(WalkDefinition(fromB)); depth++, fromB = ResolveBaseTypeForMerge(fromB))
         {
-            if (ancestorsA.Contains(fromB))
-                return fromB;
+            if (!ancestorsA.TryGetValue(fromB, out var fromA))
+                continue;
+            if (depth == 0)
+                return b;
+            if (fromA.Equals(a))
+                return fromA;
+            return TryRebindToModuleReferences(fromA, out var referenced) ? referenced : null;
         }
         return null;
     }

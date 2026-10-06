@@ -224,6 +224,7 @@ public sealed class PointerCompoundAssignmentTests
 
         var update = Assert.Single(function.Descendants.OfType<PointerCompoundAssignment>());
         Assert.Equal(256, Assert.IsType<LoadStackSlot>(update.Target).Slot);
+        new ResidualSlotBindingPass().Run(function, PassContext.None);
         string output = Assert.IsType<string>(CSharpPrinter.Print(function).Output);
         Assert.Contains("ulong* S_256 = cursor;", output);
         Assert.Contains("S_256 += Displacement();", output);

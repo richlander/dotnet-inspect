@@ -20,6 +20,54 @@ public sealed record MemberSourcePart(
 
 public static class MemberSourcePartsProjection
 {
+    public static MemberTextParts? GetDecompiledParts(string memberText)
+    {
+        ArgumentNullException.ThrowIfNull(memberText);
+        const string prefix = "class __DecompiledMemberContainer\n{\n";
+        string document = prefix + memberText + "\n}";
+        DeclarationIndex index = DeclarationIndex.Build(document);
+        int containerIndex = -1;
+        for (int indexValue = 0;
+            indexValue < index.Declarations.Length;
+            indexValue++)
+        {
+            DeclarationSpan declaration = index.Declarations[indexValue];
+            if (declaration.ParentIndex < 0
+                && declaration.Kind == DeclarationKind.Class
+                && declaration.Name == "__DecompiledMemberContainer")
+            {
+                containerIndex = indexValue;
+                break;
+            }
+        }
+        if (containerIndex < 0)
+            return null;
+        DeclarationSpan[] declarations =
+        [
+            .. index.Declarations.Where(declaration =>
+                declaration.ParentIndex == containerIndex),
+        ];
+        if (declarations.Length != 1
+            || index.GetMemberTextParts(declarations[0]) is not { } parts)
+        {
+            return null;
+        }
+
+        MemberTextPart Rebase(MemberTextPart part) =>
+            part.Start < prefix.Length
+                ? throw new InvalidOperationException(
+                    "A decompiled member part begins outside its source text.")
+                : part with { Start = part.Start - prefix.Length };
+
+        return new MemberTextParts(
+            Rebase(parts.Member),
+            Rebase(parts.Declaration),
+            [.. parts.XmlDocumentation.Select(Rebase)],
+            [.. parts.Attributes.Select(Rebase)],
+            Rebase(parts.Signature),
+            parts.Body is { } body ? Rebase(body) : null);
+    }
+
     public static IReadOnlyList<MemberSourcePart> CreateCatalog(MemberTextParts parts)
     {
         List<MemberSourcePart> result = [];

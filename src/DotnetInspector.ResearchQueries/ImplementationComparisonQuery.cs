@@ -6,11 +6,79 @@ namespace DotnetInspector.Queries;
 /// Content-shaped inputs for comparing C# and IL implementation evidence
 /// across two already-acquired assembly versions.
 /// </summary>
-public sealed record ImplementationComparisonInput(
-    IReadOnlyList<ImplementationAssemblyInput> OldAssemblies,
-    IReadOnlyList<ImplementationAssemblyInput> NewAssemblies,
-    IReadOnlySet<string>? TypeFilters = null,
-    IReadOnlyList<ComparisonMemberSelection>? MemberSelections = null);
+public abstract record ImplementationComparisonPopulation
+{
+    private protected ImplementationComparisonPopulation()
+    {
+    }
+
+    public sealed record All : ImplementationComparisonPopulation;
+
+    public sealed record Selected : ImplementationComparisonPopulation
+    {
+        public Selected(IReadOnlyList<ComparisonMemberSelection> members)
+        {
+            ArgumentNullException.ThrowIfNull(members);
+            if (members.Any(static member => member is null))
+            {
+                throw new ArgumentException(
+                    "Selected members cannot contain null entries.",
+                    nameof(members));
+            }
+
+            Members = members;
+        }
+
+        public IReadOnlyList<ComparisonMemberSelection> Members { get; }
+    }
+}
+
+public sealed record ImplementationComparisonInput
+{
+    public ImplementationComparisonInput(
+        IReadOnlyList<ImplementationAssemblyInput> OldAssemblies,
+        IReadOnlyList<ImplementationAssemblyInput> NewAssemblies,
+        IReadOnlySet<string>? TypeFilters = null,
+        IReadOnlyList<ComparisonMemberSelection>? MemberSelections = null)
+        : this(
+            OldAssemblies,
+            NewAssemblies,
+            TypeFilters,
+            MemberSelections is null
+                ? new ImplementationComparisonPopulation.All()
+                : new ImplementationComparisonPopulation.Selected(
+                    MemberSelections),
+            ImplementationDiffMechanism.All)
+    {
+    }
+
+    public ImplementationComparisonInput(
+        IReadOnlyList<ImplementationAssemblyInput> oldAssemblies,
+        IReadOnlyList<ImplementationAssemblyInput> newAssemblies,
+        IReadOnlySet<string>? typeFilters,
+        ImplementationComparisonPopulation population,
+        ImplementationDiffMechanism mechanisms)
+    {
+        ArgumentNullException.ThrowIfNull(oldAssemblies);
+        ArgumentNullException.ThrowIfNull(newAssemblies);
+        ArgumentNullException.ThrowIfNull(population);
+        ImplementationDiffOptions.ValidateMechanisms(
+            mechanisms,
+            nameof(mechanisms));
+
+        OldAssemblies = oldAssemblies;
+        NewAssemblies = newAssemblies;
+        TypeFilters = typeFilters;
+        Population = population;
+        Mechanisms = mechanisms;
+    }
+
+    public IReadOnlyList<ImplementationAssemblyInput> OldAssemblies { get; }
+    public IReadOnlyList<ImplementationAssemblyInput> NewAssemblies { get; }
+    public IReadOnlySet<string>? TypeFilters { get; }
+    public ImplementationComparisonPopulation Population { get; }
+    public ImplementationDiffMechanism Mechanisms { get; }
+}
 
 public abstract class ImplementationComparisonResult
 {
@@ -147,17 +215,45 @@ public static class ImplementationComparisonQuery
         var population =
             (QueryComparisonPopulation<ImplementationComparisonBinding>)
             ((QueryPopulationSealingOutcome.Sealed)sealedOutcome).Population;
-        return input.MemberSelections is { Count: > 0 } selections
-            ? Targeted(input, population, selections, cancellationToken)
-            : new ImplementationComparisonResult.Compared(
-                ImplementationDiff.Compare(
-                    input.OldAssemblies,
-                    input.NewAssemblies,
-                    new ImplementationDiffOptions(
-                        TypeFilters: input.TypeFilters)),
-                resolution: null,
-                producerCompletion: null);
+        return input.Population switch
+        {
+            ImplementationComparisonPopulation.Selected { Members.Count: 0 }
+                => Empty(input.Mechanisms),
+            ImplementationComparisonPopulation.Selected selected
+                => Targeted(
+                    input,
+                    population,
+                    selected.Members,
+                    cancellationToken),
+            ImplementationComparisonPopulation.All
+                => new ImplementationComparisonResult.Compared(
+                    ImplementationDiff.Compare(
+                        input.OldAssemblies,
+                        input.NewAssemblies,
+                        new ImplementationDiffOptions(
+                            input.Mechanisms,
+                            TypeFilters: input.TypeFilters)),
+                    resolution: null,
+                    producerCompletion: null),
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(input),
+                input.Population,
+                "Unknown Implementation Diff population."),
+        };
     }
+
+    static ImplementationComparisonResult Empty(
+        ImplementationDiffMechanism mechanisms)
+        => new ImplementationComparisonResult.Compared(
+            new ImplementationDiffResult([], new ResearchComparison([]))
+            {
+                Complexity = mechanisms.HasFlag(
+                    ImplementationDiffMechanism.Complexity)
+                    ? new ImplementationComplexityDiff(true, null, [])
+                    : ImplementationComplexityDiff.Unavailable,
+            },
+            resolution: null,
+            producerCompletion: null);
 
     static ImplementationComparisonBinding ToBinding(
         ImplementationAssemblyInput input)
@@ -261,50 +357,76 @@ public static class ImplementationComparisonQuery
                             })));
         }
 
-        ResearchProducerSessionOutcome session =
-            ResearchProducerSession.Run(
-                new ResearchProducerSessionRequest(
-                    resolved.Projected.Admission,
-                    resolved.Resolution,
-                    ResearchProducerCatalog.Kinds),
-                cancellationToken);
-        if (session is ResearchProducerSessionOutcome.Rejected producerRejected)
+        ResearchProducerKind[] producers =
+        [
+            .. ResearchProducerCatalog.Kinds.Where(kind => kind switch
+            {
+                ResearchProducerKind.CSharp => input.Mechanisms.HasFlag(
+                    ImplementationDiffMechanism.CSharp),
+                ResearchProducerKind.IlBody => input.Mechanisms.HasFlag(
+                    ImplementationDiffMechanism.IlBody),
+                _ => false,
+            }),
+        ];
+        ResearchProducerCompletion? completion = null;
+        ResearchComparison research;
+        if (producers.Length == 0)
         {
-            return new ImplementationComparisonResult.ProducerRejected(
-                producerRejected.Rejection);
+            research = new ResearchComparison([]);
         }
-        if (session is ResearchProducerSessionOutcome.Failed failed)
+        else
         {
-            return new ImplementationComparisonResult.ProducerFailed(
-                failed.Diagnostic);
-        }
-        if (session is ResearchProducerSessionOutcome.Cancelled)
-            return new ImplementationComparisonResult.Cancelled();
+            ResearchProducerSessionOutcome session =
+                ResearchProducerSession.Run(
+                    new ResearchProducerSessionRequest(
+                        resolved.Projected.Admission,
+                        resolved.Resolution,
+                        producers),
+                    cancellationToken);
+            if (session is
+                ResearchProducerSessionOutcome.Rejected producerRejected)
+            {
+                return new ImplementationComparisonResult.ProducerRejected(
+                    producerRejected.Rejection);
+            }
+            if (session is ResearchProducerSessionOutcome.Failed failed)
+            {
+                return new ImplementationComparisonResult.ProducerFailed(
+                    failed.Diagnostic);
+            }
+            if (session is ResearchProducerSessionOutcome.Cancelled)
+                return new ImplementationComparisonResult.Cancelled();
 
-        ResearchProducerCompletion completion =
-            ((ResearchProducerSessionOutcome.Completed)session).Completion;
-        ResearchComparison research = ResearchDiff.FromProducerCompletion(
-            completion,
-            resolved.Resolution,
-            resolved.Projected.Admission);
+            completion =
+                ((ResearchProducerSessionOutcome.Completed)session).Completion;
+            research = ResearchDiff.FromProducerCompletion(
+                completion,
+                resolved.Resolution,
+                resolved.Projected.Admission);
+        }
         ImplementationDiffResult comparison =
             ImplementationDiff.FromResearchComparison(
                 research,
                 new ImplementationDiffOptions(
+                    input.Mechanisms,
                     TypeFilters: input.TypeFilters));
-        comparison = comparison with
+        if (input.Mechanisms.HasFlag(
+            ImplementationDiffMechanism.Complexity))
         {
-            Complexity = ImplementationComplexityService.Execute(
-                new ImplementationComplexityComparisonRequest(
-                    [.. input.OldAssemblies.Select(
-                        static assembly => assembly.ProfileAnalysis)],
-                    [.. input.NewAssemblies.Select(
-                        static assembly => assembly.ProfileAnalysis)],
-                    input.TypeFilters,
-                    TargetContext: new(
-                        resolved.Resolution,
-                        resolved.Projected.Admission))),
-        };
+            comparison = comparison with
+            {
+                Complexity = ImplementationComplexityService.Execute(
+                    new ImplementationComplexityComparisonRequest(
+                        [.. input.OldAssemblies.Select(
+                            static assembly => assembly.ProfileAnalysis)],
+                        [.. input.NewAssemblies.Select(
+                            static assembly => assembly.ProfileAnalysis)],
+                        input.TypeFilters,
+                        TargetContext: new(
+                            resolved.Resolution,
+                            resolved.Projected.Admission))),
+            };
+        }
         return new ImplementationComparisonResult.Compared(
             comparison,
             resolved.Resolution,

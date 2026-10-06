@@ -300,6 +300,18 @@ public sealed class BrowserMemberDeclarationTests
                 Version,
                 Framework);
         using JsonDocument loadDocument = JsonDocument.Parse(loadJson);
+        JsonElement packageChildren = loadDocument.RootElement
+            .GetProperty("packageChildren")
+            .GetProperty("content");
+        JsonElement packageLibrary = Assert.Single(
+            packageChildren.GetProperty("libraries").EnumerateArray());
+        Assert.EndsWith(
+            AssemblyFileName,
+            packageLibrary.GetProperty("assetId").GetString(),
+            StringComparison.Ordinal);
+        Assert.Equal(
+            AssemblyFileName,
+            packageLibrary.GetProperty("assemblyName").GetString());
         string surfaceJson = loadDocument.RootElement
             .GetProperty("surface")
             .GetRawText();
@@ -942,7 +954,7 @@ public sealed class BrowserMemberDeclarationTests
                 "PointerFreeUnsafeMethod",
                 source.Source.Text,
                 StringComparison.Ordinal);
-            Assert.Empty(source.Parts);
+            Assert.NotEmpty(source.Parts);
             string censusJson =
                 await SourceExports.QueryPlatformMemberFindingCensus(
                     framework,
@@ -1014,7 +1026,7 @@ public sealed class BrowserMemberDeclarationTests
                 "PointerFreeUnsafeMethod",
                 documentSource.Source.Text,
                 StringComparison.Ordinal);
-            Assert.Empty(documentSource.Parts);
+            Assert.NotEmpty(documentSource.Parts);
             Assert.Equal(requests, handler.Requests);
         }
         finally

@@ -138,6 +138,24 @@ public abstract class PackageHouseContentTerminal
     public sealed class FileList : PackageHouseContentTerminal
     {
     }
+
+    /// <summary>
+    /// One selected compile Library plus the complete logical Library
+    /// inventory for one exact target.
+    /// </summary>
+    public sealed class LibraryAndInventoryForTarget
+        : PackageHouseContentTerminal
+    {
+    }
+
+    /// <summary>
+    /// The complete logical Library inventory for one exact target, without
+    /// expanding any Library content.
+    /// </summary>
+    public sealed class LibraryInventoryForTarget
+        : PackageHouseContentTerminal
+    {
+    }
 }
 
 internal sealed record PackageHouseFilesResolution(
@@ -211,7 +229,8 @@ public sealed class PackageHouseContentQuery
     internal PackageHouseContentQuery(
         PackageHouseContentNarrowing narrowing,
         IEnumerable<PackageHouseContentTerminal> terminals,
-        PackageHouseFileList? retainedFileList)
+        PackageHouseFileList? retainedFileList,
+        PackageHouseLibraryInventory? retainedLibraryInventory = null)
     {
         ArgumentNullException.ThrowIfNull(narrowing);
         ArgumentNullException.ThrowIfNull(terminals);
@@ -245,16 +264,59 @@ public sealed class PackageHouseContentQuery
                 "Retained File List evidence must describe this query's narrowing.",
                 nameof(retainedFileList));
         }
+        if (retainedLibraryInventory is not null
+            && !ReferenceEquals(
+                retainedLibraryInventory.Narrowing.Narrowing,
+                narrowing))
+        {
+            throw new ArgumentException(
+                "Retained Library inventory evidence must describe this query's narrowing.",
+                nameof(retainedLibraryInventory));
+        }
 
         Narrowing = narrowing;
         Terminals = Array.AsReadOnly(values);
         RetainedFileList = retainedFileList;
+        RetainedLibraryInventory = retainedLibraryInventory;
         FilesTerminal = values
             .OfType<PackageHouseContentTerminal.Files>()
             .SingleOrDefault();
         FileListTerminal = values
             .OfType<PackageHouseContentTerminal.FileList>()
             .SingleOrDefault();
+        LibraryAndInventoryTerminal = values
+            .OfType<
+                PackageHouseContentTerminal
+                    .LibraryAndInventoryForTarget>()
+            .SingleOrDefault();
+        LibraryInventoryTerminal = values
+            .OfType<
+                PackageHouseContentTerminal
+                    .LibraryInventoryForTarget>()
+            .SingleOrDefault();
+        if ((LibraryAndInventoryTerminal is not null
+                || LibraryInventoryTerminal is not null)
+            && narrowing is not PackageHouseContentNarrowing.TfmWide)
+        {
+            throw new ArgumentException(
+                "Library inventory requires TFM-wide narrowing.",
+                nameof(narrowing));
+        }
+        if ((LibraryAndInventoryTerminal is not null
+                || LibraryInventoryTerminal is not null)
+            && FilesTerminal is not null)
+        {
+            throw new ArgumentException(
+                "Library inventory cannot be combined with a Files terminal; use its issued inventory references in a later exact Files query.",
+                nameof(terminals));
+        }
+        if (LibraryAndInventoryTerminal is not null
+            && LibraryInventoryTerminal is not null)
+        {
+            throw new ArgumentException(
+                "A content query cannot request both Library inventory terminals.",
+                nameof(terminals));
+        }
     }
 
     /// <summary>The package-entry space shared by every terminal.</summary>
@@ -268,6 +330,14 @@ public sealed class PackageHouseContentQuery
     internal PackageHouseContentTerminal.FileList? FileListTerminal { get; }
 
     internal PackageHouseFileList? RetainedFileList { get; }
+
+    internal PackageHouseContentTerminal.LibraryAndInventoryForTarget?
+        LibraryAndInventoryTerminal { get; }
+
+    internal PackageHouseContentTerminal.LibraryInventoryForTarget?
+        LibraryInventoryTerminal { get; }
+
+    internal PackageHouseLibraryInventory? RetainedLibraryInventory { get; }
 
     /// <summary>Creates a package-wide exact Files query.</summary>
     public static PackageHouseContentQuery PackageFiles(
@@ -316,5 +386,32 @@ public sealed class PackageHouseContentQuery
             [
                 new PackageHouseContentTerminal.Files(entries),
                 new PackageHouseContentTerminal.FileList(),
+            ]);
+
+    /// <summary>
+    /// Creates one TFM-wide selected-Library and logical-inventory query.
+    /// </summary>
+    public static PackageHouseContentQuery
+        GetLibraryAndInventoryForTarget(
+            PackageHouseTargetContext target) =>
+        new(
+            new PackageHouseContentNarrowing.TfmWide(target),
+            [
+                new PackageHouseContentTerminal
+                    .LibraryAndInventoryForTarget(),
+            ]);
+
+    /// <summary>
+    /// Creates one TFM-wide logical Library inventory query without
+    /// materializing Library content.
+    /// </summary>
+    public static PackageHouseContentQuery
+        GetLibraryInventoryForTarget(
+            PackageHouseTargetContext target) =>
+        new(
+            new PackageHouseContentNarrowing.TfmWide(target),
+            [
+                new PackageHouseContentTerminal
+                    .LibraryInventoryForTarget(),
             ]);
 }

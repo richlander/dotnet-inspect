@@ -29,6 +29,13 @@ public static class TypeCommand
 {
     public const string Name = "type";
 
+    static readonly ViewFacetId ExactTypeDefaultFacet =
+        InspectionViewFacetCatalog.Registry
+            .GetRequiredDescriptor(
+                StructuralSubjectKind.Type,
+                ViewFacetRole.TypeApi)
+            .Id;
+
     private static readonly InspectionEnvelopeJsonContract<
         ExactTypeInspectionResult> ExactTypeJsonContract =
             new(
@@ -703,9 +710,13 @@ public static class TypeCommand
                     }
 
                     // Notify when a requested section matched but has no data for this type.
-                    // JSON and markdown both honor -S; tabular output falls back to showing all
-                    // members and shape replaces selection, so skip those.
-                    if (!effectiveOptions.Tabular
+                    // JSON and markdown both honor -S; explicit tabular output falls back to
+                    // showing all members and shape replaces selection, so skip those. A lone
+                    // section's native TSV stream (no explicit format) keeps the note: an empty
+                    // stream with no explanation would read as a silent success.
+                    if (!(effectiveOptions.Tabular
+                            && (effectiveOptions.TabularExplicitlySet
+                                || effectiveOptions.FormatExplicitlySet))
                         && effectiveOptions is not TypeOptions { ShapeOutput: true }
                         && !effectiveOptions.CountDefaultPopulation)
                     {
@@ -1863,7 +1874,7 @@ public static class TypeCommand
                             + "representation."));
             }
 
-            return new(new ViewFacetId("type.api"), Refusal: null);
+            return new(ExactTypeDefaultFacet, Refusal: null);
         }
     }
 

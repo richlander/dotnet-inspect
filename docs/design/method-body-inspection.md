@@ -112,8 +112,8 @@ owner. The Workspace/L1 query builds it from the same focused member input for
 residual query-owned callee evidence. The focused member input is not a
 universal Research result bag: its constructor names the four result families
 used by the default registry and requires one shared execution receipt. The
-query's separate compatibility index remains only for its later call-
-relationship, invocation-destination, and local-throw migration.
+query's focused member input also supplies the later call-relationship,
+invocation-destination, and local-throw evidence.
 
 This migration is tracked by
 [#2786](https://github.com/richlander/dotnet-inspect/issues/2786).
@@ -198,7 +198,6 @@ public sealed class MethodBodyInspectionSession
     public string SourceName { get; }
     public LibraryBodyAnalysisExecution AnalysisExecution { get; }
     public LibraryCallGraphAnalysisResult CallGraphAnalysis { get; }
-    public LibraryBodyIndex BodyIndex { get; } // compatibility only
 }
 ```
 
@@ -214,7 +213,6 @@ migrated queries. The boundary:
 - local and catalog member graphs compose
   `LibraryCallGraphAnalysisResult` values, while optional graph annotations
   consume `LibraryOptimizationAnalysisResult`
-- `LibraryBodyIndex` remains only for explicitly unmigrated compatibility paths
 - session methods exist only for composition requiring session-owned state,
   such as source attribution or multiple assembly scopes
 - the CLI composes and renders; it does not classify or infer Analysis facts
@@ -258,8 +256,6 @@ Owns IL analysis facts:
 - allocation, safety, and cost facts
 - unsafe operations and unsafe API evidence
 
-`LibraryBodyIndex` remains a temporary compatibility facade over one shared
-body acquisition. The
 [library body Analysis service](library-body-analysis-service.md) owns
 stateless path and immutable-image execution plus publication of focused
 detached results. `LibraryBodyAnalysisPlan` owns producer dependencies and
@@ -895,10 +891,8 @@ Owns only:
 - render the resulting shape
 - write command-line diagnostics for invalid user input
 
-The CLI may depend on `LibraryBodyIndex` only for compatibility consumers
-named by the migration plan. New and migrated sections consume focused
-Analysis result types. The CLI must not copy Analysis classification, matching,
-or aggregation rules into formatters.
+The CLI consumes focused Analysis result types and must not copy Analysis
+classification, matching, or aggregation rules into formatters.
 
 ## Relationship to assembly inspection
 
@@ -918,11 +912,12 @@ not another string-only seam. That assembly session is **no longer pending**:
 session can consume the real type from the start rather than a placeholder.
 
 One caveat on "open the image once": true single-open convergence — sharing the
-assembly's `AssemblyImage` with `PdbContext`, `MetadataSource`, and `LibraryBodyIndex`
-— depends on the shared-PE-owner composition that is **still pending** (the `PdbContext`
-/ `MetadataSource` work called out as Symptom 3 in the assembly design). Until it lands,
-early method-body slices will still open their own readers for the decompiler/analysis
-paths; the single-open convergence arrives with that composition, not this doc.
+assembly's `AssemblyImage` with `PdbContext`, `MetadataSource`, and library-body
+Analysis execution — depends on the shared-PE-owner composition that is **still
+pending** (the `PdbContext` / `MetadataSource` work called out as Symptom 3 in
+the assembly design). Until it lands, early method-body slices will still open
+their own readers for the decompiler/analysis paths; the single-open convergence
+arrives with that composition, not this doc.
 
 This depends on the sibling assembly acquisition design in
 [Assembly Inspection Query Model](assembly-inspection-query.md). Treat the

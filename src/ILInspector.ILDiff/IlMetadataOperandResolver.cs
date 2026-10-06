@@ -4,7 +4,9 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using ILInspector.Metadata;
 
-namespace ILInspector.Instructions;
+using ILInspector.Instructions;
+
+namespace ILInspector.ILDiff;
 
 public static partial class IlBodyDiff
 {

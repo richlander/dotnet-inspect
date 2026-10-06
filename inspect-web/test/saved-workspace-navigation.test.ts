@@ -4,6 +4,7 @@ import { stripTypeScriptTypes } from "node:module";
 import { runInNewContext } from "node:vm";
 import test from "node:test";
 import { parseSync } from "oxc-parser";
+import { defaultAnalysisMode } from "../src/analysis-inspector.ts";
 import { createCatalogRequests } from "../src/catalog-requests.ts";
 import {
   createPackageComparisonTargets,
@@ -303,6 +304,33 @@ function packageLoadResult(
       },
       diagnostics: [],
     },
+    packageChildren: {
+      content: {
+        kind: "Libraries",
+        status: "Available",
+        packageId: surface.package,
+        packageVersion: surface.version,
+        targetFramework: surface.activeFramework,
+        libraries: surface.assemblies.map(assembly => ({
+          assetId: assembly.id,
+          assetPath: assembly.asset,
+          assemblyName: assembly.name,
+          role: "Compile",
+        })),
+        runtimeIdentifierPackages: [],
+        detail: null,
+        isComplete: true,
+      },
+      share: {
+        kind: "NonProjectable",
+        fullUrl: null,
+        packet: null,
+        path: "package-children/share",
+        reason: "No canonical Workspace share projection.",
+      },
+      diagnostics: [],
+    },
+    documents: surface.documents,
     surface,
   };
 }
@@ -320,7 +348,7 @@ function sharedState(): BrowserWorkspaceShareState {
     selectedContextId: "both",
     view: {
       lens: null, type: null, memberAnchor: null, memberSignature: null,
-      section: null, libraries: [],
+      section: null, libraries: [], sourceView: null,
     },
   };
 }
@@ -525,7 +553,12 @@ function harness() {
     },
   };
   const context = {
-    state, location, history, document, workspaceLocation: asyncWorkspaceLocation,
+    state,
+    location,
+    history,
+    document,
+    defaultAnalysisMode,
+    workspaceLocation: asyncWorkspaceLocation,
     engineClient: {
       catalog: {
         captureCompleteWorkspaceShareState: async (
@@ -640,7 +673,11 @@ function harness() {
         capacity);
     },
     createPackageAcquisition,
-    inspectPackage: (...coordinate: Parameters<PackageAcquisitionDependencies["queryPackage"]>) => {
+    inspectPackageSummary: (
+      ...coordinate: Parameters<
+        PackageAcquisitionDependencies["queryPackageSummary"]
+      >
+    ) => {
       queries.push(coordinate);
       return controls.queryPackage(...coordinate);
     },
@@ -718,6 +755,7 @@ function harness() {
       state.packages.push(pkg);
       return pkg;
     },
+    loadDeepPackageSurface: async () => {},
     applyLoadedPackageLibraryScope: () => null,
     applyDeepLink: (deep: ParsedWorkspaceLocation) => {
       effects.push("deep-link");
@@ -1359,7 +1397,7 @@ test("saved Platform Open commits its staged URL after Platform selection comple
     selectedContextId: "platform-context",
     view: {
       lens: null, type: null, memberAnchor: null, memberSignature: null,
-      section: null, libraries: [],
+      section: null, libraries: [], sourceView: null,
     },
   };
   h.location.href = "https://inspect.test/demos";
@@ -2062,7 +2100,10 @@ test("successful saved Open retires comparison settings with the discarded Packa
 
   assert.ok(h.state.package);
   assert.deepEqual(h.packageComparisonTargets.get(h.state.package), {
-    diff: { kind: "previous" }, clone: { kind: "workspace" }, mode: "diff",
+    diff: { kind: "previous" },
+    diffContent: { kind: "api" },
+    clone: { kind: "workspace" },
+    mode: "diff",
   });
   assert.deepEqual(h.packageComparisonTargets.get(sourcePackage).diff, { kind: "previous" });
   assert.deepEqual(h.catalogRequests.packageVersions(sourcePackage), { status: "idle" });
@@ -2366,7 +2407,7 @@ test("Add appends the resolved coordinate, preserves inspection, invalidates mem
     ],
     activeTabId: "t1", selectedContextId: "g1",
     view: { lens: null, type: null, memberAnchor: null, memberSignature: null,
-      section: null, libraries: [] },
+      section: null, libraries: [], sourceView: null },
   });
   assert.equal(h.location.pathname, "/");
   assert.equal(h.location.hash, "#workspace");

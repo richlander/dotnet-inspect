@@ -54,6 +54,7 @@ type PackageOperationName =
   | "prefetchPlatformPacks"
   | "queryPackage"
   | "queryPackageRoot"
+  | "queryPackageSummary"
   | "loadRuntimePack"
   | "loadRuntimePackAssembly"
   | "getPackageDocument"
@@ -62,7 +63,7 @@ type PackageOperationName =
   | "queryMemberDocumentation"
   | "queryPlatformMemberDocumentation"
   | "queryPackageDependencies"
-  | "queryPackagePruning"
+  | "queryPackageVulnerabilities"
   | "queryPackageVersions"
   | "queryWorkspacePackageOccurrences"
   | "resolvePackageDependencyVersion";
@@ -104,12 +105,14 @@ type AnalysisOperationName =
   | "queryPackageOpportunities"
   | "queryPlatformOpportunities"
   | "queryPackagePerformance"
+  | "queryPackageLibraryDependencyStructure"
   | "queryPackageLibraryMetrics"
   | "queryPackageLibraryStructuralSalience"
   | "queryPackageTypeImplementationHeat"
   | "queryPackageTypeMethodLeverage"
   | "queryPlatformTypeImplementationHeat"
   | "queryPlatformTypeMethodLeverage"
+  | "queryPlatformLibraryDependencyStructure"
   | "queryPlatformLibraryMetrics"
   | "queryPlatformLibraryStructuralSalience"
   | "queryPlatformPerformance";
@@ -134,6 +137,7 @@ type CallGraphOperationName =
   | "expandPlatformCallGraph";
 
 type CatalogOperationName =
+  | "admitEcosystemPackageToWorkspace"
   | "admitRetainedWorkspacePackage"
   | "admitRetainedWorkspacePlatform"
   | "abandonRetainedWorkspaceNavigation"
@@ -152,6 +156,7 @@ type CatalogOperationName =
   | "decodeWorkspaceShareState"
   | "encodeWorkspaceShareState"
   | "observeRetainedWorkspaceSettlement"
+  | "prepareEcosystemWorkspaceDefinition"
   | "preparePackageQueryWorkspaceDefinition"
   | "prepareRetainedWorkspaceDefinition"
   | "prepareRetainedWorkspaceDefinitionWithCredentials"
@@ -1094,6 +1099,14 @@ export const engineWorkerOrdinaryOperations = {
         ...args: Parameters<PackageFacade["queryPackageRoot"]>
       ) => facades.package.queryPackageRoot(...args),
     ),
+    queryPackageSummary: valueOperation(
+      "ordinary-package-query-package-summary",
+      3,
+      (
+        facades,
+        ...args: Parameters<PackageFacade["queryPackageSummary"]>
+      ) => facades.package.queryPackageSummary(...args),
+    ),
     loadRuntimePack: valueOperation(
       "ordinary-package-load-runtime-pack",
       2,
@@ -1176,13 +1189,13 @@ export const engineWorkerOrdinaryOperations = {
         ...args: Parameters<PackageFacade["queryPackageDependencies"]>
       ) => facades.package.queryPackageDependencies(...args),
     ),
-    queryPackagePruning: valueOperation(
-      "ordinary-package-query-pruning",
-      4,
+    queryPackageVulnerabilities: valueOperation(
+      "ordinary-package-query-vulnerabilities",
+      2,
       (
         facades,
-        ...args: Parameters<PackageFacade["queryPackagePruning"]>
-      ) => facades.package.queryPackagePruning(...args),
+        ...args: Parameters<PackageFacade["queryPackageVulnerabilities"]>
+      ) => facades.package.queryPackageVulnerabilities(...args),
     ),
     queryPackageVersions: valueOperation(
       "ordinary-package-query-versions",
@@ -1573,6 +1586,17 @@ export const engineWorkerOrdinaryOperations = {
         ...args: Parameters<AnalysisFacade["queryPackagePerformance"]>
       ) => facades.analysis.queryPackagePerformance(...args),
     ),
+    queryPackageLibraryDependencyStructure: valueOperation(
+      "ordinary-analysis-query-package-library-dependency-structure",
+      4,
+      (
+        facades,
+        ...args: Parameters<
+          AnalysisFacade["queryPackageLibraryDependencyStructure"]
+        >
+      ) =>
+        facades.analysis.queryPackageLibraryDependencyStructure(...args),
+    ),
     queryPackageLibraryMetrics: valueOperation(
       "ordinary-analysis-query-package-library-metrics",
       4,
@@ -1590,6 +1614,17 @@ export const engineWorkerOrdinaryOperations = {
           AnalysisFacade["queryPackageLibraryStructuralSalience"]
         >
       ) => facades.analysis.queryPackageLibraryStructuralSalience(...args),
+    ),
+    queryPlatformLibraryDependencyStructure: valueOperation(
+      "ordinary-analysis-query-platform-library-dependency-structure",
+      4,
+      (
+        facades,
+        ...args: Parameters<
+          AnalysisFacade["queryPlatformLibraryDependencyStructure"]
+        >
+      ) =>
+        facades.analysis.queryPlatformLibraryDependencyStructure(...args),
     ),
     queryPlatformLibraryMetrics: valueOperation(
       "ordinary-analysis-query-platform-library-metrics",
@@ -1785,6 +1820,16 @@ export const engineWorkerOrdinaryOperations = {
         >
       ) => facades.catalog.admitRetainedWorkspacePackage(...args),
     ),
+    admitEcosystemPackageToWorkspace: valueOperation(
+      "ordinary-catalog-admit-ecosystem-package-to-workspace",
+      7,
+      (
+        facades,
+        ...args: Parameters<
+          CatalogFacade["admitEcosystemPackageToWorkspace"]
+        >
+      ) => facades.catalog.admitEcosystemPackageToWorkspace(...args),
+    ),
     admitRetainedWorkspacePlatform: valueOperation(
       "ordinary-catalog-admit-retained-workspace-platform",
       4,
@@ -1940,6 +1985,29 @@ export const engineWorkerOrdinaryOperations = {
           CatalogFacade["observeRetainedWorkspaceSettlement"]
         >
       ) => facades.catalog.observeRetainedWorkspaceSettlement(...args),
+    ),
+    prepareEcosystemWorkspaceDefinition: valueOperation(
+      "ordinary-catalog-prepare-ecosystem-workspace-definition",
+      4,
+      (
+        facades,
+        ...args: Parameters<
+          CatalogFacade["prepareEcosystemWorkspaceDefinition"]
+        >
+      ) => facades.catalog.prepareEcosystemWorkspaceDefinition(...args),
+      async (facades, result) => {
+        if (result.status !== "prepared" || result.receipt === null) return;
+        const cancellation =
+          await facades.catalog.cancelRetainedWorkspaceActivation(
+            result.receipt,
+          );
+        if (cancellation.status === "failed") {
+          throw new Error(
+            cancellation.failure?.message
+              ?? "Rejected Ecosystem Workspace preparation could not be cleaned up.",
+          );
+        }
+      },
     ),
     preparePackageQueryWorkspaceDefinition: valueOperation(
       "ordinary-catalog-prepare-package-query-workspace-definition",
@@ -2165,6 +2233,9 @@ export function bindEngineWorkerOrdinaryClient(
       queryPackageRoot: bind(
         engineWorkerOrdinaryOperations.package.queryPackageRoot,
       ),
+      queryPackageSummary: bind(
+        engineWorkerOrdinaryOperations.package.queryPackageSummary,
+      ),
       loadRuntimePack: bind(
         engineWorkerOrdinaryOperations.package.loadRuntimePack,
       ),
@@ -2199,8 +2270,8 @@ export function bindEngineWorkerOrdinaryClient(
       queryPackageDependencies: bind(
         engineWorkerOrdinaryOperations.package.queryPackageDependencies,
       ),
-      queryPackagePruning: bind(
-        engineWorkerOrdinaryOperations.package.queryPackagePruning,
+      queryPackageVulnerabilities: bind(
+        engineWorkerOrdinaryOperations.package.queryPackageVulnerabilities,
       ),
       queryPackageVersions: bind(
         engineWorkerOrdinaryOperations.package.queryPackageVersions,
@@ -2335,6 +2406,10 @@ export function bindEngineWorkerOrdinaryClient(
         engineWorkerOrdinaryOperations.analysis
           .queryPackagePerformance,
       ),
+      queryPackageLibraryDependencyStructure: bind(
+        engineWorkerOrdinaryOperations.analysis
+          .queryPackageLibraryDependencyStructure,
+      ),
       queryPackageLibraryMetrics: bind(
         engineWorkerOrdinaryOperations.analysis
           .queryPackageLibraryMetrics,
@@ -2342,6 +2417,10 @@ export function bindEngineWorkerOrdinaryClient(
       queryPackageLibraryStructuralSalience: bind(
         engineWorkerOrdinaryOperations.analysis
           .queryPackageLibraryStructuralSalience,
+      ),
+      queryPlatformLibraryDependencyStructure: bind(
+        engineWorkerOrdinaryOperations.analysis
+          .queryPlatformLibraryDependencyStructure,
       ),
       queryPlatformLibraryMetrics: bind(
         engineWorkerOrdinaryOperations.analysis
@@ -2426,6 +2505,10 @@ export function bindEngineWorkerOrdinaryClient(
         engineWorkerOrdinaryOperations.catalog
           .admitRetainedWorkspacePackage,
       ),
+      admitEcosystemPackageToWorkspace: bind(
+        engineWorkerOrdinaryOperations.catalog
+          .admitEcosystemPackageToWorkspace,
+      ),
       admitRetainedWorkspacePlatform: bind(
         engineWorkerOrdinaryOperations.catalog
           .admitRetainedWorkspacePlatform,
@@ -2488,6 +2571,10 @@ export function bindEngineWorkerOrdinaryClient(
       observeRetainedWorkspaceSettlement: bind(
         engineWorkerOrdinaryOperations.catalog
           .observeRetainedWorkspaceSettlement,
+      ),
+      prepareEcosystemWorkspaceDefinition: bind(
+        engineWorkerOrdinaryOperations.catalog
+          .prepareEcosystemWorkspaceDefinition,
       ),
       preparePackageQueryWorkspaceDefinition: bind(
         engineWorkerOrdinaryOperations.catalog

@@ -245,6 +245,247 @@ public abstract record PackageDependencyMemberCallGraphOutcome
 }
 
 /// <summary>
+/// One live generation-bound package call graph. The projection and its
+/// assembly-context groups remain active until the generation is closed.
+/// </summary>
+public sealed class PackageDependencyMemberCallGraphGeneration :
+    IAsyncDisposable
+{
+    PackageAssemblyContextProjection? _projection;
+    PackageAssemblyContextCompletion? _completion;
+
+    internal PackageDependencyMemberCallGraphGeneration(
+        WorkspaceScopeSnapshot scope,
+        WorkspaceRegistrationRevision registrations,
+        MemberCallGraphFocalScopeReceipt focalScope,
+        AssemblyReferenceResolutionGenerationReceipt generation,
+        ImmutableArray<PackageRootBinding> graphBindings,
+        PackageRoleMemberCallGraphOutcome outcome,
+        PackageAssemblyContextProjection projection,
+        PackageAssemblyContextCompletion completion)
+    {
+        Scope = scope;
+        Registrations = registrations;
+        FocalScope = focalScope;
+        Generation = generation;
+        GraphBindings = graphBindings;
+        Outcome = outcome;
+        _projection = projection;
+        _completion = completion;
+    }
+
+    public WorkspaceScopeSnapshot Scope { get; }
+
+    public WorkspaceRegistrationRevision Registrations { get; }
+
+    public MemberCallGraphFocalScopeReceipt FocalScope { get; }
+
+    public AssemblyReferenceResolutionGenerationReceipt Generation
+    { get; }
+
+    public ImmutableArray<PackageRootBinding> GraphBindings { get; }
+
+    public PackageRoleMemberCallGraphOutcome Outcome { get; }
+
+    public PackageAssemblyReferenceBindingEvidence
+        CreateAssemblyReferenceContinuationEvidence(
+        PackageAssemblyReferenceCallOccurrenceEvidence predecessor)
+    {
+        PackageAssemblyContextProjection projection =
+            Volatile.Read(ref _projection)
+            ?? throw new ObjectDisposedException(
+                nameof(PackageDependencyMemberCallGraphGeneration));
+        if (Outcome
+            is not PackageRoleMemberCallGraphOutcome.Available available)
+        {
+            throw new InvalidOperationException(
+                "An unavailable graph generation cannot issue AssemblyRef continuation evidence.");
+        }
+
+        return PackageRoleMemberCallGraphQuery.CreateContinuationEvidence(
+            projection,
+            available.Document,
+            predecessor);
+    }
+
+    public async ValueTask<PackageRoleCleanupReport> CloseAsync()
+    {
+        PackageAssemblyContextProjection? projection =
+            Interlocked.Exchange(ref _projection, null);
+        PackageAssemblyContextCompletion? completion =
+            Interlocked.Exchange(ref _completion, null);
+        if (projection is null || completion is null)
+        {
+            throw new ObjectDisposedException(
+                nameof(PackageDependencyMemberCallGraphGeneration));
+        }
+
+        ExceptionDispatchInfo? projectionFailure = null;
+        try
+        {
+            await projection.ReturnAsync().ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            projectionFailure = ExceptionDispatchInfo.Capture(exception);
+        }
+
+        PackageRoleCleanupReport cleanup =
+            await completion.CloseAsync().ConfigureAwait(false);
+        projectionFailure?.Throw();
+        return cleanup;
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_projection is not null)
+            await CloseAsync().ConfigureAwait(false);
+    }
+}
+
+public abstract record PackageDependencyMemberCallGraphPreparationOutcome
+{
+    private PackageDependencyMemberCallGraphPreparationOutcome()
+    {
+    }
+
+    public sealed record Prepared(
+        PackageDependencyMemberCallGraphPreparation Value)
+        : PackageDependencyMemberCallGraphPreparationOutcome;
+
+    public sealed record WorkspaceNotCommitted(
+        WorkspaceScopeOperationResult ScopeOperation)
+        : PackageDependencyMemberCallGraphPreparationOutcome;
+}
+
+public sealed class PackageDependencyMemberCallGraphPreparation
+{
+    internal PackageDependencyMemberCallGraphPreparation(
+        PackageDependencyWorkspaceRouteOutcome.Completed routes,
+        PackageDependencyTraversalOutcome traversal,
+        ImmutableArray<PackageRootBinding> graphBindings,
+        PackageRootIdentity root)
+    {
+        Routes = routes;
+        Traversal = traversal;
+        GraphBindings = graphBindings;
+        Root = root;
+    }
+
+    internal PackageDependencyWorkspaceRouteOutcome.Completed Routes
+    { get; }
+
+    internal PackageDependencyTraversalOutcome Traversal { get; }
+
+    public WorkspaceScopeSnapshot Scope => Routes.Scope;
+
+    public ImmutableArray<PackageRootBinding> GraphBindings { get; }
+
+    public PackageRootIdentity Root { get; }
+
+    public PackageRootBinding ResolvePackageBinding(
+        PackageDependencyEdgeRealizationSubject route)
+    {
+        ArgumentNullException.ThrowIfNull(route);
+        PackageDependencyWorkspaceDestination.Package? selected = null;
+        foreach (PackageDependencyWorkspaceDestination.Package package
+            in Routes.Destinations.OfType<
+                PackageDependencyWorkspaceDestination.Package>())
+        {
+            if (!ReferenceEquals(
+                    package.Realization?.Execution.Subject,
+                    route))
+            {
+                continue;
+            }
+            if (selected is not null)
+            {
+                throw new InvalidOperationException(
+                    "One dependency route cannot contribute multiple exact Package bindings.");
+            }
+            selected = package;
+        }
+
+        if (selected is null
+            || selected.Source
+                != PackageDependencyWorkspacePackageRouteSource
+                    .ResolvedCandidate
+            || selected.Realization?.RootContribution
+                is not PackageHouseRootContributionOutcome.Contributed
+            || !ReferenceEquals(
+                Routes.Scope.FindExactPackageOccurrence(selected.Binding),
+                selected.Occurrence))
+        {
+            throw new InvalidOperationException(
+                "A selected dependency supplier must retain its exact contributed Package binding.");
+        }
+        return selected.Binding;
+    }
+
+    public int ResolveReferencingProjection(
+        PackageDependencyMemberCallGraphRequest request,
+        PackageRootIdentity originPackage)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(originPackage);
+        if (!ReferenceEquals(
+                Traversal,
+                request.Traversal))
+        {
+            throw new ArgumentException(
+                "The referencing Package must belong to the prepared traversal.",
+                nameof(request));
+        }
+        int? projectionIndex = null;
+        for (int rootIndex = 0;
+            rootIndex < request.RootBindings.Length;
+            rootIndex++)
+        {
+            if (ReferenceEquals(
+                    request.RootBindings[rootIndex].Root.Identity,
+                    originPackage))
+            {
+                int rootProjection =
+                    request.Traversal.Roots[rootIndex].ProjectionIndex;
+                if (projectionIndex is not null
+                    && projectionIndex != rootProjection)
+                {
+                    throw new InvalidOperationException(
+                        "The referencing Package identifies multiple traversal projections.");
+                }
+                projectionIndex = rootProjection;
+            }
+        }
+
+        foreach (PackageDependencyWorkspaceDestination.Package package
+            in Routes.Destinations.OfType<
+                PackageDependencyWorkspaceDestination.Package>())
+        {
+            if (!ReferenceEquals(
+                    package.Binding.Root.Identity,
+                    originPackage))
+                continue;
+            if (package.Subject.Edge.Target
+                is not PackageDependencyTraversalEdgeTarget.Node node)
+            {
+                throw new InvalidOperationException(
+                    "The referencing Package does not retain an exact traversal projection.");
+            }
+            if (projectionIndex is not null
+                && projectionIndex != node.ProjectionIndex)
+            {
+                throw new InvalidOperationException(
+                    "The referencing Package identifies multiple traversal projections.");
+            }
+            projectionIndex = node.ProjectionIndex;
+        }
+        return projectionIndex
+            ?? throw new InvalidOperationException(
+                "The referencing Package is not an exact traversal participant.");
+    }
+}
+
+/// <summary>
 /// Executes one completed package dependency traversal and returns detached
 /// route and external-focused call-graph evidence.
 /// </summary>
@@ -257,8 +498,121 @@ public static class PackageDependencyMemberCallGraphOperation
             "Package dependency member call graph",
             InspectionCost.Unbounded);
 
+    public static async ValueTask<
+        PackageDependencyMemberCallGraphGeneration> ExecuteGenerationAsync(
+        InspectionWorkspace workspace,
+        WorkspaceScopeSnapshot scope,
+        WorkspaceRegistrationRevision registrations,
+        ImmutableArray<PackageRootBinding> graphBindings,
+        PackageRootIdentity root,
+        PackageDependencyMemberCallGraphFocus focus,
+        MemberCallGraphCalleeNeighborhoodRequest graph,
+        PackageSupplyChainBaseline supplyChainBaseline,
+        PackageAssemblyContextRealizationOptions? realizationOptions,
+        IEnumerable<PackageAssemblyContextAdditionalPackageAsset>
+            additionalImplementationAssets,
+        IEnumerable<PackageAssemblyContextPlatformLibrary>
+            platformLibraries,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(workspace);
+        ArgumentNullException.ThrowIfNull(scope);
+        ArgumentNullException.ThrowIfNull(registrations);
+        ArgumentNullException.ThrowIfNull(root);
+        ArgumentNullException.ThrowIfNull(focus);
+        ArgumentNullException.ThrowIfNull(graph);
+        ArgumentNullException.ThrowIfNull(
+            additionalImplementationAssets);
+        ArgumentNullException.ThrowIfNull(platformLibraries);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        PackageSupplyChainBaselinePolicy baseline =
+            PackageSupplyChainBaselinePolicy.Create(
+                [root.PackageId],
+                supplyChainBaseline,
+                registrations);
+        PackageAssemblyContextCompletionOperation contextOperation =
+            workspace.PreparePackageAssemblyContextCompletion(
+                graphBindings,
+                additionalImplementationAssets,
+                platformLibraries,
+                realizationOptions);
+        PackageAssemblyContextCompletion completion =
+            await contextOperation.ExecuteAsync(
+                    contextOperation.Identity)
+                .ConfigureAwait(false);
+        PackageAssemblyContextProjection? projection = null;
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            projection = completion.CreateProjection(graphBindings);
+            PackageRoleMemberCallGraphOutcome outcome =
+                PackageRoleMemberCallGraphQuery.ExecuteWithCancellation(
+                    projection,
+                    new PackageRoleMemberCallGraphFocus(
+                        root,
+                        focus.ModuleVersionId,
+                        focus.MethodToken),
+                    graph,
+                    baseline,
+                    cancellationToken);
+            MemberCallGraphFocalScopeReceipt focalScope =
+                MemberCallGraphFocalScopeReceipt.CaptureEverything(
+                    scope,
+                    registrations);
+            return new(
+                scope,
+                registrations,
+                focalScope,
+                AssemblyReferenceResolutionGenerationReceipt.Capture(
+                    scope,
+                    focalScope),
+                graphBindings,
+                outcome,
+                projection,
+                completion);
+        }
+        catch
+        {
+            if (projection is not null)
+                await projection.ReturnAsync().ConfigureAwait(false);
+            await completion.CloseAsync().ConfigureAwait(false);
+            throw;
+        }
+    }
+
     public static async Task<PackageDependencyMemberCallGraphOutcome>
         ExecuteAsync(
+            PackageDependencyMemberCallGraphRequest request,
+            PackageHouse house,
+            PackageSourceOperationLease sourceOperation)
+    {
+        ArgumentNullException.ThrowIfNull(sourceOperation);
+        CancellationToken cancellationToken =
+            sourceOperation.CancellationToken;
+        PackageDependencyMemberCallGraphPreparationOutcome prepared =
+            await PrepareAsync(request, house, sourceOperation)
+                .ConfigureAwait(false);
+        if (prepared
+            is PackageDependencyMemberCallGraphPreparationOutcome
+                .WorkspaceNotCommitted notCommitted)
+        {
+            return new PackageDependencyMemberCallGraphOutcome
+                .WorkspaceNotCommitted(notCommitted.ScopeOperation);
+        }
+
+        PackageDependencyMemberCallGraphPreparation preparation =
+            ((PackageDependencyMemberCallGraphPreparationOutcome.Prepared)
+                prepared).Value;
+        return await ExecutePreparedAsync(
+                request,
+                preparation,
+                cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    public static async ValueTask<
+        PackageDependencyMemberCallGraphPreparationOutcome> PrepareAsync(
             PackageDependencyMemberCallGraphRequest request,
             PackageHouse house,
             PackageSourceOperationLease sourceOperation)
@@ -309,7 +663,7 @@ public static class PackageDependencyMemberCallGraphOperation
             is PackageDependencyWorkspaceRouteOutcome.NotCommitted
                 notCommitted)
         {
-            return new PackageDependencyMemberCallGraphOutcome
+            return new PackageDependencyMemberCallGraphPreparationOutcome
                 .WorkspaceNotCommitted(notCommitted.ScopeOperation);
         }
 
@@ -324,40 +678,47 @@ public static class PackageDependencyMemberCallGraphOperation
         PackageRootIdentity root =
             request.RootBindings[
                 request.Focus.RootOccurrenceIndex].Root.Identity;
-        PackageSupplyChainBaselinePolicy baseline =
-            PackageSupplyChainBaselinePolicy.Create(
-                [root.PackageId],
-                request.SupplyChainBaseline,
-                request.Registrations);
-        PackageAssemblyContextCompletionOperation contextOperation =
-            request.Workspace.PreparePackageAssemblyContextCompletion(
-                graphBindings,
-                request.RealizationOptions,
-                () => YieldAndObserveCancellationAsync(
-                    cancellationToken));
-        PackageAssemblyContextCompletion completion =
-            await contextOperation.ExecuteAsync(
-                    contextOperation.Identity)
-                .ConfigureAwait(false);
+        return new PackageDependencyMemberCallGraphPreparationOutcome
+            .Prepared(
+                new(
+                    completedRoutes,
+                    request.Traversal,
+                    graphBindings,
+                    root));
+    }
 
-        PackageRoleMemberCallGraphOutcome? graphOutcome = null;
+    public static async ValueTask<PackageDependencyMemberCallGraphOutcome>
+        ExecutePreparedAsync(
+        PackageDependencyMemberCallGraphRequest request,
+        PackageDependencyMemberCallGraphPreparation preparation,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(preparation);
+        PackageDependencyWorkspaceRouteOutcome.Completed completedRoutes =
+            preparation.Routes;
+        ImmutableArray<PackageRootBinding> graphBindings =
+            preparation.GraphBindings;
+        PackageRootIdentity root = preparation.Root;
+        PackageDependencyMemberCallGraphGeneration? graphGeneration = null;
         ExceptionDispatchInfo? graphFailure = null;
-        PackageRoleCleanupReport cleanup;
-        PackageAssemblyContextProjection? projection = null;
+        PackageRoleCleanupReport? cleanup = null;
         try
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            projection = completion.CreateProjection(graphBindings);
-            graphOutcome =
-                PackageRoleMemberCallGraphQuery.ExecuteWithCancellation(
-                projection,
-                new PackageRoleMemberCallGraphFocus(
+            graphGeneration = await ExecuteGenerationAsync(
+                    request.Workspace,
+                    completedRoutes.Scope,
+                    request.Registrations,
+                    graphBindings,
                     root,
-                    request.Focus.ModuleVersionId,
-                    request.Focus.MethodToken),
+                    request.Focus,
                     request.Graph,
-                    baseline,
-                    cancellationToken);
+                    request.SupplyChainBaseline,
+                    request.RealizationOptions,
+                    additionalImplementationAssets: [],
+                    platformLibraries: [],
+                    cancellationToken)
+                .ConfigureAwait(false);
         }
         catch (Exception exception)
         {
@@ -365,34 +726,59 @@ public static class PackageDependencyMemberCallGraphOperation
         }
         finally
         {
-            try
+            if (graphGeneration is not null)
             {
-                if (projection is not null)
+                try
                 {
-                    await projection.ReturnAsync()
+                    cleanup = await graphGeneration.CloseAsync()
                         .ConfigureAwait(false);
                 }
-            }
-            catch (Exception exception)
-            {
-                graphFailure ??=
-                    ExceptionDispatchInfo.Capture(exception);
-            }
-            finally
-            {
-                cleanup = await completion.CloseAsync()
-                    .ConfigureAwait(false);
+                catch (Exception exception)
+                {
+                    graphFailure ??=
+                        ExceptionDispatchInfo.Capture(exception);
+                }
             }
         }
 
         PackageDependencyMemberCallGraphOutcome.Failed? cleanupFailure =
-            SettleGraphPhase(cleanup, graphFailure);
+            cleanup is null
+                ? null
+                : SettleGraphPhase(cleanup, graphFailure);
+        graphFailure?.Throw();
         if (cleanupFailure is not null)
         {
             return cleanupFailure;
         }
 
         cancellationToken.ThrowIfCancellationRequested();
+        return CompletePreparedGeneration(
+            request,
+            preparation,
+            graphGeneration!,
+            cleanup!);
+    }
+
+    public static PackageDependencyMemberCallGraphOutcome
+        CompletePreparedGeneration(
+        PackageDependencyMemberCallGraphRequest request,
+        PackageDependencyMemberCallGraphPreparation preparation,
+        PackageDependencyMemberCallGraphGeneration generation,
+        PackageRoleCleanupReport cleanup)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(preparation);
+        ArgumentNullException.ThrowIfNull(generation);
+        ArgumentNullException.ThrowIfNull(cleanup);
+        PackageDependencyMemberCallGraphOutcome.Failed? cleanupFailure =
+            SettleGraphPhase(cleanup, graphFailure: null);
+        if (cleanupFailure is not null)
+            return cleanupFailure;
+
+        PackageDependencyWorkspaceRouteOutcome.Completed completedRoutes =
+            preparation.Routes;
+        PackageRoleMemberCallGraphOutcome graphOutcome =
+            generation.Outcome;
         if (graphOutcome
             is PackageRoleMemberCallGraphOutcome.Unavailable unavailable)
         {
@@ -405,23 +791,23 @@ public static class PackageDependencyMemberCallGraphOperation
 
         var availableGraph =
             (PackageRoleMemberCallGraphOutcome.Available)graphOutcome!;
-        cancellationToken.ThrowIfCancellationRequested();
         return new PackageDependencyMemberCallGraphOutcome.Completed(
             request.Traversal.TraversalTargetPolicy,
             request.Traversal.Summary,
-            completedRoutes.Scope.Revision.Identity,
-            MemberCallGraphFocalScopeReceipt.CaptureEverything(
-                completedRoutes.Scope,
-                request.Registrations),
+            generation.Scope.Revision.Identity,
+            generation.FocalScope,
             BindIntrinsicCoreLibraryContextNonParticipation(
-                completedRoutes.Scope.Revision.Identity,
+                generation.Scope.Revision.Identity,
                 availableGraph.IntrinsicCoreLibraryOccurrences),
             DetachRoutes(completedRoutes),
-            baseline.Evidence,
+            PackageSupplyChainBaselinePolicy.Create(
+                [preparation.Root.PackageId],
+                request.SupplyChainBaseline,
+                generation.Registrations).Evidence,
             DetachNodePackages(
                 availableGraph.NodePackages,
-                completedRoutes.Scope,
-                graphBindings),
+                generation.Scope,
+                generation.GraphBindings),
             availableGraph.Document);
     }
 
@@ -462,14 +848,6 @@ public static class PackageDependencyMemberCallGraphOperation
 
         graphFailure?.Throw();
         return null;
-    }
-
-    private static async ValueTask YieldAndObserveCancellationAsync(
-        CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        await Task.Yield();
-        cancellationToken.ThrowIfCancellationRequested();
     }
 
     private static ImmutableArray<

@@ -27,8 +27,10 @@ import {
   WorkerRuntimeHost,
 } from "../src/worker-runtime-core.ts";
 import { WorkerOperationCatalog } from "../src/worker-runtime-realm.ts";
+import { dateTimeOffsetString } from "./date-time-offset-string-fixture.ts";
 import { inertStringFixture } from "./inert-string-fixture.ts";
 import type {
+  BrowserEcosystemPackageWorkspaceAdmissionResult,
   BrowserRetainedWorkspaceActivationResult,
   BrowserRetainedWorkspaceDefinitionState,
   BrowserRetainedWorkspacePackageAdmissionResult,
@@ -111,6 +113,7 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
     prefetchPlatformPacks: () => unexpected("prefetchPlatformPacks"),
     queryPackage: () => unexpected("queryPackage"),
     queryPackageRoot: () => unexpected("queryPackageRoot"),
+    queryPackageSummary: () => unexpected("queryPackageSummary"),
     loadRuntimePack: () => unexpected("loadRuntimePack"),
     loadRuntimePackAssembly: () =>
       unexpected("loadRuntimePackAssembly"),
@@ -123,8 +126,8 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("queryPlatformMemberDocumentation"),
     queryPackageDependencies: () =>
       unexpected("queryPackageDependencies"),
-    queryPackagePruning: () =>
-      unexpected("queryPackagePruning"),
+    queryPackageVulnerabilities: () =>
+      unexpected("queryPackageVulnerabilities"),
     queryPackageVersions: () => unexpected("queryPackageVersions"),
     queryWorkspacePackageOccurrences: () =>
       unexpected("queryWorkspacePackageOccurrences"),
@@ -194,12 +197,16 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("queryPlatformOpportunities"),
     queryPackagePerformance: () =>
       unexpected("queryPackagePerformance"),
+    queryPackageLibraryDependencyStructure: () =>
+      unexpected("queryPackageLibraryDependencyStructure"),
     queryPackageLibraryMetrics: () =>
       unexpected("queryPackageLibraryMetrics"),
     queryPackageLibraryStructuralSalience: () =>
       unexpected("queryPackageLibraryStructuralSalience"),
     queryPlatformLibraryMetrics: () =>
       unexpected("queryPlatformLibraryMetrics"),
+    queryPlatformLibraryDependencyStructure: () =>
+      unexpected("queryPlatformLibraryDependencyStructure"),
     queryPlatformLibraryStructuralSalience: () =>
       unexpected("queryPlatformLibraryStructuralSalience"),
     queryPlatformPerformance: () =>
@@ -240,6 +247,8 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("abandonRetainedWorkspaceNavigation"),
     acknowledgeRetainedWorkspaceNavigation: () =>
       unexpected("acknowledgeRetainedWorkspaceNavigation"),
+    admitEcosystemPackageToWorkspace: () =>
+      unexpected("admitEcosystemPackageToWorkspace"),
     admitRetainedWorkspacePackage: () =>
       unexpected("admitRetainedWorkspacePackage"),
     admitRetainedWorkspacePlatform: () =>
@@ -273,6 +282,8 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("encodeWorkspaceShareState"),
     observeRetainedWorkspaceSettlement: () =>
       unexpected("observeRetainedWorkspaceSettlement"),
+    prepareEcosystemWorkspaceDefinition: () =>
+      unexpected("prepareEcosystemWorkspaceDefinition"),
     preparePackageQueryWorkspaceDefinition: () =>
       unexpected("preparePackageQueryWorkspaceDefinition"),
     prepareRetainedWorkspaceDefinition: () =>
@@ -951,6 +962,13 @@ test("retained Catalog transport preserves compact posting and bounded Package a
     activationStatus: null,
     reason: null,
   } satisfies BrowserSpotlightActionResult;
+  const ecosystemPackageAdmission = {
+    status: "admitted",
+    posting,
+    navigation: posting.navigation,
+    message: null,
+  } satisfies BrowserEcosystemPackageWorkspaceAdmissionResult;
+  const ecosystemPackageArguments: (readonly unknown[])[] = [];
   const packageArguments: (readonly unknown[])[] = [];
   const platformArguments: (readonly unknown[])[] = [];
   const typeFindArguments: (readonly unknown[])[] = [];
@@ -967,6 +985,10 @@ test("retained Catalog transport preserves compact posting and bounded Package a
       activateSpotlightDestination: async (...args) => {
         spotlightActivationArguments.push(args);
         return spotlightActivation;
+      },
+      admitEcosystemPackageToWorkspace: async (...args) => {
+        ecosystemPackageArguments.push(args);
+        return ecosystemPackageAdmission;
       },
       admitRetainedWorkspacePackage: async (...args) => {
         packageArguments.push(args);
@@ -1025,6 +1047,21 @@ test("retained Catalog transport preserves compact posting and bounded Package a
   await state.environment.flushAsync();
   assert.deepEqual(await packageResult, admittedPackage);
   assert.deepEqual(await supersededResult, supersededPackage);
+  const ecosystemPackageResult =
+    state.client.catalog.admitEcosystemPackageToWorkspace(
+      "definition-exact",
+      "realization-exact",
+      "Aspire.Hosting",
+      "9.0.0",
+      "ecosystem.aspire",
+      "ExactPackage",
+      "Aspire.Hosting",
+    );
+  await state.environment.flushAsync();
+  assert.deepEqual(
+    await ecosystemPackageResult,
+    ecosystemPackageAdmission,
+  );
 
   const platformResult =
     state.client.catalog.admitRetainedWorkspacePlatform(
@@ -1076,6 +1113,15 @@ test("retained Catalog transport preserves compact posting and bounded Package a
     "package-navigation",
     0,
   ]]);
+  assert.deepEqual(ecosystemPackageArguments, [[
+    "definition-exact",
+    "realization-exact",
+    "Aspire.Hosting",
+    "9.0.0",
+    "ecosystem.aspire",
+    "ExactPackage",
+    "Aspire.Hosting",
+  ]]);
   assert.deepEqual(platformArguments, [[
     "definition-exact",
     "realization-exact",
@@ -1118,7 +1164,7 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
   let cleared = 0;
   let classificationArguments: readonly unknown[] = [];
   let matchArguments: readonly unknown[] = [];
-  let pruningArguments: readonly unknown[] = [];
+  let vulnerabilityArguments: readonly unknown[] = [];
   let cloneArguments: readonly unknown[] = [];
   let libraryDiffArguments: readonly unknown[] = [];
   let libraryDiffCancelArguments: readonly unknown[] = [];
@@ -1180,29 +1226,16 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
         matchArguments = args;
         return { outcome: "Unique", candidateKey: "candidate" };
       },
-      queryPackagePruning: (...args) => {
-        pruningArguments = args;
+      queryPackageVulnerabilities: (...args) => {
+        vulnerabilityArguments = args;
         return Promise.resolve({
-          schemaVersion: 1,
-          package: "Example",
+          package: "example",
           version: "1.0.0",
-          targetFramework: "net10.0",
-          selectedFramework: "net10.0",
-          family: "Microsoft.NETCore.App",
-          platformVersion: "10.0.0",
-          completion: "Complete",
-          rows: [],
-          declarationFailures: [],
-          summary: {
-            declarations: 0,
-            evaluated: 0,
-            delegated: 0,
-            retained: 0,
-            notEvaluated: 0,
-            failed: 0,
-            declarationFailures: 0,
-          },
-          message: null,
+          availability: "Complete",
+          advisories: [],
+          failures: [],
+          advisoryProducer: "https://api.github.com/advisories",
+          observedAt: dateTimeOffsetString("2026-10-05T00:00:00Z"),
         });
       },
     },
@@ -1273,17 +1306,9 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
       targetFramework: "net11.0",
     }],
   );
-  const pruning = state.client.package.queryPackagePruning(
+  const vulnerabilities = state.client.package.queryPackageVulnerabilities(
     "Example",
     "1.0.0",
-    "net10.0",
-    {
-      schemaVersion: 1,
-      family: "netcoreapp",
-      targetFramework: "net10.0",
-      platformVersion: "10.0.0",
-      supplies: [],
-    },
   );
   const cloneRequest = {
     schemaVersion: 1,
@@ -1307,7 +1332,7 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
   const libraryDiff = state.client.metadata.queryLibraryApiDiff(
     "operation-1",
     {
-      schemaVersion: 2,
+      schemaVersion: 3,
       packageId: "Example.Package",
       currentVersion: "2.0.0",
       targetVersion: "1.0.0",
@@ -1318,6 +1343,7 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
       views: "Changes",
       typeNames: [],
       memberTargetIdentities: [],
+      predicate: null,
     },
   );
   const libraryDiffCancellation =
@@ -1376,18 +1402,10 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
       targetFramework: "net11.0",
     }],
   ]);
-  assert.equal((await pruning).completion, "Complete");
-  assert.deepEqual(pruningArguments, [
+  assert.equal((await vulnerabilities).availability, "Complete");
+  assert.deepEqual(vulnerabilityArguments, [
     "Example",
     "1.0.0",
-    "net10.0",
-    {
-      schemaVersion: 1,
-      family: "netcoreapp",
-      targetFramework: "net10.0",
-      platformVersion: "10.0.0",
-      supplies: [],
-    },
   ]);
   assert.deepEqual(await clone, {
     schemaVersion: 1,
@@ -1406,7 +1424,7 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
   assert.deepEqual(libraryDiffArguments, [
     "operation-1",
     {
-      schemaVersion: 2,
+      schemaVersion: 3,
       packageId: "Example.Package",
       currentVersion: "2.0.0",
       targetVersion: "1.0.0",
@@ -1417,6 +1435,7 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
       views: "Changes",
       typeNames: [],
       memberTargetIdentities: [],
+      predicate: null,
     },
   ]);
   assert.deepEqual(libraryDiffCancelArguments, [
@@ -1513,6 +1532,28 @@ test("ordinary package transport preserves settled and NotSettled baselines", as
       },
       diagnostics: [],
     },
+    packageChildren: {
+      content: {
+        kind: "Libraries",
+        status: "NoCompileAssets",
+        packageId: surface.package,
+        packageVersion: surface.version,
+        targetFramework: null,
+        libraries: [],
+        runtimeIdentifierPackages: [],
+        detail: null,
+        isComplete: true,
+      },
+      share: {
+        kind: "NonProjectable",
+        fullUrl: null,
+        packet: null,
+        path: "package-children/share",
+        reason: "No canonical Workspace share projection.",
+      },
+      diagnostics: [],
+    },
+    documents: surface.documents,
     surface,
   } satisfies BrowserPackageLoadResult;
   const notSettled = {
@@ -1546,6 +1587,8 @@ test("ordinary package transport preserves settled and NotSettled baselines", as
       diagnostics: [],
     },
     packageInfo: null,
+    packageChildren: null,
+    documents: [],
     surface: null,
   } satisfies BrowserPackageLoadResult;
   const state = fixture({
@@ -2272,8 +2315,9 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryPlatformMemberDocumentation",
       "queryPackage",
       "queryPackageDependencies",
-      "queryPackagePruning",
+      "queryPackageVulnerabilities",
       "queryPackageRoot",
+      "queryPackageSummary",
       "queryPackageVersions",
       "queryWorkspacePackageOccurrences",
       "resolvePackageDependencyVersion",
@@ -2308,6 +2352,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryCloneCandidates",
       "queryMemberFacts",
       "queryPackageIntegrations",
+      "queryPackageLibraryDependencyStructure",
       "queryPackageLibraryMetrics",
       "queryPackageLibraryStructuralSalience",
       "queryPackageOpportunities",
@@ -2315,6 +2360,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryPackageTypeImplementationHeat",
       "queryPackageTypeMethodLeverage",
       "queryPlatformIntegrations",
+      "queryPlatformLibraryDependencyStructure",
       "queryPlatformLibraryMetrics",
       "queryPlatformLibraryStructuralSalience",
       "queryPlatformOpportunities",
@@ -2344,6 +2390,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     catalog: [
       "abandonRetainedWorkspaceNavigation",
       "acknowledgeRetainedWorkspaceNavigation",
+      "admitEcosystemPackageToWorkspace",
       "admitRetainedWorkspacePackage",
       "admitRetainedWorkspacePlatform",
       "activateRetainedWorkspaceDefinition",
@@ -2360,6 +2407,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "decodeWorkspaceShareState",
       "encodeWorkspaceShareState",
       "observeRetainedWorkspaceSettlement",
+      "prepareEcosystemWorkspaceDefinition",
       "preparePackageQueryWorkspaceDefinition",
       "prepareRetainedWorkspaceDefinition",
       "prepareRetainedWorkspaceDefinitionWithCredentials",
@@ -2382,7 +2430,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 107);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 112);
 
   const state = fixture();
   const groups = [

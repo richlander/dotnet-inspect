@@ -1,5 +1,9 @@
-import type { BrowserPackageIntegrations } from "./facades/inspect-web-analysis.d.ts";
+import type {
+  BrowserPackageIntegrations,
+  BrowserPackageOpportunities,
+} from "./facades/inspect-web-analysis.d.ts";
 import { renderAnalysisInspector } from "./analysis-inspector.ts";
+import { renderOpportunityRow } from "./package-opportunities.ts";
 
 export interface LibraryIntegrationsOptions {
   libraryName: string;
@@ -8,44 +12,93 @@ export interface LibraryIntegrationsOptions {
   coordinate: string;
   requireLibrary: boolean;
   pickerHtml: string;
-  loading: boolean;
-  error: string;
-  data: BrowserPackageIntegrations | null;
+  integrationsFresh: boolean;
+  integrationsLoading: boolean;
+  integrationsError: string;
+  integrationsData: BrowserPackageIntegrations | null;
+  suggestionsFresh: boolean;
+  suggestionsLoading: boolean;
+  suggestionsError: string;
+  suggestionsData: BrowserPackageOpportunities | null;
   escapeHtml: (value: unknown) => string;
+}
+
+type IntegrationSignal =
+  BrowserPackageIntegrations["categories"][number]["signals"][number];
+type IntegrationSuggestion =
+  BrowserPackageOpportunities["categories"][number]["items"][number];
+
+interface IntegrationCategory {
+  name: string;
+  signals: IntegrationSignal[];
+  suggestions: IntegrationSuggestion[];
 }
 
 export function renderLibraryIntegrationsSurface(options: LibraryIntegrationsOptions): string {
   const {
-    libraryName,
-    requireLibrary, loading, error, data, escapeHtml,
+    libraryName, requireLibrary, integrationsFresh, integrationsLoading,
+    integrationsError, integrationsData, suggestionsFresh, suggestionsLoading,
+    suggestionsError, suggestionsData, escapeHtml,
   } = options;
+  const integrations = integrationsFresh ? integrationsData : null;
+  const suggestions = suggestionsFresh ? suggestionsData : null;
+  const loading = (integrationsFresh && integrationsLoading)
+    || (suggestionsFresh && suggestionsLoading);
+  const errors = [
+    integrationsFresh && integrationsError
+      ? `Detected integrations: ${integrationsError}`
+      : "",
+    suggestionsFresh && suggestionsError
+      ? `Suggested integrations: ${suggestionsError}`
+      : "",
+  ].filter(Boolean);
   let status: string;
   let content: string;
   if (requireLibrary) {
     status = "Select a library";
-    content = `<section class="document-section empty-document"><span class="large-glyph">&#x25C8;</span><h2>Pick a library to scan</h2><p>Choose a .NET platform library above to scan its public surface for DI, logging, OpenTelemetry, ASP.NET Core, AI, or hosting integration signals.</p></section>`;
-  } else if (loading) {
+    content = `<section class="document-section empty-document"><span class="large-glyph">&#x25C8;</span><h2>Pick a library to scan</h2><p>Choose a .NET platform library above to find detected and suggested ecosystem integrations.</p></section>`;
+  } else if (!integrations && !suggestions && loading) {
     status = "Scanning integrations\u2026";
-    content = `<section class="document-section source-progress"><span class="loader"></span><h2>Scanning integrations&hellip;</h2><p>Reading the public surface of ${escapeHtml(libraryName)} for ecosystem signals.</p></section>`;
-  } else if (error) {
+    const warning = errors.length
+      ? `<section class="document-section metadata-warning"><strong>&#x26A0; Part of the integration scan failed</strong><ul>${errors.map(error => `<li><code>${escapeHtml(error)}</code></li>`).join("")}</ul></section>`
+      : "";
+    content = `${warning}<section class="document-section source-progress"><span class="loader"></span><h2>Scanning integrations&hellip;</h2><p>Reading the public surface of ${escapeHtml(libraryName)} for detected and suggested ecosystem integrations.</p></section>`;
+  } else if (!integrations && !suggestions && errors.length) {
     status = "Scan failed";
-    content = `<section class="document-section empty-document"><span class="large-glyph">&#x25C8;</span><h2>Integration scan failed</h2><p>${escapeHtml(error)}</p></section>`;
-  } else if (!data) {
+    content = `<section class="document-section empty-document"><span class="large-glyph">&#x25C8;</span><h2>Integration scan failed</h2><ul>${errors.map(error => `<li>${escapeHtml(error)}</li>`).join("")}</ul></section>`;
+  } else if (!integrations && !suggestions) {
     status = "Loading\u2026";
     content = `<section class="document-section empty-document"><span class="loader"></span><h2>Loading&hellip;</h2></section>`;
   } else {
-    const categories = data.categories;
-    const partial = !data.isComplete || Boolean(data.inspectionError);
-    status = `${categories.length.toLocaleString()} categor${categories.length === 1 ? "y" : "ies"} \u00b7 ${data.totalSignals.toLocaleString()} signal${data.totalSignals === 1 ? "" : "s"}${partial ? " \u00b7 partial" : ""}`;
+    const categories = mergeCategories(integrations, suggestions);
+    const totalSignals = integrations?.totalSignals ?? 0;
+    const totalSuggestions = suggestions?.totalOpportunities ?? 0;
+    const diagnostics = [
+      ...errors,
+      integrations && (!integrations.isComplete || integrations.inspectionError)
+        ? integrations.inspectionError
+          || "Detected integrations could not be scanned completely."
+        : "",
+      suggestions && (!suggestions.isComplete || suggestions.inspectionError)
+        ? suggestions.inspectionError
+          || "Suggested integrations could not be scanned completely."
+        : "",
+    ].filter(Boolean);
+    const partial = loading || diagnostics.length > 0;
+    status = `${categories.length.toLocaleString()} categor${categories.length === 1 ? "y" : "ies"} \u00b7 ${totalSignals.toLocaleString()} detected \u00b7 ${totalSuggestions.toLocaleString()} suggested${loading ? " \u00b7 scanning\u2026" : partial ? " \u00b7 partial" : ""}`;
     const warning = partial
-      ? `<section class="document-section metadata-warning"><strong>&#x26A0; This library could not be scanned completely</strong>${data.inspectionError ? `<ul><li><code>${escapeHtml(data.inspectionError)}</code></li></ul>` : ""}</section>`
+      ? `<section class="document-section metadata-warning"><strong>&#x26A0; ${loading ? "The integration scan is still running" : "This library could not be scanned completely"}</strong>${diagnostics.length ? `<ul>${diagnostics.map(diagnostic => `<li><code>${escapeHtml(diagnostic)}</code></li>`).join("")}</ul>` : ""}</section>`
+      : "";
+    const note = totalSuggestions > 0
+      ? `<p class="library-integrations-note">Detected entries describe current API signals. Suggested entries identify ecosystem integrations the library may support; their types, packages, and concrete APIs are interactive.</p>`
       : "";
     const blocks = categories.map((category, index) => {
       const signals = [...category.signals].sort((a, b) => {
         const rank = (shape: string) => /type/i.test(shape) ? 0 : 1;
         return rank(a.shape) - rank(b.shape) || a.kind.localeCompare(b.kind) || a.name.localeCompare(b.name);
       });
-      const typeCount = signals.filter(signal => /type/i.test(signal.shape)).length;
+      const typeCount = signals.filter(signal =>
+        /type/i.test(signal.shape)).length;
       const apiCount = signals.length - typeCount;
       const rows = signals.map(signal => {
         const isType = /type/i.test(signal.shape);
@@ -56,17 +109,55 @@ export function renderLibraryIntegrationsSurface(options: LibraryIntegrationsOpt
           <span class="signal-kind">${escapeHtml(signal.kind)}</span>
         </div>`;
       }).join("");
+      const suggestedRows = category.suggestions
+        .map(suggestion => renderOpportunityRow(suggestion, escapeHtml))
+        .join("");
+      const counts = [
+        signals.length
+          ? `${typeCount} type${typeCount === 1 ? "" : "s"}`
+          : "",
+        signals.length
+          ? `${apiCount} API${apiCount === 1 ? "" : "s"}`
+          : "",
+        category.suggestions.length
+          ? `${category.suggestions.length} suggested`
+          : "",
+      ].filter(Boolean).join(" &middot; ");
       return `<section class="integration-category" aria-labelledby="integration-category-${index}">
-        <div class="section-title"><h2 id="integration-category-${index}">${escapeHtml(category.integration)}</h2><span>${typeCount} type${typeCount === 1 ? "" : "s"} &middot; ${apiCount} API${apiCount === 1 ? "" : "s"}</span></div>
-        <div class="signal-list" role="list">${rows}</div>
+        <div class="section-title"><h2 id="integration-category-${index}">${escapeHtml(category.name)}</h2><span>${counts}</span></div>
+        <div class="integration-list" role="list">${rows}${suggestedRows}</div>
       </section>`;
     }).join("");
     const empty = partial
-      ? `<section class="document-section empty-document"><h2>Integration scan incomplete</h2><p>No integration signals are available from this incomplete scan.</p></section>`
-      : `<section class="document-section empty-document"><span class="large-glyph">&#x25C7;</span><h2>No ecosystem integrations detected</h2><p>The public surface of ${escapeHtml(libraryName)} shows no known DI, logging, OpenTelemetry, ASP.NET Core, AI, or hosting signals.</p></section>`;
-    content = `${warning}${categories.length ? blocks : empty}`;
+      ? `<section class="document-section empty-document"><h2>Integration scan incomplete</h2><p>No integration results are available from this incomplete scan.</p></section>`
+      : `<section class="document-section empty-document"><span class="large-glyph">&#x25C7;</span><h2>No ecosystem integrations found</h2><p>The public surface of ${escapeHtml(libraryName)} shows no detected or suggested ecosystem integrations.</p></section>`;
+    content = `${warning}${note}${categories.length ? blocks : empty}`;
   }
   return renderAnalysisInspector(options, "integrations", status, content);
+}
+
+function mergeCategories(
+  integrations: BrowserPackageIntegrations | null,
+  suggestions: BrowserPackageOpportunities | null,
+): IntegrationCategory[] {
+  const categories: IntegrationCategory[] = [];
+  const byName = new Map<string, IntegrationCategory>();
+  const getCategory = (name: string) => {
+    let category = byName.get(name);
+    if (!category) {
+      category = { name, signals: [], suggestions: [] };
+      byName.set(name, category);
+      categories.push(category);
+    }
+    return category;
+  };
+  for (const category of integrations?.categories ?? []) {
+    getCategory(category.integration).signals.push(...category.signals);
+  }
+  for (const category of suggestions?.categories ?? []) {
+    getCategory(category.integration).suggestions.push(...category.items);
+  }
+  return categories;
 }
 
 // Split before parameter/generic lists so their dots cannot become the name boundary.

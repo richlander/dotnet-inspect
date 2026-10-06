@@ -17,7 +17,7 @@ import {
 } from "../src/package-acquisition.ts";
 import type {
   BrowserPackageDependencies,
-  BrowserPackagePruningResult,
+  BrowserPackageVulnerabilityResult,
 } from "../src/facades/inspect-web-package.d.ts";
 import type {
   BrowserPackageIntegrations,
@@ -25,6 +25,9 @@ import type {
   BrowserPerformanceMember,
 } from "../src/facades/inspect-web-analysis.d.ts";
 import type { PackageMetadata } from "../src/metadata-viewer.ts";
+import {
+  dateTimeOffsetString,
+} from "./date-time-offset-string-fixture.ts";
 
 const selectedCompileLibrary = {
   status: "Selected" as const,
@@ -73,11 +76,10 @@ function inspectionState(
     packageDependenciesLoading: false,
     packageDependenciesError: "",
     packageDependenciesKey: "",
-    packagePruning: null,
-    packagePruningLoading: false,
-    packagePruningError: "",
-    packagePruningKey: "",
-    packagePruningFamily: "Microsoft.NETCore.App",
+    packageVulnerabilities: null,
+    packageVulnerabilitiesLoading: false,
+    packageVulnerabilitiesError: "",
+    packageVulnerabilitiesKey: "",
     workspaceDependencies: {},
     workspaceDependencyErrors: {},
     workspaceDependencyLoads: new Set<string>(),
@@ -97,6 +99,11 @@ function inspectionState(
     packageLibraryMetricsLoading: false,
     packageLibraryMetricsError: "",
     packageLibraryMetricsKey: "",
+    packageLibraryMetricsRelationshipState: null,
+    packageLibraryDependencyStructure: null,
+    packageLibraryDependencyStructureLoading: false,
+    packageLibraryDependencyStructureError: "",
+    packageLibraryDependencyStructureKey: "",
     packageMetadata: null,
     packageMetadataLoading: false,
     packageMetadataError: "",
@@ -141,35 +148,15 @@ function integrationsResult(): BrowserPackageIntegrations {
   };
 }
 
-function pruningResult(): BrowserPackagePruningResult {
+function vulnerabilityResult(): BrowserPackageVulnerabilityResult {
   return {
-    schemaVersion: 1,
-    package: "Example.Package",
+    package: "example.package",
     version: "1.2.3",
-    targetFramework: "net10.0",
-    selectedFramework: "net10.0",
-    family: "Microsoft.NETCore.App",
-    platformVersion: "10.0.0",
-    completion: "Complete",
-    rows: [{
-      package: "Example.Dependency",
-      requestedRange: "[1.0.0]",
-      candidateVersion: "1.0.0",
-      platformSuppliedVersion: "1.0.0",
-      disposition: "PlatformDelegation",
-      reason: "Subsumed",
-    }],
-    declarationFailures: [],
-    summary: {
-      declarations: 1,
-      evaluated: 1,
-      delegated: 1,
-      retained: 0,
-      notEvaluated: 0,
-      failed: 0,
-      declarationFailures: 0,
-    },
-    message: null,
+    availability: "Complete",
+    advisories: [],
+    failures: [],
+    advisoryProducer: "https://api.github.com/advisories",
+    observedAt: dateTimeOffsetString("2026-10-05T00:00:00Z"),
   };
 }
 
@@ -298,6 +285,21 @@ function metadataFailureResult(): PackageMetadata {
   };
 }
 
+function libraryDependencyStructureResult() {
+  return {
+    outcome: "available" as const,
+    methodologyVersion: "library-dependency-structure.v1",
+    completeness: "Complete",
+    population: null,
+    namespaces: [],
+    namespaceEdges: [],
+    totalNamespaceEdgeCount: 0,
+    cycles: [],
+    diagnostics: [],
+    failure: null,
+  };
+}
+
 function inspectionDependencies(
   state: PackageInspectionState,
   overrides: Partial<Omit<PackageInspectionDependencies, "state">> = {},
@@ -305,13 +307,17 @@ function inspectionDependencies(
   return {
     state,
     queryDependencies: async packageItem => dependencyResult(packageItem.id),
-    queryPruning: async () => pruningResult(),
+    queryVulnerabilities: async () => vulnerabilityResult(),
     queryPackageIntegrations: async () => integrationsResult(),
     queryPlatformIntegrations: async () => integrationsResult(),
     queryPackageOpportunities: async () => opportunitiesResult(),
     queryPlatformOpportunities: async () => opportunitiesResult(),
     queryPackagePerformance: async () => performanceResult(),
     queryPlatformPerformance: async () => performanceResult(),
+    queryPackageLibraryDependencyStructure: async () =>
+      libraryDependencyStructureResult(),
+    queryPlatformLibraryDependencyStructure: async () =>
+      libraryDependencyStructureResult(),
     queryPackageLibraryMetrics: async () => ({
       outcome: "available",
       methodologyVersion: "library-metrics.v1",
@@ -368,23 +374,53 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
-test("dependency loading does not start explicit pruning work", async () => {
+test("library metrics do not widen into dependency analysis", async () => {
   const selected = packageModel();
   const state = inspectionState({ packages: [selected] });
-  let pruningQueries = 0;
+  const defaults = inspectionDependencies(state);
+  let metricsQueries = 0;
+  let dependencyQueries = 0;
   const coordinator = createPackageInspectionCoordinator(
     inspectionDependencies(state, {
-      queryPruning: async () => {
-        pruningQueries++;
-        return pruningResult();
+      queryPackageLibraryMetrics: async (...args) => {
+        metricsQueries++;
+        return defaults.queryPackageLibraryMetrics(...args);
+      },
+      queryPackageLibraryDependencyStructure: async (...args) => {
+        dependencyQueries++;
+        return defaults.queryPackageLibraryDependencyStructure(...args);
       },
     }));
 
-  await coordinator.loadDependencies(selected, "dependencies");
+  await coordinator.loadLibraryMetrics(
+    selected,
+    "Example.Package@1.2.3/net10.0/Example.Package",
+    "Example.Package");
 
-  assert.equal(pruningQueries, 0);
-  assert.equal(state.packagePruning, null);
-  assert.equal(state.packagePruningKey, "");
+  assert.equal(metricsQueries, 1);
+  assert.equal(dependencyQueries, 0);
+  assert.equal(state.packageLibraryDependencyStructure, null);
+
+  state.packageLibraryMetricsRelationshipState = {
+    visibleCount: 24,
+    selectedSourceTypeKey: "Example.Source",
+    selectedTargetTypeKey: "Example.Target",
+  };
+  await coordinator.loadLibraryDependencyStructure(
+    selected,
+    "Example.Package@1.2.3/net10.0/Example.Package",
+    "Example.Package");
+
+  assert.equal(dependencyQueries, 1);
+  assert.deepEqual(
+    state.packageLibraryDependencyStructure,
+    libraryDependencyStructureResult(),
+  );
+  assert.deepEqual(state.packageLibraryMetricsRelationshipState, {
+    visibleCount: 24,
+    selectedSourceTypeKey: "Example.Source",
+    selectedTargetTypeKey: "Example.Target",
+  });
 });
 
 test("Library References does not acquire other workspace dependencies", async () => {
@@ -757,6 +793,7 @@ test("dependency normalization failures keep the workspace graph visibly partial
 test("package lens loaders reuse cached results without querying or clearing them", async () => {
   const packageItem = packageModel();
   const dependencies = dependencyResult();
+  const vulnerabilities = vulnerabilityResult();
   const integrations = integrationsResult();
   const opportunities = opportunitiesResult();
   const performance = performanceResult();
@@ -772,6 +809,18 @@ test("package lens loaders reuse cached results without querying or clearing the
       read: (state: PackageInspectionState) => state.packageDependencies,
       load: (coordinator: ReturnType<typeof createPackageInspectionCoordinator>) =>
         coordinator.loadDependencies(packageItem, "cached"),
+    },
+    {
+      name: "vulnerabilities",
+      cached: vulnerabilities,
+      state: inspectionState({
+        packageVulnerabilitiesKey: "cached",
+        packageVulnerabilities: vulnerabilities,
+      }),
+      read: (state: PackageInspectionState) =>
+        state.packageVulnerabilities,
+      load: (coordinator: ReturnType<typeof createPackageInspectionCoordinator>) =>
+        coordinator.loadVulnerabilities(packageItem, "cached"),
     },
     {
       name: "integrations",
@@ -828,9 +877,9 @@ test("package lens loaders reuse cached results without querying or clearing the
           queries++;
           return dependencyResult();
         },
-        queryPruning: async () => {
+        queryVulnerabilities: async () => {
           queries++;
-          return pruningResult();
+          return vulnerabilityResult();
         },
         queryPackageIntegrations: async () => {
           queries++;
@@ -883,66 +932,6 @@ test("package lens loaders reuse cached failures without querying", async () => 
   assert.equal(state.packagePerformanceError, "cached failure");
 });
 
-test("explicit pruning evaluation refreshes a settled result", async () => {
-  const packageItem = packageModel();
-  const first = pruningResult();
-  const second: BrowserPackagePruningResult = {
-    ...first,
-    summary: {
-      ...first.summary,
-      delegated: 0,
-      retained: 1,
-    },
-  };
-  let queries = 0;
-  const state = inspectionState();
-  const coordinator = createPackageInspectionCoordinator(
-    inspectionDependencies(state, {
-      queryPruning: async () => ++queries === 1 ? first : second,
-    }));
-
-  await coordinator.loadPruning(
-    packageItem,
-    "same",
-    "Microsoft.NETCore.App");
-  await coordinator.loadPruning(
-    packageItem,
-    "same",
-    "Microsoft.NETCore.App");
-
-  assert.equal(queries, 2);
-  assert.strictEqual(state.packagePruning, second);
-});
-
-test("explicit pruning evaluation retries a settled failure", async () => {
-  const packageItem = packageModel();
-  const result = pruningResult();
-  let queries = 0;
-  const state = inspectionState();
-  const coordinator = createPackageInspectionCoordinator(
-    inspectionDependencies(state, {
-      queryPruning: async () => {
-        if (++queries === 1) throw new Error("temporary failure");
-        return result;
-      },
-    }));
-
-  await coordinator.loadPruning(
-    packageItem,
-    "same",
-    "Microsoft.NETCore.App");
-  assert.equal(state.packagePruningError, "temporary failure");
-
-  await coordinator.loadPruning(
-    packageItem,
-    "same",
-    "Microsoft.NETCore.App");
-
-  assert.equal(queries, 2);
-  assert.strictEqual(state.packagePruning, result);
-  assert.equal(state.packagePruningError, "");
-});
-
 test("every package lens preserves its lifecycle and same-coordinate ownership across invalidation", async () => {
   const packageItem = packageModel();
 
@@ -964,25 +953,23 @@ test("every package lens preserves its lifecycle and same-coordinate ownership a
     setError: (state, error) => { state.packageDependenciesError = error; },
   });
   await verifyPackageLensLifecycle({
-    name: "pruning",
-    result: pruningResult(),
-    cachesFailure: false,
+    name: "vulnerabilities",
+    result: vulnerabilityResult(),
     createCoordinator: (state, query, render = () => {}) =>
       createPackageInspectionCoordinator(
         inspectionDependencies(state, {
-          queryPruning: async () => query(),
+          queryVulnerabilities: async () => query(),
           render,
         })),
     load: (coordinator, signature) =>
-      coordinator.loadPruning(
-        packageItem,
-        signature,
-        "Microsoft.NETCore.App"),
-    readResult: state => state.packagePruning,
-    readLoading: state => state.packagePruningLoading,
-    readError: state => state.packagePruningError,
-    setKey: (state, key) => { state.packagePruningKey = key; },
-    setError: (state, error) => { state.packagePruningError = error; },
+      coordinator.loadVulnerabilities(packageItem, signature),
+    readResult: state => state.packageVulnerabilities,
+    readLoading: state => state.packageVulnerabilitiesLoading,
+    readError: state => state.packageVulnerabilitiesError,
+    setKey: (state, key) => { state.packageVulnerabilitiesKey = key; },
+    setError: (state, error) => {
+      state.packageVulnerabilitiesError = error;
+    },
   });
   await verifyPackageLensLifecycle({
     name: "integrations",
@@ -1161,10 +1148,10 @@ test("invalidation clears package results, failures, keys, and loads without cha
     packageDependenciesLoading: true,
     packageDependenciesError: "dependency failure",
     packageDependenciesKey: "dependencies",
-    packagePruning: pruningResult(),
-    packagePruningLoading: true,
-    packagePruningError: "pruning failure",
-    packagePruningKey: "pruning",
+    packageVulnerabilities: vulnerabilityResult(),
+    packageVulnerabilitiesLoading: true,
+    packageVulnerabilitiesError: "vulnerability failure",
+    packageVulnerabilitiesKey: "vulnerabilities",
     packageIntegrations: integrationsResult(),
     packageIntegrationsLoading: true,
     packageIntegrationsError: "integration failure",
@@ -1194,11 +1181,53 @@ test("invalidation clears package results, failures, keys, and loads without cha
   assert.strictEqual(state.workspaceDependencyErrors, workspaceDependencyErrors);
 });
 
+test("newer same-coordinate vulnerability evidence owns settlement", async () => {
+  const firstA = deferred<BrowserPackageVulnerabilityResult>();
+  const packageB = deferred<BrowserPackageVulnerabilityResult>();
+  const secondA = deferred<BrowserPackageVulnerabilityResult>();
+  const requests = [firstA, packageB, secondA];
+  const state = inspectionState();
+  const coordinator = createPackageInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryVulnerabilities: async () => requests.shift()!.promise,
+    }));
+  const packageA = packageModel({ version: "1.0.0" });
+  const packageBModel = packageModel({ version: "2.0.0" });
+  const firstALoad =
+    coordinator.loadVulnerabilities(packageA, "Example.Package@1.0.0");
+  const packageBLoad =
+    coordinator.loadVulnerabilities(packageBModel, "Example.Package@2.0.0");
+  const secondALoad =
+    coordinator.loadVulnerabilities(packageA, "Example.Package@1.0.0");
+  const newerEvidence = {
+    ...vulnerabilityResult(),
+    version: "1.0.0",
+    availability: "Partial" as const,
+    failures: ["RateLimitOrForbidden" as const],
+  };
+
+  secondA.resolve(newerEvidence);
+  await secondALoad;
+  firstA.resolve({
+    ...vulnerabilityResult(),
+    version: "1.0.0",
+  });
+  packageB.resolve({
+    ...vulnerabilityResult(),
+    version: "2.0.0",
+  });
+  await Promise.all([firstALoad, packageBLoad]);
+
+  assert.strictEqual(state.packageVulnerabilities, newerEvidence);
+  assert.equal(state.packageVulnerabilitiesLoading, false);
+});
+
 test("invalidated package completions cannot publish, render, or start follow-up work", async () => {
   for (const outcome of ["success", "failure"]) {
     const removed = packageModel();
     const remaining = packageModel({ id: "Example.Remaining" });
     const dependencies = deferred<BrowserPackageDependencies>();
+    const vulnerabilities = deferred<BrowserPackageVulnerabilityResult>();
     const integrations = deferred<BrowserPackageIntegrations>();
     const opportunities = deferred<BrowserPackageOpportunities>();
     const performance = deferred<PackagePerformance>();
@@ -1211,6 +1240,7 @@ test("invalidated package completions cannot publish, render, or start follow-up
           events.push(`query:${packageItem.id}`);
           return dependencies.promise;
         },
+        queryVulnerabilities: async () => vulnerabilities.promise,
         queryPackageIntegrations: async () => integrations.promise,
         queryPackageOpportunities: async () => opportunities.promise,
         queryPackagePerformance: async () => performance.promise,
@@ -1221,6 +1251,7 @@ test("invalidated package completions cannot publish, render, or start follow-up
       }));
     const loads = [
       coordinator.loadDependencies(removed, "dependencies"),
+      coordinator.loadVulnerabilities(removed, "vulnerabilities"),
       coordinator.loadIntegrations(removed, "integrations", null),
       coordinator.loadOpportunities(removed, "opportunities", null),
       coordinator.loadPerformance(removed, "performance", null),
@@ -1234,13 +1265,15 @@ test("invalidated package completions cannot publish, render, or start follow-up
 
     if (outcome === "success") {
       dependencies.resolve(dependencyResult());
+      vulnerabilities.resolve(vulnerabilityResult());
       integrations.resolve(integrationsResult());
       opportunities.resolve(opportunitiesResult());
       performance.resolve(performanceResult());
       metadata.resolve(metadataResult());
     } else {
       for (const request of [
-        dependencies, integrations, opportunities, performance, metadata,
+        dependencies, vulnerabilities, integrations, opportunities,
+        performance, metadata,
       ]) {
         request.reject(new Error("retired failure"));
       }

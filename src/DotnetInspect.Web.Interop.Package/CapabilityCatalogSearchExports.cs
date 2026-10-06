@@ -130,28 +130,21 @@ public static partial class PackageExports
                 result.ResourceIdentity.ParentIdentity),
             result.ResourceKind switch
             {
-                ResourceExplanationResourceKind.Catalog =>
-                    BrowserResourceExplanationResourceKind.Catalog,
-                ResourceExplanationResourceKind.NavigationCollection =>
-                    BrowserResourceExplanationResourceKind.NavigationCollection,
-                ResourceExplanationResourceKind.StructuralCategory =>
-                    BrowserResourceExplanationResourceKind.StructuralCategory,
-                ResourceExplanationResourceKind.StructuralSection =>
-                    BrowserResourceExplanationResourceKind.StructuralSection,
-                ResourceExplanationResourceKind.StructuralItem =>
-                    BrowserResourceExplanationResourceKind.StructuralItem,
-                ResourceExplanationResourceKind.InspectionDocument =>
-                    BrowserResourceExplanationResourceKind.InspectionDocument,
-                ResourceExplanationResourceKind.HostNeutralRoute =>
-                    BrowserResourceExplanationResourceKind.HostNeutralRoute,
-                ResourceExplanationResourceKind.QuerySpace =>
-                    BrowserResourceExplanationResourceKind.QuerySpace,
-                ResourceExplanationResourceKind.QueryFacet =>
-                    BrowserResourceExplanationResourceKind.QueryFacet,
-                ResourceExplanationResourceKind.ConsumerBinding =>
-                    BrowserResourceExplanationResourceKind.ConsumerBinding,
+                CapabilityCatalogSearchResourceKind.InspectionDocument =>
+                    BrowserCapabilityCatalogSearchResourceKind
+                        .InspectionDocument,
+                CapabilityCatalogSearchResourceKind.HostNeutralRoute =>
+                    BrowserCapabilityCatalogSearchResourceKind
+                        .HostNeutralRoute,
+                CapabilityCatalogSearchResourceKind.QuerySpace =>
+                    BrowserCapabilityCatalogSearchResourceKind.QuerySpace,
+                CapabilityCatalogSearchResourceKind.QueryFacet =>
+                    BrowserCapabilityCatalogSearchResourceKind.QueryFacet,
+                CapabilityCatalogSearchResourceKind.ConsumerBinding =>
+                    BrowserCapabilityCatalogSearchResourceKind
+                        .ConsumerBinding,
                 _ => throw new InvalidOperationException(
-                    "Unknown Resource Explanation resource kind."),
+                    "Unknown capability-search resource kind."),
             },
             result.ResourceName,
             [.. result.CanonicalKeys],

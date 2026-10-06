@@ -21,12 +21,12 @@ access or direct TypeDef method ranges rather than a table scan.
 The implemented slices route the Assembly Analysis service through this
 owner-issued source for unsafe-evidence requests and publish compact exact
 MethodDef coverage for definitions examined, physical methods selected, and
-terminal bodies acquired. Type `Unsafe Members` effective discovery is the
-first sparse production consumer: it closes the unsafe-evidence producer with
-`Exists` over the selected TypeDef instead of rendering the ordinary section
-through a scoped `LibraryBodyIndex`. The source owns resource-free planning,
-exact subject binding, serial reference execution, source-receipt translation,
-and detached publication.
+terminal bodies attempted and acquired, plus module-lookup use. Type
+`Unsafe Members` effective discovery is the first sparse production consumer:
+it closes the unsafe-evidence producer with `Exists` over the selected TypeDef
+instead of rendering the ordinary whole-scope section. The source owns
+resource-free planning, exact subject binding, serial reference execution,
+source-receipt translation, and detached publication.
 
 Compatible all-definition request sets now execute as one physical MethodDef
 traversal with independent terminal-specialized lanes. Each lane retains its
@@ -138,6 +138,12 @@ population.
 A **source plan** is resource-free and immutable. It binds resolved breadth,
 depth, terminal-specialized producer work, work bounds, and receipt
 requirements without opening the subject.
+
+One source request names exactly one requested producer. Its closed Producer
+Planning description also carries that producer's dependency closure, so
+dependency-consistent visits, completion, failure containment, and
+`WorkReceipt` remain intact. Another independently requested producer belongs
+to another request-set association rather than hitchhiking in that request.
 
 A **source execution group** is one QuerySpace-selected physical traversal
 serving one or more source plans over the same owner-issued resource identity.
@@ -260,6 +266,31 @@ Each layer includes only its prerequisites. For example, `Calls` requires
 `Instructions` and the declared shared lookup support, but it does not require
 `Control flow` unless the request asks for both. `Identity` is projection work
 and remains absent from Count or Exists plans that do not need it.
+
+Instruction demand has two independent source-owned facets:
+
+| Facet | Ordered values | Meaning |
+| --- | --- | --- |
+| Access | `ForwardOnly < RetainedPrefix` | Whether all consumers can observe one advancing stream, or any consumer needs replay, independent progress, or IL-offset lookup. |
+| Detail | `OpcodeAndExtent < SelectiveOperands` | Whether consumers need only shallow instruction identity, or may resolve selected operands and branch targets. |
+
+A producer declares its minimum semantic demand, never a physical reader type.
+For one execution group, the source joins Access and Detail independently
+across active producers. A no-retention stream currently satisfies
+`ForwardOnly + OpcodeAndExtent`; any retained-prefix or selective-detail demand
+selects one lazy shallow retained sequence. Forward producers share the same
+advancing frontier when a retained consumer promotes the group. Adding a
+producer can only preserve or increase the joined demand, and producer order
+cannot change the selected source.
+
+The Method-body demand scorecard carries the reference implementation and real
+classifier gates for this rule.
+[Query Space Producer Capabilities](query-space-producer-capabilities.md) owns
+the reusable requirement, provision, result-coverage, and producer-plan
+contract shared with Type and Member declaration planning. This Method owner
+retains the Access and Detail meanings, their pointwise join, and physical
+source choices. Production request-set collapse through the Method source
+remains unverified.
 
 Shared lookup support, such as same-image token resolution or authenticated
 state-machine relationships, is execution-scoped work rather than a fictitious
@@ -402,8 +433,8 @@ work or a cost estimate. It contains:
 - direct breadth, declared expansion, terminal, and demanded depth;
 - completion for every served request and its settlement position, when any;
 - exact MethodDef coverage for definitions examined, physical methods
-  selected, generated-discovery bodies probed, terminal bodies acquired, and
-  each deeper terminal layer acquired;
+  selected, generated-discovery bodies probed, terminal bodies attempted and
+  acquired, module-lookup use, and each deeper terminal layer acquired;
 - generated and referenced expansion origins;
 - generated-discovery probe bytes and relationship work;
 - shared lookup-support construction and use;
@@ -486,7 +517,10 @@ The first implementation slice is gated in Release:
 - `MethodQuerySource_SequentialReferenceMatchesInterimExecutor`
 - `MethodQuerySource_ExistsStopsAtFirstSettledMethod`
 - `MethodQuerySource_ProducerFailureDoesNotBecomeSuccessfulAbsence`
+- `MethodQuerySource_ExecutesFocusedProducerDependencyClosure`
+- `MethodQuerySource_RejectsUnrelatedRequestedProducer`
 - `MethodQuerySource_ReleasedExecutionRetainsNoSubjectAuthority`
+- `Execute_FailedBodyReadIsNotReportedAsAcquired`
 
 The exact-breadth slice is gated in Release:
 
@@ -503,6 +537,12 @@ The first production adoption is gated in Release:
 - `TypeAuditEffectiveDiscovery_ListsUnsafeMembers`
 - `TypeAuditEffectiveDiscovery_OmitsUnsafeMembersForSafeType`
 - `TypeCommand_UnsafeMembersDiscovery_DoesNotBuildIndex`
+
+The instruction-demand reference planner is gated in Release:
+
+- `MethodBodyAnalyzerPlanner_SelectsSourceFromCombinedDemand`
+- `MethodBodyAnalyzerPlanner_JoinIsOrderIndependent`
+- `MethodBodyAnalyzerPlanner_PreservesRealClassifierResults`
 
 The following deeper-source gates remain **unverified**:
 

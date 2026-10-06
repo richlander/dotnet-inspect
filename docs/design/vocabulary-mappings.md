@@ -16,6 +16,14 @@ output and Browser catalog prove the need and supply the first production data.
 The later [JSON Schema Vocabulary Bindings](json-schema-vocabulary-bindings.md)
 design consumes this pattern without extending its claim.
 
+[#9250](https://github.com/richlander/dotnet-inspect/issues/9250) moves the
+declaration contracts into the `QuerySpace.Primitives` floor so that term
+owners declare their own vocabularies; see
+[Physical placement](#physical-placement).
+[#9401](https://github.com/richlander/dotnet-inspect/issues/9401) makes map
+values use the explanation declaration floor's value grammar; see
+[Value grammar](#value-grammar).
+
 ## Owner and exact claim
 
 **Vocabulary Mappings** owns:
@@ -77,14 +85,16 @@ implicit:
   it can group the picker.
 
 The first production outcome keeps the existing Settings experience while
-removing those reconstructions. The product publishes one typed snapshot; the
-CLI projects its established vocabulary document from that snapshot, and
-Inspect Web groups choices through the declared `tier` term map.
+removing those reconstructions. Each host composes one typed snapshot from the
+owners' declarations; the CLI projects its established vocabulary document from
+its snapshot, and Inspect Web groups choices through the declared `tier` term
+map.
 
-Conceptually, the C# producer supplies:
+Conceptually, the C# host supplies:
 
 ```csharp
-VocabularySnapshot snapshot = VocabularyCatalog.Snapshot;
+VocabularySnapshot snapshot =
+    ProductVocabularyComposition.Compose(contributions);
 VocabularyMap tierMap = snapshot.GetMap(
     "csharp.style-choices",
     "tier");
@@ -224,14 +234,14 @@ VocabularySnapshot
       map identity
       display label
       summary
-      target: Scalar kind | Term-set reference
+      target: explanation scalar kind | Term-set reference
       cardinality
       coverage
     ordered Terms
       term identity
       display label
       optional summary
-      map identity -> ordered values
+      map identity -> ordered explanation values
 ```
 
 The snapshot is complete for the catalog it names. It may compose declarations
@@ -271,12 +281,57 @@ Display metadata is plain owner-issued content. Localization, culture
 selection, rich text, and host layout are outside this contract. A later
 localization owner may supply localized labels without changing term identity.
 
+### Value grammar
+
+Map values use the one value grammar of the
+[explanation declaration floor](query-space-library.md#explanation-declaration-floor):
+each value is an `ExplanationValue`, and a scalar map declares an
+`ExplanationScalarKind`. Vocabulary Mappings declares no scalar kind, scalar
+carrier, or value union of its own, so an owner that publishes both a
+vocabulary and an explanation schema writes one kind of value, and a host
+lowers one value type.
+
+Maps admit a fixed subset of that grammar:
+
+| Explanation grammar | Admitted in a map |
+| --- | --- |
+| Text scalar | Yes |
+| Integer scalar | Yes, within the signed 64-bit range |
+| Boolean scalar | Yes |
+| Decimal, binary floating-point, and octets scalars | No |
+| Vocabulary-term value | Yes, in a term-reference map |
+| Record and choice values | No |
+
+A vocabulary-term value also inherits the explanation floor's identity bound:
+the term identity's own value is at most 1,024 UTF-8 bytes. A term with a
+longer identity can be declared but cannot be a term-map target; constructing
+the value fails visibly.
+
+Construction rejects anything outside the subset. The snapshot identity
+encoding, the CLI document, and the Browser export each lower exactly these
+cases. The identity encoding and the Browser export carry signed 64-bit
+integers, which is the width map integers had before this grammar was adopted;
+the CLI document narrows to 32 bits with a checked conversion that fails
+visibly. Admitting another kind or structured values is a contract change to
+this document and to every lowering, not permission to carry arbitrary values.
+
+Three map-level facts stay owned here rather than taken from the explanation
+grammar:
+
+- **The map definition names the slot.** A map has its own stable identity,
+  display label, and summary, which is the owner-issued meaning of its values.
+  Requiring a separate named explanation data shape for each map would give
+  one slot two identities and attach an embedded-value budget to trusted,
+  owner-issued catalog data.
+- **Cardinality.** See [Cardinality](#cardinality).
+- **Term-set targets.** A term-reference map's target keeps the exact external
+  snapshot identity that [Term-reference maps](#term-reference-maps) requires.
+  An explanation vocabulary-term shape names only a vocabulary.
+
 ### Scalar-value maps
 
 A scalar-value map associates each source term with values of one declared
-primitive kind. The initial closed kinds are text, integer, and Boolean because
-they cover the first adopter. Adding a kind is a contract change, not permission
-to carry arbitrary JSON.
+scalar kind from the admitted subset in [Value grammar](#value-grammar).
 
 Examples in Product Vocabulary include:
 
@@ -335,6 +390,13 @@ Several source terms may target one term, and one source term may target
 several terms when its cardinality permits. Many-to-one and many-to-many maps
 therefore use the same declared shape rather than separate container types.
 
+Map cardinality is not the explanation floor's `ExplanationCardinality`. That
+grammar has no lower bound above zero for many values, and Product Vocabulary's
+`accepted_by` map depends on *one or more*. Its ordered-many case also requires
+a maximum count, which bounds values embedded in resource snapshots; complete
+owner-issued maps have no such bound. Map cardinality is an entry-count
+contract that sits beside coverage, not a second value grammar.
+
 ### Coverage
 
 Coverage distinguishes a complete map from a partial assertion:
@@ -367,7 +429,10 @@ canonical projection of the typed snapshot body. Its initial spelling is
 spelling as opaque. The snapshot identity itself is excluded from the hashed
 body. The projection includes the format version, catalog identity, every
 ordered declaration, and every value with explicit type, cardinality, and
-coverage. Construction produces equal identities for equal typed inputs and a
+coverage. Scalar kinds are encoded as `text`, `integer`, and `boolean`, and an
+integer as its decimal JSON number. That encoding did not change when map
+values adopted the explanation value grammar, so existing digests are
+preserved. Construction produces equal identities for equal typed inputs and a
 different identity for any observable snapshot change. The digest is a
 deterministic change identity, not an authentication or trust claim.
 
@@ -388,7 +453,11 @@ Snapshot construction is typed and all-or-failure. It rejects:
 - missing or duplicate catalog, vocabulary, term, or map identities;
 - blank required labels;
 - a map value naming an undeclared map;
-- a scalar value of the wrong primitive kind;
+- a scalar kind outside the admitted subset in
+  [Value grammar](#value-grammar);
+- a value of the wrong kind for its map, including a record, choice, or
+  unadmitted scalar value;
+- an integer outside the signed 64-bit range;
 - a cardinality violation;
 - a missing entry in a complete map;
 - a duplicate value in one map entry;
@@ -512,15 +581,47 @@ The implementation must gate:
   feature behavior, while the Settings consumer resolves only its explicitly
   bound vocabulary and maps.
 
-The typed construction and identity cases belong in a focused
-`DotnetInspector.Vocabulary` Release suite or the existing CLI suite until that
-suite exists. Existing `VocabularyCommandTests` retain CLI compatibility.
+The typed construction and identity cases belong in the `QuerySpace.Primitives`
+Release suite once [#9250](https://github.com/richlander/dotnet-inspect/issues/9250)
+moves the declaration contracts there; until then they stay in the existing
+CLI suite. Existing `VocabularyCommandTests` retain CLI compatibility.
 `BrowserStyleOptionsTests`, strict generated-TypeScript compilation, and the
 Inspect Web test/build gates own the Browser adoption.
 
+## Physical placement
+
+This owner's contracts are split by role across two existing owners' assemblies;
+semantic authority stays here.
+
+| Contract | Assembly | Reason |
+| --- | --- | --- |
+| Catalog, vocabulary, term, map, and snapshot identities; `VocabularyDefinition`, `VocabularyTerm`, map definitions and entries carrying `QuerySpace.Explanation` values, cardinality, coverage; `VocabularySnapshot` and its construction-time validation | `QuerySpace.Primitives` | A declaration a term owner must be able to produce from any family; the floor is dependency-free under the [QuerySpace library boundary](query-space-library.md#two-assemblies-and-two-participation-tiers) |
+| `VocabularyDocument`, sections, fields, operators, rows, the wire document, and `VocabularyJson` | `DotnetInspector.Sections` | Product Vocabulary's declared section schema and compatibility wire projection; not part of the reusable mapping pattern |
+
+Owners declare; hosts compose, under the composition rule the
+[QuerySpace library boundary](query-space-library.md#two-assemblies-and-two-participation-tiers)
+states for tier-1 declarations. A declaration is a value, not an interface the
+owner implements, and no reflection or plugin discovery assembles the list.
+The composed snapshot's identity derives from its declarations, so hosts that
+ship the same declarations observe the same identity.
+
+The snapshot identity is a `sha256:` digest over a deterministic canonical
+projection of the declarations, written with `Utf8JsonWriter`. The projection
+moves to `QuerySpace.Primitives` unchanged; `System.Text.Json` is a platform
+assembly the floor may reference, as the `Inspector.Findings` floor already
+does, so no rewrite is needed and every existing digest is preserved by
+construction. The product snapshot's pinned digest is the gate. It is one
+value, `ProductVocabularyPin`, that both host suites assert against their own
+composed snapshot (see [Product Vocabulary ownership](vocabulary.md#ownership)),
+and it must pass unchanged across every move. The pattern's own construction, validation, and
+identity gates (`VocabularyMappingsTests`) run in the `Primitives` suite,
+`tests/DotnetInspector.PortableQueries.Tests`, over test-owned catalogs. The
+declaration types use the `QuerySpace.Vocabulary` namespace under the
+[QuerySpace namespace rule](query-space-library.md#namespaces-and-identity).
+
 ## Delivery plan
 
-This shared substrate has a counted three-step path to both production hosts:
+This shared substrate has a counted four-step path to both production hosts:
 
 1. **Focused design — complete.** The merged design locks this pattern and the
    bounded Product Vocabulary adoption.
@@ -534,6 +635,11 @@ This shared substrate has a counted three-step path to both production hosts:
    its explicit feature binding, and remove the Browser-local semantic row
    interfaces, guards, double-materialized `JsonElement` path, and any
    superseded internal `ListVocabulary` shape.
+4. **Owner declaration and retirement — #9250.** Move the declaration
+   contracts to `QuerySpace.Primitives` and the document contracts to
+   `DotnetInspector.Sections`, have the Decompiler and Queries declare their
+   vocabularies, compose the snapshot in both hosts, and retire
+   `DotnetInspector.Vocabulary`.
 
 Step 3 resolves the allocation follow-up in
 [#4494](https://github.com/richlander/dotnet-inspect/issues/4494) if its
@@ -542,7 +648,7 @@ has been removed without a regression. The existing CLI wire projection is a
 public compatibility surface and remains intentionally; it is not a second
 semantic catalog.
 
-After these three steps,
+After these steps,
 [JSON Schema Vocabulary Bindings](json-schema-vocabulary-bindings.md) may bind
 exact schema locations to terms in an exact Vocabulary Mappings snapshot.
 Other catalogs adopt one owner at a time.

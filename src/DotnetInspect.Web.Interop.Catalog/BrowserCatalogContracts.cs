@@ -517,7 +517,8 @@ public sealed record BrowserWorkspaceShareView(
     string? MemberAnchor,
     string? MemberSignature,
     string? Section,
-    string[] Libraries);
+    string[] Libraries,
+    string? SourceView);
 
 /// <summary>
 /// Long-form Browser transport for one canonical packet-local scenario.
@@ -841,6 +842,12 @@ public sealed record BrowserRetainedWorkspacePlatformAdmissionResult(
     BrowserRetainedWorkspacePlatform? Platform,
     string? Message);
 
+public sealed record BrowserEcosystemPackageWorkspaceAdmissionResult(
+    string Status,
+    BrowserRetainedWorkspacePosting? Posting,
+    BrowserRetainedNavigationResult? Navigation,
+    string? Message);
+
 public sealed record BrowserRetainedWorkspaceCleanup(string Message);
 
 /// <summary>
@@ -958,6 +965,7 @@ public sealed record BrowserRetainedWorkspacePackageSourceCredential(
 [JsonSerializable(typeof(BrowserRetainedWorkspaceConsumerCompletionResult))]
 [JsonSerializable(typeof(BrowserRetainedWorkspacePackageAdmissionResult))]
 [JsonSerializable(typeof(BrowserRetainedWorkspacePlatformAdmissionResult))]
+[JsonSerializable(typeof(BrowserEcosystemPackageWorkspaceAdmissionResult))]
 [JsonSerializable(typeof(BrowserSpotlightActionResult))]
 [JsonSerializable(typeof(BrowserRetainedWorkspaceDeactivationResult))]
 [JsonSerializable(typeof(BrowserRetainedWorkspaceSettlementResult))]

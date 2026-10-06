@@ -102,6 +102,9 @@ public static class FixtureIds
     public const string AnalysisCallerGraphLookalikeCaller = "analysis.caller-graph.lookalike-caller";
     public const string AnalysisCallerGraphTarget = "analysis.caller-graph.target";
     public const string AnalysisCallerGraphTargetV2 = "analysis.caller-graph.target-v2";
+    public const string AnalysisCallerGraphVersionSkewCaller = "analysis.caller-graph.version-skew-caller";
+    public const string AnalysisCallerGraphVersionSkewTargetV1 = "analysis.caller-graph.version-skew-target-v1";
+    public const string AnalysisCallerGraphVersionSkewTargetV2 = "analysis.caller-graph.version-skew-target-v2";
     public const string CallerBindingCaller = "cli.caller-binding.caller";
     public const string CallerBindingContract = "cli.caller-binding.contract";
     public const string CallerBindingFacade = "cli.caller-binding.facade";
@@ -179,6 +182,7 @@ public static class FixtureIds
     public const string InspectWebDocumentation =
         "inspect-web.documentation";
     public const string InspectWebMethodBodies = "inspect-web.method-bodies";
+    public const string InspectWebPackagePdb = "inspect-web.package-pdb";
     public const string InspectWebSourceComparisonV1 = "inspect-web.source-comparison.v1";
     public const string InspectWebSourceComparisonV2 = "inspect-web.source-comparison.v2";
     public const string SourceLinkMalformed = "sourcelink.malformed";
@@ -308,6 +312,25 @@ public static class FixtureCatalog
         Boundaries(FixtureBoundary.SidecarAsset, FixtureBoundary.PostBuildTransformation),
         Asset("reference", "InspectWeb.MethodBodyFixtures", "ref/InspectWeb.MethodBodyFixtures.dll"),
         Asset("package", "InspectWeb.MethodBodyFixtures", "InspectWeb.MethodBodyFixtures.1.0.0.nupkg"));
+
+    public static readonly FixtureDefinition InspectWebPackagePdb = Fixture(
+        FixtureIds.InspectWebPackagePdb,
+        "InspectWeb.PackagePdbFixture",
+        "InspectWebPackagePdbFixture.dll",
+        ["inspect-web", "source", "package-pdb"],
+        Boundaries(
+            FixtureBoundary.SidecarAsset,
+            FixtureBoundary.SourceLinkMap,
+            FixtureBoundary.PostBuildTransformation),
+        Asset(
+            "package",
+            "InspectWeb.PackagePdbFixture",
+            "InspectWeb.PackagePdbFixture.1.0.0.nupkg"),
+        Asset(
+            "pdb",
+            "InspectWeb.PackagePdbFixture",
+            "InspectWebPackagePdbFixture.pdb"),
+        Asset("source", "InspectWeb.PackagePdbFixture", "Counter.cs"));
 
     // The browser Source comparison pair needs the same authored difference as the
     // queries source-diff pair, but reachable from a browser participant: an embedded
@@ -708,6 +731,27 @@ public static class FixtureCatalog
         FixtureIds.AnalysisCallerGraphTargetV2,
         "ILInspector.Analysis.CallerGraphTargetV2",
         "ILInspector.Analysis.CallerGraphTarget.dll",
+        Boundaries(FixtureBoundary.AssemblyIdentity, FixtureBoundary.CrossAssemblyBoundary),
+        "analysis", "caller-graph", "target", "version-skew");
+
+    public static readonly FixtureDefinition AnalysisCallerGraphVersionSkewCaller = Fixture(
+        FixtureIds.AnalysisCallerGraphVersionSkewCaller,
+        "ILInspector.Analysis.CallerGraphVersionSkewCaller",
+        "ILInspector.Analysis.CallerGraphVersionSkewCaller.dll",
+        Boundaries(FixtureBoundary.AssemblyIdentity, FixtureBoundary.CrossAssemblyBoundary),
+        "analysis", "caller-graph", "caller", "version-skew");
+
+    public static readonly FixtureDefinition AnalysisCallerGraphVersionSkewTargetV1 = Fixture(
+        FixtureIds.AnalysisCallerGraphVersionSkewTargetV1,
+        "ILInspector.Analysis.CallerGraphVersionSkewTargetV1",
+        "ILInspector.Analysis.CallerGraphVersionSkewTarget.dll",
+        Boundaries(FixtureBoundary.AssemblyIdentity, FixtureBoundary.CrossAssemblyBoundary),
+        "analysis", "caller-graph", "target", "version-skew");
+
+    public static readonly FixtureDefinition AnalysisCallerGraphVersionSkewTargetV2 = Fixture(
+        FixtureIds.AnalysisCallerGraphVersionSkewTargetV2,
+        "ILInspector.Analysis.CallerGraphVersionSkewTargetV2",
+        "ILInspector.Analysis.CallerGraphVersionSkewTarget.dll",
         Boundaries(FixtureBoundary.AssemblyIdentity, FixtureBoundary.CrossAssemblyBoundary),
         "analysis", "caller-graph", "target", "version-skew");
 
@@ -1198,6 +1242,7 @@ public static class FixtureCatalog
         InspectWebCloneTransport,
         InspectWebDocumentation,
         InspectWebMethodBodies,
+        InspectWebPackagePdb,
         InspectWebSourceComparisonV1,
         InspectWebSourceComparisonV2,
         DecompilerAuthoredRebuild,
@@ -1231,6 +1276,9 @@ public static class FixtureCatalog
         AnalysisCallerGraphLookalikeCaller,
         AnalysisCallerGraphTarget,
         AnalysisCallerGraphTargetV2,
+        AnalysisCallerGraphVersionSkewCaller,
+        AnalysisCallerGraphVersionSkewTargetV1,
+        AnalysisCallerGraphVersionSkewTargetV2,
         AnalysisAsyncSiblingFriendBase,
         AnalysisAsyncSiblingFriend,
         AnalysisAsyncSiblingRepository,
@@ -1325,6 +1373,9 @@ public static class FixtureCatalog
         [
             AnalysisCallerGraphTarget,
             AnalysisCallerGraphTargetV2,
+            AnalysisCallerGraphVersionSkewCaller,
+            AnalysisCallerGraphVersionSkewTargetV1,
+            AnalysisCallerGraphVersionSkewTargetV2,
             AnalysisCallerGraphCaller,
             AnalysisOwnershipFlow,
             AnalysisCallOverloads,
@@ -1647,6 +1698,8 @@ public static class FixtureCatalog
             "InspectWeb.DocumentationFixtures" =>
                 "fixtures/inspect-web/InspectWeb.DocumentationFixtures",
             "InspectWeb.MethodBodyFixtures" => "fixtures/inspect-web/InspectWeb.MethodBodyFixtures",
+            "InspectWeb.PackagePdbFixture" =>
+                "fixtures/inspect-web/InspectWeb.PackagePdbFixture",
             "InspectWeb.SourceComparisonFixtures.V1" =>
                 "fixtures/inspect-web/InspectWeb.SourceComparisonFixtures.V1",
             "InspectWeb.SourceComparisonFixtures.V2" =>
@@ -1695,6 +1748,9 @@ public static class FixtureCatalog
             "ILInspector.Analysis.CallerGraphLookalikeCaller" => "fixtures/analysis/ILInspector.Analysis.CallerGraphLookalikeCaller",
             "ILInspector.Analysis.CallerGraphTarget" => "fixtures/analysis/ILInspector.Analysis.CallerGraphTarget",
             "ILInspector.Analysis.CallerGraphTargetV2" => "fixtures/analysis/ILInspector.Analysis.CallerGraphTargetV2",
+            "ILInspector.Analysis.CallerGraphVersionSkewCaller" => "fixtures/analysis/ILInspector.Analysis.CallerGraphVersionSkewCaller",
+            "ILInspector.Analysis.CallerGraphVersionSkewTargetV1" => "fixtures/analysis/ILInspector.Analysis.CallerGraphVersionSkewTargetV1",
+            "ILInspector.Analysis.CallerGraphVersionSkewTargetV2" => "fixtures/analysis/ILInspector.Analysis.CallerGraphVersionSkewTargetV2",
             "ILInspector.Analysis.CrossAsmCollisionFixtures" => "fixtures/analysis/ILInspector.Analysis.CrossAsmCollisionFixtures",
             "ILInspector.Analysis.FacadeFixtures" => "fixtures/analysis/ILInspector.Analysis.FacadeFixtures",
             "ILInspector.Analysis.Fixtures" => "fixtures/analysis/ILInspector.Analysis.Fixtures",

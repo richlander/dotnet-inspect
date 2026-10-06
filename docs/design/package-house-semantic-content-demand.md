@@ -76,6 +76,10 @@ The result terminals are:
   `GetLibraryAndInventoryForTarget` requires TFM-wide narrowing and returns one
   policy-selected Library plus the complete logical Library inventory for that
   target.
+- **Library inventory for target.**
+  `GetLibraryInventoryForTarget` requires TFM-wide narrowing and returns the
+  same complete logical Library inventory without expanding any Library
+  content.
 - **Whole archive.** Return the complete package payload when the product
   question genuinely requires package-wide content. This terminal requires
   package-wide narrowing.
@@ -86,8 +90,12 @@ needs the raw package-entry inventory. Both observe the same TFM-wide
 narrowing; neither repeats or independently interprets it.
 
 One implementation slice adds a narrowing form or terminal only with a
-production caller. Until one lands, its place in this vocabulary is an
-adoption commitment, not a supported API.
+production caller. `GetLibraryAndInventoryForTarget` is supported by package
+member Source Locations, which consumes its exact implementation and PDB
+references through later retained Files queries.
+`GetLibraryInventoryForTarget` is supported by Portable PDB settlement for an
+already-realized Browser/Wasm package assembly; it binds the exact provenance
+path to an inventory row before requesting only that row's PDB reference.
 
 Package-wide and TFM-wide Files and File List are implemented. Their results
 retain the exact acquired generation and, for TFM-wide narrowing, the existing
@@ -150,10 +158,9 @@ cannot rescan the archive, construct a second path inventory, or resolve root
 preference independently.
 
 Namesake evidence and alphabetical ordering require only directory paths.
-Namespace selection visits candidate assemblies from the narrowed space in
-that deterministic order and stops at the first exact match. If namespace
-evidence for an earlier candidate cannot be completed, the query fails visibly
-because the House cannot prove that a later candidate is the first match.
+The later namespace-selection slice must acquire candidate assemblies from
+this same narrowed generation and fail visibly when an earlier candidate's
+Metadata evidence cannot be completed.
 
 A complete archive transfer does not bypass the snapshot contract. Its
 directory is validated into the same evidence shape before terminals execute.
@@ -202,14 +209,19 @@ assembly and labels it acquired. The file list explains what else the package
 contains and can be requested next. The settlement and transfer receipt, not
 the file list, establish that the returned entry completed validation.
 
-## Library and inventory for target
+## Library inventory terminals
 
 `GetLibraryAndInventoryForTarget` is one composite terminal over TFM-wide
 narrowing. It does not accept package-wide or TFM-plus-root narrowing. A
 runtime identifier, when present in the target context, remains part of the
 owner-issued target.
 
-The terminal returns:
+`GetLibraryInventoryForTarget` has the same narrowing and inventory semantics,
+but returns no selected-Library handoff and expands no compile or
+implementation entry. Its result is directory-derived evidence only. A later
+Files query may expand exact references issued by that inventory.
+
+`GetLibraryAndInventoryForTarget` returns:
 
 - one selected Library whose required assembly content is complete and
   validated;
@@ -245,20 +257,17 @@ content generations, or cache handles. A later Files query may present one or
 more of those exact references to acquire additional compile, implementation,
 or PDB content without reconstructing paths from display text.
 
-The selection policy is part of this operation, not its name. The initial
-closed policy is **Namespace then alphabetical**. It carries an optional
-namespace and consumes namespace facts from the Metadata owner only when the
-caller supplies one. PackageHouse composes those owner-issued facts; it does
-not parse target frameworks, rank asset compatibility, or decode Metadata
-itself.
+The selection policy is part of this operation, not its name. The current
+production-supported policy is **alphabetical**. Namespace-first selection
+requires a same-operation Metadata evidence stage that can acquire candidate
+assemblies from the validated package generation; it remains a later focused
+adoption and is not exposed by this slice. PackageHouse does not parse target
+frameworks, rank asset compatibility, or decode Metadata itself.
 
 Selection is deterministic:
 
 1. Order compatible libraries alphabetically.
-2. When a namespace is supplied, visit libraries in that order and select the
-   first whose owner-issued namespace inventory contains that exact namespace.
-3. If the namespace is absent from every library, or no namespace was supplied,
-   select the first compatible library in that order.
+2. Select the first compatible library in that order.
 
 Alphabetical order compares the assembly file-name stem from the validated
 package path using ordinal case-insensitive ordering, then compares normalized
@@ -270,18 +279,14 @@ A package namesake is a pure name fact: `System.Text.Json.dll` is namesake
 evidence for package `System.Text.Json`. It is derived from the package ID and
 assembly file name without opening or decoding the assembly. The selection
 receipt may disclose that fact, but namesake status does not create another
-demand or override the namespace-then-alphabetical rule.
+demand or override the alphabetical rule.
 
-Missing compatible libraries is a typed no-match. Namespace absence is not a
-failure because the alphabetical fallback is part of the request. Metadata
-decode failure is visible and cannot be treated as namespace absence; the
-House cannot select a fallback on incomplete namespace evidence.
+Missing compatible libraries, including an explicit empty compile group, is a
+typed no-match.
 
-Without a namespace, directory evidence selects the alphabetical first
-Library and PackageHouse materializes only that assembly. Namespace selection
-may materialize the candidate assemblies required to prove the first exact
-match. In either form, inventory construction does not materialize the other
-Libraries, implementation assemblies, or PDB entries.
+Directory evidence selects the alphabetical first Library and PackageHouse
+materializes only that assembly. Inventory construction does not materialize
+the other Libraries, implementation assemblies, or PDB entries.
 
 PackageHouse does not open a PDB, validate Portable PDB format or identity,
 inspect embedded PDB content, or consult `.snupkg` or symbol-server sources.
@@ -427,14 +432,19 @@ result. It neither adds an AssemblyRef terminal here nor constructs a second
 file-name index.
 
 The production demo is a Package Query over `System.Text.Json`:
-`GetLibraryAndInventoryForTarget` without a namespace returns one complete
+`GetLibraryAndInventoryForTarget` returns one complete
 `System.Text.Json.dll` and the complete logical Library inventory for the TFM
 without downloading a PDB. Each Library row records whether its applicable
 implementation PDB is Listed, Absent, or Not applicable and supplies exact
 references for later Files requests. A later PDB operation may request the
 listed implementation/PDB files or skip to an external provider. The
-neighboring multi-library case uses `Avalonia`, exact namespace selection, and
-deterministic alphabetical fallback for an absent namespace.
+neighboring multi-library case uses deterministic alphabetical selection.
+
+The production consumer demo is member Source Locations over
+`NodaTime@3.3.5`. Its single selected `lib/net8.0/NodaTime.dll` Library row
+issues `lib/net8.0/NodaTime.pdb`; Portable PDB settlement requests only that
+entry, validates its complete identity in Metadata, and loads the admitted
+content into the existing SourceLink context.
 
 ## Pathological cases and gates
 
@@ -449,6 +459,7 @@ All implementation gates run in Release.
 | Shared directory evidence | File List, exact-file admission, logical Library inventory, package-symbol evidence, and range spans derive from one validated snapshot plus owner-issued narrowing and correspondence. |
 | Exact files | Ranged execution expands only the exact referenced entries; complete fallback may transfer the archive but publishes only those entries. Every reference lies in the base narrowed space and is complete and validated; an outside, missing, or ambiguous reference fails visibly. |
 | `GetLibraryAndInventoryForTarget` without namespace | PackageHouse returns exactly one selected DLL, no PDB content, and one complete logical inventory whose selection receipt identifies that row. |
+| `GetLibraryInventoryForTarget` | PackageHouse returns one complete logical inventory and materializes no DLL or PDB entry; a later Files query may request only an exact issued reference. |
 | Reference primary plus listed implementation PDB | The selected reference DLL remains the only downloaded entry; its inventory row identifies the owner-issued implementation DLL and adjacent PDB for a later exact Files request. |
 | TFM-wide package-local PDB absence | The applicable inventory row proves the adjacent implementation PDB is absent without downloading package content or consulting a symbol provider. |
 | Library without implementation correspondence | Its inventory row reports Not applicable and invents neither an implementation DLL nor a PDB reference. |
@@ -457,10 +468,7 @@ All implementation gates run in Release.
 | Several AssemblyRefs against one package generation | The consumer reuses owner-issued directory/narrowing evidence and exact Files references; Metadata validates each candidate without another archive scan or package-entry inventory. |
 | Later package-symbol acquisition | The PDB operation may request the exact listed implementation/PDB entries through Files, then validates identity outside PackageHouse. |
 | Later remote symbol acquisition | The PDB operation may skip the package candidate or use an external provider when package evidence is absent or disfavored by its separately owned policy. |
-| Namespace in several libraries | The first exact namespace match in file-name-stem and package-path order wins. |
-| Namespace absent | The alphabetically first compatible library wins. |
 | Namesake evidence | Package-ID/file-name equality is reported without opening the assembly and does not alter selection order. |
-| Namespace evidence failure | Failure remains visible; it cannot become alphabetical fallback. |
 | Range ignored | Complete fallback preserves the semantic result and records the typed transfer path. |
 | Archive below the size cut | Complete acquisition may satisfy the demand without changing its result. |
 | Cache, ranged, and complete paths | Results are equivalent apart from transfer receipts and cache-dependent evidence. |

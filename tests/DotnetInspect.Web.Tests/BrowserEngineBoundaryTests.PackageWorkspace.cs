@@ -1036,18 +1036,23 @@ public sealed partial class BrowserEngineBoundaryTests
                             "netcore.app"),
                     BrowserAnalysisJsonContext.Default
                         .BrowserLibraryStructuralSalience));
-        Assert.Equal("available", salience.Outcome);
+        Assert.Equal("available", salience.Surface.Outcome);
+        Assert.Equal("available", salience.Implementation.Outcome);
         Assert.Equal(
-            "structural-salience.v2",
-            salience.MethodologyVersion);
-        Assert.NotEmpty(salience.NamespaceIndex!.Namespaces);
+            "structural-salience.v3",
+            salience.Surface.MethodologyVersion);
+        Assert.NotEmpty(salience.Surface.NamespaceIndex!.Namespaces);
         Assert.Equal(
-            salience.NamespaceIndex.Namespaces.Length,
-            salience.TypeLeverageShards.Length);
+            salience.Surface.NamespaceIndex.Namespaces.Length,
+            salience.Surface.TypeLeverageShards.Length);
+        Assert.Equal(
+            salience.Surface.NamespaceIndex.Namespaces.Length,
+            salience.Implementation.TypeLeverageShards.Length);
         BrowserLibraryTypeLeverageShard shard =
-            salience.TypeLeverageShards[0];
+            salience.Surface.TypeLeverageShards[0];
         Assert.NotEmpty(shard.Types);
-        Assert.Null(salience.Failure);
+        Assert.Null(salience.Surface.Failure);
+        Assert.Null(salience.Implementation.Failure);
         Assert.Equal(
             BrowserAnalysisCompileLibraryStatus.Selected,
             salience.CompileLibrary.Status);

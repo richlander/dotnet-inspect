@@ -132,25 +132,39 @@ public static class AssemblyPairCallUseQuery
             RequireParticipant(group, first);
         AssemblyContextParticipant secondParticipant =
             RequireParticipant(group, second);
-        AssemblyContextParticipant[] requested =
+        return ExecuteAnalyzed(
+            group,
+            AssemblyContextCallGraphAnalysis.Execute(
+                group,
+                firstParticipant),
+            AssemblyContextCallGraphAnalysis.Execute(
+                group,
+                secondParticipant));
+    }
+
+    internal static AssemblyPairCallUseResult ExecuteAnalyzed(
+        AssemblyContextGroup group,
+        AssemblyContextCallGraphAnalysisResult first,
+        AssemblyContextCallGraphAnalysisResult second)
+    {
+        AssemblyContextCallGraphAnalysisResult[] requested =
         [
-            firstParticipant,
-            secondParticipant,
+            first,
+            second,
         ];
         ImmutableArray<AssemblyContextSubject> subjects =
         [
-            new(firstParticipant.Assembly),
-            new(secondParticipant.Assembly),
+            first.Subject,
+            second.Subject,
         ];
         var available =
             ImmutableArray.CreateBuilder<AnalyzedParticipant>();
         var failures =
             ImmutableArray.CreateBuilder<AssemblyPairCallUseFailure>();
-        foreach (AssemblyContextParticipant participant in requested)
+        foreach (AssemblyContextCallGraphAnalysisResult analysis
+            in requested)
         {
-            switch (AssemblyContextCallGraphAnalysis.Execute(
-                group,
-                participant))
+            switch (analysis)
             {
                 case AssemblyContextCallGraphAnalysisResult
                     .Available result:

@@ -9,9 +9,8 @@ export interface OverviewSurfaceOptions {
   packageId: string;
   packageVersion: string;
   activeFramework: string;
-  totalTypes: number;
-  totalMembers: number;
-  coordinateFieldsHtml?: string;
+  totalTypes: number | null;
+  totalMembers: number | null;
   contentHtml: string;
   escapeHtml: (value: unknown) => string;
 }
@@ -33,6 +32,7 @@ function renderOverviewEnablements(
 
 export interface PackageOverviewContentOptions {
   packageInfoHtml: string;
+  packageChildrenHtml: string;
   comparisonHtml: string;
   documentsHtml: string;
 }
@@ -46,10 +46,13 @@ export function renderPackageOverviewContent(
   options: PackageOverviewContentOptions,
 ): string {
   return `<div class="package-overview-content">
-    <div class="package-overview-summary">${options.packageInfoHtml}</div>
+    <div class="package-overview-summary">
+      ${options.packageInfoHtml}
+      ${options.packageChildrenHtml}
+    </div>
     <aside class="package-overview-resources" aria-label="Package resources">
-      ${options.documentsHtml}
       ${options.comparisonHtml}
+      ${options.documentsHtml}
     </aside>
   </div>`;
 }
@@ -71,17 +74,23 @@ export function renderOverviewSurface(
   const {
     subject, subjectLabel, displayName, iconHtml, details = [], enablements = [],
     packageId, packageVersion, activeFramework, totalTypes, totalMembers,
-    coordinateFieldsHtml, contentHtml, escapeHtml,
+    contentHtml, escapeHtml,
   } = options;
   const coordinate = `${packageId}@${packageVersion}`;
-  return `<section class="overview-surface ${subject}-overview-surface${coordinateFieldsHtml ? " overview-with-controls" : ""}" aria-labelledby="${subject}-overview-title">
-    <header class="api-surface-head overview-surface-head">
+  const typeCount = totalTypes === null
+    ? "Type Count unavailable"
+    : `${totalTypes.toLocaleString()} type${totalTypes === 1 ? "" : "s"}`;
+  const memberCount = totalMembers === null
+    ? "Member Count unavailable"
+    : `${totalMembers.toLocaleString()} member${totalMembers === 1 ? "" : "s"}`;
+  const surfaceHeader = subject === "package"
+    ? ""
+    : `<header class="api-surface-head overview-surface-head">
       <span class="overview-surface-label">Overview</span>
-      <p>${totalTypes.toLocaleString()} type${totalTypes === 1 ? "" : "s"} &middot; ${totalMembers.toLocaleString()} member${totalMembers === 1 ? "" : "s"}</p>
-    </header>
-    ${coordinateFieldsHtml ? `<section class="overview-controls" aria-label="Package coordinate">
-      <div class="package-coordinate-fields">${coordinateFieldsHtml}</div>
-    </section>` : ""}
+      <p>${typeCount} &middot; ${memberCount}</p>
+    </header>`;
+  return `<section class="overview-surface ${subject}-overview-surface" aria-labelledby="${subject}-overview-title">
+    ${surfaceHeader}
     <div class="overview-scroll">
       <header class="overview-identity">
         ${iconHtml}

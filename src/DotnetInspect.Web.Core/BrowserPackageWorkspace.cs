@@ -8,13 +8,35 @@ using System.Security.Cryptography;
 using System.Text;
 using DotnetInspector.Packages;
 using DotnetInspector.PackageQueries;
+using DotnetInspector.PlatformHouse.Packages;
+using DotnetInspector.Platforms.Packages;
 using DotnetInspector.Queries;
+using DotnetInspector.ResearchQueries;
 using DotnetInspector.Sections;
+using DotnetInspector.Services;
 using DotnetInspector.SourceHouse;
 using ILInspector.Metadata;
 using NuGetFetch;
 
 namespace DotnetInspect.Web;
+
+internal enum BrowserToolSettingsProjectionStatus
+{
+    Available,
+    Missing,
+    Invalid,
+    Ambiguous,
+    Unavailable,
+}
+
+internal sealed record BrowserToolSettingsProjection(
+    BrowserToolSettingsProjectionStatus Status,
+    DotnetToolSettingsData? Settings,
+    string Detail);
+
+internal sealed record BrowserToolPackageProjection(
+    PackageToolSliceMeasurementOutcome Measurement,
+    BrowserToolSettingsProjection Settings);
 
 internal sealed record BrowserPackageCacheSnapshot(
     int Packages,
@@ -294,6 +316,8 @@ internal static class BrowserPackageWorkspace
             "The browser product Workspace plan has not been configured.");
     internal static IPackageSourceAuthorization PackageSourceAuthorization =>
         SourceAuthorizationFor(Gallery);
+    internal static PackageProducerIdentity PackageProducer =>
+        Gallery.Source.Producer;
     internal static IPackageStore SessionPackageStore => Store;
     internal static BrowserSessionPackageStore PackageStoreFor(
         IPackageSourceClient source) => StoreFor(source);
@@ -520,6 +544,85 @@ internal static class BrowserPackageWorkspace
             },
             operationTimeout,
             cancellationToken);
+
+    internal static Task<PackageHouseSettlement> AcquireContentAsync(
+        PackageSourceCoordinate coordinate,
+        PackageHouseContentQuery query,
+        CancellationToken cancellationToken = default) =>
+        RunPackageOperationAsync(
+            deadline => AcquireContentCoreAsync(
+                coordinate,
+                query,
+                Gallery,
+                deadline),
+            PackageOperationTimeout,
+            cancellationToken);
+
+    static async Task<PackageHouseSettlement> AcquireContentCoreAsync(
+        PackageSourceCoordinate coordinate,
+        PackageHouseContentQuery query,
+        IPackageSourceClient source,
+        BrowserPackageOperationDeadline deadline)
+    {
+        ArgumentNullException.ThrowIfNull(coordinate);
+        ArgumentNullException.ThrowIfNull(query);
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(deadline);
+
+        PackageHouseTargetContext? target =
+            query.Narrowing
+                is PackageHouseContentNarrowing.TfmWide tfmWide
+                    ? tfmWide.Target
+                    : null;
+        TimeSpan remaining =
+            SourceSettlementOperationTimeout(deadline.Remaining);
+        PackageHouseOperation operation =
+            PackageHouseOperation.Create(
+                PackageHouseOperationProfile.Acquire,
+                requestTimeout: remaining,
+                operationTimeout: remaining);
+        var request = new PackageHouseRequest(
+            new PackageHouseDemand.Exact(coordinate),
+            operation,
+            targetContext: target,
+            contentQuery: query);
+        IPackageSourceAuthorization authorization =
+            SourceAuthorizationFor(source);
+        BrowserSessionPackageStore store =
+            StoreFor(source);
+        await using PackageSourceSettlementLease sourceLease =
+            PackageSourceSettlementService.IssueLease(
+                authority =>
+                    ReferenceEquals(
+                        authority.Association,
+                        source.Source.Association)
+                        ? source
+                        : throw new InvalidOperationException(
+                            "Portable PDB settlement requested another configured package source."));
+        using PackageSourceOperationLease sourceOperation =
+            sourceLease.IssueOperationLease(
+                deadline.Token,
+                operation.RequestTimeout,
+                operation.OperationTimeout);
+        var house = new PackageHouse(
+            authorization,
+            PackagePayloadAcquisitionPlan.ForContentQueries(
+                (authority, _) =>
+                    ReferenceEquals(
+                        authority.Association,
+                        source.Source.Association)
+                        ? store
+                        : throw new InvalidOperationException(
+                            "Portable PDB settlement requested another configured package source."),
+                PayloadLimits,
+                new BrowserPackageOperationTransferPolicy(
+                    store,
+                    deadline)));
+        return await house.ExecuteAsync(
+                request,
+                sourceOperation)
+            .ConfigureAwait(false);
+    }
 
     internal static Task<BrowserPackageRealizationResult> RealizeWithSettlementAsync(
         string packageId,
@@ -1244,14 +1347,14 @@ internal static class BrowserPackageWorkspace
                     new AuthorizedPackageDependencyCandidateSource(
                         authorization,
                         sourceLease);
-                TimeSpan operationTimeout =
+                TimeSpan sourceOperationTimeout =
                     SourceSettlementOperationTimeout(
                         deadline.Remaining);
                 PackageHouseOperation operation =
                     PackageHouseOperation.Create(
                         PackageHouseOperationProfile.Realize,
-                        requestTimeout: operationTimeout,
-                        operationTimeout: operationTimeout);
+                        requestTimeout: sourceOperationTimeout,
+                        operationTimeout: sourceOperationTimeout);
                 BrowserSessionPackageStore store =
                     StoreFor(source);
                 var house = new PackageHouse(
@@ -1268,6 +1371,72 @@ internal static class BrowserPackageWorkspace
                         new BrowserPackageOperationTransferPolicy(
                             store,
                             deadline)));
+                var inspectionSource =
+                    new PackageDependencyMemberCallGraphInspectionSource(
+                        new PackageDependencyTraversalCandidateAdapter(
+                            candidateSource),
+                        new AuthorizedPackageDependencyManifestSource(
+                            candidateSource),
+                        house,
+                        (requestedOperation, token) =>
+                            sourceLease.IssueOperationLease(
+                                token,
+                                requestedOperation.RequestTimeout,
+                                requestedOperation.OperationTimeout));
+                var platform = new PackagePlatformHouseAdapter(
+                    new PackagePlatformSource(
+                        authorization,
+                        new PackagePayloadAcquisitionPlan(
+                            (authority, _) =>
+                                ReferenceEquals(
+                                    authority.Association,
+                                    source.Source.Association)
+                                    ? store
+                                    : throw new InvalidOperationException(
+                                        "The dependency call graph requested another configured Platform package source."),
+                            PayloadLimits,
+                            new BrowserPackageOperationTransferPolicy(
+                                store,
+                                deadline),
+                            access: PackagePayloadAccess.Ranged,
+                            rangedSizeCut: 0)),
+                    "browser-call-graph-platform-package");
+                var continuationSource =
+                    new BrowserPackageDependencyMemberCallGraphContinuationSource(
+                        inspectionSource,
+                        operation,
+                        platform,
+                        (request, _) =>
+                        {
+                            TimeSpan sourceTimeout =
+                                SourceSettlementOperationTimeout(
+                                    deadline.Remaining);
+                            return sourceLease.IssueOperationLease(
+                                request.CancellationToken,
+                                sourceTimeout,
+                                sourceTimeout);
+                        },
+                        sourceOperationTimeout);
+                var continuation =
+                    new PackageDependencyMemberCallGraphContinuation(
+                        continuationSource,
+                        new AssemblyReferenceResolutionWorkBudget(
+                            maxPackageRouteOccurrences: 4_096,
+                            maxPackageCandidateOperations: 4_096,
+                            maxSourceOperations: 64,
+                            maxAcquisitions: 32,
+                            maxRealizedAssemblies:
+                                BrowserInspectionScope
+                                    .MaxAssembliesPerRole,
+                            maxTransferBytes:
+                                MaxCachedPackageBytes,
+                            maxRetainedAssemblyBytes:
+                                BrowserInspectionScope
+                                    .MaxRetainedImageBytes,
+                            maxWorkspaceReplacements: 16,
+                            deadline:
+                                DateTimeOffset.UtcNow
+                                    .Add(deadline.Remaining)));
                 return await PackageDependencyMemberCallGraphInspection
                     .ExecuteAsync(
                         new PackageDependencyMemberCallGraphInspectionRequest(
@@ -1294,17 +1463,8 @@ internal static class BrowserPackageWorkspace
                                 supplyChainBaseline,
                             workspacePlan:
                                 workspacePlan),
-                        new PackageDependencyMemberCallGraphInspectionSource(
-                            new PackageDependencyTraversalCandidateAdapter(
-                                candidateSource),
-                            new AuthorizedPackageDependencyManifestSource(
-                                candidateSource),
-                            house,
-                            (requestedOperation, token) =>
-                                sourceLease.IssueOperationLease(
-                                    token,
-                                    requestedOperation.RequestTimeout,
-                                    requestedOperation.OperationTimeout)),
+                        inspectionSource,
+                        continuation,
                         deadline.Token)
                     .ConfigureAwait(false);
             },
@@ -4469,6 +4629,12 @@ internal sealed record BrowserScopeResolution(
 [SupportedOSPlatform("browser")]
 internal sealed class BrowserPackage
 {
+    const int MaximumToolSettingsBytes = 1024 * 1024;
+    const int MaximumToolSettingsCandidates = 256;
+    static readonly UTF8Encoding StrictUtf8 = new(
+        encoderShouldEmitUTF8Identifier: false,
+        throwOnInvalidBytes: true);
+
     readonly AcquiredPackageSourcePayload? _acquiredPayload;
     readonly AcquiredPackagePayload? _resolvedPayload;
     readonly Lazy<BrowserPackageIconPayload?> _icon;
@@ -4614,10 +4780,150 @@ internal sealed class BrowserPackage
                     "Only an acquisition-issued Browser package can create a bound package Root.");
 
     internal PackageInspectionInput CreateInspectionInput() =>
-        PackageInspectionInput.CreateFromPayload(
-            _acquiredPayload
-            ?? throw new InvalidOperationException(
-                "Only an acquisition-issued Browser package can create an inspection input."));
+        _acquiredPayload is not null
+            ? PackageInspectionInput.CreateFromPayload(_acquiredPayload)
+            : _resolvedPayload is not null
+                ? PackageInspectionInput.CreateFromPayload(_resolvedPayload)
+                : PackageInspectionInput.CreateLocal(
+                    Content,
+                    PackageId,
+                    Version);
+
+    internal async ValueTask<BrowserToolPackageProjection?>
+        ProjectToolPackageAsync(
+            string? targetFramework,
+            CancellationToken cancellationToken)
+    {
+        PackageSourceCoordinate coordinate =
+            PackageSourceCoordinate.Create(PackageId, Version);
+        PackageToolDeclarationEvidence? declaration =
+            await PackageToolDeclarationEvidence.TryCreateAsync(
+                    coordinate,
+                    Content,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        if (declaration is null)
+        {
+            return null;
+        }
+
+        PackageToolSliceMeasurementOutcome measurement =
+            PackageToolSliceMeasurementProjection.Project(
+                coordinate,
+                Content,
+                declaration,
+                targetFramework);
+        BrowserToolSettingsProjection settings =
+            await ProjectToolSettingsAsync(cancellationToken)
+                .ConfigureAwait(false);
+        return new(measurement, settings);
+    }
+
+    async ValueTask<BrowserToolSettingsProjection> ProjectToolSettingsAsync(
+        CancellationToken cancellationToken)
+    {
+        string[] candidates =
+        [
+            .. Content.EnumerateEntries()
+                .Where(static path => IsToolSettingsPath(path))
+                .OrderBy(static path => path, StringComparer.Ordinal)
+                .Take(MaximumToolSettingsCandidates + 1),
+        ];
+        if (candidates.Length == 0)
+        {
+            return new(
+                BrowserToolSettingsProjectionStatus.Missing,
+                null,
+                "The declared tool Package contains no DotnetToolSettings.xml manifest.");
+        }
+
+        if (candidates.Length > MaximumToolSettingsCandidates)
+        {
+            return new(
+                BrowserToolSettingsProjectionStatus.Unavailable,
+                null,
+                $"The declared tool Package contains more than {MaximumToolSettingsCandidates} settings candidates.");
+        }
+
+        var contents = new List<DotnetToolSettingsContent>(
+            candidates.Length);
+        foreach (string candidate in candidates)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!Content.TryOpenEntry(
+                    candidate,
+                    MaximumToolSettingsBytes,
+                    out Stream? stream))
+            {
+                return new(
+                    BrowserToolSettingsProjectionStatus.Unavailable,
+                    null,
+                    $"The tool settings manifest '{candidate}' is unavailable.");
+            }
+
+            byte[]? bytes;
+            await using (stream.ConfigureAwait(false))
+            {
+                bytes = await PackageContentAdmission.ReadBoundedAsync(
+                        stream,
+                        MaximumToolSettingsBytes,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            if (bytes is null)
+            {
+                return new(
+                    BrowserToolSettingsProjectionStatus.Unavailable,
+                    null,
+                    $"The tool settings manifest '{candidate}' exceeds the Browser byte limit.");
+            }
+
+            string content;
+            try
+            {
+                content = StrictUtf8.GetString(bytes);
+            }
+            catch (DecoderFallbackException exception)
+            {
+                return new(
+                    BrowserToolSettingsProjectionStatus.Invalid,
+                    null,
+                    $"The tool settings manifest '{candidate}' is invalid: {exception.Message}");
+            }
+            contents.Add(new(candidate, content));
+        }
+
+        DotnetToolSettingsProjection projection =
+            DotnetToolSettingsParser.ProjectContents(contents);
+        return new(
+            projection.Status switch
+            {
+                DotnetToolSettingsProjectionStatus.Available =>
+                    BrowserToolSettingsProjectionStatus.Available,
+                DotnetToolSettingsProjectionStatus.Missing =>
+                    BrowserToolSettingsProjectionStatus.Missing,
+                DotnetToolSettingsProjectionStatus.Invalid =>
+                    BrowserToolSettingsProjectionStatus.Invalid,
+                DotnetToolSettingsProjectionStatus.Ambiguous =>
+                    BrowserToolSettingsProjectionStatus.Ambiguous,
+                _ => throw new InvalidOperationException(
+                    "Unknown tool settings projection status."),
+            },
+            projection.Settings,
+            projection.Detail);
+    }
+
+    static bool IsToolSettingsPath(string path)
+    {
+        string[] parts = path.Replace('\\', '/').Split(
+            '/',
+            StringSplitOptions.RemoveEmptyEntries);
+        return parts.Length is >= 2 and <= 4
+            && parts[0].Equals("tools", StringComparison.OrdinalIgnoreCase)
+            && parts[^1].Equals(
+                "DotnetToolSettings.xml",
+                StringComparison.OrdinalIgnoreCase);
+    }
 
     /// <summary>
     /// The package's browsable Markdown: a root <c>README.md</c>/<c>PACKAGE.md</c> and any
@@ -4932,6 +5238,11 @@ internal sealed class BrowserPackageCoordinate
 
     public PackageCompileAssetSelection Selection =>
         Root.AssetSelection;
+
+    internal PackageInspectionInput CreateInspectionInput() =>
+        Binding is not null
+            ? PackageInspectionInput.CreateFromBinding(Binding)
+            : Package.CreateInspectionInput();
 
     public string PackageId => Package.PackageId;
 

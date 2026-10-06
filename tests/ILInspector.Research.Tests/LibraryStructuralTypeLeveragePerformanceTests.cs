@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Globalization;
 using System.Security.Cryptography;
@@ -11,6 +12,138 @@ namespace ILInspector.Research.Tests;
 public sealed class LibraryStructuralTypeLeveragePerformanceTests(
     ITestOutputHelper output)
 {
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void SystemTextJsonTypeLeverageMatchesSignatureAndBodyPilot()
+    {
+        string path = Path.Combine(
+            AppContext.BaseDirectory,
+            "PinnedArtifacts",
+            "packages",
+            "System.Text.Json.10.0.0.dll");
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        MetadataLibrarySignatureUseResult inventory =
+            Signature(
+                path,
+                "System.Text.Json",
+                cancellationToken);
+        LibraryStructuralTypeLeverageShard signatureShard =
+            LibraryStructuralReport.CreateTypeLeverageShard(
+                inventory);
+
+        LibraryStructuralTypeLeverageRow signatureThrowHelper =
+            SignatureRow(signatureShard, "ThrowHelper");
+        Assert.Equal(12, signatureThrowHelper.SignatureOutgoingDegree);
+        Assert.Equal(
+            LibraryStructuralTypePole.MountainPeak,
+            signatureThrowHelper.Pole);
+
+        LibraryStructuralTypeLeverageRow signatureJsonDocument =
+            SignatureRow(signatureShard, "JsonDocument");
+        Assert.Equal(11, signatureJsonDocument.SignatureOutgoingDegree);
+        Assert.Equal(
+            LibraryStructuralTypePole.MountainPeak,
+            signatureJsonDocument.Pole);
+
+        LibraryStructuralTypeLeverageRow signatureJsonSerializer =
+            SignatureRow(signatureShard, "JsonSerializer");
+        Assert.Equal(10, signatureJsonSerializer.SignatureOutgoingDegree);
+        Assert.Null(signatureJsonSerializer.Pole);
+
+        AnalysisLibraryBodyUseOutcome outcome =
+            AnalysisLibraryBodyUseService.ExecutePath(
+                path,
+                new(),
+                cancellationToken);
+        AnalysisLibraryBodyUseResult bodyUse =
+            Assert.IsType<AnalysisLibraryBodyUseOutcome.Available>(
+                outcome).Result;
+
+        LibraryStructuralBodyTypeLeverageShard shard =
+            LibraryStructuralReport.CreateBodyTypeLeverageShard(
+                inventory,
+                bodyUse);
+
+        LibraryStructuralBodyTypeLeverageRow throwHelper =
+            BodyRow(shard, "ThrowHelper");
+        Assert.Equal(16, throwHelper.BodyIncomingDegree);
+        Assert.Equal(15, throwHelper.BodyOutgoingDegree);
+        Assert.Equal(
+            LibraryStructuralTypePole.SeaLevel,
+            throwHelper.Pole);
+
+        LibraryStructuralBodyTypeLeverageRow jsonDocument =
+            BodyRow(shard, "JsonDocument");
+        Assert.Equal(5, jsonDocument.BodyIncomingDegree);
+        Assert.Equal(23, jsonDocument.BodyOutgoingDegree);
+        Assert.Equal(
+            LibraryStructuralTypePole.MountainPeak,
+            jsonDocument.Pole);
+
+        LibraryStructuralBodyTypeLeverageRow jsonSerializer =
+            BodyRow(shard, "JsonSerializer");
+        Assert.Equal(2, jsonSerializer.BodyIncomingDegree);
+        Assert.Equal(21, jsonSerializer.BodyOutgoingDegree);
+        Assert.Equal(
+            LibraryStructuralTypePole.MountainPeak,
+            jsonSerializer.Pole);
+        Assert.Equal(
+            LibraryStructuralEvidenceDisposition.Qualified,
+            shard.RoleDisposition);
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void CoreLibBodyTypeLeverageBatchMatchesPinnedReference()
+    {
+        string path = Path.Combine(
+            AppContext.BaseDirectory,
+            "PinnedArtifacts",
+            "System.Private.CoreLib.dll");
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Open(path);
+        LibraryStructuralNamespaceLeverageIndex index =
+            LibraryStructuralReport.CreateNamespaceLeverageIndex(
+                Signature(
+                    session,
+                    exactNamespace: null,
+                    cancellationToken));
+        MetadataLibrarySignatureUseBatchOutcome inventoryOutcome =
+            session.LibrarySignatureUseBatch(
+                new(
+                    MetadataOperationPolicy.Unbounded,
+                    [.. index.Rows.Select(
+                        static row => row.Namespace)]),
+                cancellationToken);
+        ImmutableArray<MetadataLibrarySignatureUseResult> inventories =
+            Assert.IsType<
+                MetadataLibrarySignatureUseBatchOutcome.Available>(
+                    inventoryOutcome).Result.Results;
+        AnalysisLibraryBodyUseOutcome bodyOutcome =
+            AnalysisLibraryBodyUseService.ExecutePath(
+                path,
+                new(),
+                cancellationToken);
+        AnalysisLibraryBodyUseResult bodyUse =
+            Assert.IsType<AnalysisLibraryBodyUseOutcome.Available>(
+                bodyOutcome).Result;
+
+        ImmutableArray<LibraryStructuralBodyTypeLeverageShard> batch =
+            LibraryStructuralReport.CreateBodyTypeLeverageShards(
+                inventories,
+                bodyUse);
+
+        Assert.Equal(61, batch.Length);
+        Assert.Equal(1_907, batch.Sum(
+            static shard => shard.Rows.Length));
+        Assert.Equal(
+            "bfeb8c144c20238d1e4d473cc8396c2a086bca1305a33cde56dda7f78086fb86",
+            BodyChecksum(batch));
+    }
+
     [Fact]
     [Trait("Speed", "Slow")]
     public void NamespaceIndexShardAndExhaustiveCompositionHaveMeasuredCost()
@@ -156,6 +289,20 @@ public sealed class LibraryStructuralTypeLeveragePerformanceTests(
                 path,
                 exactNamespace,
                 cancellationToken));
+
+    private static LibraryStructuralBodyTypeLeverageRow BodyRow(
+        LibraryStructuralBodyTypeLeverageShard shard,
+        string name) =>
+        Assert.Single(
+            shard.Rows,
+            row => row.Name.Segments.AsSpan().SequenceEqual([name]));
+
+    private static LibraryStructuralTypeLeverageRow SignatureRow(
+        LibraryStructuralTypeLeverageShard shard,
+        string name) =>
+        Assert.Single(
+            shard.Rows,
+            row => row.Name.Segments.AsSpan().SequenceEqual([name]));
 
     private static LibraryStructuralSalienceDocument Exhaustive(
         string path,
@@ -306,6 +453,32 @@ public sealed class LibraryStructuralTypeLeveragePerformanceTests(
                     _ => throw new InvalidOperationException(
                         "Unknown structural Type pole."),
                 });
+                value.Append(';');
+            }
+        }
+        byte[] hash = SHA256.HashData(
+            Encoding.UTF8.GetBytes(value.ToString()));
+        return Convert.ToHexString(hash).ToLowerInvariant();
+    }
+
+    private static string BodyChecksum(
+        IEnumerable<LibraryStructuralBodyTypeLeverageShard> shards)
+    {
+        var value = new StringBuilder();
+        foreach (LibraryStructuralBodyTypeLeverageShard shard in shards)
+        {
+            value.Append('[');
+            value.Append(shard.Namespace);
+            value.Append(']');
+            foreach (LibraryStructuralBodyTypeLeverageRow row in shard.Rows)
+            {
+                value.Append(row.Type.Definition.Value);
+                value.Append(':');
+                value.Append(row.BodyIncomingDegree);
+                value.Append(':');
+                value.Append(row.BodyOutgoingDegree);
+                value.Append(':');
+                value.Append((int?)row.Pole);
                 value.Append(';');
             }
         }

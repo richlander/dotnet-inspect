@@ -97,11 +97,14 @@ This document consumes, without redefining:
   whose canonical lines, relations, statistics, mapped changes, and provenance
   remain owned by
   [Member source diff presentation](member-source-diff-presentation.md);
-- normalized package dependency evidence and PackageHouse pruning results
-  supplied by
+- normalized package dependency evidence supplied by
   [Package input and dependency evidence](package-dependency-evidence.md),
-  whose selection, candidate, platform inventory, policy, and completion
-  semantics remain outside this placement owner;
+  whose declaration and selection semantics remain outside this placement
+  owner;
+- exact-coordinate GitHub-reviewed NuGet advisory evidence supplied by
+  [GitHub NuGet advisory evidence](github-nuget-advisory-evidence.md), whose
+  acquisition, availability, matching, and failure semantics remain outside
+  this placement owner;
 - registration, enablement, multi-selection, capability, authentication, and
   cache-action descriptors owned by
   [Browser package sources](browser-package-sources.md);
@@ -804,17 +807,16 @@ and icon; the small persistent subject path is navigation, not a replacement for
 Overview identity.
 
 ```text
-Overview                                      type and member totals
-Version                                     (Package only)
 platform compatibility warning              (when present)
 icon · subject name
 subject-specific identity details and content
 package@version                                    active framework
 ```
 
-The quiet header preserves the current subject's type and member totals. The
-Package Version control occupies one compact row; the Package navigation pane
-owns TFM selection, and Library Overview does not gain coordinate controls.
+Package Overview starts directly with its identity and content rather than
+reserving a quiet `Overview` header row. Its Version selector sits at the top
+of the Package navigation pane, immediately above the TFM list. Library
+Overview retains the shared quiet header and does not gain coordinate controls.
 One independently scrolling content region starts with a larger icon and
 readable name, the surface's single visible level-one heading. Both subjects
 reuse the package's existing icon selection and fallback. Library retains its
@@ -840,11 +842,10 @@ replacing the failure.
 
 Package content retains package facts, comparison targets, and document links.
 At wide inspector widths, Package facts own the primary column while package
-documents and comparison targets share a secondary package-resources column.
-At constrained widths, the same complete sections return to one ordered stack:
-Package Info, Documentation, then Comparison targets. Package documents precede
-comparison setup because they describe the current package, while comparison
-choices prepare a later operation.
+comparison targets remain at the top of the secondary package-resources column
+and package documents follow beneath them. At constrained widths, the same
+complete sections return to one ordered stack: Package Info, Comparison targets,
+then Documentation.
 
 Library navigation owns one single-select inventory containing `All libraries`
 followed by every exact admitted Library. `All libraries` is the default
@@ -869,16 +870,16 @@ summary.
 
 The bottom context row preserves the exact package/version and active
 framework. At narrow widths the Frameworks (Package), Libraries (Library), or
-Types (Type and Member) return control shares the quiet header; the local name
-and icon remain visible in the content below it. Controls wrap within their
-row, and header/footer values may elide as complete strings. Local subject
-names wrap rather than disappearing.
+Types (Type and Member) return control remains available above the working
+surface; the local name and icon remain visible in the content below it.
+Controls wrap within their row, and header/footer values may elide as complete
+strings. Local subject names wrap rather than disappearing.
 Long identifiers, asset paths, and document names remain contained without
 page-level horizontal overflow. Many rows scroll inside Overview while its
 header, any controls, and coordinates remain in place.
 
-Overview presents the already-loaded package. Changing its selected TFM from
-the Package navigation pane or its version from the working surface keeps the
+Overview presents the already-loaded package. Changing its selected TFM or
+version from the Package navigation pane keeps the
 package shell, inspected target, navigation, and data bar visible, whether the
 target is cached or needs acquisition. Only the
 inspector content becomes busy, with a compact text-and-spinner status rather
@@ -935,7 +936,6 @@ The surface contains:
 Dependencies                         package and reference count or state
 Version · Framework
 target-framework groups and graph
-explicit platform pruning evaluation
 package dependencies and assembly references
 package@version                                             active framework
 ```
@@ -951,27 +951,6 @@ target-framework selector, dependency graph, package dependency list, assembly
 references, and partial workspace warning. Selecting another manifest group
 patches its list and graph in place without changing the surface frame or
 resetting the package coordinate.
-
-Between the graph and package dependency list, an eligible package exposes a
-**Platform pruning** section. The section contains a runtime or ASP.NET Core
-family selector and an explicit **Evaluate** action. Opening Package
-Dependencies does not start candidate discovery or platform pruning. Evaluation
-may perform source-authorized version discovery for non-exact ranges, so its
-loading, failure, and retry state remain local to this section. Every explicit
-evaluation after settlement starts a new request. Loading and settled states
-name the normalized active dependency group; settled results also name the
-exact platform framework, family, and version used for comparison. Selecting a
-different display group does not change that evaluated identity.
-
-Pruning always evaluates the normalized owner-selected active dependency group,
-not a manually displayed alternate group. It is absent for Platform packages,
-non-exact platform target frameworks, and active groups with no dependencies.
-Its result table keeps the declared range, selected candidate, platform-supplied
-version, and disposition distinct. A supplied older version remains visible
-beside a retained newer candidate; candidate failures and non-evaluated rows do
-not disappear. The section states that evaluation does not change the graph.
-It acquires no dependency payload and does not turn the selected family into a
-Workspace participant.
 
 The inline graph is a bounded structural preview so the selected group's direct
 NuGet dependency rows enter the initial result viewport. At wide inspector
@@ -1004,6 +983,34 @@ strings. The surface creates no page-level horizontal overflow. This slice
 does not change graph construction or navigation, Package Overview,
 Integrations, Analysis, Package Metadata, or the Metadata Explorer.
 
+### Package Vulnerabilities
+
+Package Vulnerabilities is available for exact nuget.org package coordinates.
+It uses the complete package inspector area with the Package Overview
+Frameworks navigation pane; version changes update the package coordinate, but
+framework selection does not alter vulnerability identity.
+
+```text
+Vulnerabilities                    reviewed advisory count and coverage
+coverage basis and acquisition failures
+reviewed advisory cards
+package@version                         GitHub reviewed advisories
+```
+
+Opening the lens starts explicit network acquisition through
+`GitHubNuGetAdvisoryService`. The browser projects the owner-issued current
+advisories and Complete, Partial, or Unavailable availability without
+reinterpreting ranges or constructing another feed model. Each advisory keeps
+GHSA and optional CVE identity, severity, published and updated dates, and its
+GitHub destination.
+
+A complete empty result states only that no GitHub-reviewed NuGet advisory
+matched the exact package version. Partial and unavailable results retain typed
+acquisition failures and never present successful emptiness or describe the
+package as safe or secure. Loading and query failures retain the same frame and
+exact package context. Runtime and uploaded packages do not expose this lens
+because the advisory owner accepts nuget.org coordinates.
+
 ### Library References
 
 Library References fills the inspector area without the generic Library hero or
@@ -1011,14 +1018,25 @@ an inset reference-section heading. The subject path retains navigation context.
 
 ```text
 References                                  direct reference count or state
+direct AssemblyRef graph
 reference names, versions, cultures, and public-key tokens
 Library asset and assembly identity              TFM · package@version
 ```
 
-One independently scrolling region begins with the reference rows and uses the
-available width. The quiet header and bottom context remain in place while the
-list scrolls. Full Library assembly identity and asset path remain available in
-the footer rather than being discarded with the old heading.
+One independently scrolling region begins with a bounded one-hop AssemblyRef
+graph and follows it with the complete reference rows. The graph uses the
+existing shared Mermaid viewport and pan/zoom controls, keeps the selected
+assembly as its root, and projects only the direct references already returned
+by the Library query. It performs no additional acquisition or transitive
+inference. The preview is capped at 80 total nodes; when a Library exceeds that
+bound, the graph reports its shown count and the complete list remains
+authoritative immediately below it.
+
+The graph and list use the available width. The quiet header and bottom context
+remain in place while the content scrolls. Full Library assembly identity and
+asset path remain available in the footer rather than being discarded with the
+old heading. This follows the Package Dependencies composition: structural
+graph first, complete direct-answer list second.
 
 Loading, query failure, inspection failure, and successful zero-reference results
 retain the same frame and remain visibly distinct. Existing Library selection,
@@ -1026,17 +1044,19 @@ query freshness, direct AssemblyRef semantics, counts, order, and field values
 are unchanged.
 
 At narrow widths the existing Types return control shares the quiet header.
-Reference names and identity fields wrap within rows; header status and footer
-values may elide as complete strings with their full text retained. Long values
-and many rows create local scrolling, not page-level horizontal overflow.
+The graph uses the constrained inline height at narrow widths. Reference names
+and identity fields wrap within rows; header status and footer values may elide
+as complete strings with their full text retained. Long values and many rows
+create local scrolling, not page-level horizontal overflow.
 
 The browser-only presentation scope was explicitly approved for
 [the one-step adoption tracker](https://github.com/richlander/dotnet-inspect/issues/6165).
 Its one production consumer is Library References; adoption retires only that
 consumer's generic hero and inset reference section. Browser HTML lowering
 continues over the existing typed `BrowserPackageDependencies` reference result.
-This is a placement change, not a new query or rendering architecture. Metadata
-and Package Dependencies are the local composition precedents.
+This remains a browser-only projection over the existing query rather than a
+new query or rendering architecture. Metadata and Package Dependencies are the
+local composition precedents.
 
 Focused renderer and production-composition browser gates cover wide/narrow
 geometry, long names and identities, many/zero rows, pending and failed results,
@@ -1046,17 +1066,18 @@ separate work.
 ### Library Analysis
 
 The Library inspector order is **Overview**, **References**, **Compare**,
-**Analysis**, and **Metadata**. Analysis contains direct **Performance**,
-**Integrations**, **Opportunities**, and **Metrics** tabs, following Compare's
-single-inspector mode composition. Integrations and Metrics are not separate
+**Analysis**, and **Metadata**. Analysis contains direct **Relationships**,
+**Complexity**, **Performance**, and **Integrations** tabs, following
+Compare's single-inspector mode composition. These modes are not separate
 persistent inspectors.
 
-Performance is the default. The selected tab is session-local Browser
+Relationships is the default. The selected tab is session-local Browser
 presentation state and preserves the selected Library. Only the selected tab
-starts its existing query; cached results retain their existing
+starts its existing query work; cached results retain their existing
 Library/coordinate freshness checks. Each mode keeps its own loading, failure,
-partial, empty, and available outcomes. No mode combines evidence or infers an
-outcome from another.
+partial, empty, and available outcomes. Integrations presents its detected and
+suggested evidence together while preserving the independent completion and
+failure state of each source.
 
 Tabs use manual activation: Left/Right and Home/End move focus, Enter/Space
 select, and rerenders preserve focused-tab identity. The selected tab labels the
@@ -1071,7 +1092,7 @@ existing Types control occupies the title's place and the tabs use the second
 header row.
 
 ```text
-Analysis  count/state   [Performance]  Integrations  Opportunities  Metrics
+Analysis  count/state   [Relationships]  Complexity  Performance  Integrations
 optional platform Library selector
 mode-owned content
 Library asset and assembly identity              TFM · package@version
@@ -1079,12 +1100,15 @@ Library asset and assembly identity              TFM · package@version
 
 Performance retains product triage order, opportunity and loop counts, shape
 and confidence labels, and stable-selector Member navigation. Integrations
-retains category order, type-first signal sorting, badges, and counts.
-Opportunities retains Type navigation, suggested-package loading, "look for"
-search actions, and source identity. Metrics retains the Research-issued
-Complexity Explorer and Relationship Crossing views. Structural salience does
-not render in Metrics; its Browser presentation belongs to the ordinary Type
-inventory defined by
+merges detected signals and suggested integrations into one category-ordered
+list. It retains type-first signal sorting, badges, and counts together with
+Type navigation, suggested-package loading, "look for" search actions, and
+source identity. Either evidence source may populate independently, and a
+failure or partial result from one remains visible without hiding results from
+the other. Complexity and Relationships retain the Research-issued Complexity
+Explorer and Relationship Crossing views. Structural salience does not render
+in these modes; its Browser presentation belongs to the ordinary Type inventory
+defined by
 [Library structural report](library-structural-report.md#browserwasm).
 
 The platform selector stays above scrolling results and keeps its existing
@@ -1093,9 +1117,9 @@ and package/version/framework context. Browser HTML lowering consumes the
 existing typed mode results; no producer, query, acquisition, CLI section, or
 result contract changes.
 
-Focused renderer and production-composition browser gates cover all four direct
-tabs, lazy loading, focus retention across asynchronous completion, wide/narrow
-layout, Library switching, row actions, and platform controls.
+Focused renderer and production-composition browser gates cover all four
+direct tabs, lazy loading, focus retention across asynchronous completion,
+wide/narrow layout, Library switching, row actions, and platform controls.
 
 ### Package Metadata
 
@@ -1685,6 +1709,21 @@ with the absence of a synthesized `Default feed` control.
    control shares the quiet header, controls wrap within their row, context
    values elide as complete strings, and no page-level horizontal overflow
    appears.
+
+### Package Vulnerabilities working surface
+
+1. Open a nuget.org Package and confirm that Vulnerabilities appears after
+   Dependencies, uses the Frameworks navigation pane, and retains the exact
+   package/version context while framework selection does not trigger another
+   advisory request.
+2. Exercise a matching reviewed advisory and confirm that GHSA and optional CVE
+   identity, severity, published and updated dates, and the GitHub destination
+   remain visible.
+3. Exercise complete empty, partial, unavailable, loading, and query-failure
+   results. Confirm that incomplete coverage and typed failures remain visible,
+   and that no state describes the package as safe or secure.
+4. Open a Runtime or uploaded Package and confirm that Vulnerabilities is not
+   offered because no nuget.org coordinate is available.
 
 ### Source working surface
 

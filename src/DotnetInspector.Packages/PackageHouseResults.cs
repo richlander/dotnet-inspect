@@ -754,11 +754,18 @@ internal static class PackageHouseRealizationCorrespondence
     {
         ArgumentNullException.ThrowIfNull(acquisition);
         ArgumentNullException.ThrowIfNull(receipt);
-        if (acquisition.Decision.Request.AssetSelection
-            != PackageHouseAssetSelectionKind.Compile)
+        PackageHouseRequest request =
+            acquisition.Decision.Request;
+        bool compileRealization =
+            request.AssetSelection
+                == PackageHouseAssetSelectionKind.Compile;
+        bool compositeContent =
+            request.ContentQuery?.LibraryAndInventoryTerminal
+                is not null;
+        if (!compileRealization && !compositeContent)
         {
             throw new ArgumentException(
-                "A compile selection requires a compile realization request.",
+                "A compile selection requires a compile realization or Library-and-inventory content request.",
                 nameof(acquisition));
         }
         if (!ReferenceEquals(
@@ -768,10 +775,10 @@ internal static class PackageHouseRealizationCorrespondence
                 acquisition.Decision.Coordinate!.PackageId,
                 StringComparison.OrdinalIgnoreCase)
             || !PolicyMatches(
-                acquisition.Decision.Request.TargetContext,
+                request.TargetContext,
                 receipt.Policy)
             || !RequestMatches(
-                acquisition.Decision.Request.TargetContext,
+                request.TargetContext,
                 receipt.RequestedTargetFramework,
                 receipt.RequestedRuntimeIdentifier))
         {
@@ -973,7 +980,9 @@ public sealed class PackageHouseEvidence
         PackageHouseRealizationReceipt? realization = null,
         IEnumerable<PackageHouseFailure>? failures = null,
         PackageHouseFileList? fileList = null,
-        PackageHouseContentNarrowingReceipt? contentNarrowing = null)
+        PackageHouseContentNarrowingReceipt? contentNarrowing = null,
+        PackageHouseLibraryAndInventory? libraryAndInventory = null,
+        PackageHouseLibraryInventory? libraryInventory = null)
     {
         ArgumentNullException.ThrowIfNull(request);
         if (decision is not null
@@ -1033,6 +1042,37 @@ public sealed class PackageHouseEvidence
                 "Content narrowing evidence requires the acquired semantic query.",
                 nameof(contentNarrowing));
         }
+        if (libraryAndInventory is not null
+            && (acquisition is null
+                || request.ContentQuery?.LibraryAndInventoryTerminal is null
+                || !ReferenceEquals(
+                    libraryAndInventory.Inventory.Narrowing,
+                    contentNarrowing)
+                || !ReferenceEquals(
+                    libraryAndInventory.SelectedLibrary.Acquisition,
+                    acquisition)))
+        {
+            throw new ArgumentException(
+                "Library-and-inventory evidence requires its exact acquired composite terminal.",
+                nameof(libraryAndInventory));
+        }
+        if (libraryInventory is not null
+            && (acquisition is null
+                || (request.ContentQuery?.LibraryInventoryTerminal is null
+                    && request.ContentQuery
+                        ?.LibraryAndInventoryTerminal is null)
+                || !ReferenceEquals(
+                    libraryInventory.Narrowing,
+                    contentNarrowing)
+                || (libraryAndInventory is not null
+                    && !ReferenceEquals(
+                        libraryAndInventory.Inventory,
+                        libraryInventory))))
+        {
+            throw new ArgumentException(
+                "Library inventory evidence requires its exact acquired inventory terminal.",
+                nameof(libraryInventory));
+        }
 
         Request = request;
         Decision = decision;
@@ -1040,6 +1080,8 @@ public sealed class PackageHouseEvidence
         Realization = realization;
         ContentNarrowing = contentNarrowing;
         FileList = fileList;
+        LibraryAndInventory = libraryAndInventory;
+        LibraryInventory = libraryInventory;
         Failures = failures is null
             ? []
             : [.. failures];
@@ -1074,6 +1116,18 @@ public sealed class PackageHouseEvidence
     /// resolved narrowing requested by a semantic File List terminal.
     /// </summary>
     public PackageHouseFileList? FileList { get; }
+
+    /// <summary>
+    /// The selected Library handoff and complete logical target inventory
+    /// requested by the composite content terminal.
+    /// </summary>
+    public PackageHouseLibraryAndInventory? LibraryAndInventory { get; }
+
+    /// <summary>
+    /// The complete resource-free logical Library inventory requested by an
+    /// inventory terminal.
+    /// </summary>
+    public PackageHouseLibraryInventory? LibraryInventory { get; }
 
     public ImmutableArray<PackageHouseFailure> Failures { get; }
 

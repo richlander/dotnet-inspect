@@ -13,6 +13,7 @@ internal sealed record MemberTipOverloadGroup(
 internal sealed record MemberTipContext(
     string TypeName,
     ImmutableArray<MemberTipOverloadGroup> OverloadGroups,
+    string? ExactSelector,
     ImmutableArray<CliCommandToken> SourceTokens,
     string? PackageName,
     string? PackageVersion);
@@ -39,6 +40,53 @@ internal static class MemberTipBindings
             packageVersion,
             ShellCommandText.CurrentDialect);
 
+    internal static Tip[] ResolveExact(
+        ApiType type,
+        ApiMember member,
+        string exactSelector,
+        string? platformAssembly,
+        string? packagePath,
+        string? assemblyPath,
+        string? packageName,
+        string? packageVersion)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+        ArgumentNullException.ThrowIfNull(member);
+        ArgumentException.ThrowIfNullOrWhiteSpace(exactSelector);
+        return Resolve(
+            type,
+            [member],
+            platformAssembly,
+            packagePath,
+            assemblyPath,
+            packageName,
+            packageVersion,
+            ShellCommandText.CurrentDialect,
+            exactSelector);
+    }
+
+    internal static Tip[] ResolveSelected(
+        ApiType type,
+        IEnumerable<ApiMember> members,
+        string? platformAssembly,
+        string? packagePath,
+        string? assemblyPath,
+        string? packageName,
+        string? packageVersion)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+        ArgumentNullException.ThrowIfNull(members);
+        return Resolve(
+            type,
+            members,
+            platformAssembly,
+            packagePath,
+            assemblyPath,
+            packageName,
+            packageVersion,
+            ShellCommandText.CurrentDialect);
+    }
+
     internal static Tip[] Resolve(
         ApiType type,
         string? platformAssembly,
@@ -52,13 +100,37 @@ internal static class MemberTipBindings
         if (!Enum.IsDefined(dialect))
             throw new ArgumentOutOfRangeException(nameof(dialect));
 
-        MemberTipContext context = CreateContext(
+        return Resolve(
             type,
+            type.Members,
             platformAssembly,
             packagePath,
             assemblyPath,
             packageName,
-            packageVersion);
+            packageVersion,
+            dialect);
+    }
+
+    private static Tip[] Resolve(
+        ApiType type,
+        IEnumerable<ApiMember> members,
+        string? platformAssembly,
+        string? packagePath,
+        string? assemblyPath,
+        string? packageName,
+        string? packageVersion,
+        ShellCommandDialect dialect,
+        string? exactSelector = null)
+    {
+        MemberTipContext context = CreateContext(
+            type,
+            members,
+            platformAssembly,
+            packagePath,
+            assemblyPath,
+            packageName,
+            packageVersion,
+            exactSelector);
         return Registry.Value.Resolve(
             MemberRelatedOperationAffordances.All,
             context,
@@ -67,15 +139,17 @@ internal static class MemberTipBindings
 
     private static MemberTipContext CreateContext(
         ApiType type,
+        IEnumerable<ApiMember> members,
         string? platformAssembly,
         string? packagePath,
         string? assemblyPath,
         string? packageName,
-        string? packageVersion)
+        string? packageVersion,
+        string? exactSelector)
     {
         ImmutableArray<MemberTipOverloadGroup> overloadGroups =
         [
-            .. type.Members
+            .. members
                 .Where(ApiMemberSectionDescriptors.IsMethodLike)
                 .GroupBy(static member => member.Name)
                 .Select(static group =>
@@ -88,6 +162,7 @@ internal static class MemberTipBindings
         return new(
             TypeMatcher.GetSimpleName(type.FullName),
             overloadGroups,
+            exactSelector,
             CreateSourceTokens(
                 platformAssembly,
                 packagePath,
@@ -196,7 +271,8 @@ internal static class MemberTipBindings
                 CliCommandToken.ValueToken(context.TypeName),
                 .. context.SourceTokens,
                 CliCommandToken.ValueToken(
-                    $"{context.OverloadGroups[0].Name}:1"),
+                    context.ExactSelector
+                        ?? $"{context.OverloadGroups[0].Name}:1"),
             ],
             "view member detail (source, IL)");
 
