@@ -1039,6 +1039,67 @@ public partial class CommandExecutionTests
             StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("discovery")]
+    [InlineData("listing")]
+    [InlineData("glob")]
+    [InlineData("match")]
+    public async Task
+        Type_MermaidRejectsNonHierarchyRoutesBeforeOutput(
+            string route)
+    {
+        string[] arguments =
+            route switch
+            {
+                "discovery" =>
+                [
+                    "type",
+                    "System.Math",
+                    "--platform",
+                    "System.Private.CoreLib",
+                    "--mermaid",
+                    "--schema",
+                    "--discover",
+                ],
+                "listing" =>
+                [
+                    "type",
+                    "--platform",
+                    "System.Private.CoreLib",
+                    "--mermaid",
+                ],
+                "glob" =>
+                [
+                    "type",
+                    "System.Math*",
+                    "--platform",
+                    "System.Private.CoreLib",
+                    "--mermaid",
+                ],
+                "match" =>
+                [
+                    "type",
+                    "System.Math",
+                    "--platform",
+                    "System.Private.CoreLib",
+                    "--mermaid",
+                    "--match",
+                ],
+                _ => throw new InvalidOperationException(
+                    $"Unknown route '{route}'."),
+            };
+
+        var (exit, output, error) =
+            await RunAppAsync(arguments);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "requires one exact Type",
+            error,
+            StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task
         Type_ExactType_MermaidWithXmlSidecarUsesSharedHierarchy()

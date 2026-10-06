@@ -208,6 +208,28 @@ public static class ApiCommandDefinitions
                 return 1;
             }
 
+            if (parseResult.GetValue(opts.Mermaid)
+                && (!TypeOptionsParser
+                        .SelectsExactTypeHierarchyTarget(
+                            parseResult,
+                            commandArgs)
+                    || parseResult.GetValue(matchOption)
+                    || opts.IsDiscoveryMode(parseResult)
+                    || parseResult.GetValue(opts.Tree)
+                    || parseResult.GetValue(opts.Markdown)
+                    || parseResult.GetValue(opts.Json)
+                    || parseResult.GetValue(opts.PlainText)
+                    || parseResult.GetValue(opts.Table)
+                    || parseResult.GetValue(opts.Tsv)
+                    || parseResult.GetValue(opts.Jsonl)
+                    || parseResult.GetResult(opts.Verbosity)
+                        is { Implicit: false }))
+            {
+                CommandError.Write(
+                    "--mermaid is a standalone Type hierarchy format and requires one exact Type; it cannot combine with listing, discovery, match, or another output format.");
+                return 1;
+            }
+
             if (parseResult.GetValue(matchOption))
             {
                 return ApiCoordinateMatchOptionsParser.ParseType(
@@ -224,22 +246,6 @@ public static class ApiCommandDefinitions
                             ct),
                     _ => 1,
                 };
-            }
-
-            if (parseResult.GetValue(opts.Mermaid)
-                && (parseResult.GetValue(opts.Tree)
-                    || parseResult.GetValue(opts.Markdown)
-                    || parseResult.GetValue(opts.Json)
-                    || parseResult.GetValue(opts.PlainText)
-                    || parseResult.GetValue(opts.Table)
-                    || parseResult.GetValue(opts.Tsv)
-                    || parseResult.GetValue(opts.Jsonl)
-                    || parseResult.GetResult(opts.Verbosity)
-                        is { Implicit: false }))
-            {
-                CommandError.Write(
-                    "--mermaid is a standalone Type hierarchy format and cannot combine with another output format.");
-                return 1;
             }
 
             if (opts.ResolveFormat(parseResult) == OutputFormat.Json
