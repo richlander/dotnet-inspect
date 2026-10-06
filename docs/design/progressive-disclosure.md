@@ -222,9 +222,6 @@ exact-name sections, as do the `Summary` and `Transitions` views of an
 Project uses `@Project` as its base category for package-authored `Skills` and
 `README` documents from restored direct dependencies. Selecting
 `@Project` explicitly requests both inventories.
-Vocabulary uses `@Vocabulary` as its base category. `@API` and `@Decompiler`
-select the vocabularies consumed by those query families; bare output retains
-the `Vocabulary Sections` index.
 Ecosystem uses a route-specific `@Ecosystem` base category. The optional focus
 operand first chooses the catalog-wide, focused-pack, or focused-Platform
 section set; `@Ecosystem` then composes that complete set. Exact
@@ -356,8 +353,8 @@ performance, metadata, SourceLink, and other domains together. A standalone
 section may define its own bounded presence probe for the bare catalog without
 joining the base scope; `Unsafe Members` is the current library example.
 
-Package, type-listing, member, diff, project, vocabulary, and ecosystem
-catalogs follow this model. Commands not yet migrated may retain their existing
+Package, type-listing, member, diff, project, and ecosystem catalogs follow
+this model. Commands not yet migrated may retain their existing
 discovery behavior; new work should follow the reference model rather than
 copy a legacy command.
 

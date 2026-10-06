@@ -1057,8 +1057,8 @@ that many fewer values than the limit; beyond it the Document reports
 links from values to further values. The largest current vocabulary,
 `csharp.body-kinds`, has about 70 values. Every product host issues
 `ResourceExplanationRequest.ForHost`, whose resource and relationship limits
-are the shared host limits. In the target, no separate command or document
-carries vocabulary values; the `vocabulary` command retires under
+are the shared host limits. No separate command or document carries
+vocabulary values; the `vocabulary` command retired under
 [Product Vocabulary](vocabulary.md#retirement).
 
 Both hosts request the same explanation. The CLI's `explain` and Inspect
@@ -1335,14 +1335,13 @@ The original installed-resource slices remain:
 6. **In progress:** Package Query adopts operation query-resource variants,
    canonical paths, required-context links, and its current-host production
    binding. Remaining Query Space owners and row-query resources stay staged.
-7. **In progress:** Product Vocabulary adopts resource schemas, snapshots, and
+7. **Complete:** Product Vocabulary adopts resource schemas, snapshots, and
    typed term-map links under
    [Value-vocabulary resources](#value-vocabulary-resources), and a CLI query
    key that accepts a value vocabulary links to its resource. Vocabulary and
    value resources, generic snapshot reading, and the query-key link are
    complete for the CLI, and Inspect Web requests the same explanation
-   through its catalog-facade export. The `vocabulary` command retires
-   next.
+   through its catalog-facade export. The `vocabulary` command retired.
 8. Register the stable explanation result contract; then let the focused
    envelope-contract catalog adopt explanation paths and machine-readable
    schemas.

@@ -600,7 +600,7 @@ exposed together use distinct canonical query keys. A displayed field or
 section name never creates a facet or supplies a portable lookup key.
 
 An external value-vocabulary reference points to the stable legal-value domain
-owned by the `vocabulary` subsystem. The query-space descriptor does not copy
+owned by [Product Vocabulary](vocabulary.md). The query-space descriptor does not copy
 that domain's complete value catalog. Open-ended facets expose their typed
 domain, constraints, and examples without claiming an enumerated value
 vocabulary.
@@ -610,7 +610,7 @@ vocabulary.
 In this design, **query vocabulary** means the keys, operators, families,
 bounds, stages, and orders accepted by one `PortableQueryIntent`.
 **Value vocabulary** means an independently owned stable legal-value domain
-such as the existing `VocabularyDocument`. Unqualified *vocabulary* is avoided
+such as the `csharp.body-kinds` product vocabulary. Unqualified *vocabulary* is avoided
 when the distinction matters.
 
 Query Space does not merge owner vocabularies into one universal
