@@ -58,10 +58,14 @@ every `ProducerCapabilityPlanRejectionReason` by whether soundness needs it.
 `ValidatorChecks` holds the proofs. The C# pruning they justify is tracked in
 [#9509](https://github.com/richlander/dotnet-inspect/issues/9509).
 
-Each row classifies the *rejection*. Several checks also skip the offending
-candidate before anything is recorded. Where a row is Diagnostic, soundness
-still needs that skip, so pruning a rejection must keep it. Where C# records
-with `Add`, pruning must switch to `TryAdd`.
+Each row classifies the *rejection*. Several satisfaction-site checks also
+skip the offending candidate before it is recorded. For `UnknownProvision` and
+`InvalidCoveringPath`, soundness needs that skip (`assemble_recorded_valid`),
+so pruning their rejections must keep it. For `UnknownAssociation` and
+`DuplicateAssociation`, the `assemble_ignores_*` theorems show soundness does
+not need the skip. It stays for structural reasons: requirement lookup needs a
+known association, and a duplicate should not run its own `ValidateOffer`.
+`TryAdd` is needed only if a duplicate check is folded into the insert.
 
 | Reason | Class | Basis |
 | --- | --- | --- |
@@ -79,7 +83,7 @@ with `Add`, pruning must switch to `TryAdd`.
 | `InsufficientCompletion` and exact edge-source completion | Loosenable | `atLeast_sound` and `walkExact_le_walkAtLeast`: "at least" accepts every path exact matching accepts. It is sound when the owner certifies a monotone completion order ([#9486](https://github.com/richlander/dotnet-inspect/issues/9486)), and unsound without one. The proof uses the conjunctive exactness rule that fixes [#9483](https://github.com/richlander/dotnet-inspect/issues/9483), not the shipped last-edge rule. |
 | `DuplicateAssociation` on requirements | Required, or structural | Plan requirements and satisfactions correspond by index, so dropping a duplicate requirement would misalign them. A keyed-map input type would make it unrepresentable. |
 | `MissingDependency`, `DependencyOrder`, `UnsatisfiedRequirement` | Required | Each orders or completes an executable plan. `UnsatisfiedRequirement` is the check the skipped satisfaction-site rejections rely on. |
-| `IncompatibleScope`, `CapabilityMismatch`, `OutcomeContractMismatch`, `RequiredPropertiesMissing` | Required | Premises of `Coverage.lastEdge_sound_absolute` and `Coverage.conjunctive_sound_preserving`. C# records the satisfaction before checking them, so the rejection itself is what keeps an unsound satisfaction out of an accepted plan. |
+| `IncompatibleScope`, `CapabilityMismatch`, `OutcomeContractMismatch`, `RequiredPropertiesMissing` | Required | Premises of `Coverage.lastEdge_sound_absolute` and `Coverage.conjunctive_sound_preserving`. C# records the satisfaction whether or not these checks pass, because they do not skip, so the rejection itself is what keeps an unsound satisfaction out of an accepted plan. |
 | `DuplicateProvision` | Policy | Not needed for result soundness. It enforces the design's "shared construction once". |
 | `EmptyRequirementSet`, `UnknownStrategy` | Policy or diagnostic | An empty plan is trivially sound, and the strategy is only recorded. |
 | `MissingValue`, `NoAdmittedStrategy` | Structural | These check null inputs. Non-nullable required members would remove `MissingValue`; `NoAdmittedStrategy` is the producer's typed "no plan" outcome. |
