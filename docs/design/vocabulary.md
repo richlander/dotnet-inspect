@@ -62,7 +62,7 @@ Inspect Web requests the same explanation. A catalog-facade export resolves a
 `ResourceExplanationDocument` Content the CLI produces for the same path and
 depth. Both hosts use one host-neutral set of traversal limits, so equal
 snapshots yield equal Content. An unknown path, a path outside `vocabularies`,
-or an invalid depth is a typed non-success result, never an empty Document.
+or an invalid path or depth is a typed non-success result, never an empty Document.
 Inspect Web's existing snapshot export for the Settings style picker is
 unchanged.
 
@@ -82,16 +82,18 @@ The `dotnet-inspect vocabulary` command retires, with the parts only it uses:
   (`VocabularyJson` and the `VocabularyWire*` types).
 
 Each map's per-field query operators retire with the document. Only the
-document's JSON, `-D`, and the explanation `fields` fact read them, and no
+document's JSON and the explanation `fields` fact read them, and no
 predicate enforces them. The operators a query input accepts belong to that
 input and are presented by `-Q`.
 
 `vocabulary` stays a reserved command name. Invoking it fails with an error
 that names `explain vocabularies`. The retirement is a disclosed CLI breaking
-change. Explanation output is Markdown, plain text, or JSON, so the command's
-other output gestures retire too: table, TSV, and JSONL output; `--columns`
-and `--fields`; `-n`, `--tail`, and `--rows`; `--count`; and selecting several
-vocabularies with a glob `-S`. The release notes list them. The information
+change. Explanation output is Markdown, plain text, or JSON, so every other
+option of the command retires too, including table, TSV, and JSONL output;
+`--columns`, `--fields`, and `--no-headers`; `-n`, `--head`, `--tail`,
+`--rows`, `--lines`, and `--tail-lines`; `--count`; `-D`, `--schema`, and
+`--tree`; and selecting several vocabularies with a glob or an `@` category
+`-S`. The release notes list them. The information
 stays reachable. The retirement lands only after values are explainable
 resources and Inspect Web can request the explanation, so no information or
 host loses access in between. The retirement slice also retargets every
@@ -103,7 +105,7 @@ guidance, which is proposed on the release tracker.
 What stays is the substrate: owner declarations, host composition, the
 `ProductVocabularyPin` digest, and Inspect Web's snapshot export for Settings.
 [JSON Schema Vocabulary Bindings](json-schema-vocabulary-bindings.md), which
-are designed but not implemented, reference an exact Vocabulary Mappings
+have no product host consumer yet, reference an exact Vocabulary Mappings
 snapshot and never the retired document.
 
 Static vocabulary answers "what may I ask?" Target-aware facets remain query
@@ -179,10 +181,10 @@ Web lane.
 The declaration types live in `QuerySpace.Primitives`. The composition
 (`ProductVocabularyComposition`) and the inspection wrapper live in
 `DotnetInspector.Sections`, beside Resource Explanation's
-`ResourceExplanationCatalog.CreateVocabularies`, which explains a composed
-snapshot generically. Each host holds its contribution list, and no assembly
-between the owners and the hosts restates their values or names their
-sections. Once explanation reads the snapshot generically, adding a
+`ResourceExplanationCatalog.CreateVocabularies`, which in the target explains
+a composed snapshot generically. Each host holds its contribution list, and in
+the target no assembly between the owners and the hosts restates their values
+or names their sections. Once explanation reads the snapshot generically, adding a
 vocabulary takes an owner declaration and a contribution in each host that
 ships it; explanation, the Browser export, and the snapshot pin pick it up
 without another list.

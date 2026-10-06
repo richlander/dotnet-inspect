@@ -1026,25 +1026,29 @@ vocabulary that projection does not name; that slice removes the dependency.
   coverage, and the values whose Boolean `default` map is true. Accepted query inputs are opaque external identities until their
   owners publish explanation resources.
 - **Value facts.** Identity, display name, optional summary, and the value's
-  scalar map entries keyed by map identity and typed by the map's declared
-  scalar kind. Resource-type schemas are closed, so the Vocabulary Value type
-  declares one ordered-many record fact whose members are the map identity
-  and its scalar value, with a declared maximum count, rather than a per-map
-  property or a per-vocabulary resource type.
+  map entries. Resource-type schemas are closed, so the Vocabulary Value type
+  declares one ordered-many record fact with a declared maximum count, rather
+  than a per-map property or a per-vocabulary resource type. Each record holds
+  the map identity and a value that is a choice of the map's declared scalar
+  kind (text, integer, or Boolean) or, for a term map, the target value's
+  identity. The map identity lives in this fact, so a vocabulary with several
+  term maps stays unambiguous.
 - **Relationships.** A vocabulary has an ordered relationship to every one of
-  its values, in owner order, and a relationship to each vocabulary its term
-  maps target. A value has a typed relationship to each value its term-map
-  entries name. Both term-map relationships carry the map identity, so a
-  vocabulary with several term maps stays unambiguous. Construction fails visibly for a term-map target that is not
-  an explained vocabulary in the snapshot rather than inventing one. A term
+  its values, in owner order, and a relationship to each distinct vocabulary
+  its term maps target. A value has a relationship to each distinct value its
+  term-map entries name. These relationships are unqualified navigation; the
+  map they came from is the value's map-entry fact, because the explanation
+  model's relationship declarations and targets carry no qualifier. Construction
+  fails visibly for a term-map target that is not an explained vocabulary in
+  the snapshot rather than inventing one. A term
   map into another snapshot already fails when the host composes its product
   snapshot, because hosts supply no external snapshots.
 
 The explanation is the complete listing. A vocabulary's values relationship
 names every value, and depth 1 returns each value's resource. The limit that
-binds is the resource limit, which counts the vocabulary itself, so a
-complete depth-1 listing holds for up to one fewer value than that limit;
-beyond it the Document reports `ResourceLimit` truncation visibly. The largest
+binds is the resource limit, which counts the vocabulary itself and each
+vocabulary its term maps target, so a complete depth-1 listing holds for up to
+that many fewer values than the limit; beyond it the Document reports `ResourceLimit` truncation visibly. The largest
 current vocabulary, `csharp.body-kinds`, has about 70 values. In the target, no
 separate command or document carries vocabulary values; the `vocabulary`
 command retires under [Product Vocabulary](vocabulary.md#retirement).
@@ -1060,7 +1064,7 @@ export carries the completed Document as owner-issued content in a
 facade-local envelope record, the established form for owner content that
 crosses a facade boundary; its Share and diagnostics are projected into
 facade-local records too. An unknown path, a path outside `vocabularies`, or
-an invalid depth is a typed non-success result.
+an invalid path or depth is a typed non-success result.
 
 A CLI query key whose values are one vocabulary's identities, such as the
 Body Shapes `Kind` key, carries that vocabulary's name and canonical path on
