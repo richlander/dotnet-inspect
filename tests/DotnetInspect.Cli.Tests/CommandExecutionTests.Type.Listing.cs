@@ -57,7 +57,8 @@ public partial class CommandExecutionTests
                 "--platform",
                 "System.Private.CoreLib",
                 "-S",
-                SectionNames.Classes);
+                SectionNames.Classes,
+                "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Equal(0, rowsExit);
@@ -335,8 +336,10 @@ public partial class CommandExecutionTests
         var (countExit, countOutput, countError) = await RunAppAsync(
             ["type", "--platform", "System.Text.Json", "-S", "API Info", "--count", "--fields", "NoSuchField"]);
 
+        // API Info is a scalar record: --count is rejected before the projection
+        // is validated, still a visible failure rather than a rendered zero.
         Assert.Equal(1, countExit);
-        Assert.Contains("NoSuchField", countError, StringComparison.Ordinal);
+        Assert.Contains("Section 'API Info' is scalar and does not support --count", countError, StringComparison.Ordinal);
         Assert.DoesNotContain("0", countOutput.Trim(), StringComparison.Ordinal);
 
         var (mixedCountExit, mixedCountOutput, mixedCountError) =
@@ -368,9 +371,12 @@ public partial class CommandExecutionTests
                 "--fields", "NoSuchField",
                 "--count");
 
+        // Type Info is a scalar record under Section shapes: --count is rejected
+        // before the projection is validated, for an unmatched and a matched field
+        // alike (a visible failure, never a rendered zero or a field tally).
         Assert.Equal(1, directCountExit);
         Assert.Empty(directCountOutput);
-        Assert.Contains("NoSuchField", directCountError, StringComparison.Ordinal);
+        Assert.Contains("Section 'Type Info' is scalar and does not support --count", directCountError, StringComparison.Ordinal);
 
         var (directOkExit, directOkOutput, directOkError) =
             await RunAppAsync(
@@ -379,9 +385,9 @@ public partial class CommandExecutionTests
                 "--fields", "Kind",
                 "--count");
 
-        Assert.Equal(0, directOkExit);
-        Assert.Equal("1", directOkOutput.Trim());
-        Assert.Empty(directOkError);
+        Assert.Equal(1, directOkExit);
+        Assert.Empty(directOkOutput);
+        Assert.Contains("Section 'Type Info' is scalar and does not support --count", directOkError, StringComparison.Ordinal);
 
         var (crossKindExit, crossKindOutput, crossKindError) =
             await RunAppAsync(
@@ -480,7 +486,8 @@ public partial class CommandExecutionTests
     [InlineData("--tsv")]
     [InlineData("--jsonl")]
     [InlineData("--plaintext")]
-    [InlineData("--count")]
+    // --count is not a case here: API Info is a scalar record under Section shapes
+    // and rejects --count before the projection is validated.
     public async Task Type_Listing_ProjectionMatchingTheWrongKind_FailsLikeAnUnknownName(string format)
     {
         // System.Net.Http rather than the test assembly: the point is that `Type` resolves as a
@@ -567,7 +574,6 @@ public partial class CommandExecutionTests
     // local .dll has none, so the render is empty for a reason that is not an unmatched name.
     [InlineData((object)new[] { "-S", "API Info", "--fields", "Version" })]
     [InlineData((object)new[] { "-S", "API Info", "--fields", "Version", "--tsv" })]
-    [InlineData((object)new[] { "-S", "API Info", "--fields", "Version", "--count" })]
     // The same known field, but selected ALONGSIDE a section whose schema does not list it, with
     // that section filtered to zero rows. `Version` is document-level, so it belongs to no
     // section in particular; resolving it only against the SELECTED section reported it
@@ -651,7 +657,7 @@ public partial class CommandExecutionTests
         var (quietExit, quietOutput, _) = await RunAppAsync(
             "type", "--platform", "System.Text.Json", "-v:q");
         var (exit, output, _) = await RunAppAsync(
-            "type", "--platform", "System.Text.Json", "-S", SectionNames.ApiInfo);
+            "type", "--platform", "System.Text.Json", "-S", SectionNames.ApiInfo, "--markdown");
 
         Assert.Equal(0, quietExit);
         Assert.Equal(0, exit);
@@ -685,9 +691,9 @@ public partial class CommandExecutionTests
         // contributes exactly one row at either size. A future field that enumerated anything would
         // fail here rather than quietly making the overview unbounded.
         var (bigExit, big, _) = await RunAppAsync(
-            "type", "--platform", "System.Private.CoreLib", "-S", SectionNames.ApiInfo);
+            "type", "--platform", "System.Private.CoreLib", "-S", SectionNames.ApiInfo, "--markdown");
         var (smallExit, small, _) = await RunAppAsync(
-            "type", "--platform", "System.Text.Json", "-S", SectionNames.ApiInfo);
+            "type", "--platform", "System.Text.Json", "-S", SectionNames.ApiInfo, "--markdown");
 
         Assert.Equal(0, bigExit);
         Assert.Equal(0, smallExit);
@@ -710,18 +716,20 @@ public partial class CommandExecutionTests
         // renderers disagreeing about one -S is the failure this pins, and it is invisible to any
         // test that only checks markdown.
         var (mdExit, markdown, _) = await RunAppAsync(
-            "type", "--platform", "System.Text.Json", "-S", SectionNames.ApiInfo);
+            "type", "--platform", "System.Text.Json", "-S", SectionNames.ApiInfo, "--markdown");
         var (tsvExit, tsv, _) = await RunAppAsync(
             "type", "--platform", "System.Text.Json", "-S", SectionNames.ApiInfo, "--tsv");
         var (jsonlExit, jsonl, _) = await RunAppAsync(
             "type", "--platform", "System.Text.Json", "-S", SectionNames.ApiInfo, "--jsonl");
-        var (countExit, count, _) = await RunAppAsync(
+        var (countExit, count, countError) = await RunAppAsync(
             "type", "--platform", "System.Text.Json", "-S", SectionNames.ApiInfo, "--count");
 
         Assert.Equal(0, mdExit);
         Assert.Equal(0, tsvExit);
         Assert.Equal(0, jsonlExit);
-        Assert.Equal(0, countExit);
+        // API Info is a scalar record: --count is rejected before acquisition.
+        Assert.Equal(1, countExit);
+        Assert.Contains("Section 'API Info' is scalar and does not support --count", countError);
 
         var tsvLines = tsv.Split('\n', StringSplitOptions.RemoveEmptyEntries);
         Assert.Equal("field\tvalue", tsvLines[0]);
@@ -742,7 +750,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(markdownRows, tsvLines.Length - 1);
         Assert.Equal(markdownRows, jsonlRows);
-        Assert.Equal(markdownRows.ToString(), count.Trim());
+        Assert.Empty(count.Trim());
     }
 
     [Fact]
@@ -962,7 +970,8 @@ public partial class CommandExecutionTests
                 "--platform",
                 "System.Xml",
                 "-S",
-                SectionNames.TypeForwarders);
+                SectionNames.TypeForwarders,
+                "--markdown");
 
         Assert.Equal(0, countExit);
         Assert.Equal(0, rowsExit);
