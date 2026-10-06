@@ -285,6 +285,7 @@ interface HomeDemoFixture {
 }
 
 interface DiagnosticsFixture {
+  packageDocumentTitles?: "ready" | "deferred";
   libraryApiDiffPilot?: "ready" | "empty";
   runtimeFailure?: boolean;
   buildIdentity?: "ready" | "pending" | "failed";
@@ -608,6 +609,23 @@ async function installFacades(
       }`,
     package: `
       ${surfaceLookup}
+      ${diagnostics.packageDocumentTitles ? `
+      const documentTitleReads = new Set();
+      export async function getPackageDocument(packageId, version, path) {
+        document.documentElement.dataset.packageDocumentTitleRequest = JSON.stringify([packageId, version, path]);
+        if (${JSON.stringify(diagnostics.packageDocumentTitles)} === "deferred" && !documentTitleReads.has(path)) {
+          documentTitleReads.add(path);
+          await new Promise(resolve => document.addEventListener("package-document-titles", resolve));
+        }
+        if (path === "broken.md") throw new Error("Read failed");
+        const texts = ${JSON.stringify({
+          "README.md": "---\nname: frontmatter\n---\n\n```md\n# Code fence\n```\n\n# First **title** & <em>details</em>\n# Second title",
+          "guide.md": "Setext title\n============\nBody",
+          "untitled.md": "## Secondary heading\nNo H1",
+        })};
+        document.documentElement.dataset.packageDocumentTitleCompletion = JSON.stringify([version, path]);
+        return { kind: "Markdown", name: path, path, text: version === "0.9.0" ? "# Older package" : texts[path] ?? "# Document" };
+      }` : ""}
       const platformTarget = ${JSON.stringify(catalogTarget)};
       const platformOptions = ${JSON.stringify(platform ?? {})};
       const diagnosticsOptions = ${JSON.stringify(diagnostics)};
