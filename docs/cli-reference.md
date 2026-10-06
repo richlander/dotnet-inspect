@@ -1500,7 +1500,9 @@ Count maps over several sections keep their per-section meaning.
 trailing line terminator; `--rows` selects lines, which native output,
 `--markdown`, and `--plaintext` print as text; and `--table`, `--tsv`, and
 `--jsonl` emit one row per line with its number, UTF-16 start offset, content,
-and terminator, which `--columns` and `--fields` can project. `--json` stays
+and terminator, which `--columns` and `--fields` can project. `--jsonl`
+carries each line's content exactly; `--tsv` and `--table` normalize a tab
+inside a line to a space, as every TSV in this CLI does. `--json` stays
 the complete Source document, so it rejects `--rows`. Default output is
 unchanged, and `-n` remains a rendered-line window.
 

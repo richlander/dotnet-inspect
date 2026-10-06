@@ -1089,6 +1089,31 @@ public partial class CommandExecutionTests
         Assert.Equal(0, lastNativeExit);
         Assert.Equal("\n", lastNative);
 
+        // Native --rows prints the selected lines exactly, trailing whitespace
+        // included (round-2 finding); JSONL carries the same content exactly.
+        string[] whitespaceType =
+        [
+            "type", "DotnetInspect.Cli.Tests.ApiSurfaceExtractorTests",
+            "--library", TestAssemblyPath, "--all", "-S", SectionNames.Source,
+        ];
+        var (linesExit, linesJsonl, _) = await RunAppAsync([.. whitespaceType, "--jsonl"]);
+        Assert.Equal(0, linesExit);
+        JsonElement trailing = linesJsonl
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Select(static line => JsonDocument.Parse(line).RootElement)
+            .First(static row =>
+            {
+                string text = row.GetProperty("content").GetString()!;
+                return text.Length > 0 && text != text.TrimEnd();
+            });
+        int trailingNumber = trailing.GetProperty("number").GetInt32();
+        string trailingContent = trailing.GetProperty("content").GetString()!;
+        var (trailingExit, trailingNative, _) = await RunAppAsync(
+            [.. whitespaceType, "--rows", $"{trailingNumber}..{trailingNumber}"]);
+
+        Assert.Equal(0, trailingExit);
+        Assert.Equal(trailingContent + "\n", trailingNative);
+
         // Source --json is the complete document: a --rows window fails
         // visibly instead of being dropped (round-1 finding).
         var (jsonRowsExit, jsonRows, jsonRowsError) = await RunAppAsync([.. member, "--json", "--rows", "1..1"]);

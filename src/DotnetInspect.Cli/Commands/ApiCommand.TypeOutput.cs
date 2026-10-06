@@ -1134,7 +1134,12 @@ public partial class ApiCommand
         {
             if (TryGetNativeApiPayload(view, options, out var raw))
             {
-                OutputFormatter.WriteLfLine(sink, raw.TrimEnd());
+                // A --rows selection of Source lines prints those lines exactly,
+                // trailing whitespace included; an unwindowed payload keeps its
+                // existing trimmed presentation.
+                bool selectedSourceLines =
+                    options.Rows is not null && IsLoneSourceSelection(options);
+                OutputFormatter.WriteLfLine(sink, selectedSourceLines ? raw : raw.TrimEnd());
                 ApiOutputFormatter.WriteCallGraphWarning(view);
                 return 0;
             }

@@ -409,7 +409,12 @@ CLI adoption:
 3. `--count` reports exact line Count. Semantic `--rows` selects line rows,
    which native output prints as their text and the row formats (`--table`,
    `--tsv`, `--jsonl`) emit as number, start, content, and terminator — the
-   Source section's projectable columns; rendered `-n` remains a separate
+   Source section's projectable columns. Native `--rows` output prints the
+   selected lines' content exactly, trailing whitespace included. JSONL
+   carries each line's content exactly; `--tsv` and `--table` are the
+   repository's normalized row presentations, which replace a tab or other
+   control character inside a cell with a space, so they are not a
+   reconstruction format; rendered `-n` remains a separate
    presentation limit. The Source JSON document stays the complete view, so
    `--json` with `--rows` fails visibly instead of dropping the selection.
 4. The current host-local `CliSourceDocument` projection retires after existing
