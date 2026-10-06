@@ -123,7 +123,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "type", "System.Coll", "--platform", "System.Private.CoreLib",
-            "-S", SectionNames.ApiInfo);
+            "-S", SectionNames.ApiInfo, "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Contains("best-effort prefix matches", error, StringComparison.Ordinal);
