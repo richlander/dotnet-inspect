@@ -108,12 +108,15 @@ public sealed class ResourceExplanationView
     public List<string> AcceptedBy { get; init; } = [];
 
     [MarkoutJoin("; ")]
-    public List<string> Fields { get; init; } = [];
+    public List<string> Maps { get; init; } = [];
+
+    [MarkoutJoin("; ")]
+    public List<string> MapValues { get; init; } = [];
 
     [MarkoutJoin(", ")]
     public List<string> Defaults { get; init; } = [];
 
-    public string? ValueRows
+    public string? AllValues
     {
         get;
         init => field = value is null
@@ -258,9 +261,10 @@ public sealed class ResourceExplanationView
             Values = details.Values,
             Examples = details.Examples,
             AcceptedBy = details.AcceptedBy ?? [],
-            Fields = details.Fields ?? [],
+            Maps = details.Maps ?? [],
+            MapValues = details.MapValues ?? [],
             Defaults = details.Defaults ?? [],
-            ValueRows = details.ValueRows,
+            AllValues = details.AllValues,
             Effects = details.Effects,
             ConsumerKind = details.ConsumerKind,
             Gesture = details.Gesture,
@@ -408,9 +412,10 @@ public sealed class ResourceExplanationView
         string? Shape = null,
         string? Cardinality = null,
         List<string>? AcceptedBy = null,
-        List<string>? Fields = null,
+        List<string>? Maps = null,
+        List<string>? MapValues = null,
         List<string>? Defaults = null,
-        string? ValueRows = null)
+        string? AllValues = null)
     {
         internal static RootDetails Create(
             ResourceExplanationResource resource)
@@ -496,9 +501,24 @@ public sealed class ResourceExplanationView
                         "accepted-by"),
                 ],
                 [
-                    .. ResourceExplanationFactView.Texts(
-                        resource,
-                        "fields"),
+                    .. ResourceExplanationFactView.Records(resource, "maps")
+                        .Select(static map =>
+                            $"{map.Text("identity")} "
+                            + $"({(map.OptionalText("target-vocabulary")
+                                is { } target
+                                    ? $"term {target}"
+                                    : map.Text("value-kind"))}, "
+                            + $"{map.Text("cardinality")}, "
+                            + $"{map.Text("coverage")}): "
+                            + $"{map.Text("name")}. {map.Text("summary")}"),
+                ],
+                [
+                    .. ResourceExplanationFactView.Records(
+                            resource,
+                            "map-entries")
+                        .Select(static entry =>
+                            $"{entry.Text("map")} = "
+                            + entry.ChoiceDisplay("value")),
                 ],
                 [
                     .. ResourceExplanationFactView.Texts(
@@ -506,10 +526,8 @@ public sealed class ResourceExplanationView
                         "defaults"),
                 ],
                 resource.ResourceType.Value == "value-vocabulary"
-                    ? $"vocabulary -S \"{
-                        ResourceExplanationFactView.RequiredText(
-                            resource,
-                            "name")}\""
+                    && resource.Path is { } path
+                    ? $"explain {path.Value} --depth 1"
                     : null);
         }
 
@@ -848,6 +866,24 @@ internal static class ResourceExplanationFactView
                     $"Explanation fact '{identity}' contains non-text."));
     }
 
+    internal static IEnumerable<ResourceExplanationRecordView> Records(
+        ResourceExplanationResource resource,
+        string identity)
+    {
+        ExplanationFactObservation? fact = resource.Facts.FirstOrDefault(
+            candidate => candidate.Fact.Value == identity);
+        if (fact is null
+            || fact.State == ExplanationObservationState.Absent)
+        {
+            return [];
+        }
+        return AvailableValues(resource, identity).Select(value =>
+            value is ExplanationValue.Record record
+                ? new ResourceExplanationRecordView(record)
+                : throw new InvalidOperationException(
+                    $"Explanation fact '{identity}' contains a non-record."));
+    }
+
     private static ImmutableArray<ExplanationValue> AvailableValues(
         ResourceExplanationResource resource,
         string identity)
@@ -861,6 +897,48 @@ internal static class ResourceExplanationFactView
         }
         return fact.Values;
     }
+}
+
+/// <summary>Reads one record fact value by field identity.</summary>
+internal readonly record struct ResourceExplanationRecordView(
+    ExplanationValue.Record Record)
+{
+    internal string Text(string field) =>
+        OptionalText(field)
+        ?? throw new InvalidOperationException(
+            $"Record field '{field}' has no value.");
+
+    internal string? OptionalText(string field) =>
+        Values(field) switch
+        {
+            [] => null,
+            [ExplanationValue.Scalar { Value.Text: { } text }] => text,
+            _ => throw new InvalidOperationException(
+                $"Record field '{field}' is not one text value."),
+        };
+
+    internal string ChoiceDisplay(string field) =>
+        Values(field) is [ExplanationValue.Choice
+            {
+                Value: ExplanationValue.Scalar { Value: { } scalar },
+            }]
+            ? scalar.Kind switch
+            {
+                ExplanationScalarKind.Text => scalar.Text!,
+                ExplanationScalarKind.Integer =>
+                    scalar.Integer!.Value.ToString(
+                        System.Globalization.CultureInfo.InvariantCulture),
+                ExplanationScalarKind.Boolean =>
+                    scalar.Boolean!.Value ? "true" : "false",
+                _ => throw new InvalidOperationException(
+                    $"Record field '{field}' has an unsupported scalar."),
+            }
+            : throw new InvalidOperationException(
+                $"Record field '{field}' is not one scalar choice.");
+
+    private ImmutableArray<ExplanationValue> Values(string field) =>
+        Record.Fields.Single(candidate => candidate.Field.Value == field)
+            .Values;
 }
 
 [MarkoutContext(typeof(ResourceExplanationView))]

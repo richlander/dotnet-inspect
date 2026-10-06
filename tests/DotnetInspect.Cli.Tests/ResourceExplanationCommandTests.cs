@@ -677,7 +677,52 @@ public sealed class ResourceExplanationCommandTests : IDisposable
         Assert.Empty(human.Error);
         Assert.Contains("Product Vocabulary", human.Output);
         Assert.Contains("decompiler.body-kind", human.Output);
-        Assert.Contains("vocabulary -S \"C# Body Kinds\"", human.Output);
+        Assert.Contains(
+            "explain vocabularies/csharp.body-kinds --depth 1",
+            human.Output);
+    }
+
+    [Fact]
+    public async Task VocabularyValue_ExplainsMapValuesAndLinksItsTier()
+    {
+        var bulk = await RunAsync(
+            "explain",
+            "vocabularies/csharp.style-tiers",
+            "--depth",
+            "1",
+            "--json");
+
+        Assert.Equal(0, bulk.ExitCode);
+        Assert.Empty(bulk.Error);
+        using (JsonDocument document = JsonDocument.Parse(bulk.Output))
+        {
+            JsonElement values = document.RootElement
+                .GetProperty("relationships")
+                .EnumerateArray()
+                .Single(relationship =>
+                    RelationshipKind(relationship) == "vocabulary-value");
+            Assert.All(
+                TargetPaths(values),
+                static path => Assert.StartsWith(
+                    "vocabularies/csharp.style-tiers/values/",
+                    path,
+                    StringComparison.Ordinal));
+            Assert.Equal(
+                TargetPaths(values).Length,
+                document.RootElement.GetProperty("resources").GetArrayLength()
+                    - 1);
+        }
+
+        var human = await RunAsync(
+            "explain",
+            "vocabularies/csharp.style-choices/values/"
+                + "var-spelling-style.var-elsewhere");
+
+        Assert.Equal(0, human.ExitCode);
+        Assert.Empty(human.Error);
+        Assert.Contains("var-spelling-style:var-elsewhere", human.Output);
+        Assert.Contains("oracle_endorsed = ", human.Output);
+        Assert.Contains("vocabularies/csharp.style-tiers/values/", human.Output);
     }
 
     [Fact]

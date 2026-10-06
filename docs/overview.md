@@ -936,6 +936,10 @@ rules, this document describes subsystem ownership, and
 - [Multi-part inspection documents](design/multi-part-inspection-documents.md):
   one authoritative typed Document for correlated semantic parts, with
   independent section projections and optional authored-category composition.
+- [Type and Member inspection documents](design/type-member-inspection-documents.md):
+  compact and complete Type declarations, complete same-named Member
+  populations, exact Member declarations, and their resolved explanation
+  handoff.
 - [Source delegation](design/source-delegation.md): delegated source
   execution — the effect protocol, result algebra, completion-evidence
   binding, and exact upstream Count acceptance.
