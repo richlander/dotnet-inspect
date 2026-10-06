@@ -1314,7 +1314,6 @@ public static class CommandLineBuilder
         rootCommand.Subcommands.Add(SearchCommandDefinitions.CreateFindCommand(opts));
 
         // Product-owned query vocabulary
-        rootCommand.Subcommands.Add(VocabularyCommandDefinitions.CreateVocabularyCommand(opts));
 
         // Product resource explanation
         rootCommand.Subcommands.Add(

@@ -344,7 +344,7 @@ public sealed class ResourceExplanationCommandTests : IDisposable
                 .GetProperty("requested_path")
                 .GetString());
 
-        var pathless = await RunAsync("vocabulary", "-D");
+        var pathless = await RunAsync("diff", "-D");
 
         Assert.Equal(0, pathless.ExitCode);
         Assert.Empty(pathless.Error);

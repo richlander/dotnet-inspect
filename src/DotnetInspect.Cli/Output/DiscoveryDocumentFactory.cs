@@ -657,7 +657,6 @@ internal static class DiscoveryDocumentFactory
             SectionCategoryNames.Member => "member",
             SectionCategoryNames.Diff => "diff",
             SectionCategoryNames.Project => "project",
-            SectionCategoryNames.Vocabulary => "vocabulary",
             SectionCategoryNames.Ecosystem => "ecosystem",
             SectionCategoryNames.Libraries => "libraries",
             SectionCategoryNames.Query => "query",
