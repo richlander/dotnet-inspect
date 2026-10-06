@@ -389,6 +389,114 @@ public partial class CommandExecutionTests
         Assert.Contains("Interfaces\tsection", output);
     }
 
+    [Theory]
+    [InlineData(
+        "System.Text.StringBuilder",
+        "System.Private.CoreLib")]
+    [InlineData(
+        "System.Collections.Generic.IReadOnlyCollection`1",
+        "System.Private.CoreLib")]
+    [InlineData(
+        "System.Text.Json.Nodes.JsonArray",
+        "System.Text.Json")]
+    public async Task
+        Type_DirectLibraryExactType_AuditDiscoveryMatchesPlatformProjection(
+            string typeName,
+            string platformAssembly)
+    {
+        string assemblyPath = platformAssembly
+            == "System.Private.CoreLib"
+                ? typeof(System.Text.StringBuilder).Assembly.Location
+                : typeof(System.Text.Json.Nodes.JsonArray)
+                    .Assembly.Location;
+        var (directExit, directOutput, directError) =
+            await RunAppAsync(
+                "type",
+                typeName,
+                "--library",
+                assemblyPath,
+                "-D",
+                SectionCategoryNames.Audit,
+                "--tsv");
+        var (platformExit, platformOutput, platformError) =
+            await RunAppAsync(
+                "type",
+                typeName,
+                "--platform",
+                platformAssembly,
+                "-D",
+                SectionCategoryNames.Audit,
+                "--tsv");
+
+        Assert.True(
+            directExit == 0,
+            $"Direct discovery failed: {directError}");
+        Assert.True(
+            platformExit == 0,
+            $"Platform discovery failed: {platformError}");
+        Assert.Empty(directError);
+        Assert.Empty(platformError);
+        Assert.Equal(platformOutput, directOutput);
+    }
+
+    [Theory]
+    [InlineData(
+        "System.Text.StringBuilder",
+        "System.Private.CoreLib",
+        SectionNames.SafetyFacts)]
+    [InlineData(
+        "System.Text.StringBuilder",
+        "System.Private.CoreLib",
+        SectionNames.UnsafeMembers)]
+    [InlineData(
+        "System.Text.Json.Nodes.JsonArray",
+        "System.Text.Json",
+        SectionNames.SafetyFacts)]
+    [InlineData(
+        "System.Text.Json.Nodes.JsonArray",
+        "System.Text.Json",
+        SectionNames.UnsafeMembers)]
+    public async Task
+        Type_DirectLibraryExactType_AuditSectionDiscoveryMatchesPlatformProjection(
+            string typeName,
+            string platformAssembly,
+            string section)
+    {
+        string assemblyPath = platformAssembly
+            == "System.Private.CoreLib"
+                ? typeof(System.Text.StringBuilder).Assembly.Location
+                : typeof(System.Text.Json.Nodes.JsonArray)
+                    .Assembly.Location;
+        var (directExit, directOutput, directError) =
+            await RunAppAsync(
+                "type",
+                typeName,
+                "--library",
+                assemblyPath,
+                "-D",
+                section,
+                "--tsv");
+        var (platformExit, platformOutput, platformError) =
+            await RunAppAsync(
+                "type",
+                typeName,
+                "--platform",
+                platformAssembly,
+                "-D",
+                section,
+                "--tsv");
+
+        Assert.True(
+            directExit == 0,
+            $"Direct discovery failed: {directError}");
+        Assert.True(
+            platformExit == 0,
+            $"Platform discovery failed: {platformError}");
+        Assert.Empty(directError);
+        Assert.Empty(platformError);
+        Assert.Equal(platformOutput, directOutput);
+    }
+
     [Fact]
     public async Task Type_TypeInfoDiscovery_DoesNotRunUnrequestedUnsafeProbe()
     {

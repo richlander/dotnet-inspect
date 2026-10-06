@@ -27,6 +27,8 @@ public static partial class TypeCommand
 
         bool requiresMemberApplicability =
             RequiresMemberApplicability(options);
+        bool requiresExtensionPresence =
+            RequiresExtensionPresence(options);
         TypeMemberGroupPopulationRequest? declarations =
             requiresMemberApplicability
                 ? new(
@@ -57,7 +59,7 @@ public static partial class TypeCommand
             return null;
         }
         TypeDocumentExtensionPresenceInspectionResult? combined =
-            requiresMemberApplicability
+            requiresExtensionPresence
                 ? TypeDocumentInspectionOperation
                     .ExecuteWithExtensionPresence(
                         assembly,
@@ -116,7 +118,7 @@ public static partial class TypeCommand
         }
 
         bool hasExtensionMethods = false;
-        if (requiresMemberApplicability)
+        if (requiresExtensionPresence)
         {
             TypeExtensionMethodPresenceInspectionOutcome extensionPresence =
                 combined!.ExtensionPresence;
@@ -127,6 +129,11 @@ public static partial class TypeCommand
                 return null;
             }
             hasExtensionMethods = availablePresence.Exists;
+        }
+        if (RequiresSafetyApplicability(options)
+            && !CanProjectAuditApplicability(selectorCounts))
+        {
+            return null;
         }
 
         WriteInspectionDiagnostics(envelope.Diagnostics);
@@ -157,7 +164,58 @@ public static partial class TypeCommand
     }
 
     static bool RequiresMemberApplicability(TypeOptions options) =>
+        RequiresExtensionPresence(options)
+        || RequiresAuditMemberApplicability(options);
+
+    static bool RequiresExtensionPresence(TypeOptions options) =>
         options.Discover is null or { Length: 0 };
+
+    static bool RequiresAuditMemberApplicability(
+        TypeOptions options) =>
+        options.Discover?.Any(
+            section =>
+                section.Equals(
+                    SectionCategoryNames.Audit,
+                    StringComparison.OrdinalIgnoreCase)
+                || section.Equals(
+                    SectionNames.SafetyFacts,
+                    StringComparison.OrdinalIgnoreCase)
+                || section.Equals(
+                    SectionNames.UnsafeMembers,
+                    StringComparison.OrdinalIgnoreCase)) == true;
+
+    static bool RequiresSafetyApplicability(
+        TypeOptions options) =>
+        options.Discover?.Any(
+            section =>
+                section.Equals(
+                    SectionCategoryNames.Audit,
+                    StringComparison.OrdinalIgnoreCase)
+                || section.Equals(
+                    SectionNames.SafetyFacts,
+                    StringComparison.OrdinalIgnoreCase)) == true;
+
+    static bool CanProjectAuditApplicability(
+        TypeMemberSelectorCounts selectorCounts)
+    {
+        bool hasMethodLike = selectorCounts.Kinds.Any(
+            count => count.Count > 0
+                && count.Kind
+                    is MemberGroupCategory.Method
+                        or MemberGroupCategory.Constructor
+                        or MemberGroupCategory.Operator
+                        or MemberGroupCategory.Finalizer
+                        or MemberGroupCategory
+                            .ExplicitInterfaceImplementation);
+        if (hasMethodLike)
+            return true;
+
+        return !selectorCounts.Kinds.Any(
+            count => count.Count > 0
+                && count.Kind
+                    is MemberGroupCategory.Property
+                        or MemberGroupCategory.Event);
+    }
 
     static DocumentSchema DirectDiscoverySchema(
         SectionPipeline<ApiType> memberPipeline)
@@ -248,9 +306,19 @@ public static partial class TypeCommand
             || options.CloneCandidateQuery.HasPredicates
             || options.Discover is { Length: > 0 }
                 && options.Discover.Any(
-                    section => !section.Equals(
-                        SectionNames.TypeInfo,
-                        StringComparison.OrdinalIgnoreCase))
+                    section =>
+                        !section.Equals(
+                            SectionNames.TypeInfo,
+                            StringComparison.OrdinalIgnoreCase)
+                        && !section.Equals(
+                            SectionCategoryNames.Audit,
+                            StringComparison.OrdinalIgnoreCase)
+                        && !section.Equals(
+                            SectionNames.SafetyFacts,
+                            StringComparison.OrdinalIgnoreCase)
+                        && !section.Equals(
+                            SectionNames.UnsafeMembers,
+                            StringComparison.OrdinalIgnoreCase))
             || string.IsNullOrWhiteSpace(options.TypeName)
             || string.IsNullOrWhiteSpace(assemblyPath)
             || !File.Exists(assemblyPath))
