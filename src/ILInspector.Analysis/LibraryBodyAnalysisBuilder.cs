@@ -58,6 +58,7 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         _implementationMetricWork;
     readonly ImplementationMetricExecutionRecorder?
         _implementationMetricRecorder;
+    readonly LibraryBodyAnalysisStageRecorder? _stageRecorder;
 
     internal LibraryBodyAnalysisBuilder(
         string path,
@@ -78,7 +79,8 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         ImplementationMetricWorkBudget?
             implementationMetricWork = null,
         ImplementationMetricExecutionRecorder?
-            implementationMetricRecorder = null)
+            implementationMetricRecorder = null,
+        LibraryBodyAnalysisStageRecorder? stageRecorder = null)
     {
         _path = path;
         _reader = reader;
@@ -101,6 +103,7 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             implementationMetricWork;
         _implementationMetricRecorder =
             implementationMetricRecorder;
+        _stageRecorder = stageRecorder;
         _methodReferenceResolver =
             new LibraryBodyMethodReferenceResolver(
                 reader,
@@ -580,7 +583,8 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                         _reader, ResolveExternalTypeDefinition)
                     : null,
                 _implementationMetricWork,
-                _implementationMetricRecorder);
+                _implementationMetricRecorder,
+                _stageRecorder);
         var accumulator =
             new LibraryBodyAnalysisAccumulator(
                 _reader,
@@ -608,6 +612,9 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             foreach (var methodHandle in typeDef.GetMethods())
                 workItems.Add((typeHandle, typeDef, typeSourceGenerated, methodHandle));
         }
+        _stageRecorder?.RecordCompleted(
+            LibraryBodyAnalysisStage.MethodEnumeration,
+            workItems.Count);
 
         var results =
             new LibraryMethodAnalysisResult[workItems.Count];
@@ -654,6 +661,9 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             }
         }
 
+        using LibraryBodyAnalysisStageRecorder.StageAttempt?
+            aggregation = _stageRecorder?.Start(
+                LibraryBodyAnalysisStage.ResultAggregation);
         LibraryBodyAnalysisResult analysis =
             _declaredSourceResolver.MergeScopeExpansionDiagnostics(
                 accumulator.Build(results),
@@ -669,6 +679,7 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         analysis = PublishResourceOccurrences(analysis, plan, results);
         analysis = PublishResourceOwnership(analysis, plan, results);
         analysis = PublishResourceLifecycle(analysis, plan, results);
+        aggregation?.Complete();
         return analysis with
         {
             ImplementationMetricWork =

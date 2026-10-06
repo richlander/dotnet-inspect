@@ -14,7 +14,8 @@ internal sealed record LibraryBodyAnalysisPlan(
         ScopeExpansionDiagnostics = default,
     ResourceEffectAdmission? ResourceEffects = null,
     bool IncludesResourceLifecycle = false,
-    ImplementationMetricAnalysisPlan? ImplementationMetrics = null)
+    ImplementationMetricAnalysisPlan? ImplementationMetrics = null,
+    bool CapturesStageParticipation = false)
 {
     internal bool IsScoped
         => MethodScope is not null || TypeScope is not null;
@@ -36,7 +37,8 @@ internal sealed record LibraryBodyAnalysisPlan(
         ResourceEffectAdmission? resourceEffects = null,
         bool includeResourceLifecycle = false,
         ImplementationMetricAnalysisRequest?
-            implementationMetrics = null)
+            implementationMetrics = null,
+        bool captureStageParticipation = false)
     {
         LibraryBodyAnalysisFeatures requestedFeatures =
             features;
@@ -112,6 +114,8 @@ internal sealed record LibraryBodyAnalysisPlan(
             RequestedMethodScope: methodScope,
             ResourceEffects: resourceEffects,
             IncludesResourceLifecycle: includeResourceLifecycle,
-            ImplementationMetrics: metricPlan);
+            ImplementationMetrics: metricPlan,
+            CapturesStageParticipation:
+                captureStageParticipation);
     }
 }
