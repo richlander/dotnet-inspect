@@ -137,6 +137,13 @@ public sealed record WorkspaceTypeHierarchyCandidateFailure(
     string Detail);
 
 /// <summary>
+/// Selected context realization failure retained by the hierarchy producer
+/// evidence.
+/// </summary>
+public sealed record WorkspaceTypeHierarchyContextFailure(
+    WorkspaceDeclarationContextReceipt Context);
+
+/// <summary>
 /// Process-local authority for one Workspace-wide hierarchy continuation.
 /// </summary>
 public sealed class WorkspaceTypeHierarchySubjectRelationsContinuationAuthority
@@ -337,6 +344,19 @@ public static class WorkspaceTypeHierarchySubjectRelationsOperation
         int? outputCandidateIndex = null;
         MetadataHierarchySubjectRelationsContinuationAuthority?
             outputCandidateContinuation = null;
+
+        foreach (WorkspaceDeclarationContextReceipt context
+            in population.Receipt.Contexts)
+        {
+            if (context.IsRealized)
+                continue;
+
+            producer.AddUnavailable(context);
+            if (request.Population.Count is not null)
+                count.AddUnavailable();
+            if (rowsActive)
+                rows.AddUnavailable();
+        }
 
         for (int index = 0; index < candidates.Length; index++)
         {
@@ -920,6 +940,28 @@ public static class WorkspaceTypeHierarchySubjectRelationsOperation
                     InspectionDiagnosticSeverity.Warning,
                     $"The hierarchy candidate '{candidate.AssemblyIdentity.Name}' "
                         + $"was unavailable: {detail}."));
+        }
+
+        internal void AddUnavailable(
+            WorkspaceDeclarationContextReceipt context)
+        {
+            ArgumentNullException.ThrowIfNull(context);
+            _considered = checked(_considered + 1);
+            _unavailable = checked(_unavailable + 1);
+            var evidence =
+                new WorkspaceTypeHierarchyContextFailure(context);
+            _diagnostics.Add(
+                SubjectRelationProducerDiagnostic.Create(
+                    SubjectRelationProducerDiagnosticKind.Failure,
+                    evidence));
+            _inspectionDiagnostics.Add(
+                new(
+                    "workspace-hierarchy-context-unavailable",
+                    InspectionDiagnosticSeverity.Warning,
+                    $"The selected hierarchy context at order "
+                        + $"{context.Order} was unavailable with "
+                        + $"{context.Failures.Length} recorded "
+                        + $"{(context.Failures.Length == 1 ? "failure" : "failures")}."));
         }
 
         internal void AddLimitedCandidates(int count)
