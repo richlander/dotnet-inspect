@@ -155,6 +155,7 @@ type CatalogOperationName =
   | "describeWorkspacePackageSources"
   | "decodeWorkspaceShareState"
   | "encodeWorkspaceShareState"
+  | "explainVocabularies"
   | "observeRetainedWorkspaceSettlement"
   | "prepareEcosystemWorkspaceDefinition"
   | "preparePackageQueryWorkspaceDefinition"
@@ -1952,6 +1953,14 @@ export const engineWorkerOrdinaryOperations = {
         >
       ) => facades.catalog.describeWorkspacePackageSources(...args),
     ),
+    explainVocabularies: valueOperation(
+      "ordinary-catalog-explain-vocabularies",
+      2,
+      (
+        facades,
+        ...args: Parameters<CatalogFacade["explainVocabularies"]>
+      ) => facades.catalog.explainVocabularies(...args),
+    ),
     resolveHomeDemo: valueOperation(
       "ordinary-catalog-resolve-home-demo",
       1,
@@ -2556,6 +2565,9 @@ export function bindEngineWorkerOrdinaryClient(
       describeWorkspacePackageSources: bind(
         engineWorkerOrdinaryOperations.catalog
           .describeWorkspacePackageSources,
+      ),
+      explainVocabularies: bind(
+        engineWorkerOrdinaryOperations.catalog.explainVocabularies,
       ),
       resolveHomeDemo: bind(
         engineWorkerOrdinaryOperations.catalog.resolveHomeDemo,

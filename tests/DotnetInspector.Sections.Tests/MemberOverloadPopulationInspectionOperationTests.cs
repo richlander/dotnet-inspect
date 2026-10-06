@@ -99,6 +99,11 @@ public sealed class MemberOverloadPopulationInspectionOperationTests
         MemberOverloadReceiverFilter.Extension,
         false,
         QuerySpaceTerminalRequirement.Rows)]
+    [InlineData(
+        MemberOverloadAccessibilityFilter.All,
+        MemberOverloadReceiverFilter.NonExtension,
+        false,
+        QuerySpaceTerminalRequirement.Rows)]
     public void QuerySpaceRequest_ResolvesAcquisitionAndTerminal(
         MemberOverloadAccessibilityFilter accessibility,
         MemberOverloadReceiverFilter receiver,
@@ -143,6 +148,40 @@ public sealed class MemberOverloadPopulationInspectionOperationTests
         Assert.Equal(
             [MemberOverloadPopulationQuery.RowSet],
             request.ParticipatingRowSets);
+    }
+
+    [Fact]
+    public void TransitionalProducer_RejectsMetadataSpelling()
+    {
+        ArgumentException exception =
+            Assert.Throws<ArgumentException>(
+                () => new MemberOverloadPopulationInspectionPlan(
+                    new(
+                        Name(
+                            "System.Text.Json",
+                            "JsonSerializer"),
+                        "Serialize",
+                        spelling:
+                            TypeMemberGroupSpelling.Metadata),
+                    new(new MemberOverloadCountRequest()),
+                    s_bounds));
+
+        Assert.Equal("subject", exception.ParamName);
+
+        ArgumentException memberException =
+            Assert.Throws<ArgumentException>(
+                () => new MemberDocumentInspectionPlan(
+                    new(
+                        Name(
+                            "System.Text.Json",
+                            "JsonSerializer"),
+                        "Serialize",
+                        spelling:
+                            TypeMemberGroupSpelling.Metadata),
+                    new(baselineOrdinal: 1),
+                    s_bounds));
+
+        Assert.Equal("group", memberException.ParamName);
     }
 
     [Fact]
@@ -422,7 +461,7 @@ public sealed class MemberOverloadPopulationInspectionOperationTests
                     group.Overloads.Rows)
                 .Items[5];
 
-        MemberDocument ordinal =
+        MemberDocumentInspectionContent ordinal =
             Assert.IsType<MemberDocumentInspectionOutcome.Available>(
                     ExecuteMemberDocument(
                             library,
@@ -430,7 +469,7 @@ public sealed class MemberOverloadPopulationInspectionOperationTests
                             new(baselineOrdinal: expected.BaselineOrdinal))
                         .Content)
                 .Document;
-        MemberDocument fingerprint =
+        MemberDocumentInspectionContent fingerprint =
             Assert.IsType<MemberDocumentInspectionOutcome.Available>(
                     ExecuteMemberDocument(
                             library,
@@ -538,7 +577,7 @@ public sealed class MemberOverloadPopulationInspectionOperationTests
                 },
                 TestContext.Current.CancellationToken);
 
-        MemberDocument document =
+        MemberDocumentInspectionContent document =
             Assert.IsType<MemberDocumentInspectionOutcome.Available>(
                     inspection.Content)
                 .Document;
@@ -564,7 +603,7 @@ public sealed class MemberOverloadPopulationInspectionOperationTests
             await LibraryInspectionTestLibrary.CreateAsync(
                 content,
                 LibraryInspectionTestLibrary.Identity(content));
-        MemberDocument expected =
+        MemberDocumentInspectionContent expected =
             Assert.IsType<MemberDocumentInspectionOutcome.Available>(
                     ExecuteMemberDocument(
                             library,
@@ -688,7 +727,7 @@ public sealed class MemberOverloadPopulationInspectionOperationTests
                 },
                 TestContext.Current.CancellationToken);
 
-        MemberDocument document =
+        MemberDocumentInspectionContent document =
             Assert.IsType<MemberDocumentInspectionOutcome.Available>(
                     inspection.Content)
                 .Document;
@@ -982,7 +1021,7 @@ public sealed class MemberOverloadPopulationInspectionOperationTests
                 + first.Fingerprint.Length
                 + first.Accessibility.Length);
 
-        MemberDocument exact =
+        MemberDocumentInspectionContent exact =
             Assert.IsType<MemberDocumentInspectionOutcome.Available>(
                     ExecuteMemberDocument(
                             library,
@@ -1147,6 +1186,7 @@ public sealed class MemberOverloadPopulationInspectionOperationTests
                 (MemberOverloadReceiverFilter.All, 40),
                 (MemberOverloadReceiverFilter.Static, 25),
                 (MemberOverloadReceiverFilter.Extension, 15),
+                (MemberOverloadReceiverFilter.NonExtension, 25),
                 (MemberOverloadReceiverFilter.This, 0),
             })
         {
@@ -1185,7 +1225,17 @@ public sealed class MemberOverloadPopulationInspectionOperationTests
             Assert.Equal(
                 filter,
                 read.Overloads.Binding.Receiver);
-            if (filter is not MemberOverloadReceiverFilter.All)
+            if (filter
+                is MemberOverloadReceiverFilter.NonExtension)
+            {
+                Assert.DoesNotContain(
+                    rows.Items,
+                    static row =>
+                        row.Receiver
+                            is MemberReceiver.Extension);
+            }
+            else if (filter
+                is not MemberOverloadReceiverFilter.All)
             {
                 MemberReceiver expectedReceiver = filter switch
                 {
