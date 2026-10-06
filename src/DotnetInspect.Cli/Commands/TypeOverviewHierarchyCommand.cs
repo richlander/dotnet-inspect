@@ -24,7 +24,16 @@ internal static class TypeOverviewHierarchyCommand
         CancellationToken cancellationToken)
     {
         if (!CanExecute(options))
+        {
+            if (RequestsExactTypeMermaid(options))
+            {
+                CommandError.Write(
+                    "The Type Mermaid hierarchy cannot be combined with filters or other projections.");
+                return 1;
+            }
+
             return null;
+        }
 
         string? apiDllPath =
             ApiServices.FindApiDll(
@@ -48,12 +57,12 @@ internal static class TypeOverviewHierarchyCommand
             when (failure is IOException
                 or UnauthorizedAccessException)
         {
-            return null;
+            return Unavailable(options);
         }
         if (selection
             is not AssemblyDescriptorSelectionResult.Ready ready)
         {
-            return null;
+            return Unavailable(options);
         }
 
         TypeOverviewHierarchyPresentationFormat format =
@@ -172,6 +181,23 @@ internal static class TypeOverviewHierarchyCommand
             && !options.UnsafeOnly
             && !options.RequestAllTaste
             && !options.RequestReadableLocalNames;
+    }
+
+    static bool RequestsExactTypeMermaid(TypeOptions options) =>
+        options.Format is OutputFormat.Mermaid
+        && !string.IsNullOrWhiteSpace(options.TypeName)
+        && !options.TypeName.Contains('*', StringComparison.Ordinal)
+        && !options.TypeName.Contains('?', StringComparison.Ordinal)
+        && string.IsNullOrWhiteSpace(options.TypeFilter);
+
+    static int? Unavailable(TypeOptions options)
+    {
+        if (!RequestsExactTypeMermaid(options))
+            return null;
+
+        CommandError.Write(
+            "The requested Type Mermaid hierarchy could not be produced by the compact Type document path.");
+        return 1;
     }
 
     static TypeHierarchyInspectionResult Inspect(

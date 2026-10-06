@@ -40,23 +40,9 @@ public static class TypeOverviewHierarchyProjection
         InspectionHierarchyRequest<TypeOverviewHierarchyTopology> request,
         IInspectionHierarchySink<TypeOverviewHierarchyNode> sink)
     {
-        ArgumentNullException.ThrowIfNull(document);
-        ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(sink);
-        ValidateRequest(request);
-
-        TypeMemberGroupPopulationResult population =
-            document.Members;
         TypeMemberGroupRowsOutcome.Read rows =
-            population.Rows is TypeMemberGroupRowsOutcome.Read read
-                ? read
-                : throw new InvalidOperationException(
-                    "The Type document member-group Rows are unavailable.");
-        if (rows.Continuation is not null)
-        {
-            throw new InvalidOperationException(
-                "A Type overview hierarchy requires complete member-group Rows.");
-        }
+            GetValidatedRows(document, request);
 
         int categoryCount = 0;
         foreach (MemberGroupCategory category in s_categoryOrder)
@@ -93,6 +79,39 @@ public static class TypeOverviewHierarchyProjection
                     }
                 });
         }
+    }
+
+    public static void ValidateDocument(
+        TypeOverviewDocument document,
+        InspectionHierarchyRequest<TypeOverviewHierarchyTopology> request) =>
+        _ = GetValidatedRows(document, request);
+
+    private static TypeMemberGroupRowsOutcome.Read GetValidatedRows(
+        TypeOverviewDocument document,
+        InspectionHierarchyRequest<TypeOverviewHierarchyTopology> request)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        ArgumentNullException.ThrowIfNull(request);
+        ValidateRequest(request);
+
+        TypeMemberGroupRowsOutcome.Read rows =
+            document.Members.Rows is TypeMemberGroupRowsOutcome.Read read
+                ? read
+                : throw new InvalidOperationException(
+                    "The Type document member-group Rows are unavailable.");
+        if (rows.Continuation is not null)
+        {
+            throw new InvalidOperationException(
+                "A Type overview hierarchy requires complete member-group Rows.");
+        }
+        if (rows.Items.Any(
+                static row => !row.ExactMemberCount.HasValue))
+        {
+            throw new InvalidOperationException(
+                "A Type overview hierarchy requires exact-member Counts for every member group.");
+        }
+
+        return rows;
     }
 
     public static void ValidateRequest(
@@ -192,13 +211,7 @@ public static class TypeOverviewHierarchyProjection
         {
             if (row.Binding.Category != category)
                 continue;
-            if (row.ExactMemberCount is not { } exactMemberCount)
-            {
-                throw new InvalidOperationException(
-                    "A Type overview hierarchy requires exact-member Counts for every member group.");
-            }
-
-            count += exactMemberCount;
+            count += row.ExactMemberCount.GetValueOrDefault();
         }
 
         return count;

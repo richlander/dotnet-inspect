@@ -104,6 +104,12 @@ public partial class CommandExecutionTests
                 "N.Widget",
                 "--library",
                 path);
+            var mermaidResult = await RunAppAsync(
+                "type",
+                "N.Widget",
+                "--library",
+                path,
+                "--mermaid");
 
             Assert.Empty(typeResult.Error);
             Assert.Empty(memberResult.Error);
@@ -111,6 +117,12 @@ public partial class CommandExecutionTests
             Assert.Equal(0, memberResult.Exit);
             Assert.Contains("N.Widget", typeResult.Output);
             Assert.Contains("N.Widget", memberResult.Output);
+            Assert.Equal(1, mermaidResult.Exit);
+            Assert.Empty(mermaidResult.Output);
+            Assert.Contains(
+                "could not be produced by the compact Type document path",
+                mermaidResult.Error,
+                StringComparison.Ordinal);
         }
         finally
         {

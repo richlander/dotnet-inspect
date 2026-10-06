@@ -136,6 +136,34 @@ public class TypeOverviewHierarchyPresentationTests
                 - 1);
     }
 
+    [Theory]
+    [InlineData(TypeOverviewHierarchyPresentationFormat.Tree)]
+    [InlineData(TypeOverviewHierarchyPresentationFormat.Mermaid)]
+    public void PartialRows_AreRejectedBeforeOutput(
+        TypeOverviewHierarchyPresentationFormat format)
+    {
+        TypeOverviewDocument document =
+            Document("Widget", partial: true);
+        TypeOverviewHierarchyPresentationPlan plan =
+            TypeOverviewHierarchyPresentation.CreateCompactPlan(
+                format,
+                includeNonPublic: false);
+        using var output = new StringWriter();
+
+        InvalidOperationException exception =
+            Assert.Throws<InvalidOperationException>(
+                () => TypeOverviewHierarchyPresentation.Write(
+                    document,
+                    plan,
+                    output));
+
+        Assert.Contains(
+            "complete member-group Rows",
+            exception.Message,
+            StringComparison.Ordinal);
+        Assert.Empty(output.ToString());
+    }
+
     [Fact]
     public void TypeSpelling_PreservesNoncanonicalBacktick()
     {
@@ -164,7 +192,8 @@ public class TypeOverviewHierarchyPresentationTests
 
     private static TypeOverviewDocument Document(
         string typeSegment,
-        string? genericParameter = null)
+        string? genericParameter = null,
+        bool partial = false)
     {
         MetadataTypeDefinitionName type =
             Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
@@ -245,7 +274,12 @@ public class TypeOverviewHierarchyPresentationTests
                 new TypeMemberGroupRowsOutcome.Read(
                     TypeMemberGroupOrdering.Metadata,
                     rows,
-                    Continuation: null),
+                    partial
+                        ? new TypeMemberGroupContinuation(
+                            binding,
+                            nextOrdinal: 3,
+                            includeExactMemberCount: true)
+                        : null),
                 Composition: null,
                 SelectorCounts: null);
         return new(

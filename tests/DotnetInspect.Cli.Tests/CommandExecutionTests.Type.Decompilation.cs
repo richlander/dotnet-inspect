@@ -1020,6 +1020,27 @@ public partial class CommandExecutionTests
 
     [Fact]
     public async Task
+        Type_ExactType_MermaidWithMemberFilterFailsBeforeLegacyRendering()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            "System.Math",
+            "--platform",
+            "System.Private.CoreLib",
+            "--mermaid",
+            "--member",
+            "Abs");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "cannot be combined with filters or other projections",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task
         Type_ExactType_MermaidWithXmlSidecarUsesSharedHierarchy()
     {
         string directory =

@@ -86,6 +86,9 @@ public static class TypeOverviewHierarchyPresentation
         ArgumentNullException.ThrowIfNull(document);
         ArgumentNullException.ThrowIfNull(plan);
         ArgumentNullException.ThrowIfNull(output);
+        TypeOverviewHierarchyProjection.ValidateDocument(
+            document,
+            plan.Hierarchy);
 
         string root =
             FormatTypeDeclaration(
