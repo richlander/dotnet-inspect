@@ -1996,54 +1996,81 @@ public class CorpusSensorComparisonTests
     }
 
     [Fact]
-    public void DeterministicIndependentReturnToSenderTargets_SelectsExactCapBeforeAnyOracle()
+    public void IndependentReturnToSenderTargets_UseOwnerIssuedCappedSelection()
     {
-        string assemblyPath = Path.Combine(Environment.CurrentDirectory, "pinned.dll");
-        CorpusMethodSnapshot[] methods =
-        [
-            SnapshotMethod("LegacyExact", assemblyPath: "pinned.dll", fidelityCheck: "Exact"),
-            SnapshotMethod("LegacyUnavailable", assemblyPath: "pinned.dll", fidelityCheck: "FidelityUnavailable"),
-            SnapshotMethod("LegacyContextFail", assemblyPath: "pinned.dll", fidelityCheck: "ContextFail"),
-            SnapshotMethod("LegacyRecompileFail", assemblyPath: "pinned.dll", fidelityCheck: "RecompileFail"),
-            SnapshotMethod("LegacyNotFull", assemblyPath: "pinned.dll", fidelityCheck: "NotFull"),
-            SnapshotMethod("<Owner>b__0_0", assemblyPath: "pinned.dll", fidelityCheck: "Exact"),
-        ];
+        string assemblyPath =
+            FidelityCheckGeneratedFilterTests.CompileFixture("""
+                public static class IndependentTargets
+                {
+                    public static int Alpha(int value) => value + 1;
+                    public static int Beta(int value) => value + 2;
+                    public static int Gamma(int value) => value + 3;
+                    public static int Delta(int value) => value + 4;
+                    public static int Epsilon(int value) => value + 5;
+                }
+                """, assemblyName: "IndependentTargets");
+        try
+        {
+            IReadOnlyList<FidelityCheck.CompileBackTarget> expected =
+                FidelityCheck.SelectReturnToSenderTargets(
+                    [assemblyPath],
+                    cap: 4);
+            IReadOnlyList<FidelityCheck.CompileBackTarget> selected =
+                CorpusSensor.SelectIndependentReturnToSenderTargetsForTesting(
+                    assemblyPath,
+                    cap: 4);
 
-        var selected = CorpusSensor.DeterministicIndependentReturnToSenderTargetsForTesting(
-            methods,
-            assemblyPath,
-            cap: 4);
-        var reordered = CorpusSensor.DeterministicIndependentReturnToSenderTargetsForTesting(
-            methods.Reverse().ToArray(),
-            assemblyPath,
-            cap: 4);
-
-        Assert.Equal(4, selected.Count);
-        Assert.DoesNotContain(selected, target => target.Method.StartsWith("<", StringComparison.Ordinal));
-        Assert.Equal(
-            selected.Select(target => $"{target.Type}::{target.Method}#{target.Overload}{target.Signature}"),
-            reordered.Select(target => $"{target.Type}::{target.Method}#{target.Overload}{target.Signature}"));
-        Assert.Contains(selected, target => target.Method == "LegacyContextFail");
+            Assert.Equal(
+                expected.Select(target => (
+                    target.AssemblyPath,
+                    target.Type,
+                    target.Method,
+                    target.Overload,
+                    target.Signature,
+                    target.Address)),
+                selected.Select(target => (
+                    target.AssemblyPath,
+                    target.Type,
+                    target.Method,
+                    target.Overload,
+                    target.Signature,
+                    target.Address)));
+            Assert.All(selected, target => Assert.NotNull(target.Address));
+        }
+        finally
+        {
+            FidelityCheckGeneratedFilterTests.DeleteFixture(assemblyPath);
+        }
     }
 
     [Fact]
-    public void DeterministicIndependentReturnToSenderTargets_FailsWhenExactCapIsUnavailable()
+    public void IndependentReturnToSenderTargets_FailWhenExactCapIsUnavailable()
     {
-        string assemblyPath = Path.Combine(Environment.CurrentDirectory, "pinned.dll");
-        CorpusMethodSnapshot[] methods =
-        [
-            SnapshotMethod("Only", assemblyPath: "pinned.dll"),
-            SnapshotMethod("<Generated>", assemblyPath: "pinned.dll"),
-        ];
+        string assemblyPath =
+            FidelityCheckGeneratedFilterTests.CompileFixture("""
+                public static class SparseIndependentTargets
+                {
+                    public static int Only(int value) => value + 1;
+                }
+                """, assemblyName: "SparseIndependentTargets");
+        try
+        {
+            var exception = Assert.Throws<InvalidOperationException>(() =>
+                CorpusSensor.SelectIndependentReturnToSenderTargetsForTesting(
+                    assemblyPath,
+                    cap: 2));
 
-        var exception = Assert.Throws<InvalidOperationException>(() =>
-            CorpusSensor.DeterministicIndependentReturnToSenderTargetsForTesting(
-                methods,
-                assemblyPath,
-                cap: 2));
-
-        Assert.Contains("requires exactly 2 eligible methods", exception.Message);
-        Assert.Contains("but found 1", exception.Message);
+            Assert.Contains(
+                "requires exactly 2 eligible targets",
+                exception.Message);
+            Assert.Contains(
+                "selection settled 1",
+                exception.Message);
+        }
+        finally
+        {
+            FidelityCheckGeneratedFilterTests.DeleteFixture(assemblyPath);
+        }
     }
 
     [Fact]
@@ -2183,10 +2210,27 @@ public class CorpusSensorComparisonTests
         var sampledMethods = snapshot.Methods!
             .Where(method => method.FidelityCheck != "not-sampled")
             .ToArray();
+        IReadOnlyList<FidelityCheck.CompileBackTarget> expectedTargets =
+            FidelityCheck.SelectReturnToSenderTargets(
+                [assemblyPath],
+                cap: 2);
 
         Assert.Equal(2, selected.SelectedMethods);
         Assert.Equal(2, selected.NativeAvailableMethods + selected.NativeUnavailableMethods);
         Assert.Equal(2, sampledMethods.Length);
+        Assert.Equal(
+            expectedTargets
+                .Select(target => (
+                    target.Type,
+                    target.Method,
+                    target.Overload))
+                .Order(),
+            sampledMethods
+                .Select(method => (
+                    method.Type,
+                    method.Method,
+                    method.Overload))
+                .Order());
         Assert.All(sampledMethods, method =>
         {
             Assert.Equal("return-to-sender-cutover; compile-back-floor=false", method.FidelityCapture);

@@ -1062,14 +1062,25 @@ internal static class CorpusSensor
         CorpusFidelityOracle fidelityOracle)
     {
         var reports = ImmutableArray.CreateBuilder<FidelityCapReport>();
+        Dictionary<string, string>? methodKeysByTarget =
+            IsIndependentReturnToSenderOracle(fidelityOracle)
+                ? methods.Values.ToDictionary(
+                    method => TargetKey(
+                        method.AssemblyPath,
+                        method.Type,
+                        method.Method,
+                        method.Overload),
+                    MethodKey,
+                    StringComparer.Ordinal)
+                : null;
         foreach (var cap in caps.Where(cap => cap > 0).Distinct().OrderBy(cap => cap))
         {
             var independentRtsEvaluations = IsIndependentReturnToSenderOracle(fidelityOracle)
                 ? await SelectThenEvaluateNativeFirstAsync(
                     assemblies,
-                    assembly => new IndependentReturnToSenderTargetSet(
+                    assembly => SelectIndependentReturnToSenderTargets(
                         assembly,
-                        DeterministicIndependentReturnToSenderTargets(methods.Values, assembly, cap)),
+                        cap),
                     targetSet => EvaluateIndependentReturnToSenderTargets(
                         targetSet.AssemblyPath,
                         targetSet.Targets,
@@ -1153,6 +1164,18 @@ internal static class CorpusSensor
                     foreach (var result in assemblyResults)
                     {
                         string key = MethodKey(portablePath, result.Type, result.Method, result.Signature);
+                        if (!methods.ContainsKey(key)
+                            && methodKeysByTarget is not null
+                            && methodKeysByTarget.TryGetValue(
+                                TargetKey(
+                                    portablePath,
+                                    result.Type,
+                                    result.Method,
+                                    result.Overload),
+                                out string? targetKey))
+                        {
+                            key = targetKey;
+                        }
                         if (methods.TryGetValue(key, out var methodSnapshot))
                         {
                             methods[key] = methodSnapshot with
@@ -1748,11 +1771,32 @@ internal static class CorpusSensor
         int cap)
         => DeterministicCompileBackTargetAttempts(methods, assemblyPath, cap);
 
-    internal static IReadOnlyList<FidelityCheck.CompileBackTarget> DeterministicIndependentReturnToSenderTargetsForTesting(
-        IReadOnlyList<CorpusMethodSnapshot> methods,
+    internal static IReadOnlyList<FidelityCheck.CompileBackTarget> SelectIndependentReturnToSenderTargetsForTesting(
         string assemblyPath,
         int cap)
-        => DeterministicIndependentReturnToSenderTargets(methods, assemblyPath, cap);
+        => SelectIndependentReturnToSenderTargets(
+            assemblyPath,
+            cap).Targets;
+
+    static IndependentReturnToSenderTargetSet
+        SelectIndependentReturnToSenderTargets(
+            string assemblyPath,
+            int cap)
+    {
+        IReadOnlyList<FidelityCheck.CompileBackTarget> targets =
+            FidelityCheck.SelectReturnToSenderTargets(
+                [assemblyPath],
+                cap);
+        if (targets.Count != cap)
+        {
+            throw new InvalidOperationException(
+                $"Independent RTS requires exactly {cap} eligible targets "
+                + $"for '{PortablePath(assemblyPath)}', but owner-issued "
+                + $"selection settled {targets.Count}.");
+        }
+
+        return new(assemblyPath, targets);
+    }
 
     static IReadOnlyList<FidelityCheck.CompileBackTarget> DeterministicCompileBackTargetAttemptsForAssembly(
         string assemblyPath,
@@ -1807,44 +1851,6 @@ internal static class CorpusSensor
             .ToArray();
     }
 
-    static IReadOnlyList<FidelityCheck.CompileBackTarget> DeterministicIndependentReturnToSenderTargets(
-        IEnumerable<CorpusMethodSnapshot> methods,
-        string assemblyPath,
-        int cap)
-    {
-        if (cap <= 0)
-            return [];
-
-        string portablePath = PortablePath(assemblyPath);
-        var eligible = methods
-            .Where(method => string.Equals(method.AssemblyPath, portablePath, StringComparison.Ordinal)
-                && !FidelityCheck.IsSynthesizedMember(method.Type, method.Method))
-            .OrderBy(StableMethodHash)
-            .ThenBy(MethodKey, StringComparer.Ordinal)
-            .ToArray();
-        if (eligible.Length < cap)
-        {
-            string availablePaths = string.Join(
-                ", ",
-                methods.Select(method => method.AssemblyPath)
-                    .Distinct(StringComparer.Ordinal)
-                    .Order(StringComparer.Ordinal));
-            throw new InvalidOperationException(
-                $"Independent RTS requires exactly {cap} eligible methods for '{portablePath}', "
-                + $"but found {eligible.Length}. Available snapshot paths: {availablePaths}.");
-        }
-
-        return eligible
-            .Take(cap)
-            .Select(method => new FidelityCheck.CompileBackTarget(
-                assemblyPath,
-                method.Type,
-                method.Method,
-                method.Overload,
-                method.Signature))
-            .ToArray();
-    }
-
     static int DeterministicAttemptCap(int cap)
         => cap > int.MaxValue / 10
             ? int.MaxValue
@@ -1873,6 +1879,13 @@ internal static class CorpusSensor
 
     static string MethodKey(string assemblyPath, string type, string method, string signature)
         => $"{assemblyPath}!{type}::{method}{signature}";
+
+    static string TargetKey(
+        string assemblyPath,
+        string type,
+        string method,
+        int overload)
+        => $"{assemblyPath}!{type}::{method}#{overload}";
 
     static string ValidityStatus(ValidityCheck.MethodResult result)
     {

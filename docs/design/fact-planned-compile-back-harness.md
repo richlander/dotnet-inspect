@@ -316,6 +316,11 @@ decision in rank order and stops when the requested number of eligible targets
 has settled. The selected set must equal the prefix produced by the complete
 pre-cap plan, and selected targets return in original metadata order. Assembly
 order and the global cross-assembly cap remain host-owned and unchanged.
+DecompilerHarness corpus `rts-native` and `rts-cutover` execution consume this
+plan before native RTS evaluation; their per-assembly fidelity cap must settle
+exactly or the corpus run fails visibly. Corpus result association uses the
+selected target's assembly, declaring type, method name, and metadata overload
+ordinal rather than reparsing its display signature.
 
 This capped plan does not claim a complete population receipt. Its receipt
 separately reports bodies ranked, bodies deeply evaluated, declaration

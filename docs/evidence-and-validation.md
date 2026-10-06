@@ -296,7 +296,9 @@ than an inspected artifact:
   operation-owned rank-first capped plan, requires identical selected-target
   fingerprints, and reports ranked and deeply evaluated body counts.
   `select-one Eager|RankFirst <cap> <assembly>...` supports exact base/head
-  process-start measurement of either capped physical plan.
+  process-start measurement of either capped physical plan. DecompilerHarness
+  corpus execution with `--corpus-fidelity-oracle rts-native` or
+  `rts-cutover` consumes the rank-first plan before native RTS evaluation.
 
 **The scorecard** scores QuerySpace (Base), LINQ, NLinq, and QuerySpace for
 Exists, Count,
