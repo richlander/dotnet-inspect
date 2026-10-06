@@ -63,9 +63,9 @@ Then apply the matching transition.
 
 ## Review and metadata
 
-- Use one reviewer seat from the roster. Non-Markdown candidates wait for green
-  current-head `ci-required`; Markdown-only candidates use the documented fast
-  path.
+- Use one reviewer seat from the roster. Ordinary non-Markdown candidates wait
+  for green current-head `ci-required` unless the user approved parallel review
+  or conflict recovery applies; Markdown-only candidates use the fast path.
 - Start the reviewer briefing with the complete canonical prompt, then the
   self-contained candidate frame. Use an isolated read-only review worktree,
   and record round start and end times.
