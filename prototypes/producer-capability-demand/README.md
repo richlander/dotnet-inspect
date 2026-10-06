@@ -55,7 +55,8 @@ The current Package Tree and section-row adopters do not reach either shape.
 
 - The `Coverage` key abstracts scope, capability, completion, and outcome
   identities compared by reference equality. Completion is compared exactly,
-  as in C#, even though the design text says "at least".
+  as in C#, even though the design text says "at least"
+  ([#9486](https://github.com/richlander/dotnet-inspect/issues/9486)).
 - Producer coverage and provision truth are hypotheses, matching the design's
   statement that the producer remains responsible for its declarations.
 - Requirement-set construction, domain and resource identity checks,
