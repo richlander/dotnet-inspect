@@ -171,17 +171,46 @@ internal static class ReleaseCandidateWorkflowContract
 
         YamlMappingNode source =
             GetRequiredMapping(jobs, "source", "release candidate jobs");
+        // The source job waits up to 60 minutes for the head's main CI, so
+        // its own timeout must outlast that deadline or the runner kills the
+        // job before the deadline error can name the cause.
+        string sourceTimeout = GetRequiredScalar(
+            source,
+            "timeout-minutes",
+            "jobs.source");
+        if (!int.TryParse(sourceTimeout, out int sourceTimeoutMinutes)
+            || sourceTimeoutMinutes <= 60)
+        {
+            throw new InvalidOperationException(
+                $"jobs.source.timeout-minutes must exceed the 60-minute main CI wait, not '{sourceTimeout}'.");
+        }
+
         string sourceRun = GetRequiredScalar(
             FindStep(source, "Require green main and an unreleased version"),
             "run",
             "release candidate source validation");
         RequireContains(
             sourceRun,
+            "::error::Release candidates build only from main, not $GITHUB_REF.");
+        RequireContains(
+            sourceRun,
             ".check_runs[] | select(.name == \"ci / ci-required\")");
+        RequireContains(sourceRun, "if . == null then \"missing/none\"");
+        RequireContains(sourceRun, "deadline=$(( $(date +%s) + 60 * 60 ))");
         RequireContains(sourceRun, "completed/success)");
         RequireContains(
             sourceRun,
             "::error::ci / ci-required for $GITHUB_SHA is $ci;");
+        RequireContains(
+            sourceRun,
+            "::error::ci / ci-required for $GITHUB_SHA is still $ci after 60 minutes;");
+        RequireContains(sourceRun, "waiting.\"\n  sleep 60\ndone");
+        RequireContains(
+            sourceRun,
+            "::error::VersionPrefix '$version' is not a MAJOR.MINOR.PATCH version.");
+        RequireContains(
+            sourceRun,
+            "::error::Latest release tag '$release_tag' is not a vMAJOR.MINOR.PATCH version.");
         RequireContains(sourceRun, "test \"$skill_version\" = \"$version\"");
         RequireContains(
             sourceRun,
