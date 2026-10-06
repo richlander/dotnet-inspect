@@ -480,12 +480,24 @@ public sealed class TypeDocumentInspectionOperationTests
             methodMembers.Sum(
                 static member =>
                     member.Value.ExactMemberCount!.Value));
-        Assert.Equal(
-            methodMembers
+        TypeMemberGroupRowsOutcome.Read sourceRows =
+            Assert.IsType<TypeMemberGroupRowsOutcome.Read>(
+                Assert.IsType<TypeDocumentDeclarations.Available>(
+                        document.Declarations)
+                    .Population.Rows);
+        string[] expectedMethodOrder =
+        [
+            .. sourceRows.Items
+                .Where(
+                    static member =>
+                        member.Binding.Category
+                            is MemberGroupCategory.Method)
                 .Select(
                     static member =>
-                        member.Value.Binding.Name.ToString())
-                .Order(StringComparer.Ordinal),
+                        member.Binding.Name.ToString()),
+        ];
+        Assert.Equal(
+            expectedMethodOrder,
             methodMembers.Select(
                 static member =>
                     member.Value.Binding.Name.ToString()));
@@ -493,14 +505,14 @@ public sealed class TypeDocumentInspectionOperationTests
         TypeDocumentHierarchyNode.Member firstMethod =
             methodMembers[0];
         Assert.Equal(
-            "Deserialize",
+            expectedMethodOrder[0],
             firstMethod.Value.Binding.Name.ToString());
         Assert.False(sink.Events[3].IsLastSibling);
 
         TypeDocumentHierarchyNode.Member lastMethod =
             methodMembers[^1];
         Assert.Equal(
-            "SerializeToUtf8Bytes",
+            expectedMethodOrder[^1],
             lastMethod.Value.Binding.Name.ToString());
         Assert.True(sink.Events[^1].IsLastSibling);
 

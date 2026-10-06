@@ -89,10 +89,7 @@ public static class TypeDocumentHierarchyProjection
                     foreach (TypeMemberGroupShape member in rows.Items
                         .Where(
                             row =>
-                                row.Binding.Category == category)
-                        .OrderBy(
-                            row => row.Binding.Name.ToString(),
-                            StringComparer.Ordinal))
+                                row.Binding.Category == category))
                     {
                         children.WriteNode(
                             new TypeDocumentHierarchyNode.Member(member),

@@ -49,8 +49,8 @@ public class TypeDocumentHierarchyPresentationTests
             """
             class Example.Widget<T>
             └─ Methods (2 logical, 3 overloads)
-               ├─ First
-               └─ Second (2 overloads)
+               ├─ Second (2 overloads)
+               └─ First
 
             """.ReplaceLineEndings(),
             output.ToString());

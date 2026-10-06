@@ -62,7 +62,17 @@ internal static class TypeDocumentHierarchyCommand
             return 1;
         }
         if (result is TypeHierarchyInspectionResult.NotApplicable)
+        {
+            if (format
+                is TypeDocumentHierarchyPresentationFormat.Mermaid)
+            {
+                CommandError.Write(
+                    "The requested Type Mermaid hierarchy could not be produced by the compact Type document path.");
+                return 1;
+            }
+
             return null;
+        }
         InspectionEnvelope<TypeDocumentInspectionOutcome>? envelope =
             ((TypeHierarchyInspectionResult.Completed)result).Envelope;
         if (envelope?.Content
@@ -105,7 +115,8 @@ internal static class TypeDocumentHierarchyCommand
             && File.Exists(
                 Path.ChangeExtension(
                     assemblyPath,
-                    ".xml")))
+                    ".xml"))
+            && options.Format is not OutputFormat.Mermaid)
         {
             return false;
         }

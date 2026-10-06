@@ -1018,6 +1018,55 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("└─", output, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task
+        Type_ExactType_MermaidWithXmlSidecarUsesSharedHierarchy()
+    {
+        string directory =
+            Directory.CreateTempSubdirectory(
+                "mermaid-sidecar-").FullName;
+        string path =
+            Path.Combine(directory, "Sidecar.dll");
+        try
+        {
+            await File.WriteAllBytesAsync(
+                path,
+                MetadataTestImages
+                    .BuildNoncanonicalBacktickTypeImage(),
+                TestContext.Current.CancellationToken);
+            await File.WriteAllTextAsync(
+                Path.ChangeExtension(path, ".xml"),
+                "",
+                TestContext.Current.CancellationToken);
+
+            var (exit, output, error) = await RunAppAsync(
+                "type",
+                "Example.Widget`1Extra",
+                "--library",
+                path,
+                "--mermaid");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.StartsWith(
+                "graph TD",
+                output,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "Widget`1Extra",
+                output,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "└─",
+                output,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     public abstract class FullTypeDecompilationFixture
     {
         static FullTypeDecompilationFixture()
@@ -1194,6 +1243,51 @@ public partial class CommandExecutionTests
             Assert.DoesNotContain(
                 "Library Type Rows",
                 error,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task
+        Type_Mermaid_FailsWhenCompactTypeInventoryExceedsBound()
+    {
+        string directory =
+            Directory.CreateTempSubdirectory(
+                "oversized-mermaid-inventory-").FullName;
+        string path =
+            Path.Combine(directory, "OversizedTypeInventory.dll");
+        try
+        {
+            await File.WriteAllBytesAsync(
+                path,
+                MetadataTestImages.BuildOversizedTypeInventoryImage(
+                    unrelatedTypeCount: 15_001),
+                TestContext.Current.CancellationToken);
+
+            var (exit, output, error) = await RunAppAsync(
+                "type",
+                "Oversized.Target",
+                "--library",
+                path,
+                "--mermaid");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(
+                "Type Mermaid hierarchy could not be produced",
+                error,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "Oversized.Target",
+                output,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "└─",
+                output,
                 StringComparison.Ordinal);
         }
         finally

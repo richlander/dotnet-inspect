@@ -203,7 +203,9 @@ logical and exact Counts, plus MemberGroup nodes carrying the owner-issued
 compact row. It defines category membership and order, MemberGroup order,
 nesting, Counts, and exact last-sibling facts. It rejects unsupported spelling
 or terminal choices and unavailable, partial, or uncounted Rows rather than
-emitting a successful shortened hierarchy.
+emitting a successful shortened hierarchy. Within each category, projection
+preserves the order of the bound MemberGroup Rows exactly; it does not sort
+completed product Rows after population execution.
 
 [Host-neutral hierarchy projection](host-neutral-hierarchy-projection.md)
 owns the recursive Rows-or-Count and Name-or-FullSpelling request vocabulary,
