@@ -50,55 +50,41 @@ public sealed record TypeDocumentGenericParameter(
         InertString Name,
     GenericParameterAttributes Attributes);
 
-public sealed record TypeDocumentDeclarationSignature(
-    ImmutableArray<TypeDocumentGenericParameter> GenericParameters);
-
-public abstract record TypeDocumentSubjectCorrespondence
+public sealed record TypeDocumentDeclarationSignature
 {
-    private protected TypeDocumentSubjectCorrespondence()
+    [JsonConstructor]
+    public TypeDocumentDeclarationSignature(
+        ImmutableArray<TypeDocumentGenericParameter> genericParameters)
     {
-    }
-
-    public sealed record Library
-        : TypeDocumentSubjectCorrespondence
-    {
-        public Library(
-            LibraryTypeDocumentSubjectCorrespondence value)
+        if (genericParameters.IsDefault)
         {
-            ArgumentNullException.ThrowIfNull(value);
-            Value = value;
+            throw new ArgumentException(
+                "A Type declaration signature requires an explicit generic-parameter population.",
+                nameof(genericParameters));
         }
 
-        public LibraryTypeDocumentSubjectCorrespondence Value
-        {
-            get;
-        }
+        GenericParameters = genericParameters;
     }
 
-    public sealed record DirectAssembly
-        : TypeDocumentSubjectCorrespondence;
+    public ImmutableArray<TypeDocumentGenericParameter>
+        GenericParameters { get; }
 }
 
 public sealed record TypeSubject
 {
+    [JsonConstructor]
     public TypeSubject(
-        TypeDocumentSubjectCorrespondence correspondence,
         LibraryAssemblyIdentity assembly,
         Guid moduleVersionId,
         MetadataTypeDefinitionName type,
         int typeDefinitionToken,
         TypeDocumentDeclarationSignature signature,
         MetadataTypeDeclarationCategory category,
-        MetadataTypeDeclarationBaseKind baseKind,
-        int interfaceCount,
         TypeAttributes attributes,
         bool isByRefLike,
         bool definesCoreLibraryRoot,
         int? declaringTypeDefinitionToken)
     {
-        Correspondence = correspondence
-            ?? throw new ArgumentNullException(
-                nameof(correspondence));
         Assembly = assembly
             ?? throw new ArgumentNullException(nameof(assembly));
         if (moduleVersionId == Guid.Empty)
@@ -114,29 +100,55 @@ public sealed record TypeSubject
             ?? throw new ArgumentNullException(nameof(signature));
         if (!Enum.IsDefined(category))
             throw new ArgumentOutOfRangeException(nameof(category));
-        if (!Enum.IsDefined(baseKind))
-            throw new ArgumentOutOfRangeException(nameof(baseKind));
-        ArgumentOutOfRangeException.ThrowIfNegative(interfaceCount);
+        if (declaringTypeDefinitionToken is { } declaringToken)
+        {
+            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
+                declaringToken);
+        }
 
         ModuleVersionId = moduleVersionId;
         TypeDefinitionToken = typeDefinitionToken;
         Category = category;
-        BaseKind = baseKind;
-        InterfaceCount = interfaceCount;
         Attributes = attributes;
         IsByRefLike = isByRefLike;
         DefinesCoreLibraryRoot = definesCoreLibraryRoot;
         DeclaringTypeDefinitionToken = declaringTypeDefinitionToken;
     }
 
+    public TypeSubject(
+        LibraryTypeDocumentSubjectCorrespondence libraryCorrespondence,
+        LibraryAssemblyIdentity assembly,
+        Guid moduleVersionId,
+        MetadataTypeDefinitionName type,
+        int typeDefinitionToken,
+        TypeDocumentDeclarationSignature signature,
+        MetadataTypeDeclarationCategory category,
+        TypeAttributes attributes,
+        bool isByRefLike,
+        bool definesCoreLibraryRoot,
+        int? declaringTypeDefinitionToken)
+        : this(
+            assembly,
+            moduleVersionId,
+            type,
+            typeDefinitionToken,
+            signature,
+            category,
+            attributes,
+            isByRefLike,
+            definesCoreLibraryRoot,
+            declaringTypeDefinitionToken)
+    {
+        LibraryCorrespondence = libraryCorrespondence
+            ?? throw new ArgumentNullException(
+                nameof(libraryCorrespondence));
+    }
+
     [JsonIgnore]
-    public TypeDocumentSubjectCorrespondence Correspondence { get; }
-    [JsonIgnore]
-    public LibraryTypeDocumentSubjectCorrespondence? LibraryCorrespondence =>
-        Correspondence
-            is TypeDocumentSubjectCorrespondence.Library library
-                ? library.Value
-                : null;
+    public LibraryTypeDocumentSubjectCorrespondence? LibraryCorrespondence
+    {
+        get;
+    }
     [JsonIgnore]
     public LibraryReference? RequestedLibrary =>
         LibraryCorrespondence?.RequestedLibrary;
@@ -152,8 +164,6 @@ public sealed record TypeSubject
     public int TypeDefinitionToken { get; }
     public TypeDocumentDeclarationSignature Signature { get; }
     public MetadataTypeDeclarationCategory Category { get; }
-    public MetadataTypeDeclarationBaseKind BaseKind { get; }
-    public int InterfaceCount { get; }
     public TypeAttributes Attributes { get; }
     public bool IsByRefLike { get; }
     public bool DefinesCoreLibraryRoot { get; }
@@ -203,18 +213,23 @@ public abstract record TypeDocumentDeclarations
         : TypeDocumentDeclarations;
 }
 
-public sealed record TypeDocument
+public sealed record TypeDocumentInspectionContent
 {
-    public TypeDocument(
+    public TypeDocumentInspectionContent(
         TypeSubject subject,
         TypeDocumentDeclarations declarations,
-        int assemblyBytes)
+        int assemblyBytes,
+        MetadataTypeDeclarationBaseKind baseKind,
+        int interfaceCount)
     {
         Subject = subject
             ?? throw new ArgumentNullException(nameof(subject));
         Declarations = declarations
             ?? throw new ArgumentNullException(nameof(declarations));
         ArgumentOutOfRangeException.ThrowIfNegative(assemblyBytes);
+        if (!Enum.IsDefined(baseKind))
+            throw new ArgumentOutOfRangeException(nameof(baseKind));
+        ArgumentOutOfRangeException.ThrowIfNegative(interfaceCount);
         if (declarations
                 is TypeDocumentDeclarations.Available available
             && !Matches(
@@ -227,11 +242,15 @@ public sealed record TypeDocument
         }
 
         AssemblyBytes = assemblyBytes;
+        BaseKind = baseKind;
+        InterfaceCount = interfaceCount;
     }
 
     public TypeSubject Subject { get; }
     public TypeDocumentDeclarations Declarations { get; }
     public int AssemblyBytes { get; }
+    public MetadataTypeDeclarationBaseKind BaseKind { get; }
+    public int InterfaceCount { get; }
 
     private static bool Matches(
         TypeSubject subject,
@@ -284,7 +303,7 @@ public abstract record TypeDocumentInspectionOutcome
     {
     }
 
-    public sealed record Available(TypeDocument Document)
+    public sealed record Available(TypeDocumentInspectionContent Document)
         : TypeDocumentInspectionOutcome;
 
     public sealed record Rejected(TypeDocumentInspectionRejection Reason)

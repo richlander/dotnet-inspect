@@ -131,6 +131,8 @@ public static partial class TypeCommand
         WriteInspectionDiagnostics(envelope.Diagnostics);
         ApiType type = ProjectDirectLibraryDiscoveryType(
             available.Document.Subject,
+            available.Document.BaseKind,
+            available.Document.InterfaceCount,
             selectorCounts,
             hasExtensionMethods,
             assemblyPath);
@@ -272,6 +274,8 @@ public static partial class TypeCommand
 
     static ApiType ProjectDirectLibraryDiscoveryType(
         TypeSubject subject,
+        MetadataTypeDeclarationBaseKind baseKind,
+        int interfaceCount,
         TypeMemberSelectorCounts selectorCounts,
         bool hasExtensionMethods,
         string assemblyPath)
@@ -311,12 +315,12 @@ public static partial class TypeCommand
                 && isSealed,
             IsByRefLike = subject.IsByRefLike,
             BaseType =
-                subject.BaseKind
+                baseKind
                     is MetadataTypeDeclarationBaseKind.Other
                     ? "<base>"
                     : null,
             Interfaces =
-                subject.InterfaceCount > 0
+                interfaceCount > 0
                     ? ["<interface>"]
                     : [],
             TypeParameters =

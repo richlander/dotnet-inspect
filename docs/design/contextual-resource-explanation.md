@@ -15,6 +15,11 @@ related-operation affordance identities join to lazy CLI-owned bindings for
 `--explain .tips`, and resolved-subject bare `-E`. The command resource and
 detached MemberGroup or exact-Member snapshots now produce the common
 `ResourceExplanationDocument`; there is no Member-specific Document wrapper.
+The host-neutral mapping now consumes completed `MemberOverviewDocument` or
+`MemberDocument` resolution and preserves its exact MemberGroup population
+correspondence. Current CLI routing still uses the transitional MemberGroup and
+exact-Member inputs; count-directed singleton adoption remains with the later
+host slice under #8430.
 Other
 commands retain their existing imperative tip construction and reserved bare
 `-E` behavior until adopted one owner at a time. The
@@ -331,14 +336,30 @@ composition does not rebuild any of them from positional arguments or
 presentation defaults.
 
 Subject cardinality is independent of the population nested inside a subject.
-For the Member adopter, a bare Member name resolves one `MemberGroup` subject
-even when the group contains many exact declarations, while an ordinal or
-digest resolves one exact `Member` subject. A singleton group remains a
-`MemberGroup`; explanation cannot promote it to an exact Member, reject an
-overloaded group as several subjects, or choose its first overload. The
-[Type, MemberGroup, and Member inspection documents](type-member-inspection-documents.md#selector-driven-document-and-explanation-identity)
-owner defines those subject kinds and the command retains its owner-issued
-typed identity without inferring kind from display text.
+For the Member adopter, the
+[Type and Member inspection documents](type-member-inspection-documents.md#selector-driven-document-identity)
+owner first resolves document identity. A name-only selection whose active
+population has one exact declaration resolves that exact `Member`; a
+name-only selection whose population has several exact declarations resolves
+one `MemberGroup`; and an exact selector resolves one exact `Member`.
+Explanation consumes that already resolved subject. It does not recount the
+population, promote or narrow the subject independently, reject an overloaded
+group as several subjects, choose its first overload, or infer kind from
+display text.
+
+The host-neutral explanation input admits only the completed overview or exact
+success variants from Member document resolution. It carries source context,
+the resolved document, default view, and semantic demand in one handoff. A
+rejected, incomplete, or failed resolution never becomes an explanation input;
+its existing typed non-success remains with the resolving owner.
+
+The MemberGroup explanation key and facts retain the exact population's
+assembly, module version, Type token, spelling, ordering, accessibility,
+receiver, and hidden-admission intent. Exact-Member explanation additionally
+retains the containing population, Metadata token, baseline ordinal,
+fingerprint, stable selector, and documentation identity. Transitional host
+inputs may omit population correspondence that they do not yet possess, but
+the completed-document mapping never reconstructs or drops it.
 
 The subject-reference owner decides what explanation means for a reusable
 subject, including its accepted operations and other affordances. This
@@ -536,10 +557,11 @@ An adopting command classifies its options before acquisition:
 Command-level mode is selected only when the invocation carries no subject or
 source-selection intent. Any source, version, framework, Library, Type,
 Member, occurrence, or partially specified subject intent selects
-resolved-subject mode. The command owner's selector grammar determines the
-semantic subject kind before any singleton or section-driven selection can
-change execution shape. If resolution fails, the command preserves its
-ordinary visible result and never falls back to command-level explanation.
+resolved-subject mode. The command owner's selector grammar and document
+resolution contract determine the semantic subject kind before explanation;
+presentation or section selection cannot change it. If resolution fails, the
+command preserves its ordinary visible result and never falls back to
+command-level explanation.
 
 The completed explanation is returned through
 `InspectionEnvelope<TContent>`. CLI and Browser/Wasm consumers lower the same
@@ -837,7 +859,7 @@ The pathological neighboring cases are:
 | A command advertises and executes `--explain` only after command-level and all required resolved-subject mappings are registered. | Four-state CLI help and invocation matrix covering neither registration, command-resource only, incomplete subject mappings, and all mappings; the first three states assert the visible unsupported result with fail-fast acquisition and explanation collaborators. |
 | Command-level and resolved-subject mode are distinguished without fallback. | First-adopter CLI matrix covering an empty target, every source and subject input family, and representative partial subject input; failed subject resolution preserves its ordinary visible result without invoking command-level explanation. |
 | Resolved-subject explanation preserves the command owner's semantic subject kind, parses and resolves once, acquires each required source at most once, and does not execute ordinary section producers. | First-adopter integration test with counting command-preprocessing, resolution, and acquisition collaborators, fail-fast ordinary producers, and real bare-name and exact `System.Text.Json` commands. |
-| MemberGroup cardinality is independent of exact-overload population cardinality; bare overloaded and singleton names remain MemberGroups, while ordinal and digest selectors remain exact Members. | Authentic `System.Text.Json` CLI matrix asserting the contextual kind and owner-issued identity for an overloaded group, a singleton group, and non-first ordinal and digest exact Members, with no first-overload selection or exact-only facts on group explanations. |
+| Document-subject cardinality is independent of child-population cardinality; a bare multi-declaration name remains one MemberGroup, while a bare singleton and exact selectors resolve exact Members. | Authentic `System.Text.Json` CLI matrix asserting the contextual kind and owner-issued identity for a multi-declaration group, a singleton exact Member, and non-first ordinal and digest exact Members, with no first-overload selection, recounting, or group facts on exact explanations. |
 | Direct explanation does not serialize and parse a reusable reference. | Host-neutral composition test whose reference serializer and parser fail if called. |
 | Zero, multiple, unavailable, and failed subject outcomes remain distinct and visible. | Cardinality and failure matrix over the first adopter. |
 | The top-level `explain` facade distinguishes registered or canonical multi-segment product-resource paths, reusable references, and capability-search text before operation invocation, admits only operand-specific options, invokes the exact typed owner, and preserves each owner's Content and failures without fallback. | Facade-level CLI gate covering a registered single-segment root or alias, unregistered `literal`, misspelled and `https://` search text, a registered multi-segment `ResourcePath`, an unknown canonical multi-segment path, noncanonical slash-bearing text, slash-bearing reusable-reference syntax, invalid shaped references, close grammar-boundary negatives, the complete operand-specific option matrix including `--depth` and result limit, rejection before acquisition or dispatch, exact typed dispatcher and Content selection, complete-empty search, and invalid, unavailable, and reopening-failure exact outcomes. |

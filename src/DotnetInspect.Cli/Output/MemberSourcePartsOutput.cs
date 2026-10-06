@@ -148,7 +148,7 @@ internal static class MemberSourcePartsOutput
     }
 
     internal static int WriteAttached(
-        MemberDocument member,
+        MemberDocumentInspectionContent member,
         AssemblyMemberSourceEntry outcome,
         MemberOptions options,
         TextWriter output)

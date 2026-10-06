@@ -58,6 +58,9 @@ public static class ProductVocabularyComposition
     /// <summary>The identity of the index vocabulary that lists every section.</summary>
     public const string SectionsId = "vocabulary.sections";
 
+    /// <summary>The index map naming the query inputs that accept each vocabulary.</summary>
+    public const string AcceptedByMapId = "accepted_by";
+
     /// <summary>The display label of the index vocabulary.</summary>
     public const string SectionsLabel = "Vocabulary Sections";
 
@@ -101,7 +104,7 @@ public static class ProductVocabularyComposition
         var identity = new VocabularyIdentity(Catalog, SectionsId);
         VocabularyMapDefinition acceptedBy = VocabularyMapDefinition.Scalar(
             identity,
-            "accepted_by",
+            AcceptedByMapId,
             "Accepted By",
             "Typed query inputs that consume these values.",
             ExplanationScalarKind.Text,

@@ -17,7 +17,7 @@ contracts remain command-owned until their semantic adoption.
 
 The package `--versions` and `--versions-with-feed` lenses, finite `demo list`
 catalog, `find`, `implements`, `extensions`, `depends`, `ecosystem`,
-`vocabulary` value rendering, `diff --history`, `package query`, package activity,
+`diff --history`, `package query`, package activity,
 projected member Facts JSON, Workspace top-level inventory, and Integration
 graph edges, a single package's layout lens, `Files`, or
 `SourceLink: Files` section,
@@ -52,8 +52,9 @@ before the commandless router enters target acquisition. #6379 adopts the
 finite product-demo catalog for explicit `demo list` and equivalent bare
 `demo` listing. #6489 adopts `find` across API search, package profile,
 Package Query, and literal Package Query modes, including shared semantic
-selection and Count evidence. #6643 adopts product-vocabulary value rows across
-selected sections. #6650 adopts timeline Evaluation and Transition rows while
+selection and Count evidence. #6643 adopted product-vocabulary value rows
+across selected sections; that adoption retired with the former vocabulary
+command. #6650 adopts timeline Evaluation and Transition rows while
 preserving its explicit package-cell acquisition plan. The broad #4677 line
 unit rollout defines rendered lines as the fallback item sequence, adds shared
 `--lines`/`--tail-lines`, and retires numeric `-t` as a row-count spelling on
@@ -245,8 +246,8 @@ adapter preserves parser errors and structured row-arity failures but does not
 yet select or render the one diagnostic when both exist.
 
 This adapter is installed only for explicitly registered command or lens
-adoptions: the plural package-version lenses, demo listing, ecosystem catalog,
-and vocabulary value rendering. Existing behavior for unregistered command
+adoptions: the plural package-version lenses, demo listing, and ecosystem
+catalog. Existing behavior for unregistered command
 surfaces and the general implicit-routing envelope remains unchanged.
 
 Existing options-first implicit package routing preserves direction-modifier
@@ -1350,27 +1351,6 @@ $ dotnet-inspect demo list -n 2 --rows 2..3 --json
 Error: Demo row selection stage 2 requires row 3, but only 2 demo rows are available.
 ```
 
-## Vocabulary adoption
-
-`vocabulary` declares one row per stable product-owned value in each selected
-vocabulary section. Every participating section is a separate named sequence
-in owner catalog order. Head/Tail and Window stages apply independently to all
-of them before count or format lowering; one strict Window failure withholds
-every selected section.
-
-```console
-$ dotnet-inspect vocabulary -S Accessibility -n 2 --tail --columns ID --tsv
-id
-internal
-private
-```
-
-The command exposes explicit rendered-line selection but does not expose Top
-or `--order-by`. Complete JSON rejects line selection before command work.
-Predicate and ranking adoption waits for the shared row-query owner rather than
-adding a vocabulary-local implementation. Structural `-D` output remains
-outside this adoption and keeps the existing discovery projection behavior.
-
 ## Diff History adoption
 
 `diff --history` declares five independent row sets. Outcome is the terminal
@@ -1467,12 +1447,6 @@ The demo-list adoption is enforced by:
 | Gate | Property |
 | --- | --- |
 | `DemoCommandTests` | Explicit `demo list` and equivalent bare `demo` apply semantic Head/Tail and ordered Window stages to complete catalog descriptors before JSON, Markout, or Count projection; every format observes the same selected demo identities; Count emits the selected descriptor cardinality; strict Window failure emits no partial payload; JSON rejects rendered-line clipping; scenario execution accepts only explicit rendered-line selection. |
-
-The vocabulary adoption is enforced by:
-
-| Gate | Property |
-| --- | --- |
-| `VocabularyCommandTests` | Explicit `vocabulary` value rendering applies semantic Head/Tail and ordered Window stages to stable catalog rows before count or format lowering; bare `-N` and explicit `-n` select the same identities, multiple selected sections remain independent named sequences, and one strict Window failure emits no partial document. Explicit Lines clips rendered TSV, while complete JSON rejects line selection. Structural discovery retains its existing projection path. |
 
 The timeline adoption is enforced by:
 

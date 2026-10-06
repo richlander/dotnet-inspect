@@ -164,9 +164,6 @@ owners:
 The library does not carry:
 
 - product-owned vocabularies, operation plans, or result types;
-- the Product Vocabulary document, its sections, fields, operator lists,
-  rows, or wire projection, a declared section schema owned by
-  `DotnetInspector.Sections`;
 - declared section schemas, section projection, envelopes, or
   `SectionCountOutcome`;
 - source-selection, acquisition, delegation, completion, or continuation

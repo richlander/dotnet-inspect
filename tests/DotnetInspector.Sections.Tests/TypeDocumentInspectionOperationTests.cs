@@ -34,7 +34,7 @@ public sealed class TypeDocumentInspectionOperationTests
             s_bounds.MaxMetadataRows,
             maxRetainedTextCharacters: 0);
 
-        TypeDocument document =
+        TypeDocumentInspectionContent document =
             Available(Execute(library, bounds: zeroPopulation));
 
         Assert.IsType<TypeDocumentDeclarations.NotRequested>(
@@ -52,8 +52,8 @@ public sealed class TypeDocumentInspectionOperationTests
             document.Subject.Category);
         Assert.Equal(
             MetadataTypeDeclarationBaseKind.Object,
-            document.Subject.BaseKind);
-        Assert.Equal(0, document.Subject.InterfaceCount);
+            document.BaseKind);
+        Assert.Equal(0, document.InterfaceCount);
         Assert.True(
             document.Subject.Attributes.HasFlag(
                 TypeAttributes.Public));
@@ -90,10 +90,8 @@ public sealed class TypeDocumentInspectionOperationTests
                     s_bounds),
                 TestContext.Current.CancellationToken);
 
-        TypeDocument document = Available(envelope);
-        Assert.IsType<
-            TypeDocumentSubjectCorrespondence.DirectAssembly>(
-                document.Subject.Correspondence);
+        TypeDocumentInspectionContent document = Available(envelope);
+        Assert.Null(document.Subject.LibraryCorrespondence);
         Assert.IsType<TypeDocumentDeclarations.NotRequested>(
             document.Declarations);
         Assert.Equal(
@@ -151,7 +149,7 @@ public sealed class TypeDocumentInspectionOperationTests
             s_bounds.MaxMetadataRows,
             maxRetainedTextCharacters: 0);
 
-        TypeDocument document =
+        TypeDocumentInspectionContent document =
             Available(
                 Execute(
                     library,
@@ -199,9 +197,9 @@ public sealed class TypeDocumentInspectionOperationTests
                 content,
                 identity);
 
-        TypeDocument firstDocument =
+        TypeDocumentInspectionContent firstDocument =
             Available(Execute(first));
-        TypeDocument secondDocument =
+        TypeDocumentInspectionContent secondDocument =
             Available(Execute(second));
 
         await first.RetireAsync();
@@ -251,7 +249,7 @@ public sealed class TypeDocumentInspectionOperationTests
 
         InspectionEnvelope<TypeDocumentInspectionOutcome> inspection =
             Execute(library, count: new());
-        TypeDocument document = Available(inspection);
+        TypeDocumentInspectionContent document = Available(inspection);
         TypeMemberGroupPopulationResult population =
             Assert.IsType<TypeDocumentDeclarations.Available>(
                     document.Declarations)
@@ -295,11 +293,11 @@ public sealed class TypeDocumentInspectionOperationTests
             await LibraryInspectionTestLibrary.CreateAsync(
                 content,
                 LibraryInspectionTestLibrary.Identity(content));
-        TypeDocument document =
+        TypeDocumentInspectionContent document =
             Available(Execute(library, count: new()));
         TypeSubject source = document.Subject;
         var mismatched = new TypeSubject(
-            source.Correspondence,
+            source.LibraryCorrespondence!,
             source.Assembly,
             source.ModuleVersionId,
             source.Type,
@@ -315,10 +313,12 @@ public sealed class TypeDocumentInspectionOperationTests
 
         ArgumentException exception =
             Assert.Throws<ArgumentException>(
-                () => new TypeDocument(
+                () => new TypeDocumentInspectionContent(
                     mismatched,
                     document.Declarations,
-                    document.AssemblyBytes));
+                    document.AssemblyBytes,
+                    document.BaseKind,
+                    document.InterfaceCount));
         Assert.Equal("declarations", exception.ParamName);
 
         await library.RetireAsync();
@@ -334,7 +334,7 @@ public sealed class TypeDocumentInspectionOperationTests
                 content,
                 LibraryInspectionTestLibrary.Identity(content));
 
-        TypeDocument document =
+        TypeDocumentInspectionContent document =
             Available(
                 Execute(
                     library,
@@ -381,7 +381,7 @@ public sealed class TypeDocumentInspectionOperationTests
             s_bounds.MaxMetadataRows,
             s_bounds.MaxRetainedTextCharacters);
 
-        TypeDocument document =
+        TypeDocumentInspectionContent document =
             Available(
                 Execute(
                     library,
@@ -445,7 +445,7 @@ public sealed class TypeDocumentInspectionOperationTests
             s_bounds.MaxMetadataRows,
             s_bounds.MaxRetainedTextCharacters);
 
-        TypeDocument document =
+        TypeDocumentInspectionContent document =
             Available(
                 Execute(
                     library,
@@ -494,7 +494,7 @@ public sealed class TypeDocumentInspectionOperationTests
             s_bounds.MaxMetadataRows,
             s_bounds.MaxRetainedTextCharacters);
 
-        TypeDocument document =
+        TypeDocumentInspectionContent document =
             Available(
                 Execute(
                     library,
@@ -647,7 +647,7 @@ public sealed class TypeDocumentInspectionOperationTests
             TestContext.Current.CancellationToken);
     }
 
-    private static TypeDocument Available(
+    private static TypeDocumentInspectionContent Available(
         InspectionEnvelope<TypeDocumentInspectionOutcome> envelope) =>
         Assert.IsType<TypeDocumentInspectionOutcome.Available>(
                 envelope.Content)

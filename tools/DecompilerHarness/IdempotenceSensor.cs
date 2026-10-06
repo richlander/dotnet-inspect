@@ -96,8 +96,8 @@ internal static class IdempotenceSensor
         Func<MethodRef, IrFunction?> seam)
     {
         IrPasses.Run(rawFunction, IrPasses.Default, PassContext.ForImport(seam));
-        var secondRun = IrPasses.RunWithStages(rawFunction, seam);
-        return StageDump.PassesThatChanged(secondRun);
+        var secondRun = IrPasses.RunWithReceipts(rawFunction, seam);
+        return PassExecutionReceipts.ChangedPasses(secondRun);
     }
 
     static int Report(

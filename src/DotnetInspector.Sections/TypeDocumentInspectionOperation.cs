@@ -214,7 +214,7 @@ public static class TypeDocumentInspectionOperation
                 cancellationToken);
         int assemblyBytes = checked((int)session.ImageLength);
         return Project(
-            new TypeDocumentSubjectCorrespondence.DirectAssembly(),
+            libraryCorrespondence: null,
             identity,
             assemblyBytes,
             document,
@@ -386,8 +386,7 @@ public static class TypeDocumentInspectionOperation
         {
             MetadataTypeDocumentInspectionOutcome.Available available =>
                 Available(
-                    new TypeDocumentSubjectCorrespondence.Library(
-                        correspondence.Subject),
+                    correspondence.Subject,
                     correspondence.AssemblyIdentity,
                     correspondence.AssemblyBytes,
                     plan,
@@ -412,7 +411,8 @@ public static class TypeDocumentInspectionOperation
 
     private static InspectionEnvelope<TypeDocumentInspectionOutcome>
         Project(
-            TypeDocumentSubjectCorrespondence correspondence,
+            LibraryTypeDocumentSubjectCorrespondence?
+                libraryCorrespondence,
             AssemblyReferenceIdentity assemblyIdentity,
             int assemblyBytes,
             MetadataTypeDocumentInspectionOutcome document,
@@ -425,7 +425,7 @@ public static class TypeDocumentInspectionOperation
         {
             MetadataTypeDocumentInspectionOutcome.Available available =>
                 Available(
-                    correspondence,
+                    libraryCorrespondence,
                     assemblyIdentity,
                     assemblyBytes,
                     plan,
@@ -450,7 +450,8 @@ public static class TypeDocumentInspectionOperation
 
     private static InspectionEnvelope<TypeDocumentInspectionOutcome>
         Available(
-            TypeDocumentSubjectCorrespondence correspondence,
+            LibraryTypeDocumentSubjectCorrespondence?
+                libraryCorrespondence,
             AssemblyReferenceIdentity assemblyIdentity,
             int assemblyBytes,
             TypeDocumentInspectionPlan plan,
@@ -480,35 +481,49 @@ public static class TypeDocumentInspectionOperation
                     document.Declarations,
                     document.Subject.Type.ModuleVersionId,
                     startOrdinal);
+        TypeDocumentDeclarationSignature signature =
+            new(
+                ImmutableArray.CreateRange(
+                    document.Subject.Signature
+                        .GenericParameters
+                        .Select(parameter =>
+                            new TypeDocumentGenericParameter(
+                                parameter.DefinitionSegmentIndex,
+                                parameter.MetadataIndex,
+                                parameter.Name,
+                                parameter.Attributes))));
+        TypeSubject subject = libraryCorrespondence is null
+            ? new(
+                assembly,
+                document.Subject.Type.ModuleVersionId,
+                plan.Type,
+                document.Subject.Type.Definition.Value,
+                signature,
+                document.Subject.Category,
+                document.Subject.Attributes,
+                document.Subject.IsByRefLike,
+                document.Subject.DefinesCoreLibraryRoot,
+                document.Subject.DeclaringType?.Definition.Value)
+            : new(
+                libraryCorrespondence,
+                assembly,
+                document.Subject.Type.ModuleVersionId,
+                plan.Type,
+                document.Subject.Type.Definition.Value,
+                signature,
+                document.Subject.Category,
+                document.Subject.Attributes,
+                document.Subject.IsByRefLike,
+                document.Subject.DefinesCoreLibraryRoot,
+                document.Subject.DeclaringType?.Definition.Value);
         return Envelope(
             new TypeDocumentInspectionOutcome.Available(
                 new(
-                    new(
-                        correspondence,
-                        assembly,
-                        document.Subject.Type.ModuleVersionId,
-                        plan.Type,
-                        document.Subject.Type.Definition.Value,
-                        new(
-                            ImmutableArray.CreateRange(
-                                document.Subject.Signature
-                                    .GenericParameters
-                                    .Select(parameter =>
-                                        new TypeDocumentGenericParameter(
-                                            parameter
-                                                .DefinitionSegmentIndex,
-                                            parameter.MetadataIndex,
-                                            parameter.Name,
-                                            parameter.Attributes)))),
-                        document.Subject.Category,
-                        document.Subject.BaseKind,
-                        document.Subject.InterfaceCount,
-                        document.Subject.Attributes,
-                        document.Subject.IsByRefLike,
-                        document.Subject.DefinesCoreLibraryRoot,
-                        document.Subject.DeclaringType?.Definition.Value),
+                    subject,
                     declarations,
-                    assemblyBytes)));
+                    assemblyBytes,
+                    document.Subject.BaseKind,
+                    document.Subject.InterfaceCount)));
     }
 
     private static TypeDocumentDeclarations ProjectDeclarations(

@@ -251,7 +251,7 @@ internal static class MemberDocumentOutput
             return 1;
         }
 
-        MemberDocument document = available.Document;
+        MemberDocumentInspectionContent document = available.Document;
         if (plan.Source is not null)
         {
             MemberSourceAttachment attachment =

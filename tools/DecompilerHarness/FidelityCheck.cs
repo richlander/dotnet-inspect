@@ -214,20 +214,81 @@ static partial class FidelityCheck
         IReadOnlyList<string> assemblies,
         int cap,
         string? typeFilter = null)
-        => SelectReturnToSenderTargetPlan(
+        => SelectReturnToSenderTargetsCapped(
             assemblies,
             cap,
-            typeFilter).Targets
-            .Select(
-                static target => new CompileBackTarget(
-                    target.AssemblyPath,
-                    target.Type,
-                    target.Method,
-                    target.Overload,
-                    target.Signature,
-                    target.Address,
-                    target.Declaration))
-            .ToArray();
+            typeFilter).Targets;
+
+    internal static CappedReturnToSenderTargetSelection
+        SelectReturnToSenderTargetsCapped(
+            IReadOnlyList<string> assemblies,
+            int cap,
+            string? typeFilter = null)
+    {
+        ArgumentNullException.ThrowIfNull(assemblies);
+        if (cap <= 0 || assemblies.Count == 0)
+            return new([], 0, 0, 0, 0);
+
+        var selected =
+            new List<CompileBackTarget>(Math.Min(cap, 4096));
+        int rankedBodyCount = 0;
+        int evaluatedBodyCount = 0;
+        int declarationCandidateCount = 0;
+        int excludedDeclarationCandidateCount = 0;
+        using var metadata = CorpusMetadata.Create(assemblies);
+        foreach (string assemblyPath in assemblies)
+        {
+            int remaining = cap - selected.Count;
+            if (remaining <= 0)
+                break;
+
+            using MetadataSource source =
+                MetadataSource.Open(
+                    assemblyPath,
+                    context: metadata);
+            RegisterSourceContext(source, metadata);
+            using var assembly =
+                AssemblyInspectionSession.Open(assemblyPath);
+            using var targetSource =
+                new ReturnToSenderTargetSourceSession(
+                    assemblyPath,
+                    assembly);
+            ReturnToSenderCappedTargetSelection selection =
+                targetSource.SelectCappedTargets(
+                    source,
+                    remaining,
+                    typeFilter);
+            selected.AddRange(
+                selection.Targets.Select(
+                    static target => new CompileBackTarget(
+                        target.AssemblyPath,
+                        target.Type,
+                        target.Method,
+                        target.Overload,
+                        target.Signature,
+                        target.Address,
+                        target.Declaration)));
+            rankedBodyCount = checked(
+                rankedBodyCount
+                + selection.RankedBodyCount);
+            evaluatedBodyCount = checked(
+                evaluatedBodyCount
+                + selection.EvaluatedBodyCount);
+            declarationCandidateCount = checked(
+                declarationCandidateCount
+                + selection.DeclarationCandidateCount);
+            excludedDeclarationCandidateCount = checked(
+                excludedDeclarationCandidateCount
+                + selection.ExcludedDeclarationCandidateCount);
+        }
+
+        return new(
+            selected,
+            rankedBodyCount,
+            evaluatedBodyCount,
+            declarationCandidateCount,
+            excludedDeclarationCandidateCount);
+    }
 
     internal static ReturnToSenderTargetSelection SelectReturnToSenderTargetPlan(
         IReadOnlyList<string> assemblies,
@@ -527,6 +588,13 @@ static partial class FidelityCheck
         int ScannedBodyCount,
         int DeclarationCandidateCount,
         int EligibleCount);
+
+    internal sealed record CappedReturnToSenderTargetSelection(
+        IReadOnlyList<CompileBackTarget> Targets,
+        int RankedBodyCount,
+        int EvaluatedBodyCount,
+        int DeclarationCandidateCount,
+        int ExcludedDeclarationCandidateCount);
 
     /// <summary>
     /// Runs the fidelity check loop over one assembly and returns a structured result
@@ -835,7 +903,8 @@ static partial class FidelityCheck
         string Method,
         int Overload,
         string Signature,
-        string DisplayMethod)
+        string DisplayMethod,
+        MetadataMethodAddress? Address)
     {
         public static MethodTarget From(CorpusMethodSnapshot method)
             => new(
@@ -845,7 +914,8 @@ static partial class FidelityCheck
                 method.Method,
                 method.Overload,
                 method.Signature,
-                method.DisplayMethod);
+                method.DisplayMethod,
+                Address: null);
     }
 
     sealed record TargetedCompileBackResult(MethodTarget Target, CompileBackResult Result);
@@ -1037,7 +1107,8 @@ static partial class FidelityCheck
                 Method: target.Method,
                 Overload: target.Overload,
                 Signature: target.Signature,
-                DisplayMethod: $"{target.Type}::{target.Method}"))
+                DisplayMethod: $"{target.Type}::{target.Method}",
+                Address: target.Address))
             .ToArray();
 
         return EvaluateTargets(assemblies, methodTargets, lowered, options, readSymbols)
@@ -1060,7 +1131,8 @@ static partial class FidelityCheck
                 Method: target.Method,
                 Overload: target.Overload,
                 Signature: target.Signature,
-                DisplayMethod: $"{target.Type}::{target.Method}"))
+                DisplayMethod: $"{target.Type}::{target.Method}",
+                Address: target.Address))
             .ToArray();
         return (await EvaluateChangedMethodTargets(assemblies, methodTargets))
             .Select(row => row.Result)
@@ -1288,21 +1360,67 @@ static partial class FidelityCheck
                             if (entries.Count == 0 || !assemblyTargets.TryGetValue(fullType, out var typeTargets))
                                 continue;
 
-                            var typeTargetMap = typeTargets.ToDictionary(
-                                target => $"{target.Method}{target.Signature}",
-                                StringComparer.Ordinal);
-                            var matched = entries
-                                .Where(entry => typeTargetMap.ContainsKey($"{entry.Name}{entry.Signature}"))
-                                .ToArray();
-                            if (matched.Length == 0)
+                            var targetsByHandle =
+                                new Dictionary<MethodDefinitionHandle, MethodTarget>();
+                            var targetsBySignature =
+                                new Dictionary<string, MethodTarget>(StringComparer.Ordinal);
+                            foreach (var target in typeTargets)
+                            {
+                                if (target.Address is { } address
+                                    && address.TryResolve(reader, out var handle))
+                                {
+                                    targetsByHandle.Add(handle, target);
+                                }
+                                else
+                                {
+                                    targetsBySignature.Add(
+                                        $"{target.Method}{target.Signature}",
+                                        target);
+                                }
+                            }
+
+                            var matchedEntries = new List<Entry>();
+                            var matchedTargets = new List<MethodTarget>();
+                            foreach (var entry in entries)
+                            {
+                                if (!targetsByHandle.TryGetValue(
+                                        entry.Handle,
+                                        out MethodTarget? target)
+                                    && !targetsBySignature.TryGetValue(
+                                        $"{entry.Name}{entry.Signature}",
+                                        out target))
+                                {
+                                    continue;
+                                }
+
+                                matchedEntries.Add(entry);
+                                matchedTargets.Add(target);
+                            }
+                            if (matchedEntries.Count == 0)
                                 continue;
 
-                            var typeResults = EvaluateGrouped(reader, pe, references, featureOptions, compileOptions, fullType, treeHandle, matched);
-                            for (int i = 0; i < matched.Length && i < typeResults.Count; i++)
+                            var typeResults = EvaluateGrouped(
+                                reader,
+                                pe,
+                                references,
+                                featureOptions,
+                                compileOptions,
+                                fullType,
+                                treeHandle,
+                                matchedEntries);
+                            for (int i = 0;
+                                i < matchedEntries.Count && i < typeResults.Count;
+                                i++)
                             {
-                                var entry = matched[i];
-                                var target = typeTargetMap[$"{entry.Name}{entry.Signature}"];
-                                rows.Add(new TargetedCompileBackResult(target, typeResults[i]));
+                                var target = matchedTargets[i];
+                                CompileBackResult result = typeResults[i] with
+                                {
+                                    Type = target.Type,
+                                    Method = target.Method,
+                                    Overload = target.Overload,
+                                    Signature = target.Signature,
+                                };
+                                rows.Add(new TargetedCompileBackResult(target, result));
                                 pending.Remove(TargetKey(target));
                             }
                         }

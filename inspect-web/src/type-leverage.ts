@@ -1,3 +1,4 @@
+import type { DataBarError } from "./data-bar.ts";
 import type {
   BrowserLibraryNamespaceLeverageIndex,
   BrowserLibraryNamespaceLeverageRow,
@@ -377,6 +378,20 @@ export function projectTypeLeverage(
     coverage: sumCoverage(coverages),
     diagnostics: [...new Set(diagnostics)],
     warnings,
+  };
+}
+
+export function typeLeverageFeedback(
+  presentation: TypeLeveragePresentation,
+): DataBarError | null {
+  if (presentation.disposition.toLowerCase() === "complete"
+    && presentation.diagnostics.length === 0
+    && presentation.warnings.length === 0) return null;
+  const details = [...presentation.warnings, ...presentation.diagnostics];
+  return {
+    message: `Structural salience has qualified evidence${details.length
+      ? `: ${details.join("; ")}` : ""}`,
+    retry: "type-leverage",
   };
 }
 

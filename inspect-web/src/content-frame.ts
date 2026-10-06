@@ -82,7 +82,7 @@ export function decideContentFrameResize(
 }
 
 export function renderContentNavigationBar(
-  label: "Frameworks" | "Libraries" | "Types" | "Members",
+  label: "Frameworks & versions" | "Versions" | "Frameworks" | "Libraries" | "Types" | "Members",
 ) {
   return `
     <div class="content-navigation-bar">

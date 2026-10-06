@@ -175,6 +175,7 @@ import {
   bindPackageDependencyList,
   bindPackageView,
   renderPackageNav,
+  packageNavigationVersions,
   type PackageViewBindingActions,
 } from "./package-view.ts";
 import {
@@ -322,7 +323,13 @@ import {
   type PlatformStackEntry,
 } from "./call-graph-inspection.ts";
 import {
+  bindDirectUseClusterInspection,
+  createDirectUseClusterInspectionController,
+  renderDirectUseClusterInspection,
+} from "./direct-use-cluster-inspection.ts";
+import {
   createDocumentInspectionCoordinator,
+  createPackageDocumentTitles,
   documentViewerIsOpen,
   normalizeDocumentViewerSnapshot,
   type DocumentViewerState,
@@ -605,6 +612,7 @@ import {
   bindLibraryApiDiffRows,
   createLibraryApiDiffCoordinator,
   libraryApiDiffPresence,
+  libraryApiDiffDataBarResult,
   libraryApiDiffMemberExploreContext,
   renderLibraryApiDiff,
   type LibraryApiDiffMemberExploreContext,
@@ -629,7 +637,7 @@ import {
   type CompareCloneSelection,
   type CompareCloneState,
 } from "./compare-clone.ts";
-import { dataBarHtml, fmtBytes } from "./data-bar.ts";
+import { createDataBarFeedback, dataBarHtml, fmtBytes } from "./data-bar.ts";
 import {
   DIAGNOSTICS_PATH,
   diagnosticsHistoryState,
@@ -804,6 +812,7 @@ import type {
 } from "./facades/inspect-web-analysis.d.ts";
 import {
   createTypeLeverageCoordinator,
+  typeLeverageFeedback,
 } from "./type-leverage.ts";
 import type {
   BrowserMemberSource,
@@ -970,6 +979,8 @@ let inspectExpandPlatformCallGraph:
   EngineClient["callGraph"]["expandPlatformCallGraph"];
 let inspectMemberCallGraph:
   EngineClient["callGraph"]["queryMemberCallGraph"];
+let inspectDirectUseClusters:
+  EngineClient["callGraph"]["queryDirectUseClusters"];
 let inspectDecodeWorkspaceShareState:
   EngineClient["catalog"]["decodeWorkspaceShareState"];
 let inspectEncodeWorkspaceShareState:
@@ -1157,6 +1168,7 @@ async function loadEngineModule() {
     } = engineClient.source);
     ({
       expandPlatformCallGraph: inspectExpandPlatformCallGraph,
+      queryDirectUseClusters: inspectDirectUseClusters,
       queryMemberCallGraph: inspectMemberCallGraph,
     } = engineClient.callGraph);
     ({
@@ -1481,6 +1493,12 @@ const initialState = {
   memberCallGraphError: "",
   graphMemberNavigationError: "",
   memberCallGraphKey: "",
+  directUseClusterGraphKey: "",
+  directUseClusterBoundary: null,
+  directUseClusterResult: null,
+  directUseClusterLoading: false,
+  directUseClusterError: "",
+  directUseClusterSeq: 0,
   callGraphTraversalFramework: "net12.0",
   memberCallGraphExpanding: false,
   memberCallGraphSeq: 0,
@@ -1624,6 +1642,11 @@ interface StateOverrides {
   packageMetadata: PackageMetadata | null;
   explorer: AppExplorerState | null;
   memberCallGraph: InspectedCallGraph | null;
+  directUseClusterBoundary:
+    import("./call-graph-inspection.ts").InspectedCallGraphBoundary | null;
+  directUseClusterResult:
+    import("./facades/inspect-web-call-graph.d.ts").BrowserDirectUseClusterInspection
+    | null;
   pendingGraphMemberDeepLink: PendingGraphMemberDeepLink | null;
   platformStack: PlatformStackEntry[];
   memberFacts: MemberFacts | null;
@@ -1918,6 +1941,7 @@ function normalizeWorkspaceAsyncSnapshotState(
   snapshotState.packageMetadataLoading = false;
   snapshotState.memberCallGraphLoading = false;
   snapshotState.memberCallGraphExpanding = false;
+  snapshotState.directUseClusterLoading = false;
   snapshotState.platformDrillLoading = false;
   snapshotState.memberFactsLoading = false;
   snapshotState.memberDocumentationLoading = false;
@@ -1952,6 +1976,7 @@ function normalizeWorkspaceAsyncSnapshotState(
   snapshotState.workspaceDependencyLoads = new Set();
   snapshotState.typeMetadataGeneration++;
   snapshotState.memberCallGraphSeq++;
+  snapshotState.directUseClusterSeq++;
   snapshotState.graphMemberNavigationSeq++;
 
   if (memberAnnotatedLoading) snapshotState.memberAnnotatedKey = "";
@@ -1993,6 +2018,7 @@ function restoreCanonicalWorkspaceRestoreSnapshot(
 ) {
   const typeMetadataGeneration = state.typeMetadataGeneration;
   const memberCallGraphSeq = state.memberCallGraphSeq;
+  const directUseClusterSeq = state.directUseClusterSeq;
   const graphMemberNavigationSeq = state.graphMemberNavigationSeq;
   const platformIndex = state.platformIndex ?? snapshot.state.platformIndex;
   clearWorkspaceOccurrenceView();
@@ -2002,6 +2028,8 @@ function restoreCanonicalWorkspaceRestoreSnapshot(
     Math.max(typeMetadataGeneration, snapshot.state.typeMetadataGeneration) + 1;
   state.memberCallGraphSeq =
     Math.max(memberCallGraphSeq, snapshot.state.memberCallGraphSeq) + 1;
+  state.directUseClusterSeq =
+    Math.max(directUseClusterSeq, snapshot.state.directUseClusterSeq) + 1;
   state.graphMemberNavigationSeq =
     Math.max(graphMemberNavigationSeq, snapshot.state.graphMemberNavigationSeq) + 1;
   state.platformIndex = platformIndex;
@@ -2085,6 +2113,7 @@ function invalidateWorkspaceAsyncOwners(): void {
   memberDetailInspection.invalidate();
   invalidateGraphMemberNavigation();
   invalidateMemberCallGraphWork(state);
+  directUseClusterInspection.reset();
   packageInspection.invalidatePackageResults();
   clearWorkspaceOccurrenceView();
 }
@@ -3427,6 +3456,17 @@ const typeAnalysisWorkspaceGenerations =
   new WeakMap<AppPackage, string>();
 const typeLeverageWorkspaceGenerations =
   new WeakMap<AppPackage, string>();
+const dataBarFeedback = createDataBarFeedback();
+const typeLeverageFeedbackTickets = new Map<string, number>();
+
+function dataBarViewKey(): string {
+  return JSON.stringify([
+    location.pathname,
+    viewSignature(),
+    state.typeExplorerOpen,
+  ]);
+}
+
 const typeLeverage = createTypeLeverageCoordinator<TypeLeverageTarget>({
   operationAuthority,
   key: target => target.key,
@@ -3440,15 +3480,33 @@ const typeLeverage = createTypeLeverageCoordinator<TypeLeverageTarget>({
     return undefined;
   },
   publish: published => {
+    const generation = dataBarFeedback.synchronize(dataBarViewKey());
     switch (published.status) {
       case "loading":
         state.typeLeverageErrors.delete(published.key);
+        typeLeverageFeedbackTickets.set(published.key, generation);
+        dataBarFeedback.publish(published.key, generation, null);
         break;
       case "ready":
         state.typeLeverageErrors.delete(published.key);
+        dataBarFeedback.publish(
+          published.key,
+          typeLeverageFeedbackTickets.get(published.key) ?? -1,
+          typeLeverageFeedback(published.presentation),
+        );
+        typeLeverageFeedbackTickets.delete(published.key);
         break;
       case "failed":
         state.typeLeverageErrors.set(published.key, published.message);
+        dataBarFeedback.publish(
+          published.key,
+          typeLeverageFeedbackTickets.get(published.key) ?? -1,
+          {
+            message: `Structural salience is unavailable: ${published.message}`,
+            retry: "type-leverage",
+          },
+        );
+        typeLeverageFeedbackTickets.delete(published.key);
         break;
     }
     renderPreservingMemberFocus();
@@ -3897,6 +3955,22 @@ const callGraphInspection = createCallGraphInspectionCoordinator({
     await renderMermaidCallGraph();
   },
 });
+const directUseClusterInspection =
+  createDirectUseClusterInspectionController({
+    state,
+    query: request => inspectDirectUseClusters(
+      request.sourcePackageId,
+      request.sourceVersion,
+      request.sourceFramework,
+      request.sourceAssembly,
+      request.targetPackageId,
+      request.targetVersion,
+      request.targetFramework,
+      request.targetAssembly,
+      request.selectedCluster),
+    describeError: errorMessage,
+    render,
+  });
 const documentInspection = createDocumentInspectionCoordinator({
   state,
   queryDocument: request => inspectPackageDocument(
@@ -3908,6 +3982,37 @@ const documentInspection = createDocumentInspectionCoordinator({
   describeError: errorMessage,
   render,
 });
+
+const packageDocumentTitles = createPackageDocumentTitles({
+  queryDocument: request => inspectPackageDocument(request.packageId, request.version, request.document.path),
+  renderMarkdown,
+  firstHeading: html => {
+    const template = document.createElement("template");
+    template.innerHTML = html;
+    return template.content.querySelector("h1")?.textContent?.trim() || null;
+  },
+  describeError: errorMessage,
+  render,
+});
+let packageDocumentationScheduled = false;
+function schedulePackageDocumentTitles() {
+  const pkg = state.package;
+  if (packageDocumentationScheduled || !pkg
+    || !document.querySelector(".package-document-list")
+    || !pkg.documents.some(doc => !packageDocumentTitles.get(pkg, doc.path))) return;
+  packageDocumentationScheduled = true;
+  requestAnimationFrame(() => setTimeout(() => {
+    packageDocumentationScheduled = false;
+    if (state.package !== pkg) {
+      schedulePackageDocumentTitles();
+      return;
+    }
+    if (!document.querySelector(".package-document-list")) return;
+    observeAsync(packageDocumentTitles.load(pkg, pkg.documents.map(document => ({
+      packageId: pkg.id, version: pkg.version, document,
+    }))), "Reading package documentation titles");
+  }, 0));
+}
 
 function captureView(): WorkspaceView | null {
   if (!state.package && !state.platformSelection) return null;
@@ -5194,6 +5299,11 @@ const packageControls = createPackageControls({
         source === "legacy" ? "framework" : "package-framework"),
       "Switching the package framework");
   },
+  retryVersionInventory: () => {
+    const pkg = currentPackage();
+    catalogRequests.forgetPackage(pkg);
+    observeAsync(ensurePackageVersions(pkg), "Loading package versions");
+  },
   selectVersion: version => {
     if (contentFrameUsesPush()) contentFramePane = "detail";
     if (state.package?.isRuntimePack)
@@ -5392,6 +5502,11 @@ function loadTypeLeverage(retry = false) {
   try {
     const targets = createCurrentTypeLeverageTargets();
     state.typeLeverageSetupError = "";
+    dataBarFeedback.publish(
+      "type-leverage-setup",
+      dataBarFeedback.synchronize(dataBarViewKey()),
+      null,
+    );
     for (const target of targets) {
       state.typeLeverageErrors.delete(target.key);
       if (retry) typeLeverage.retry(target);
@@ -5399,6 +5514,14 @@ function loadTypeLeverage(retry = false) {
     }
   } catch (error) {
     state.typeLeverageSetupError = errorMessage(error);
+    dataBarFeedback.publish(
+      "type-leverage-setup",
+      dataBarFeedback.synchronize(dataBarViewKey()),
+      {
+        message: `Structural salience is unavailable: ${state.typeLeverageSetupError}`,
+        retry: "type-leverage",
+      },
+    );
     renderPreservingMemberFocus();
   } finally {
     typeLeverageBatchLoading = false;
@@ -6454,40 +6577,6 @@ function typeAccessibilityIncludesForwarders() {
   const selected = selectedTypeAccessibility();
   return !selected || accessibilityBuckets().some(
     descriptor => descriptor.id === selected && descriptor.isDefault);
-}
-
-function typeLeverageStatus() {
-  const failures = [
-    ...(state.typeLeverageSetupError
-      ? [state.typeLeverageSetupError]
-      : []),
-    ...currentTypeLeverageTargets().flatMap(target => {
-      const error = state.typeLeverageErrors.get(target.key);
-      return error ? [error] : [];
-    }),
-  ];
-  if (failures.length > 0) {
-    return `<div class="metadata-warning" aria-live="polite">
-      <small>Structural salience is unavailable: ${failures.map(escapeHtml).join("<br>")}</small>
-      <button type="button" class="tiny-button" data-type-leverage-retry>Retry</button>
-    </div>`;
-  }
-  const qualified = currentTypeLeveragePresentations().filter(
-    ({ presentation }) =>
-      presentation.disposition.toLowerCase() !== "complete"
-      || presentation.diagnostics.length > 0
-      || presentation.warnings.length > 0,
-  );
-  if (qualified.length === 0) return "";
-  const diagnostics = qualified.flatMap(
-    ({ presentation }) => [
-      ...presentation.warnings,
-      ...presentation.diagnostics,
-    ]);
-  return `<div class="metadata-warning" aria-live="polite">
-    <small>Structural salience has qualified evidence${diagnostics.length ? `<br>${diagnostics.map(escapeHtml).join("<br>")}` : ""}</small>
-    <button type="button" class="tiny-button" data-type-leverage-retry>Retry</button>
-  </div>`;
 }
 
 function typeFilterSummary() {
@@ -7627,6 +7716,15 @@ function renderLibraryDiffTools(subject: CompareSubject): string {
   </div>`;
 }
 
+function currentDataBarResult() {
+  const subject = currentCompareSubject();
+  if (subject?.kind !== "library" || currentCompareMode() !== "diff") return null;
+  return libraryApiDiffDataBarResult(
+    state.libraryApiDiff,
+    currentLibraryApiDiffSelection(),
+  );
+}
+
 function renderCompareSurface(): string {
   const subject = currentCompareSubject();
   if (!subject) return "";
@@ -7650,6 +7748,7 @@ function renderCompareSurface(): string {
   );
   return renderLibraryApiDiff(state.libraryApiDiff, escapeHtml, {
     ...options,
+    resultSummaryInDataBar: currentDataBarResult() !== null,
     subjectLabel,
     targetText,
     ...(subject.kind === "library"
@@ -8404,13 +8503,12 @@ function stepPackageFrameworkFocus(
   eventTarget: EventTarget | null,
 ) {
   const target = eventTarget instanceof Element ? eventTarget : null;
-  const list = target?.closest<HTMLElement>('[data-nav-scope="frameworks"]');
+  const list = target?.closest<HTMLElement>('[data-nav-scope="frameworks"], [data-nav-scope="versions"]');
   if (!list) return false;
-  const rows = [
-    ...list.querySelectorAll<HTMLElement>("[data-package-framework]"),
-  ];
+  const rows = [...list.querySelectorAll<HTMLElement>(
+    "[data-package-framework], [data-package-version]")].filter(row => !row.hidden);
   if (!rows.length) return true;
-  const focused = target?.closest<HTMLElement>("[data-package-framework]");
+  const focused = target?.closest<HTMLElement>("[data-package-framework], [data-package-version]");
   const focusedIndex = focused ? rows.indexOf(focused) : -1;
   const activeIndex = rows.findIndex(
     row => row.getAttribute("aria-current") === "page");
@@ -8684,12 +8782,14 @@ function settingsOwnsHomeFocusTarget(target: HomeFocusTarget | null): boolean {
 }
 
 function render(options: { synchronizeUrl?: boolean } = {}) {
+  dataBarFeedback.synchronize(dataBarViewKey());
   productNavigationBinding.beforeRender();
   try {
     renderCore(options);
   } finally {
     productNavigationBinding.afterRender();
     memberListRevealer.afterRender(document);
+    schedulePackageDocumentTitles();
     scheduleTypeHeat();
     scheduleTypeMethodLeverage();
     memberDiffExplorer.afterRender(
@@ -8741,7 +8841,10 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
     ? focusedElement?.dataset.packageLoadingControl
     : packageFrameworkHadFocus
       ? "package-framework"
-      : focusedElement?.id;
+      : focusedElement?.dataset.packageVersion !== undefined
+        || (scope() === "package" && focusedElement?.id === "content-navigation-toggle")
+        ? "package-version"
+        : focusedElement?.id;
   const packageLoadingFramework = packageLoadingHadFocus
     ? focusedElement?.dataset.packageLoadingFramework
     : focusedElement?.dataset.packageFramework;
@@ -9034,6 +9137,7 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
     activeScope === "type" && state.lens === "metadata";
   const overviewWorkingSurface =
     (activeScope === "package" && state.packageLens === "overview")
+    || (activeScope === "package" && state.packageLens === "compare")
     || (activeScope === "library" && state.libraryLens === "overview")
     || (activeScope === "type" && forwarder !== null);
   const packageDependenciesWorkingSurface =
@@ -9067,7 +9171,7 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
   const contentFrameEnabled = activeScope !== "workspace";
   const contentNavigationLabel =
     activeScope === "package"
-      ? "Frameworks"
+      ? "Frameworks & versions"
       : activeScope === "library" && state.rootKind === "library"
         ? "Types"
       : activeScope === "library" && state.rootKind !== "platform"
@@ -9169,6 +9273,8 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
 
       ${dataBarHtml({
         buildIdentity: state.buildIdentity,
+        errors: dataBarFeedback.errors(),
+        result: currentDataBarResult(),
         producer: {
           kind: pkg.source.kind === "platform"
             || state.rootKind === "library"
@@ -9846,13 +9952,18 @@ function renderNavPane(
   if (scope() === "workspace") return renderWorkspaceNavPane();
   if (scope() === "package") {
     const pkg = currentPackage();
+    const entry = catalogRequests.packageVersions(pkg);
+    const versions = packageNavigationVersions(pkg.version, entry);
     return renderPackageNav({
       frameworks: pkg.frameworks,
       activeFramework: pkg.activeFramework,
-      versionFieldHtml: state.packageLens === "overview"
-        || state.packageLens === "vulnerabilities"
-        ? packageVersionField()
-        : "",
+      versions,
+      activeVersion: pkg.version,
+      statusHtml: pkg.source.kind !== "nuget.org"
+        ? '<p>Version discovery is unavailable for this package source.</p>'
+        : entry.status === "failed"
+        ? `<p role="status">${escapeHtml(entry.message)}</p><button type="button" id="package-versions-retry">Retry</button>`
+        : entry.status === "available" ? "" : '<p role="status">Reading available versions…</p>',
       escapeHtml,
     });
   }
@@ -10095,8 +10206,7 @@ function renderTypeNavPane(
         achievements.push(apiDiffAchievement);
       return achievements;
     },
-    statusHtml:
-      `${typeLeverageStatus()}${platformForwarderInventoryStatus()}`,
+    statusHtml: platformForwarderInventoryStatus(),
   });
 }
 
@@ -10231,17 +10341,6 @@ function renderScopeBar(
   return assertNever(sc, "workspace scope");
 }
 
-function packageVersionField() {
-  if (state.rootKind !== "package") return "";
-  const pkg = currentPackage();
-  return `<label class="version-select">
-    <span>Version</span>
-    <select id="package-version">
-      ${versionOptionsHtml(pkg)}
-    </select>
-  </label>`;
-}
-
 function focusPackageCoordinateControl(
   control: PackageLoadingFocusControl,
   framework: string,
@@ -10249,14 +10348,12 @@ function focusPackageCoordinateControl(
   const navigationToggle =
     document.querySelector<HTMLElement>("#content-navigation-toggle");
   if (control === "package-version") {
-    if (contentFrameMedia.matches
-      && (state.packageLens === "overview"
-        || state.packageLens === "vulnerabilities")) {
+    if (contentFrameMedia.matches && contentFramePane !== "navigation") {
       navigationToggle?.focus({ preventScroll: true });
       return;
     }
     const version =
-      document.querySelector<HTMLElement>("#package-version");
+      document.querySelector<HTMLElement>('[data-package-version][aria-current="page"]');
     (version?.checkVisibility() ? version : navigationToggle)
       ?.focus({ preventScroll: true });
     return;
@@ -10374,6 +10471,14 @@ function renderWorkspaceView() {
 function packageLensBody() {
   switch (state.packageLens) {
     case "overview": return renderPackageOverview();
+    case "compare": return renderOverviewSurface({
+      subject: "package", subjectLabel: "Compare", displayName: packageDisplayName(currentPackage()),
+      iconHtml: "", showIdentity: false,
+      packageId: currentPackage().id, packageVersion: currentPackage().version,
+      activeFramework: currentPackage().activeFramework, totalTypes: null, totalMembers: null,
+      contentHtml: `<section id="package-comparison-targets" class="document-section">${packageComparisonControlsHtml(currentPackage())}</section>`,
+      escapeHtml,
+    });
     case "dependencies": return renderPackageDependencies();
     case "vulnerabilities": {
       const pkg = currentPackage();
@@ -10434,23 +10539,14 @@ function packageDependenciesSignature() {
 }
 
 function renderPackageDependenciesSurface(content: string, status: string) {
-  const pkg = currentPackage();
-  const coordinate = `${pkg.id}@${pkg.version}`;
   return `<section class="package-dependencies-surface" aria-labelledby="package-dependencies-surface-title">
     <header class="api-surface-head package-dependencies-surface-head">
       <h1 id="package-dependencies-surface-title">Dependencies</h1>
       <p data-package-dependencies-status>${escapeHtml(status)}</p>
     </header>
-    <section class="package-dependencies-controls" aria-label="Dependency coordinate">
-      <div class="package-coordinate-fields">${packageVersionField()}</div>
-    </section>
     <div class="package-dependencies-scroll">
       ${content}
     </div>
-    <footer class="api-surface-footer package-dependencies-surface-footer">
-      <span title="${escapeHtml(coordinate)}">${escapeHtml(coordinate)}</span>
-      <span title="${escapeHtml(pkg.activeFramework)}">${escapeHtml(pkg.activeFramework)}</span>
-    </footer>
   </section>`;
 }
 
@@ -11922,11 +12018,8 @@ function enabledLibraryEnablements(
 function renderPackageOverview() {
   const pkg = currentPackage();
   const documentsSection =
-    renderPackageDocuments(pkg.documents || [], escapeHtml);
-  const comparisonHtml = `
-    <section id="package-comparison-targets" class="document-section">
-      ${packageComparisonControlsHtml(pkg)}
-    </section>`;
+    renderPackageDocuments(pkg.documents || [], escapeHtml,
+      path => packageDocumentTitles.get(pkg, path));
   const contentHtml = renderPackageOverviewContent({
     packageInfoHtml: pkg.packageInfo
       ? renderPackageInfo(pkg.packageInfo, escapeHtml)
@@ -11935,7 +12028,6 @@ function renderPackageOverview() {
           <p class="empty-list">Package metadata is unavailable for this coordinate.</p>
         </section>`,
     packageChildrenHtml: renderPackageChildren(pkg),
-    comparisonHtml,
     documentsHtml: documentsSection,
   });
 
@@ -12433,9 +12525,6 @@ function renderApiLens(item: AppTypeSurface) {
             </section>`
           : ""}
       </div>
-      <footer class="api-surface-footer">
-        <span>Select a row to inspect its API</span>
-      </footer>
     </section>`;
 }
 
@@ -12456,6 +12545,7 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
           <header class="api-surface-head member-surface-head">
             <h1 id="member-surface-title">${escapeHtml(member.name)}</h1>
             <p>${count} ${count === 1 ? "overload" : "overloads"} <span>· ${escapeHtml(member.kind)}</span></p>
+            <button class="member-back" id="member-back" title="Back to ${escapeHtml(typeDisplayName(type))}">← Type</button>
           </header>
           <div class="member-surface-scroll">
             <div class="api-list api-surface-list member-surface-list">
@@ -12526,6 +12616,7 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
         <header class="api-surface-head member-surface-head">
           <h1 id="member-surface-title">${escapeHtml(member.name)}</h1>
           <p>${document.count} ${document.count === 1 ? "overload" : "overloads"} <span>· ${escapeHtml(member.kind)}</span></p>
+          <button class="member-back" id="member-back" title="Back to ${escapeHtml(typeDisplayName(type))}">← Type</button>
         </header>
         <div class="member-surface-scroll">
           <div class="api-list api-surface-list member-surface-list">
@@ -12547,10 +12638,6 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
             }).join("")}
           </div>
         </div>
-        <footer class="api-surface-footer member-surface-footer">
-          <button class="member-back" id="member-back">← ${escapeHtml(typeDisplayName(type))}</button>
-          <span>Choose an overload to inspect</span>
-        </footer>
       </section>`;
   }
   const overload = selectedOverload ?? member.overloads[0];
@@ -12676,6 +12763,13 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
     const incompleteGraph = diagnosticsMessage
       ? `<div class="graph-drill-error graph-diagnostics">${escapeHtml(diagnosticsMessage)}</div>`
       : "";
+    const directUseClusters = active && !platformView
+      ? renderDirectUseClusterInspection(
+          active,
+          state.memberCallGraphKey,
+          state,
+          escapeHtml)
+      : "";
     content = state.memberCallGraphLoading
       ? `<section class="document-section source-progress"><span class="loader"></span><h2>Building dependency-aware call graph…</h2><p>Resolving package dependencies under ${escapeHtml(state.callGraphTraversalFramework)} and scanning implementation IL.</p></section>`
       : active && active.noBody
@@ -12701,6 +12795,7 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
             ${scopeLine}
             <div id="call-graph-diagram" class="call-graph-diagram"><span class="loader"></span><p>Rendering graph…</p></div>
             ${callGraphLegendHtml(supplyChainGraph)}
+            ${directUseClusters}
           </section>`
         : `<section class="document-section empty-member-section"><h2>Call graph query failed</h2><p>${escapeHtml(callGraphError || "No call graph result was returned.")}</p></section>`;
     content = `<div data-call-graph-surface>${content}</div>`;
@@ -14061,8 +14156,9 @@ const workbenchShellActions: WorkbenchShellBindingActions = {
     state.workspaceSubjectOpen = false;
     state.atPackageRoot = true;
     state.atLibraryRoot = false;
+    state.packageLens = "overview";
     render();
-    afterCurrentNavigationFrame(() => focusContentNavigation(document));
+    afterCurrentNavigationFrame(() => focusPackageCoordinateControl("package-framework", currentPackage().activeFramework));
   },
   onDismissNotice: dismissQueryNotice,
   onDismissPackageNotice: () => {
@@ -14175,6 +14271,23 @@ function bindEvents() {
   bindGraphBack(document, graphBackActions);
   bindGraphExplore(document, openGraphExplorer);
   bindCallGraphTraversalFramework();
+  bindDirectUseClusterInspection(document, {
+    selectBoundary: id => {
+      const graph = currentCallGraph();
+      const boundary = graph?.boundaries.find(item => item.id === id);
+      if (!graph || !boundary) return;
+      observeAsync(
+        directUseClusterInspection.selectBoundary(
+          state.memberCallGraphKey,
+          boundary),
+        "Inspecting a Library dependency boundary");
+    },
+    selectCluster: ordinal => {
+      observeAsync(
+        directUseClusterInspection.selectCluster(ordinal),
+        "Inspecting a Direct-Use Cluster");
+    },
+  });
   bindContentFrameEvents();
   bindPlatformForwarderEvents();
   observeAsync(ensurePackageVersions(state.package), "Loading package versions");
@@ -14193,6 +14306,7 @@ function bindCallGraphTraversalFramework() {
     state.memberCallGraph = null;
     state.memberCallGraphError = "";
     state.graphMemberNavigationError = "";
+    directUseClusterInspection.reset();
     render();
     observeAsync(
       loadSelectedMemberCallGraph(),
@@ -15112,20 +15226,6 @@ async function querySpotlightPackages(query: string): Promise<SpotlightPackageHi
   }));
 }
 
-// Build the <option> list for the version selector. Always includes the currently loaded
-// version (even before the version inventory arrives) so the control is never empty.
-function versionOptionsHtml(pkg: AppPackage) {
-  const entry = catalogRequests.packageVersions(pkg);
-  const versions = entry.status === "available" ? [...entry.inventory.versions] : [pkg.version];
-  if (entry.status === "available"
-      && !versions.some(v => v.toLowerCase() === pkg.version.toLowerCase())) {
-    versions.splice(entry.inventory.currentVersionInsertionIndex, 0, pkg.version);
-  }
-  return versions
-    .map(v => `<option value="${escapeHtml(v)}" ${v.toLowerCase() === pkg.version.toLowerCase() ? "selected" : ""}>${escapeHtml(v)}</option>`)
-    .join("");
-}
-
 // Switch the resident Platform to a different .NET major (by TFM). Drops the current
 // pseudo-package and its accumulated drilled libraries, then loads a fresh Platform for the
 // chosen TFM and lands on its overview — mirroring the in-place version switch for ordinary
@@ -15263,14 +15363,14 @@ function bindCompareEvents() {
   bindCompareFrame(document, {
     selectMode: selectCompareMode,
     changeTarget: () => {
-      // Change target returns to Package Overview's Comparison targets work
+      // Change target returns to Package Compare's Comparison targets work
       // area; Compare renders no second target editor of its own.
       const control = currentCompareMode() === "clone"
         ? "#package-clone-target"
         : "#package-diff-target";
       state.atPackageRoot = true;
       state.atLibraryRoot = false;
-      state.packageLens = "overview";
+      state.packageLens = "compare";
       contentFramePane = "detail";
       render();
       afterCurrentNavigationFrame(() => {
@@ -15322,16 +15422,41 @@ function bindCompareEvents() {
   });
 }
 
-// Repaint just the version <select> options without a full re-render, so an async index
-// fetch never disturbs focus, scroll, or the rest of the workbench.
+// Refresh version navigation independently from the inspector content.
 function updateVersionSelect(pkg: CatalogPackage) {
   if (!state.package || state.package !== pkg) return;
   if (currentCompareSubject() !== null) {
     render();
     return;
   }
-  const select = document.querySelector("#package-version");
-  if (select) select.innerHTML = versionOptionsHtml(state.package);
+  const pane = document.querySelector(".package-version-nav");
+  if (pane) {
+    const filter = document.querySelector<HTMLInputElement>("#package-version-filter")?.value ?? "";
+    const prerelease = document.querySelector<HTMLInputElement>("#package-version-prerelease")?.checked ?? true;
+    const focused = document.activeElement instanceof HTMLElement && pane.contains(document.activeElement)
+      ? { id: document.activeElement.id, version: document.activeElement.dataset.packageVersion, framework: document.activeElement.dataset.packageFramework } : null;
+    const scrollTop = document.querySelector("#package-version-list")?.scrollTop ?? 0;
+    pane.outerHTML = renderNavPane(null, []);
+    const nextFilter = document.querySelector<HTMLInputElement>("#package-version-filter");
+    const nextPrerelease = document.querySelector<HTMLInputElement>("#package-version-prerelease");
+    if (nextFilter) nextFilter.value = filter;
+    if (nextPrerelease) nextPrerelease.checked = prerelease;
+    const nextPane = document.querySelector(".package-version-nav");
+    if (nextPane) {
+      packageControls.bind(nextPane);
+      bindContentFrame(nextPane, { onShowDetail: showContentDetail, onShowNavigation: showContentNavigation });
+    }
+    const list = document.querySelector("#package-version-list");
+    if (list) list.scrollTop = scrollTop;
+    if (focused) {
+      const target = focused.id ? document.getElementById(focused.id)
+        : [...document.querySelectorAll<HTMLElement>("[data-package-framework], [data-package-version]")]
+          .find(row => focused.framework !== undefined
+            ? row.dataset.packageFramework === focused.framework
+            : focused.version !== undefined && row.dataset.packageVersion === focused.version);
+      target?.focus({ preventScroll: true });
+    }
+  }
   updatePackageComparisonControls();
 }
 
@@ -21754,6 +21879,9 @@ async function loadSelectedMemberCallGraph() {
     memberRequestSignature(type, overload, true);
   const signature =
     `${memberSignature}|traversal:${traversalFramework}`;
+  if (state.memberCallGraphKey !== signature) {
+    directUseClusterInspection.reset();
+  }
   const pkg = currentPackage();
   const platformAssembly = assemblyDescriptorForType(pkg.assemblies, type);
   return callGraphInspection.load({
@@ -24353,6 +24481,7 @@ function applyProductHomeDemoSelection(
   state.packageLens = "overview";
   resetMemberFilters();
   resetMemberSectionState();
+  directUseClusterInspection.reset();
   state.platformStack = [];
   state.memberBrowseTypeId = member ? type.id : "";
   state.selectedMemberKey = member?.key ?? "";
