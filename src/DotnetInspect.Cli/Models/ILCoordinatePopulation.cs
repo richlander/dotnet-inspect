@@ -2,24 +2,24 @@ using ILInspector.Metadata;
 
 namespace DotnetInspect.Cli.Models;
 
-internal abstract record LibraryCoordinateRequest
+internal abstract record LibraryAddressRequest
 {
     internal sealed record IlPoint(
         string Value,
         int MethodToken,
         int ILOffset)
-        : LibraryCoordinateRequest;
+        : LibraryAddressRequest;
 
     internal sealed record HeapPoint(
         string Value,
         HeapKind Heap,
         int Address)
-        : LibraryCoordinateRequest;
+        : LibraryAddressRequest;
 
     internal sealed record FilePopulation(
         string Path,
         ILCoordinatePopulation? Population)
-        : LibraryCoordinateRequest;
+        : LibraryAddressRequest;
 }
 
 internal sealed record ILCoordinatePopulation(

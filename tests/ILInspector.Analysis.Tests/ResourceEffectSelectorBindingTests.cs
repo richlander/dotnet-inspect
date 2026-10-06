@@ -609,13 +609,13 @@ public sealed partial class DirectCallDefinitionResolutionTests
                     writable: false),
                 AssemblyResolutionProvenance.Local(
                     "second selector-binding acquisition"))!;
-        LibraryBodyIndex secondIndex =
-            LibraryBodyIndex.OpenFromPrefetchedImage(
+        LibraryBodyAnalysisExecution secondIndex =
+            BodyAnalysisTestExecution.OpenFromPrefetchedImage(
                 "SelectorDuplicateArtifact-second.dll",
                 ImmutableArray.CreateRange(first.Image),
                 LibraryBodyAnalysisFeatures.MethodEvidence);
         var second = new CatalogCallGraphParticipant(
-            secondIndex,
+            secondIndex.CallGraph,
             secondAssembly);
         DirectCallDefinitionResolutionOutcome.Completed completed =
             Assert.IsType<
@@ -682,13 +682,13 @@ public sealed partial class DirectCallDefinitionResolutionTests
                     writable: false),
                 AssemblyResolutionProvenance.Local(
                     "second selector generic acquisition"))!;
-        LibraryBodyIndex secondIndex =
-            LibraryBodyIndex.OpenFromPrefetchedImage(
+        LibraryBodyAnalysisExecution secondIndex =
+            BodyAnalysisTestExecution.OpenFromPrefetchedImage(
                 "SelectorDuplicateGenericArtifact-second.dll",
                 ImmutableArray.CreateRange(first.Image),
                 LibraryBodyAnalysisFeatures.MethodEvidence);
         var second = new CatalogCallGraphParticipant(
-            secondIndex,
+            secondIndex.CallGraph,
             secondAssembly);
         DirectCallDefinitionResolutionOutcome.Completed completed =
             Assert.IsType<

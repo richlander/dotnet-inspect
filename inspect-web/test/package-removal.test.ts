@@ -8,6 +8,8 @@ import {
   assemblyDescriptorForType,
   memberRequestKey,
   packageIdentityKey,
+  partitionGraphMembers,
+  searchableMemberGroups,
   workspacePackageRemovalKey,
 } from "../src/data.ts";
 import {
@@ -18,6 +20,7 @@ import {
 } from "../src/call-graph-inspection.ts";
 import type { BrowserCallGraph } from "../src/facades/inspect-web-call-graph.d.ts";
 import {
+  filterMemberGroups,
   invalidateGraphMemberNavigationWork,
   invalidateMemberCallGraphWork,
   memberScopeIsActive,
@@ -164,7 +167,8 @@ const app = parseSync("dotnet-inspect.ts", appSource);
 const hostNames = new Set([
   "activateAfterPackageRemoval", "finishPackageRemoval", "activatePackage",
   "invalidateWorkspaceMembershipViews",
-  "packageIdentityEquals", "defaultAccessibilityFilter", "scope",
+  "packageIdentityEquals", "defaultAccessibilityFilter",
+  "setTypeAccessibilityFilter", "scope",
 ]);
 const hostDeclarations = app.program.body
   .filter(node => node.type === "FunctionDeclaration" && hostNames.has(node.id?.name ?? ""))
@@ -333,6 +337,7 @@ function removalGraph(packages: readonly typeof alpha[]): BrowserCallGraph {
       calleeScope: "target assembly",
     },
     targets: [],
+    boundaries: [],
     diagnostics: {
       incompleteNodes: 0,
       incompleteEdges: 0,
@@ -355,8 +360,13 @@ const graphHostNames = new Set([
   "finishPackageRemoval", "invalidateGraphMemberNavigation",
   "invalidateWorkspaceMembershipViews",
   "loadSelectedMemberCallGraph", "memberRequestSignature",
+  "platformDemoContextIdFor",
   "currentPackage", "selectedType", "selectedMember",
-  "memberGroups", "scope",
+  "groupMembers", "typeMemberPopulationKey",
+  "currentTypeMemberPopulation", "declaredMemberGroups",
+  "loadedMemberDeclarationsApplyToSelection",
+  "memberGroups", "memberGroupForCurrentFilters", "memberFilterState",
+  "selectedMemberGroups", "visibleMemberGroups", "scope",
 ]);
 const graphHostDeclarations = app.program.body
   .filter(node =>
@@ -386,6 +396,8 @@ function graphRemovalHarness() {
     home: false, workspaceSubjectOpen: false, atPackageRoot: false,
     lens: "api", selectedTypeId: type.id, selectedMemberKey: "Method:Run",
     memberBrowseTypeId: type.id, selectedOverloadIndex: 1, memberSection: "call-graph",
+    memberSpelling: "csharp", memberAccessibilityFilter: "public",
+    typeMemberPopulationKey: "", typeMemberPopulation: null,
     selectedBodyTarget: { metadataToken: 0x06000002, selectorKey: "Run|System.Int32" },
     workspaceShareBasis: null,
     graphMemberNavigationSeq: 0, graphMemberNavigationTitle: "",
@@ -453,8 +465,13 @@ function graphRemovalHarness() {
     {
       registerHost: (api: typeof host) => { host = api; },
       state, callGraphInspection: coordinator,
+      directUseClusterInspection: { reset: () => {} },
+      selectedForwarder: () => null,
       createPackageRemoval, packageIdentityKey, memberRequestKey,
+      partitionGraphMembers, searchableMemberGroups, filterMemberGroups,
       assemblyDescriptorForType, selectedConcreteOverload, memberScopeIsActive,
+      selectedMemberOverload: (_type: unknown, member: { overloads: unknown[] }) =>
+        selectedConcreteOverload(member.overloads, state.selectedOverloadIndex),
       memberRequestIsCurrent: () => true,
       invalidateMemberCallGraphWork,
       invalidateGraphMemberNavigationWork, navigationSequence: createNavigationSequence(),

@@ -4,7 +4,10 @@ namespace DotnetInspector.Queries;
 
 /// <summary>
 /// Seals borrowed input occurrences and selection values without inspecting content.
-/// The direct-member query consumes this boundary for local comparison.
+/// The direct-member query consumes this boundary for local comparison. The
+/// ResearchQueries companion seals the body-signal profile through
+/// <see cref="Seal{TBinding}"/>, because its binding carries a Research-owned
+/// Analysis value that core Queries cannot reference.
 /// </summary>
 public static class QueryComparisonPopulationSealer
 {
@@ -13,7 +16,6 @@ public static class QueryComparisonPopulationSealer
     {
         ArgumentNullException.ThrowIfNull(request);
         return Seal(request.Before, request.After, request.TypeFilters,
-            request.MemberTargetIdentities,
             QueryComparisonProfile.ImplementationComparison,
             static binding => binding.Assembly is null
                 ? QueryPopulationRejectionKind.MissingAssembly
@@ -24,11 +26,10 @@ public static class QueryComparisonPopulationSealer
                         : null);
     }
 
-    static QueryPopulationSealingOutcome Seal<TBinding>(
+    internal static QueryPopulationSealingOutcome Seal<TBinding>(
         IReadOnlyList<TBinding?>? before,
         IReadOnlyList<TBinding?>? after,
         IReadOnlySet<string>? typeFilters,
-        IReadOnlySet<string>? memberTargetIdentities,
         QueryComparisonProfile profile,
         Func<TBinding, QueryPopulationRejectionKind?> validate)
         where TBinding : class
@@ -47,11 +48,6 @@ public static class QueryComparisonPopulationSealer
             return new QueryPopulationSealingOutcome.Rejected(
                 new(QueryPopulationRejectionKind.MissingTypeFilter, profile));
         }
-        if (!SnapshotSelection(memberTargetIdentities, out var members))
-        {
-            return new QueryPopulationSealingOutcome.Rejected(
-                new(QueryPopulationRejectionKind.MissingMemberTarget, profile));
-        }
 
         QueryComparisonQuestionId question = new(new QueryComparisonOperationId());
         return new QueryPopulationSealingOutcome.Sealed(
@@ -59,7 +55,7 @@ public static class QueryComparisonPopulationSealer
                 profile, question,
                 Mint(oldBindings, question, QueryComparisonSide.Before),
                 Mint(newBindings, question, QueryComparisonSide.After),
-                types, members));
+                types));
     }
 
     static QueryPopulationRejection? SnapshotSide<TBinding>(

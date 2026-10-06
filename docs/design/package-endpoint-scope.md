@@ -169,8 +169,8 @@ never retain a participant after the scope is disposed.
 
    The selector rule is decided from the archive directory before any
    surface folder is read. The House reads a directory by range only for a
-   Realize or a document demand, so the check is a ranged Acquire whose
-   document demand names the nuspec. That demand also reads the archive's
+   Realize or a file demand, so the check is a ranged Acquire whose
+   file demand names the nuspec. That demand also reads the archive's
    root folder. The check's plan has a zero size cut, so it reads by range
    whatever the archive's size, and a fallback below the cut never downloads
    an archive the legacy path downloads again. This is a transitional

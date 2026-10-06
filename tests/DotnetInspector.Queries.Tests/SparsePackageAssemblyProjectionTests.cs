@@ -806,6 +806,18 @@ public sealed class SparsePackageAssemblyProjectionTests
                     new PackageContentEntry(entry.Path, entry.Content.LongLength)),
             ];
         }
+
+        public PackageContentEntryScanner CreateEntryScanner()
+        {
+            EnumerationRequests++;
+            return PackageContentEntryScanner.From(
+            [
+                .. _entries.Select(entry =>
+                    new PackageContentEntry(
+                        entry.Path,
+                        entry.Content.LongLength)),
+            ]);
+        }
     }
 
     /// <summary>
@@ -930,6 +942,10 @@ public sealed class SparsePackageAssemblyProjectionTests
 
         public IReadOnlyList<PackageContentEntry> EnumerateEntriesWithLengths() =>
             [new(path, content.LongLength - 1)];
+
+        public PackageContentEntryScanner CreateEntryScanner() =>
+            PackageContentEntryScanner.From(
+                [new(path, content.LongLength - 1)]);
     }
 
     sealed class UnderreportingLengthStream(

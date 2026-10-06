@@ -25,7 +25,11 @@ namespace DotnetInspector.Presentation;
 [JsonSerializable(typeof(ApiSurfaceProjectionTruncation))]
 public sealed partial class LibraryApiDiffJsonContext : JsonSerializerContext;
 
-sealed class LibraryApiDiffOutcomeJsonConverter
+/// <summary>
+/// Serializes the closed Library API outcome for enclosing host-neutral
+/// documents without duplicating its wire contract.
+/// </summary>
+public sealed class LibraryApiDiffOutcomeJsonConverter
     : JsonConverter<LibraryApiDiffOutcome>
 {
     public override LibraryApiDiffOutcome Read(

@@ -11,6 +11,19 @@ namespace ILInspector.Metadata;
 /// </summary>
 public static class TypeSpecGuard
 {
+    internal enum LimitKind
+    {
+        None,
+        Depth,
+        CumulativeBytes,
+    }
+
+    internal readonly record struct EntryFailure(
+        SignatureDecodeRejectionKind RejectionKind,
+        LimitKind LimitKind,
+        long? Limit = null,
+        long? AttemptedCharge = null);
+
     /// <summary>
     /// Maximum bytes across the active TypeSpec re-entry closure. A single wide,
     /// shallow TypeSpec may use the entire budget.
@@ -33,7 +46,11 @@ public static class TypeSpecGuard
     static ulong s_nextToken;
 
     public static bool TryEnter(MetadataReader reader, TypeSpecificationHandle handle, out Scope scope)
-        => TryEnter(reader, handle, out scope, out _);
+        => TryEnterDetailed(
+            reader,
+            handle,
+            out scope,
+            out EntryFailure _);
 
     internal static bool TryEnter(
         MetadataReader reader,
@@ -41,10 +58,29 @@ public static class TypeSpecGuard
         out Scope scope,
         out SignatureDecodeRejectionKind rejectionKind)
     {
+        bool entered = TryEnterDetailed(
+            reader,
+            handle,
+            out scope,
+            out EntryFailure failure);
+        rejectionKind = failure.RejectionKind;
+        return entered;
+    }
+
+    internal static bool TryEnterDetailed(
+        MetadataReader reader,
+        TypeSpecificationHandle handle,
+        out Scope scope,
+        out EntryFailure failure)
+    {
         scope = default;
         if (s_depth >= MaxDepth)
         {
-            rejectionKind = SignatureDecodeRejectionKind.TypeSpecificationBudget;
+            failure = new(
+                SignatureDecodeRejectionKind.TypeSpecificationBudget,
+                LimitKind.Depth,
+                MaxDepth,
+                s_depth + 1);
             return false;
         }
 
@@ -52,7 +88,11 @@ public static class TypeSpecGuard
         int length = reader.GetBlobReader(signature).Length;
         if ((long)s_cumulativeBytes + length > MaxCumulativeBytes)
         {
-            rejectionKind = SignatureDecodeRejectionKind.TypeSpecificationBudget;
+            failure = new(
+                SignatureDecodeRejectionKind.TypeSpecificationBudget,
+                LimitKind.CumulativeBytes,
+                MaxCumulativeBytes,
+                s_cumulativeBytes + (long)length);
             return false;
         }
         if (!SignatureBlobGuard.IsSafeToDecode(
@@ -60,7 +100,9 @@ public static class TypeSpecGuard
             signature,
             SignatureBlobGuard.Kind.TypeSpecification))
         {
-            rejectionKind = SignatureDecodeRejectionKind.UnsafeStructure;
+            failure = new(
+                SignatureDecodeRejectionKind.UnsafeStructure,
+                LimitKind.None);
             return false;
         }
 
@@ -75,7 +117,7 @@ public static class TypeSpecGuard
         while (token == 0 || token == parentToken);
         s_currentToken = token;
         scope = new Scope(length, token, parentToken);
-        rejectionKind = default;
+        failure = default;
         return true;
     }
 

@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <DebugType>embedded</DebugType>
+    <DebugSymbols>true</DebugSymbols>
+    <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
+    <PathMap>$(MSBuildProjectDirectory)=/_</PathMap>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../ILInspector.Metadata.SourceProvenanceLookalike/ILInspector.Metadata.SourceProvenanceLookalike.csproj">
+      <Aliases>lookalike</Aliases>
+    </ProjectReference>
+    <EmbeddedFiles Include="evidence/obj/Fixture/Fixture.ExampleGenerator/MappedDirective.cs" />
+  </ItemGroup>
+
+</Project>

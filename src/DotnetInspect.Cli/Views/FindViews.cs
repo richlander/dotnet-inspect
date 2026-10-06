@@ -21,11 +21,27 @@ public class FindResultView
     [MarkoutIgnore] [MarkoutSkipNull] public string? Description => DescriptionText?.ToString();
     [MarkoutIgnore] public int Matches { get; set; }
 
+    /// <summary>
+    /// Member rows from the broadened tier. They precede Type rows because a
+    /// direct member name outranks a substring or similar Type name.
+    /// </summary>
+    [MarkoutSection(Name = "Members")]
+    [MarkoutIgnoreColumnWhen(nameof(MemberPatternIsUniform), "Pattern")]
+    [MarkoutIgnoreColumnWhen(nameof(MemberSignatureIsEmpty), "Signature")]
+    public List<FindMemberRow>? Members { get; set; }
+
     [MarkoutSection(Name = "Results")]
     [MarkoutIgnoreColumnWhen(nameof(PatternIsUniform), "Pattern")]
     [MarkoutIgnoreColumnWhen(nameof(MatchIsUniform), "Match")]
     [MarkoutIgnoreColumnWhen(nameof(SimIsUniform), "Sim")]
+    [MarkoutIgnoreColumnWhen(nameof(EcosystemIsEmpty), "Ecosystem")]
     public List<FindRow>? Results { get; set; }
+
+    public static bool MemberPatternIsUniform(List<FindMemberRow>? rows)
+        => FindMembersResultView.PatternIsUniform(rows);
+
+    public static bool MemberSignatureIsEmpty(List<FindMemberRow>? rows)
+        => FindMembersResultView.SignatureIsEmpty(rows);
 
     public static bool PatternIsUniform(List<FindRow>? rows)
         => rows?.Select(r => r.Pattern).Distinct().Count() <= 1;
@@ -35,6 +51,9 @@ public class FindResultView
 
     public static bool SimIsUniform(List<FindRow>? rows)
         => rows?.All(r => r.Similarity is "1.00" or "-") ?? true;
+
+    public static bool EcosystemIsEmpty(List<FindRow>? rows)
+        => rows?.All(r => r.Ecosystem is null) ?? true;
 }
 
 [MarkoutSerializable]
@@ -45,6 +64,7 @@ public record FindRow(
     [property: MarkoutIgnore] InertString KindText,
     [property: MarkoutIgnore] InertString LibraryText,
     [property: MarkoutIgnore] InertString SourceText,
+    [property: MarkoutIgnore] InertString? EcosystemText,
     [property: MarkoutIgnore] InertString MatchText,
     [property: MarkoutIgnore] InertString SimilarityText)
 {
@@ -54,6 +74,7 @@ public record FindRow(
     public string Kind => KindText.ToString();
     public string Library => LibraryText.ToString();
     public string Source => SourceText.ToString();
+    [MarkoutSkipNull] public string? Ecosystem => EcosystemText?.ToString();
     public string Match => MatchText.ToString();
     [MarkoutPropertyName("Sim")]
     public string Similarity => SimilarityText.ToString();
@@ -80,6 +101,7 @@ public class FindMembersResultView
     [MarkoutSection(Name = "Members")]
     [MarkoutIgnoreColumnWhen(nameof(PatternIsUniform), "Pattern")]
     [MarkoutIgnoreColumnWhen(nameof(SignatureIsEmpty), "Signature")]
+    [MarkoutIgnoreColumnWhen(nameof(EcosystemIsEmpty), "Ecosystem")]
     public List<FindMemberRow>? Results { get; set; }
 
     public static bool PatternIsUniform(List<FindMemberRow>? rows)
@@ -87,6 +109,9 @@ public class FindMembersResultView
 
     public static bool SignatureIsEmpty(List<FindMemberRow>? rows)
         => rows?.All(r => string.IsNullOrEmpty(r.Signature)) ?? true;
+
+    public static bool EcosystemIsEmpty(List<FindMemberRow>? rows)
+        => rows?.All(r => r.Ecosystem is null) ?? true;
 }
 
 [MarkoutSerializable]
@@ -97,7 +122,8 @@ public record FindMemberRow(
     [property: MarkoutIgnore] InertString TypeText,
     [property: MarkoutIgnore] InertString SignatureText,
     [property: MarkoutIgnore] InertString LibraryText,
-    [property: MarkoutIgnore] InertString SourceText)
+    [property: MarkoutIgnore] InertString SourceText,
+    [property: MarkoutIgnore] InertString? EcosystemText)
 {
     public string Pattern => PatternText.ToString();
     public string Member => MemberText.ToString();
@@ -106,6 +132,7 @@ public record FindMemberRow(
     public string Signature => SignatureText.ToString();
     public string Library => LibraryText.ToString();
     public string Source => SourceText.ToString();
+    [MarkoutSkipNull] public string? Ecosystem => EcosystemText?.ToString();
 }
 
 [MarkoutSerializable(
@@ -226,13 +253,10 @@ public sealed class PackageProfileRow
 [MarkoutContext(typeof(ExtensionsResultView))]
 [MarkoutContext(typeof(ExtensionCountRow))]
 [MarkoutContext(typeof(ExtensionRow))]
-[MarkoutContext(typeof(DotnetInspect.Cli.Views.MatchResultView))]
-[MarkoutContext(typeof(DotnetInspect.Cli.Views.MatchBlockerRow))]
-[MarkoutContext(typeof(DotnetInspect.Cli.Views.MatchBlockCorrespondenceRow))]
-[MarkoutContext(typeof(DotnetInspect.Cli.Views.MatchDiscoveryView))]
-[MarkoutContext(typeof(DotnetInspect.Cli.Views.MatchDiscoveryBlockerRow))]
-[MarkoutContext(typeof(DotnetInspect.Cli.Views.MatchDiscoveryCandidateRow))]
-[MarkoutContext(typeof(DotnetInspect.Cli.Views.MatchDiscoveryCandidateTableView))]
+[MarkoutContext(typeof(DotnetInspector.Presentation.MatchDiscoveryView))]
+[MarkoutContext(typeof(DotnetInspector.Presentation.MatchDiscoveryBlockerRow))]
+[MarkoutContext(typeof(DotnetInspector.Presentation.MatchDiscoveryCandidateRow))]
+[MarkoutContext(typeof(DotnetInspector.Presentation.MatchDiscoveryCandidateTableView))]
 public partial class SearchViewContext : MarkoutSerializerContext
 {
 }

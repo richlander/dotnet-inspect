@@ -51,6 +51,7 @@ public sealed class TypeDeclarationLocatorSectionPlan
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
 [JsonDerivedType(typeof(TypeDeclarationLocatorSectionRequest.ExactRequest), "exact")]
 [JsonDerivedType(typeof(TypeDeclarationLocatorSectionRequest.PatternRequest), "pattern")]
+[JsonDerivedType(typeof(TypeDeclarationLocatorSectionRequest.NamespaceRequest), "namespace")]
 public abstract record TypeDeclarationLocatorSectionRequest
 {
     private TypeDeclarationLocatorSectionRequest()
@@ -61,6 +62,11 @@ public abstract record TypeDeclarationLocatorSectionRequest
         : TypeDeclarationLocatorSectionRequest;
 
     public sealed record PatternRequest(string Text)
+        : TypeDeclarationLocatorSectionRequest;
+
+    public sealed record NamespaceRequest(
+        string Name,
+        MetadataNamespaceMatch Match)
         : TypeDeclarationLocatorSectionRequest;
 }
 
@@ -254,7 +260,8 @@ public abstract record TypeDeclarationLocatorRealization
         string Version,
         string Producer,
         string Framework,
-        string? Assembly)
+        string? Assembly,
+        WorkspacePlatformPopulationMemberRole? Role)
         : TypeDeclarationLocatorRealization;
 
     public sealed record EmbeddedRealization(
@@ -358,6 +365,7 @@ public sealed record TypeDeclarationLocatorSectionCandidate(
     TypeDeclarationLocatorSectionCoordinate Coordinate,
     MetadataTypeDefinitionName Name,
     AssemblyTypeDeclarationKind DeclarationKind,
+    Guid ModuleVersionId,
     TypeDeclarationLocatorObservation Observation)
 {
     [JsonIgnore]
@@ -618,6 +626,7 @@ public static class TypeDeclarationLocatorSection
                                     .FromSource(candidate.Coordinate),
                                 candidate.Name,
                                 candidate.Kind,
+                                candidate.ModuleVersionId,
                                 Observation(candidate.Observation))
                             {
                                 DefinitionKind = candidate.DefinitionKind,
@@ -741,6 +750,10 @@ public static class TypeDeclarationLocatorSection
             TypeDeclarationLocatorRequest.Pattern pattern =>
                 new TypeDeclarationLocatorSectionRequest.PatternRequest(
                     pattern.Text),
+            TypeDeclarationLocatorRequest.Namespace @namespace =>
+                new TypeDeclarationLocatorSectionRequest.NamespaceRequest(
+                    @namespace.Name,
+                    @namespace.Match),
             _ => throw new InvalidOperationException(
                 "Unknown type declaration locator request."),
         };
@@ -871,7 +884,8 @@ public static class TypeDeclarationLocatorSection
                     package.Framework, package.RuntimeIdentifier),
             WorkspaceDeclarationOrigin.ContextLoad { Realized: RealizedMemberCoordinate.Platform platform } =>
                 new TypeDeclarationLocatorRealization.PlatformRealization(
-                    platform.Family, platform.Version, platform.Producer, platform.Framework, platform.Assembly),
+                    platform.Family, platform.Version, platform.Producer,
+                    platform.Framework, platform.Assembly, Role: null),
             WorkspaceDeclarationOrigin.ContextLoad { Realized: RealizedMemberCoordinate.Embedded embedded } =>
                 new TypeDeclarationLocatorRealization.EmbeddedRealization(
                     embedded.ContentRef, embedded.Digest, embedded.DeclaredName),
@@ -881,6 +895,14 @@ public static class TypeDeclarationLocatorSection
             WorkspaceDeclarationOrigin.PlatformReference reference =>
                 new TypeDeclarationLocatorRealization.PlatformReferenceRealization(
                     references.Evidence(reference.Source), reference.Path),
+            WorkspaceDeclarationOrigin.PlatformPopulation population =>
+                new TypeDeclarationLocatorRealization.PlatformRealization(
+                    population.Target.Family.ToString(),
+                    population.Target.Version.Value,
+                    population.Producer,
+                    population.Target.TargetFramework.ToString(),
+                    population.Assembly,
+                    population.Role),
             _ => throw new InvalidOperationException("Unknown declaration origin."),
         };
 

@@ -15,24 +15,71 @@ internal sealed record ImplementationMetricLocalEvidence(
     internal bool IsComplete => IncompleteReason is null;
 }
 
+internal sealed record ImplementationMetricInstructionShape(
+    int InstructionCount,
+    int DistinctOpcodeCount);
+
+internal sealed record ImplementationMetricControlFlow(
+    int BasicBlockCount,
+    int BranchCount,
+    int ConditionalBranchCount,
+    int SwitchCount,
+    int SwitchTargetCount,
+    int LoopCount)
+{
+    internal int NormalFlowCyclomaticComplexity =>
+        1 + ConditionalBranchCount - SwitchCount + SwitchTargetCount;
+}
+
+internal sealed record ImplementationMetricDirectCallCount(
+    int Count);
+
+internal sealed record ImplementationMetricCallSiteCount(
+    int Count);
+
+internal sealed record ImplementationMetricDirectCalls(
+    int InvocationCount,
+    int DistinctTargetCount,
+    string? IncompleteReason)
+{
+    internal bool IsComplete => IncompleteReason is null;
+}
+
+internal sealed record ImplementationMetricSiblingRelationships(
+    ImmutableArray<OverloadCallRelationship> Relationships,
+    ImmutableArray<AnalysisDiagnostic> Diagnostics)
+{
+    internal bool IsComplete => Diagnostics.IsEmpty;
+}
+
 internal sealed record MethodImplementationMetricEvidence(
     MethodIdentity Method,
     MethodIdentity EvidenceMethod,
     int? ILBytes,
     ImplementationMetricExceptionRegionCounts? ExceptionRegions,
-    ImplementationMetricLocalEvidence? Locals);
+    ImplementationMetricLocalEvidence? Locals,
+    ImplementationMetricInstructionShape? InstructionShape,
+    ImplementationMetricControlFlow? ControlFlow,
+    ImplementationMetricDirectCallCount? DirectCallCount,
+    ImplementationMetricCallSiteCount? CallSiteCount,
+    ImplementationMetricDirectCalls? DirectCalls)
+{
+    internal bool DirectCallCollectionAttempted { get; init; }
+
+    internal bool DirectCallCollectionComplete { get; init; }
+}
 
 internal sealed record ImplementationMetricStageParticipation(
     ImplementationMetricWorkStage Stage,
-    ImplementationMetricEvidenceKind EvidenceCauses,
+    ImplementationMetricKind MetricCauses,
     LibraryBodyAnalysisFeatures FeatureCauses,
     int AttemptedBodies,
     int CompletedBodies,
     int FailedBodies);
 
 internal sealed record ImplementationMetricParticipationReceipt(
-    ImplementationMetricEvidenceKind RequestedEvidence,
-    ImplementationMetricEvidenceKind EffectiveEvidence,
+    ImplementationMetricKind RequestedMetrics,
+    ImplementationMetricFactKind RequiredFacts,
     ImplementationMetricWorkStage PlannedStages,
     bool HasCompleteStageParticipation,
     ImmutableArray<ImplementationMetricStageParticipation>
@@ -45,7 +92,9 @@ internal sealed record LibraryImplementationMetricAnalysisResult(
     ImplementationMetricParticipationReceipt? Participation,
     ImmutableArray<MethodIdentity> DeclaredMethods,
     ImmutableArray<MethodIdentity> ManagedMethodBodies,
+    ImmutableArray<FailedMethodBodyAnalysis> FailedMethodBodies,
     ImmutableArray<MethodImplementationMetricEvidence> Bodies,
+    ImplementationMetricSiblingRelationships? SiblingRelationships,
     ImmutableArray<AnalysisDiagnostic> Diagnostics);
 
 internal sealed record ImplementationMetricStageParticipationSnapshot(
@@ -77,8 +126,8 @@ internal sealed class ImplementationMetricExecutionRecorder
                 GetOrCreate(stage);
             if (_plan.WorkStages.HasFlag(stage))
             {
-                participation.EvidenceCauses |=
-                    _plan.EvidenceCausesFor(stage);
+                participation.MetricCauses |=
+                    _plan.MetricCausesFor(stage);
             }
             participation.FeatureCauses |=
                 _requestedFeatures;
@@ -150,7 +199,7 @@ internal sealed class ImplementationMetricExecutionRecorder
 
     sealed class MutableParticipation
     {
-        internal ImplementationMetricEvidenceKind EvidenceCauses;
+        internal ImplementationMetricKind MetricCauses;
         internal LibraryBodyAnalysisFeatures FeatureCauses;
         internal int AttemptedBodies;
         internal int CompletedBodies;
@@ -160,7 +209,7 @@ internal sealed class ImplementationMetricExecutionRecorder
             ImplementationMetricWorkStage stage) =>
             new(
                 stage,
-                EvidenceCauses,
+                MetricCauses,
                 FeatureCauses,
                 AttemptedBodies,
                 CompletedBodies,

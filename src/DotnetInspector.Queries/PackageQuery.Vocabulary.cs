@@ -55,6 +55,7 @@ internal enum PackageQueryPredicateKind
 {
     Package,
     Prefix,
+    Ecosystem,
     Prerelease,
     NoDependencies,
     CrossPrefixDependencies,
@@ -278,13 +279,21 @@ internal sealed class PackageQueryVocabulary
         PortableQueryResolvedTerm<PackageQueryPredicate> population =
             resolved.Terms.Single(term =>
                 term.Predicate.Kind is PackageQueryPredicateKind.Package
-                    or PackageQueryPredicateKind.Prefix);
-        SourceSelector input;
+                    or PackageQueryPredicateKind.Prefix
+                    or PackageQueryPredicateKind.Ecosystem);
+        SourceSelector? input = null;
+        WorkspaceEcosystemRegistrationId? ecosystem = null;
         string scope;
         if (population.Predicate.Kind == PackageQueryPredicateKind.Package)
         {
             scope = population.Predicate.Text!;
             input = new SourceSelector.Package(new PackageCoordinate(scope));
+        }
+        else if (population.Predicate.Kind == PackageQueryPredicateKind.Ecosystem)
+        {
+            ecosystem = WorkspaceEcosystemRegistrationId.Create(
+                population.Predicate.Text!);
+            scope = ecosystem.Value;
         }
         else
         {
@@ -302,6 +311,7 @@ internal sealed class PackageQueryVocabulary
                 .Where(term => term.Predicate.Kind is not (
                     PackageQueryPredicateKind.Package
                     or PackageQueryPredicateKind.Prefix
+                    or PackageQueryPredicateKind.Ecosystem
                     or PackageQueryPredicateKind.Prerelease))
                 .Select(term => new BoundPackageQueryTerm(
                     PackageQuery.Descriptor(term.Term.Key),
@@ -328,7 +338,8 @@ internal sealed class PackageQueryVocabulary
             maximumMatches,
             includePrerelease,
             selection,
-            input);
+            input,
+            ecosystem);
     }
 
     private static PackageQueryDependencyTarget DependencyTarget(

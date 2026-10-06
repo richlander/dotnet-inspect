@@ -39,6 +39,13 @@ public static class ApiCommandDefinitions
         var projectOption = new Option<string?>("--project") { Description = "Source: restored project.assets.json context" };
         var frameworkOption = new Option<string?>("--framework") { Description = "Source: platform framework (runtime, aspnetcore, netstandard). @version for specific" };
         var tfmOption = new Option<string?>("--tfm") { Description = "Source: select by TFM (e.g., net8.0)" };
+        var suppressRuntimeTypeFallbackOption =
+            new Option<string?>(
+                RouterCommandDefinition
+                    .SuppressRuntimeTypeFallbackOptionName)
+            {
+                Hidden = true,
+            };
         var workspaceOption = new Option<string?>("--workspace")
         {
             Description = "Source: canonical Base64URL Workspace packet string",
@@ -79,6 +86,7 @@ public static class ApiCommandDefinitions
         typeCommand.Options.Add(projectOption);
         typeCommand.Options.Add(frameworkOption);
         typeCommand.Options.Add(tfmOption);
+        typeCommand.Options.Add(suppressRuntimeTypeFallbackOption);
         typeCommand.Options.Add(workspaceOption);
         typeCommand.Options.Add(matchOption);
         typeCommand.Options.Add(shareOption);
@@ -93,6 +101,7 @@ public static class ApiCommandDefinitions
         typeCommand.Options.Add(memberOption);
         typeCommand.Options.Add(kindOption);
         opts.AddSectionOptionsTo(typeCommand);
+        typeCommand.Options.Add(opts.Details);
         opts.AddCountOptionTo(typeCommand);
         opts.AddPrintOptionTo(typeCommand);
         opts.AddShapeProjectionOptionsTo(typeCommand);
@@ -118,7 +127,8 @@ public static class ApiCommandDefinitions
             argsArg, packageOption, assemblyOption, platformOption, projectOption, frameworkOption, tfmOption,
             allOption, typeFilterOption, compactOption,
             opts.NoHeaders, unsafeOption, repoOption, memberOption, kindOption, atOption,
-            workspaceOption, shareOption);
+            workspaceOption, shareOption,
+            suppressRuntimeTypeFallbackOption);
         structuralArgs = commandArgs;
 
         CliRowSelectionCommandRegistry.Register(
@@ -350,6 +360,10 @@ public static class ApiCommandDefinitions
         {
             Description = "With --print, select an authored member part: member, xml-docs, attributes, signature, or body"
         };
+        var explainOption = SharedOptions.CreateExplanationOption();
+        var companionOption =
+            SharedOptions.CreateCompanionOption(
+                allowBareExplanation: true);
         var shareOption = WorkspaceShareOption.Create(
             "Emit one exact public NuGet member as a canonical Workspace packet or complete URL");
         var binOption = new Option<string[]>("--bin")
@@ -406,6 +420,7 @@ public static class ApiCommandDefinitions
         memberCommand.Options.Add(indexOption);
         memberCommand.Options.Add(sourcePartsOption);
         memberCommand.Options.Add(sourcePartOption);
+        memberCommand.Options.Add(explainOption);
         memberCommand.Options.Add(shareOption);
         memberCommand.Options.Add(binOption);
         memberCommand.Options.Add(callerProjectOption);
@@ -414,6 +429,7 @@ public static class ApiCommandDefinitions
         memberCommand.Options.Add(kindOption);
         memberCommand.Options.Add(routerDeferredTargetOption);
         opts.AddSectionOptionsTo(memberCommand);
+        memberCommand.Options.Add(opts.Details);
         opts.AddCountOptionTo(memberCommand);
         opts.AddPrintOptionTo(memberCommand);
         opts.AddShapeProjectionOptionsTo(memberCommand);
@@ -425,7 +441,9 @@ public static class ApiCommandDefinitions
         memberCommand.Options.Add(opts.Taste);
         memberCommand.Options.Add(opts.ReadableNames);
         memberCommand.Options.Add(opts.Focus);
-        opts.AddOutputOptionsTo(memberCommand);
+        opts.AddOutputOptionsTo(
+            memberCommand,
+            companion: companionOption);
         opts.AddNuGetOptionsTo(memberCommand);
 
         CliRowSelectionCommandRegistry.Register(
@@ -517,11 +535,75 @@ public static class ApiCommandDefinitions
             compactOption, opts.NoHeaders,
             unsafeOption, indexOption, shareOption, kindOption,
             binOption, callerProjectOption, callerPackageOption, repoOption, atOption,
-            routerDeferredTargetOption, sourcePartsOption, sourcePartOption);
+            routerDeferredTargetOption, sourcePartsOption, sourcePartOption,
+            explainOption, companionOption);
         structuralArgs = commandArgs;
 
         memberCommand.SetAction(async (parseResult, ct) =>
         {
+            ExplanationProjection? explanationProjection =
+                SharedOptions.ParseExplanationProjection(
+                    parseResult,
+                    explainOption);
+            bool explain = explanationProjection is not null;
+            CompanionOutput companionOutput =
+                opts.ParseCompanionOutput(
+                    parseResult,
+                    companionOption);
+            if (explain
+                && GetMemberExplainConflict(
+                    parseResult,
+                    opts,
+                    commandArgs,
+                    matchOption,
+                    explanationProjection!.Value,
+                    companionOutput) is { } explainConflict)
+            {
+                CommandError.Write(explainConflict);
+                return 1;
+            }
+            if (!explain
+                && companionOutput == CompanionOutput.Explanation
+                && GetMemberCompanionExplanationConflict(
+                    parseResult,
+                    opts,
+                    commandArgs,
+                    matchOption) is { } companionConflict)
+            {
+                CommandError.Write(companionConflict);
+                return 1;
+            }
+
+            bool hasSubjectIntent =
+                HasMemberExplanationSubjectIntent(
+                    parseResult,
+                    opts,
+                    commandArgs);
+            if (explain && !hasSubjectIntent)
+            {
+                if (explanationProjection
+                    == ExplanationProjection.Tips)
+                {
+                    CommandError.Write(
+                        "'--explain .tips' requires one Member "
+                            + "subject and source.");
+                    return 1;
+                }
+                if (companionOutput == CompanionOutput.Tips)
+                {
+                    CommandError.Write(
+                        "'-E .tips' with '--explain' requires a Member "
+                            + "subject and source.");
+                    return 1;
+                }
+
+                return MemberExplanationOutput.WritePrimary(
+                    MemberExplanationBindings.ExplainCommand(),
+                    opts.ResolveFormat(
+                        parseResult,
+                        OutputFormat.Markdown));
+            }
+
             if (IsExactCallGraphTransportSelection(
                     parseResult,
                     opts)
@@ -561,7 +643,8 @@ public static class ApiCommandDefinitions
                 };
             }
 
-            if (MemberOptionsParser.TryCreateStructuralPlan(
+            if (!explain
+                && MemberOptionsParser.TryCreateStructuralPlan(
                     parseResult,
                     opts,
                     commandArgs,
@@ -705,6 +788,157 @@ public static class ApiCommandDefinitions
         });
 
         return memberCommand;
+    }
+
+    private static OptionError? GetMemberExplainConflict(
+        ParseResult parseResult,
+        SharedOptions opts,
+        MemberOptionsParser.MemberCommandArgs args,
+        Option<bool> matchOption,
+        ExplanationProjection explanationProjection,
+        CompanionOutput companionOutput)
+    {
+        bool duplicate =
+            explanationProjection == ExplanationProjection.Complete
+                && companionOutput == CompanionOutput.Explanation
+            || explanationProjection == ExplanationProjection.Tips
+                && companionOutput == CompanionOutput.Tips;
+        if (duplicate)
+        {
+            return explanationProjection
+                    == ExplanationProjection.Complete
+                ? "'--explain -E' requests the same complete explanation "
+                    + "twice. Use '--explain' alone, or add '-E .tips'."
+                : "'--explain .tips -E .tips' requests the same contextual "
+                    + "tips twice. Choose primary stdout or companion stderr.";
+        }
+
+        if (explanationProjection == ExplanationProjection.Tips
+            && parseResult.GetResult(opts.Markdown)
+                is { Implicit: false })
+        {
+            return "'--explain .tips' uses its natural plain-text shape "
+                + "and cannot be combined with '--markdown'.";
+        }
+
+        Option[] conflicting =
+        [
+            matchOption,
+            args.CompactOption,
+            args.ShareOption,
+            args.SourcePartsOption,
+            args.SourcePartOption,
+            args.BinOption,
+            args.CallerPackageOption,
+            args.RepoOption,
+            opts.Json,
+            opts.Envelope,
+            opts.Raw,
+            opts.Mermaid,
+            opts.Table,
+            opts.Tsv,
+            opts.Jsonl,
+            opts.NoHeaders,
+            opts.Verbosity,
+            opts.PreferRenderedUrls,
+            opts.Discover,
+            opts.QueryHelp,
+            opts.Select,
+            opts.Columns,
+            opts.Fields,
+            opts.Schema,
+            opts.Tree,
+            opts.Effective,
+            opts.Count,
+            opts.Print,
+            opts.Row,
+            opts.Value,
+            opts.Urls,
+            opts.Paths,
+            opts.JsonArray,
+            opts.Rows,
+            opts.Limit,
+            opts.Head,
+            opts.Tail,
+            opts.Lines,
+            opts.TailLines,
+            opts.PerformanceTriageLoop,
+            opts.PerformanceTriageMinConfidence,
+            opts.PerformanceTriageShape,
+            opts.PerformanceTriageTop,
+            opts.RowWhere,
+            opts.RowOrderBy,
+            opts.Taste,
+            opts.ReadableNames,
+            opts.Focus,
+        ];
+        Option? conflict = conflicting.FirstOrDefault(
+            option => parseResult.GetResult(option)
+                is { Implicit: false });
+        if (conflict is null)
+            return null;
+        return new OptionError(
+            $"'--explain' cannot be combined with '{conflict.Name}'; "
+                + "it is a terminal content operation.");
+    }
+
+    private static bool HasMemberExplanationSubjectIntent(
+        ParseResult parseResult,
+        SharedOptions opts,
+        MemberOptionsParser.MemberCommandArgs args)
+    {
+        if ((parseResult.GetValue(args.ArgsArg) ?? []).Length > 0)
+            return true;
+
+        Option[] subjectOptions =
+        [
+            args.PackageOption,
+            args.AssemblyOption,
+            args.PlatformOption,
+            args.FrameworkOption,
+            args.TfmOption,
+            args.AllOption,
+            args.MemberOption,
+            args.CtorOption,
+            args.UnsafeOption,
+            args.IndexOption,
+            args.KindOption,
+            args.ProjectOption,
+            args.AtOption,
+            args.RouterDeferredTargetOption,
+            opts.Source,
+            opts.AddSource,
+            opts.NuGetConfig,
+        ];
+        return subjectOptions.Any(
+            option => parseResult.GetResult(option)
+                is { Implicit: false });
+    }
+
+    private static OptionError?
+        GetMemberCompanionExplanationConflict(
+            ParseResult parseResult,
+            SharedOptions opts,
+            MemberOptionsParser.MemberCommandArgs args,
+            Option<bool> matchOption)
+    {
+        Option[] conflicting =
+        [
+            matchOption,
+            args.ShareOption,
+            opts.Discover,
+            opts.QueryHelp,
+            opts.Effective,
+            opts.Count,
+        ];
+        Option? conflict = conflicting.FirstOrDefault(
+            option => parseResult.GetResult(option)
+                is { Implicit: false });
+        if (conflict is null)
+            return null;
+        return new OptionError(
+            $"Bare '-E' cannot be combined with '{conflict.Name}' "
+                + "for Member explanation.");
     }
 
     internal static bool IsExactCallGraphEnvelopeSelection(

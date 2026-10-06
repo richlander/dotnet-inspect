@@ -1,9 +1,11 @@
 # Progressive disclosure model
 
-dotnet-inspect uses progressive disclosure to control noise, latency, and
-network use. The core rule is: start with cheap evidence in the command's base
+dotnet-inspect uses progressive disclosure to control noise, output bulk, and
+latency. The core rule is: start with cheap evidence in the command's base
 scope, then require an explicit gesture for broader domains or larger probe
-budgets.
+budgets. Network dependence is governed separately by the
+[network policy](#network-policy): `--offline` is the only no-network
+guarantee.
 
 The model combines five mechanisms:
 
@@ -15,6 +17,15 @@ The model combines five mechanisms:
 
 `-D`, `-S`, and `-Q` are intentionally capitalized. They form a query namespace that
 is less likely to collide with command-specific lowercase options.
+
+Contextual post-success tips are separate from output scope and are opt-in.
+Short-only `-E .tips` requests up to three suggestions on `stderr`; `.tips` is
+a separate dotted projection token. It is independent of output verbosity,
+format, section selection, and row or line limits. Bare `-E` and
+`-E .references` are reserved until their semantic owners are available. A
+successful command with no applicable suggestions emits no tip block. Ordinary
+`stdout` completes and flushes before one bounded tip block is written last to
+`stderr`, preserving streaming and independent redirection.
 
 ## API visibility and implementation populations
 
@@ -31,6 +42,11 @@ they do not require `--all` for completeness. A follow-up API command may
 still need `--all` to resolve a non-public result identified by an aggregate
 analysis. These are separate gestures with separate contracts.
 
+An implementation operation that accepts a named Type or Member has both
+boundaries in one command. `--all` may widen the API lookup used to resolve a
+non-public root, but it does not widen the resulting body population, graph
+traversal, relationship set, or work bounds.
+
 See [API and implementation population scope](api-population-scope.md) for
 the normative distinction and the boundaries between API visibility,
 implementation completeness, and package-library selection.
@@ -44,11 +60,37 @@ unrelated domain categories.
 | --- | --- | --- |
 | Quiet | `-v:q` | Compact identity/context only |
 | Minimal | `-v:m` | One high-value base section |
-| Normal | `-v:n` | Fixed, terse, and informative network-free base sections |
+| Normal | `-v:n` | Fixed, terse, and informative base sections |
 | Detailed | `-v:d` | All applicable bounded-cost base sections |
 
 Minimal views should remain close to one screenful. Prefer compact fields,
 counts, and summaries over unbounded inventories.
+
+The Package primary-subject view gives bare Package output its single
+high-value native children Tree instead of the automatic Package section
+union. `Package Info` remains the explicit facts view. The Tree uses the
+selected compile-Library population and identity rows; it does not open a
+Library or summarize its Type population. A managed tool payload may collapse
+its dependency Libraries only in the
+implicit Minimal Tree, whose collapsed branch names `-v:n` as the gesture to
+the full inventory. Normal and Detailed Trees and every explicit output format
+list every child. JSON and row formats retain the owner-issued
+population, completion, role, exact asset identity, and child
+selector; row windows, projection, and scalar Count select that population
+rather than returning to the section model. Scalar Count uses owner-issued
+child cardinality without the unrelated all-binary Signals scan or Library
+inspection. Finite row windows select the ordered child population while
+preserving total cardinality and original ordinals; a zero-row window over a
+non-empty population is not an empty-Package outcome. Child selectors retain
+the selected target and safely
+replayable source/configuration arguments, including the adjacent source
+directory for local RID-pointer Packages; output fails visibly rather than
+emit an inexact or unsafe selector.
+
+Inspect Web's initial Package acquisition uses the same summary-only child
+operation. The separate broad Package-surface operation remains available to
+explicit consumers that request Type/member evidence and may therefore open
+Library binaries.
 
 For library inspection, References, Ecosystem Dependencies, Switches, Type
 Forwarders, P/Invoke Methods, and Union Types are measured or structurally
@@ -68,9 +110,9 @@ coordinate field views are fixed except for the enclosing exception-region
 inventory. `SourceLink: Missing Files` retains every missing document rather
 than truncating the explicitly requested evidence.
 
-For package inspection, Target Frameworks, Package nuspec file, Dependencies,
+For package inspection, Target Frameworks, Nuspec, Dependencies,
 Ecosystem Dependencies, Vulnerabilities, Manifest, Runtime Dependencies, and
-Package skill files are `Verbose`; they enter automatic output at `-v:d`, not
+Skills are `Verbose`; they enter automatic output at `-v:d`, not
 `-v:n`. Exact section selection and the `@Package`, `@Files`, `@Dependencies`,
 or `@Audit` doors remain available. The explicit-only whole-package and
 license-file listings remain outside every automatic verbosity preset.
@@ -135,6 +177,28 @@ Automatic verbosity still uses only the route's base `@Member` union; selecting
 an exact domain category or exact section name is the gesture that enters the
 additional evidence.
 
+### Overview cost
+
+An overview is a cheap summary of one subject: a Library's `Library Info`
+section and its compact `-v:q` summary, and a Type's overview. It shows only
+facts read from metadata: table row counts, flags, names, and per-row reads
+that match a custom attribute's type or read a fixed-size attribute value in
+place. It does not read a method body, decode IL, or materialize per-row
+signature or attribute text. A fact that needs that work belongs to an
+on-demand section, and the overview does not count it.
+
+Cost decides membership before value. A row whose producer reads bodies leaves
+the overview, or narrows to the part of its fact that metadata declares, even
+when the full fact is useful. The Library Info Switches row narrowed this way
+(decided 2026-10-03).
+
+The enforcing gate is `OverviewCostTests`. It runs `library` at `-v:m`,
+`-v:q`, and `-S "Library Info"` over a fixture that calls
+`AppContext.TryGetSwitch`, and `type` at `-v:m` for a type in that fixture and
+for a platform type. It asserts that no method body is read and no body
+session opens. Per-row signature and attribute-text materialization is not
+gated and is unverified.
+
 ## Categories
 
 Base categories define ordinary command evidence. Domain categories are
@@ -152,14 +216,12 @@ and `@SourceLink`; the resolved broad, overload, or exact-member catalog
 determines which authored members each door exposes.
 Diff uses `@Diff` as its base category for the composable `Changes`, `Analysis
 Diff`, and `Implementation Diff` views. Its focused, non-composable
-`Complexity Context`, `Structural Context`, and `Finding Transitions` views
-remain standalone exact-name sections.
+`Complexity Context` and `Structural Context` views remain standalone
+exact-name sections, as do the `Summary` and `Transitions` views of an
+`--analysis` result.
 Project uses `@Project` as its base category for package-authored `Skills` and
-`Package README file` documents from restored direct dependencies. Selecting
+`README` documents from restored direct dependencies. Selecting
 `@Project` explicitly requests both inventories.
-Vocabulary uses `@Vocabulary` as its base category. `@API` and `@Decompiler`
-select the vocabularies consumed by those query families; bare output retains
-the `Vocabulary Sections` index.
 Ecosystem uses a route-specific `@Ecosystem` base category. The optional focus
 operand first chooses the catalog-wide, focused-pack, or focused-Platform
 section set; `@Ecosystem` then composes that complete set. Exact
@@ -291,8 +353,8 @@ performance, metadata, SourceLink, and other domains together. A standalone
 section may define its own bounded presence probe for the bare catalog without
 joining the base scope; `Unsafe Members` is the current library example.
 
-Package, type-listing, member, diff, project, vocabulary, and ecosystem
-catalogs follow this model. Commands not yet migrated may retain their existing
+Package, type-listing, member, diff, project, and ecosystem catalogs follow
+this model. Commands not yet migrated may retain their existing
 discovery behavior; new work should follow the reference model rather than
 copy a legacy command.
 
@@ -392,6 +454,50 @@ turn discovery into target acquisition, or advertise deferred work.
 
 ## Network and source capabilities
 
+### Network policy
+
+dotnet-inspect accepts network dependence in exchange for better data. Ranged
+package reads make acquisition cheap enough that network access no longer
+decides what a default view shows.
+
+- `--offline` is the only way to guarantee no network dependence. It is
+  enforced once, where HTTP clients are created: `HttpClientFactory` adds an
+  `OfflineHandler` that rejects every request. A package, PDB, or source
+  acquisition therefore fails rather than reaching the network.
+- Otherwise, acquiring a missing PDB (`PdbAcquire`) is a default capability.
+  Any gesture whose producers want PDB facts may request it.
+- Verbosity presets are defined by size and value, as described in
+  [Verbosity](#verbosity), not by whether a section's producer uses the
+  network.
+- Fixed and `Verbose` (unbounded) sections keep their disclosure rules. A
+  bounded section can appear by default even when its producer uses the
+  network, and an unbounded inventory stays out of the default views even when
+  it needs no network.
+- Source and documentation content is a matter of disclosure, not network
+  dependence. Source is bulky, so it is not shown for every member by default.
+  A single subject may show its own descriptive text by default: a package
+  description, or the docs for a type in a single-type overview. A list of
+  subjects does not show per-row docs or source by default. This matches the
+  website treatment.
+- Plain `-D` stays network-free, so discovery still returns quickly for a
+  local target (see [Discovery](#discovery)).
+
+The rest of this section describes the capability machinery that carries this
+policy. Its rules about request provenance and host preflight still apply.
+Only the policy that decides which capabilities a gesture requests has
+changed.
+
+Adoption status: `--offline` is the only network prohibition in code. Network
+telemetry observes requests and never blocks them, so any producer that needs
+PDB facts may acquire a missing PDB outside `--offline`. Today the CLI requests
+`PdbAcquire` when a PDB-dependent section is selected exactly, at `-v:d`, or by
+explicit effective discovery; the gesture that selects such a section moves to
+facet selection under the
+[CLI verbosity retirement](cli-verbosity-retirement.md). Package descriptions
+already show by default; a single type's docs do not yet.
+
+### Capability machinery
+
 Package acquisition and symbol/source acquisition are separate.
 
 In Browser and CLI Package Query, selecting a product-issued package-content
@@ -430,18 +536,19 @@ probe policy.
 For example, plain library discovery may request `LocalPdbRead` for its bounded
 SourceLink-door probe, while named/category type/member discovery requests none
 of the three. An explicit effective-discovery policy may request more.
-Detailed verbosity may request bounded local-PDB, PDB-acquisition, or
-source-audit work where the selected section's bound query and disclosure
-policy permit it, but it does not request `SourceContent` merely because code
-promoted the effective verbosity. Query definitions alone declare producer
+Outside `--offline`, any gesture may request `PdbAcquire` where the selected
+section's bound query declares it. Detailed verbosity may also request bounded
+source-audit work where the disclosure policy permits it. Neither requests
+`SourceContent` merely because code promoted the effective verbosity. Query definitions alone declare producer
 requirements and conditional successors. Section descriptors bind typed
 queries and apply disclosure/request policy to gesture provenance; they
 neither restate producer requirements nor grant authority. Artifact
 admission/query leases revalidate the authorized closure at content access.
 
 - A package may be downloaded to resolve the requested target.
-- Default gestures must not automatically acquire PDBs or access source
-  content.
+- Outside `--offline`, default gestures may acquire PDBs. Whether they show
+  source content is decided by disclosure (see
+  [Network policy](#network-policy)).
 - Embedded, adjacent, or cached symbols avoid network cost, but may be used
   only when the host-preflight-authorized plan includes `LocalPdbRead` for that
   producer and coordinate. Availability is not authority.
@@ -547,7 +654,8 @@ dotnet-inspect library System.Text.Json -S @Performance
 
 ## Maintenance guidance
 
-- Preserve cheap, network-free defaults.
+- Preserve cheap, bounded defaults. Keep `--offline` the only no-network
+  guarantee, and keep plain `-D` network-free.
 - Put unrelated domains behind authored category doors.
 - Keep selection backpressure wired through producer demand.
 - Add structural and effective discovery coverage for new sections.

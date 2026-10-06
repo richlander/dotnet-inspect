@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<package>
+  <metadata>
+    <id>InspectWeb.PackagePdbFixture</id>
+    <version>1.0.0</version>
+    <authors>dotnet-inspect</authors>
+    <description>Browser package-local Portable PDB settlement fixture.</description>
+  </metadata>
+</package>

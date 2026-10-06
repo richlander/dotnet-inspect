@@ -64,13 +64,14 @@ public sealed partial class PackageRangedRealizationTests
             oracle.Folder(AvaloniaSurface).Concat(block).Concat(covered).Order(StringComparer.Ordinal),
             content.MaterializedEntries.Order(StringComparer.Ordinal));
         IPackageEntryStore entries = store;
-        Assert.All(covered, name =>
+        foreach (string name in covered)
         {
-            Assert.True(entries.TryReadEntry(Avalonia, AvaloniaVersion, name, out byte[] cached));
+            byte[]? cached = await entries.ReadEntryAsync(Avalonia, AvaloniaVersion, name);
+            Assert.NotNull(cached);
             Assert.True(content.TryOpenEntry(name, out Stream? stream));
             using (stream)
                 Assert.Equal(ReadAll(stream!), cached);
-        });
+        }
 
         // The receipt names only what was read: the surface and the named
         // implementation asset.

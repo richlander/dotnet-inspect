@@ -33,8 +33,16 @@ public static class TypeOptionsParser
         targetFree = false;
         if (parseResult.GetValue(args.WorkspaceOption) is not null)
             return false;
+        // --schema and --details are both structural, offline views of the
+        // catalog. --schema owns this parser-level route and its syntactic
+        // catalog choice; a details-only request takes it only when fully
+        // target-free (below), because a targeted request is routed by the
+        // command after it resolves the target, exactly as bare -D is.
+        bool schema = options.ParseSchema(parseResult);
+        bool detailsOnly =
+            !schema && options.ParseDiscoverDetails(parseResult);
         if (!options.IsDiscoveryMode(parseResult)
-            || !options.ParseSchema(parseResult))
+            || !(schema || detailsOnly))
         {
             return false;
         }
@@ -52,8 +60,15 @@ public static class TypeOptionsParser
         if (error is not null)
             return true;
         bool hasProjectSource =
-            !string.IsNullOrWhiteSpace(
-                parseResult.GetValue(args.ProjectOption));
+            parseResult.GetResult(args.ProjectOption)
+                is { Implicit: false };
+        if (detailsOnly
+            && (sourceInputs.Args.Length > 0
+                || sourceInputs.HasExplicitSource
+                || hasProjectSource))
+        {
+            return false;
+        }
         error =
             SharedParsers.GetStructuralPositionalVersionError(
                 sourceInputs,
@@ -146,7 +161,8 @@ public static class TypeOptionsParser
         Option<string[]> KindOption,
         Option<string?> AtOption,
         Option<string?> WorkspaceOption,
-        Option<string?> ShareOption);
+        Option<string?> ShareOption,
+        Option<string?> SuppressRuntimeTypeFallbackOption);
 
     internal static bool IsTypeListingRowSelection(
         ParseResult parseResult,
@@ -182,8 +198,8 @@ public static class TypeOptionsParser
                 args.AssemblyOption,
                 args.PlatformOption);
         bool hasProjectSource =
-            !string.IsNullOrWhiteSpace(
-                parseResult.GetValue(args.ProjectOption));
+            parseResult.GetResult(args.ProjectOption)
+                is { Implicit: false };
         if (!sourceInputs.HasExplicitSource && !hasProjectSource)
             return false;
 
@@ -262,6 +278,11 @@ public static class TypeOptionsParser
         bool hasProjectSource = !string.IsNullOrWhiteSpace(projectPath);
         bool hasNonProjectSource = sourceInputs.HasExplicitSource;
         var sourceOptions = opts.ParseNuGetSourceOptions(parseResult);
+        bool routerCompletedPlatformLookup =
+            RouterCommandDefinition
+                .IsSuppressRuntimeTypeFallbackCapability(
+                    parseResult.GetValue(
+                        args.SuppressRuntimeTypeFallbackOption));
         string? workspacePacket =
             parseResult.GetValue(args.WorkspaceOption);
         WorkspaceShareFormat? shareFormat =
@@ -394,7 +415,9 @@ public static class TypeOptionsParser
                 sourceOptions,
                 parseResult.GetValue(opts.Verbose),
                 tryQualifiedTypeName: true,
-                parseResult.GetValue(args.FrameworkOption));
+                parseResult.GetValue(args.FrameworkOption),
+                allowRuntimeTypeFallback:
+                    !routerCompletedPlatformLookup);
             source = sourceSelection.Source;
         }
 
@@ -459,6 +482,8 @@ public static class TypeOptionsParser
         var options = routePolicy.ApplyTo(new TypeOptions
         {
             TypeName = source.TypeName,
+            RouterCompletedPlatformLookup =
+                routerCompletedPlatformLookup,
             WorkspacePacket = workspacePacket,
             ShareFormat = shareFormat,
             PackagePath = source.PackagePath,
@@ -514,6 +539,7 @@ public static class TypeOptionsParser
             UnsafeOnly = parseResult.GetValue(args.UnsafeOption),
             SourceRepositories = parseResult.GetValue(args.RepoOption) ?? [],
             Discover = opts.ParseDiscover(parseResult),
+            DiscoverDetails = opts.ParseDiscoverDetails(parseResult),
             Tree = tree,
             Select = select,
             SelectDefault = selectDefault,
@@ -543,11 +569,7 @@ public static class TypeOptionsParser
 
         options = options with
         {
-            TipLevel = options.EnvelopeOutput
-                && parseResult.GetResult(opts.Tips) is { Implicit: false }
-                ? opts.ParseTipLevel(parseResult)
-                : options.FormatExplicitlySet || options.IsRawOutput || options.Verbosity == Verbosity.Quiet || ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null
-                ? TipLevel.Quiet : opts.ParseTipLevel(parseResult)
+            CompanionOutput = opts.ParseCompanionOutput(parseResult)
         };
 
         return new Success(

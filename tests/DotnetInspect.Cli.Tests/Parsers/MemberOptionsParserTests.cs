@@ -44,6 +44,10 @@ public class MemberOptionsParserTests
         var indexOption = new Option<int?>("--index");
         var sourcePartsOption = new Option<bool>("--source-parts");
         var sourcePartOption = new Option<string?>("--part");
+        var explainOption = SharedOptions.CreateExplanationOption();
+        var companionOption =
+            SharedOptions.CreateCompanionOption(
+                allowBareExplanation: true);
         var shareOption = new Option<string?>("--share");
         var kindOption = new Option<string[]>("-k") { AllowMultipleArgumentsPerToken = true };
         kindOption.Aliases.Add("--kind");
@@ -77,6 +81,7 @@ public class MemberOptionsParserTests
         memberCommand.Options.Add(indexOption);
         memberCommand.Options.Add(sourcePartsOption);
         memberCommand.Options.Add(sourcePartOption);
+        memberCommand.Options.Add(explainOption);
         opts.AddPrintOptionTo(memberCommand);
         memberCommand.Options.Add(shareOption);
         memberCommand.Options.Add(kindOption);
@@ -90,7 +95,9 @@ public class MemberOptionsParserTests
         memberCommand.Options.Add(opts.Markdown);
         memberCommand.Options.Add(opts.PlainText);
         memberCommand.Options.Add(opts.ReadableNames);
-        opts.AddOutputOptionsTo(memberCommand);
+        opts.AddOutputOptionsTo(
+            memberCommand,
+            companion: companionOption);
         opts.AddNuGetOptionsTo(memberCommand);
 
         memberCommand.SetAction((_, _) => Task.FromResult(0));
@@ -101,7 +108,8 @@ public class MemberOptionsParserTests
             allOption, memberOption, ctorOption, compactOption, opts.NoHeaders,
             unsafeOption, indexOption, shareOption, kindOption,
             binOption, callerProjectOption, callerPackageOption, repoOption, atOption,
-            routerDeferredTargetOption, sourcePartsOption, sourcePartOption);
+            routerDeferredTargetOption, sourcePartsOption, sourcePartOption,
+            explainOption, companionOption);
 
         return (root, opts, args);
     }
@@ -424,18 +432,18 @@ public class MemberOptionsParserTests
     }
 
     [Fact]
-    public async Task ExplicitPackage_WithEnvironmentMarkdown_SuppressesTips()
+    public async Task ExplicitPackage_WithEnvironmentMarkdown_PreservesRequestedTips()
     {
         var originalFormat = Environment.GetEnvironmentVariable("DOTNET_INSPECT_FORMAT");
         try
         {
             Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", "markdown");
-            var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json", "--tips", "d");
+            var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json", "-E", ".tips");
 
             Assert.True(options.FormatExplicitlySet);
             Assert.False(options.Tabular);
             Assert.False(options.TabularExplicitlySet);
-            Assert.Equal(TipLevel.Quiet, options.TipLevel);
+            Assert.Equal(CompanionOutput.Tips, options.CompanionOutput);
         }
         finally
         {
@@ -444,22 +452,47 @@ public class MemberOptionsParserTests
     }
 
     [Fact]
-    public async Task ExplicitPackage_WithImplicitOutput_KeepsTipsEnabled()
+    public async Task ExplicitPackage_WithImplicitOutput_PreservesRequestedTips()
     {
-        var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json", "--tips", "d");
+        var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json", "-E", ".tips");
 
         Assert.False(options.FormatExplicitlySet);
-        Assert.Equal(TipLevel.Detailed, options.TipLevel);
+        Assert.Equal(CompanionOutput.Tips, options.CompanionOutput);
+    }
+
+    [Theory]
+    [InlineData(null, ExplanationProjection.Complete)]
+    [InlineData(".tips", ExplanationProjection.Tips)]
+    public async Task Explain_ParsesSharedProjection(
+        string? projection,
+        ExplanationProjection expected)
+    {
+        List<string> arguments =
+        [
+            "member",
+            "JsonSerializer",
+            "--package",
+            "System.Text.Json",
+            "Serialize:1",
+            "--explain",
+        ];
+        if (projection is not null)
+            arguments.Add(projection);
+
+        MemberOptions options =
+            await ParseSuccessAsync([.. arguments]);
+
+        Assert.Equal(expected, options.Explanation);
     }
 
     [Fact]
-    public async Task ExplicitPackage_WithMarkdown_SuppressesTips()
+    public async Task ExplicitPackage_WithMarkdown_PreservesRequestedTips()
     {
-        var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json", "--markdown", "--tips", "d");
+        var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json", "--markdown", "-E", ".tips");
 
         Assert.True(options.FormatExplicitlySet);
         Assert.False(options.IsRawOutput);
-        Assert.Equal(TipLevel.Quiet, options.TipLevel);
+        Assert.Equal(CompanionOutput.Tips, options.CompanionOutput);
     }
 
     [Fact]

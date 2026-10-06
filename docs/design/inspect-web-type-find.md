@@ -2,10 +2,12 @@
 
 ## Status and ownership
 
-This is the proposed focused Browser/Wasm adoption contract for
+This is the approved focused Browser/Wasm adoption contract for
 [#6851](https://github.com/richlander/dotnet-inspect/issues/6851), step 8 of
 the [reverse type locator adoption](reverse-type-locator-adoption.md) path.
-Implementation and its evidence are unverified.
+The managed operation, Worker transport, and production Spotlight Type
+publication and selection path are implemented. Firefox/Wasm acceptance
+remains unverified.
 
 **Inspect Web Type Find** owns one Browser-specific responsibility:
 
@@ -94,7 +96,8 @@ One nonempty Type search text creates one locator
 `TypeDeclarationLocatorRequest.Pattern`. Empty Spotlight text does not activate
 the locator. A later text change supersedes the earlier Browser operation
 through the existing operation-authority lifecycle; it does not mutate or
-reuse the earlier result as current.
+reuse the earlier result as current. Empty text still advances that lifecycle
+and retires the previous result without activating the locator.
 
 The host-neutral operation:
 
@@ -133,9 +136,14 @@ later lookup.
 The TypeScript boundary receives only that detached compound result. It
 receives no Workspace, lease, reader, assembly image, source authority,
 callback, or managed object. The generated facade and Worker operation
-transport the complete typed result; a handwritten parallel DTO may not omit
-coverage, separate an action from its candidate, or replace the coordinate
-union with display strings.
+transport the complete result. The current generator cannot map the locator's
+custom JSON converters, so the envelope content crosses as `unknown` and one
+bounded TypeScript validator consumes the Sections-owned snake-case wire shape
+and projects only the candidate, completion, coverage, and diagnostic fields
+required for Spotlight presentation. It must reject malformed shape, preserve
+every candidate-to-action correspondence, distinguish complete absence from
+incomplete evidence, and may not replace the coordinate union with display
+strings or reconstruct activation authority.
 
 The Share outcome uses Workspace Definitions' exact codec when it can preserve
 the semantic plan. Until such a projection exists, it is visibly
@@ -194,6 +202,11 @@ Distinct observations remain distinct rows and distinct selection targets even
 when their coordinates and display labels are equal. Grouping may reduce visual
 repetition only when every selectable observation remains individually
 reachable.
+
+Each opaque action token includes an operation-unique issuer in addition to its
+result generation and local ordinal. Result replacement retires the superseded
+result's unselected backing Navigation actions. A selection already admitted
+by Navigation remains Navigation-owned and may settle normally.
 
 Before a package row is published as selectable, managed composition joins:
 

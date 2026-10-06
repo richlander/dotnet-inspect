@@ -100,7 +100,7 @@ public sealed partial class AssemblyContextSourceQueryTests
                 assembly,
                 participant,
                 Path.ChangeExtension(path, ".pdb"),
-                session.ApiSurface(includeAll: true),
+                session.CompatibilityApiSurface(includeAll: true),
                 policy);
         }
 
@@ -129,7 +129,7 @@ public sealed partial class AssemblyContextSourceQueryTests
                 assembly,
                 participant,
                 pdbPath: "",
-                session.ApiSurface(includeAll: true),
+                session.CompatibilityApiSurface(includeAll: true),
                 policy);
         }
 
@@ -163,7 +163,7 @@ public sealed partial class AssemblyContextSourceQueryTests
                 assembly,
                 participant,
                 pdbPath,
-                session.ApiSurface(includeAll: true),
+                session.CompatibilityApiSurface(includeAll: true),
                 policy);
         }
 

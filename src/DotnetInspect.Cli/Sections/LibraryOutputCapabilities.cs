@@ -9,7 +9,7 @@ internal static class LibraryOutputCapabilities
         CreateCatalog();
 
     public static OutputCapabilityCatalog AggregateCardinalityCatalog
-        { get; } =
+    { get; } =
         new(
             new Dictionary<string, SectionOutputCapabilities>(
                 StringComparer.OrdinalIgnoreCase)
@@ -46,6 +46,29 @@ internal static class LibraryOutputCapabilities
                 OutputCapabilityCatalog.StandardSectionFormats
                     .Where(format =>
                         format != DiscoveryOutputMode.Json));
+        sections[SectionNames.NameFamilies] =
+            SectionOutputCapabilities.Create(
+                OutputCapabilityCatalog.StandardSectionFormats
+                    .Where(format =>
+                        format != DiscoveryOutputMode.Json));
+        sections[SectionNames.ArchitecturalFamilies] =
+            SectionOutputCapabilities.Create(
+                OutputCapabilityCatalog.StandardSectionFormats
+                    .Where(format =>
+                        format != DiscoveryOutputMode.Json));
+        sections[SectionNames.ArchitecturalFamilyTypes] =
+            SectionOutputCapabilities.Create(
+                OutputCapabilityCatalog.StandardSectionFormats
+                    .Where(format =>
+                        format != DiscoveryOutputMode.Json));
+        sections[SectionNames.DependencyStructure] =
+            SectionOutputCapabilities.Create(
+                [
+                    .. OutputCapabilityCatalog.StandardSectionFormats
+                        .Where(format =>
+                            format != DiscoveryOutputMode.Json),
+                    DiscoveryOutputMode.Mermaid,
+                ]);
         sections[SectionNames.ReferenceHierarchy] =
             SectionOutputCapabilities.Create(
                 [

@@ -1,46 +1,46 @@
 using System.Collections.Immutable;
+using System.Diagnostics.CodeAnalysis;
+using DotnetInspector.Queries;
 using QuerySpace;
 using QuerySpace.Composition;
+using QuerySpace.Explanation;
 using QuerySpace.Operations;
+using QuerySpace.Vocabulary;
 
 namespace DotnetInspector.Sections;
 
 public sealed class ResourceExplanationCatalog
 {
+    private readonly ImmutableArray<ExplanationSchema> _schemas;
+    private readonly ImmutableArray<CatalogResource> _catalogResources;
     private readonly ImmutableArray<ResourceExplanationResource> _resources;
     private readonly ImmutableArray<ResourceExplanationRelationship>
         _relationships;
     private readonly IReadOnlyDictionary<
-        ResourceExplanationIdentity,
-        ResourceExplanationResource> _resourcesByIdentity;
-    private readonly IReadOnlyDictionary<
-        string,
-        ResourceExplanationResource> _resourcesByPath;
-    private readonly IReadOnlyDictionary<
-        ResourceExplanationIdentity,
-        ImmutableArray<ResourceExplanationRelationship>>
-        _relationshipsBySource;
+        ExplanationResourceKey,
+        CatalogResource> _resourcesByKey;
+    private readonly IReadOnlyDictionary<string, CatalogResource>
+        _resourcesByPath;
 
     private ResourceExplanationCatalog(
+        ImmutableArray<ExplanationSchema> schemas,
+        ImmutableArray<CatalogResource> catalogResources,
         ImmutableArray<ResourceExplanationResource> resources,
         ImmutableArray<ResourceExplanationRelationship> relationships,
         IReadOnlyDictionary<
-            ResourceExplanationIdentity,
-            ResourceExplanationResource> resourcesByIdentity,
-        IReadOnlyDictionary<
-            string,
-            ResourceExplanationResource> resourcesByPath,
-        IReadOnlyDictionary<
-            ResourceExplanationIdentity,
-            ImmutableArray<ResourceExplanationRelationship>>
-            relationshipsBySource)
+            ExplanationResourceKey,
+            CatalogResource> resourcesByKey,
+        IReadOnlyDictionary<string, CatalogResource> resourcesByPath)
     {
+        _schemas = schemas;
+        _catalogResources = catalogResources;
         _resources = resources;
         _relationships = relationships;
-        _resourcesByIdentity = resourcesByIdentity;
+        _resourcesByKey = resourcesByKey;
         _resourcesByPath = resourcesByPath;
-        _relationshipsBySource = relationshipsBySource;
     }
+
+    public ImmutableArray<ExplanationSchema> Schemas => _schemas;
 
     public ImmutableArray<ResourceExplanationResource> Resources =>
         _resources;
@@ -49,115 +49,195 @@ public sealed class ResourceExplanationCatalog
         _relationships;
 
     public static ResourceExplanationCatalog Create(
-        IEnumerable<ResourceExplanationResource> resources,
-        IEnumerable<ResourceExplanationRelationship> relationships)
+        IEnumerable<ExplanationSchema> schemas,
+        IEnumerable<ExplanationResourceSnapshot> snapshots)
     {
-        ArgumentNullException.ThrowIfNull(resources);
-        ArgumentNullException.ThrowIfNull(relationships);
-
-        ImmutableArray<ResourceExplanationResource> resourceArray =
-            [.. resources];
-        ImmutableArray<ResourceExplanationRelationship> relationshipArray =
-            [.. relationships];
-        if (resourceArray.IsEmpty)
+        ArgumentNullException.ThrowIfNull(schemas);
+        ArgumentNullException.ThrowIfNull(snapshots);
+        ImmutableArray<ExplanationSchema> schemaArray = [.. schemas];
+        ImmutableArray<ExplanationResourceSnapshot> snapshotArray =
+            [.. snapshots];
+        if (schemaArray.IsEmpty)
         {
             throw new ArgumentException(
-                "An explanation catalog must register at least one resource.",
-                nameof(resources));
+                "An explanation catalog requires a schema closure.",
+                nameof(schemas));
         }
-        var resourcesByIdentity =
-            new Dictionary<
-                ResourceExplanationIdentity,
-                ResourceExplanationResource>();
+        if (snapshotArray.IsEmpty)
+        {
+            throw new ArgumentException(
+                "An explanation catalog must register at least one snapshot.",
+                nameof(snapshots));
+        }
+
+        var resourcesByKey =
+            new Dictionary<ExplanationResourceKey, CatalogResource>();
         var resourcesByPath =
-            new Dictionary<
-                string,
-                ResourceExplanationResource>(
+            new Dictionary<string, CatalogResource>(
                 StringComparer.OrdinalIgnoreCase);
-        foreach (ResourceExplanationResource resource in resourceArray)
-        {
-            if (!resourcesByIdentity.TryAdd(
-                    resource.Identity,
-                    resource))
-            {
-                throw new ArgumentException(
-                    $"Duplicate explanation identity "
-                    + $"'{resource.Identity}'.",
-                    nameof(resources));
-            }
-            if (!resourcesByPath.TryAdd(
-                    resource.Path.Value,
-                    resource))
-            {
-                throw new ArgumentException(
-                    $"Duplicate explanation path "
-                    + $"'{resource.Path.Value}'.",
-                    nameof(resources));
-            }
-        }
-
-        var relationshipsBySource =
+        var resourcesByAddress =
             new Dictionary<
-                ResourceExplanationIdentity,
-                List<ResourceExplanationRelationship>>();
-        var relationshipsSeen =
-            new HashSet<ResourceExplanationRelationship>();
-        foreach (ResourceExplanationRelationship relationship
-                 in relationshipArray)
+                ExplanationPublicAddress,
+                ExplanationResourceKey>();
+        var catalogResources =
+            ImmutableArray.CreateBuilder<CatalogResource>(
+                snapshotArray.Length);
+        ExplanationConformance.ValidateSnapshots(schemaArray, snapshotArray);
+        foreach (ExplanationResourceSnapshot snapshot in snapshotArray)
         {
-            if (!resourcesByIdentity.ContainsKey(relationship.Source))
+            ResourcePath path = Path(snapshot);
+            var resource = new CatalogResource(path, snapshot);
+            if (!resourcesByKey.TryAdd(snapshot.Key, resource))
             {
                 throw new ArgumentException(
-                    "Explanation relationships must start at a registered "
-                    + "resource.",
-                    nameof(relationships));
+                    $"Duplicate explanation resource key '{snapshot.Key}'.",
+                    nameof(snapshots));
             }
-            bool targetRegistered = resourcesByIdentity.TryGetValue(
-                relationship.Target,
-                out ResourceExplanationResource? registeredTarget);
-            if (targetRegistered
-                && relationship.TargetPath != registeredTarget!.Path)
+            foreach (ExplanationPublicAddress address in snapshot.Addresses)
+            {
+                if (!resourcesByAddress.TryAdd(address, snapshot.Key))
+                {
+                    throw new ArgumentException(
+                        $"Duplicate explanation address kind '{address.Kind}' "
+                        + $"and value on resource '{snapshot.Key}'.",
+                        nameof(snapshots));
+                }
+            }
+            if (!resourcesByPath.TryAdd(path.Value, resource))
             {
                 throw new ArgumentException(
-                    "A registered relationship target must carry its "
-                    + "registered canonical path.",
-                    nameof(relationships));
+                    $"Duplicate explanation path '{path.Value}'.",
+                    nameof(snapshots));
             }
-            if (!targetRegistered
-                && relationship.TargetPath is not null)
-            {
-                throw new ArgumentException(
-                    "A non-navigable external relationship target must not "
-                    + "carry a resource path.",
-                    nameof(relationships));
-            }
-            if (!relationshipsSeen.Add(relationship))
-            {
-                throw new ArgumentException(
-                    "Duplicate explanation relationship.",
-                    nameof(relationships));
-            }
-
-            if (!relationshipsBySource.TryGetValue(
-                    relationship.Source,
-                    out List<ResourceExplanationRelationship>? outgoing))
-            {
-                outgoing = [];
-                relationshipsBySource.Add(
-                    relationship.Source,
-                    outgoing);
-            }
-            outgoing.Add(relationship);
+            catalogResources.Add(resource);
         }
 
-        return new ResourceExplanationCatalog(
-            resourceArray,
-            relationshipArray,
-            resourcesByIdentity,
-            resourcesByPath,
-            relationshipsBySource.ToDictionary(
-                static pair => pair.Key,
-                static pair => pair.Value.ToImmutableArray()));
+        foreach (CatalogResource resource in catalogResources)
+        {
+            foreach (ExplanationRelationshipObservation observation
+                     in resource.Snapshot.Relationships)
+            {
+                if (observation.Targets
+                    .Select(static target => target.Resource)
+                    .Distinct()
+                    .Count()
+                    != observation.Targets.Length)
+                {
+                    throw new ArgumentException(
+                        $"Resource '{resource.Snapshot.Key}' relationship "
+                        + $"'{observation.Relationship}' repeats a target.",
+                        nameof(snapshots));
+                }
+            }
+        }
+
+        ImmutableArray<ResourceExplanationResource> projections =
+        [
+            .. catalogResources.Select(static resource =>
+                resource.Projection),
+        ];
+        ImmutableArray<ResourceExplanationRelationship> relationships =
+        [
+            .. catalogResources.SelectMany(resource =>
+                ProjectRelationships(
+                    resource,
+                    resourcesByKey,
+                    targetLimit: int.MaxValue).Relationships),
+        ];
+        return new(
+            schemaArray,
+            catalogResources.MoveToImmutable(),
+            projections,
+            relationships,
+            resourcesByKey,
+            resourcesByPath);
+    }
+
+    public static InspectionEnvelope<ResourceExplanationDocument>
+        ExplainDetached(
+            IEnumerable<ExplanationSchema> schemas,
+            ExplanationResourceSnapshot root,
+            IEnumerable<ExplanationResourceSnapshot>? related,
+            ResourceExplanationRequest request,
+            string shareIdentity)
+    {
+        ArgumentNullException.ThrowIfNull(schemas);
+        ArgumentNullException.ThrowIfNull(root);
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentException.ThrowIfNullOrWhiteSpace(shareIdentity);
+
+        ImmutableArray<ExplanationSchema> schemaArray = [.. schemas];
+        ImmutableArray<ExplanationResourceSnapshot> snapshotArray =
+        [
+            root,
+            .. related ?? [],
+        ];
+        if (schemaArray.IsEmpty)
+        {
+            throw new ArgumentException(
+                "Detached explanation requires a schema closure.",
+                nameof(schemas));
+        }
+        if (snapshotArray.Any(static snapshot =>
+                snapshot.Scope != ExplanationSnapshotScope.Detached))
+        {
+            throw new ArgumentException(
+                "Detached explanation accepts only detached snapshots.",
+                nameof(related));
+        }
+        if (TryPath(root) is not null)
+        {
+            throw new ArgumentException(
+                "A detached explanation root must not have a Resource "
+                    + "Explanation path.",
+                nameof(root));
+        }
+
+        ExplanationConformance.ValidateSnapshots(schemaArray, snapshotArray);
+        var resourcesByKey =
+            new Dictionary<ExplanationResourceKey, CatalogResource>();
+        var resourcesByPath =
+            new Dictionary<string, CatalogResource>(
+                StringComparer.OrdinalIgnoreCase);
+        var catalogResources =
+            ImmutableArray.CreateBuilder<CatalogResource>(
+                snapshotArray.Length);
+        foreach (ExplanationResourceSnapshot snapshot in snapshotArray)
+        {
+            ResourcePath? path = TryPath(snapshot);
+            var resource = new CatalogResource(path, snapshot);
+            if (!resourcesByKey.TryAdd(snapshot.Key, resource))
+            {
+                throw new ArgumentException(
+                    $"Duplicate explanation resource key '{snapshot.Key}'.",
+                    nameof(related));
+            }
+            if (path is not null
+                && !resourcesByPath.TryAdd(path.Value, resource))
+            {
+                throw new ArgumentException(
+                    $"Duplicate explanation path '{path.Value}'.",
+                    nameof(related));
+            }
+            ValidateRelationshipTargets(snapshot, nameof(related));
+            catalogResources.Add(resource);
+        }
+
+        ResourceExplanationCatalog operation = new(
+            schemaArray,
+            catalogResources.MoveToImmutable(),
+            [
+                .. resourcesByKey.Values.Select(static resource =>
+                    resource.Projection),
+            ],
+            [],
+            resourcesByKey,
+            resourcesByPath);
+        return operation.ExplainCore(
+            resourcesByKey[root.Key],
+            requestedPath: null,
+            request,
+            shareIdentity);
     }
 
     public static ResourceExplanationCatalog CreateStructural(
@@ -216,81 +296,37 @@ public sealed class ResourceExplanationCatalog
 
         ResourcePath catalogPath = new(document.Catalog);
         ValidateStructuralPaths(document, catalogPath, paths);
-
-        var resources = new List<ResourceExplanationResource>();
-        var relationships =
-            new List<ResourceExplanationRelationship>();
-        var catalogIdentity =
-            new ResourceExplanationIdentity.Catalog(document.Catalog);
+        ExplanationResourceKey catalogKey =
+            ResourceExplanationVocabulary.Key(
+                ResourceExplanationVocabulary.CatalogType,
+                Pack(document.Catalog));
+        ExplanationResourceKey categoriesKey =
+            NavigationKey(document.Catalog, "catalog-categories");
+        ExplanationResourceKey sectionsKey =
+            NavigationKey(document.Catalog, "catalog-sections");
         ResourcePath categoriesPath = catalogPath.Append("categories");
         ResourcePath sectionsPath = catalogPath.Append("sections");
-        var categoriesIdentity =
-            new ResourceExplanationIdentity.NavigationCollection(
-                catalogIdentity,
-                parentIdentity: null,
-                ResourceExplanationNavigationCollectionKind
-                    .CatalogCategories);
-        var sectionsIdentity =
-            new ResourceExplanationIdentity.NavigationCollection(
-                catalogIdentity,
-                parentIdentity: null,
-                ResourceExplanationNavigationCollectionKind
-                    .CatalogSections);
 
-        resources.Add(
-            new ResourceExplanationResource(
-                catalogPath,
-                catalogIdentity,
-                ResourceExplanationResourceKind.Catalog,
-                new ResourceExplanationDetail.CatalogDetails(
-                    DisplayName(document.Catalog),
-                    document.CatalogEntries.Length)));
-        AddCollection(
-            resources,
-            categoriesPath,
-            categoriesIdentity,
-            "Categories",
-            document.Resources.Count(static resource =>
-                resource.Identity.Kind == DiscoveryResourceKind.Category));
-        AddCollection(
-            resources,
-            sectionsPath,
-            sectionsIdentity,
-            "Sections",
-            document.Resources.Count(static resource =>
-                resource.Identity.Kind == DiscoveryResourceKind.Section));
-
-        var explanationIdentities =
+        var keys =
+            document.Resources.ToDictionary(
+                static resource => resource.Identity,
+                resource => ResourceExplanationVocabulary.Key(
+                    StructuralType(resource.Identity.Kind),
+                    StructuralIdentity(document.Catalog, resource.Identity)));
+        var itemCollectionKeys =
             new Dictionary<
                 DiscoveryResourceIdentity,
-                ResourceExplanationIdentity.Structural>();
-        foreach (DiscoveryResource resource in document.Resources)
-        {
-            var identity =
-                new ResourceExplanationIdentity.Structural(
-                    resource.Identity);
-            explanationIdentities.Add(resource.Identity, identity);
-            resources.Add(
-                new ResourceExplanationResource(
-                    paths[resource.Identity],
-                    identity,
-                    ResourceKind(resource.Identity.Kind),
-                    Details(resource)));
-        }
-
-        var itemCollections =
-            new Dictionary<
-                DiscoveryResourceIdentity,
-                ResourceExplanationIdentity.NavigationCollection>();
-        var kindCollections =
+                ExplanationResourceKey>();
+        var kindCollectionKeys =
             new Dictionary<
                 (DiscoveryResourceIdentity Section, string Kind),
-                ResourceExplanationIdentity.NavigationCollection>();
+                ExplanationResourceKey>();
         var itemGroups =
             new Dictionary<
                 DiscoveryResourceIdentity,
                 ImmutableArray<
                     IGrouping<string?, DiscoveryResourceIdentity>>>();
+
         foreach (DiscoveryResource section in document.Resources.Where(
                      static resource =>
                          resource.Identity.Kind
@@ -299,176 +335,169 @@ public sealed class ResourceExplanationCatalog
         {
             ImmutableArray<
                 IGrouping<string?, DiscoveryResourceIdentity>> groups =
-                [
-                    .. section.Members.GroupBy(
-                        static member => member.ItemKind,
-                        StringComparer.Ordinal),
-                ];
+            [
+                .. section.Members.GroupBy(
+                    static member => member.ItemKind,
+                    StringComparer.Ordinal),
+            ];
             itemGroups.Add(section.Identity, groups);
-            ResourcePath sectionPath = paths[section.Identity];
-            ResourcePath itemsPath = sectionPath.Append("items");
-            var itemsIdentity =
-                new ResourceExplanationIdentity.NavigationCollection(
-                    catalogIdentity,
-                    explanationIdentities[section.Identity],
-                    ResourceExplanationNavigationCollectionKind
-                        .StructuralItems);
-            itemCollections.Add(section.Identity, itemsIdentity);
-            AddCollection(
-                resources,
-                itemsPath,
-                itemsIdentity,
-                $"{section.Identity.Name} items",
-                groups.Length);
-
+            itemCollectionKeys.Add(
+                section.Identity,
+                NavigationKey(
+                    document.Catalog,
+                    "structural-items",
+                    StructuralIdentity(document.Catalog, section.Identity)));
             foreach (IGrouping<string?, DiscoveryResourceIdentity> group
                      in groups)
             {
                 string itemKind = group.Key
                     ?? throw new InvalidOperationException(
                         "A section member must have an item kind.");
-                ResourcePath kindPath =
-                    itemsPath.Append(itemKind);
-                var kindIdentity =
-                    new ResourceExplanationIdentity.NavigationCollection(
-                        catalogIdentity,
-                        itemsIdentity,
-                        ResourceExplanationNavigationCollectionKind
-                            .StructuralItemKind,
-                        itemKind);
-                kindCollections.Add(
+                kindCollectionKeys.Add(
                     (section.Identity, itemKind),
-                    kindIdentity);
-                AddCollection(
-                    resources,
-                    kindPath,
-                    kindIdentity,
-                    $"{section.Identity.Name} {itemKind} items",
-                    group.Count());
+                    NavigationKey(
+                        document.Catalog,
+                        "structural-item-kind",
+                        StructuralIdentity(
+                            document.Catalog,
+                            section.Identity),
+                        itemKind));
             }
         }
 
-        AddRelationship(
-            relationships,
-            catalogIdentity,
-            ResourceExplanationRelationshipKind.Navigation,
-            categoriesIdentity,
-            categoriesPath);
-        AddRelationship(
-            relationships,
-            catalogIdentity,
-            ResourceExplanationRelationshipKind.Navigation,
-            sectionsIdentity,
-            sectionsPath);
-        foreach (DiscoveryResourceIdentity entry in document.CatalogEntries)
-        {
-            AddRelationship(
-                relationships,
-                catalogIdentity,
-                ResourceExplanationRelationshipKind.CatalogEntry,
-                explanationIdentities[entry],
-                paths[entry]);
-        }
+        var snapshots = new List<ExplanationResourceSnapshot>();
+        snapshots.Add(
+            Snapshot(
+                catalogPath,
+                catalogKey,
+                [
+                    ResourceExplanationVocabulary.TextFact(
+                        ResourceExplanationVocabulary.CatalogType,
+                        "name",
+                        DisplayName(document.Catalog)),
+                    ResourceExplanationVocabulary.IntegerFact(
+                        ResourceExplanationVocabulary.CatalogType,
+                        "members",
+                        document.CatalogEntries.Length),
+                ],
+                RelationshipObservations(
+                    ResourceExplanationVocabulary.CatalogType,
+                    new Dictionary<string, IEnumerable<ExplanationResourceKey>>
+                    {
+                        ["navigation"] = [categoriesKey, sectionsKey],
+                        ["catalog-category-entry"] = document.CatalogEntries
+                            .Where(static identity =>
+                                identity.Kind
+                                    == DiscoveryResourceKind.Category)
+                            .Select(identity => keys[identity]),
+                        ["catalog-section-entry"] = document.CatalogEntries
+                            .Where(static identity =>
+                                identity.Kind
+                                    == DiscoveryResourceKind.Section)
+                            .Select(identity => keys[identity]),
+                    })));
+        snapshots.Add(
+            NavigationSnapshot(
+                categoriesPath,
+                categoriesKey,
+                "Categories",
+                document.Resources.Count(static resource =>
+                    resource.Identity.Kind
+                        == DiscoveryResourceKind.Category),
+                new Dictionary<string, IEnumerable<ExplanationResourceKey>>
+                {
+                    ["collection-category"] = document.Resources
+                        .Where(static resource =>
+                            resource.Identity.Kind
+                                == DiscoveryResourceKind.Category)
+                        .Select(resource => keys[resource.Identity]),
+                }));
+        snapshots.Add(
+            NavigationSnapshot(
+                sectionsPath,
+                sectionsKey,
+                "Sections",
+                document.Resources.Count(static resource =>
+                    resource.Identity.Kind
+                        == DiscoveryResourceKind.Section),
+                new Dictionary<string, IEnumerable<ExplanationResourceKey>>
+                {
+                    ["collection-section"] = document.Resources
+                        .Where(static resource =>
+                            resource.Identity.Kind
+                                == DiscoveryResourceKind.Section)
+                        .Select(resource => keys[resource.Identity]),
+                }));
 
         foreach (DiscoveryResource resource in document.Resources)
         {
-            ResourceExplanationIdentity.Structural identity =
-                explanationIdentities[resource.Identity];
-            switch (resource.Identity.Kind)
+            ExplanationResourceTypeIdentity type =
+                StructuralType(resource.Identity.Kind);
+            snapshots.Add(
+                Snapshot(
+                    paths[resource.Identity],
+                    keys[resource.Identity],
+                    StructuralFacts(resource, type),
+                    StructuralRelationships(
+                        resource,
+                        type,
+                        keys,
+                        itemCollectionKeys)));
+        }
+
+        foreach (DiscoveryResource section in document.Resources.Where(
+                     resource => itemCollectionKeys.ContainsKey(
+                         resource.Identity)))
+        {
+            ResourcePath itemsPath =
+                paths[section.Identity].Append("items");
+            ImmutableArray<
+                IGrouping<string?, DiscoveryResourceIdentity>> groups =
+                    itemGroups[section.Identity];
+            snapshots.Add(
+                NavigationSnapshot(
+                    itemsPath,
+                    itemCollectionKeys[section.Identity],
+                    $"{section.Identity.Name} items",
+                    groups.Length,
+                    new Dictionary<
+                        string,
+                        IEnumerable<ExplanationResourceKey>>
+                    {
+                        ["navigation-collection"] = groups.Select(group =>
+                            kindCollectionKeys[
+                                (
+                                    section.Identity,
+                                    group.Key
+                                    ?? throw new InvalidOperationException(
+                                        "A structural item kind is required.")
+                                )]),
+                    }));
+
+            foreach (IGrouping<string?, DiscoveryResourceIdentity> group
+                     in groups)
             {
-                case DiscoveryResourceKind.Category:
-                    AddRelationship(
-                        relationships,
-                        categoriesIdentity,
-                        ResourceExplanationRelationshipKind.CollectionMember,
-                        identity,
-                        paths[resource.Identity]);
-                    foreach (DiscoveryResourceIdentity member
-                             in resource.Members)
-                    {
-                        AddRelationship(
-                            relationships,
-                            identity,
-                            ResourceExplanationRelationshipKind.CategoryMember,
-                            explanationIdentities[member],
-                            paths[member]);
-                    }
-                    break;
-
-                case DiscoveryResourceKind.Section:
-                    AddRelationship(
-                        relationships,
-                        sectionsIdentity,
-                        ResourceExplanationRelationshipKind.CollectionMember,
-                        identity,
-                        paths[resource.Identity]);
-                    if (!resource.Members.IsEmpty)
-                    {
-                        ResourceExplanationIdentity.NavigationCollection
-                            itemsIdentity =
-                                itemCollections[resource.Identity];
-                        ResourcePath itemsPath =
-                            paths[resource.Identity].Append("items");
-                        AddRelationship(
-                            relationships,
-                            identity,
-                            ResourceExplanationRelationshipKind.Navigation,
-                            itemsIdentity,
-                            itemsPath);
-                        foreach (DiscoveryResourceIdentity member
-                                 in resource.Members)
+                string itemKind = group.Key
+                    ?? throw new InvalidOperationException(
+                        "A structural item kind is required.");
+                ResourcePath kindPath = itemsPath.Append(itemKind);
+                snapshots.Add(
+                    NavigationSnapshot(
+                        kindPath,
+                        kindCollectionKeys[(section.Identity, itemKind)],
+                        $"{section.Identity.Name} {itemKind} items",
+                        group.Count(),
+                        new Dictionary<
+                            string,
+                            IEnumerable<ExplanationResourceKey>>
                         {
-                            AddRelationship(
-                                relationships,
-                                identity,
-                                ResourceExplanationRelationshipKind.StructuralItem,
-                                explanationIdentities[member],
-                                paths[member]);
-                        }
-                        foreach (IGrouping<
-                                     string?,
-                                     DiscoveryResourceIdentity> group
-                                 in itemGroups[resource.Identity])
-                        {
-                            string itemKind = group.Key
-                                ?? throw new InvalidOperationException(
-                                    "A section member must have an item kind.");
-                            var key = (resource.Identity, itemKind);
-                            ResourceExplanationIdentity.NavigationCollection
-                                kindIdentity = kindCollections[key];
-                            ResourcePath kindPath =
-                                paths[resource.Identity]
-                                    .Append("items", itemKind);
-                            AddRelationship(
-                                relationships,
-                                itemsIdentity,
-                                ResourceExplanationRelationshipKind.CollectionMember,
-                                kindIdentity,
-                                kindPath);
-                            foreach (DiscoveryResourceIdentity member
-                                     in group)
-                            {
-                                AddRelationship(
-                                    relationships,
-                                    kindIdentity,
-                                    ResourceExplanationRelationshipKind.CollectionMember,
-                                    explanationIdentities[member],
-                                    paths[member]);
-                            }
-                        }
-                    }
-                    break;
-
-                case DiscoveryResourceKind.Item:
-                    break;
-
-                default:
-                    throw new InvalidOperationException(
-                        "Unknown Discovery resource kind.");
+                            ["collection-item"] =
+                                group.Select(identity => keys[identity]),
+                        }));
             }
         }
 
-        return Create(resources, relationships);
+        return Create(ResourceExplanationVocabulary.Schemas, snapshots);
     }
 
     public static ResourceExplanationCatalog CreateCapabilities(
@@ -478,60 +507,9 @@ public sealed class ResourceExplanationCatalog
     {
         ArgumentNullException.ThrowIfNull(catalog);
         ArgumentNullException.ThrowIfNull(registrations);
-
-        ImmutableArray<InspectionCapabilityResourcePathRegistration>
-            registrationArray = [.. registrations];
         IReadOnlyDictionary<
             InspectionCapabilityResourceIdentity,
-            ResourcePath> paths =
-                IndexCapabilityPaths(registrationArray);
-        var resources = new List<ResourceExplanationResource>();
-        var relationships =
-            new List<ResourceExplanationRelationship>();
-        var identities =
-            new Dictionary<
-                InspectionCapabilityResourceIdentity,
-                ResourceExplanationIdentity.Capability>();
-
-        foreach (InspectionDocumentRegistration document
-                 in catalog.Documents)
-        {
-            InspectionCapabilityResourceIdentity resourceIdentity =
-                DocumentIdentity(document);
-            AddCapabilityResource(
-                resources,
-                identities,
-                paths,
-                resourceIdentity,
-                ResourceExplanationResourceKind.InspectionDocument,
-                new ResourceExplanationDetail.InspectionDocumentDetails(
-                    document.Descriptor.Identity,
-                    document.Descriptor.Name,
-                    document.Descriptor.Summary,
-                    document.Descriptor.ResultContract));
-        }
-
-        foreach (InspectionRouteRegistration route in catalog.Routes)
-        {
-            QuerySpaceOperationScopeDescriptor operation =
-                route.QuerySpace.Descriptor.Operation;
-            InspectionCapabilityResourceIdentity resourceIdentity =
-                RouteIdentity(route);
-            AddCapabilityResource(
-                resources,
-                identities,
-                paths,
-                resourceIdentity,
-                ResourceExplanationResourceKind.HostNeutralRoute,
-                new ResourceExplanationDetail.HostNeutralRouteDetails(
-                    route.Descriptor.Identity,
-                    route.Descriptor.Name,
-                    route.Descriptor.Summary,
-                    operation.SubjectRole,
-                    operation.ResultGrain,
-                    operation.Profile,
-                    route.Document.Descriptor.ResultContract));
-        }
+            ResourcePath> paths = IndexCapabilityPaths(registrations);
 
         QuerySpaceBinding[] querySpaces =
         [
@@ -542,75 +520,17 @@ public sealed class ResourceExplanationCatalog
                         querySpace.Descriptor.Identity,
                     StringComparer.Ordinal),
         ];
-        foreach (QuerySpaceBinding querySpace in querySpaces)
-        {
-            InspectionCapabilityResourceIdentity resourceIdentity =
-                QuerySpaceIdentity(querySpace);
-            AddCapabilityResource(
-                resources,
-                identities,
-                paths,
-                resourceIdentity,
-                ResourceExplanationResourceKind.QuerySpace,
-                new ResourceExplanationDetail.QuerySpaceDetails(
-                    querySpace.Descriptor.Identity,
-                    querySpace.Descriptor.Operation.Operation,
-                    "The effective executable Query Space for this route.",
-                    querySpace.Descriptor.Operation.Terms.Count));
-
-            foreach (QuerySpaceOperationTermDescriptor term
-                     in querySpace.Descriptor.Operation.Terms)
-            {
-                InspectionCapabilityResourceIdentity termIdentity =
-                    QueryFacetIdentity(querySpace, term);
-                AddCapabilityResource(
-                    resources,
-                    identities,
-                    paths,
-                    termIdentity,
-                    ResourceExplanationResourceKind.QueryFacet,
-                    new ResourceExplanationDetail.QueryFacetDetails(
-                        term.Identity,
-                        term.Key,
-                        term.Label,
-                        term.Summary,
-                        term.Operators.Select(
-                            PortableQueryModel.TextOf),
-                        term.ValueKind,
-                        term.Values,
-                        term.Effects.Select(static effect =>
-                            $"{effect.Kind}: {effect.Identity}")));
-            }
-        }
-
-        foreach (InspectionConsumerBinding binding in catalog.Bindings)
-        {
-            InspectionCapabilityResourceIdentity resourceIdentity =
-                ConsumerBindingIdentity(binding);
-            AddCapabilityResource(
-                resources,
-                identities,
-                paths,
-                resourceIdentity,
-                ResourceExplanationResourceKind.ConsumerBinding,
-                new ResourceExplanationDetail.ConsumerBindingDetails(
-                    binding.Descriptor.Identity,
-                    binding.Descriptor.Owner,
-                    $"A production {binding.Descriptor.Kind} binding for "
-                    + $"'{binding.Route.Descriptor.Name}'.",
-                    binding.Descriptor.Kind,
-                    binding.Descriptor.Gesture,
-                    binding.ExposedQueryTerms.Length));
-        }
-
-        int expectedResourceCount =
-            catalog.Documents.Length
-            + catalog.Routes.Length
-            + querySpaces.Length
-            + querySpaces.Sum(static querySpace =>
-                querySpace.Descriptor.Operation.Terms.Count)
-            + catalog.Bindings.Length;
-        if (paths.Count != expectedResourceCount)
+        InspectionCapabilityResourceIdentity[] identities =
+        [
+            .. catalog.Documents.Select(DocumentIdentity),
+            .. catalog.Routes.Select(RouteIdentity),
+            .. querySpaces.Select(QuerySpaceIdentity),
+            .. querySpaces.SelectMany(querySpace =>
+                querySpace.Descriptor.Operation.Terms.Select(term =>
+                    QueryFacetIdentity(querySpace, term))),
+            .. catalog.Bindings.Select(ConsumerBindingIdentity),
+        ];
+        if (paths.Count != identities.Length)
         {
             throw new ArgumentException(
                 "Every composed inspection capability resource must have "
@@ -618,65 +538,163 @@ public sealed class ResourceExplanationCatalog
                 nameof(registrations));
         }
 
+        var keys = identities.ToDictionary(
+            static identity => identity,
+            identity => CapabilityKey(identity));
+        var snapshots = new List<ExplanationResourceSnapshot>();
+
+        foreach (InspectionDocumentRegistration document
+                 in catalog.Documents)
+        {
+            InspectionCapabilityResourceIdentity identity =
+                DocumentIdentity(document);
+            snapshots.Add(
+                Snapshot(
+                    paths[identity],
+                    keys[identity],
+                    [
+                        ResourceExplanationVocabulary.TextFact(
+                            ResourceExplanationVocabulary
+                                .InspectionDocumentType,
+                            "identity",
+                            document.Descriptor.Identity),
+                        ResourceExplanationVocabulary.TextFact(
+                            ResourceExplanationVocabulary
+                                .InspectionDocumentType,
+                            "name",
+                            document.Descriptor.Name),
+                        ResourceExplanationVocabulary.TextFact(
+                            ResourceExplanationVocabulary
+                                .InspectionDocumentType,
+                            "summary",
+                            document.Descriptor.Summary),
+                        ResourceExplanationVocabulary.TextFact(
+                            ResourceExplanationVocabulary
+                                .InspectionDocumentType,
+                            "result-contract",
+                            document.Descriptor.ResultContract),
+                    ],
+                    RelationshipObservations(
+                        ResourceExplanationVocabulary
+                            .InspectionDocumentType,
+                        new Dictionary<
+                            string,
+                            IEnumerable<ExplanationResourceKey>>
+                        {
+                            ["route"] = catalog.Routes
+                                .Where(route =>
+                                    ReferenceEquals(
+                                        route.Document,
+                                        document))
+                                .Select(route => keys[RouteIdentity(route)]),
+                        })));
+        }
+
         foreach (InspectionRouteRegistration route in catalog.Routes)
         {
-            ResourceExplanationIdentity.Capability routeIdentity =
-                identities[RouteIdentity(route)];
-            ResourceExplanationIdentity.Capability documentIdentity =
-                identities[DocumentIdentity(route.Document)];
-            ResourceExplanationIdentity.Capability querySpaceIdentity =
-                identities[QuerySpaceIdentity(route.QuerySpace)];
-            AddRelationship(
-                relationships,
-                routeIdentity,
-                ResourceExplanationRelationshipKind.Produces,
-                documentIdentity,
-                paths[DocumentIdentity(route.Document)]);
-            AddRelationship(
-                relationships,
-                routeIdentity,
-                ResourceExplanationRelationshipKind.QuerySurface,
-                querySpaceIdentity,
-                paths[QuerySpaceIdentity(route.QuerySpace)]);
-            AddRelationship(
-                relationships,
-                documentIdentity,
-                ResourceExplanationRelationshipKind.Route,
-                routeIdentity,
-                paths[RouteIdentity(route)]);
-
-            foreach (QuerySpaceOperationTermDescriptor term
-                     in route.QuerySpace.Descriptor.Operation.Terms)
-            {
-                ResourceExplanationIdentity.Capability facetIdentity =
-                    identities[QueryFacetIdentity(
-                        route.QuerySpace,
-                        term)];
-                AddRelationship(
-                    relationships,
-                    facetIdentity,
-                    ResourceExplanationRelationshipKind.Route,
-                    routeIdentity,
-                    paths[RouteIdentity(route)]);
-            }
+            InspectionCapabilityResourceIdentity identity =
+                RouteIdentity(route);
+            QuerySpaceOperationScopeDescriptor operation =
+                route.QuerySpace.Descriptor.Operation;
+            snapshots.Add(
+                Snapshot(
+                    paths[identity],
+                    keys[identity],
+                    [
+                        ResourceExplanationVocabulary.TextFact(
+                            ResourceExplanationVocabulary
+                                .HostNeutralRouteType,
+                            "identity",
+                            route.Descriptor.Identity),
+                        ResourceExplanationVocabulary.TextFact(
+                            ResourceExplanationVocabulary
+                                .HostNeutralRouteType,
+                            "name",
+                            route.Descriptor.Name),
+                        ResourceExplanationVocabulary.TextFact(
+                            ResourceExplanationVocabulary
+                                .HostNeutralRouteType,
+                            "summary",
+                            route.Descriptor.Summary),
+                        ResourceExplanationVocabulary.TextFact(
+                            ResourceExplanationVocabulary
+                                .HostNeutralRouteType,
+                            "subject-role",
+                            operation.SubjectRole),
+                        ResourceExplanationVocabulary.TextFact(
+                            ResourceExplanationVocabulary
+                                .HostNeutralRouteType,
+                            "result-grain",
+                            operation.ResultGrain),
+                        ResourceExplanationVocabulary.TextFact(
+                            ResourceExplanationVocabulary
+                                .HostNeutralRouteType,
+                            "profile",
+                            operation.Profile),
+                        ResourceExplanationVocabulary.TextFact(
+                            ResourceExplanationVocabulary
+                                .HostNeutralRouteType,
+                            "result-contract",
+                            route.Document.Descriptor.ResultContract),
+                    ],
+                    RelationshipObservations(
+                        ResourceExplanationVocabulary.HostNeutralRouteType,
+                        new Dictionary<
+                            string,
+                            IEnumerable<ExplanationResourceKey>>
+                        {
+                            ["produces"] =
+                                [keys[DocumentIdentity(route.Document)]],
+                            ["query-surface"] =
+                                [keys[QuerySpaceIdentity(route.QuerySpace)]],
+                            ["consumer-binding"] = catalog.Bindings
+                                .Where(binding =>
+                                    ReferenceEquals(binding.Route, route))
+                                .Select(binding =>
+                                    keys[ConsumerBindingIdentity(binding)]),
+                        })));
         }
 
         foreach (QuerySpaceBinding querySpace in querySpaces)
         {
-            ResourceExplanationIdentity.Capability querySpaceIdentity =
-                identities[QuerySpaceIdentity(querySpace)];
-            foreach (QuerySpaceOperationTermDescriptor term
-                     in querySpace.Descriptor.Operation.Terms)
-            {
-                ResourceExplanationIdentity.Capability facetIdentity =
-                    identities[QueryFacetIdentity(querySpace, term)];
-                AddRelationship(
-                    relationships,
-                    querySpaceIdentity,
-                    ResourceExplanationRelationshipKind.QueryFacet,
-                    facetIdentity,
-                    paths[QueryFacetIdentity(querySpace, term)]);
-            }
+            InspectionCapabilityResourceIdentity identity =
+                QuerySpaceIdentity(querySpace);
+            snapshots.Add(
+                Snapshot(
+                    paths[identity],
+                    keys[identity],
+                    [
+                        ResourceExplanationVocabulary.TextFact(
+                            ResourceExplanationVocabulary.QuerySpaceType,
+                            "identity",
+                            querySpace.Descriptor.Identity),
+                        ResourceExplanationVocabulary.TextFact(
+                            ResourceExplanationVocabulary.QuerySpaceType,
+                            "name",
+                            querySpace.Descriptor.Operation.Operation),
+                        ResourceExplanationVocabulary.TextFact(
+                            ResourceExplanationVocabulary.QuerySpaceType,
+                            "summary",
+                            "The effective executable Query Space for this "
+                            + "route."),
+                        ResourceExplanationVocabulary.IntegerFact(
+                            ResourceExplanationVocabulary.QuerySpaceType,
+                            "members",
+                            querySpace.Descriptor.Operation.Terms.Count),
+                    ],
+                    RelationshipObservations(
+                        ResourceExplanationVocabulary.QuerySpaceType,
+                        new Dictionary<
+                            string,
+                            IEnumerable<ExplanationResourceKey>>
+                        {
+                            ["query-facet"] =
+                                querySpace.Descriptor.Operation.Terms.Select(
+                                    term => keys[
+                                        QueryFacetIdentity(
+                                            querySpace,
+                                            term)]),
+                        })));
 
             IEnumerable<InspectionQueryTermRelationship> termRelationships =
                 catalog.Routes
@@ -685,83 +703,688 @@ public sealed class ResourceExplanationCatalog
                     .SelectMany(static route =>
                         route.QueryTermRelationships)
                     .Distinct();
-            foreach (InspectionQueryTermRelationship termRelationship
-                     in termRelationships)
+            foreach (QuerySpaceOperationTermDescriptor term
+                     in querySpace.Descriptor.Operation.Terms)
             {
-                QuerySpaceOperationTermDescriptor source =
-                    querySpace.Descriptor.Operation.Terms.Single(
-                        term => term.Identity
-                            == termRelationship.SourceTerm);
-                QuerySpaceOperationTermDescriptor target =
-                    querySpace.Descriptor.Operation.Terms.Single(
-                        term => term.Identity
-                            == termRelationship.TargetTerm);
-                AddRelationship(
-                    relationships,
-                    identities[QueryFacetIdentity(querySpace, source)],
-                    termRelationship.Kind switch
-                    {
-                        InspectionQueryTermRelationshipKind
-                            .RequiredContext =>
-                            ResourceExplanationRelationshipKind
-                                .RequiredContext,
-                        _ => throw new InvalidOperationException(
-                            "Unknown query-term relationship kind."),
-                    },
-                    identities[QueryFacetIdentity(querySpace, target)],
-                    paths[QueryFacetIdentity(querySpace, target)]);
+                InspectionCapabilityResourceIdentity termIdentity =
+                    QueryFacetIdentity(querySpace, term);
+                snapshots.Add(
+                    Snapshot(
+                        paths[termIdentity],
+                        keys[termIdentity],
+                        [
+                            ResourceExplanationVocabulary.TextFact(
+                                ResourceExplanationVocabulary
+                                    .QueryFacetType,
+                                "identity",
+                                term.Identity),
+                            ResourceExplanationVocabulary.TextFact(
+                                ResourceExplanationVocabulary
+                                    .QueryFacetType,
+                                "key",
+                                term.Key),
+                            ResourceExplanationVocabulary.TextFact(
+                                ResourceExplanationVocabulary
+                                    .QueryFacetType,
+                                "name",
+                                term.Label),
+                            ResourceExplanationVocabulary.TextFact(
+                                ResourceExplanationVocabulary
+                                    .QueryFacetType,
+                                "summary",
+                                term.Summary),
+                            ResourceExplanationVocabulary.TextsFact(
+                                ResourceExplanationVocabulary
+                                    .QueryFacetType,
+                                "operators",
+                                term.Operators.Select(
+                                    PortableQueryModel.TextOf)),
+                            ResourceExplanationVocabulary.TextFact(
+                                ResourceExplanationVocabulary
+                                    .QueryFacetType,
+                                "value-kind",
+                                term.ValueKind),
+                            ResourceExplanationVocabulary.TextsFact(
+                                ResourceExplanationVocabulary
+                                    .QueryFacetType,
+                                "values",
+                                term.Values),
+                            ResourceExplanationVocabulary.TextsFact(
+                                ResourceExplanationVocabulary
+                                    .QueryFacetType,
+                                "examples",
+                                term.Examples),
+                            ResourceExplanationVocabulary.TextsFact(
+                                ResourceExplanationVocabulary
+                                    .QueryFacetType,
+                                "effects",
+                                term.Effects.Select(static effect =>
+                                    $"{effect.Kind}: {effect.Identity}")),
+                        ],
+                        RelationshipObservations(
+                            ResourceExplanationVocabulary.QueryFacetType,
+                            new Dictionary<
+                                string,
+                                IEnumerable<ExplanationResourceKey>>
+                            {
+                                ["route"] = catalog.Routes
+                                    .Where(route =>
+                                        ReferenceEquals(
+                                            route.QuerySpace,
+                                            querySpace))
+                                    .Select(route =>
+                                        keys[RouteIdentity(route)]),
+                                ["required-context"] = termRelationships
+                                    .Where(relationship =>
+                                        relationship.SourceTerm
+                                            == term.Identity
+                                        && relationship.Kind
+                                            == InspectionQueryTermRelationshipKind
+                                                .RequiredContext)
+                                    .Select(relationship =>
+                                    {
+                                        QuerySpaceOperationTermDescriptor
+                                            target =
+                                                querySpace.Descriptor.Operation
+                                                    .Terms.Single(candidate =>
+                                                        candidate.Identity
+                                                        == relationship
+                                                            .TargetTerm);
+                                        return keys[
+                                            QueryFacetIdentity(
+                                                querySpace,
+                                                target)];
+                                    }),
+                                ["exposed-by"] = catalog.Bindings
+                                    .Where(binding =>
+                                        ReferenceEquals(
+                                            binding.Route.QuerySpace,
+                                            querySpace)
+                                        && binding.ExposedQueryTerms.Contains(
+                                            term.Identity))
+                                    .Select(binding =>
+                                        keys[
+                                            ConsumerBindingIdentity(
+                                                binding)]),
+                            })));
             }
         }
 
         foreach (InspectionConsumerBinding binding in catalog.Bindings)
         {
-            ResourceExplanationIdentity.Capability bindingIdentity =
-                identities[ConsumerBindingIdentity(binding)];
-            ResourceExplanationIdentity.Capability routeIdentity =
-                identities[RouteIdentity(binding.Route)];
-            AddRelationship(
-                relationships,
-                bindingIdentity,
-                ResourceExplanationRelationshipKind.Invokes,
-                routeIdentity,
-                paths[RouteIdentity(binding.Route)]);
-            AddRelationship(
-                relationships,
-                routeIdentity,
-                ResourceExplanationRelationshipKind.ConsumerBinding,
-                bindingIdentity,
-                paths[ConsumerBindingIdentity(binding)]);
-            foreach (string exposedTerm in binding.ExposedQueryTerms)
+            InspectionCapabilityResourceIdentity identity =
+                ConsumerBindingIdentity(binding);
+            snapshots.Add(
+                Snapshot(
+                    paths[identity],
+                    keys[identity],
+                    [
+                        ResourceExplanationVocabulary.TextFact(
+                            ResourceExplanationVocabulary
+                                .ConsumerBindingType,
+                            "identity",
+                            binding.Descriptor.Identity),
+                        ResourceExplanationVocabulary.TextFact(
+                            ResourceExplanationVocabulary
+                                .ConsumerBindingType,
+                            "name",
+                            binding.Descriptor.Owner),
+                        ResourceExplanationVocabulary.TextFact(
+                            ResourceExplanationVocabulary
+                                .ConsumerBindingType,
+                            "summary",
+                            $"A production {binding.Descriptor.Kind} binding "
+                            + $"for '{binding.Route.Descriptor.Name}'."),
+                        ResourceExplanationVocabulary.TextFact(
+                            ResourceExplanationVocabulary
+                                .ConsumerBindingType,
+                            "consumer-kind",
+                            binding.Descriptor.Kind.ToString()),
+                        ResourceExplanationVocabulary.TextFact(
+                            ResourceExplanationVocabulary
+                                .ConsumerBindingType,
+                            "gesture",
+                            binding.Descriptor.Gesture),
+                        ResourceExplanationVocabulary.IntegerFact(
+                            ResourceExplanationVocabulary
+                                .ConsumerBindingType,
+                            "members",
+                            binding.ExposedQueryTerms.Length),
+                    ],
+                    RelationshipObservations(
+                        ResourceExplanationVocabulary.ConsumerBindingType,
+                        new Dictionary<
+                            string,
+                            IEnumerable<ExplanationResourceKey>>
+                        {
+                            ["invokes"] =
+                                [keys[RouteIdentity(binding.Route)]],
+                            ["exposes"] = binding.ExposedQueryTerms.Select(
+                                exposed =>
+                                {
+                                    QuerySpaceOperationTermDescriptor term =
+                                        binding.Route.QuerySpace.Descriptor
+                                            .Operation.Terms.Single(
+                                                candidate =>
+                                                    candidate.Identity
+                                                    == exposed);
+                                    return keys[
+                                        QueryFacetIdentity(
+                                            binding.Route.QuerySpace,
+                                            term)];
+                                }),
+                        })));
+        }
+
+        return Create(ResourceExplanationVocabulary.Schemas, snapshots);
+    }
+
+    public static ResourceExplanationCatalog CreateAnalyses(
+        InspectionCapabilityCatalog catalog)
+    {
+        ArgumentNullException.ThrowIfNull(catalog);
+        if (catalog.Analyses.IsEmpty)
+        {
+            throw new ArgumentException(
+                "The capability catalog registers no analyses.",
+                nameof(catalog));
+        }
+
+        var collectionPath = new ResourcePath(AnalysesCollectionSegment);
+        ExplanationResourceKey collectionKey =
+            ResourceExplanationVocabulary.Key(
+                ResourceExplanationVocabulary.NavigationCollectionType,
+                Pack("analysis-collection"));
+        var analysisKeys = catalog.Analyses.ToDictionary(
+            static registration => registration,
+            registration => ResourceExplanationVocabulary.Key(
+                ResourceExplanationVocabulary.AnalysisType,
+                Pack(registration.Analysis.Id.Value)));
+        var snapshots = new List<ExplanationResourceSnapshot>
+        {
+            NavigationSnapshot(
+                collectionPath,
+                collectionKey,
+                "Analyses",
+                catalog.Analyses.Length,
+                new Dictionary<string, IEnumerable<ExplanationResourceKey>>
+                {
+                    ["collection-analysis"] =
+                        catalog.Analyses.Select(registration =>
+                            analysisKeys[registration]),
+                }),
+        };
+
+        foreach (InspectionAnalysisRegistration registration
+                 in catalog.Analyses)
+        {
+            AnalysisDescriptor analysis = registration.Analysis;
+            var operationSurfaces = new List<ExplanationResourceKey>();
+            var findings = new List<ExplanationResourceKey>();
+            foreach (AnalysisOperationParticipation participation
+                     in analysis.Participations)
             {
-                QuerySpaceOperationTermDescriptor term =
-                    binding.Route.QuerySpace.Descriptor.Operation.Terms
-                        .Single(term =>
-                            term.Identity == exposedTerm);
-                ResourceExplanationIdentity.Capability facetIdentity =
-                    identities[QueryFacetIdentity(
-                        binding.Route.QuerySpace,
-                        term)];
-                ResourcePath facetPath =
-                    paths[QueryFacetIdentity(
-                        binding.Route.QuerySpace,
-                        term)];
-                AddRelationship(
-                    relationships,
-                    bindingIdentity,
-                    ResourceExplanationRelationshipKind.Exposes,
-                    facetIdentity,
-                    facetPath);
-                AddRelationship(
-                    relationships,
-                    facetIdentity,
-                    ResourceExplanationRelationshipKind.ExposedBy,
-                    bindingIdentity,
-                    paths[ConsumerBindingIdentity(binding)]);
+                foreach (AnalysisSurfaceParticipation surface
+                         in participation.Surfaces)
+                {
+                    string operation = participation.Operation.ToString();
+                    string surfaceKind = surface.Surface.ToString();
+                    operationSurfaces.Add(
+                        ResourceExplanationVocabulary.Key(
+                            ResourceExplanationVocabulary
+                                .OperationSurfaceType,
+                            $"{operation} / {surfaceKind}"));
+                    findings.AddRange(
+                        surface.Descriptors.Select(descriptor =>
+                            ResourceExplanationVocabulary.Key(
+                                ResourceExplanationVocabulary
+                                    .IssuedFindingType,
+                                $"{operation} / {surfaceKind} / "
+                                + descriptor.Id)));
+                }
+            }
+
+            snapshots.Add(
+                Snapshot(
+                    AnalysisPath(analysis.Id.Value),
+                    analysisKeys[registration],
+                    [
+                        ResourceExplanationVocabulary.TextFact(
+                            ResourceExplanationVocabulary.AnalysisType,
+                            "identity",
+                            analysis.Id.Value),
+                        ResourceExplanationVocabulary.TextFact(
+                            ResourceExplanationVocabulary.AnalysisType,
+                            "name",
+                            analysis.Id.Value),
+                        ResourceExplanationVocabulary.IntegerFact(
+                            ResourceExplanationVocabulary.AnalysisType,
+                            "revision",
+                            analysis.Revision),
+                        ResourceExplanationVocabulary.TextFact(
+                            ResourceExplanationVocabulary.AnalysisType,
+                            "cost",
+                            analysis.Cost.ToString()),
+                        ResourceExplanationVocabulary.TextsFact(
+                            ResourceExplanationVocabulary.AnalysisType,
+                            "participations",
+                            analysis.Participations.SelectMany(
+                                static participation =>
+                                    participation.Surfaces.Select(surface =>
+                                        $"{participation.Operation} "
+                                        + $"{surface.Surface}: "
+                                        + string.Join(
+                                            ", ",
+                                            surface.Descriptors.Select(
+                                                static descriptor =>
+                                                    descriptor.Id))))),
+                    ],
+                    RelationshipObservations(
+                        ResourceExplanationVocabulary.AnalysisType,
+                        new Dictionary<
+                            string,
+                            IEnumerable<ExplanationResourceKey>>
+                        {
+                            ["participates"] = operationSurfaces,
+                            ["issues"] = findings,
+                        })));
+        }
+
+        return Create(ResourceExplanationVocabulary.Schemas, snapshots);
+    }
+
+    public const string AnalysesCollectionSegment = "analyses";
+
+    public static ResourcePath AnalysisPath(string analysisIdentity) =>
+        new ResourcePath(AnalysesCollectionSegment).Append(analysisIdentity);
+
+    internal static InspectionCapabilityResourceIdentity AnalysisIdentity(
+        InspectionAnalysisRegistration registration) =>
+        new(
+            InspectionCapabilityResourceKind.Analysis,
+            registration.Analysis.Id.Value);
+
+    /// <summary>
+    /// Explains every product vocabulary a host composed into
+    /// <paramref name="snapshot"/>: the <c>vocabularies</c> collection, one
+    /// <c>vocabularies/&lt;id&gt;</c> resource per vocabulary in the sections
+    /// index, in index order, and one
+    /// <c>vocabularies/&lt;id&gt;/values/&lt;segment&gt;</c> resource per value,
+    /// in owner order. It reads the snapshot generically and names no
+    /// individual vocabulary.
+    /// </summary>
+    public static ResourceExplanationCatalog CreateVocabularies(
+        VocabularySnapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        VocabularyDefinition index = snapshot.GetVocabulary(
+            new VocabularyIdentity(
+                snapshot.Catalog,
+                ProductVocabularyComposition.SectionsId));
+        VocabularyMapIdentity acceptedByMap = index.GetMap(
+            ProductVocabularyComposition.AcceptedByMapId).Identity;
+        ImmutableArray<VocabularyDefinition> vocabularies =
+        [
+            .. index.Terms.Select(term =>
+                snapshot.GetVocabulary(
+                    new VocabularyIdentity(
+                        snapshot.Catalog,
+                        term.Identity.Value))),
+        ];
+        var members = vocabularies
+            .Select(static vocabulary => vocabulary.Identity.Value)
+            .ToHashSet(StringComparer.Ordinal);
+
+        var collectionPath = new ResourcePath(VocabulariesCollectionSegment);
+        ExplanationResourceKey collectionKey =
+            ResourceExplanationVocabulary.Key(
+                ResourceExplanationVocabulary.NavigationCollectionType,
+                Pack("vocabulary-collection"));
+        var snapshots = new List<ExplanationResourceSnapshot>
+        {
+            NavigationSnapshot(
+                collectionPath,
+                collectionKey,
+                "Vocabularies",
+                vocabularies.Length,
+                new Dictionary<string, IEnumerable<ExplanationResourceKey>>
+                {
+                    ["collection-vocabulary"] =
+                        vocabularies.Select(static vocabulary =>
+                            VocabularyKey(vocabulary.Identity.Value)),
+                }),
+        };
+
+        for (int position = 0; position < vocabularies.Length; position++)
+        {
+            VocabularyDefinition vocabulary = vocabularies[position];
+            snapshots.Add(VocabularyResourceSnapshot(
+                vocabulary,
+                index.Terms[position].GetRequiredValues(acceptedByMap),
+                members));
+            snapshots.AddRange(ValueSnapshots(vocabulary));
+        }
+
+        return Create(ResourceExplanationVocabulary.Schemas, snapshots);
+    }
+
+    public const string VocabulariesCollectionSegment = "vocabularies";
+
+    /// <summary>The segment under a vocabulary that holds its values.</summary>
+    public const string VocabularyValuesSegment = "values";
+
+    public static ResourcePath VocabularyPath(string vocabularyIdentity) =>
+        new ResourcePath(VocabulariesCollectionSegment)
+            .Append(vocabularyIdentity);
+
+    public static ResourcePath VocabularyValuePath(
+        string vocabularyIdentity,
+        string valueIdentity) =>
+        VocabularyPath(vocabularyIdentity).Append(
+            VocabularyValuesSegment,
+            VocabularyValueSegment(valueIdentity));
+
+    /// <summary>
+    /// The path segment registered for one vocabulary value: its exact owner
+    /// identity in ASCII lower case with <c>:</c> replaced by <c>.</c>.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">
+    /// The derived segment falls outside the resource-path segment grammar.
+    /// </exception>
+    public static string VocabularyValueSegment(string valueIdentity)
+    {
+        ArgumentNullException.ThrowIfNull(valueIdentity);
+        string segment = string.Create(
+            valueIdentity.Length,
+            valueIdentity,
+            static (characters, identity) =>
+            {
+                for (int position = 0; position < identity.Length; position++)
+                {
+                    characters[position] = identity[position] switch
+                    {
+                        >= 'A' and <= 'Z' and char upper =>
+                            (char)(upper + ('a' - 'A')),
+                        ':' => '.',
+                        char other => other,
+                    };
+                }
+            });
+        return ResourcePath.IsCanonicalSegment(segment)
+            ? segment
+            : throw new InvalidOperationException(
+                $"Vocabulary value '{valueIdentity}' has no canonical "
+                + "resource-path segment.");
+    }
+
+    private static ExplanationResourceSnapshot VocabularyResourceSnapshot(
+        VocabularyDefinition vocabulary,
+        ImmutableArray<ExplanationValue> acceptedBy,
+        IReadOnlySet<string> members)
+    {
+        ExplanationResourceTypeIdentity type =
+            ResourceExplanationVocabulary.ValueVocabularyType;
+        string identity = vocabulary.Identity.Value;
+        VocabularyMapDefinition? defaultMap = vocabulary.Maps.FirstOrDefault(
+            static map => map is
+            {
+                Identity.Value: DefaultMapId,
+                Target: VocabularyMapTarget.Scalar
+                {
+                    Kind: ExplanationScalarKind.Boolean,
+                },
+            });
+        return Snapshot(
+            VocabularyPath(identity),
+            VocabularyKey(identity),
+            [
+                ResourceExplanationVocabulary.TextFact(
+                    type,
+                    "identity",
+                    identity),
+                ResourceExplanationVocabulary.TextFact(
+                    type,
+                    "name",
+                    vocabulary.DisplayLabel),
+                OptionalTextFact(type, "summary", vocabulary.Summary),
+                ResourceExplanationVocabulary.IntegerFact(
+                    type,
+                    "members",
+                    vocabulary.Terms.Length),
+                new(
+                    ResourceExplanationVocabulary.Fact(type, "accepted-by"),
+                    ExplanationObservationState.Available,
+                    acceptedBy),
+                new(
+                    ResourceExplanationVocabulary.Fact(type, "maps"),
+                    ExplanationObservationState.Available,
+                    vocabulary.Maps.Select(MapDeclarationValue)),
+                ResourceExplanationVocabulary.TextsFact(
+                    type,
+                    "defaults",
+                    defaultMap is null
+                        ? []
+                        : vocabulary.Terms
+                            .Where(term =>
+                                term.TryGetValues(
+                                    defaultMap.Identity,
+                                    out ImmutableArray<ExplanationValue> values)
+                                && values.Contains(
+                                    ExplanationValue.Boolean(true)))
+                            .Select(static term => term.Identity.Value)),
+            ],
+            RelationshipObservations(
+                type,
+                new Dictionary<string, IEnumerable<ExplanationResourceKey>>
+                {
+                    ["vocabulary-value"] = vocabulary.Terms.Select(term =>
+                        VocabularyValueKey(identity, term.Identity.Value)),
+                    ["term-map-target"] =
+                        TermMapTargets(vocabulary, members),
+                }));
+    }
+
+    private static IEnumerable<ExplanationResourceSnapshot> ValueSnapshots(
+        VocabularyDefinition vocabulary)
+    {
+        ExplanationResourceTypeIdentity type =
+            ResourceExplanationVocabulary.VocabularyValueType;
+        string vocabularyIdentity = vocabulary.Identity.Value;
+        var segments = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (VocabularyTerm term in vocabulary.Terms)
+        {
+            string identity = term.Identity.Value;
+            if (!segments.TryAdd(VocabularyValueSegment(identity), identity))
+            {
+                throw new InvalidOperationException(
+                    $"Vocabulary '{vocabularyIdentity}' values "
+                    + $"'{segments[VocabularyValueSegment(identity)]}' and "
+                    + $"'{identity}' share one resource-path segment.");
             }
         }
 
-        return Create(resources, relationships);
+        foreach (VocabularyTerm term in vocabulary.Terms)
+        {
+            string identity = term.Identity.Value;
+            var entries = new List<ExplanationValue>();
+            var targets = new List<ExplanationResourceKey>();
+            foreach (VocabularyMapDefinition map in vocabulary.Maps)
+            {
+                if (!term.TryGetValues(
+                        map.Identity,
+                        out ImmutableArray<ExplanationValue> values))
+                {
+                    continue;
+                }
+                foreach (ExplanationValue value in values)
+                {
+                    entries.Add(MapEntryValue(map, value));
+                    if (value is ExplanationValue.VocabularyTerm target)
+                    {
+                        ExplanationResourceKey key = VocabularyValueKey(
+                            target.Identity.Vocabulary.Value,
+                            target.Identity.Value);
+                        if (!targets.Contains(key))
+                            targets.Add(key);
+                    }
+                }
+            }
+
+            yield return Snapshot(
+                VocabularyValuePath(vocabularyIdentity, identity),
+                VocabularyValueKey(vocabularyIdentity, identity),
+                [
+                    ResourceExplanationVocabulary.TextFact(
+                        type,
+                        "identity",
+                        identity),
+                    ResourceExplanationVocabulary.TextFact(
+                        type,
+                        "name",
+                        term.DisplayLabel),
+                    OptionalTextFact(type, "summary", term.Summary),
+                    new(
+                        ResourceExplanationVocabulary.Fact(
+                            type,
+                            "map-entries"),
+                        ExplanationObservationState.Available,
+                        entries),
+                ],
+                RelationshipObservations(
+                    type,
+                    new Dictionary<
+                        string,
+                        IEnumerable<ExplanationResourceKey>>
+                    {
+                        ["term-map-value"] = targets,
+                    }));
+        }
     }
+
+    private const string DefaultMapId = "default";
+
+    private static ExplanationFactObservation OptionalTextFact(
+        ExplanationResourceTypeIdentity type,
+        string identity,
+        string? value) =>
+        value is null
+            ? ResourceExplanationVocabulary.AbsentFact(type, identity)
+            : ResourceExplanationVocabulary.TextFact(type, identity, value);
+
+    private static ExplanationValue MapDeclarationValue(
+        VocabularyMapDefinition map) =>
+        RecordValue(
+            ResourceExplanationVocabulary.MapDeclarationShape,
+            ("identity", ExplanationValue.Text(map.Identity.Value)),
+            ("name", ExplanationValue.Text(map.DisplayLabel)),
+            ("summary", ExplanationValue.Text(map.Summary)),
+            ("value-kind", ExplanationValue.Text(map.Target switch
+            {
+                VocabularyMapTarget.Scalar scalar =>
+                    ScalarKindName(scalar.Kind),
+                _ => "term",
+            })),
+            ("target-vocabulary", map.Target is VocabularyMapTarget.Terms
+            {
+                Reference: VocabularyTermSetReference.Local local,
+            }
+                ? ExplanationValue.Text(local.Vocabulary.Value)
+                : null),
+            ("cardinality", ExplanationValue.Text(map.Cardinality switch
+            {
+                VocabularyMapCardinality.ExactlyOne => "exactly-one",
+                VocabularyMapCardinality.OptionalOne => "optional-one",
+                VocabularyMapCardinality.OneOrMore => "one-or-more",
+                VocabularyMapCardinality.ZeroOrMore => "zero-or-more",
+                _ => throw new InvalidOperationException(
+                    $"Map '{map.Identity}' has an unknown cardinality."),
+            })),
+            ("coverage", ExplanationValue.Text(map.Coverage switch
+            {
+                VocabularyMapCoverage.Complete => "complete",
+                VocabularyMapCoverage.Partial => "partial",
+                _ => throw new InvalidOperationException(
+                    $"Map '{map.Identity}' has an unknown coverage."),
+            })));
+
+    private static ExplanationValue MapEntryValue(
+        VocabularyMapDefinition map,
+        ExplanationValue value)
+    {
+        (string @case, ExplanationValue payload) = value switch
+        {
+            ExplanationValue.Scalar scalar =>
+                (ScalarKindName(scalar.Value.Kind), value),
+            ExplanationValue.VocabularyTerm term =>
+                ("term", ExplanationValue.Text(term.Identity.Value)),
+            _ => throw new InvalidOperationException(
+                $"Map '{map.Identity}' carries a value Product Vocabulary "
+                + "explanation does not admit."),
+        };
+        return RecordValue(
+            ResourceExplanationVocabulary.MapEntryShape,
+            ("map", ExplanationValue.Text(map.Identity.Value)),
+            ("value", new ExplanationValue.Choice(
+                new ExplanationChoiceCaseIdentity(
+                    ResourceExplanationVocabulary.MapValueShape,
+                    @case),
+                payload)));
+    }
+
+    private static string ScalarKindName(ExplanationScalarKind kind) =>
+        kind switch
+        {
+            ExplanationScalarKind.Text => "text",
+            ExplanationScalarKind.Integer => "integer",
+            ExplanationScalarKind.Boolean => "boolean",
+            _ => throw new InvalidOperationException(
+                $"Scalar kind '{kind}' is not a Product Vocabulary map "
+                + "value kind."),
+        };
+
+    private static ExplanationValue RecordValue(
+        ExplanationDataShapeIdentity shape,
+        params (string Field, ExplanationValue? Value)[] fields) =>
+        new ExplanationValue.Record(
+            fields.Select(field =>
+            {
+                ImmutableArray<ExplanationValue> values =
+                    field.Value is null ? [] : [field.Value];
+                return new ExplanationRecordFieldValue(
+                    new ExplanationFieldIdentity(shape, field.Field),
+                    values);
+            }));
+
+    private static ImmutableArray<ExplanationResourceKey> TermMapTargets(
+        VocabularyDefinition definition,
+        IReadOnlySet<string> members) =>
+        [
+            .. definition.Maps
+                .Select(static map => map.Target)
+                .OfType<VocabularyMapTarget.Terms>()
+                .Select(terms =>
+                    terms.Reference is VocabularyTermSetReference.Local local
+                    && members.Contains(local.Vocabulary.Value)
+                        ? local.Vocabulary.Value
+                        : throw new InvalidOperationException(
+                            $"Vocabulary '{definition.Identity}' has a term "
+                            + "map whose target is not an explained "
+                            + "vocabulary in this snapshot."))
+                .Distinct(StringComparer.Ordinal)
+                .Select(VocabularyKey),
+        ];
+
+    private static ExplanationResourceKey VocabularyKey(string identity) =>
+        ResourceExplanationVocabulary.Key(
+            ResourceExplanationVocabulary.ValueVocabularyType,
+            Pack(identity));
+
+    private static ExplanationResourceKey VocabularyValueKey(
+        string vocabularyIdentity,
+        string valueIdentity) =>
+        ResourceExplanationVocabulary.Key(
+            ResourceExplanationVocabulary.VocabularyValueType,
+            Pack(vocabularyIdentity, valueIdentity));
 
     public static ResourceExplanationCatalog Combine(
         params ResourceExplanationCatalog[] catalogs)
@@ -773,9 +1396,137 @@ public sealed class ResourceExplanationCatalog
                 "At least one Resource Explanation catalog is required.",
                 nameof(catalogs));
         }
+
+        var schemasByRevision =
+            new Dictionary<
+                (ExplanationSchemaIdentity Identity,
+                    ExplanationSchemaVersion Version),
+                ExplanationSchema>();
+        var schemas = new List<ExplanationSchema>();
+        foreach (ResourceExplanationCatalog catalog in catalogs)
+        {
+            foreach (ExplanationSchema schema in catalog.Schemas)
+            {
+                var revision = (schema.Identity, schema.Version);
+                if (schemasByRevision.TryGetValue(
+                        revision,
+                        out ExplanationSchema? existing))
+                {
+                    if (!SchemasEquivalent(existing, schema))
+                    {
+                        throw new ArgumentException(
+                            $"Explanation schema revision "
+                            + $"'{schema.Identity}' version "
+                            + $"'{schema.Version}' has conflicting "
+                            + "declarations.",
+                            nameof(catalogs));
+                    }
+                    continue;
+                }
+
+                schemasByRevision.Add(revision, schema);
+                schemas.Add(schema);
+            }
+        }
         return Create(
-            catalogs.SelectMany(static catalog => catalog.Resources),
-            catalogs.SelectMany(static catalog => catalog.Relationships));
+            schemas,
+            catalogs.SelectMany(static catalog =>
+                catalog._catalogResources.Select(
+                    static resource => resource.Snapshot)));
+    }
+
+    private static bool SchemasEquivalent(
+        ExplanationSchema left,
+        ExplanationSchema right) =>
+        left.Identity == right.Identity
+        && left.Version == right.Version
+        && left.DataShapes.SequenceEqual(
+            right.DataShapes,
+            ExplanationDataShapeDeclarationComparer.Instance)
+        && left.ResourceTypes.SequenceEqual(
+            right.ResourceTypes,
+            ExplanationResourceTypeDeclarationComparer.Instance)
+        && left.AddressKinds.SequenceEqual(right.AddressKinds);
+
+    private sealed class ExplanationDataShapeDeclarationComparer :
+        IEqualityComparer<ExplanationDataShapeDeclaration>
+    {
+        internal static readonly
+            ExplanationDataShapeDeclarationComparer Instance = new();
+
+        public bool Equals(
+            ExplanationDataShapeDeclaration? left,
+            ExplanationDataShapeDeclaration? right)
+        {
+            if (ReferenceEquals(left, right))
+                return true;
+            if (left is null
+                || right is null
+                || left.Identity != right.Identity
+                || left.DisplayName != right.DisplayName
+                || left.Meaning != right.Meaning
+                || left.Budget != right.Budget)
+            {
+                return false;
+            }
+
+            return (left, right) switch
+            {
+                (
+                    ExplanationDataShapeDeclaration.Scalar leftScalar,
+                    ExplanationDataShapeDeclaration.Scalar rightScalar) =>
+                    leftScalar.ScalarKind == rightScalar.ScalarKind,
+                (
+                    ExplanationDataShapeDeclaration.VocabularyTerm
+                        leftVocabulary,
+                    ExplanationDataShapeDeclaration.VocabularyTerm
+                        rightVocabulary) =>
+                    leftVocabulary.Vocabulary == rightVocabulary.Vocabulary,
+                (
+                    ExplanationDataShapeDeclaration.Record leftRecord,
+                    ExplanationDataShapeDeclaration.Record rightRecord) =>
+                    leftRecord.Fields.SequenceEqual(rightRecord.Fields),
+                (
+                    ExplanationDataShapeDeclaration.Choice leftChoice,
+                    ExplanationDataShapeDeclaration.Choice rightChoice) =>
+                    leftChoice.Cases.SequenceEqual(rightChoice.Cases),
+                (
+                    ExplanationDataShapeDeclaration.Reference leftReference,
+                    ExplanationDataShapeDeclaration.Reference
+                        rightReference) =>
+                    leftReference.Target == rightReference.Target,
+                _ => false,
+            };
+        }
+
+        public int GetHashCode(
+            ExplanationDataShapeDeclaration declaration) =>
+            declaration.Identity.GetHashCode();
+    }
+
+    private sealed class ExplanationResourceTypeDeclarationComparer :
+        IEqualityComparer<ExplanationResourceTypeDeclaration>
+    {
+        internal static readonly
+            ExplanationResourceTypeDeclarationComparer Instance = new();
+
+        public bool Equals(
+            ExplanationResourceTypeDeclaration? left,
+            ExplanationResourceTypeDeclaration? right) =>
+            ReferenceEquals(left, right)
+            || (left is not null
+                && right is not null
+                && left.Identity == right.Identity
+                && left.DisplayName == right.DisplayName
+                && left.Meaning == right.Meaning
+                && left.IdentityShape == right.IdentityShape
+                && left.Facts.SequenceEqual(right.Facts)
+                && left.Relationships.SequenceEqual(right.Relationships)
+                && left.AddressKinds.SequenceEqual(right.AddressKinds));
+
+        public int GetHashCode(
+            ExplanationResourceTypeDeclaration declaration) =>
+            declaration.Identity.GetHashCode();
     }
 
     public ResourcePathResolution Resolve(string requestedPath)
@@ -790,32 +1541,518 @@ public sealed class ResourceExplanationCatalog
                 error!);
         }
 
-        if (_resourcesByPath.TryGetValue(
-                path!.Value,
-                out ResourceExplanationResource? resource))
-        {
-            return new ResourcePathResolution.Resolved(
-                resource.Path,
-                resource.Identity);
-        }
+        ResourcePath canonicalPath = path!;
+        if (TryResolveExact(canonicalPath, out var resolved))
+            return resolved;
 
         ImmutableArray<ResourcePath> suggestions =
         [
-            .. _resources
+            .. _catalogResources
+                .Where(static resource => resource.Path is not null)
                 .OrderBy(resource =>
                     EditDistance(
-                        path.Value,
-                        resource.Path.Value))
+                        canonicalPath.Value,
+                        resource.Path!.Value))
                 .ThenBy(
-                    resource => resource.Path.Value,
+                    resource => resource.Path!.Value,
                     StringComparer.Ordinal)
                 .Take(5)
-                .Select(static resource => resource.Path),
+                .Select(static resource => resource.Path!),
         ];
         return new ResourcePathResolution.Unknown(
             requestedPath,
             suggestions);
     }
+
+    public bool TryResolveExact(
+        ResourcePath path,
+        [NotNullWhen(true)]
+        out ResourcePathResolution.Resolved? resolved)
+    {
+        ArgumentNullException.ThrowIfNull(path);
+        if (!_resourcesByPath.TryGetValue(
+                path.Value,
+                out CatalogResource? resource))
+        {
+            resolved = null;
+            return false;
+        }
+
+        resolved = new(resource.Path!, resource.Snapshot.Key);
+        return true;
+    }
+
+    public InspectionEnvelope<ResourceExplanationDocument> Explain(
+        ResourcePathResolution.Resolved resolved,
+        ResourceExplanationRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(resolved);
+        ArgumentNullException.ThrowIfNull(request);
+        if (!_resourcesByPath.TryGetValue(
+                resolved.Path.Value,
+                out CatalogResource? root)
+            || root.Snapshot.Key != resolved.Key)
+        {
+            throw new ArgumentException(
+                "The resolved path does not belong to this catalog.",
+                nameof(resolved));
+        }
+
+        return ExplainCore(
+            root,
+            root.Path,
+            request,
+            root.Path!.Value);
+    }
+
+    private InspectionEnvelope<ResourceExplanationDocument> ExplainCore(
+        CatalogResource root,
+        ResourcePath? requestedPath,
+        ResourceExplanationRequest request,
+        string shareIdentity)
+    {
+        var resources = new List<CatalogResource> { root };
+        var resourceDepth =
+            new Dictionary<ExplanationResourceKey, int>
+            {
+                [root.Snapshot.Key] = 0,
+            };
+        var relationships =
+            new List<ResourceExplanationRelationship>();
+        var visited =
+            new HashSet<ExplanationResourceKey> { root.Snapshot.Key };
+        var queue =
+            new Queue<(CatalogResource Resource, int Depth)>();
+        queue.Enqueue((root, 0));
+        var truncationReasons =
+            new HashSet<ResourceExplanationTruncationReason>();
+        int emittedTargets = 0;
+        bool relationshipLimitReached = false;
+
+        while (queue.Count > 0 && !relationshipLimitReached)
+        {
+            (CatalogResource current, int depth) = queue.Dequeue();
+            foreach (ExplanationRelationshipObservation observation
+                     in current.Snapshot.Relationships)
+            {
+                if (relationships.Count >= request.RelationshipLimit)
+                {
+                    truncationReasons.Add(
+                        ResourceExplanationTruncationReason
+                            .RelationshipLimit);
+                    relationshipLimitReached = true;
+                    break;
+                }
+
+                int remainingTargets =
+                    request.RelationshipTargetLimit - emittedTargets;
+                ProjectedRelationships projected =
+                    ProjectRelationship(
+                        current,
+                        observation,
+                        _resourcesByKey,
+                        remainingTargets);
+                relationships.Add(projected.Relationship);
+                emittedTargets += projected.Relationship.Targets.Length;
+                if (projected.WasTruncated)
+                {
+                    truncationReasons.Add(
+                        ResourceExplanationTruncationReason
+                            .RelationshipTargetLimit);
+                }
+
+                foreach (ResourceExplanationRelationshipTarget projectedTarget
+                         in projected.Relationship.Targets)
+                {
+                    if (!_resourcesByKey.TryGetValue(
+                            projectedTarget.Resource,
+                            out CatalogResource? target)
+                        || visited.Contains(target.Snapshot.Key))
+                    {
+                        continue;
+                    }
+
+                    if (depth >= request.Depth)
+                    {
+                        truncationReasons.Add(
+                            ResourceExplanationTruncationReason.Depth);
+                        continue;
+                    }
+                    if (resources.Count >= request.ResourceLimit)
+                    {
+                        truncationReasons.Add(
+                            ResourceExplanationTruncationReason
+                                .ResourceLimit);
+                        continue;
+                    }
+
+                    visited.Add(target.Snapshot.Key);
+                    resources.Add(target);
+                    int targetDepth = depth + 1;
+                    resourceDepth.Add(target.Snapshot.Key, targetDepth);
+                    queue.Enqueue((target, targetDepth));
+                }
+            }
+        }
+
+        ImmutableArray<ExplanationSchema> schemaSlice =
+            CreateSchemaSlice(resources, relationships);
+        while (ResourceExplanationVocabulary.DeclarationCount(schemaSlice)
+            > request.SchemaDeclarationLimit)
+        {
+            truncationReasons.Add(
+                ResourceExplanationTruncationReason
+                    .SchemaDeclarationLimit);
+            if (relationships.Count > 0)
+            {
+                relationships.RemoveAt(relationships.Count - 1);
+            }
+            else if (resources.Count > 1)
+            {
+                CatalogResource removed = resources[^1];
+                resources.RemoveAt(resources.Count - 1);
+                resourceDepth.Remove(removed.Snapshot.Key);
+                relationships.RemoveAll(relationship =>
+                    relationship.Source == removed.Snapshot.Key);
+            }
+            else
+            {
+                throw new InvalidOperationException(
+                    "The schema declaration limit is too small to explain "
+                    + "the requested root resource.");
+            }
+            schemaSlice = CreateSchemaSlice(resources, relationships);
+        }
+
+        emittedTargets = relationships.Sum(static relationship =>
+            relationship.Targets.Length);
+        int completedDepth = resourceDepth.Count == 0
+            ? 0
+            : resourceDepth.Values.Max();
+        int declarationCount =
+            ResourceExplanationVocabulary.DeclarationCount(schemaSlice);
+        var receipt =
+            new ResourceExplanationTraversalReceipt(
+                request.Depth,
+                request.ResourceLimit,
+                request.RelationshipLimit,
+                request.RelationshipTargetLimit,
+                request.SchemaDeclarationLimit,
+                completedDepth,
+                resources.Count,
+                relationships.Count,
+                emittedTargets,
+                declarationCount,
+                truncationReasons.Count == 0
+                    ? ResourceExplanationCompleteness.Complete
+                    : ResourceExplanationCompleteness.Truncated,
+                truncationReasons.Order());
+        var document =
+            new ResourceExplanationDocument(
+                requestedPath,
+                root.Snapshot.Key,
+                schemaSlice,
+                resources.Select(static resource =>
+                    resource.Projection),
+                relationships,
+                receipt);
+        return new InspectionEnvelope<ResourceExplanationDocument>(
+            document,
+            new InspectionShare.NonProjectable(
+                shareIdentity,
+                "Resource Explanation does not yet have a portable "
+                + "Workspace projection."));
+    }
+
+    internal static InspectionCapabilityResourceIdentity DocumentIdentity(
+        InspectionDocumentRegistration document) =>
+        new(
+            InspectionCapabilityResourceKind.Document,
+            document.Descriptor.Identity);
+
+    internal static InspectionCapabilityResourceIdentity RouteIdentity(
+        InspectionRouteRegistration route) =>
+        new(
+            InspectionCapabilityResourceKind.Route,
+            route.Descriptor.Identity);
+
+    internal static InspectionCapabilityResourceIdentity QuerySpaceIdentity(
+        QuerySpaceBinding querySpace) =>
+        new(
+            InspectionCapabilityResourceKind.QuerySpace,
+            querySpace.Descriptor.Identity);
+
+    internal static InspectionCapabilityResourceIdentity QueryFacetIdentity(
+        QuerySpaceBinding querySpace,
+        QuerySpaceOperationTermDescriptor term) =>
+        new(
+            InspectionCapabilityResourceKind.QueryFacet,
+            term.Identity,
+            querySpace.Descriptor.Identity);
+
+    internal static InspectionCapabilityResourceIdentity
+        ConsumerBindingIdentity(
+            InspectionConsumerBinding binding) =>
+        new(
+            InspectionCapabilityResourceKind.ConsumerBinding,
+            binding.Descriptor.Identity);
+
+    internal static ExplanationResourceKey CapabilityKey(
+        InspectionCapabilityResourceIdentity identity) =>
+        ResourceExplanationVocabulary.Key(
+            identity.Kind switch
+            {
+                InspectionCapabilityResourceKind.Document =>
+                    ResourceExplanationVocabulary.InspectionDocumentType,
+                InspectionCapabilityResourceKind.Route =>
+                    ResourceExplanationVocabulary.HostNeutralRouteType,
+                InspectionCapabilityResourceKind.QuerySpace =>
+                    ResourceExplanationVocabulary.QuerySpaceType,
+                InspectionCapabilityResourceKind.QueryFacet =>
+                    ResourceExplanationVocabulary.QueryFacetType,
+                InspectionCapabilityResourceKind.ConsumerBinding =>
+                    ResourceExplanationVocabulary.ConsumerBindingType,
+                InspectionCapabilityResourceKind.Analysis =>
+                    ResourceExplanationVocabulary.AnalysisType,
+                InspectionCapabilityResourceKind.AnalysisCollection =>
+                    ResourceExplanationVocabulary.NavigationCollectionType,
+                _ => throw new InvalidOperationException(
+                    "Unknown inspection capability resource kind."),
+            },
+            CapabilityIdentity(identity));
+
+    private static ImmutableArray<ExplanationFactObservation> StructuralFacts(
+        DiscoveryResource resource,
+        ExplanationResourceTypeIdentity type) =>
+        resource.Identity.Kind switch
+        {
+            DiscoveryResourceKind.Category =>
+            [
+                ResourceExplanationVocabulary.TextFact(
+                    type,
+                    "name",
+                    resource.Identity.Name),
+                ResourceExplanationVocabulary.TextsFact(
+                    type,
+                    "formats",
+                    resource.OutputModes.Select(static mode =>
+                        mode.ToString())),
+                ResourceExplanationVocabulary.IntegerFact(
+                    type,
+                    "members",
+                    resource.Members.Length),
+            ],
+            DiscoveryResourceKind.Section =>
+            [
+                ResourceExplanationVocabulary.TextFact(
+                    type,
+                    "name",
+                    resource.Identity.Name),
+                ResourceExplanationVocabulary.TextsFact(
+                    type,
+                    "formats",
+                    resource.OutputModes.Select(static mode =>
+                        mode.ToString())),
+                ResourceExplanationVocabulary.IntegerFact(
+                    type,
+                    "members",
+                    resource.Members.Length),
+                resource.Shape is { } shape
+                    ? ResourceExplanationVocabulary.TextFact(
+                        type,
+                        "shape",
+                        shape.ToString().ToLowerInvariant())
+                    : ResourceExplanationVocabulary.AbsentFact(
+                        type,
+                        "shape"),
+                resource.Cardinality is { } cardinality
+                    ? ResourceExplanationVocabulary.TextFact(
+                        type,
+                        "cardinality",
+                        cardinality.Kind.ToString().ToLowerInvariant())
+                    : ResourceExplanationVocabulary.AbsentFact(
+                        type,
+                        "cardinality"),
+            ],
+            DiscoveryResourceKind.Item =>
+            [
+                ResourceExplanationVocabulary.TextFact(
+                    type,
+                    "name",
+                    resource.Identity.Name),
+                ResourceExplanationVocabulary.TextFact(
+                    type,
+                    "item-kind",
+                    resource.Identity.ItemKind
+                    ?? throw new InvalidOperationException(
+                        "A structural item kind is required.")),
+            ],
+            _ => throw new InvalidOperationException(
+                "Unknown Discovery resource kind."),
+        };
+
+    private static ImmutableArray<ExplanationRelationshipObservation>
+        StructuralRelationships(
+            DiscoveryResource resource,
+            ExplanationResourceTypeIdentity type,
+            IReadOnlyDictionary<
+                DiscoveryResourceIdentity,
+                ExplanationResourceKey> keys,
+            IReadOnlyDictionary<
+                DiscoveryResourceIdentity,
+                ExplanationResourceKey> itemCollections)
+    {
+        var targets =
+            new Dictionary<string, IEnumerable<ExplanationResourceKey>>();
+        switch (resource.Identity.Kind)
+        {
+            case DiscoveryResourceKind.Category:
+                targets["category-member"] =
+                    resource.Members.Select(member => keys[member]);
+                break;
+            case DiscoveryResourceKind.Section:
+                targets["navigation"] =
+                    itemCollections.TryGetValue(
+                        resource.Identity,
+                        out ExplanationResourceKey? collection)
+                        ? [collection]
+                        : [];
+                targets["structural-item"] =
+                    resource.Members.Select(member => keys[member]);
+                break;
+        }
+        return RelationshipObservations(type, targets);
+    }
+
+    private static ExplanationResourceSnapshot NavigationSnapshot(
+        ResourcePath path,
+        ExplanationResourceKey key,
+        string name,
+        int members,
+        IReadOnlyDictionary<
+            string,
+            IEnumerable<ExplanationResourceKey>> targets) =>
+        Snapshot(
+            path,
+            key,
+            [
+                ResourceExplanationVocabulary.TextFact(
+                    ResourceExplanationVocabulary.NavigationCollectionType,
+                    "name",
+                    name),
+                ResourceExplanationVocabulary.IntegerFact(
+                    ResourceExplanationVocabulary.NavigationCollectionType,
+                    "members",
+                    members),
+            ],
+            RelationshipObservations(
+                ResourceExplanationVocabulary.NavigationCollectionType,
+                targets));
+
+    private static ExplanationResourceSnapshot Snapshot(
+        ResourcePath path,
+        ExplanationResourceKey key,
+        IEnumerable<ExplanationFactObservation> facts,
+        IEnumerable<ExplanationRelationshipObservation> relationships) =>
+        new(
+            key,
+            ResourceExplanationVocabulary.Version,
+            ExplanationSnapshotScope.Installed,
+            [ResourceExplanationVocabulary.Address(path)],
+            facts,
+            relationships);
+
+    private static ImmutableArray<ExplanationRelationshipObservation>
+        RelationshipObservations(
+            ExplanationResourceTypeIdentity sourceType,
+            IReadOnlyDictionary<
+                string,
+                IEnumerable<ExplanationResourceKey>> targets)
+    {
+        ExplanationResourceTypeDeclaration declaration =
+            ResourceExplanationVocabulary.ResourceType(sourceType);
+        return
+        [
+            .. declaration.Relationships.Select(relationship =>
+                ResourceExplanationVocabulary.Targets(
+                    sourceType,
+                    relationship.Identity.Value,
+                    targets.TryGetValue(
+                        relationship.Identity.Value,
+                        out IEnumerable<ExplanationResourceKey>? values)
+                        ? values
+                        : [])),
+        ];
+    }
+
+    private static ResourcePath Path(
+        ExplanationResourceSnapshot snapshot)
+    {
+        ExplanationPublicAddress address = snapshot.Addresses.Single(
+            candidate =>
+                candidate.Kind
+                    == ResourceExplanationVocabulary.ResourcePathAddressKind);
+        if (address.Value is not ExplanationValue.Scalar
+            {
+                Value:
+                {
+                    Kind: ExplanationScalarKind.Text,
+                    Text: { } text,
+                },
+            })
+        {
+            throw new ArgumentException(
+                $"Resource '{snapshot.Key}' has a non-text Resource "
+                + "Explanation path.",
+                nameof(snapshot));
+        }
+        return new ResourcePath(text);
+    }
+
+    private static ExplanationResourceKey NavigationKey(
+        string catalog,
+        string kind,
+        params string[] components) =>
+        ResourceExplanationVocabulary.Key(
+            ResourceExplanationVocabulary.NavigationCollectionType,
+            Pack([catalog, kind, .. components]));
+
+    private static ExplanationResourceTypeIdentity StructuralType(
+        DiscoveryResourceKind kind) =>
+        kind switch
+        {
+            DiscoveryResourceKind.Category =>
+                ResourceExplanationVocabulary.StructuralCategoryType,
+            DiscoveryResourceKind.Section =>
+                ResourceExplanationVocabulary.StructuralSectionType,
+            DiscoveryResourceKind.Item =>
+                ResourceExplanationVocabulary.StructuralItemType,
+            _ => throw new InvalidOperationException(
+                "Unknown Discovery resource kind."),
+        };
+
+    private static string StructuralIdentity(
+        string catalog,
+        DiscoveryResourceIdentity identity) =>
+        Pack(
+            catalog,
+            identity.Kind.ToString(),
+            identity.Name,
+            identity.Section,
+            identity.ItemKind);
+
+    private static string CapabilityIdentity(
+        InspectionCapabilityResourceIdentity identity) =>
+        Pack(
+            identity.Kind.ToString(),
+            identity.Identity,
+            identity.ParentIdentity);
+
+    private static string Pack(params string?[] values) =>
+        string.Concat(values.Select(static value =>
+            value is null
+                ? "-1:"
+                : $"{value.Length}:{value}"));
 
     private static IReadOnlyDictionary<
         InspectionCapabilityResourceIdentity,
@@ -855,184 +2092,6 @@ public sealed class ResourceExplanationCatalog
             }
         }
         return paths;
-    }
-
-    private static void AddCapabilityResource(
-        ICollection<ResourceExplanationResource> resources,
-        IDictionary<
-            InspectionCapabilityResourceIdentity,
-            ResourceExplanationIdentity.Capability> identities,
-        IReadOnlyDictionary<
-            InspectionCapabilityResourceIdentity,
-            ResourcePath> paths,
-        InspectionCapabilityResourceIdentity resourceIdentity,
-        ResourceExplanationResourceKind resourceKind,
-        ResourceExplanationDetail details)
-    {
-        if (!paths.TryGetValue(
-                resourceIdentity,
-                out ResourcePath? path))
-        {
-            throw new ArgumentException(
-                $"Inspection capability resource "
-                + $"'{resourceIdentity.Identity}' has no canonical path.",
-                nameof(paths));
-        }
-        var identity =
-            new ResourceExplanationIdentity.Capability(
-                resourceIdentity);
-        identities.Add(resourceIdentity, identity);
-        resources.Add(
-            new(
-                path,
-                identity,
-                resourceKind,
-                details));
-    }
-
-    internal static InspectionCapabilityResourceIdentity DocumentIdentity(
-        InspectionDocumentRegistration document) =>
-        new(
-            InspectionCapabilityResourceKind.Document,
-            document.Descriptor.Identity);
-
-    internal static InspectionCapabilityResourceIdentity RouteIdentity(
-        InspectionRouteRegistration route) =>
-        new(
-            InspectionCapabilityResourceKind.Route,
-            route.Descriptor.Identity);
-
-    internal static InspectionCapabilityResourceIdentity QuerySpaceIdentity(
-        QuerySpaceBinding querySpace) =>
-        new(
-            InspectionCapabilityResourceKind.QuerySpace,
-            querySpace.Descriptor.Identity);
-
-    internal static InspectionCapabilityResourceIdentity QueryFacetIdentity(
-        QuerySpaceBinding querySpace,
-        QuerySpaceOperationTermDescriptor term) =>
-        new(
-            InspectionCapabilityResourceKind.QueryFacet,
-            term.Identity,
-            querySpace.Descriptor.Identity);
-
-    internal static InspectionCapabilityResourceIdentity
-        ConsumerBindingIdentity(
-            InspectionConsumerBinding binding) =>
-        new(
-            InspectionCapabilityResourceKind.ConsumerBinding,
-            binding.Descriptor.Identity);
-
-    public InspectionEnvelope<ResourceExplanationDocument> Explain(
-        ResourcePathResolution.Resolved resolved,
-        ResourceExplanationRequest request)
-    {
-        ArgumentNullException.ThrowIfNull(resolved);
-        ArgumentNullException.ThrowIfNull(request);
-        if (!_resourcesByPath.TryGetValue(
-                resolved.Path.Value,
-                out ResourceExplanationResource? root)
-            || root.Identity != resolved.Identity)
-        {
-            throw new ArgumentException(
-                "The resolved path does not belong to this catalog.",
-                nameof(resolved));
-        }
-
-        var resources = new List<ResourceExplanationResource> { root };
-        var relationships =
-            new List<ResourceExplanationRelationship>();
-        var visited =
-            new HashSet<ResourceExplanationIdentity> { root.Identity };
-        var queue =
-            new Queue<(ResourceExplanationResource Resource, int Depth)>();
-        queue.Enqueue((root, 0));
-        var truncationReasons =
-            new HashSet<ResourceExplanationTruncationReason>();
-        int completedDepth = 0;
-        bool relationshipLimitReached = false;
-
-        while (queue.Count > 0 && !relationshipLimitReached)
-        {
-            (ResourceExplanationResource current, int depth) =
-                queue.Dequeue();
-            if (!_relationshipsBySource.TryGetValue(
-                    current.Identity,
-                    out ImmutableArray<ResourceExplanationRelationship>
-                        outgoing))
-            {
-                continue;
-            }
-
-            foreach (ResourceExplanationRelationship relationship
-                     in outgoing)
-            {
-                if (relationships.Count >= request.RelationshipLimit)
-                {
-                    truncationReasons.Add(
-                        ResourceExplanationTruncationReason
-                            .RelationshipLimit);
-                    relationshipLimitReached = true;
-                    break;
-                }
-
-                relationships.Add(relationship);
-                if (!_resourcesByIdentity.TryGetValue(
-                        relationship.Target,
-                        out ResourceExplanationResource? target)
-                    || visited.Contains(target.Identity))
-                {
-                    continue;
-                }
-
-                if (depth >= request.Depth)
-                {
-                    truncationReasons.Add(
-                        ResourceExplanationTruncationReason.Depth);
-                    continue;
-                }
-                if (resources.Count >= request.ResourceLimit)
-                {
-                    truncationReasons.Add(
-                        ResourceExplanationTruncationReason.ResourceLimit);
-                    continue;
-                }
-
-                visited.Add(target.Identity);
-                resources.Add(target);
-                int targetDepth = depth + 1;
-                completedDepth = Math.Max(
-                    completedDepth,
-                    targetDepth);
-                queue.Enqueue((target, targetDepth));
-            }
-        }
-
-        var receipt =
-            new ResourceExplanationTraversalReceipt(
-                request.Depth,
-                request.ResourceLimit,
-                request.RelationshipLimit,
-                completedDepth,
-                resources.Count,
-                relationships.Count,
-                truncationReasons.Count == 0
-                    ? ResourceExplanationCompleteness.Complete
-                    : ResourceExplanationCompleteness.Truncated,
-                truncationReasons.Order());
-        var document =
-            new ResourceExplanationDocument(
-                root.Path,
-                root.Identity,
-                resources,
-                relationships,
-                receipt);
-        return new InspectionEnvelope<ResourceExplanationDocument>(
-            document,
-            new InspectionShare.NonProjectable(
-                root.Path.Value,
-                "Resource Explanation does not yet have a portable "
-                + "Workspace projection."));
     }
 
     private static void ValidateStructuralPaths(
@@ -1100,69 +2159,235 @@ public sealed class ResourceExplanationCatalog
         return $"{sectionPath.Value}/items/{identity.ItemKind}/";
     }
 
-    private static ResourceExplanationResourceKind ResourceKind(
-        DiscoveryResourceKind kind) =>
-        kind switch
+    private ImmutableArray<ExplanationSchema> CreateSchemaSlice(
+        IEnumerable<CatalogResource> resources,
+        IEnumerable<ResourceExplanationRelationship> relationships)
+    {
+        CatalogResource[] resourceArray = [.. resources];
+        ResourceExplanationRelationship[] relationshipArray =
+            [.. relationships];
+        var resourceTypes =
+            new HashSet<ExplanationResourceTypeIdentity>(
+                resourceArray.Select(static resource =>
+                    resource.Snapshot.Key.ResourceType));
+        foreach (ResourceExplanationRelationship relationship
+                 in relationshipArray)
         {
-            DiscoveryResourceKind.Category =>
-                ResourceExplanationResourceKind.StructuralCategory,
-            DiscoveryResourceKind.Section =>
-                ResourceExplanationResourceKind.StructuralSection,
-            DiscoveryResourceKind.Item =>
-                ResourceExplanationResourceKind.StructuralItem,
-            _ => throw new InvalidOperationException(
-                "Unknown Discovery resource kind."),
-        };
+            resourceTypes.Add(relationship.Source.ResourceType);
+            ExplanationRelationshipDeclaration declaration =
+                ResourceType(
+                    relationship.Source.ResourceType).Relationships.Single(
+                        candidate =>
+                            candidate.Identity
+                                == relationship.Relationship);
+            resourceTypes.Add(declaration.TargetResourceType);
+            foreach (ResourceExplanationRelationshipTarget target
+                     in relationship.Targets)
+            {
+                resourceTypes.Add(target.Resource.ResourceType);
+            }
+        }
 
-    private static ResourceExplanationDetail Details(
-        DiscoveryResource resource) =>
-        resource.Identity.Kind switch
+        var addressKinds =
+            resourceArray.SelectMany(static resource =>
+                    resource.Snapshot.Addresses)
+                .Concat(relationshipArray.SelectMany(static relationship =>
+                    relationship.Targets.SelectMany(static target =>
+                        target.Addresses)))
+                .Select(static address => address.Kind)
+                .ToHashSet();
+        var shapes = new HashSet<ExplanationDataShapeIdentity>();
+        var selectedResources =
+            new Dictionary<
+                ExplanationResourceTypeIdentity,
+                ExplanationResourceTypeDeclaration>();
+
+        var pendingResourceTypes =
+            new Queue<ExplanationResourceTypeIdentity>(resourceTypes);
+        while (pendingResourceTypes.TryDequeue(
+                   out ExplanationResourceTypeIdentity type))
         {
-            DiscoveryResourceKind.Category =>
-                new ResourceExplanationDetail.StructuralCategoryDetails(
-                    resource.Identity.Name,
-                    resource.OutputModes,
-                    resource.Members.Length),
-            DiscoveryResourceKind.Section =>
-                new ResourceExplanationDetail.StructuralSectionDetails(
-                    resource.Identity.Name,
-                    resource.OutputModes,
-                    resource.Members.Length),
-            DiscoveryResourceKind.Item =>
-                new ResourceExplanationDetail.StructuralItemDetails(
-                    resource.Identity.Name,
-                    resource.Identity.ItemKind!),
-            _ => throw new InvalidOperationException(
-                "Unknown Discovery resource kind."),
-        };
+            if (selectedResources.ContainsKey(type))
+                continue;
+            ExplanationResourceTypeDeclaration original =
+                ResourceType(type);
+            selectedResources.Add(type, original);
+            AddShape(original.IdentityShape);
+            foreach (ExplanationFactDeclaration fact in original.Facts)
+            {
+                AddShape(fact.ValueShape);
+                if (fact.UnavailableDataShape is { } unavailable)
+                    AddShape(unavailable);
+                if (fact.FailureDataShape is { } failure)
+                    AddShape(failure);
+            }
+            foreach (ExplanationRelationshipDeclaration relationship
+                     in original.Relationships)
+            {
+                if (resourceTypes.Add(relationship.TargetResourceType))
+                    pendingResourceTypes.Enqueue(
+                        relationship.TargetResourceType);
+                if (relationship.UnavailableDataShape is { } unavailable)
+                    AddShape(unavailable);
+                if (relationship.FailureDataShape is { } failure)
+                    AddShape(failure);
+            }
+            foreach (ExplanationPublicAddressKindIdentity address
+                     in original.AddressKinds)
+            {
+                addressKinds.Add(address);
+            }
+        }
 
-    private static void AddCollection(
-        ICollection<ResourceExplanationResource> resources,
-        ResourcePath path,
-        ResourceExplanationIdentity.NavigationCollection identity,
-        string name,
-        int memberCount) =>
-        resources.Add(
-            new ResourceExplanationResource(
-                path,
-                identity,
-                ResourceExplanationResourceKind.NavigationCollection,
-                new ResourceExplanationDetail.NavigationCollectionDetails(
-                    name,
-                    memberCount)));
+        foreach (ExplanationPublicAddressKindIdentity kind in addressKinds)
+        {
+            ExplanationPublicAddressKindDeclaration declaration =
+                _schemas
+                    .SelectMany(static schema => schema.AddressKinds)
+                    .Single(candidate => candidate.Identity == kind);
+            AddShape(declaration.ValueShape);
+        }
 
-    private static void AddRelationship(
-        ICollection<ResourceExplanationRelationship> relationships,
-        ResourceExplanationIdentity source,
-        ResourceExplanationRelationshipKind kind,
-        ResourceExplanationIdentity target,
-        ResourcePath targetPath) =>
-        relationships.Add(
+        var result = ImmutableArray.CreateBuilder<ExplanationSchema>();
+        foreach (ExplanationSchema schema in _schemas)
+        {
+            ExplanationDataShapeDeclaration[] selectedShapes =
+            [
+                .. schema.DataShapes.Where(shape =>
+                    shapes.Contains(shape.Identity)),
+            ];
+            ExplanationResourceTypeDeclaration[] types =
+            [
+                .. schema.ResourceTypes
+                    .Where(resource =>
+                        selectedResources.ContainsKey(resource.Identity))
+                    .Select(resource =>
+                        selectedResources[resource.Identity]),
+            ];
+            ExplanationPublicAddressKindDeclaration[] addresses =
+            [
+                .. schema.AddressKinds.Where(address =>
+                    addressKinds.Contains(address.Identity)),
+            ];
+            if (selectedShapes.Length == 0
+                && types.Length == 0
+                && addresses.Length == 0)
+            {
+                continue;
+            }
+            result.Add(
+                new(
+                    schema.Identity,
+                    schema.Version,
+                    selectedShapes,
+                    types,
+                    addresses));
+        }
+        return result.ToImmutable();
+
+        void AddShape(ExplanationDataShapeIdentity identity)
+        {
+            if (!shapes.Add(identity))
+                return;
+            ExplanationDataShapeDeclaration shape =
+                _schemas
+                    .SelectMany(static schema => schema.DataShapes)
+                    .Single(candidate => candidate.Identity == identity);
+            switch (shape)
+            {
+                case ExplanationDataShapeDeclaration.Record record:
+                    foreach (ExplanationRecordFieldDeclaration field
+                             in record.Fields)
+                    {
+                        AddShape(field.ValueShape);
+                    }
+                    break;
+                case ExplanationDataShapeDeclaration.Choice choice:
+                    foreach (ExplanationChoiceCaseDeclaration @case
+                             in choice.Cases)
+                    {
+                        if (@case.ValueShape is { } valueShape)
+                            AddShape(valueShape);
+                    }
+                    break;
+                case ExplanationDataShapeDeclaration.Reference reference:
+                    AddShape(reference.Target);
+                    break;
+            }
+        }
+
+        ExplanationResourceTypeDeclaration ResourceType(
+            ExplanationResourceTypeIdentity identity) =>
+            _schemas.SelectMany(static schema => schema.ResourceTypes)
+                .Single(resource => resource.Identity == identity);
+    }
+
+    private static ProjectedRelationships ProjectRelationships(
+        CatalogResource resource,
+        IReadOnlyDictionary<
+            ExplanationResourceKey,
+            CatalogResource> resourcesByKey,
+        int targetLimit)
+    {
+        var relationships =
+            ImmutableArray.CreateBuilder<ResourceExplanationRelationship>();
+        int remaining = targetLimit;
+        bool truncated = false;
+        foreach (ExplanationRelationshipObservation observation
+                 in resource.Snapshot.Relationships)
+        {
+            ProjectedRelationships projected =
+                ProjectRelationship(
+                    resource,
+                    observation,
+                    resourcesByKey,
+                    remaining);
+            relationships.Add(projected.Relationship);
+            remaining -= projected.Relationship.Targets.Length;
+            truncated |= projected.WasTruncated;
+        }
+        return new(relationships.ToImmutable(), truncated);
+    }
+
+    private static ProjectedRelationships ProjectRelationship(
+        CatalogResource resource,
+        ExplanationRelationshipObservation observation,
+        IReadOnlyDictionary<
+            ExplanationResourceKey,
+            CatalogResource> resourcesByKey,
+        int targetLimit)
+    {
+        int count = Math.Min(
+            Math.Max(targetLimit, 0),
+            observation.Targets.Length);
+        ResourceExplanationRelationshipTarget[] targets =
+        [
+            .. observation.Targets
+                .Take(count)
+                .Select(target =>
+                    new ResourceExplanationRelationshipTarget(
+                        target.Resource,
+                        resourcesByKey.TryGetValue(
+                            target.Resource,
+                            out CatalogResource? registered)
+                            ? registered.Snapshot.Addresses
+                            : [])),
+        ];
+        bool truncated = count < observation.Targets.Length;
+        return new(
             new ResourceExplanationRelationship(
-                source,
-                kind,
-                target,
-                targetPath));
+                resource.Snapshot.Key,
+                observation.Relationship,
+                observation.State,
+                targets,
+                observation.OutcomeData,
+                truncated
+                    ? ResourceExplanationTargetProjectionCompleteness
+                        .Truncated
+                    : ResourceExplanationTargetProjectionCompleteness
+                        .Complete),
+            truncated);
+    }
 
     private static string DisplayName(string catalog) =>
         char.ToUpperInvariant(catalog[0]) + catalog[1..];
@@ -1192,5 +2417,78 @@ public sealed class ResourceExplanationCatalog
         }
 
         return previous[right.Length];
+    }
+
+    private static void ValidateRelationshipTargets(
+        ExplanationResourceSnapshot snapshot,
+        string parameterName)
+    {
+        foreach (ExplanationRelationshipObservation observation
+                 in snapshot.Relationships)
+        {
+            if (observation.Targets
+                .Select(static target => target.Resource)
+                .Distinct()
+                .Count()
+                != observation.Targets.Length)
+            {
+                throw new ArgumentException(
+                    $"Resource '{snapshot.Key}' relationship "
+                    + $"'{observation.Relationship}' repeats a target.",
+                    parameterName);
+            }
+        }
+    }
+
+    private static ResourcePath? TryPath(
+        ExplanationResourceSnapshot snapshot)
+    {
+        ExplanationPublicAddress? address =
+            snapshot.Addresses.SingleOrDefault(candidate =>
+                candidate.Kind
+                    == ResourceExplanationVocabulary
+                        .ResourcePathAddressKind);
+        if (address is null)
+            return null;
+        if (address.Value is not ExplanationValue.Scalar
+            {
+                Value:
+                {
+                    Kind: ExplanationScalarKind.Text,
+                    Text: { } text,
+                },
+            })
+        {
+            throw new ArgumentException(
+                $"Resource '{snapshot.Key}' has a non-text Resource "
+                    + "Explanation path.",
+                nameof(snapshot));
+        }
+        return new ResourcePath(text);
+    }
+
+    private sealed record CatalogResource(
+        ResourcePath? Path,
+        ExplanationResourceSnapshot Snapshot)
+    {
+        public ResourceExplanationResource Projection { get; } =
+            ResourceExplanationResource.FromSnapshot(Path, Snapshot);
+    }
+
+    private sealed record ProjectedRelationships(
+        ImmutableArray<ResourceExplanationRelationship> Relationships,
+        bool WasTruncated)
+    {
+        public ResourceExplanationRelationship Relationship =>
+            Relationships.Single();
+
+        public ProjectedRelationships(
+            ResourceExplanationRelationship relationship,
+            bool wasTruncated)
+            : this(
+                ImmutableArray.Create(relationship),
+                wasTruncated)
+        {
+        }
     }
 }

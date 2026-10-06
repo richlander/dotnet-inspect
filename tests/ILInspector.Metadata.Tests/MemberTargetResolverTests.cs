@@ -122,6 +122,65 @@ public class MemberTargetResolverTests
     }
 
     [Fact]
+    public void Resolve_KindQualifiedExplicitAccessorProjectsPhysicalMethod()
+    {
+        var type = CreateAccessorSurface();
+
+        var result = MemberTargetResolver.Resolve(
+            type,
+            MemberTargetSelector.Parse(
+                "explicit:Sample.IValue.get_Value"));
+
+        Assert.True(result.Found);
+        Assert.Equal(
+            "Sample.IValue.get_Value",
+            result.Target!.ApiMember.Member.Name);
+        Assert.Equal(
+            MemberTargetKind.ExplicitInterfaceImplementation,
+            result.Target.Kind);
+        Assert.Equal(0x06000106, result.Target.Body!.MetadataToken);
+    }
+
+    [Fact]
+    public void Resolve_OrdinaryMethodPrecedesProjectedAccessorWithSameName()
+    {
+        var type = CreateAccessorSurface();
+
+        var result = MemberTargetResolver.Resolve(
+            type,
+            MemberTargetSelector.Parse("get_Value"));
+
+        Assert.True(result.Found);
+        Assert.Single(result.Candidates);
+        Assert.Equal(MemberTargetKind.Method, result.Target!.Kind);
+        Assert.Equal(0x06000107, result.Target.Body!.MetadataToken);
+    }
+
+    [Fact]
+    public void Resolve_AccessorDigestFallsBackPastDirectMethodWithSameName()
+    {
+        var type = CreateAccessorSurface();
+        ApiMember property = type.Members.Single(member =>
+            member.Name == "Value");
+        ApiMember accessor = ApiMemberAccessors
+            .Create(property, type)
+            .Single(member =>
+                member.Name == "get_Value");
+        string digest = ApiMemberIdentity
+            .GetMemberAnchor(type, accessor)
+            .Fingerprint;
+
+        var result = MemberTargetResolver.Resolve(
+            type,
+            MemberTargetSelector.Parse($"get_Value~{digest}"));
+
+        Assert.True(result.Found);
+        Assert.Single(result.Candidates);
+        Assert.Equal(MemberTargetKind.Method, result.Target!.Kind);
+        Assert.Equal(0x06000101, result.Target.Body!.MetadataToken);
+    }
+
+    [Fact]
     public void Resolve_GenericArityFiltersGenericMethod()
     {
         var type = CreateSurface().Types[0];
@@ -315,6 +374,47 @@ public class MemberTargetResolverTests
                     Signature = "System.EventHandler Changed",
                     AdderToken = 0x06000104,
                     RemoverToken = 0x06000105
+                },
+                new ApiMember
+                {
+                    Name = "Sample.IValue.Value",
+                    Kind = "property",
+                    Signature = "int Sample.IValue.Value { get; }",
+                    GetterToken = 0x06000106,
+                    SignatureModel = new ApiSignature
+                    {
+                        ReturnType = "int",
+                        Accessors =
+                        [
+                            new ApiAccessor
+                            {
+                                Kind = "get",
+                                Name = "Sample.IValue.get_Value",
+                                IsExplicitInterfaceImplementation = true,
+                            },
+                        ],
+                    },
+                },
+                new ApiMember
+                {
+                    Name = "get_Value",
+                    Kind = "method",
+                    MetadataToken = 0x06000107,
+                    ReturnType = "string",
+                    Signature = "string get_Value(int input)",
+                    SignatureModel = new ApiSignature
+                    {
+                        MemberName = "get_Value",
+                        ReturnType = "string",
+                        Parameters =
+                        [
+                            new ApiParameter
+                            {
+                                Name = "input",
+                                Type = "int",
+                            },
+                        ],
+                    },
                 }
             ]
         };

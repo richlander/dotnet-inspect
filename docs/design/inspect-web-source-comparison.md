@@ -156,7 +156,7 @@ Firefox installation; its local browser execution took about seven seconds.
 No test-only source-context factory or new corpus lane is needed.
 
 ```bash
-dotnet run --project inspect-web/DotnetInspect.Web.Tests -c Release -- \
+dotnet run --project tests/DotnetInspect.Web.Tests -c Release -- \
   --filter-class '*BrowserSourceComparisonOperationTests'
 eng/test-inspect-web-source-comparison-gate.sh
 ```

@@ -86,9 +86,13 @@ export interface RuntimeCohortBenchmarkReceipt {
 }
 
 export interface RuntimeSiteDeploymentReceipt {
-  readonly schema: 1;
+  readonly schema: 2;
   readonly site: "coreclr-il" | "coreclr-r2r";
   readonly sourceCommit: string;
+  readonly candidate: {
+    readonly runId: string;
+    readonly attempt: number;
+  };
   readonly cohortGeneratedAtUtc: string;
   readonly frontendManifestSha256: string;
   readonly siteManifestSha256: string;
@@ -587,10 +591,20 @@ export function createRuntimeSiteDeploymentReceipt(
   cohortText: string,
   variantText: string,
   expectedSourceCommit: string,
+  candidateRunId: string,
+  candidateAttempt: number,
 ): RuntimeSiteDeploymentReceipt {
   requireCondition(
     commitPattern.test(expectedSourceCommit),
     "Expected deployment source commit must be a lowercase Git commit.",
+  );
+  requireCondition(
+    /^[1-9][0-9]*$/u.test(candidateRunId),
+    "Candidate run ID must be a positive decimal integer.",
+  );
+  requireCondition(
+    Number.isInteger(candidateAttempt) && candidateAttempt > 0,
+    "Candidate attempt must be a positive integer.",
   );
   const variant = parseRuntimeVariantReceipt(JSON.parse(variantText));
   requireCondition(
@@ -669,9 +683,13 @@ export function createRuntimeSiteDeploymentReceipt(
   requireSha256(admission.logSha256, `${variant.name} admission log`);
 
   return {
-    schema: 1,
+    schema: 2,
     site: variant.name,
     sourceCommit: expectedSourceCommit,
+    candidate: {
+      runId: candidateRunId,
+      attempt: candidateAttempt,
+    },
     cohortGeneratedAtUtc: cohort.generatedAtUtc,
     frontendManifestSha256: variant.frontendManifestSha256,
     siteManifestSha256: variant.siteManifestSha256,

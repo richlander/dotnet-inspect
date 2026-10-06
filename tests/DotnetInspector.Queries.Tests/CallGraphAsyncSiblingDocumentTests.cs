@@ -336,7 +336,7 @@ public sealed class CallGraphAsyncSiblingDocumentTests
         Assert.Contains(
             document.Graph.Limits,
             limit => ReferenceEquals(
-                limit.Descriptor,
+                limit.Payload.Descriptor,
                 CallGraphInspectionGraphCatalog
                     .PhysicalOccurrencesUnavailable));
     }

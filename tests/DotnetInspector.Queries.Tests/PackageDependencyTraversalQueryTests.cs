@@ -712,7 +712,7 @@ public sealed partial class PackageDependencyTraversalQueryTests
             TraversalTargetFrameworkPolicy.ProductDefault,
             defaultOutcome.TraversalTargetPolicy);
         Assert.Equal(
-            "net12.0",
+            TraversalTargetFrameworkPolicy.ProductDefaultTargetFramework,
             childEvidenceDefault.Selection.RequestedFramework?.ToString());
         Assert.Equal(
             "net8.0",

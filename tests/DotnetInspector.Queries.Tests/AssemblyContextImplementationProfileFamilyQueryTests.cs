@@ -160,6 +160,47 @@ public sealed class AssemblyContextImplementationProfileFamilyQueryTests
     }
 
     [Fact]
+    public async Task ExecuteParticipant_ProfilesAttachedExtensionRoster()
+    {
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = Group(workspace);
+        AssemblyContextParticipant participant =
+            Assert.Single(group.Participants);
+        ImplementationProfileFamilySelection selection =
+            Selection(
+                group,
+                participant,
+                "ImplementationHeatWidget",
+                "Spin");
+
+        AssemblyImplementationProfileFamilyInspection result =
+            Available(
+                AssemblyContextImplementationProfileFamilyQuery
+                    .ExecuteParticipant(
+                        group,
+                        participant,
+                        selection));
+
+        Assert.Equal(2, result.Members.Length);
+        Assert.All(
+            result.Members,
+            member =>
+            {
+                Assert.Equal("Spin", member.Member);
+                Assert.StartsWith(
+                    "extension:Spin~",
+                    member.StableSelector,
+                    StringComparison.Ordinal);
+            });
+        Assert.NotEmpty(result.Profiles);
+        Assert.All(
+            result.Profiles,
+            profile => Assert.Contains(
+                profile.Profile.Method.MetadataToken,
+                result.Members.SelectMany(member => member.BodyTokens)));
+    }
+
+    [Fact]
     public async Task ExecuteParticipant_RejectsUnknownPartialAndCrossFamilySelection()
     {
         await using var workspace = new InspectionWorkspace();

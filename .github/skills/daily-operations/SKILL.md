@@ -1,6 +1,6 @@
 ---
 name: daily-operations
-description: Use for daily chores in dotnet-inspect; inspect main CI and staging health, scheduled certification, performance, runtime-pin, security, and dependency runs, then classify and prioritize any action.
+description: Use for daily chores in dotnet-inspect; establish release-candidate readiness, then inspect main CI, staging, performance, runtime-pin, security, dependency, and regression runs.
 ---
 
 # Daily operations
@@ -21,6 +21,7 @@ Record:
 - the current UTC time and the previous 30 hours;
 - current `origin/main`;
 - the latest `main` push and its CI and staging runs;
+- the latest nightly release-candidate run and its retained artifact;
 - whether today is Monday UTC;
 - every run ID, head SHA, event, attempt, status, conclusion, and URL used in
   the report.
@@ -41,6 +42,8 @@ workflow filenames so display-name changes do not break the pass:
 gh run list --workflow ci.yml --branch main --limit 10 \
   --json databaseId,headSha,event,status,conclusion,createdAt,updatedAt,url
 gh run list --workflow deploy-inspect-web.yml --branch main --limit 10 \
+  --json databaseId,headSha,event,status,conclusion,createdAt,updatedAt,url
+gh run list --workflow release-candidate.yml --branch main --limit 10 \
   --json databaseId,headSha,event,status,conclusion,createdAt,updatedAt,url
 gh run list --workflow deep-inspect.yml --event schedule --limit 10 \
   --json databaseId,headSha,event,status,conclusion,createdAt,updatedAt,url
@@ -64,21 +67,24 @@ superseded when a newer run covers the intended current head.
 | --- | --- | --- |
 | Every `main` push | `ci.yml` | Current-head repository health. |
 | Every `main` push | `deploy-inspect-web.yml` | Current-head staging build and deployment. |
-| 00:47 daily | `inspect-web-runtime-cohort-nightly.yml` | Controlled Mono, CoreCLR IL, and CoreCLR R2R admission and performance evidence. |
+| 00:17 daily | `release-candidate.yml` | Build immutable packages and production site, then run exact-SHA release certification, census, and comprehensive Inspect Web evidence. |
+| After each completed candidate | `deploy-inspect-web-runtime-sites.yml` | Rebuild the candidate SHA as controlled Mono, CoreCLR IL, and CoreCLR R2R evidence, then automatically deploy both comparison sites. |
 | 02:17 daily | `inspect-web-performance-nightly.yml` | Public production Mono/CoreCLR performance evidence. |
 | 04:38 daily | `codeql-scheduled.yml` | CodeQL analysis. |
 | 05:17 daily | `inspect-web-runtime-pin-proposal.yml` | Newer coherent .NET 12 candidate discovery, full cohort admission, and pin-only proposal branch. |
 | 05:23 daily | `npm-audit-scheduled.yml` | Inspect Web lockfile audit and retained report. |
 | 05:37 daily | `nuget-audit-scheduled.yml` | Restored NuGet dependency audit for each configured scope. |
 | 05:43 daily | `nuget-dependency-submission.yml` | Submission of the resolved NuGet graph. |
-| 06:00 daily | `deep-inspect.yml` | Release certification, cross-platform tests, decompiler corpus, census, and comprehensive Inspect Web evidence. |
 | 09:00 daily | `deep-inspect.yml` | Authored-corpus regression ratchet. |
 | 09:00 Monday | `deep-inspect.yml` | Top-package discovery sweep. |
 
 Query each scheduled workflow with `--event schedule`; do not mistake a manual
-dispatch for proof that its schedule fired. Deep Inspect has separate scheduled
-runs at 06:00, 09:00 daily, and 09:00 Monday. Select them by creation time and
-inspect their jobs to confirm the expected lane actually ran.
+dispatch for proof that its schedule fired. Query the comparison deployment
+with `--event workflow_run` and match its recorded candidate run, attempt, and
+SHA. The release-candidate run calls Deep Inspect after assembling the retained
+assets. Deep Inspect's own schedule has separate 09:00 daily and 09:00 Monday
+runs. Select them by creation time and inspect their jobs to confirm the
+expected lane actually ran.
 
 For a failed run, start with:
 
@@ -112,7 +118,52 @@ for runtime cohort, production synthetic, and pin-advancement semantics:
 - A current or older coherent runtime candidate is a successful no-op.
 
 Use the `release` skill only when the user asks to ship. Daily certification,
-green CI, staging success, or a pin proposal is not release authorization.
+green CI, a ready candidate, staging success, or a pin proposal is not release
+authorization.
+
+## Establish release readiness
+
+Daily operations owns the ready-to-ship state; the release skill independently
+validates that state only after the user asks to ship. Start from the newest
+completed, non-cancelled `release-candidate.yml` run. Record its run ID,
+attempt, exact SHA, job conclusions, artifact ID, digest, expiry, and URL.
+Require exactly one unexpired `dotnet-inspect-release-candidate` artifact.
+
+Inspect the run's jobs. Asset construction must be successful; missing,
+cancelled, skipped, or failed asset jobs are blockers and cannot become
+release concerns. Successful certification is clean. Completed non-success
+Deep Inspect jobs make the candidate ready with concerns only after every
+outcome is recorded. Cancelled, skipped, running, or structurally missing
+certification is incomplete rather than an operator-acceptable concern.
+
+Check repository preparation against the latest published GitHub release:
+
+```bash
+project_version=$(
+  sed -n \
+    's:.*<VersionPrefix>\([^<]*\)</VersionPrefix>.*:\1:p' \
+    src/DotnetInspect.Cli/DotnetInspect.Cli.csproj
+)
+root_skill_version=$(sed -n 's/^version: //p' skills/dotnet-inspect/SKILL.md)
+released_tag=$(gh release view --json tagName --jq .tagName)
+printf 'project=%s root-skill=%s released=%s\n' \
+  "$project_version" "$root_skill_version" "$released_tag"
+```
+
+The project version must be the intended successor to the published release,
+and the root shipped skill version must match it. Reconcile release notes and
+every product skill changed by candidate-history features against the current
+release tracker. Confirm the peer `richlander/dotnet-skills` bootstrap and
+manifests are prepared for coordinated publication when their content or
+version must change. Focused product skills may retain their own independently
+versioned frontmatter; do not mechanically overwrite those versions.
+
+When any preparation is stale, daily operations owns the repair: create a
+focused branch and PR through the normal validation and review flow. Never
+merge that repair, publish the peer plugin, or reinterpret stale material as
+ready without the existing operator authorization. After the repair lands,
+manually dispatch `release-candidate.yml` from `main` so the ready assets and
+evidence share the repaired exact SHA.
 
 ## Check proposal and failure queues
 
@@ -129,8 +180,9 @@ name, age, candidate identity, evidence run, and whether it still changes only
 cleanup action. If no branch exists, a successful `no-newer-candidate` proposal
 run is clean.
 
-Deep Inspect scheduled failures open or update a `nightly-failure` issue. Check
-the queue and correlate every open issue with the newest scheduled run:
+Release-candidate or Deep Inspect scheduled failures open or update a
+`nightly-failure` issue. Check the queue and correlate every open issue with the
+newest owning run:
 
 ```bash
 gh issue list --state open --label nightly-failure --limit 20 \
@@ -161,13 +213,23 @@ Use GitHub's rerun operation so the head SHA remains fixed:
 gh run rerun <run-id> --failed
 ```
 
+For `release-candidate.yml`, rerun the complete workflow instead:
+
+```bash
+gh run rerun <candidate-run-id>
+```
+
+The new attempt must rebuild and overwrite the complete retained candidate so
+its receipt, assets, and certification share one attempt. A failed-jobs-only
+candidate rerun mixes prior-attempt assets with later evidence and is not
+ready.
+
 Before manually dispatching a missing schedule, confirm there is no queued or
 in-progress run for that workflow and that the workflow remains enabled on
 `main`. Dispatch the same workflow with its scheduled defaults; do not use
-diagnostic overrides as a substitute for the scheduled contract. Deep Inspect
-is the exception because one workflow routes several cron-specific lanes: use
-the `deep-inspect` skill to reproduce the missing schedule's exact lane set
-rather than assuming its default `test` dispatch covers the whole 06:00 run.
+diagnostic overrides as a substitute for the scheduled contract. For missing
+nightly assets plus certification, dispatch `release-candidate.yml`, not
+Deep Inspect by itself.
 
 ## Report
 
@@ -185,6 +247,7 @@ Clean/no-action:
 - <workflow>: <run>, <classification and concise reason>
 
 Outstanding:
+- Release candidate: <run and ready | ready with concerns | not ready>
 - Runtime pin: <none | branch and age>
 - Nightly failures: <none | issue list>
 ```

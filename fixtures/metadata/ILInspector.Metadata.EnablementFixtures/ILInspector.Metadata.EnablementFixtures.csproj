@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Runtime-async boundary for Library enablements: the only runtime-async
+    method is a lambda on a compiler-generated closure type, so the public
+    async classification sees none while the enablement rule sees one.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <Features>runtime-async=on</Features>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <IsAotCompatible>false</IsAotCompatible>
+  </PropertyGroup>
+
+</Project>

@@ -44,6 +44,9 @@ behavior, and user-visible limitations.
 
 | Surface | Owns | Update when |
 | --- | --- | --- |
+| [`AGENTS.md`](../AGENTS.md) | Bounded agent launch constitution: repository purpose, immediate routes and non-negotiables, and directly usable operator templates. The file stays at or below 120 lines; the cap is a ceiling, not a target. | A launch-critical invariant, route, or protected operator template changes. |
+| [`.claude/skills/steward/SKILL.md`](../.claude/skills/steward/SKILL.md) | Point-of-use PR lifecycle decisions at publication, resume, and events. It applies focused workflow contracts and stays at or below 120 lines. The cap is a ceiling, not a target. | PR event routing or the decision summary changes; detailed mechanics change in their owning workflow document. |
+| [`docs/repository-workflow.md`](repository-workflow.md) | Cross-cutting contributor mechanics: worktrees, history, engineering constraints, documentation ownership, local change hygiene, and PR publication. | A cross-cutting repository contribution rule changes. |
 | [`README.md`](../README.md) | Product landing page: canonical acquisition, three website channels, and only daily-driver or delightful demo capabilities. Every featured capability has a runnable CLI example and a production packet URL for the same view; the file stays at or below 120 lines. | Canonical acquisition or website links change, or a capability earns or loses landing-page discovery. |
 | [`docs/cli-reference.md`](cli-reference.md) | Detailed CLI behavior, command and capability inventory, examples, requirements, and user-visible limitations. | A documented command, workflow, requirement, or limitation changes. |
 | [`docs/README.md`](README.md) | User and contributor landing page: minimal acquisition and agent guidance, website channels, curated documentation routes, and the boundaries in this table. | Canonical acquisition, skill guidance, website channels, a high-value route, or an entrypoint's role changes. |
@@ -72,30 +75,32 @@ root README remains current without cataloging every focused capability.
 | Locate current implementation and project boundaries | [Architecture](architecture.md) |
 | Understand the target workspace, query, cache, and safety model | [Inspection Space Architecture](inspection-space.md) |
 | Build a shared inspection from product question to both hosts | [Building Shared Inspections](building-shared-inspections.md) |
-| Contribute under repository workflow rules | [AGENTS.md](../AGENTS.md) |
+| Start repository work | [AGENTS.md](../AGENTS.md), then [Repository Workflow](repository-workflow.md) |
 
 ## Core design routes
 
 | Concern | Entry point |
 | --- | --- |
-| Layering and project families | [Inspection Layers](design/inspection-layers.md) and [Library Family Boundaries](design/library-family-boundaries.md) |
+| Layering and project families | [Inspection Layers](design/inspection-layers.md), [Library Family Boundaries](design/library-family-boundaries.md), and [Inspection Operation Kernels](design/inspection-operation-kernels.md) |
+| Graph structure and execution | [Inspector.Graph Library Boundary](design/inspector-graph-library-boundary.md), [Inspector.Graph Execution](design/inspector-graph-execution.md), [Inspector.Graph Group Projection](design/inspector-graph-group-projection.md), and [Inspector.Graph Components and Levels](design/inspector-graph-components.md) |
+| Analysis planning, realization, execution, and metric coordination | [Analysis Surfaces and Universes](design/analysis-surfaces-and-universes.md), [Analysis Universe Realization](design/analysis-universe-realization.md), [Assembly Analysis Operation](design/assembly-analysis-operation.md), and [Evidence and Metric Coordination](design/evidence-metric-coordination.md) |
 | Cross-host operation composition | [Inspection Operation Composition](design/inspection-operation-composition.md) |
 | Query library, composition, operation registration, portable intent, and payload | [QuerySpace Library Boundary](design/query-space-library.md), [Query Space Composition](design/query-space-composition.md), [Query Operation Infrastructure](design/query-operation-infrastructure.md), [Portable Query Intent](design/portable-query-intent.md), and [Portable Query Payload](design/portable-query-payload.md) |
 | Installed capability composition, search, discovery, and exact explanation | [Inspection Capability Composition](design/inspection-capability-composition.md), [Capability Catalog Search](design/capability-catalog-search.md), [Schema Query](design/schema-query.md), [Resource Explanation](design/resource-explanation.md), and [Product Vocabulary](design/vocabulary.md) |
 | Retained state and service orientation | [Stateless Core Services](design/stateless-core-services.md) |
 | Resource ownership and current adoption | [Resource Ownership and Borrowing](design/resource-ownership-and-borrowing.md), [Resource Occurrence Analysis](design/resource-occurrence-analysis.md), [Generic Research Ownership Paths](design/generic-research-ownership-paths.md), and the [Resource-Owner Type Map](design/resource-owner-type-map.md) |
 | Command placement, names, defaults, and disclosure | [Operation Commands and Subject Sections](design/operation-command-and-subject-section-composition.md), [Relationship Section Naming](design/relationship-section-naming.md), [Progressive Disclosure](design/progressive-disclosure.md), and [CLI Host Architecture](cli-architecture.md) |
-| Output data and rendering | [Output Shapes](design/output-shapes.md), [Style Guide](design/style-guide.md), and [Inspection Envelope](design/inspection-envelope.md) |
+| Output data and rendering | [Output Shapes](design/output-shapes.md), [Section Shapes](design/section-shapes.md), [Style Guide](design/style-guide.md), and [Inspection Envelope](design/inspection-envelope.md) |
 | Metadata and API inspection | [Assembly Inspection Query](design/assembly-inspection-query.md) |
-| Package composition | [PackageHouse](design/package-house.md) and [PackageHouse framework-reference evidence](design/package-house-framework-reference-evidence.md) |
+| Package composition and semantic content demand | [PackageHouse](design/package-house.md), [PackageHouse semantic content demand](design/package-house-semantic-content-demand.md), and [PackageHouse framework-reference evidence](design/package-house-framework-reference-evidence.md) |
 | Package version selection and freshness | [Version Resolution](design/version-resolution.md) and [Package Version Service](design/package-version-service.md) |
 | Ranged reads of a package archive's directory and entries | [Package archive range access](design/package-archive-range-access.md) |
 | Which remote package archives are cached and which are read by range; durable identity for credential-free HTTP feeds | [Package cache policy](design/package-cache-policy.md) |
-| How much of a package a command reads by range: surface or implementation, a folder at a time | [Package read demand](design/package-read-demand.md) |
+| How semantic package demands expand to ranged archive entries | [Package read demand](design/package-read-demand.md) |
 | What a package acquisition transferred: typed per-request receipts in Debug evidence | [Package transfer receipt](design/package-transfer-receipt.md) |
 | Opening one package version as an inspection scope through the House, shared by every host | [Package endpoint scope](design/package-endpoint-scope.md) |
 | Platform composition | [PlatformHouse](design/platform-house-reference-processing.md) |
-| Source and PDB composition | [SourceHouse](design/source-house.md) and [PDB Acquisition](pdb-acquisition.md) |
+| Source, decoded documents, and PDB composition | [SourceHouse](design/source-house.md), [Decoded text document](design/decoded-text-document.md), [PDB Acquisition](pdb-acquisition.md), and [PDB source provenance](design/pdb-source-provenance.md) |
 | Documentation composition | [DocumentationHouse](design/documentation-house.md) |
 | Decompiler architecture and correctness | [Decompiler Architecture](decompiler-architecture.md) and [Decompiler Correctness Pipeline](decompiler-correctness-pipeline.md) |
 | Browser host | [Inspect Web](../inspect-web/README.md) |
@@ -104,15 +109,18 @@ root README remains current without cataloging every focused capability.
 
 | Need | Entry point |
 | --- | --- |
+| Cross-cutting worktree, history, engineering, documentation, and publication rules | [Repository Workflow](repository-workflow.md) |
 | Engineering model and PR demos | [Development Practices](development-practices.md) |
 | Design ownership and scope | [Design Scope and Composition](design-scope.md) |
 | Evidence and validation | [Evidence and Validation](evidence-and-validation.md) |
 | Test fixture placement and ownership | [Fixture Governance](fixture-governance.md) |
 | Local tools, SDKs, and focused test commands | [Local Development Environment](dev-environment.md) |
+| Coding and review agent models | [Agent Model Mapping](agent-models.md) |
 | Adversarial review rounds | [Round Orchestration](round-orchestration.md) and the [canonical review prompt](adversarial-review-prompt.md) |
 | Session and tmux state | [Agent Session State](agent-session-state.md) |
 | GitHub automation | [GitHub API Operations](github-api-operations.md) and [GitHub Status Queries](github-status-queries.md) |
 | Multi-PR work | [Stacked PRs](stacked-prs.md) |
+| Release candidate identity and readiness | [Nightly Release Candidate](release-candidate.md) |
 | Release certification and publication | [Release Workflow](release-workflow.md) |
 | TLA+ setup and modeling | [TLA+ Methodology](tla-plus-methodology.md) and [TLA+ Setup](runbooks/tla-plus-setup.md) |
 | Markout co-development | [Markout Co-development](markout-co-development.md) |

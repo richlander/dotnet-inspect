@@ -97,6 +97,9 @@ source idioms, synthesized-body constructs, locals, and final coercions or
 spellability diagnostics. This is not a strict one-pass-per-phase partition:
 some transforms repeat after another transform exposes new opportunities.
 Read the registry and its ordering comments before inserting a pass.
+[Decompiler Pass Composition](design/decompiler-pass-composition.md) validates
+the finite set of ordering and exclusion relationships whose violation changes
+correctness or destroys reconstruction evidence; it does not reorder passes.
 
 [`PassContext`](../src/ILInspector.Decompiler/Pipeline/PassContext.cs) carries
 stepping, an optional structuring stop-reason sink, sibling-body import, and
@@ -114,7 +117,26 @@ offers raised, lowered, and already-transformed printing paths. `PrintRaised`
 runs the default passes and requested style lenses before printing; `Print`
 prints the supplied tree. Printer options can affect spelling, naming, and
 explicitly byte-divergent taste choices. Preserve the effective options when
-comparing output.
+comparing output. The class is split into partial files by role, not by size:
+`CSharpPrinter.cs` holds entry points, options, most printer state, and body
+preparation; `.Statements`, `.Patterns`, `.Operators`, `.TypesAndConstants`,
+`.Members`, and `.RaisedExpressions` spell decided structure. The
+[thin-writer plan](design/value-typed-emission.md) (#2095) inventories six
+print-time decision classes still in the printer; this is where each is
+defined, so a retirement slice can scope itself from the file list:
+
+| Decision class (#2095 inventory) | Defined in |
+| --- | --- |
+| Coercion routing (`CoerceText` and the enum routing family) | `.Numerics`; called from `.Statements`, `.Expressions`, `.Members` |
+| Join target compatibility | Decided pre-print in `Pipeline/PrimitiveJoinTargetCompatibility.cs` (#2095); `.Numerics` keeps only the join-arm spelling |
+| Definite assignment | Decided pre-print by `Pipeline/Passes/DefiniteAssignmentPass.cs` over `DefiniteAssignment.cs` (#2095); `.Declarations` spells the issued initializer |
+| Unsafe-context inference | `.UnsafeContext`; `_unsafeDepth` is read and updated from `.Statements` |
+| Cast-need predicates | `.Numerics`, plus `NeedsObjectBridgeForGenericUnbox` in `.Expressions` |
+| `var` inference (`SpellVar`, `VarInfersDeclaredType`) | `.Declarations` |
+
+The table maps definitions; call sites of the routing and unsafe-context
+classes are spread across the spelling files and are counted by their own
+retirement slices. Each file's summary repeats the classes it defines.
 
 [`MemberBodyProducer`](../src/ILInspector.Decompiler/MemberBodyProducer.cs)
 is the reusable body/member/type composition entry. It adapts recovered body
@@ -197,7 +219,7 @@ rewrites; the harness consumes them through stage dumps.
 | `DotnetInspector.Queries` | Source queries compose acquired source and decompiled fallback; `BodyShapesQuery` delegates exact syntax-kind searches to `BodyShapeSearch`. |
 | `ILInspector.Research` | `ResearchViews` joins producer-owned facts with printed C#/IL provenance and constructs annotated-source output. Decompiler owns the portable document types, not the complete cross-domain operation. |
 | CLI | `MemberCodeProvider`, queries, and section/output adapters expose source, IL, annotated views, and comparisons. Some direct import/printer composition remains in the host. |
-| Browser | `inspect-web/DotnetInspect.Web.Interop.Source` consumes Queries/Research and exports portable source documents rather than mutable IR. |
+| Browser | `src/DotnetInspect.Web.Interop.Source` consumes Queries/Research and exports portable source documents rather than mutable IR. |
 | Tests and harnesses | Exercise product import, passes, printing, body production, and comparison; add independent compiler/oracle observations. |
 
 C# and annotated-source text are language artifacts with exact coordinates, so

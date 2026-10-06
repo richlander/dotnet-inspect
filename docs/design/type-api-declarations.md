@@ -144,7 +144,8 @@ apparently complete output or a conclusive missing type.
 
 `BrowserTypeSourceOperationTests` compares the exported declaration envelope
 with the shared operation and exercises reference-only package selection and
-scope release. `ProductionFacadeContextTests` gates its completed-contract
+scope release. `ProductionFacadeContextTests` gates the compiled export
+partition, while `generated-facade-contract.test.ts` gates completed-contract
 transport. The focused `type-panel`, `type-source-managed-operation`,
 `source-inspection`, and `engine-worker-source` TypeScript tests cover view
 identity, stale completion, text/copy, unavailable diagnostics, and bounded

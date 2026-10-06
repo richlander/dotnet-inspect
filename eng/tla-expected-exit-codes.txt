@@ -4,6 +4,11 @@
 # entry only when the configuration's exact outcome is a named repository gate.
 # Format: one canonical `<path-to-cfg>=<TLC-exit-code>` pair per line.
 
+docs/design/models/analysis-body-use-terminal-kernel-lifecycle/BrokenInvalidateSettled.cfg=12
+docs/design/models/analysis-body-use-terminal-kernel-lifecycle/BrokenSplitAdmission.cfg=12
+docs/design/models/analysis-body-use-terminal-kernel-lifecycle/ReachabilityEarlyPublication.cfg=12
+docs/design/models/analysis-body-use-terminal-kernel-lifecycle/SafetyComplete.cfg=0
+docs/design/models/analysis-body-use-terminal-kernel-lifecycle/SafetyFailure.cfg=0
 docs/design/models/artifact-content-ownership/BrokenImmediateRelease.cfg=12
 docs/design/models/artifact-content-ownership/BrokenQueryBoundChild.cfg=12
 docs/design/models/artifact-content-ownership/BrokenUnboundContent.cfg=12
@@ -47,6 +52,13 @@ docs/design/models/binding-selection-version/AssemblyBindingPolicyVersionLifecyc
 docs/design/models/binding-selection-version/CompositeBindingVersionBrokenLifecycle.cfg=13
 docs/design/models/binding-selection-version/CompositeBindingVersionLiveness.cfg=0
 docs/design/models/binding-selection-version/CompositeBindingVersionSafety.cfg=0
+docs/design/models/ecosystem-find-search/BrokenPrefixBeforeBounded.cfg=12
+docs/design/models/ecosystem-find-search/Safety.cfg=0
+docs/design/models/open-query-routing-settlement/BrokenChargeSettled.cfg=12
+docs/design/models/open-query-routing-settlement/BrokenExclusiveAllMatches.cfg=12
+docs/design/models/open-query-routing-settlement/BrokenStopAfterAny.cfg=12
+docs/design/models/open-query-routing-settlement/EarlySettlement.cfg=0
+docs/design/models/open-query-routing-settlement/Safety.cfg=0
 docs/design/models/type-source-pdb-latency-hedge/Safety.cfg=0
 docs/design/models/inspect-web-worker-controls/BrokenAcceptWrongAcknowledgment.cfg=12
 docs/design/models/inspect-web-worker-controls/BrokenPostAfterClose.cfg=12
@@ -364,6 +376,12 @@ docs/models/assembly-context-group-lifecycle/AssemblyContextGroupReleaseLifecycl
 docs/models/assembly-context-group-lifecycle/BrokenImportedGroupReleaseLifecycle.cfg=13
 docs/models/assembly-context-group-lifecycle/Liveness.cfg=0
 docs/models/assembly-context-group-lifecycle/Safety.cfg=0
+docs/models/assembly-context-participant-resource-lifecycle/BrokenLateLease.cfg=12
+docs/models/assembly-context-participant-resource-lifecycle/BrokenResourceWithLease.cfg=12
+docs/models/assembly-context-participant-resource-lifecycle/BrokenSiblingRelease.cfg=12
+docs/models/assembly-context-participant-resource-lifecycle/BrokenSnapshotOrder.cfg=12
+docs/models/assembly-context-participant-resource-lifecycle/Liveness.cfg=0
+docs/models/assembly-context-participant-resource-lifecycle/Safety.cfg=0
 docs/models/browser-scope-retirement/BrokenEarlyUncharge.cfg=12
 docs/models/browser-scope-retirement/BrokenForgetFailure.cfg=12
 docs/models/browser-scope-retirement/BrokenLatePublish.cfg=12

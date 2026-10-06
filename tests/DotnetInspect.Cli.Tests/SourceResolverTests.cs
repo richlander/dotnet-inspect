@@ -1,3 +1,4 @@
+using DotnetInspect.Cli.CommandLine;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
@@ -170,6 +171,41 @@ public class SourceResolverTests
         Assert.Equal(expectedAssembly, probe.SourceName);
         Assert.Equal(typeName, probe.Remainder);
         Assert.Equal(SourceResolver.LocalSourceKind.Platform, probe.Kind);
+    }
+
+    [Fact]
+    public void
+        TryResolveQualifiedTypeName_CanSkipRuntimeCatalogFallback()
+    {
+        const string typeName = "System.Text.Json.DoesNotExist";
+
+        using (RouterDecisionLog.Capture decisions =
+            RouterDecisionLog.Begin())
+        {
+            _ = SourceResolver.TryResolveQualifiedTypeName(
+                typeName,
+                NoSourceKeys,
+                allowPlatformPrefixFallback: true,
+                allowRuntimeTypeFallback: true);
+            Assert.Contains(
+                decisions.Decisions,
+                static decision =>
+                    decision.Stage
+                        == "platform-runtime-reverse-fallback");
+        }
+
+        using RouterDecisionLog.Capture suppressed =
+            RouterDecisionLog.Begin();
+        _ = SourceResolver.TryResolveQualifiedTypeName(
+            typeName,
+            NoSourceKeys,
+            allowPlatformPrefixFallback: true,
+            allowRuntimeTypeFallback: false);
+        Assert.DoesNotContain(
+            suppressed.Decisions,
+            static decision =>
+                decision.Stage
+                    == "platform-runtime-reverse-fallback");
     }
 
     [Fact]

@@ -1,6 +1,8 @@
 using System.Collections.Immutable;
 
+using DotnetInspector.Libraries;
 using DotnetInspector.Packages;
+using DotnetInspector.Platforms;
 using ILInspector.Metadata;
 
 namespace DotnetInspector.Queries;
@@ -28,6 +30,80 @@ public sealed class PackageRoleGroupId
 
     public PackageRoleRealizationOperationId Operation { get; }
 }
+
+/// <summary>
+/// Resource-free evidence for one exact package-acquired participant in an
+/// intrinsic CoreLib-ineligible role.
+/// </summary>
+public sealed class PackageIntrinsicCoreLibraryParticipantEvidence
+{
+    internal PackageIntrinsicCoreLibraryParticipantEvidence(
+        PackageRootIdentity package,
+        PackageCompileAsset asset,
+        AssemblyAcquisitionRegistration registration)
+    {
+        Package = package;
+        Asset = asset;
+        Registration = registration;
+    }
+
+    public PackageRootIdentity Package { get; }
+
+    public PackageCompileAsset Asset { get; }
+
+    public AssemblyAcquisitionRegistration Registration { get; }
+}
+
+/// <summary>
+/// Owner-issued proof that one complete projected package role cannot
+/// participate in intrinsic CoreLib binding.
+/// </summary>
+public sealed class PackageIntrinsicCoreLibraryIneligibilityReceipt
+{
+    internal PackageIntrinsicCoreLibraryIneligibilityReceipt(
+        PackageRoleGroupId group,
+        AssemblyBindingPolicyVersion bindingPolicyVersion,
+        ImmutableArray<PackageIntrinsicCoreLibraryParticipantEvidence>
+            participants)
+    {
+        Group = group;
+        BindingPolicyVersion = bindingPolicyVersion;
+        Participants = participants;
+    }
+
+    public PackageRoleGroupId Group { get; }
+
+    public AssemblyBindingPolicyVersion BindingPolicyVersion { get; }
+
+    public ImmutableArray<PackageIntrinsicCoreLibraryParticipantEvidence>
+        Participants
+    {
+        get;
+    }
+}
+
+/// <summary>
+/// One additional implementation asset selected from an already admitted
+/// package Root.
+/// </summary>
+public sealed record PackageAssemblyContextAdditionalPackageAsset(
+    PackageRootBinding Package,
+    PackageCompileAsset Asset);
+
+/// <summary>
+/// One complete Platform implementation Library admitted to the Workspace.
+/// </summary>
+public sealed record PackageAssemblyContextPlatformLibrary(
+    PlatformFamilyTarget Target,
+    WorkspaceLibraryOccurrence Library);
+
+/// <summary>
+/// One Platform implementation participant in a mixed package/Platform role.
+/// </summary>
+public sealed record PackageAssemblyContextPlatformParticipant(
+    PlatformFamilyTarget Target,
+    WorkspaceLibraryOccurrence Library,
+    AssemblyContextParticipant Participant);
 
 /// <summary>
 /// Stable Queries-owned diagnostic for a failed package-role group release.
@@ -296,6 +372,8 @@ public sealed class PackageAssemblyContextCompletionOperation
     readonly InspectionWorkspace _workspace;
     readonly InspectionWorkspace.PackageRoleRealizationPreparation _preparation;
     readonly ImmutableArray<PackageRootAntecedent> _antecedents;
+    readonly ImmutableArray<PackageAssemblyContextPlatformLibrary>
+        _platformLibraries;
     readonly Func<ValueTask> _yieldAsync;
     readonly PackageRoleCompletionLifetime _lifetime;
     int _executed;
@@ -304,18 +382,24 @@ public sealed class PackageAssemblyContextCompletionOperation
         InspectionWorkspace workspace,
         InspectionWorkspace.PackageRoleRealizationPreparation preparation,
         ImmutableArray<PackageRootAntecedent> antecedents,
+        ImmutableArray<PackageAssemblyContextPlatformLibrary>
+            platformLibraries,
         Func<ValueTask> yieldAsync)
     {
         _workspace = workspace;
         _preparation = preparation;
         _antecedents = antecedents;
+        _platformLibraries = platformLibraries;
         _yieldAsync = yieldAsync;
         Identity = new PackageRoleRealizationOperationId();
         _lifetime = new PackageRoleCompletionLifetime(
             Identity,
             hasImplementation:
-                !preparation.ImplementationAssets.IsEmpty,
-            sharesGroup: preparation.Shared);
+                !preparation.ImplementationAssets.IsEmpty
+                || !platformLibraries.IsEmpty,
+            sharesGroup:
+                preparation.Shared
+                && platformLibraries.IsEmpty);
     }
 
     public PackageRoleRealizationOperationId Identity { get; }
@@ -339,6 +423,7 @@ public sealed class PackageAssemblyContextCompletionOperation
             Identity,
             _preparation,
             _antecedents,
+            _platformLibraries,
             _yieldAsync,
             _lifetime);
     }
@@ -357,6 +442,9 @@ public sealed class PackageAssemblyContextCompletion : IAsyncDisposable
         _surfaceTemplates;
     readonly ImmutableArray<PackageAssemblyRoleParticipantTemplate>
         _implementationTemplates;
+    readonly ImmutableArray<PackageAssemblyContextPlatformParticipant>
+        _platformParticipants;
+    readonly ImmutableArray<LibraryOperationLease> _platformOperations;
     readonly PackageRoleCompletionLifetime _lifetime;
     readonly Dictionary<
         AssemblyContextParticipant,
@@ -371,7 +459,10 @@ public sealed class PackageAssemblyContextCompletion : IAsyncDisposable
         ImmutableArray<PackageRootAntecedent> antecedents,
         PackageAssemblyContextRoles roles,
         ImmutableArray<InspectionWorkspace.RoleAssembly> surfaceRole,
-        ImmutableArray<InspectionWorkspace.RoleAssembly> implementationRole)
+        ImmutableArray<InspectionWorkspace.RoleAssembly> implementationRole,
+        ImmutableArray<PackageAssemblyContextPlatformParticipant>
+            platformParticipants,
+        ImmutableArray<LibraryOperationLease> platformOperations)
     {
         _lifetime = lifetime;
         Operation = lifetime.Operation;
@@ -395,7 +486,11 @@ public sealed class PackageAssemblyContextCompletion : IAsyncDisposable
             roles.SurfaceParticipants);
         _implementationTemplates = Templates(
             implementationRole,
-            roles.ImplementationParticipants);
+            roles.ImplementationParticipants
+                .Take(implementationRole.Length)
+                .ToImmutableArray());
+        _platformParticipants = platformParticipants;
+        _platformOperations = platformOperations;
         _implementationBySurface =
             new(ReferenceEqualityComparer.Instance);
         foreach (AssemblyContextParticipant surface
@@ -465,6 +560,7 @@ public sealed class PackageAssemblyContextCompletion : IAsyncDisposable
                             roots,
                             _surfaceTemplates,
                             _implementationTemplates,
+                            _platformParticipants,
                             _implementationBySurface);
                     _projections.Add(projection);
                     return projection;
@@ -508,6 +604,9 @@ public sealed class PackageAssemblyContextCompletion : IAsyncDisposable
     internal AssemblyContextGroup? ImplementationAssemblyContextGroup =>
         _roles.ImplementationGroup;
 
+    internal ImmutableArray<PackageAssemblyContextPlatformParticipant>
+        PlatformParticipants => _platformParticipants;
+
     internal void StartCloseFromLifetime()
     {
         ImmutableArray<Task> projectionReturns;
@@ -544,6 +643,14 @@ public sealed class PackageAssemblyContextCompletion : IAsyncDisposable
         catch (Exception ex)
         {
             _lifetime.Fail(ex);
+        }
+        finally
+        {
+            foreach (LibraryOperationLease operation
+                in _platformOperations)
+            {
+                operation.Dispose();
+            }
         }
     }
 
@@ -676,17 +783,29 @@ public sealed class PackageAssemblyContextRoleProjection
     readonly AssemblyContextGroup _group;
     readonly PackageRoleGroupId _groupIdentity;
     readonly ImmutableArray<PackageAssemblyRoleParticipant> _participants;
+    readonly ImmutableArray<PackageAssemblyContextPlatformParticipant>
+        _platformParticipants;
+    readonly PackageIntrinsicCoreLibraryIneligibilityReceipt
+        _intrinsicCoreLibraryIneligibility;
 
     internal PackageAssemblyContextRoleProjection(
         PackageAssemblyContextProjection projection,
         PackageRoleGroupId groupIdentity,
         AssemblyContextGroup group,
-        ImmutableArray<PackageAssemblyRoleParticipant> participants)
+        ImmutableArray<PackageAssemblyRoleParticipant> participants,
+        ImmutableArray<PackageAssemblyContextPlatformParticipant>
+            platformParticipants)
     {
         _projection = projection;
         _groupIdentity = groupIdentity;
         _group = group;
         _participants = participants;
+        _platformParticipants = platformParticipants;
+        _intrinsicCoreLibraryIneligibility =
+            CreateIntrinsicCoreLibraryIneligibility(
+                groupIdentity,
+                group,
+                participants);
     }
 
     public PackageRoleGroupId GroupIdentity =>
@@ -695,11 +814,55 @@ public sealed class PackageAssemblyContextRoleProjection
     public ImmutableArray<PackageAssemblyRoleParticipant> Participants
         => _projection.Use(() => _participants);
 
+    public ImmutableArray<PackageAssemblyContextPlatformParticipant>
+        PlatformParticipants =>
+            _projection.Use(() => _platformParticipants);
+
+    public PackageIntrinsicCoreLibraryIneligibilityReceipt?
+        IntrinsicCoreLibraryIneligibility =>
+            _projection.Use(() =>
+                _platformParticipants.IsEmpty
+                    ? _intrinsicCoreLibraryIneligibility
+                    : null);
+
     internal TResult Use<TResult>(
         Func<AssemblyContextGroup, TResult> callback)
     {
         ArgumentNullException.ThrowIfNull(callback);
         return _projection.Use(() => callback(_group));
+    }
+
+    static PackageIntrinsicCoreLibraryIneligibilityReceipt
+        CreateIntrinsicCoreLibraryIneligibility(
+        PackageRoleGroupId groupIdentity,
+        AssemblyContextGroup group,
+        ImmutableArray<PackageAssemblyRoleParticipant> participants)
+    {
+        var evidence = ImmutableArray.CreateBuilder<
+            PackageIntrinsicCoreLibraryParticipantEvidence>(
+                participants.Length);
+        foreach (PackageAssemblyRoleParticipant participant in participants)
+        {
+            ResolvedAssemblyReference assembly =
+                participant.Participant.Assembly;
+            if (assembly.Provenance
+                is not AssemblyResolutionProvenance.PackageAsset)
+            {
+                throw new InvalidOperationException(
+                    "An intrinsic CoreLib package-role ineligibility receipt "
+                    + "requires package acquisition provenance for every participant.");
+            }
+            evidence.Add(
+                new(
+                    participant.Package,
+                    participant.Asset,
+                    assembly.Registration));
+        }
+
+        return new(
+            groupIdentity,
+            group.BindingPolicyVersion,
+            evidence.MoveToImmutable());
     }
 }
 
@@ -714,6 +877,7 @@ public sealed class PackageAssemblyContextProjection : IAsyncDisposable
 
     readonly object _gate = new();
     readonly PackageAssemblyContextCompletion _completion;
+    readonly ImmutableArray<PackageRootIdentity> _roots;
     readonly PackageAssemblyContextRoleProjection _surfaceRole;
     readonly PackageAssemblyContextRoleProjection? _implementationRole;
     readonly Dictionary<
@@ -732,11 +896,14 @@ public sealed class PackageAssemblyContextProjection : IAsyncDisposable
         ImmutableArray<PackageAssemblyRoleParticipantTemplate> surfaceTemplates,
         ImmutableArray<PackageAssemblyRoleParticipantTemplate>
             implementationTemplates,
+        ImmutableArray<PackageAssemblyContextPlatformParticipant>
+            platformParticipants,
         Dictionary<
             AssemblyContextParticipant,
             AssemblyContextParticipant> sharedCorrespondence)
     {
         _completion = completion;
+        _roots = roots;
         ImmutableArray<PackageAssemblyRoleParticipant> surface =
             Project(surfaceTemplates, roots);
         ImmutableArray<PackageAssemblyRoleParticipant> implementation =
@@ -745,7 +912,8 @@ public sealed class PackageAssemblyContextProjection : IAsyncDisposable
             this,
             completion.SurfaceGroup,
             completion.SurfaceAssemblyContextGroup,
-            surface);
+            surface,
+            []);
         _implementationRole =
             completion.ImplementationGroup is null
                 ? null
@@ -753,7 +921,8 @@ public sealed class PackageAssemblyContextProjection : IAsyncDisposable
                     this,
                     completion.ImplementationGroup,
                     completion.ImplementationAssemblyContextGroup!,
-                    implementation);
+                    implementation,
+                    platformParticipants);
 
         var implementationByParticipant =
             new Dictionary<
@@ -778,6 +947,9 @@ public sealed class PackageAssemblyContextProjection : IAsyncDisposable
     public PackageAssemblyContextRoleProjection SurfaceRole =>
         Use(() => _surfaceRole);
 
+    public ImmutableArray<PackageRootIdentity> Roots =>
+        Use(() => _roots);
+
     public PackageAssemblyContextRoleProjection? ImplementationRole =>
         Use(() => _implementationRole);
 
@@ -793,6 +965,10 @@ public sealed class PackageAssemblyContextProjection : IAsyncDisposable
     public ImmutableArray<PackageAssemblyRoleParticipant>
         ImplementationParticipants =>
             Use(() => _implementationRole?.Participants ?? []);
+
+    public ImmutableArray<PackageAssemblyContextPlatformParticipant>
+        PlatformParticipants =>
+            Use(() => _implementationRole?.PlatformParticipants ?? []);
 
     public PackageAssemblyRoleParticipant? ImplementationParticipant(
         PackageAssemblyRoleParticipant surface)
@@ -977,6 +1153,23 @@ public sealed partial class InspectionWorkspace
             PackageAssemblyContextRealizationOptions? options = null) =>
         PreparePackageAssemblyContextCompletion(
             selectedPackages,
+            additionalImplementationAssets: [],
+            platformLibraries: [],
+            options,
+            DefaultCooperativeYieldAsync);
+
+    public PackageAssemblyContextCompletionOperation
+        PreparePackageAssemblyContextCompletion(
+            IEnumerable<PackageRootBinding> selectedPackages,
+            IEnumerable<PackageAssemblyContextAdditionalPackageAsset>
+                additionalImplementationAssets,
+            IEnumerable<PackageAssemblyContextPlatformLibrary>
+                platformLibraries,
+            PackageAssemblyContextRealizationOptions? options = null) =>
+        PreparePackageAssemblyContextCompletion(
+            selectedPackages,
+            additionalImplementationAssets,
+            platformLibraries,
             options,
             DefaultCooperativeYieldAsync);
 
@@ -984,12 +1177,35 @@ public sealed partial class InspectionWorkspace
         PreparePackageAssemblyContextCompletion(
             IEnumerable<PackageRootBinding> selectedPackages,
             PackageAssemblyContextRealizationOptions? options,
+            Func<ValueTask> yieldAsync) =>
+        PreparePackageAssemblyContextCompletion(
+            selectedPackages,
+            additionalImplementationAssets: [],
+            platformLibraries: [],
+            options,
+            yieldAsync);
+
+    internal PackageAssemblyContextCompletionOperation
+        PreparePackageAssemblyContextCompletion(
+            IEnumerable<PackageRootBinding> selectedPackages,
+            IEnumerable<PackageAssemblyContextAdditionalPackageAsset>
+                additionalImplementationAssets,
+            IEnumerable<PackageAssemblyContextPlatformLibrary>
+                platformLibraries,
+            PackageAssemblyContextRealizationOptions? options,
             Func<ValueTask> yieldAsync)
     {
         ArgumentNullException.ThrowIfNull(selectedPackages);
+        ArgumentNullException.ThrowIfNull(
+            additionalImplementationAssets);
+        ArgumentNullException.ThrowIfNull(platformLibraries);
         ArgumentNullException.ThrowIfNull(yieldAsync);
         ImmutableArray<PackageRootBinding> bindings =
             [.. selectedPackages];
+        ImmutableArray<PackageAssemblyContextAdditionalPackageAsset>
+            additionalAssets = [.. additionalImplementationAssets];
+        ImmutableArray<PackageAssemblyContextPlatformLibrary>
+            platformLibrarySnapshot = [.. platformLibraries];
         if (bindings.IsEmpty)
         {
             throw new InvalidOperationException(
@@ -1014,11 +1230,14 @@ public sealed partial class InspectionWorkspace
             PreparePackageRoleRealization(
                 bindings.Select(binding => binding.Root),
                 options,
-                CancellationToken.None);
+                CancellationToken.None,
+                additionalAssets.Select(item =>
+                    (item.Package.Root, item.Asset)));
         return new PackageAssemblyContextCompletionOperation(
             this,
             preparation,
             [.. bindings.Select(PackageRootAntecedent.From)],
+            platformLibrarySnapshot,
             yieldAsync);
     }
 
@@ -1027,6 +1246,8 @@ public sealed partial class InspectionWorkspace
             PackageRoleRealizationOperationId operation,
             PackageRoleRealizationPreparation preparation,
             ImmutableArray<PackageRootAntecedent> antecedents,
+            ImmutableArray<PackageAssemblyContextPlatformLibrary>
+                platformLibraries,
             Func<ValueTask> yieldAsync,
             PackageRoleCompletionLifetime lifetime)
     {
@@ -1034,6 +1255,7 @@ public sealed partial class InspectionWorkspace
             BeginCoordinatedGroupAdmissions(
                 lifetime.CreateWorkspaceParticipations());
         PackageAssemblyContextRoles? roles = null;
+        ImmutableArray<LibraryOperationLease> platformOperations = [];
         bool transferred = false;
         try
         {
@@ -1045,7 +1267,7 @@ public sealed partial class InspectionWorkspace
                         yieldAsync)
                     .ConfigureAwait(false);
             ImmutableArray<RoleAssembly> implementationRole =
-                preparation.Shared
+                preparation.Shared && platformLibraries.IsEmpty
                     ? surfaceRole
                     : await CreateRoleAsync(
                             preparation.ImplementationAssets,
@@ -1053,6 +1275,11 @@ public sealed partial class InspectionWorkspace
                             preparation.Options,
                             yieldAsync)
                         .ConfigureAwait(false);
+            (
+                ImmutableArray<ResolvedAssemblyReference>
+                    platformAssemblies,
+                platformOperations) =
+                    CreatePlatformAssemblies(platformLibraries);
             ImmutableArray<PackageAssemblyRoleCorrespondence>
                 correspondences =
                     Correspondences(
@@ -1065,21 +1292,38 @@ public sealed partial class InspectionWorkspace
             roles = new PackageAssemblyContextRoles(
                 this,
                 surfaceRole.Select(entry => entry.Assembly),
-                implementationRole.Select(entry => entry.Assembly),
+                [
+                    .. implementationRole.Select(
+                        entry => entry.Assembly),
+                    .. platformAssemblies,
+                ],
                 correspondences,
-                preparation.Shared,
+                preparation.Shared && platformLibraries.IsEmpty,
                 roleOptions,
                 roleOptions,
                 (roleIndex, participants, options) =>
                     admissions[roleIndex].CreateGroup(
                         participants,
                         options));
+            ImmutableArray<PackageAssemblyContextPlatformParticipant>
+                platformParticipants =
+            [
+                .. platformLibraries.Select(
+                    (platform, index) =>
+                        new PackageAssemblyContextPlatformParticipant(
+                            platform.Target,
+                            platform.Library,
+                            roles.ImplementationParticipants[
+                                implementationRole.Length + index])),
+            ];
             var completion = new PackageAssemblyContextCompletion(
                 lifetime,
                 antecedents,
                 roles,
                 surfaceRole,
-                implementationRole);
+                implementationRole,
+                platformParticipants,
+                platformOperations);
             lifetime.AttachWithoutDispatch(completion);
 
             ImmutableArray<AssemblyContextGroup> groups =
@@ -1121,6 +1365,11 @@ public sealed partial class InspectionWorkspace
             {
                 CompleteCoordinatedGroupAdmissionsWithoutGroups(
                     admissions);
+                foreach (LibraryOperationLease platformOperation
+                    in platformOperations)
+                {
+                    platformOperation.Dispose();
+                }
                 lifetime.AbortBeforeTransfer();
             }
 
@@ -1133,6 +1382,72 @@ public sealed partial class InspectionWorkspace
 
             throw;
         }
+    }
+
+    private (
+        ImmutableArray<ResolvedAssemblyReference> Assemblies,
+        ImmutableArray<LibraryOperationLease> Operations)
+        CreatePlatformAssemblies(
+            ImmutableArray<PackageAssemblyContextPlatformLibrary>
+                platformLibraries)
+    {
+        var assemblies =
+            ImmutableArray.CreateBuilder<ResolvedAssemblyReference>(
+                platformLibraries.Length);
+        var operations =
+            ImmutableArray.CreateBuilder<LibraryOperationLease>(
+                platformLibraries.Length);
+        try
+        {
+            foreach (PackageAssemblyContextPlatformLibrary platform
+                in platformLibraries)
+            {
+                WorkspaceLibraryOperationIssueOutcome issued =
+                    IssueLibraryOperation(platform.Library);
+                if (issued
+                    is not WorkspaceLibraryOperationIssueOutcome.Issued
+                        available)
+                {
+                    throw new InvalidOperationException(
+                        "An admitted Platform Library could not issue operation authority.");
+                }
+
+                LibraryOperationLease operation = available.Lease;
+                LibraryContentReference implementation =
+                    operation.Reference.ImplementationAssembly
+                    ?? operation.Reference.ApiAssembly;
+                ManagedMetadataIdentity.Assembly identity =
+                    implementation.AssemblyIdentity
+                    ?? throw new InvalidOperationException(
+                        "A Platform implementation Library must retain its managed assembly identity.");
+                ResolvedAssemblyReference assembly =
+                    ResolvedAssemblyReference.Create(
+                        identity.Identity,
+                        path: null,
+                        () => operation.Snapshot(
+                            implementation,
+                            static (view, _) =>
+                                new MemoryStream(
+                                    view.Content.ToArray(),
+                                    writable: false)),
+                        AssemblyResolutionProvenance.Platform(
+                            platform.Target.Family.ToString(),
+                            platform.Target.Version.Value,
+                            "Workspace Platform implementation"));
+                operations.Add(operation);
+                assemblies.Add(assembly);
+            }
+        }
+        catch
+        {
+            foreach (LibraryOperationLease operation in operations)
+                operation.Dispose();
+            throw;
+        }
+
+        return (
+            assemblies.MoveToImmutable(),
+            operations.MoveToImmutable());
     }
 
     static async Task<Exception?> ReleaseProvisionalRolesAsync(

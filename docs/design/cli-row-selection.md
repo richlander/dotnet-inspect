@@ -17,9 +17,9 @@ contracts remain command-owned until their semantic adoption.
 
 The package `--versions` and `--versions-with-feed` lenses, finite `demo list`
 catalog, `find`, `implements`, `extensions`, `depends`, `ecosystem`,
-`vocabulary` value rendering, `diff --history`, `package query`, package activity,
+`diff --history`, `package query`, package activity,
 projected member Facts JSON, Workspace top-level inventory, and Integration
-graph edges, a single package's layout lens, `Package files`, or
+graph edges, a single package's layout lens, `Files`, or
 `SourceLink: Files` section,
 one selected Project document section, explicit-source Type catalog listings,
 `match --similar` ranked candidates, and the exact `Clone Candidates` section
@@ -52,8 +52,9 @@ before the commandless router enters target acquisition. #6379 adopts the
 finite product-demo catalog for explicit `demo list` and equivalent bare
 `demo` listing. #6489 adopts `find` across API search, package profile,
 Package Query, and literal Package Query modes, including shared semantic
-selection and Count evidence. #6643 adopts product-vocabulary value rows across
-selected sections. #6650 adopts timeline Evaluation and Transition rows while
+selection and Count evidence. #6643 adopted product-vocabulary value rows
+across selected sections; that adoption retired with the former vocabulary
+command. #6650 adopts timeline Evaluation and Transition rows while
 preserving its explicit package-cell acquisition plan. The broad #4677 line
 unit rollout defines rendered lines as the fallback item sequence, adds shared
 `--lines`/`--tail-lines`, and retires numeric `-t` as a row-count spelling on
@@ -69,7 +70,7 @@ type filtering without reducing package, library, or PDB acquisition. The
 Package layout adoption selects complete normalized file paths after scoped
 enumeration, plumbing exclusion, and sorting without reducing package
 acquisition or archive extraction. The
-Package `Package files` adoption selects complete ordered package-file rows
+Package `Files` adoption selects complete ordered package-file rows
 after archive extraction, full file enumeration, and optional path filtering.
 The Project document adoption selects complete restored-package Skill or root
 README rows after inventory construction and validation when exactly one
@@ -245,8 +246,8 @@ adapter preserves parser errors and structured row-arity failures but does not
 yet select or render the one diagnostic when both exist.
 
 This adapter is installed only for explicitly registered command or lens
-adoptions: the plural package-version lenses, demo listing, ecosystem catalog,
-and vocabulary value rendering. Existing behavior for unregistered command
+adoptions: the plural package-version lenses, demo listing, and ecosystem
+catalog. Existing behavior for unregistered command
 surfaces and the general implicit-routing envelope remains unchanged.
 
 Existing options-first implicit package routing preserves direction-modifier
@@ -621,6 +622,15 @@ One invocation is governed entirely by the active command or selected lens
 declaration and never changes meaning based on whether a later subsystem
 happens to handle the result.
 
+Find delegates a pure semantic `Head(N)` plan as one maximum-result budget
+across its Type or Member patterns. The Find execution owner may stop after
+`N` accepted unique hits and avoid later metadata rows, pattern groups, query
+participants, or source acquisition; every renderer and Count observes the
+same selected identities. Type candidates are classified independently in
+discovery order without whole-population ranking. The reverse-locator package
+route remains a declared complete-census boundary. Tail and Window remain
+post-classification operations.
+
 The package adoption consumes the online metadata-query evidence policy from
 [Package Source Model](package-source-model.md#metadata-only-version-queries).
 Semantic limits do not cap that discovery or relax its completeness rules.
@@ -859,7 +869,7 @@ range syntax.
 ## Package Files adoption
 
 Ordinary single-package `package` inspection declares one semantic row per
-`PackageFile` when the effective section selection is exactly `Package files`.
+`PackageFile` when the effective section selection is exactly `Files`.
 The `Files` alias and `--path` sugar reach the same declaration. Package
 resolution, extraction, complete ordered file enumeration, and optional path
 filtering finish before Head/Tail or strict Window stages select from the typed
@@ -886,8 +896,8 @@ $ dotnet-inspect package Markout@0.35.2 \
 Error: Package file row selection stage 1 requires row 6, but only 5 rows are available.
 ```
 
-The document-family sections (`Package nuspec file`, `Package README file`, and
-`Package skill files`), `@Files`, mixed sections, effective or static discovery,
+The document-family sections (`Nuspec`, `README`, and
+`Skills`), `@Files`, mixed sections, effective or static discovery,
 content output, embedded `--library`/`--all-libraries` inspection, range or
 version listing, and multiple-package inspection remain outside this
 declaration. Those surfaces retain their existing row contracts and use
@@ -1274,7 +1284,7 @@ retain their existing behavior.
 ## Project document row adoption
 
 The `project` command declares one semantic row per `ProjectDocumentRow` when
-the effective selection is exactly one of `Skills` or `Package README file`.
+the effective selection is exactly one of `Skills` or `README`.
 Project assets discovery, direct-package enumeration, document inventory
 construction, and row validation complete before Head/Tail or strict Window
 stages select from the ordered typed vector.
@@ -1340,27 +1350,6 @@ Neighboring ordered case:
 $ dotnet-inspect demo list -n 2 --rows 2..3 --json
 Error: Demo row selection stage 2 requires row 3, but only 2 demo rows are available.
 ```
-
-## Vocabulary adoption
-
-`vocabulary` declares one row per stable product-owned value in each selected
-vocabulary section. Every participating section is a separate named sequence
-in owner catalog order. Head/Tail and Window stages apply independently to all
-of them before count or format lowering; one strict Window failure withholds
-every selected section.
-
-```console
-$ dotnet-inspect vocabulary -S Accessibility -n 2 --tail --columns ID --tsv
-id
-internal
-private
-```
-
-The command exposes explicit rendered-line selection but does not expose Top
-or `--order-by`. Complete JSON rejects line selection before command work.
-Predicate and ranking adoption waits for the shared row-query owner rather than
-adding a vocabulary-local implementation. Structural `-D` output remains
-outside this adoption and keeps the existing discovery projection behavior.
 
 ## Diff History adoption
 
@@ -1458,12 +1447,6 @@ The demo-list adoption is enforced by:
 | Gate | Property |
 | --- | --- |
 | `DemoCommandTests` | Explicit `demo list` and equivalent bare `demo` apply semantic Head/Tail and ordered Window stages to complete catalog descriptors before JSON, Markout, or Count projection; every format observes the same selected demo identities; Count emits the selected descriptor cardinality; strict Window failure emits no partial payload; JSON rejects rendered-line clipping; scenario execution accepts only explicit rendered-line selection. |
-
-The vocabulary adoption is enforced by:
-
-| Gate | Property |
-| --- | --- |
-| `VocabularyCommandTests` | Explicit `vocabulary` value rendering applies semantic Head/Tail and ordered Window stages to stable catalog rows before count or format lowering; bare `-N` and explicit `-n` select the same identities, multiple selected sections remain independent named sequences, and one strict Window failure emits no partial document. Explicit Lines clips rendered TSV, while complete JSON rejects line selection. Structural discovery retains its existing projection path. |
 
 The timeline adoption is enforced by:
 
@@ -1579,7 +1562,7 @@ The broad explicit-line rollout is enforced by:
 | `ImplementsCommandTests` and `ExtensionsCommandTests` | Existing semantic Head/Tail and Window selection remains intact, explicit line clipping is available, and numeric `-t` is ordinary type-filter input rather than a hidden row count or a compatibility diagnostic. |
 | `PackageChangesCommandTests` | Package activity retains semantic `-n`, does not reuse that count when line selection is explicit, and rejects JSON line clipping before acquisition. |
 | `CommandExecutionTests.Member_FactsProjectedJson_AppliesItemWindowBeforeSerialization`, `Member_FactsProjectedJson_RejectsUnavailableWindow`, `Member_FactsProjectedJson_DeduplicatesEquivalentSelectors`, `Member_FactsCount_DoesNotActivateProjectedJsonAdoption`, `Member_FactsCount_LegacyRowsComposeWithInferredLines`, and `Member_FactsDiscovery_DoesNotActivateProjectedJsonAdoption` | Projected member Facts JSON applies semantic Head, Tail, and strict Window selection before serialization, equivalent selector spellings retain the same active adoption, terminal Count preserves legacy row/line composition, and effective or structural discovery remains outside that projection-specific declaration. |
-| `CommandExecutionTests.LibraryCoordinateCommand_InferredLinesComposeWithRows` | Inferred rendered-line selection composes with a command-owned legacy row window exactly as explicit `--lines` does, including Head and Tail direction. |
+| `CommandExecutionTests.LibraryAddressCommand_InferredLinesComposeWithRows` | Inferred rendered-line selection composes with a command-owned legacy row window exactly as explicit `--lines` does, including Head and Tail direction. |
 | `CliRowSelectionRouterIntegrationTests` | Uniform fallback candidates lower commandless `-n` as rendered-line selection, while candidates with different effective units require an explicit command before target acquisition. |
 | `PayloadLensContainmentTests` | Explicit line clipping preserves end-of-options ownership; row-shaped payload text after `--` is not interpreted as row selection. |
 

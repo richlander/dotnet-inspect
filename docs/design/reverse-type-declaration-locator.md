@@ -10,7 +10,9 @@ the focused design in
 [#6761](https://github.com/richlander/dotnet-inspect/issues/6761). Resident
 inventories are available through the
 [Workspace facade](workspace-live-locator.md#implemented-resident-context-facade)
-for its admitted context population; CLI/Browser adoption remains pending.
+for its admitted context population. CLI Find's pinned Package path and CLI
+Router's default bare Platform path are adopted; Browser adoption and remaining
+source adapters are pending.
 
 **Reverse Type-Declaration Locator**, in `DotnetInspector.Queries`, owns:
 
@@ -98,7 +100,7 @@ before scanning. The default discovery policy is the Metadata public surface;
 all-declaration visibility is explicit. The declaration producer, not Queries,
 decides public/nested visibility and special non-type rows such as `<Module>`.
 
-There are two request meanings:
+There are three request meanings:
 
 - **Exact declaration name:** a `MetadataTypeDefinitionName`, compared using
   Metadata's exact equality, preserving namespace, nested segments, case, and
@@ -107,6 +109,10 @@ There are two request meanings:
   `TypeMatcher` semantics, including case-insensitive simple/qualified names,
   nesting, generic notation, and `*`/`?` globs. Matching must use a
   Metadata-owned projection of the structured name, not a rendered C# label.
+- **Namespace:** a nonempty namespace plus Metadata's exact, suffix, or
+  exact-or-descendant namespace relation, evaluated with
+  `MetadataTypeDefinitionName.IsInNamespace`. It is a separately identified
+  request, not a wildcard spelling or an implicit retry of a Type pattern.
 
 Each pattern is evaluated independently; a declaration can match more than one
 request. Non-wildcard pattern matches are still discovery matches, not exact
@@ -169,6 +175,7 @@ LocatorResult
       ExactLibrarySourceCoordinate
       MetadataTypeDefinitionName
       Definition | Forwarder
+      module version ID
       definition category? (class | interface | value type | enum | delegate)
       declaration inventory order
       origin
@@ -279,9 +286,13 @@ errors likewise propagate, not become empty successful vectors.
 `TypeDeclarationLocatorQuery.Execute` consumes the Workspace-issued
 `WorkspaceDeclarationPopulation` and a nonempty immutable request sequence.
 `TypeDeclarationLocatorRequest.Exact` carries a Metadata-issued definition
-name; `Pattern` carries non-whitespace type-filter text. Pattern interpretation
-remains `TypeMatcher.MatchesTypeFilter`, including its explicit generic
-notation behavior; this query adds no pattern grammar or fallback.
+name; `Pattern` carries non-whitespace type-filter text; and `Namespace`
+carries a non-whitespace namespace plus a valid
+`MetadataNamespaceMatch`. Pattern interpretation remains
+`TypeMatcher.MatchesTypeFilter`, including its explicit generic notation
+behavior. Namespace interpretation remains
+`MetadataTypeDefinitionName.IsInNamespace`; this query adds no wildcard
+translation or fallback.
 
 `TypeDeclarationLocatorResult` is either typed `Rejected` admission evidence
 or an `Evaluated` result containing the detached population receipt, selected
@@ -289,7 +300,9 @@ visibility, optional work bound, attributed member outcomes, and ordered
 answers. Every answer retains its request and an immutable candidate vector,
 plus separate realization/evaluation completeness. The candidate's
 `Observation` retains the existing Workspace member evidence, not a live
-context or authority.
+context or authority. Each candidate separately retains the exact MVID issued
+by the declaration inventory so consumers can preserve assembly
+correspondence without reopening the image.
 
 Each eligible member is read once per call through the population's scoped
 Metadata access, then evaluated against every request. Inventories are not
@@ -337,6 +350,7 @@ prefix:
 | --- | --- |
 | Zero/one/many vectors and independent request order | `ZeroOneManyAndRepeatedRequestsKeepVectors` |
 | Structured identity, nesting, case and generic/glob semantics | `ExactNestingAndPatternArityUseMetadataSemantics` |
+| Exact and descendant namespace semantics | `NamespaceRequestsUseTypedNamespaceSemantics` |
 | Public/all policy and no implicit fallback | `PublicAndAllAreDistinctWithoutFallbackSearches` |
 | Equal coordinates retain feeds, views and stable occurrences | `EqualCoordinatesKeepFeedAndTargetObservations` |
 | Source/assembly ordering and facade identity without binding | `SourceAndAssemblyOrderingDoNotSelectDefinitionsOverForwarders` |

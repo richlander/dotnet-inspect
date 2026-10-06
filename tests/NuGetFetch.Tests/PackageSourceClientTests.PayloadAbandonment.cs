@@ -10,13 +10,8 @@ public sealed partial class PackageSourceClientTests
     private const int AbandonedBodyLength = 900_000;
 
     /// <summary>
-    /// An abandoned package response ends its transfer. The body is under the
-    /// HTTP handler's 1 MiB response drain limit, so disposing the response
-    /// unread lets the handler read the whole body to reuse the connection;
-    /// abandoning it cancels a pending read instead, which closes the
-    /// connection after at most what was already buffered. The source writes
-    /// slowly into a small send buffer, so what it manages to send bounds
-    /// what the client received.
+    /// Unread payload disposal closes the desktop connection without draining.
+    /// A slow writer bounds bytes transferred before either release path.
     /// </summary>
     [Fact]
     public async Task AbandonedPayloadEndsItsTransferInsteadOfDraining()
@@ -26,10 +21,95 @@ public sealed partial class PackageSourceClientTests
         long disposed = await ServePayloadAsync(
             static payload => payload.Content.DisposeAsync());
 
-        Assert.Equal(AbandonedBodyLength, disposed);
+        Assert.True(
+            disposed <= 128 * 1024,
+            $"the disposed response sent {disposed} of {AbandonedBodyLength} body bytes");
         Assert.True(
             abandoned <= 128 * 1024,
             $"the abandoned response sent {abandoned} of {AbandonedBodyLength} body bytes");
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task DesktopPayloadTransportReusesOnlyFullyConsumedResponses(
+        bool gallery,
+        bool consume)
+    {
+        CancellationToken cancellationToken = TestContext.Current.CancellationToken;
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var endpoint = new Uri($"http://127.0.0.1:{((IPEndPoint)listener.LocalEndpoint).Port}/payload");
+        using var serverCancellation =
+            CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        int connections = 0;
+        var workers = new List<Task>();
+        byte[] body = new byte[AbandonedBodyLength];
+        Task server = Task.Run(async () =>
+        {
+            try
+            {
+                while (true)
+                {
+                    TcpClient connection = await listener.AcceptTcpClientAsync(serverCancellation.Token);
+                    Interlocked.Increment(ref connections);
+                    workers.Add(Task.Run(async () =>
+                    {
+                        using (connection)
+                        {
+                            await using NetworkStream stream = connection.GetStream();
+                            try
+                            {
+                                while (await ReadRequestLineAsync(stream, serverCancellation.Token) is not null)
+                                {
+                                    await stream.WriteAsync(Encoding.ASCII.GetBytes(
+                                        "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\n"
+                                        + $"Content-Length: {body.Length}\r\n\r\n"), serverCancellation.Token);
+                                    // Send the body immediately: abandonment must work even when
+                                    // reads complete from buffered data, without a pending read.
+                                    await stream.WriteAsync(body, serverCancellation.Token);
+                                }
+                            }
+                            catch (Exception exception) when (
+                                exception is IOException or SocketException or OperationCanceledException)
+                            {
+                            }
+                        }
+                    }, CancellationToken.None));
+                }
+            }
+            catch (OperationCanceledException)
+            {
+            }
+        }, CancellationToken.None);
+        try
+        {
+            using HttpMessageHandler transport = gallery
+                ? PackageSourceClientFactory.CreateGalleryTransportHandler(isBrowser: false)
+                : PackageSourceClientFactory.CreateV3TransportHandler(endpoint, isBrowser: false);
+            using var client = new HttpClient(transport);
+            using (HttpResponseMessage first = await client.GetAsync(
+                endpoint, HttpCompletionOption.ResponseHeadersRead, cancellationToken))
+            {
+                if (consume)
+                    await first.Content.CopyToAsync(Stream.Null, cancellationToken);
+                else
+                    await Task.Delay(100, cancellationToken);
+            }
+            using HttpResponseMessage second = await client.GetAsync(
+                endpoint, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+            await second.Content.CopyToAsync(Stream.Null, cancellationToken);
+            Assert.Equal(consume ? 1 : 2, Volatile.Read(ref connections));
+        }
+        finally
+        {
+            await serverCancellation.CancelAsync();
+            listener.Stop();
+            await server;
+            await Task.WhenAll(workers);
+        }
     }
 
     private static async Task<long> ServePayloadAsync(

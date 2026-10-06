@@ -3,7 +3,11 @@ using ILInspector.Metadata;
 
 namespace ILInspector.Analysis;
 
-internal static class GeneratedFrameworkTypeAnalysis
+/// <summary>
+/// Classifies generated-framework type definitions and their metadata-nested
+/// types.
+/// </summary>
+public static class GeneratedFrameworkTypeAnalysis
 {
     internal static IReadOnlySet<TypeRef> Collect(
         ImmutableArray<DirectCall> directCalls,
@@ -74,7 +78,9 @@ internal static class GeneratedFrameworkTypeAnalysis
     /// name segment is not treated as nesting. Falls back to walking flattened
     /// <c>+</c> names only for synthesized refs with no resolution.
     /// </summary>
-    internal static bool Contains(IReadOnlySet<TypeRef> generated, TypeRef type)
+    public static bool Contains(
+        IReadOnlySet<TypeRef> generated,
+        TypeRef type)
     {
         ArgumentNullException.ThrowIfNull(generated);
         ArgumentNullException.ThrowIfNull(type);

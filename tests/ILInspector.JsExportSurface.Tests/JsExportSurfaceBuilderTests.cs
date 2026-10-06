@@ -19,6 +19,27 @@ namespace ILInspector.JsExportSurface.Tests;
 public sealed partial class JsExportSurfaceBuilderTests
 {
     [Fact]
+    public void Build_RejectsAnalysisWithoutJsonWireContractFlow()
+    {
+        string path = typeof(FixtureExports).Assembly.Location;
+        LibraryBodyAnalysisExecution execution =
+            LibraryBodyAnalysisService.ExecutePath(
+                path,
+                LibraryBodyAnalysisRequest.Create(
+                    LibraryBodyAnalysisFeatures.MethodEvidence));
+
+        UnsupportedJsExportSurfaceException exception =
+            Assert.Throws<UnsupportedJsExportSurfaceException>(
+                () => JsExportSurfaceBuilder.Build(
+                    ExtractApiSurface(path),
+                    execution.JsonWireContracts));
+
+        Assert.Contains(
+            "JSON wire-contract flow was not requested",
+            exception.Message);
+    }
+
+    [Fact]
     public void Extract_CapturesStructuredSerializerContextBaseIdentity()
     {
         using FileStream stream = File.OpenRead(
@@ -159,11 +180,11 @@ public sealed partial class JsExportSurfaceBuilderTests
     [Fact]
     public void TryGetDelegateShape_RejectsDecodedFourArgumentAction()
     {
-        LibraryBodyIndex bodyIndex = LibraryBodyIndex.Open(
+        LibraryJsonWireContractAnalysisResult bodyAnalysis = WireContractTestAnalysis.Open(
             typeof(JsExportSurfaceBuilderTests).Assembly.Location,
             LibraryBodyAnalysisFeatures.MethodEvidence);
         MethodIdentity method = Assert.Single(
-            bodyIndex.DeclaredMethods,
+            bodyAnalysis.DeclaredMethods,
             candidate => candidate.Name
                 == nameof(FourArgumentCallback));
         TypeRef callbackType = Assert.Single(method.ParameterTypes);

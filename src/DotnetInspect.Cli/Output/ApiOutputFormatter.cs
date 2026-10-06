@@ -193,7 +193,7 @@ public static class ApiOutputFormatter
                     declaration.DeclarationKind
                     == LibraryTypeDeclarationKind.Definition);
         int forwarders = declarations.Length - definitions;
-        if (document.Types.Binding.DeclarationSelection
+        if (document.Types!.Binding.DeclarationSelection
                 == LibraryTypeDeclarationSelection
                     .DefinitionsAndForwarders
             && definitions == 0)
@@ -965,7 +965,7 @@ public static class ApiOutputFormatter
         HashSet<string> memberFilter,
         HashSet<string>? kindFilter)
     {
-        var members = type.Members.Where(m => !IsCompilerGenerated(m.Name));
+        IEnumerable<ApiMember> members = type.Members;
 
         if (memberFilter.Count > 0)
             members = members.Where(m => TypeMatcher.MatchesMemberFilter(m.Name, memberFilter));
@@ -989,7 +989,7 @@ public static class ApiOutputFormatter
     internal static void PopulateEnumValues(TypeView view, ApiType type, ApiOptions options)
     {
         var enumMembers = type.Members
-            .Where(m => m.Kind == "field" && m.EnumValue.HasValue && !IsCompilerGenerated(m.Name))
+            .Where(m => m.Kind == "field" && m.EnumValue.HasValue)
             .OrderBy(m => m.EnumValue)
             .ToList();
         if (options.MemberFilter.Count > 0)
@@ -2099,7 +2099,7 @@ public static class ApiOutputFormatter
             }));
     }
 
-    private static ApiMember? SelectBodyMethod(
+    internal static ApiMember? SelectBodyMethod(
         ApiType type,
         List<ApiMember> methods,
         int overloadIndex)
@@ -2606,10 +2606,10 @@ public static class ApiOutputFormatter
     internal static void PopulateCalledTypes(
         TypeView view,
         ApiType type,
-        Analysis.LibraryBodyIndex index,
+        Analysis.LibraryCallGraphAnalysisResult callGraph,
         IReadOnlySet<string>? explicitSections = null)
     {
-        var rows = index
+        var rows = callGraph
             .CalledTypes(method => ApiAnalysisInspection.SameType(method.DeclaringType, type))
             .Select(summary => new CalledTypeRow(
                 MarkoutInline.Code(summary.Type.ToQualifiedDisplayString()),
@@ -2691,7 +2691,7 @@ public static class ApiOutputFormatter
     internal static void PopulateOptimizationOpportunities(
         TypeView view,
         ApiType type,
-        Analysis.LibraryBodyIndex index,
+        Analysis.LibraryOptimizationAnalysisResult optimization,
         IReadOnlySet<string>? explicitSections = null,
         PerformanceTriageOptions? options = null,
         bool restrictToModelMembers = false)
@@ -2704,7 +2704,7 @@ public static class ApiOutputFormatter
             ? typeMemberTokens
             : null;
         LibraryMetadataService.ReportOptimizationDiagnostics(
-            index,
+            optimization.Receipt.Diagnostics,
             diagnostic =>
                 (diagnostic.SourceDeclaringType
                     ?? diagnostic.DeclaringType) is { } diagnosticType
@@ -2715,15 +2715,18 @@ public static class ApiOutputFormatter
                     || memberTokens.Contains(
                         diagnostic.SourceMethodToken
                             ?? diagnostic.MethodToken)));
-        var rows = LibraryMetadataService.FilterAndOrderTriageOpportunities(
-                LibraryMetadataService.TriageOpportunities(index, options)
+        ImmutableArray<Analysis.OptimizationOpportunity> candidates =
+            Analysis.OptimizationOpportunityRowSpace.PerformanceCandidates(
+                optimization.Opportunities,
+                optimization.AllocationFanoutOpportunities,
+                optimization.GeneratedFrameworkTypes,
+                options?.IncludesAllocationFanout == true);
+        var rows = PerformanceTriageRowQuery.Apply(
+                candidates
                     .Where(opportunity => ApiAnalysisInspection.SameType(
                         (opportunity.SourceOwner ?? opportunity.Method)
                             .DeclaringType,
                         type))
-                    .Where(opportunity => LibraryMetadataService.IncludePerformanceOpportunity(
-                        opportunity,
-                        index.GeneratedFrameworkTypes))
                     .Where(opportunity => memberTokens is null
                         || memberTokens.Contains(
                             (opportunity.SourceOwner ?? opportunity.Method)
@@ -2979,7 +2982,7 @@ public static class ApiOutputFormatter
         }
     }
 
-    internal static void PopulateTopLeverage(TypeView view, ApiType type, Analysis.LibraryBodyIndex index, bool restrictToModelMembers = false)
+    internal static void PopulateTopLeverage(TypeView view, ApiType type, Analysis.LibraryLeverageAnalysisResult leverage, bool restrictToModelMembers = false)
     {
         var drillByToken = BuildMemberDrillMap(type);
 
@@ -2988,12 +2991,12 @@ public static class ApiOutputFormatter
         // limiter (`-n`/`--rows`) trims the rendered table. In member-detail/overload
         // contexts `type.Members` is narrowed to the selected member(s), so restrict the
         // ranked rows to those tokens (mirrors PopulateOptimizationOpportunities).
-        var rows = index.TopLeverage(count: int.MaxValue, scope: method => ApiAnalysisInspection.SameType(method.DeclaringType, type))
+        var rows = leverage.Top(count: int.MaxValue, scope: method => ApiAnalysisInspection.SameType(method.DeclaringType, type))
             .Where(entry => !restrictToModelMembers || drillByToken.ContainsKey(entry.Method.MetadataToken))
             .Select(entry =>
             {
                 drillByToken.TryGetValue(entry.Method.MetadataToken, out var drill);
-                bool generated = LibraryMetadataService.IsGeneratedMethod(entry.Method, index.GeneratedFrameworkTypes);
+                bool generated = LibraryMetadataService.IsGeneratedMethod(entry.Method, leverage.GeneratedFrameworkTypes);
                 return new TopLeverageRow(
                     MarkoutInline.Code(FormatMember(null, entry.Method.Name, entry.Method.ParameterTypes, [])),
                     entry.DirectCallerCount.ToString(),
@@ -3014,32 +3017,38 @@ public static class ApiOutputFormatter
     internal static void PopulateImplementationProfiles(
         TypeView view,
         ApiType type,
-        Analysis.LibraryBodyIndex index,
+        Analysis.LibraryImplementationProfileAnalysisResult profiles,
         bool memberScope,
         bool restrictToModelMembers = false,
         int? selectedMethodToken = null)
     {
+        if (!profiles.WasRequested)
+        {
+            throw new InvalidOperationException(
+                "Implementation profiles were not requested for this body analysis execution.");
+        }
+
         var drillByToken = BuildMemberDrillMap(type);
         LibraryMetadataService.ReportImplementationProfileDiagnostics(
-            index,
+            profiles.Receipt.Diagnostics,
             diagnostic => IncludesImplementationProfileDiagnostic(
                 diagnostic,
                 type,
                 drillByToken,
                 restrictToModelMembers,
                 selectedMethodToken));
-        var relationshipsByBody = index.OverloadRelationships()
+        var relationshipsByBody = profiles.OverloadRelationships
             .GroupBy(relationship => (
                 relationship.Caller.MetadataToken,
                 relationship.EvidenceMethod.MetadataToken))
             .ToDictionary(
                 group => group.Key,
                 group => group.ToArray());
-        var rows = index.ImplementationProfiles(
-                scope: method =>
-                    ApiAnalysisInspection.SameType(
-                        method.DeclaringType,
-                        type))
+        var rows = profiles.Profiles
+            .Where(profile =>
+                ApiAnalysisInspection.SameType(
+                    profile.Method.DeclaringType,
+                    type))
             .Where(profile =>
                 selectedMethodToken is { } selected
                     ? profile.Method.MetadataToken == selected
@@ -3062,7 +3071,7 @@ public static class ApiOutputFormatter
                     drill,
                     LibraryMetadataService.IsGeneratedMethod(
                         profile.Method,
-                        index.GeneratedFrameworkTypes),
+                        profiles.GeneratedFrameworkTypes),
                     includeDeclaringType: false);
             })
             .ToList();
@@ -3266,8 +3275,43 @@ public static class ApiOutputFormatter
             fact.CountedAsHeap ? "Yes" : "No",
             fact.Frequency,
             fact.Escape,
+            FormatLifetimeUses(fact.LifetimeEvidence.Uses),
+            FormatLifetimeLimitations(
+                fact.LifetimeEvidence.Limitations),
             fact.InLoop ? "Yes" : "No",
             fact.Evidence);
+
+    static string? FormatLifetimeUses(
+        ImmutableArray<Analysis.AllocationLifetimeUse> uses) =>
+        uses.IsDefaultOrEmpty
+            ? null
+            : string.Join(
+               ", ",
+               uses.Select(use =>
+                   $"{MarkoutInline.Code($"IL_{use.ILOffset:X4}")}: "
+                   + Analysis.SemanticFactProjection
+                       .FormatLifetimeUseKind(use.Kind)));
+
+    static string? FormatLifetimeLimitations(
+        ImmutableArray<Analysis.AllocationLifetimeLimitation> limitations) =>
+        limitations.IsDefaultOrEmpty
+            ? null
+            : string.Join(
+               ", ",
+               limitations.Select(limitation =>
+               {
+                   string location = limitation.ILOffset is { } offset
+                       ? $"{MarkoutInline.Code($"IL_{offset:X4}")}: "
+                       : "";
+                   string operation = limitation.Operation is { } opcode
+                       ? $" ({opcode})"
+                       : "";
+                   return location
+                       + Analysis.SemanticFactProjection
+                           .FormatLifetimeLimitationKind(
+                               limitation.Kind)
+                       + operation;
+               }));
 
     static SafetyFactRow ToSafetyFactRow(Analysis.SafetyFact fact, bool includeMember)
         => new(
@@ -3504,9 +3548,7 @@ public static class ApiOutputFormatter
 
     internal static Dictionary<string, List<ApiMember>> GroupMembersByKind(ApiType type, HashSet<string>? memberFilter = null, bool unsafeOnly = false, HashSet<string>? kindFilter = null)
     {
-        var members = type.Members
-            .Where(m => !IsCompilerGenerated(m.Name))
-            .ToList();
+        var members = type.Members.ToList();
 
         if (memberFilter?.Count > 0)
             members = members.Where(m => TypeMatcher.MatchesMemberFilter(m.Name, memberFilter)).ToList();
@@ -3571,8 +3613,6 @@ public static class ApiOutputFormatter
         "finalizer" => "Finalizer",
         _ => char.ToUpper(kind[0]) + kind[1..] + "s"
     };
-
-    private static bool IsCompilerGenerated(string name) => MemberFilters.IsCompilerGenerated(name);
 
 
     private static readonly string[] MemberKinds =

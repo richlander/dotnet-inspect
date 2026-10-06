@@ -169,13 +169,13 @@ public static class ReferenceOwnership
         => ReferencesLocal(node, index) || BindsLocal(node, index);
 
     public static bool SubtreeReferencesLocal(IrNode root, int index)
-        => root.Descendants.Prepend(root).Any(node => ReferencesLocal(node, index));
+        => root.DescendantsOutsideNestedFunctions.Prepend(root).Any(node => ReferencesLocal(node, index));
 
     public static bool SubtreeReferencesOrBindsLocal(IrNode root, int index)
-        => root.Descendants.Prepend(root).Any(node => ReferencesOrBindsLocal(node, index));
+        => root.DescendantsOutsideNestedFunctions.Prepend(root).Any(node => ReferencesOrBindsLocal(node, index));
 
     public static bool SubtreeStoresLocal(IrNode root, int index)
-        => root.Descendants.Prepend(root).Any(node => node is StoreLocal store && store.Index == index);
+        => root.DescendantsOutsideNestedFunctions.Prepend(root).Any(node => node is StoreLocal store && store.Index == index);
 
     public static bool LocalReferencesOnlyWithin(IrFunction function, int index, IReadOnlyCollection<IrNode> allowed)
         => ReferencesOnlyWithin(function, node => ReferencesLocal(node, index), allowed);
@@ -188,7 +188,7 @@ public static class ReferenceOwnership
 
     public static bool ReferencesOnlyWithin(IrFunction function, Func<IrNode, bool> isReference, IReadOnlyCollection<IrNode> allowed)
     {
-        foreach (var node in function.Descendants)
+        foreach (var node in function.DescendantsOutsideNestedFunctions)
         {
             if (isReference(node) && !IsInsideAny(node, allowed))
                 return false;

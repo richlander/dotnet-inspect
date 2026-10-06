@@ -6,9 +6,24 @@ using ILInspector.Metadata;
 
 namespace ILInspector.Analysis;
 
-internal sealed record GenericScope(ImmutableArray<string> TypeParameters, ImmutableArray<string> MethodParameters)
+internal sealed record GenericScope(
+    ImmutableArray<string> TypeParameters,
+    ImmutableArray<string> MethodParameters)
 {
     public static readonly GenericScope Empty = new([], []);
+
+    internal static GenericScope FromArities(
+        int typeArity,
+        int methodArity) =>
+        new(EmptyNames(typeArity), EmptyNames(methodArity));
+
+    static ImmutableArray<string> EmptyNames(int arity)
+    {
+        var names = ImmutableArray.CreateBuilder<string>(arity);
+        for (int index = 0; index < arity; index++)
+            names.Add(string.Empty);
+        return names.MoveToImmutable();
+    }
 }
 
 internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericScope>

@@ -8,6 +8,7 @@ import {
   renderAnnotatedSource,
   renderAnnotatedSourceModal,
   renderAnnotatedSourcePageActions,
+  renderAnnotatedSourceRejectionModal,
   type AnnotatedSourceAction,
   type AnnotatedSourceBindingActions,
 } from "../src/annotated-source.ts";
@@ -265,6 +266,30 @@ function modalHtml(source: AnnotatedSourceResult = result): string {
     escapeHtml,
   });
 }
+
+test("annotated source modal uses the shared code evidence shell", () => {
+  const html = modalHtml();
+
+  assert.match(html, /code-evidence-viewer-backdrop annotated-modal-backdrop/);
+  assert.match(html, /code-evidence-viewer annotated-modal/);
+  assert.match(html, /code-evidence-viewer-workspace annotated-modal-workspace/);
+  assert.match(html, /code-evidence-viewer-content annotated-modal-source/);
+  assert.match(html, /code-evidence-viewer-rail annotated-modal-inspector/);
+  assert.match(html, /data-annotated-scroll="modal-source"/);
+  assert.match(html, /data-annotated-scroll="modal-inspector"/);
+});
+
+test("annotated source rejection uses the shared dismissible shell", () => {
+  const html = renderAnnotatedSourceRejectionModal(
+    "Document coordinates overlap.",
+    escapeHtml,
+  );
+
+  assert.match(html, /code-evidence-viewer-failure annotated-modal-failure/);
+  assert.match(html, /Annotated source document rejected/);
+  assert.match(html, /Document coordinates overlap\./);
+  assert.match(html, /data-annotated-action="close-modal"/);
+});
 
 test("annotated source renders the selected API signature", () => {
   const html = embeddedHtml();
@@ -2083,27 +2108,17 @@ test("Annotated Source composition requires a concrete overload and validated se
     "utf8",
   );
 
+  assert.doesNotMatch(appSource, /state\.memberSection === "annotated"/);
+  assert.doesNotMatch(appSource, /annotatedWorkingSurface|annotatedPageContext/);
   assert.match(
     appSource,
-    /const annotatedPageContext =\s*activeScope === "member"\s*&& state\.memberSection === "annotated"\s*&& memberSourceHasConcreteOverload\(\);/);
+    /async function exploreSelectedMemberAnnotatedSource\(\) \{[\s\S]*await loadSelectedMemberAnnotatedSource\(\);[\s\S]*state\.memberSection === "source"[\s\S]*openAnnotatedSourceModal\(\)/);
   assert.match(
     appSource,
-    /const annotatedWorkingSurface =\s*annotatedPageContext && state\.memberAnnotatedEmbedded !== null;/);
+    /function openAnnotatedSourceModal\(\) \{[\s\S]*createAnnotatedSourceViewerModel\(state\.memberAnnotated\)[\s\S]*openModalSession\([\s\S]*annotatedSourceModalOrigin = \{ kind: "member-source" \}[\s\S]*renderAndFocusAnnotated\(opened\.focus\)/);
   assert.match(
     appSource,
-    /class="working-surface-actions"[\s\S]*renderAnnotatedSourcePageActions\(annotatedWorkingSurface\)/);
-  assert.doesNotMatch(
-    appSource,
-    /class="contextual-actions annotated-contextual-actions"/);
-  assert.match(
-    appSource,
-    /class="working-surface-actions" role="group" aria-label="\$\{memberDiffExploreTarget \? "Member Diff actions" : metadataWorkingSurface \? "Type graph actions" : packageDependenciesWorkingSurface \? "Dependency graph actions" : annotatedPageContext \? "Annotated Source actions" : sourcePageKind \? "Source actions" : "Member actions"\}"/);
-  assert.match(
-    appSource,
-    /contextualActionsHtml: !loadingPackageContent && \(memberDiffExploreTarget \|\| annotatedPageContext \|\| sourcePageKind \|\| packageDependenciesWorkingSurface \|\| metadataWorkingSurface\)/);
-  assert.match(
-    appSource,
-    /detail-scroll\$\{annotatedWorkingSurface \? " annotated-working-surface" : ""\}/);
+    /\$\{renderAnnotatedSourceModal\(\)\}`\);/);
 
   const diagramRenderer =
     /async function renderAnnotatedRelationshipDiagram\(\) \{([\s\S]*?)\n\}/
@@ -2123,6 +2138,10 @@ test("Annotated Source destination actions use typed graph routes and exact sect
     new URL("../src/dotnet-inspect.ts", import.meta.url),
     "utf8",
   );
+  const annotatedSourceModule = readFileSync(
+    new URL("../src/annotated-source.ts", import.meta.url),
+    "utf8",
+  );
 
   assert.match(
     appSource,
@@ -2138,7 +2157,7 @@ test("Annotated Source destination actions use typed graph routes and exact sect
   );
   assert.match(
     appSource,
-    /function showGraphNavigationFailureOutsideCallGraph\([\s\S]*switch \(failureSurface\) \{[\s\S]*case "call-graph":[\s\S]*return false;[\s\S]*case "annotated":[\s\S]*renderAndFocusAnnotated\(\{ kind: "explore" \}, "embedded"\);[\s\S]*case "retained":[\s\S]*showRetainedGraphNavigationError\(message\);[\s\S]*assertNever\([\s\S]*"graph navigation failure surface"\)/,
+    /function showGraphNavigationFailureOutsideCallGraph\([\s\S]*switch \(failureSurface\) \{[\s\S]*case "call-graph":[\s\S]*return false;[\s\S]*case "annotated":[\s\S]*renderAndFocusAnnotated\(\s*"#annotated-destination-error",\s*"modal",\s*\);[\s\S]*case "retained":[\s\S]*showRetainedGraphNavigationError\(message\);[\s\S]*assertNever\([\s\S]*"graph navigation failure surface"\)/,
   );
   assert.match(
     appSource,
@@ -2206,7 +2225,7 @@ test("Annotated Source destination actions use typed graph routes and exact sect
     /state\.memberAnnotatedModal !== null[\s\S]*state\.annotatedDestinationError[\s\S]*renderAndFocusAnnotated\(\s*"#annotated-destination-error",\s*"modal"/,
   );
   assert.match(
-    appSource,
+    annotatedSourceModule,
     /id="annotated-destination-error"[\s\S]*role="alert"/,
   );
   assert.match(
@@ -2225,6 +2244,6 @@ test("Annotated Source destination actions use typed graph routes and exact sect
     appSource.match(
       /state\.memberAnnotated = null;\s*state\.memberAnnotated(?:Key = "";\s*state\.memberAnnotated)?Error = "";\s*state\.memberFindingInteraction = null;\s*state\.memberFindingSelectionError = "";\s*state\.annotatedDestinationError = "";/g,
     )?.length,
-    7,
+    6,
   );
 });

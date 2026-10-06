@@ -37,7 +37,8 @@ public static class AnalysisFindings
 
     /// <summary>
     /// Projects one method's allocation occurrences into IL order. An empty occurrence sequence is
-    /// a complete empty census; acquisition failures belong to the caller that builds the body index.
+    /// a complete empty census; acquisition failures belong to the caller that
+    /// starts body analysis.
     /// </summary>
     public static ImmutableArray<Finding<AllocationOccurrence>> InspectAllocations(
         IEnumerable<AllocationOccurrence> occurrences,
@@ -505,6 +506,11 @@ public static class AnalysisFindings
         AddChange(changes, "size tier", oldOccurrence.SizeTier, newOccurrence.SizeTier);
         AddChange(changes, "post-dominance", oldOccurrence.PostDominance, newOccurrence.PostDominance);
         AddChange(changes, "escape kind", oldOccurrence.EscapeKind, newOccurrence.EscapeKind);
+        AddChange(
+            changes,
+            "lifetime evidence",
+            FormatLifetimeEvidence(oldOccurrence.LifetimeEvidence),
+            FormatLifetimeEvidence(newOccurrence.LifetimeEvidence));
         AddChange(changes, "multiplicity", oldOccurrence.Multiplicity, newOccurrence.Multiplicity);
         AddChange(changes, "churned type", oldOccurrence.ChurnedType, newOccurrence.ChurnedType);
         return changes.Count == 0 ? "other facets changed" : string.Join("; ", changes);
@@ -583,4 +589,22 @@ public static class AnalysisFindings
     }
 
     static string Format<T>(T value) => value?.ToString() ?? "none";
+
+    static string FormatLifetimeEvidence(
+        AllocationLifetimeEvidence evidence)
+    {
+        string uses = string.Join(
+            ",",
+            evidence.Uses.Select(
+                use => $"{use.Kind}@IL_{use.ILOffset:X4}"));
+        string limitations = string.Join(
+            ",",
+            evidence.Limitations.Select(
+                limitation =>
+                    $"{limitation.Kind}@"
+                    + (limitation.ILOffset is { } offset
+                        ? $"IL_{offset:X4}"
+                        : "unknown")));
+        return $"uses[{uses}] limitations[{limitations}]";
+    }
 }

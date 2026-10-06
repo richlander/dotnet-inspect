@@ -3,6 +3,23 @@ using System.Net.Http.Headers;
 
 namespace BinaryFetch;
 
+/// <summary>Host-specific request behavior for one HTTP representation.</summary>
+public sealed record HttpRangeSourceOptions
+{
+    /// <summary>
+    /// The representation length already established by the caller, when
+    /// available.
+    /// </summary>
+    public long? KnownLength { get; init; }
+
+    /// <summary>
+    /// Uses only absolute single ranges and validator comparison, avoiding
+    /// suffix ranges and <c>If-Range</c> requests that trigger Browser CORS
+    /// preflights.
+    /// </summary>
+    public bool UsePreflightFreeRequests { get; init; }
+}
+
 /// <summary>
 /// A random-access source over one HTTP representation using <c>Range</c>
 /// requests. It owns the representation-level rules: a <c>200</c> to a ranged
@@ -29,8 +46,10 @@ namespace BinaryFetch;
 /// </remarks>
 public sealed class HttpRangeSource : RandomAccessSource
 {
-    private readonly RangeRequestSender _send;
+    private readonly ClassifiedRangeRequestSender _send;
     private readonly Uri _uri;
+    private readonly bool _usePreflightFreeRequests;
+    private readonly long? _externallyKnownLength;
     // Range reads may run concurrently once the first response has set the
     // validator; the per-response checks of shared state run under this gate.
     private readonly object _gate = new();
@@ -48,27 +67,64 @@ public sealed class HttpRangeSource : RandomAccessSource
     /// delegate; the source calls it once per request and passes its
     /// exceptions through unchanged.
     /// </summary>
-    public HttpRangeSource(Uri uri, RangeRequestSender send)
+    public HttpRangeSource(
+        Uri uri,
+        RangeRequestSender send,
+        HttpRangeSourceOptions? options = null)
+        : this(
+            uri,
+            (request, _, cancellationToken) => send(request, cancellationToken),
+            options)
+    {
+        ArgumentNullException.ThrowIfNull(send);
+    }
+
+    /// <summary>
+    /// Creates a source whose every ranged request and issuing operation go
+    /// through <paramref name="send"/>.
+    /// </summary>
+    public HttpRangeSource(
+        Uri uri,
+        ClassifiedRangeRequestSender send,
+        HttpRangeSourceOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(uri);
         ArgumentNullException.ThrowIfNull(send);
+        options ??= new();
+        if (options.KnownLength is < 0)
+            throw new ArgumentOutOfRangeException(nameof(options));
+        if (options.UsePreflightFreeRequests
+            && options.KnownLength is not > 0)
+        {
+            throw new ArgumentException(
+                "Preflight-free requests require a positive known representation length.",
+                nameof(options));
+        }
         _uri = uri;
         _send = send;
+        _usePreflightFreeRequests =
+            options.UsePreflightFreeRequests;
+        _externallyKnownLength = options.KnownLength;
+        Length = options.KnownLength;
     }
 
     /// <summary>Creates a source that sends each request directly with <paramref name="client"/>.</summary>
-    public HttpRangeSource(HttpClient client, Uri uri)
+    public HttpRangeSource(
+        HttpClient client,
+        Uri uri,
+        HttpRangeSourceOptions? options = null)
         : this(
             uri,
-            (request, cancellationToken) => client.SendAsync(
+            (request, _, cancellationToken) => client.SendAsync(
                 request,
                 HttpCompletionOption.ResponseHeadersRead,
-                cancellationToken))
+                cancellationToken),
+            options)
     {
         ArgumentNullException.ThrowIfNull(client);
     }
 
-    /// <summary>Whether the first response supplied a validator usable for <c>If-Range</c>.</summary>
+    /// <summary>Whether the first response supplied a representation validator.</summary>
     public bool HasValidator => _entityTag is not null || _lastModified is not null;
 
     /// <summary>The validator the first response supplied, recorded so a consumer can report identity-unverified reads.</summary>
@@ -82,9 +138,18 @@ public sealed class HttpRangeSource : RandomAccessSource
         CancellationToken cancellationToken)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxLength);
-        using HttpRequestMessage request = CreateRequest(
-            new RangeHeaderValue(null, maxLength));
-        using HttpResponseMessage response = await _send(request, cancellationToken)
+        long? absoluteFrom = _usePreflightFreeRequests
+            ? Math.Max(0, Length!.Value - maxLength)
+            : null;
+        long rangeEndOrSuffix = _usePreflightFreeRequests
+            ? Length!.Value - 1
+            : maxLength;
+        var range = new RangeHeaderValue(absoluteFrom, rangeEndOrSuffix);
+        using HttpRequestMessage request = CreateRequest(range);
+        using HttpResponseMessage response = await _send(
+                request,
+                RangeRequestKind.Tail,
+                cancellationToken)
             .ConfigureAwait(false);
         // A tail request carries no If-Range, so a 200 here always means the
         // source ignored the range.
@@ -99,13 +164,24 @@ public sealed class HttpRangeSource : RandomAccessSource
         if (contentRange is not null)
         {
             RequireByteUnit(contentRange);
-            if (visibleTotal is { } total)
+            if (visibleTotal is { } observedTotal)
+                ConfirmObservedTotal(observedTotal);
+
+            if (absoluteFrom is { } requestedFrom)
             {
-                ConfirmObservedTotal(total);
-                long expectedFrom = Math.Max(0, total - maxLength);
+                if (contentRange.From != requestedFrom
+                    || contentRange.To != rangeEndOrSuffix
+                    || body.Length != rangeEndOrSuffix - requestedFrom + 1)
+                {
+                    throw Invalid("The tail response does not carry the requested range.");
+                }
+            }
+            else if (visibleTotal is { } visibleLength)
+            {
+                long expectedFrom = Math.Max(0, visibleLength - maxLength);
                 if (contentRange.From != expectedFrom
-                    || contentRange.To != total - 1
-                    || body.Length != total - expectedFrom)
+                    || contentRange.To != visibleLength - 1
+                    || body.Length != visibleLength - expectedFrom)
                 {
                     throw Invalid("The tail response does not carry the requested range.");
                 }
@@ -147,7 +223,10 @@ public sealed class HttpRangeSource : RandomAccessSource
         using HttpRequestMessage request = CreateRequest(
             new RangeHeaderValue(offset, last));
         bool conditional = ApplyIfRange(request);
-        using HttpResponseMessage response = await _send(request, cancellationToken)
+        using HttpResponseMessage response = await _send(
+                request,
+                RangeRequestKind.Exact,
+                cancellationToken)
             .ConfigureAwait(false);
         // Only a request that carried If-Range can have its 200 mean "the
         // representation changed"; without one, a 200 is the range ignored.
@@ -187,6 +266,14 @@ public sealed class HttpRangeSource : RandomAccessSource
 
     public override void ConfirmLength(long length)
     {
+        if (_externallyKnownLength is { } expected
+            && expected != length)
+        {
+            throw new RangeFetchException(
+                RangeFetchFailure.RepresentationChanged,
+                "The representation length changed after the caller established it.");
+        }
+
         if (_shortTailLength is { } shortTail && shortTail != length)
         {
             throw Invalid(
@@ -211,6 +298,9 @@ public sealed class HttpRangeSource : RandomAccessSource
 
     private bool ApplyIfRange(HttpRequestMessage request)
     {
+        if (_usePreflightFreeRequests)
+            return false;
+
         if (_entityTag is not null)
         {
             request.Headers.IfRange = new RangeConditionHeaderValue(_entityTag);
@@ -297,7 +387,14 @@ public sealed class HttpRangeSource : RandomAccessSource
     private void ConfirmObservedTotal(long total)
     {
         if (Length is { } established && established != total)
-            throw Invalid("The response's total length disagrees with an earlier response.");
+        {
+            throw _externallyKnownLength is not null
+                ? new RangeFetchException(
+                    RangeFetchFailure.RepresentationChanged,
+                    "The representation length changed after the caller established it.")
+                : Invalid(
+                    "The response's total length disagrees with an earlier response.");
+        }
         Length = total;
     }
 

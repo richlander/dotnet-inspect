@@ -172,7 +172,7 @@ public partial class PackageCommand
 
         if (!packageLibraryMode
             && options.Discover is not null
-            && options.Schema)
+            && (options.Schema || options.DiscoverDetails))
         {
             return StructuralViewRegistry.Execute(
                 StructuralViewRegistry.Route(
@@ -283,6 +283,17 @@ public partial class PackageCommand
                     "Multiple package inspection cannot include Dependency Hierarchy.");
                 return 1;
             }
+            if (packageArgs.Length == 1)
+            {
+                // Section shapes: a lone selected section renders in its
+                // shape's native format, and a scalar section has no rows.
+                options = ApplyNativeShapeFormat(options, catalog);
+                if (ValidatePackageScalarTerminals(options) is { } scalarError)
+                {
+                    CommandError.Write(scalarError);
+                    return 1;
+                }
+            }
 
             // The alternate lens modes render their own payload and never consult the section
             // filter, so requiring -S here would force the caller to name a section that is then
@@ -305,13 +316,13 @@ public partial class PackageCommand
             // without a selection, so accepting -S there would silently ignore it.
             if (lensMode
                 && (options.SelectExplicitlySet
-                    || dependencyHierarchyProjection))
+                    || options.Tree))
             {
                 var lensName = options.ListVersions ? "--versions"
                     : options.ListLayout ? "--layout"
                     : options.ListTfms ? "--tfms"
                     : "--content";
-                if (dependencyHierarchyProjection
+                if (options.Tree
                     && !options.SelectExplicitlySet)
                     CommandError.Write($"--tree cannot be combined with {lensName}.");
                 else
@@ -363,11 +374,20 @@ public partial class PackageCommand
 
             if (!ValidateDependencyHierarchyProjection(options))
                 return 1;
+            bool packageChildrenProjection =
+                IsPackageChildrenProjection(options);
+            if (packageChildrenProjection
+                && !ValidatePackageChildrenProjection(options))
+            {
+                return 1;
+            }
 
             // #3448 aligns the package gate with the library one: a count over several selected
             // sections is meaningful now that the file family is disjoint, so require a selection
             // rather than exactly one section.
-            if (!rendersOwnPayload && options.Count)
+            if (!rendersOwnPayload
+                && !packageChildrenProjection
+                && options.Count)
             {
                 if (!CountOutput.ValidateSectionsSelected(
                         options.IncludeSections, options.FixedOverview))
@@ -411,7 +431,7 @@ public partial class PackageCommand
                     && !sections.Contains(PackageSections.Files))
                 {
                     CommandError.Write(
-                        "--roots requires the Package files section.");
+                        "--roots requires the Files section.");
                     return 1;
                 }
                 if (options.Count || options.Print)
@@ -450,9 +470,8 @@ public partial class PackageCommand
                     ? sectionCatalog.BareSelectSectionNames
                     : options.IncludeSections;
             if (!options.Count
-                && !OutputFormatResolver.ValidateSingleSectionForTabular(
-                    options.TabularExplicitlySet,
-                    tabularSections))
+                && !packageChildrenProjection
+                && !ValidatePackageTabularSelection(options, tabularSections))
                 return 1;
 
             // Auto-promote verbosity when -S targets specific sections
@@ -520,7 +539,7 @@ public partial class PackageCommand
                     packageArgs[0],
                     explicitVersion);
             int? houseResult =
-                await TryWriteLiteralHouseDocumentExportAsync(
+                await TryWriteLiteralHouseDocumentContentAsync(
                         [houseTarget],
                         options,
                         context)
@@ -1130,6 +1149,18 @@ public partial class PackageCommand
             version.Length > 0 ? $"package {packageName}@{version}" : $"package {packageName}",
             "package inspect");
 
+        int? packageFileInventoryExitCode =
+            preResolved is null
+                ? await TryExecutePackageFileInventoryAsync(
+                        target,
+                        options,
+                        context,
+                        pipeline)
+                    .ConfigureAwait(false)
+                : null;
+        if (packageFileInventoryExitCode is { } inventoryExitCode)
+            return inventoryExitCode;
+
         string? extractPath = null;
         PackageExtractionResult? resolution = null;
         InspectionResult? observedInspection = null;
@@ -1205,7 +1236,7 @@ public partial class PackageCommand
 
             // Handle --layout mode: show file tree and exit early
             if (options.ListLayout)
-                return ListPackageLayout(extractPath, options, packageName, options.TipLevel);
+                return ListPackageLayout(extractPath, options, packageName, options.CompanionOutput);
 
             // Handle --tfms mode: list target frameworks and exit early
             if (options.ListTfms)
@@ -1284,6 +1315,9 @@ public partial class PackageCommand
             if (options.PackageLibrary != null)
             {
                 return await ExecutePackageLibraryAsync(
+                    client,
+                    logger,
+                    target,
                     extractPath,
                     target.IsLocalFile,
                     target.OriginalArgument,
@@ -1321,11 +1355,6 @@ public partial class PackageCommand
                     producerOptions,
                     pipeline,
                     includeSignals: enrichesSignals);
-            using var vulnerabilityTrafficScope = AllowsVulnerabilityTraffic(
-                producerOptions)
-                ? NetworkTelemetry.Allow(NetworkTrafficKind.VulnerabilityData)
-                : null;
-
             var result = await PackageInspector.InspectAsync(
                 resolution, packageName, version, target.IsLocalFile,
                 target.IsLocalFile ? target.OriginalArgument : null,
@@ -1334,6 +1363,8 @@ public partial class PackageCommand
                 fetchMetadata: wantsPackageMetadata,
                 requireIdentifierMetadata: wantsIdentifierMetadata,
                 verifyRidPackageAvailability: wantsRidPackageAvailability,
+                scanBinarySignals:
+                    !IsPackageChildrenProjection(options),
                 sourceOptions: options.SourceOptions);
             observedInspection = result;
 
@@ -1389,7 +1420,10 @@ public partial class PackageCommand
 
             result.Source = target.IsLocalFile ? SourceKind.File : SourceKind.NuGet;
 
-            PopulatePackageFileSections(result, extractPath, options);
+            PopulatePackageFileSectionsLegacy(
+                result,
+                extractPath,
+                options);
             if (ShouldPopulatePackageContentAudit(
                     producerOptions,
                     pipeline))
@@ -1508,9 +1542,24 @@ public partial class PackageCommand
                 return 1;
             }
 
+            if (!effectiveDiscovery
+                && IsPackageChildrenProjection(options))
+            {
+                return await WritePackageChildrenAsync(
+                    result,
+                    resolution,
+                    extractPath,
+                    packageName,
+                    version,
+                    options);
+            }
+
             if (options.Tree && !effectiveDiscovery)
             {
-                WritePackageDependencyHierarchyTree(result, options);
+                if (IsSingleFilesSelection(options))
+                    WritePackageFilesTree(result, options);
+                else
+                    WritePackageDependencyHierarchyTree(result, options);
                 return PackageIntegrityExitCode(result);
             }
 
@@ -1673,7 +1722,21 @@ public partial class PackageCommand
             {
                 if (options.Jsonl && TryGetSingleFileSection(options, out var fileSection) && !hasProjection)
                 {
-                    WritePackageFilesJsonl(result, fileSection, options.Rows);
+                    OutputDestination.Write(
+                        options.OutputPath,
+                        null,
+                        output => WritePackageFilesJsonl(output, result, fileSection, options.Rows));
+                    return PackageIntegrityExitCode(result);
+                }
+
+                if (IsPackageFileFamilySelection(options.IncludeSections))
+                {
+                    if (!ValidatePackageFileFamilyProjection(options))
+                        return 1;
+                    OutputDestination.Write(
+                        options.OutputPath,
+                        null,
+                        output => WritePackageFileFamilyTable(output, result, options));
                     return PackageIntegrityExitCode(result);
                 }
 
@@ -1738,11 +1801,20 @@ public partial class PackageCommand
                         itemKind,
                         writerOpts.IncludeSections,
                         fieldSectionsAsColumns: true);
-                    Console.Out.Write(rendered);
+                    OutputDestination.Write(
+                        options.OutputPath,
+                        null,
+                        output => output.Write(rendered));
                 }
                 else
                 {
-                    OutputFormatter.WritePackageTable(result, options, pipeline, showHeader: !options.NoHeader);
+                    // Row formats honor --out like the Markdown document does; the
+                    // table applies --rows itself, so no line window is forwarded.
+                    OutputDestination.Write(
+                        options.OutputPath,
+                        null,
+                        output => OutputFormatter.WritePackageTable(
+                            output, result, options, pipeline, showHeader: !options.NoHeader));
                 }
             }
             else
@@ -1866,7 +1938,7 @@ public partial class PackageCommand
         if (!SemanticRowSelection.TrySelect(
                 intent,
                 result.Files ?? [],
-                "Package files",
+                "Files",
                 failure =>
                     $"Package file row selection stage "
                     + $"{failure.Failure.StageNumber} requires row "
@@ -1888,13 +1960,13 @@ public partial class PackageCommand
         if (intent is null)
             return true;
 
-        IReadOnlyList<EcosystemDependencyRecognitionEntry> rows =
+        IReadOnlyList<EcosystemDependencyMatchEntry> rows =
             result.EcosystemDependencyRecognitionInspection?.Content switch
             {
                 EcosystemDependencyRecognitionOutcome.Complete complete =>
-                    complete.Document.Classification.Recognized,
+                    complete.Document.Classification.Matches,
                 EcosystemDependencyRecognitionOutcome.Incomplete incomplete =>
-                    incomplete.Document.Classification.Recognized,
+                    incomplete.Document.Classification.Matches,
                 _ => [],
             };
         if (!SemanticRowSelection.TrySelect(
@@ -1906,8 +1978,7 @@ public partial class PackageCommand
                     + $"{failure.Failure.StageNumber} requires row "
                     + $"{failure.Failure.RequiredPosition}, but only "
                     + $"{failure.Failure.AvailableCount} rows are available.",
-                out IReadOnlyList<
-                    EcosystemDependencyRecognitionEntry> selected))
+                out IReadOnlyList<EcosystemDependencyMatchEntry> selected))
         {
             return false;
         }

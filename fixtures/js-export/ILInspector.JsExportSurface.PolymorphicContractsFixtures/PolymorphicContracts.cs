@@ -49,11 +49,23 @@ public abstract record PackageDocumentationOutcome(
     }
 }
 
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+[JsonDerivedType(typeof(NumberStringOutcome.Value), "case")]
+public abstract record NumberStringOutcome(
+    [property: JsonNumberHandling(
+        JsonNumberHandling.WriteAsString)]
+    int Count)
+{
+    public sealed record Value(int Count)
+        : NumberStringOutcome(Count);
+}
+
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     UseStringEnumConverter = true)]
 [JsonSerializable(typeof(PackageDocumentationOutcome))]
+[JsonSerializable(typeof(NumberStringOutcome))]
 public sealed partial class PolymorphicJsonContext
     : JsonSerializerContext;
 

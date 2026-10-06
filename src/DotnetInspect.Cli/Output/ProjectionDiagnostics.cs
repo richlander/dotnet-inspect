@@ -162,38 +162,44 @@ public static class ProjectionDiagnostics
                     if (section is null)
                         continue;
 
-                    string[] candidates;
-                    if (itemKind.Equals(
+                    bool fieldSectionAsColumns =
+                        itemKind.Equals(
                             "column",
                             StringComparison.OrdinalIgnoreCase)
                         && fieldSectionsAsColumns
                         && section.ItemKind.Equals(
                             "field",
-                            StringComparison.OrdinalIgnoreCase))
+                            StringComparison.OrdinalIgnoreCase);
+                    if (fieldSectionAsColumns)
                     {
-                        candidates = ["Field", "Value"];
+                        if (MatchesRenderedName(
+                            requested,
+                            ["Field", "Value"],
+                            manifest.GetSectionRenderedNames(
+                                itemKind,
+                                sectionName)))
+                        {
+                            return false;
+                        }
+
+                        continue;
                     }
-                    else if (section.ItemKind.Equals(
+
+                    if (!section.ItemKind.Equals(
                         itemKind,
                         StringComparison.OrdinalIgnoreCase))
-                    {
-                        candidates =
-                        [
-                            .. section.Items.Select(
-                                static item => item.Name)
-                        ];
-                    }
-                    else
                     {
                         continue;
                     }
 
-                    if (MatchesRenderedName(
-                        requested,
-                        candidates,
+                    IReadOnlySet<string> renderedNames =
                         manifest.GetSectionRenderedNames(
                             itemKind,
-                            sectionName)))
+                            sectionName);
+                    if (MatchesRenderedSchemaItem(
+                        requested,
+                        section,
+                        renderedNames))
                     {
                         return false;
                     }
@@ -203,6 +209,28 @@ public static class ProjectionDiagnostics
             })
             .ToArray();
         WriteMissing(missing);
+    }
+
+    private static bool MatchesRenderedSchemaItem(
+        string requested,
+        SectionSchema section,
+        IReadOnlySet<string> renderedNames)
+    {
+        string[] displayNames =
+        [
+            .. section.Items.Select(static item => item.Name)
+        ];
+        string[] stableNames =
+        [
+            .. section.Items.Select(static item => item.StableName)
+        ];
+        ColumnProjectionResolution resolution =
+            MarkoutProjection.WithColumns([requested])
+                .ResolveColumns(displayNames, stableNames);
+
+        return resolution.ColumnMap.Any(
+            index => renderedNames.Contains(
+                section.Items[index].Name));
     }
 
     private static bool MatchesRenderedName(

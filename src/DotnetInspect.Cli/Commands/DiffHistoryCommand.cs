@@ -34,6 +34,20 @@ internal static class DiffHistoryCommand
         DiffOptions options,
         CancellationToken cancellationToken)
     {
+        if (options.Analysis is not null)
+        {
+            CommandError.Write(
+                "--history does not accept --analysis yet; History selects its "
+                + "producer with --finding until it adopts analysis selection.");
+            return 1;
+        }
+        if (options.Where.Length > 0)
+        {
+            CommandError.Write(
+                "--history does not accept --where; predicates require "
+                + "pairwise Diff analysis selection.");
+            return 1;
+        }
         if (!TryValidateMode(options, out string? error))
         {
             CommandError.Write(error!);

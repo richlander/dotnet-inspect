@@ -1,5 +1,7 @@
 using ILInspector.Metadata;
 using DotnetInspect.Cli.Options;
+using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 
 namespace DotnetInspect.Cli.Sections;
 
@@ -61,6 +63,7 @@ public static class ApiTypeSectionDescriptors
     public sealed class ApiInfo : ISectionDescriptor<ApiSurface>
     {
         public static string Name => SectionNames.ApiInfo;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Fixed;
@@ -70,6 +73,7 @@ public static class ApiTypeSectionDescriptors
     public sealed class TypeForwarders : ISectionDescriptor<ApiSurface>
     {
         public static string Name => SectionNames.TypeForwarders;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static bool Info => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
@@ -80,6 +84,7 @@ public static class ApiTypeSectionDescriptors
     public sealed class Classes : ISectionDescriptor<ApiSurface>
     {
         public static string Name => "Classes";
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static bool Info => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
@@ -90,6 +95,7 @@ public static class ApiTypeSectionDescriptors
     public sealed class Structs : ISectionDescriptor<ApiSurface>
     {
         public static string Name => "Structs";
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static bool Info => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
@@ -100,6 +106,7 @@ public static class ApiTypeSectionDescriptors
     public sealed class Interfaces : ISectionDescriptor<ApiSurface>
     {
         public static string Name => "Interfaces";
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static bool Info => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
@@ -110,6 +117,7 @@ public static class ApiTypeSectionDescriptors
     public sealed class Enums : ISectionDescriptor<ApiSurface>
     {
         public static string Name => "Enums";
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static bool Info => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
@@ -120,6 +128,7 @@ public static class ApiTypeSectionDescriptors
     public sealed class Delegates : ISectionDescriptor<ApiSurface>
     {
         public static string Name => "Delegates";
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static bool Info => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
@@ -130,6 +139,7 @@ public static class ApiTypeSectionDescriptors
     public sealed class InspectionFailures : ISectionDescriptor<ApiSurface>
     {
         public static string Name => SectionNames.InspectionFailures;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static bool Info => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
@@ -167,7 +177,8 @@ public static class ApiMemberSectionDescriptors
             .Add<ExtensionMethods>(HasExtensionMethods)
             .Add<Events>()
             .Add<MethodAttributes>()
-            .Add<UnsafeMembers>()
+            .Add<UnsafeMembers>(
+                UnsafeEvidencePresenceQuery.Definition)
             .Add<ExceptionRegions>()
             .Add<CalledTypes>()
             .Add<AllocationFacts>()
@@ -229,6 +240,7 @@ public static class ApiMemberSectionDescriptors
     public sealed class TypeInfo : ISectionDescriptor<ApiType>
     {
         public static string Name => SectionNames.TypeInfo;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Fixed;
@@ -238,6 +250,7 @@ public static class ApiMemberSectionDescriptors
     public sealed class Values : ISectionDescriptor<ApiType>
     {
         public static string Name => "Values";
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static bool Info => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
@@ -249,6 +262,7 @@ public static class ApiMemberSectionDescriptors
     public sealed class TypeParameters : ISectionDescriptor<ApiType>
     {
         public static string Name => "Type Parameters";
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static bool Info => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
@@ -259,6 +273,7 @@ public static class ApiMemberSectionDescriptors
     public sealed class TypeInterfaces : ISectionDescriptor<ApiType>
     {
         public static string Name => "Interfaces";
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static bool Info => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
@@ -269,6 +284,7 @@ public static class ApiMemberSectionDescriptors
     public sealed class Baseclass : ISectionDescriptor<ApiType>
     {
         public static string Name => "Baseclass";
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static bool Info => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Fixed;
@@ -284,6 +300,7 @@ public static class ApiMemberSectionDescriptors
     public sealed class Constructors : ISectionDescriptor<ApiType>
     {
         public static string Name => "Constructors";
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static bool Info => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
@@ -294,6 +311,7 @@ public static class ApiMemberSectionDescriptors
     public sealed class Finalizer : ISectionDescriptor<ApiType>
     {
         public static string Name => SectionNames.Finalizer;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static bool Info => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Fixed;
@@ -304,6 +322,7 @@ public static class ApiMemberSectionDescriptors
     public sealed class Fields : ISectionDescriptor<ApiType>
     {
         public static string Name => "Fields";
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static bool Info => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
@@ -314,6 +333,7 @@ public static class ApiMemberSectionDescriptors
     public sealed class Properties : ISectionDescriptor<ApiType>
     {
         public static string Name => "Properties";
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static bool Info => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
@@ -324,6 +344,7 @@ public static class ApiMemberSectionDescriptors
     public sealed class Methods : ISectionDescriptor<ApiType>
     {
         public static string Name => SectionNames.Methods;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(ApiType model)
@@ -333,16 +354,18 @@ public static class ApiMemberSectionDescriptors
     public sealed class MemberIndex : ISectionDescriptor<ApiType>
     {
         public static string Name => SectionNames.MemberIndex;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool ExplicitOnly => true;
         public static bool CanRender(ApiType model)
-            => model.Members.Any(m => !MemberFilters.IsCompilerGenerated(m.Name));
+            => model.Members.Count > 0;
     }
 
     public sealed class MethodGroups : ISectionDescriptor<ApiType>
     {
         public static string Name => SectionNames.MethodGroups;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static bool Info => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
@@ -353,6 +376,7 @@ public static class ApiMemberSectionDescriptors
     public sealed class Events : ISectionDescriptor<ApiType>
     {
         public static string Name => "Events";
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static bool Info => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
@@ -363,6 +387,7 @@ public static class ApiMemberSectionDescriptors
     public sealed class Operators : ISectionDescriptor<ApiType>
     {
         public static string Name => SectionNames.Operators;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static bool Info => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
@@ -373,6 +398,7 @@ public static class ApiMemberSectionDescriptors
     public sealed class ExplicitInterfaceImplementations : ISectionDescriptor<ApiType>
     {
         public static string Name => SectionNames.ExplicitInterfaceImplementations;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static bool Info => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
@@ -383,6 +409,7 @@ public static class ApiMemberSectionDescriptors
     public sealed class ExtensionMethods : ISectionDescriptor<ApiType>
     {
         public static string Name => SectionNames.ExtensionMethods;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static bool Info => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
@@ -393,6 +420,7 @@ public static class ApiMemberSectionDescriptors
     public sealed class MethodAttributes : ISectionDescriptor<ApiType>
     {
         public static string Name => "Custom Attributes";
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(ApiType model)
@@ -402,6 +430,7 @@ public static class ApiMemberSectionDescriptors
     public sealed class CostOverlay : ISectionDescriptor<ApiType>
     {
         public static string Name => SectionNames.CostOverlay;
+        public static SectionShape? Shape => SectionShape.Text;
         public static bool IsExpensive => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool ExplicitOnly => true;
@@ -414,6 +443,7 @@ public static class ApiMemberSectionDescriptors
     public sealed class SemanticsOverlay : ISectionDescriptor<ApiType>
     {
         public static string Name => SectionNames.SemanticsOverlay;
+        public static SectionShape? Shape => SectionShape.Text;
         public static bool IsExpensive => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool ExplicitOnly => true;
@@ -426,9 +456,11 @@ public static class ApiMemberSectionDescriptors
     public sealed class UnsafeMembers : ISectionDescriptor<ApiType>
     {
         public static string Name => SectionNames.UnsafeMembers;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool ExplicitOnly => true;
+        public static bool ProbeEffectiveness => false;
         public static bool CanRender(ApiType model)
             => model.Members.Any(IsMethodLike);
     }
@@ -436,6 +468,7 @@ public static class ApiMemberSectionDescriptors
     public sealed class CloneCandidates : ISectionDescriptor<ApiType>
     {
         public static string Name => SectionNames.CloneCandidates;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool ExplicitOnly => true;
@@ -447,6 +480,7 @@ public static class ApiMemberSectionDescriptors
     public sealed class ExceptionRegions : ISectionDescriptor<ApiType>
     {
         public static string Name => SectionNames.ExceptionRegions;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool ExplicitOnly => true;
@@ -458,6 +492,7 @@ public static class ApiMemberSectionDescriptors
     public sealed class CalledTypes : ISectionDescriptor<ApiType>
     {
         public static string Name => SectionNames.CalledTypes;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool ExplicitOnly => true;
@@ -469,6 +504,7 @@ public static class ApiMemberSectionDescriptors
     public sealed class AllocationFacts : ISectionDescriptor<ApiType>
     {
         public static string Name => SectionNames.AllocationFacts;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool ExplicitOnly => true;
@@ -479,6 +515,7 @@ public static class ApiMemberSectionDescriptors
     public sealed class SafetyFacts : ISectionDescriptor<ApiType>
     {
         public static string Name => SectionNames.SafetyFacts;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool ExplicitOnly => true;
@@ -489,6 +526,7 @@ public static class ApiMemberSectionDescriptors
     public sealed class CostFacts : ISectionDescriptor<ApiType>
     {
         public static string Name => SectionNames.CostFacts;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool ExplicitOnly => true;
@@ -499,10 +537,11 @@ public static class ApiMemberSectionDescriptors
     public sealed class TopLeverage : ISectionDescriptor<ApiType>
     {
         public static string Name => SectionNames.TopLeverage;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool ExplicitOnly => true;
-        // Backed by the whole-assembly body index; list structurally during -D rather
+        // Backed by whole-assembly body analysis; list structurally during -D rather
         // than opening the index to probe, mirroring OptimizationOpportunities.
         public static bool ProbeEffectiveness => false;
         public static bool CanRender(ApiType model)
@@ -513,6 +552,7 @@ public static class ApiMemberSectionDescriptors
         : ISectionDescriptor<ApiType>
     {
         public static string Name => SectionNames.TypeMetrics;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool ExplicitOnly => true;
@@ -526,6 +566,7 @@ public static class ApiMemberSectionDescriptors
         : ISectionDescriptor<ApiType>
     {
         public static string Name => SectionNames.MemberMetrics;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool ExplicitOnly => true;
@@ -538,10 +579,11 @@ public static class ApiMemberSectionDescriptors
     public sealed class OptimizationOpportunities : ISectionDescriptor<ApiType>
     {
         public static string Name => SectionNames.PerformanceTriage;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool ExplicitOnly => true;
-        // Backed by the whole-assembly body index; list structurally during -D rather
+        // Backed by whole-assembly body analysis; list structurally during -D rather
         // than opening the index to probe, mirroring SourceLocations/UnsafeOperations.
         public static bool ProbeEffectiveness => false;
         public static bool CanRender(ApiType model)
@@ -551,6 +593,7 @@ public static class ApiMemberSectionDescriptors
     public sealed class SourceLocations : ISectionDescriptor<ApiType>
     {
         public static string Name => SectionNames.SourceLocations;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool ExplicitOnly => true;
@@ -563,6 +606,7 @@ public static class ApiMemberSectionDescriptors
     public sealed class SourceFiles : ISectionDescriptor<ApiType>
     {
         public static string Name => SectionNames.SourceFiles;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool ExplicitOnly => true;
@@ -579,6 +623,7 @@ public static class ApiMemberSectionDescriptors
     public sealed class ApiDeclarations : ISectionDescriptor<ApiType>
     {
         public static string Name => SectionNames.ApiDeclarations;
+        public static SectionShape? Shape => SectionShape.Text;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static bool ProbeEffectiveness => false;
@@ -589,6 +634,7 @@ public static class ApiMemberSectionDescriptors
     public sealed class Source : ISectionDescriptor<ApiType>
     {
         public static string Name => SectionNames.Source;
+        public static SectionShape? Shape => SectionShape.Text;
         public static bool IsExpensive => true;
         public static bool ExplicitOnly => true;
         public static bool ProbeEffectiveness => false;
@@ -602,17 +648,19 @@ public static class ApiMemberSectionDescriptors
     public sealed class DecompiledSource : ISectionDescriptor<ApiType>
     {
         public static string Name => SectionNames.DecompiledSource;
+        public static SectionShape? Shape => SectionShape.Text;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(ApiType model)
             // Enums have no method bodies but the whole-type listing renders
             // their declaration and values.
-            => model.Members.Any(IsMethodLike) || model.Kind == "enum";
+            => model.Members.Any(IsBodyBacked) || model.Kind == "enum";
     }
 
     public sealed class ILBody : ISectionDescriptor<ApiType>
     {
         public static string Name => SectionNames.IL;
+        public static SectionShape? Shape => SectionShape.Text;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(ApiType model)
@@ -622,6 +670,7 @@ public static class ApiMemberSectionDescriptors
     public sealed class Facts : ISectionDescriptor<ApiType>
     {
         public static string Name => SectionNames.Facts;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool ExplicitOnly => true;
@@ -634,6 +683,7 @@ public static class ApiMemberSectionDescriptors
     public sealed class PdbSource : ISectionDescriptor<ApiType>
     {
         public static string Name => SectionNames.PdbSource;
+        public static SectionShape? Shape => SectionShape.Text;
         public static bool IsExpensive => true;
         public static SectionCost Cost => SectionCost.Moderated;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
@@ -644,7 +694,15 @@ public static class ApiMemberSectionDescriptors
     }
 
     internal static bool IsMethodLike(ApiMember member) =>
-        member.Kind is "method" or "constructor" or "finalizer" or "operator" or "explicit-interface-implementation" or "extension-method";
+        IsMethodLike(member.Kind);
+
+    internal static bool IsMethodLike(string kind) =>
+        kind is "method"
+            or "constructor"
+            or "finalizer"
+            or "operator"
+            or "explicit-interface-implementation"
+            or "extension-method";
 
     /// <summary>
     /// True when the member carries executable IL that a body section can analyze.
@@ -967,6 +1025,7 @@ public static class ApiMemberOverloadSectionDescriptors
     public sealed class Methods : ISectionDescriptor<ApiType>
     {
         public static string Name => SectionNames.Methods;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static bool Info => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
@@ -1041,6 +1100,7 @@ public static class ApiMemberDetailSectionDescriptors
     public sealed class Summary : ISectionDescriptor<ApiType>
     {
         public static string Name => SectionNames.Summary;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static bool CanRender(ApiType model)
             => model.Members.Count == 1;
@@ -1049,6 +1109,7 @@ public static class ApiMemberDetailSectionDescriptors
     public sealed class Signature : ISectionDescriptor<ApiType>
     {
         public static string Name => SectionNames.Signature;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static bool Info => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Fixed;
@@ -1059,6 +1120,7 @@ public static class ApiMemberDetailSectionDescriptors
     public sealed class MethodAttributes : ISectionDescriptor<ApiType>
     {
         public static string Name => SectionNames.CustomAttributes;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(ApiType model)
@@ -1068,6 +1130,7 @@ public static class ApiMemberDetailSectionDescriptors
     public sealed class DecompiledSource : ISectionDescriptor<ApiType>
     {
         public static string Name => SectionNames.DecompiledSource;
+        public static SectionShape? Shape => SectionShape.Text;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static SectionCapabilities Capabilities => SectionCapabilities.MayDownloadPdb;
@@ -1078,6 +1141,7 @@ public static class ApiMemberDetailSectionDescriptors
     public sealed class Source : ISectionDescriptor<ApiType>
     {
         public static string Name => SectionNames.Source;
+        public static SectionShape? Shape => SectionShape.Text;
         public static bool IsExpensive => true;
         public static bool ExplicitOnly => true;
         public static bool ProbeEffectiveness => false;
@@ -1092,6 +1156,7 @@ public static class ApiMemberDetailSectionDescriptors
     public sealed class AnnotatedSource : ISectionDescriptor<ApiType>
     {
         public static string Name => SectionNames.AnnotatedSource;
+        public static SectionShape? Shape => SectionShape.Text;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool ExplicitOnly => true;
@@ -1104,6 +1169,7 @@ public static class ApiMemberDetailSectionDescriptors
     public sealed class AnnotatedSourceDocument : ISectionDescriptor<ApiType>
     {
         public static string Name => SectionNames.AnnotatedSourceDocument;
+        public static SectionShape? Shape => SectionShape.Text;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool ExplicitOnly => true;
@@ -1118,6 +1184,7 @@ public static class ApiMemberDetailSectionDescriptors
     public sealed class FindingCensus : ISectionDescriptor<ApiType>
     {
         public static string Name => SectionNames.FindingCensus;
+        public static SectionShape? Shape => SectionShape.Text;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool ExplicitOnly => true;
@@ -1132,6 +1199,7 @@ public static class ApiMemberDetailSectionDescriptors
     public sealed class FidelityCauses : ISectionDescriptor<ApiType>
     {
         public static string Name => SectionNames.FidelityCauses;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool ExplicitOnly => true;
@@ -1143,6 +1211,7 @@ public static class ApiMemberDetailSectionDescriptors
     public sealed class AppliedTaste : ISectionDescriptor<ApiType>
     {
         public static string Name => SectionNames.AppliedTaste;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool ExplicitOnly => true;
@@ -1154,6 +1223,7 @@ public static class ApiMemberDetailSectionDescriptors
     public sealed class CostOverlay : ISectionDescriptor<ApiType>
     {
         public static string Name => SectionNames.CostOverlay;
+        public static SectionShape? Shape => SectionShape.Text;
         public static bool IsExpensive => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool ExplicitOnly => true;
@@ -1166,6 +1236,7 @@ public static class ApiMemberDetailSectionDescriptors
     public sealed class SemanticsOverlay : ISectionDescriptor<ApiType>
     {
         public static string Name => SectionNames.SemanticsOverlay;
+        public static SectionShape? Shape => SectionShape.Text;
         public static bool IsExpensive => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool ExplicitOnly => true;
@@ -1178,6 +1249,7 @@ public static class ApiMemberDetailSectionDescriptors
     public sealed class PdbSource : ISectionDescriptor<ApiType>
     {
         public static string Name => SectionNames.PdbSource;
+        public static SectionShape? Shape => SectionShape.Text;
         public static bool IsExpensive => true;
         public static SectionCost Cost => SectionCost.Moderated;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
@@ -1192,6 +1264,7 @@ public static class ApiMemberDetailSectionDescriptors
     public sealed class SourceDiff : ISectionDescriptor<ApiType>
     {
         public static string Name => SectionNames.SourceDiff;
+        public static SectionShape? Shape => SectionShape.Text;
         public static bool IsExpensive => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool ExplicitOnly => true;
@@ -1205,6 +1278,7 @@ public static class ApiMemberDetailSectionDescriptors
     public sealed class SourceLocations : ISectionDescriptor<ApiType>
     {
         public static string Name => SectionNames.SourceLocations;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Fixed;
         public static bool ExplicitOnly => true;
@@ -1218,6 +1292,7 @@ public static class ApiMemberDetailSectionDescriptors
     public sealed class ILBody : ISectionDescriptor<ApiType>
     {
         public static string Name => SectionNames.IL;
+        public static SectionShape? Shape => SectionShape.Text;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(ApiType model)
@@ -1227,6 +1302,7 @@ public static class ApiMemberDetailSectionDescriptors
     public sealed class ExceptionRegions : ISectionDescriptor<ApiType>
     {
         public static string Name => SectionNames.ExceptionRegions;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool ExplicitOnly => true;
@@ -1238,6 +1314,7 @@ public static class ApiMemberDetailSectionDescriptors
     public sealed class Calls : ISectionDescriptor<ApiType>
     {
         public static string Name => SectionNames.Calls;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool ExplicitOnly => true;
@@ -1250,6 +1327,7 @@ public static class ApiMemberDetailSectionDescriptors
     public sealed class Callers : ISectionDescriptor<ApiType>
     {
         public static string Name => SectionNames.Callers;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool ExplicitOnly => true;
@@ -1262,6 +1340,9 @@ public static class ApiMemberDetailSectionDescriptors
     public sealed class CallGraph : ISectionDescriptor<ApiType>
     {
         public static string Name => SectionNames.CallGraph;
+        // A call graph is a Graph of nodes and typed edges, not one of the three
+        // Section shapes; its edge-table, tree, and Mermaid lowerings stay with
+        // the Graph owner (docs/design/section-shapes.md, Non-goals).
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool ExplicitOnly => true;
@@ -1274,6 +1355,7 @@ public static class ApiMemberDetailSectionDescriptors
     public sealed class UnsafeOperations : ISectionDescriptor<ApiType>
     {
         public static string Name => SectionNames.UnsafeOperations;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool ExplicitOnly => true;
@@ -1286,6 +1368,7 @@ public static class ApiMemberDetailSectionDescriptors
     public sealed class BodyShapes : ISectionDescriptor<ApiType>
     {
         public static string Name => SectionNames.BodyShapes;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool ExplicitOnly => true;
@@ -1300,6 +1383,7 @@ public static class ApiMemberDetailSectionDescriptors
     public sealed class BodyShapeSummary : ISectionDescriptor<ApiType>
     {
         public static string Name => SectionNames.BodyShapeSummary;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool ExplicitOnly => true;
@@ -1320,6 +1404,7 @@ public static class ApiMemberDetailSectionDescriptors
     public sealed class Facts : ISectionDescriptor<ApiType>
     {
         public static string Name => SectionNames.Facts;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool ExplicitOnly => true;

@@ -74,6 +74,29 @@ public sealed class AssemblyContextLibraryPortablePdb
     public IArtifactProvenance Provenance { get; }
 }
 
+/// <summary>Already acquired compiled-XML documentation content.</summary>
+public sealed class AssemblyContextLibraryCompiledXml
+{
+    public AssemblyContextLibraryCompiledXml(
+        ImmutableArray<byte> content,
+        string source)
+    {
+        if (content.IsDefault)
+        {
+            throw new ArgumentException(
+                "Compiled-XML content must be supplied.",
+                nameof(content));
+        }
+        ArgumentException.ThrowIfNullOrWhiteSpace(source);
+
+        Content = content;
+        Source = source;
+    }
+
+    public ImmutableArray<byte> Content { get; }
+    public string Source { get; }
+}
+
 /// <summary>
 /// Resource-free provenance from one exact assembly-context input to its new
 /// Artifact registration.
@@ -99,6 +122,12 @@ public sealed class AssemblyContextLibraryArtifactProvenance :
     public AssemblyBindingPolicyVersion BindingPolicyVersion { get; }
     public AssemblyResolutionProvenance SourceProvenance { get; }
 }
+
+internal sealed record AssemblyContextLibraryCompiledXmlProvenance(
+    AssemblyAcquisitionRegistration SourceRegistration,
+    AssemblyBindingPolicyVersion BindingPolicyVersion,
+    AssemblyResolutionProvenance SourceProvenance,
+    string Source) : IArtifactProvenance;
 
 /// <summary>
 /// Resource-free association from one exact assembly-context occurrence to
@@ -351,7 +380,14 @@ public static class AssemblyContextLibraryAdapter
             AssemblyContextLibraryRole role,
             AssemblyContextLibraryMaterializationLimits limits,
             CancellationToken cancellationToken) =>
-        MaterializeAsync(group, participant, role, limits, null, cancellationToken);
+        MaterializeAsync(
+            group,
+            participant,
+            role,
+            limits,
+            portablePdb: null,
+            compiledXml: null,
+            cancellationToken);
 
     public static async ValueTask<AssemblyContextLibraryAdapterResult>
         MaterializeAsync(
@@ -360,6 +396,25 @@ public static class AssemblyContextLibraryAdapter
             AssemblyContextLibraryRole role,
             AssemblyContextLibraryMaterializationLimits limits,
             AssemblyContextLibraryPortablePdb? portablePdb,
+            CancellationToken cancellationToken) =>
+        await MaterializeAsync(
+                group,
+                participant,
+                role,
+                limits,
+                portablePdb,
+                compiledXml: null,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+    public static async ValueTask<AssemblyContextLibraryAdapterResult>
+        MaterializeAsync(
+            AssemblyContextGroup group,
+            AssemblyContextParticipant participant,
+            AssemblyContextLibraryRole role,
+            AssemblyContextLibraryMaterializationLimits limits,
+            AssemblyContextLibraryPortablePdb? portablePdb,
+            AssemblyContextLibraryCompiledXml? compiledXml,
             CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(group);
@@ -386,6 +441,7 @@ public static class AssemblyContextLibraryAdapter
                     bindingPolicyVersion,
                     limits,
                     portablePdb,
+                    compiledXml,
                     cancellationToken));
         if (access
             is AssemblyImageAccessResult<CapturedInput>.Rejected rejected)
@@ -427,7 +483,10 @@ public static class AssemblyContextLibraryAdapter
         var session = new ArtifactSetSession(
             new ArtifactSetSessionLimits
             {
-                MaxArtifacts = ready.PortablePdb is null ? 1 : 2,
+                MaxArtifacts =
+                    1
+                    + (ready.PortablePdb is null ? 0 : 1)
+                    + (ready.CompiledXml is null ? 0 : 1),
                 MaxArtifactBytes =
                     limits.MaxRetainedArtifactBytes,
                 MaxRetainedBytes =
@@ -445,6 +504,7 @@ public static class AssemblyContextLibraryAdapter
                     ready.SourceProvenance);
             ArtifactContribution? contribution = null;
             ArtifactContribution? pdbContribution = null;
+            ArtifactContribution? xmlContribution = null;
             await session.AddRequiredAcquisitionAsync(
                     (scope, generationEnd) =>
                     {
@@ -470,12 +530,26 @@ public static class AssemblyContextLibraryAdapter
                                 },
                                 kind: "assembly-context-library-portable-pdb");
                         }
+                        if (ready.CompiledXml is { } xml)
+                        {
+                            xmlContribution = scope.Register(
+                                ready.CompiledXmlProvenance!,
+                                token =>
+                                {
+                                    token.ThrowIfCancellationRequested();
+                                    return new MemoryStream(
+                                        xml,
+                                        writable: false);
+                                },
+                                kind: "assembly-context-library-compiled-xml");
+                        }
                         return ValueTask.FromResult<
                             ArtifactAcquisitionOutcome>(
                                 new ArtifactAcquisitionOutcome.Acquired(
-                                    pdbContribution is null
-                                        ? [contribution]
-                                        : [contribution, pdbContribution],
+                                    Contributions(
+                                        contribution,
+                                        pdbContribution,
+                                        xmlContribution),
                                     ArtifactAcquisitionLeases.None));
                     },
                     cancellationToken: cancellationToken)
@@ -569,6 +643,17 @@ public static class AssemblyContextLibraryAdapter
                     pdbContribution.Descriptor.Identity, queryLease);
                 contentLeases.Add(session.IssueContentLease(pdbContent, queryLease));
             }
+            ArtifactContentReference? xmlContent = null;
+            if (xmlContribution is not null)
+            {
+                xmlContent = session.GetContentReference(
+                    xmlContribution.Descriptor.Identity,
+                    queryLease);
+                contentLeases.Add(
+                    session.IssueContentLease(
+                        xmlContent,
+                        queryLease));
+            }
             queryLease.Dispose();
             queryLease = null;
 
@@ -588,10 +673,10 @@ public static class AssemblyContextLibraryAdapter
             LibraryReference library =
                 LibraryReference.CreateDirect(
                     assemblyCorrespondence,
-                    pdbContent is null
-                        ? null
-                        : [new LibraryCompanionCorrespondence(
-                            pdbContent, LibraryContentRole.PortablePdb, content)]);
+                    Companions(
+                        content,
+                        pdbContent,
+                        xmlContent));
             var association =
                 new AssemblyContextLibraryAssociation(
                     ready.SourceRegistration,
@@ -682,12 +767,57 @@ public static class AssemblyContextLibraryAdapter
         }
     }
 
+    static IReadOnlyList<ArtifactContribution> Contributions(
+        ArtifactContribution assembly,
+        ArtifactContribution? portablePdb,
+        ArtifactContribution? compiledXml)
+    {
+        var contributions = new List<ArtifactContribution>(3)
+        {
+            assembly,
+        };
+        if (portablePdb is not null)
+            contributions.Add(portablePdb);
+        if (compiledXml is not null)
+            contributions.Add(compiledXml);
+        return contributions.AsReadOnly();
+    }
+
+    static IReadOnlyList<LibraryCompanionCorrespondence>? Companions(
+        ArtifactContentReference assembly,
+        ArtifactContentReference? portablePdb,
+        ArtifactContentReference? compiledXml)
+    {
+        var companions =
+            new List<LibraryCompanionCorrespondence>(2);
+        if (portablePdb is not null)
+        {
+            companions.Add(
+                new(
+                    portablePdb,
+                    LibraryContentRole.PortablePdb,
+                    assembly));
+        }
+        if (compiledXml is not null)
+        {
+            companions.Add(
+                new(
+                    compiledXml,
+                    LibraryContentRole.CompiledXmlDocumentation,
+                    assembly));
+        }
+        return companions.Count == 0
+            ? null
+            : companions.AsReadOnly();
+    }
+
     static CapturedInput Capture(
         AssemblyImageSnapshot snapshot,
         AssemblyResolutionProvenance sourceProvenance,
         AssemblyBindingPolicyVersion bindingPolicyVersion,
         AssemblyContextLibraryMaterializationLimits limits,
         AssemblyContextLibraryPortablePdb? portablePdb,
+        AssemblyContextLibraryCompiledXml? compiledXml,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -708,16 +838,36 @@ public static class AssemblyContextLibraryAdapter
                 portablePdb.Image.Length,
                 LibraryContentRole.PortablePdb);
         }
+        if (compiledXml is not null
+            && compiledXml.Content.Length
+                > limits.MaxCapturedImageBytes)
+        {
+            return new CapturedInput.Incomplete(
+                snapshot.Registration,
+                bindingPolicyVersion,
+                compiledXml.Content.Length,
+                LibraryContentRole.CompiledXmlDocumentation);
+        }
 
         byte[] content = snapshot.Content.AsSpan().ToArray();
         cancellationToken.ThrowIfCancellationRequested();
+        IArtifactProvenance? compiledXmlProvenance =
+            compiledXml is null
+                ? null
+                : new AssemblyContextLibraryCompiledXmlProvenance(
+                    snapshot.Registration,
+                    bindingPolicyVersion,
+                    sourceProvenance,
+                    compiledXml.Source);
         return new CapturedInput.Ready(
             snapshot.Registration,
             bindingPolicyVersion,
             sourceProvenance,
             content,
             portablePdb?.Image.AsSpan().ToArray(),
-            portablePdb?.Provenance);
+            portablePdb?.Provenance,
+            compiledXml?.Content.AsSpan().ToArray(),
+            compiledXmlProvenance);
     }
 
     static async ValueTask<IReadOnlyList<Exception>> CleanupAsync(
@@ -835,7 +985,9 @@ public static class AssemblyContextLibraryAdapter
             AssemblyResolutionProvenance sourceProvenance,
             byte[] content,
             byte[]? portablePdb,
-            IArtifactProvenance? portablePdbProvenance)
+            IArtifactProvenance? portablePdbProvenance,
+            byte[]? compiledXml,
+            IArtifactProvenance? compiledXmlProvenance)
             : CapturedInput(
                 sourceRegistration,
                 bindingPolicyVersion)
@@ -845,6 +997,9 @@ public static class AssemblyContextLibraryAdapter
             internal byte[] Content { get; } = content;
             internal byte[]? PortablePdb { get; } = portablePdb;
             internal IArtifactProvenance? PortablePdbProvenance { get; } = portablePdbProvenance;
+            internal byte[]? CompiledXml { get; } = compiledXml;
+            internal IArtifactProvenance? CompiledXmlProvenance { get; } =
+                compiledXmlProvenance;
         }
     }
 }

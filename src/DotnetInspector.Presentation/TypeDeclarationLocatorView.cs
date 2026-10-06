@@ -235,6 +235,9 @@ public sealed class TypeDeclarationLocatorView
                     exact.Name.ToMetadataFullName(),
                 TypeDeclarationLocatorSectionRequest.PatternRequest pattern =>
                     pattern.Text,
+                TypeDeclarationLocatorSectionRequest.NamespaceRequest
+                    @namespace =>
+                    @namespace.Name,
                 _ => throw new InvalidOperationException(
                     "Unknown locator request."),
             });
@@ -301,7 +304,8 @@ public sealed class TypeDeclarationLocatorView
                         platform.Family,
                         platform.Version,
                         platform.Framework,
-                        platform.Assembly),
+                        platform.Assembly,
+                        platform.Role?.ToString()),
                 TypeDeclarationLocatorRealization.EmbeddedRealization
                     embedded =>
                     embedded.ContentRef,

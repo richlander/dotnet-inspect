@@ -13,7 +13,7 @@ type $ManagedExports = {
       readonly "InspectionEngine": {
         readonly "AsyncLoweringCanary.1684317047": () => Promise<string>;
         readonly "BuildIdentity.1310674786": () => string;
-        readonly "ConfigureHost.92020726": (origin: string) => void;
+        readonly "ConfigureHost.1997859317": (origin: string) => Promise<void>;
         readonly "DrainEpochWorkReporter.1731052262": () => Promise<void>;
         readonly "ManagedCpuCanary.1310674786": () => string;
         readonly "RegisterEpochWorkReporter.1170383003": (allowance: string, started: (arg0: number, arg1: string) => undefined, finished: (arg0: number) => undefined) => void;
@@ -90,9 +90,9 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "DotnetInspect");
     value = $ownDataProperty(value, "Web");
     value = $ownDataProperty(value, "InspectionEngine");
-    value = $ownDataProperty(value, "ConfigureHost.92020726");
+    value = $ownDataProperty(value, "ConfigureHost.1997859317");
     if (typeof value !== "function") {
-      throw new Error("Managed export \u0027DotnetInspect.Web.InspectionEngine.ConfigureHost.92020726\u0027 is not callable.");
+      throw new Error("Managed export \u0027DotnetInspect.Web.InspectionEngine.ConfigureHost.1997859317\u0027 is not callable.");
     }
   }
   {
@@ -182,8 +182,8 @@ export function buildIdentity(): BrowserBuildIdentity {
   return $parsed as BrowserBuildIdentity;
 }
 
-export function configureHost(origin: string): void {
-  return $requireManagedExports()["DotnetInspect"]["Web"]["InspectionEngine"]["ConfigureHost.92020726"](origin);
+export async function configureHost(origin: string): Promise<void> {
+  return await $requireManagedExports()["DotnetInspect"]["Web"]["InspectionEngine"]["ConfigureHost.1997859317"](origin);
 }
 
 export async function drainEpochWorkReporter(): Promise<void> {

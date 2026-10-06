@@ -199,6 +199,9 @@ public partial record ApiOptions : IProjectionOptions
         => ExactIncludeSectionsOverride ?? IncludeSections;
 
     public string[]? Discover { get; init; }
+
+    /// <summary><c>-D --details</c>: structural discovery with formats, shape, and cardinality.</summary>
+    public bool DiscoverDetails { get; init; }
     public bool Tree { get; init; }
 
     /// <summary>
@@ -249,7 +252,10 @@ public partial record ApiOptions : IProjectionOptions
     public BodyKindQueryOptions BodyKindQuery { get; init; } = BodyKindQueryOptions.Default;
     public CloneCandidateQueryOptions CloneCandidateQuery { get; init; } =
         CloneCandidateQueryOptions.Default;
-    public TipLevel TipLevel { get; init; } = TipLevel.Minimal;
+    /// <summary>
+    /// Whether the explicit tip projection was requested.
+    /// </summary>
+    public CompanionOutput CompanionOutput { get; init; } = CompanionOutput.None;
 
     /// <summary>
     /// True when discovery (-D) should resolve and load the source to report only the
@@ -257,7 +263,12 @@ public partial record ApiOptions : IProjectionOptions
     /// queries this is the default; <c>--schema</c> opts out to the cheap, offline static
     /// schema listing.
     /// </summary>
-    public bool EffectiveDiscovery => Discover != null && !Schema;
+    /// <summary>
+    /// <c>-D</c> that probes the real target. <c>--schema</c> and <c>--details</c> both opt out:
+    /// each is a structural, offline view of the catalog (formats, shape, and cardinality for
+    /// <c>--details</c>), exactly as for the package and library commands.
+    /// </summary>
+    public bool EffectiveDiscovery => Discover != null && !Schema && !DiscoverDetails;
 
     /// <summary>
     /// True when the user has opted into rich markdown output (via --markdown or -v:*).
@@ -292,35 +303,74 @@ public partial record ApiOptions : IProjectionOptions
             && Format == OutputFormat.Markdown
             && (!FormatFlagExplicitlySet || VerbosityExplicitlySet));
 
+    /// <summary>
+    /// Explicit output intent under <c>docs/design/section-shapes.md</c>: a format flag or
+    /// environment default, <c>--print</c>, <c>--row</c>, <c>--tree</c>, <c>--count</c>, a
+    /// projection, a shape flag, discovery, an envelope, or an analysis query. When present, a
+    /// lone selected section keeps that intent instead of its shape's native format.
+    /// </summary>
+    internal bool HasExplicitOutputIntent =>
+        FormatExplicitlySet
+        || JsonOutput
+        || Tabular
+        || Tsv
+        || Jsonl
+        || PlainText
+        || MermaidOutput
+        || EmbeddedMermaid
+        || NoHeader
+        || Print
+        || PrintRow is not null
+        || Value
+        || Urls
+        || Paths
+        || Count
+        || Tree
+        || ShapeOutput
+        || Discover is not null
+        || Schema
+        || Fields is { Length: > 0 }
+        || Columns is { Length: > 0 }
+        || BodyKindQuery.HasFilter
+        || PerformanceTriage.HasFilters
+        || CloneCandidateQuery.HasPredicates
+        || this is TypeOptions { EnvelopeOutput: true }
+        || this is MemberOptions { EnvelopeOutput: true };
+
+    /// <summary>
+    /// Whether the selection names sections explicitly: <c>-S</c> with names, or a section that
+    /// carries exact provenance (a typed caller supplying <see cref="IncludeSections"/> directly,
+    /// or the member command's pre-resolved sections). Bare <c>-S</c> is a preset.
+    /// </summary>
+    internal bool SelectionIsExplicit =>
+        !SelectDefault
+        && (Select is { Length: > 0 }
+            || ExactIncludeSections is { Count: > 0 })
+        // A section the command added on the user's behalf (Callers under a
+        // caller scope) was not selected explicitly, so it keeps the composed view.
+        && !(this is MemberOptions { ImplicitIncludeSections: { Count: > 0 } implicitSections }
+            && IncludeSections is { Count: 1 } loneSection
+            && implicitSections.Contains(loneSection.First()));
+
+    /// <summary>
+    /// Set by the preamble when the shared policy resolved a lone Text section to its native
+    /// payload; the computed fallback below answers the same question for a renderer that was
+    /// called without the preamble.
+    /// </summary>
+    internal bool NativeTextPayload { get; init; }
+
+    /// <summary>
+    /// A lone explicitly selected Text renders its undecorated payload when the caller named no
+    /// output intent. The shape decides (<see cref="Sections.ApiSectionShapes"/>), not a list of
+    /// section names; see <c>ApiCommand.ApplyNativeShapeOutput</c>.
+    /// </summary>
     public bool UsesNativePayloadDefault =>
-        !FormatExplicitlySet
-        && !JsonOutput
-        && !Tabular
-        && !Jsonl
-        && !PlainText
-        && !MermaidOutput
-        && !EmbeddedMermaid
-        && !NoHeader
-        && !Print
-        && !Value
-        && !Urls
-        && !Paths
-        && !Count
-        && Discover is null
-        && Columns is not { Length: > 0 }
-        && Fields is not { Length: > 0 }
-        && IncludeSections is { Count: 1 } sections
-        && sections.First() is
-            SectionNames.ApiDeclarations
-            or SectionNames.Source
-            or SectionNames.DecompiledSource
-            or SectionNames.AnnotatedSource
-            or SectionNames.PdbSource
-            or SectionNames.SourceDiff
-            or SectionNames.IL
-            or SectionNames.CostOverlay
-            or SectionNames.SemanticsOverlay
-            or SectionNames.FindingCensus;
+        NativeTextPayload
+        || (!HasExplicitOutputIntent
+            && SelectionIsExplicit
+            && IncludeSections is { Count: 1 } sections
+            && this is not MemberOptions { HasCallerScope: true }
+            && Sections.ApiSectionShapes.IsText(sections.First()));
 
     /// <summary>
     /// True when output is raw text (not rendered markdown).
@@ -360,6 +410,7 @@ public record TypeOptions : ApiOptions
     public string? OriginalTypeQuery { get; init; }
     public string? PlatformPrefixQuery { get; init; }
     public bool AllowPlatformPrefixFallback { get; init; }
+    internal bool RouterCompletedPlatformLookup { get; init; }
     public InspectionEnvelope<CSharpTypeDocumentOutcome>?
         TypeDocumentInspection
     {
@@ -403,6 +454,7 @@ public record TypeOptions : ApiOptions
 /// </summary>
 public record MemberOptions : ApiOptions
 {
+    public ExplanationProjection? Explanation { get; init; }
     public bool EnvelopeOutput { get; init; }
     internal RowSelectionIntent<string>? FactsRowSelection { get; init; }
     internal RowSelectionIntent<string>? CallRowSelection { get; init; }

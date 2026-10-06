@@ -41,7 +41,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
     private static readonly string[][] SystemTextJsonMergedSurfaceViews =
     [
         ["--member", "System.Text.Json.JsonSerializer.SerializeAsync:1"],
-        ["--type", "System.Text.Json.JsonSerializer", "--finding", "api.member"],
+        ["--type", "System.Text.Json.JsonSerializer", "--analysis", "api", "-S", "Transitions"],
     ];
 
     /// <summary>

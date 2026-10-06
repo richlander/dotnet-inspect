@@ -277,8 +277,8 @@ internal sealed class PackageEndpointDiffSession : IAsyncDisposable
     /// </summary>
     /// <remarks>
     /// Transitional (docs/design/package-endpoint-scope.md, adoption step 2):
-    /// the House reads a directory by range only for a Realize or a document
-    /// demand, so this reads the directory with a document demand for the
+    /// the House reads a directory by range only for a Realize or a file
+    /// demand, so this reads the directory with a file demand for the
     /// nuspec, which also reads the archive's root folder. It retires with
     /// the legacy selector in step 4. The Realize that follows an admitted
     /// check reads the cached directory's tail again.
@@ -305,7 +305,7 @@ internal sealed class PackageEndpointDiffSession : IAsyncDisposable
                     PackageHouseOperationProfile.Acquire,
                     operation.RequestTimeout,
                     operation.OperationTimeout),
-                documentDemand: PackageDocumentDemand.Create([$"{packageId}.nuspec"]));
+                fileDemand: PackageFileDemand.Create([$"{packageId}.nuspec"]));
         }
         catch
         {

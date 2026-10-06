@@ -41,7 +41,7 @@ public sealed class ExactTypeWorkspaceRouteTests
             PackagePath = $"{PackageId}@{Version}",
             Tfm = Framework,
             TypeName = typeof(ApiType).FullName,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
         };
 
         (int exitCode, string output, string error) =
@@ -99,7 +99,7 @@ public sealed class ExactTypeWorkspaceRouteTests
             WorkspacePacket = packet,
             TypeName = typeof(ApiType).FullName,
             ShareFormat = WorkspaceShareFormat.Packet,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.Tips,
         };
 
         (int exitCode, string output, string error) =
@@ -115,10 +115,16 @@ public sealed class ExactTypeWorkspaceRouteTests
             "ILInspector.Metadata.ApiType",
             output,
             StringComparison.Ordinal);
-        string derivedPacket = Assert.Single(
-            error.Split(
-                Environment.NewLine,
-                StringSplitOptions.RemoveEmptyEntries));
+        string[] errorLines = error.Split(
+            Environment.NewLine,
+            StringSplitOptions.RemoveEmptyEntries);
+        string derivedPacket = errorLines[0];
+        Assert.DoesNotContain("Tips:", error, StringComparison.Ordinal);
+        int firstTip = error.IndexOf("member ApiType", StringComparison.Ordinal);
+        Assert.True(firstTip >= 0);
+        Assert.True(
+            error.IndexOf(derivedPacket, StringComparison.Ordinal)
+                < firstTip);
         WorkspaceSharePacket derived =
             WorkspaceSharePacketCodec.Decode(
                 derivedPacket,
@@ -181,7 +187,7 @@ public sealed class ExactTypeWorkspaceRouteTests
             WorkspacePacket = packet,
             TypeName = @"N.Outer\.Inner",
             ShareFormat = WorkspaceShareFormat.Packet,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
         };
 
         (int exitCode, string output, string error) =
@@ -230,7 +236,7 @@ public sealed class ExactTypeWorkspaceRouteTests
             WorkspacePacket = packet,
             TypeName = typeof(ApiType).FullName,
             ShareFormat = WorkspaceShareFormat.Packet,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.Tips,
         };
 
         (int exitCode, string output, string error) =
@@ -254,6 +260,7 @@ public sealed class ExactTypeWorkspaceRouteTests
             "schema version 4",
             error,
             StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Tips:", error, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -303,7 +310,7 @@ public sealed class ExactTypeWorkspaceRouteTests
             WorkspacePacket = packet,
             TypeName = typeof(ApiType).FullName,
             ShareFormat = WorkspaceShareFormat.Packet,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
         };
 
         (int exitCode, string output, string error) =
@@ -348,7 +355,7 @@ public sealed class ExactTypeWorkspaceRouteTests
             TypeName = typeof(ApiType).FullName,
             ShareFormat = WorkspaceShareFormat.Packet,
             MemberFilter = ["Name"],
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
         };
 
         (int exitCode, string output, string error) =
@@ -389,7 +396,7 @@ public sealed class ExactTypeWorkspaceRouteTests
             WorkspacePacket = packet,
             TypeName = typeof(ApiType).FullName,
             ShareFormat = WorkspaceShareFormat.Packet,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
         };
         options = WithPresentation(options, presentation);
 
@@ -499,7 +506,7 @@ public sealed class ExactTypeWorkspaceRouteTests
             Format = OutputFormat.Markdown,
             MarkdownExplicitlySet = true,
             FormatExplicitlySet = true,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
         };
 
         (int exitCode, string output, string error) =
@@ -552,7 +559,7 @@ public sealed class ExactTypeWorkspaceRouteTests
             Format = OutputFormat.Markdown,
             MarkdownExplicitlySet = true,
             FormatExplicitlySet = true,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
         };
 
         (int exitCode, string output, _) =
@@ -611,7 +618,7 @@ public sealed class ExactTypeWorkspaceRouteTests
             Format = OutputFormat.Markdown,
             MarkdownExplicitlySet = true,
             FormatExplicitlySet = true,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
         };
 
         (int exitCode, string output, string error) =
@@ -663,7 +670,7 @@ public sealed class ExactTypeWorkspaceRouteTests
         {
             WorkspacePacket = packet,
             TypeName = typeof(ApiType).FullName,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
         };
 
         (int exitCode, string output, string error) =
@@ -699,7 +706,7 @@ public sealed class ExactTypeWorkspaceRouteTests
             WorkspacePacket = packet,
             TypeName = "Exact.Type.Good",
             ShareFormat = WorkspaceShareFormat.Packet,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
         };
 
         (int exitCode, string output, string error) =
@@ -762,7 +769,7 @@ public sealed class ExactTypeWorkspaceRouteTests
         {
             WorkspacePacket = packet,
             TypeName = typeof(ApiType).FullName,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
         };
 
         (int exitCode, string output, string error) =
@@ -796,7 +803,7 @@ public sealed class ExactTypeWorkspaceRouteTests
         {
             WorkspacePacket = packet,
             TypeName = typeof(ApiType).FullName,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
         };
 
         (int exitCode, string output, string error) =
@@ -953,7 +960,7 @@ public sealed class ExactTypeWorkspaceRouteTests
             PackagePath = $"{PackageId}@{Version}",
             Tfm = Framework,
             TypeName = typeof(ApiType).FullName,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
             CompactJson = true,
         };
         WorkspaceContextLoadOptions capabilities = new()
@@ -1005,6 +1012,83 @@ public sealed class ExactTypeWorkspaceRouteTests
             root.GetProperty("share").GetProperty("kind").GetString());
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task StructuredOutputPreservesExplicitTips(
+        bool envelopeOutput)
+    {
+        var store = await CachedStoreAsync();
+        using var client = new HttpClient(new FailingHandler());
+        var baseline = new TypeOptions
+        {
+            PackagePath = $"{PackageId}@{Version}",
+            Tfm = Framework,
+            TypeName = typeof(ApiType).FullName,
+            CompanionOutput = CompanionOutput.None,
+            JsonOutput = !envelopeOutput,
+            EnvelopeOutput = envelopeOutput,
+            CompactJson = true,
+            Format = OutputFormat.Json,
+            FormatExplicitlySet = true,
+            FormatFlagExplicitlySet = !envelopeOutput,
+        };
+        WorkspaceContextLoadOptions capabilities = new()
+        {
+            HttpClient = client,
+            SourceAuthorization =
+                new UniformPackageSourceAuthorization([Source]),
+            PackageStore = store,
+        };
+
+        (int withoutExit, string withoutOutput, string withoutError) =
+            await ConsoleCapture.RunAsync(
+                () => TypeCommand.ExecuteAsync(
+                    baseline,
+                    ResolvedMemberInspectionPlan
+                        .FromCompatibilityOptions(baseline),
+                    capabilities));
+        TypeOptions withTips = baseline with
+        {
+            CompanionOutput = CompanionOutput.Tips,
+        };
+        (int withExit, string withOutput, string withError) =
+            await ConsoleCapture.RunAsync(
+                () => TypeCommand.ExecuteAsync(
+                    withTips,
+                    ResolvedMemberInspectionPlan
+                        .FromCompatibilityOptions(withTips),
+                    capabilities));
+
+        Assert.Equal(0, withoutExit);
+        Assert.Equal(0, withExit);
+        Assert.Equal(withoutOutput, withOutput);
+        Assert.Empty(withoutError);
+        Assert.DoesNotContain("Tips:", withError, StringComparison.Ordinal);
+        Assert.Contains(
+            "member ApiType",
+            withError,
+            StringComparison.Ordinal);
+        using JsonDocument document = JsonDocument.Parse(withOutput);
+        if (envelopeOutput)
+        {
+            Assert.Equal(
+                "exact-type",
+                document.RootElement
+                    .GetProperty("result_kind")
+                    .GetString());
+        }
+        else
+        {
+            Assert.Equal(
+                typeof(ApiType).FullName,
+                document.RootElement
+                    .GetProperty("type")
+                    .GetProperty("fullName")
+                    .GetString());
+        }
+    }
+
     [Fact]
     public async Task UnavailableContentJsonRemainsVisible()
     {
@@ -1017,7 +1101,7 @@ public sealed class ExactTypeWorkspaceRouteTests
             PackagePath = $"{PackageId}@{Version}",
             Tfm = Framework,
             TypeName = "Exact.Type.Malformed",
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
             JsonOutput = true,
             Format = OutputFormat.Json,
             FormatExplicitlySet = true,
@@ -1043,8 +1127,11 @@ public sealed class ExactTypeWorkspaceRouteTests
         Assert.Contains("MalformedMetadata", error, StringComparison.Ordinal);
     }
 
-    [Fact]
-    public async Task EligibleRoutePreservesDiagnosticsAndIncompleteExit()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task EligibleRoutePreservesDiagnosticsAndIncompleteExit(
+        bool jsonOutput)
     {
         var store = await CachedStoreAsync(
             ($"lib/{Framework}/PartiallyMalformed.dll",
@@ -1055,7 +1142,12 @@ public sealed class ExactTypeWorkspaceRouteTests
             PackagePath = $"{PackageId}@{Version}",
             Tfm = Framework,
             TypeName = "Exact.Type.Good",
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.Tips,
+            JsonOutput = jsonOutput,
+            Format = jsonOutput
+                ? OutputFormat.Json
+                : OutputFormat.Markdown,
+            FormatExplicitlySet = jsonOutput,
         };
 
         (int exitCode, string output, string error) =
@@ -1079,6 +1171,7 @@ public sealed class ExactTypeWorkspaceRouteTests
             "MalformedMetadata",
             error,
             StringComparison.Ordinal);
+        Assert.DoesNotContain("Tips:", error, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -1093,7 +1186,7 @@ public sealed class ExactTypeWorkspaceRouteTests
             PackagePath = $"{PackageId}@{Version}",
             Tfm = Framework,
             TypeName = "Exact.Type.Malformed",
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
         };
 
         (int exitCode, string output, string error) =
@@ -1139,7 +1232,7 @@ public sealed class ExactTypeWorkspaceRouteTests
             PackagePath = $"{PackageId}@{Version}",
             Tfm = Framework,
             TypeName = "N.Holder<T>",
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
         };
 
         (int exitCode, string output, string error) =
@@ -1177,7 +1270,7 @@ public sealed class ExactTypeWorkspaceRouteTests
             PackagePath = $"{PackageId}@{Version}",
             Tfm = Framework,
             TypeName = @"N.Outer\.Inner",
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
         };
 
         (int exitCode, string output, string error) =

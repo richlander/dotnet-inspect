@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    NativeAOT scorecard for the Analysis-owned physical-method-to-direct-call
+    incidence kernel. Acquisition uses the focused call-graph result outside
+    timing; timed columns compare LINQ and that focused product path with the
+    pinned NLinq oracle. See
+    docs/evidence-and-validation.md#nlinq-oracle-for-finite-incidence.
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <LangVersion>preview</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <IsPackable>false</IsPackable>
+    <AssemblyName>ownership-incidence-scorecard</AssemblyName>
+    <RootNamespace>OwnershipIncidenceScorecard</RootNamespace>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <OptimizationPreference>Speed</OptimizationPreference>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/ILInspector.Analysis/ILInspector.Analysis.csproj" />
+    <ProjectReference Include="../../tests/DotnetInspector.PerformanceOracles/DotnetInspector.PerformanceOracles.csproj" />
+  </ItemGroup>
+
+</Project>

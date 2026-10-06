@@ -8,6 +8,8 @@ using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 using Inspector.Text;
 
+using ILInspector.ILDiff;
+
 namespace ILInspector.Research;
 
 [Flags]
@@ -16,13 +18,30 @@ public enum ImplementationDiffMechanism
     None = 0,
     CSharp = 1,
     IlBody = 2,
-    All = CSharp | IlBody,
+    Complexity = 4,
+    All = CSharp | IlBody | Complexity,
 }
 
 public sealed record ImplementationDiffOptions(
     ImplementationDiffMechanism Mechanisms = ImplementationDiffMechanism.All,
-    IReadOnlySet<string>? TypeFilters = null,
-    IReadOnlySet<string>? MemberTargetIdentities = null);
+    IReadOnlySet<string>? TypeFilters = null)
+{
+    public static void ValidateMechanisms(
+        ImplementationDiffMechanism mechanisms,
+        string parameterName)
+    {
+        const ImplementationDiffMechanism known =
+            ImplementationDiffMechanism.All;
+        if (mechanisms == ImplementationDiffMechanism.None
+            || (mechanisms & ~known) != 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                parameterName,
+                mechanisms,
+                "At least one known Implementation Diff mechanism is required.");
+        }
+    }
+}
 
 public enum ImplementationComplexityChangeKind
 {
@@ -245,13 +264,22 @@ public static partial class ImplementationDiff
         ArgumentNullException.ThrowIfNull(newInput);
 
         options ??= new ImplementationDiffOptions();
+        ImplementationDiffOptions.ValidateMechanisms(
+            options.Mechanisms,
+            nameof(options));
+        if (!HasResearchMechanism(options.Mechanisms))
+        {
+            return new ImplementationDiffResult(
+                [],
+                new ResearchComparison([]));
+        }
+
         var research = ResearchDiff.Compare(
             oldInput,
             newInput,
             new ResearchDiffOptions(
                 ToResearchMechanisms(options.Mechanisms),
-                TypeFilters: options.TypeFilters,
-                MemberTargetIdentities: options.MemberTargetIdentities)
+                TypeFilters: options.TypeFilters)
             {
                 RetainedComparisonDescriptorIds =
                     RetainedComparisonDescriptorIds(options.Mechanisms),
@@ -266,44 +294,61 @@ public static partial class ImplementationDiff
     {
         ArgumentNullException.ThrowIfNull(oldAssemblies);
         ArgumentNullException.ThrowIfNull(newAssemblies);
+        options ??= new ImplementationDiffOptions();
+        ImplementationDiffOptions.ValidateMechanisms(
+            options.Mechanisms,
+            nameof(options));
 
-        var oldContents = OpenAssemblyContents(oldAssemblies);
-        try
+        ImplementationDiffResult result;
+        if (HasResearchMechanism(options.Mechanisms))
         {
-            var newContents = OpenAssemblyContents(newAssemblies);
+            var oldContents = OpenAssemblyContents(oldAssemblies);
             try
             {
-                var result = Compare(
-                    new ResearchDiffInput([])
-                    {
-                        AssemblyContents = oldContents,
-                    },
-                    new ResearchDiffInput([])
-                    {
-                        AssemblyContents = newContents,
-                    },
-                    options);
-                return result with
+                var newContents = OpenAssemblyContents(newAssemblies);
+                try
                 {
-                    Complexity = ImplementationComplexityService.Execute(
-                        new ImplementationComplexityComparisonRequest(
-                            [.. oldAssemblies.Select(
-                                static assembly => assembly.ProfileAnalysis)],
-                            [.. newAssemblies.Select(
-                                static assembly => assembly.ProfileAnalysis)],
-                            options?.TypeFilters,
-                            options?.MemberTargetIdentities)),
-                };
+                    result = Compare(
+                        new ResearchDiffInput([])
+                        {
+                            AssemblyContents = oldContents,
+                        },
+                        new ResearchDiffInput([])
+                        {
+                            AssemblyContents = newContents,
+                        },
+                        options);
+                }
+                finally
+                {
+                    DisposeAssemblyContents(newContents);
+                }
             }
             finally
             {
-                DisposeAssemblyContents(newContents);
+                DisposeAssemblyContents(oldContents);
             }
         }
-        finally
+        else
         {
-            DisposeAssemblyContents(oldContents);
+            result = new ImplementationDiffResult(
+                [],
+                new ResearchComparison([]));
         }
+
+        return options.Mechanisms.HasFlag(
+            ImplementationDiffMechanism.Complexity)
+            ? result with
+            {
+                Complexity = ImplementationComplexityService.Execute(
+                    new ImplementationComplexityComparisonRequest(
+                        [.. oldAssemblies.Select(
+                            static assembly => assembly.ProfileAnalysis)],
+                        [.. newAssemblies.Select(
+                            static assembly => assembly.ProfileAnalysis)],
+                        options.TypeFilters)),
+            }
+            : result;
     }
 
     public static ImplementationDiffResult FromResearchComparison(
@@ -312,6 +357,9 @@ public static partial class ImplementationDiff
     {
         ArgumentNullException.ThrowIfNull(research);
         options ??= new ImplementationDiffOptions();
+        ImplementationDiffOptions.ValidateMechanisms(
+            options.Mechanisms,
+            nameof(options));
 
         var sourceComparisons = research.RetainedComparisons.Items
             .Where(comparison => comparison.Descriptor.Id == TextFindings.LineDescriptor.Id)
@@ -347,7 +395,6 @@ public static partial class ImplementationDiff
                 })
             .Where(member => member.Changes.Count > 0 || member.SourceComparison is not null)
             .Where(member => ResearchDiff.MatchesTypeFilters(member.Subject.TypeName ?? "", options.TypeFilters))
-            .Where(member => MatchesMemberTargets(member.Subject, options.MemberTargetIdentities))
             .ToArray();
 
         return new ImplementationDiffResult(members, research);
@@ -402,9 +449,9 @@ public static partial class ImplementationDiff
 
     static void ValidateMethodPopulation(
         MetadataSource source,
-        LibraryCallGraphAnalysisResult callGraph)
+        LibraryCallGraphAnalysisResult methodPopulation)
     {
-        LibraryBodyModuleIdentity indexedModule = callGraph.ModuleIdentity;
+        LibraryBodyModuleIdentity indexedModule = methodPopulation.ModuleIdentity;
         AssemblyReferenceIdentity? sourceIdentity = source.Reader.IsAssembly
             ? AssemblyReferenceIdentity.FromAssemblyDefinition(source.Reader)
             : null;
@@ -421,7 +468,7 @@ public static partial class ImplementationDiff
         throw new ArgumentException(
             $"The call-graph Analysis result for '{indexedModule.AssemblyIdentity?.Name ?? "standalone module"}' does not match "
             + $"assembly content '{source.AssemblyName}'.",
-            nameof(callGraph));
+            nameof(methodPopulation));
     }
 
     static void ValidateProfileAnalysis(
@@ -468,6 +515,9 @@ public static partial class ImplementationDiff
         ArgumentNullException.ThrowIfNull(result);
         ArgumentNullException.ThrowIfNull(inputs);
         options ??= new ImplementationDiffOptions();
+        ImplementationDiffOptions.ValidateMechanisms(
+            options.Mechanisms,
+            nameof(options));
 
         var changes = result.Research.Changes.ToBuilder();
         var retained = result.Research.RetainedComparisons.Items.ToBuilder();
@@ -757,7 +807,14 @@ public static partial class ImplementationDiff
         return changes.ToImmutable();
     }
 
-    static ResearchChangeMechanism ToResearchMechanisms(ImplementationDiffMechanism mechanisms)
+    static bool HasResearchMechanism(
+        ImplementationDiffMechanism mechanisms)
+        => (mechanisms & (
+            ImplementationDiffMechanism.CSharp
+            | ImplementationDiffMechanism.IlBody)) != 0;
+
+    static ResearchChangeMechanism ToResearchMechanisms(
+        ImplementationDiffMechanism mechanisms)
     {
         var research = ResearchChangeMechanism.None;
         if (mechanisms.HasFlag(ImplementationDiffMechanism.CSharp))
@@ -766,11 +823,6 @@ public static partial class ImplementationDiff
             research |= ResearchChangeMechanism.IlBody;
         return research;
     }
-
-    static bool MatchesMemberTargets(ResearchSubjectKey subject, IReadOnlySet<string>? memberTargetIdentities)
-        => memberTargetIdentities is null
-           || memberTargetIdentities.Count == 0
-           || memberTargetIdentities.Contains(subject.Id);
 
     internal static ResearchChange FindingFailureChange(
         ResearchSubjectKey subject,

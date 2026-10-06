@@ -64,9 +64,42 @@ public sealed record ResourceLifecycleOccurrence
     }
 }
 
+public abstract record ResourceLifecycleFindingInspection
+{
+    public sealed record Complete(
+        FindingInspection<ResourceLifecycleOccurrence>.Complete Inspection)
+        : ResourceLifecycleFindingInspection;
+
+    public sealed record Incomplete : ResourceLifecycleFindingInspection
+    {
+        public Incomplete(
+            FindingInspection<ResourceLifecycleOccurrence>.Complete inspection,
+            ImmutableArray<ResourceLifecycleLimitation> limitations)
+        {
+            ArgumentNullException.ThrowIfNull(inspection);
+            if (limitations.IsDefaultOrEmpty)
+            {
+                throw new ArgumentException(
+                    "Incomplete lifecycle inspection requires a limitation.",
+                    nameof(limitations));
+            }
+
+            Inspection = inspection;
+            Limitations = limitations;
+        }
+
+        public FindingInspection<ResourceLifecycleOccurrence>.Complete
+            Inspection { get; }
+        public ImmutableArray<ResourceLifecycleLimitation> Limitations { get; }
+    }
+
+    public sealed record Failed(InspectionError Error)
+        : ResourceLifecycleFindingInspection;
+}
+
 public static class ResourceLifecycleAnalysis
 {
-    public static FindingInspection<ResourceLifecycleOccurrence> Inspect(
+    public static ResourceLifecycleFindingInspection Inspect(
         LibraryResourceLifecycleAnalysisResult result,
         FindingSubject subject)
     {
@@ -110,26 +143,37 @@ public static class ResourceLifecycleAnalysis
                        root.Root,
                        outcome),
             ];
+            ImmutableArray<ResourceLifecycleLimitation> limitations =
+            [
+                .. result.Limitations,
+                .. from method in result.Methods
+                   from limitation in method.Limitations
+                   select limitation,
+                .. from method in result.Methods
+                   from root in method.Roots
+                   from limitation in root.Limitations
+                   select limitation,
+            ];
             if (occurrences.IsEmpty
                 && !result.IsComplete)
             {
-                ResourceLifecycleLimitation first =
-                    result.Limitations
-                        .Concat(result.Methods.SelectMany(method =>
-                            method.Limitations.Concat(
-                                method.Roots.SelectMany(root =>
-                                    root.Limitations))))
-                        .First();
+                ResourceLifecycleLimitation first = limitations[0];
                 return Failed(
                     subject,
                     $"Resource lifecycle analysis was incomplete "
                     + $"({first.Kind}: {first.Detail}).");
             }
 
-            return new FindingInspection<ResourceLifecycleOccurrence>.Complete(
-                AnalysisFindings.InspectResourceLifecycles(
-                    occurrences,
-                    subject));
+            var inspection =
+                new FindingInspection<ResourceLifecycleOccurrence>.Complete(
+                    AnalysisFindings.InspectResourceLifecycles(
+                        occurrences,
+                        subject));
+            return limitations.IsEmpty
+                ? new ResourceLifecycleFindingInspection.Complete(inspection)
+                : new ResourceLifecycleFindingInspection.Incomplete(
+                    inspection,
+                    limitations);
         }
         catch (Exception ex) when (
             ex is InvalidOperationException
@@ -153,81 +197,6 @@ public static class ResourceLifecycleAnalysis
                 candidate.Kind
                     == ResourceLifecycleOutcomeKind
                         .MissingReleaseOnNormalPath));
-
-    public static FindingInspection<ResourceLifecycleOccurrence> InspectAssembly(
-        string path,
-        FindingSubject subject)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(path);
-        return InspectAssembly(
-            () => LibraryBodyIndex.Open(
-                path,
-                LibraryBodyAnalysisFeatures.LeakTriage),
-            subject);
-    }
-
-    public static FindingInspection<ResourceLifecycleOccurrence> InspectAssembly(
-        Func<LibraryBodyIndex> openIndex,
-        FindingSubject subject)
-    {
-        ArgumentNullException.ThrowIfNull(openIndex);
-        ArgumentNullException.ThrowIfNull(subject);
-
-        try
-        {
-            LeakTriageResult result =
-                openIndex().LeakTriage;
-            if (!result.Failures.IsEmpty)
-            {
-                LeakTriageFailure first = result.Failures[0];
-                string count = result.Failures.Length == 1
-                    ? "one method"
-                    : $"{result.Failures.Length} methods";
-                return new FindingInspection<ResourceLifecycleOccurrence>.Failed(
-                    new InspectionError(
-                        subject,
-                        AnalysisFindings.ResourceLifecycleDescriptor,
-                        $"Resource lifecycle analysis was incomplete for {count}; "
-                        + $"first failure at method token 0x{first.MethodToken:X8} "
-                        + $"during {FailurePhase(first.Kind)} "
-                        + $"({first.Reason})."));
-            }
-
-            var occurrences = result
-                .ExceptionPathCandidates
-                .Select(CreateOccurrence);
-            return new FindingInspection<ResourceLifecycleOccurrence>.Complete(
-                AnalysisFindings.InspectResourceLifecycles(occurrences, subject));
-        }
-        catch (Exception ex) when (
-            ex is IOException
-                or UnauthorizedAccessException
-                or BadImageFormatException
-                or InvalidOperationException
-                or ArgumentException
-                or OverflowException
-                or IndexOutOfRangeException)
-        {
-            return new FindingInspection<ResourceLifecycleOccurrence>.Failed(
-                new InspectionError(
-                    subject,
-                    AnalysisFindings.ResourceLifecycleDescriptor,
-                    $"{ex.GetType().Name}: {ex.Message}"));
-        }
-    }
-
-    static ResourceLifecycleOccurrence CreateOccurrence(
-        ArrayPoolExceptionPathCandidate candidate)
-        => new(
-            candidate.Method,
-            "ArrayPool<T>",
-            "pool-churn-on-exception",
-            candidate.RentOffset,
-            candidate.Boundaries
-                .Select(boundary => new ResourceBoundaryEvidence(
-                    boundary.ILOffset,
-                    boundary.Operation))
-                .ToImmutableArray());
 
     static ResourceLifecycleOccurrence CreateOccurrence(
         MethodIdentity method,
@@ -264,28 +233,13 @@ public static class ResourceLifecycleAnalysis
         return root.ResourceKinds[0];
     }
 
-    static FindingInspection<ResourceLifecycleOccurrence> Failed(
+    static ResourceLifecycleFindingInspection.Failed Failed(
         FindingSubject subject,
         string reason) =>
-        new FindingInspection<ResourceLifecycleOccurrence>.Failed(
+        new(
             new InspectionError(
                 subject,
                 AnalysisFindings.ResourceLifecycleDescriptor,
                 reason));
 
-    static string FailurePhase(LeakTriageFailureKind kind) =>
-        kind switch
-        {
-            LeakTriageFailureKind.InstructionDecoding =>
-                "instruction decoding",
-            LeakTriageFailureKind.MethodResolution =>
-                "method resolution",
-            LeakTriageFailureKind.MethodMetadata =>
-                "method metadata validation",
-            LeakTriageFailureKind.BodyAcquisition =>
-                "method body acquisition",
-            LeakTriageFailureKind.ControlFlowAnalysis =>
-                "control-flow analysis",
-            _ => "analysis",
-        };
 }

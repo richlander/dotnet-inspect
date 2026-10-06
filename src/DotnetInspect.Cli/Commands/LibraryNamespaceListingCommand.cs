@@ -53,7 +53,7 @@ internal static class LibraryNamespaceListingCommand
             || options.IncludeReferences
             || options.IncludeDependencies
             || options.ReferenceHierarchyDepth is not null
-            || options.CoordinateRequest is not null
+            || options.AddressRequest is not null
             || options.ExtractResources is not null
             || options.IntegrationQuery.HasFilter
             || options.PerformanceTriage.HasFilters

@@ -249,6 +249,8 @@ public sealed record ResourceOccurrenceLimitation(
     { get; init; }
     public ResourceEffectResolutionRejectionKind? EffectResolutionRejection
     { get; init; }
+    public ImmutableArray<ResourceOccurrenceResourceKind> ResourceKinds
+    { get; init; } = [];
 }
 
 /// <summary>Detached terminal resource facts for one physical method body.</summary>
@@ -397,6 +399,11 @@ internal static class ResourceOccurrenceAnalysisService
                             Method = method,
                             Call = ResourceOccurrenceCallSite.From(call),
                             Effect = effect.Effect,
+                            ResourceKinds =
+                            [
+                                .. effect.ResourceKinds.Select(
+                                    ResourceOccurrenceResourceKind.From),
+                            ],
                         });
                 }
 

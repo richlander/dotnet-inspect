@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Globalization;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 using InertText;
 
 namespace DotnetInspect.Cli.Sections;
@@ -58,7 +59,7 @@ public sealed class InspectionTrace
 
     /// <summary>
     /// Expensive resources the run acquired, in acquisition order — the shared metadata session,
-    /// the whole-assembly body index, the drill map. A resource that never appears was never built,
+    /// whole-assembly body analysis, the drill map. A resource that never appears was never built,
     /// which is the property most worth checking: a section that should not have cost anything
     /// leaves no resource line.
     /// </summary>

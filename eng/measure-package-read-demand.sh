@@ -40,7 +40,7 @@ measure() { # $1 label, $2 binary
   for package in "${packages[@]}"; do
     name=${package%@*}
     session="read-demand-$label-$name-$$"
-    local args=(find .ToString --package "$package" --tfm net10.0 --info --tips q)
+    local args=(find .ToString --package "$package" --tfm net10.0 --info)
     for kind in cold warm; do
       /usr/bin/time -f "%e" -o "$work/time" "$binary" "${args[@]}" --isolated "$session" \
         > "$work/$label-$name-$kind.out" 2> "$work/$label-$name-$kind.err" || true
@@ -76,7 +76,7 @@ sequence() { # $1 label, $2 binary
   for command in "${commands[@]}"; do
     step=$((step + 1))
     # shellcheck disable=SC2086
-    "$binary" $command --tips q --isolated "$session" > "$work/seq-$label-$step.out" 2>&1 || true
+    "$binary" $command --isolated "$session" > "$work/seq-$label-$step.out" 2>&1 || true
   done
   rm -rf "$(session_dir "$session")"
 }

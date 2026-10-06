@@ -16,7 +16,7 @@ public partial class CommandExecutionTests
     public async Task RelationshipCommands_NamespacePrefixInputs_PrintPrefixBrowseHint()
     {
         var (implementsExit, implementsOutput, implementsError) = await RunAppAsync(
-            "implements", "System.Text", "--tips", "q");
+            "implements", "System.Text");
 
         Assert.Equal(0, implementsExit);
         Assert.Empty(implementsOutput);
@@ -25,7 +25,7 @@ public partial class CommandExecutionTests
         Assert.Contains("find \"System.Text*\" --platform", implementsError);
 
         var (extensionsExit, extensionsOutput, extensionsError) = await RunAppAsync(
-            "extensions", "System.Text", "--tips", "q");
+            "extensions", "System.Text");
 
         Assert.Equal(0, extensionsExit);
         Assert.Contains("No extension methods found", extensionsOutput);
@@ -38,7 +38,7 @@ public partial class CommandExecutionTests
     public async Task Depends_NamespacePrefixInput_PrintsPrefixBrowseHint()
     {
         var (dependsExit, dependsOutput, dependsError) = await RunAppAsync(
-            "depends", "System.Text", "--tips", "q");
+            "depends", "System.Text");
 
         Assert.Equal(1, dependsExit);
         Assert.Empty(dependsOutput);
@@ -75,13 +75,13 @@ public partial class CommandExecutionTests
     {
         var normal = await RunAppAsync(
             "extensions", "IEnumerable<T>", "--platform", "System.Linq",
-            "--count", "--tips", "q");
+            "--count");
         var quiet = await RunAppAsync(
             "extensions", "IEnumerable<T>", "--platform", "System.Linq",
-            "--count", "-v", "q", "--tips", "q");
+            "--count", "-v", "q");
         var quietWindowed = await RunAppAsync(
             "extensions", "IEnumerable<T>", "--platform", "System.Linq",
-            "--count", "-v", "q", "--rows", "1..1", "--tips", "q");
+            "--count", "-v", "q", "--rows", "1..1");
 
         Assert.Equal(0, normal.Exit);
         Assert.Equal(normal.Output, quiet.Output);
@@ -94,19 +94,19 @@ public partial class CommandExecutionTests
     {
         var find = await RunAppAsync(
             "find", "*", "--platform", "System.Private.CoreLib",
-            "--count", "--rows", "1..1", "--tips", "q");
+            "--count", "--rows", "1..1");
         var members = await RunAppAsync(
             "find", ".ToString", "--platform", "System.Private.CoreLib",
-            "--count", "--rows", "1..1", "--tips", "q");
+            "--count", "--rows", "1..1");
         var implements = await RunAppAsync(
             "implements", "IDisposable", "--platform", "System.Private.CoreLib",
-            "--count", "--rows", "1..1", "--tips", "q");
+            "--count", "--rows", "1..1");
         var extensions = await RunAppAsync(
             "extensions", "IEnumerable<T>", "--platform", "System.Linq",
-            "--count", "--rows", "1..1", "--tips", "q");
+            "--count", "--rows", "1..1");
         var invalid = await RunAppAsync(
             "find", "*", "--platform", "System.Private.CoreLib",
-            "--count", "--columns", "NoSuchColumn", "--tips", "q");
+            "--count", "--columns", "NoSuchColumn");
 
         foreach (var result in new[] { find, members, implements, extensions })
         {
@@ -216,10 +216,10 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "depends", "System.Int128",
-            "--count", "--rows", "2..2", "--tips", "q");
+            "--count", "--rows", "2..2");
         var (renderExit, rendered, renderError) = await RunAppAsync(
             "depends", "System.Int128",
-            "--rows", "2..2", "--tips", "q");
+            "--rows", "2..2");
 
         Assert.Equal(0, exit);
         Assert.Equal("1", output.Trim());
@@ -239,7 +239,7 @@ public partial class CommandExecutionTests
         string[] window =
         [
             "depends", "System.Int128",
-            "--rows", "2..3", "--tips", "q",
+            "--rows", "2..3",
         ];
         var count = await RunAppAsync([.. window, "--count"]);
         var table = await RunAppAsync([.. window, "--table"]);
@@ -291,7 +291,7 @@ public partial class CommandExecutionTests
         string[] limit =
         [
             "depends", "System.Int128",
-            "-n", "2", "--tips", "q",
+            "-n", "2",
         ];
         var count = await RunAppAsync([.. limit, "--count"]);
         var table = await RunAppAsync([.. limit, "--table"]);
@@ -324,7 +324,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "depends", "System.Int128",
-            "--rows", "999..999", "--count", "--tips", "q");
+            "--rows", "999..999", "--count");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -343,7 +343,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "depends", "System.Int128",
-            "-n", "0", "--count", "--tips", "q");
+            "-n", "0", "--count");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -358,7 +358,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "depends", "System.Int128",
-            "--json", "--rows", "1..1", "--tips", "q");
+            "--json", "--rows", "1..1");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -383,7 +383,7 @@ public partial class CommandExecutionTests
             "--where", "Kind=Interface",
             "--order-by", "Target desc",
             "--top", "1",
-            "--jsonl", "--tips", "q");
+            "--jsonl");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -406,18 +406,18 @@ public partial class CommandExecutionTests
             "--order-by", "Target desc",
             "--rows", "2..3",
             "--top", "1",
-            "--jsonl", "--tips", "q");
+            "--jsonl");
         var topThenWindow = await RunAppAsync(
             "depends", "System.Int128",
             "--where", "Kind=Interface",
             "--order-by", "Target desc",
             "--top", "1",
             "--rows", "2..3",
-            "--jsonl", "--tips", "q");
+            "--jsonl");
         var legacyTail = await RunAppAsync(
             "depends", "System.Int128",
             "--rows", "1", "--tail",
-            "--jsonl", "--tips", "q");
+            "--jsonl");
 
         Assert.Equal(0, windowThenTop.Exit);
         Assert.Empty(windowThenTop.Error);
@@ -448,7 +448,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "depends", "System.IDisposable",
-            "--json", "--tips", "q");
+            "--json");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -476,7 +476,7 @@ public partial class CommandExecutionTests
                 "json");
             var (exit, output, error) = await RunAppAsync(
                 "depends", "System.Int128",
-                "--tree", "--rows", "1", "--tips", "q");
+                "--tree", "--rows", "1");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -497,10 +497,10 @@ public partial class CommandExecutionTests
     {
         var pretty = await RunAppAsync(
             "depends", "--library", TestAssemblyPath,
-            "--json", "--tips", "q");
+            "--json");
         var compact = await RunAppAsync(
             "depends", "--library", TestAssemblyPath,
-            "--json", "--compact", "--tips", "q");
+            "--json", "--compact");
 
         Assert.Equal(0, pretty.Exit);
         Assert.Equal(0, compact.Exit);
@@ -547,10 +547,10 @@ public partial class CommandExecutionTests
         {
             var graph = await RunAppAsync(
                 "depends", "--library", path,
-                "--json", "--compact", "--tips", "q");
+                "--json", "--compact");
             var count = await RunAppAsync(
                 "depends", "--library", path,
-                "--count", "--tips", "q");
+                "--count");
 
             Assert.Equal(0, graph.Exit);
             Assert.Empty(graph.Error);
@@ -597,7 +597,7 @@ public partial class CommandExecutionTests
         {
             var (exit, output, error) = await RunAppAsync(
                 "depends", "--library", path,
-                "--json", "--compact", "--tips", "q");
+                "--json", "--compact");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -697,7 +697,7 @@ public partial class CommandExecutionTests
     public async Task RelationshipCommands_NamedPlatformLibrary_FormatsSourceAsFrameworkAtVersion()
     {
         var (exit, output, error) = await RunAppAsync(
-            "extensions", "IEnumerable<T>", "--platform", "System.Linq", "-v:n", "--tips", "q", "-n", "12");
+            "extensions", "IEnumerable<T>", "--platform", "System.Linq", "-v:n", "-n", "12");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -723,8 +723,7 @@ public partial class CommandExecutionTests
                 "MetadataReader",
                 "--library", typeof(MetadataFindings).Assembly.Location,
                 "--library", corruptPath,
-                "--count",
-                "--tips", "q");
+                "--count");
 
             Assert.Equal(0, exit);
             Assert.True(int.Parse(output.Trim()) > 0);
@@ -744,7 +743,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "extensions", "IEnumerable<T>", "--platform", "System.Linq",
-            "--jsonl", "--rows", "1..2", "--tips", "q");
+            "--jsonl", "--rows", "1..2");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -757,7 +756,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "implements", "System.Text.Json.Serialization.JsonConverter",
-            "--platform", "System.Text.Json", "--tips", "q");
+            "--platform", "System.Text.Json");
 
         Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
         Assert.Contains("`System.Text.Json.Serialization.JsonConverter<T>`", output);

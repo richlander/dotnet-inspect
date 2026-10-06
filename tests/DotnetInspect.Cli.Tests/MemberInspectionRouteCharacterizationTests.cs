@@ -144,7 +144,7 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
             AssemblyPath = typeof(BodyShapeFixture).Assembly.Location,
             MemberFilter = ["Item"],
             IncludeSections = [SectionNames.MemberIndex],
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
         };
         var detailOptions = memberTypeOptions with
         {
@@ -189,11 +189,14 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
                     packageDiscoveryDemand),
                 packagePipeline,
                 packageSections,
-                "focus:vulnerability-traffic="
-                    + PackageCommand.AllowsVulnerabilityTraffic(packageOptions)
-                    + ";discovery:vulnerability-traffic="
-                    + PackageCommand.AllowsVulnerabilityTraffic(
-                        packageProducerOptions)),
+                "focus:package-metadata="
+                    + PackageCommand.RequiresPackageMetadata(
+                        packageOptions,
+                        packagePipeline)
+                    + ";discovery:package-metadata="
+                    + PackageCommand.RequiresPackageMetadata(
+                        packageProducerOptions,
+                        packagePipeline)),
             Observe(
                 "package-single-library",
                 await ObservePackageLibraryDiscoveryAsync(),
@@ -257,20 +260,20 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
             new(
                 "package",
                 "schema-static-without-target/effective-with-target",
-                "Package[schema:61:4FD76B6F9943]",
+                "Package[schema:61:9BF6EECEF3D3]",
                 "focus=SourceLink: Availability->SourceLink availability;"
                     + "discovery=none",
-                "focus:vulnerability-traffic=True;"
-                    + "discovery:vulnerability-traffic=False"),
+                "focus:package-metadata=True;"
+                    + "discovery:package-metadata=False"),
             new(
                 "package-single-library",
                 "schema-static-before-package-acquisition/"
                     + "effective-after-package-acquisition",
-                "Library[schema:137:C24A9CDF35E9]",
+                "Library[schema:141:FB81C87762E5]",
                 "focus=Library Info->Assembly references,"
-                    + "Library Info->Classified methods,"
                     + "Library Info->Custom attributes,"
-                    + "Library Info->Extension methods,Library Info->Resources,"
+                    + "Library Info->Method classification (Library Info counts),"
+                    + "Library Info->Resources,"
                     + "Library Info->Type forwarders;"
                     + "discovery=none",
                 "focus:pdb=True;source=True;cached=False;"
@@ -279,27 +282,27 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
                 "package-all-libraries",
                 "schema-static-before-package-acquisition/"
                     + "render-after-package-acquisition",
-                "Library[schema:137:C24A9CDF35E9]",
+                "Library[schema:141:FB81C87762E5]",
                 "focus=Library Info->Assembly references,"
-                    + "Library Info->Classified methods,"
                     + "Library Info->Custom attributes,"
-                    + "Library Info->Extension methods,Library Info->Resources,"
+                    + "Library Info->Method classification (Library Info counts),"
+                    + "Library Info->Resources,"
                     + "Library Info->Type forwarders;discovery=none",
                 "focus:pdb=False;source=False;cached=False;"
                     + "discovery:not-reached"),
             new(
                 "direct-library",
                 "schema-static-without-target/effective-with-target",
-                "Library[schema:139:0A3D09C334A8]",
+                "Library[schema:143:BA8E8CF97ACF]",
                 "focus=Library Info->Assembly references,"
-                    + "Library Info->Classified methods,"
                     + "Library Info->Custom attributes,"
-                    + "Library Info->Extension methods,Library Info->Resources,"
+                    + "Library Info->Method classification (Library Info counts),"
+                    + "Library Info->Resources,"
                     + "Library Info->Type forwarders;"
                     + "discovery=Library Info->Assembly references,"
-                    + "Library Info->Classified methods,"
                     + "Library Info->Custom attributes,"
-                    + "Library Info->Extension methods,Library Info->Resources,"
+                    + "Library Info->Method classification (Library Info counts),"
+                    + "Library Info->Resources,"
                     + "Library Info->Type forwarders,"
                     + "ReadyToRun applicability->ReadyToRun image,"
                     + "References applicability->Assembly references,"
@@ -409,36 +412,30 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
                 "method:get_Count,method:set_Count,property:Value"),
             new(
                 nameof(BodyShapeFixture),
+                // An explicit property or event composes its accessors
+                // (docs/design/api-population-scope.md#spelling-within-api-visibility-scope);
+                // the get_Count/set_Count interface methods are not accessors.
                 "constructor:.ctor,"
-                    + "explicit-interface-implementation:"
-                    + "DotnetInspector.Fixtures.IBodyShapeValue.add_Changed,"
-                    + "explicit-interface-implementation:"
-                    + "DotnetInspector.Fixtures.IBodyShapeValue.get_Value,"
-                    + "explicit-interface-implementation:"
-                    + "DotnetInspector.Fixtures.IBodyShapeValue.remove_Changed,"
+                    + "event:DotnetInspector.Fixtures.IBodyShapeValue.Changed,"
                     + "explicit-interface-implementation:"
                     + "DotnetInspector.Fixtures.get_IBodyShapePrefixMethods.get_Count,"
                     + "explicit-interface-implementation:"
-                    + "DotnetInspector.Fixtures.get_IBodyShapePrefixMethods.get_Value,"
-                    + "explicit-interface-implementation:"
                     + "DotnetInspector.Fixtures.get_IBodyShapePrefixMethods.set_Count,"
-                    + "explicit-interface-implementation:"
-                    + "DotnetInspector.Fixtures.get_IBodyShapePrefixMethods.set_Value,"
                     + "extension-method:ProjectedCreation,"
                     + "method:Branch,method:Classify,method:PublicCreation,"
                     + "method:PublicLocalFunctionBox,method:PublicSmallArray,"
-                    + "method:ReadableLocal",
-                "extension-method:ProjectedCreation,method:.ctor,method:Branch,"
+                    + "method:ReadableLocal,"
+                    + "property:DotnetInspector.Fixtures.IBodyShapeValue.Value,"
+                    + "property:DotnetInspector.Fixtures.get_IBodyShapePrefixMethods.Value",
+                "event:DotnetInspector.Fixtures.IBodyShapeValue.Changed,"
+                    + "extension-method:ProjectedCreation,method:.ctor,method:Branch,"
                     + "method:Classify,"
-                    + "method:DotnetInspector.Fixtures.IBodyShapeValue.add_Changed,"
-                    + "method:DotnetInspector.Fixtures.IBodyShapeValue.get_Value,"
-                    + "method:DotnetInspector.Fixtures.IBodyShapeValue.remove_Changed,"
                     + "method:DotnetInspector.Fixtures.get_IBodyShapePrefixMethods.get_Count,"
-                    + "method:DotnetInspector.Fixtures.get_IBodyShapePrefixMethods.get_Value,"
                     + "method:DotnetInspector.Fixtures.get_IBodyShapePrefixMethods.set_Count,"
-                    + "method:DotnetInspector.Fixtures.get_IBodyShapePrefixMethods.set_Value,"
                     + "method:PublicCreation,method:PublicLocalFunctionBox,"
-                    + "method:PublicSmallArray,method:ReadableLocal",
+                    + "method:PublicSmallArray,method:ReadableLocal,"
+                    + "property:DotnetInspector.Fixtures.IBodyShapeValue.Value,"
+                    + "property:DotnetInspector.Fixtures.get_IBodyShapePrefixMethods.Value",
                 "constructor:.ctor,method:Branch,method:Classify,"
                     + "method:PublicCreation,method:PublicLocalFunctionBox,"
                     + "method:PublicSmallArray,method:ReadableLocal"),
@@ -969,11 +966,14 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
 
     private static string RemoveLibraryResourcePath(string node)
     {
+        // Structural discovery appends the resource path of every catalog that
+        // publishes one (library/..., package/...); the matrix compares names.
         int marker = node.LastIndexOf(
-            " [library/",
+            " [",
             StringComparison.Ordinal);
         return marker >= 0
             && node.EndsWith(']')
+            && node.IndexOf('/', marker) > marker
                 ? node[..marker]
                 : node;
     }

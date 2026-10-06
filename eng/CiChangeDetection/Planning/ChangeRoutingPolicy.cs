@@ -89,26 +89,14 @@ internal sealed class ChangeRoutingPolicy
             RoutePath(record.Path, ref state);
         }
 
-        // `ilroundtrip` has no job of its own: its steps live inside the test
-        // job, which is gated on `code`. State the implication once rather
-        // than duplicating `code` into every ilroundtrip rule.
-        if (state.IlRoundtrip)
-        {
-            state.Code = true;
-        }
-
         return new RoutingSelections(
             state.Code,
-            state.RepositoryGuards,
             state.CSharpDiff,
             state.Decompiler,
             state.Docs,
             state.IlDiff,
-            state.IlRoundtrip,
             state.Packaging,
-            state.Shipped,
             state.Web,
-            state.WebComprehensive,
             state.Skills,
             state.Tla);
     }
@@ -156,11 +144,6 @@ internal sealed class ChangeRoutingPolicy
 
     private void RoutePath(ReadOnlySpan<byte> path, ref RoutingState state)
     {
-        if (BytePattern.Matches(path, "*.cs"))
-        {
-            state.RepositoryGuards = true;
-        }
-
         if (IsWebProjectPath(path))
         {
             state.Code = true;
@@ -177,19 +160,17 @@ internal sealed class ChangeRoutingPolicy
             state.Tla = true;
         }
 
-        if (SelectsInspectWebComprehensive(path))
+        if (SelectsInspectWebSurface(path))
         {
             state.Web = true;
-            state.WebComprehensive = true;
         }
 
         RouteDecompiler(path, ref state);
-        RouteIlRoundtrip(path, ref state);
+        RouteTestBuildSurface(path, ref state);
         RoutePackaging(path, ref state);
-        RouteShipped(path, ref state);
     }
 
-    private static bool SelectsInspectWebComprehensive(
+    private static bool SelectsInspectWebSurface(
         ReadOnlySpan<byte> path) =>
         BytePattern.MatchesAny(
             path,
@@ -204,13 +185,15 @@ internal sealed class ChangeRoutingPolicy
             "src/ILInspector.JsExportSurface/*",
             "src/ILInspector.TypeScriptGeneration/*",
             "src/ts-jsexport/*",
+            "tests/InspectWeb.MultiFacadeCanary/*",
+            "tests/InspectWeb.ManagedOperationBridgeCanary/*",
             "inspect-web/multi-facade-canary/*",
             "inspect-web/managed-operation-bridge-canary/*",
             "inspect-web/scripts/compile-engine-facades.ts",
             "inspect-web/scripts/verify-multi-facade-canary.ts",
             "inspect-web/scripts/verify-managed-operation-bridge-canary.ts",
-            "inspect-web/DotnetInspect.Web/InspectWebJsExportContext.cs",
-            "inspect-web/DotnetInspect.Web.Core/BrowserManaged*");
+            "src/DotnetInspect.Web/InspectWebJsExportContext.cs",
+            "src/DotnetInspect.Web.Core/BrowserManaged*");
 
     private static void RouteLanes(
         ReadOnlySpan<byte> path,
@@ -229,6 +212,12 @@ internal sealed class ChangeRoutingPolicy
         }
         else if (BytePattern.MatchesAny(
             path,
+            "tests/DotnetInspect.Web.Tests/*",
+            "tests/InspectWeb.ManagedOperationBridgeCanary/*",
+            "tests/InspectWeb.MultiFacadeCanary/*",
+            "tests/MsdlProxy.Tests/*",
+            "tools/InspectWeb.AsyncLoweringVerifier/*",
+            "tools/InspectWeb.PlatformIndexGenerator/*",
             "tests/ILInspector.MetadataPrimitives.PlatformProbe/*",
             "tests/Inspector.Artifacts.Local.PlatformProbe/*",
             "fixtures/js-export/ILInspector.JsExportSurface.TypeScriptFixtures/*",
@@ -269,9 +258,23 @@ internal sealed class ChangeRoutingPolicy
             state.Code = true;
             state.Web = true;
         }
+        else if (BytePattern.MatchesAny(
+            path,
+            "eng/CiChangeDetection/InspectWebDeploymentWorkflowContract.cs"))
+        {
+            state.Code = true;
+            state.Web = true;
+        }
         else if (BytePattern.Matches(
             path,
-            "eng/CiChangeDetection/PromotionWorkflowContract.cs"))
+            "eng/CiChangeDetection/ReleaseCandidateWorkflowContract.cs"))
+        {
+            state.Code = true;
+            state.Web = true;
+        }
+        else if (BytePattern.Matches(
+            path,
+            "eng/CiChangeDetection/ReleasePublicationWorkflowContract.cs"))
         {
             state.Code = true;
             state.Web = true;
@@ -293,6 +296,7 @@ internal sealed class ChangeRoutingPolicy
             "eng/report-decompiler-opt-in-corpus-drift.sh",
             "eng/prepare-decompiler-package-sweep.cs",
             "eng/prepare-evil-corpus.sh",
+            "eng/verify-nuget-retry-package.cs",
             "docs/data/nuget-top-packages.lock.json",
             "docs/data/nuget-top-packages.json",
             "eng/restore-iltools.sh",
@@ -320,10 +324,12 @@ internal sealed class ChangeRoutingPolicy
             "eng/test-inspect-web-package-adoption-gate.sh",
             "eng/test-inspect-web-published-application.sh",
             "eng/test-inspect-web-source-comparison-gate.sh",
-            "eng/validate-inspect-web-promotion.cs",
-            "eng/validate-inspect-web-promotion.sh",
+            "eng/validate-release-candidate.cs",
+            "eng/validate-release-candidate.sh",
             "eng/generate-inspect-web-engine-facade.sh",
             "eng/InspectWebAsyncLoweringReceipt.targets",
+            "eng/verify-release-candidate-artifact.sh",
+            "eng/verify-inspect-web-site-artifact.sh",
             "eng/verify-inspect-web-async-deployment.sh"))
         {
             state.Web = true;
@@ -358,7 +364,8 @@ internal sealed class ChangeRoutingPolicy
             "*.props",
             "*.targets",
             "*.sln",
-            "*.slnx"))
+            "*.slnx",
+            "global.json"))
         {
             state.Code = true;
             state.Web = true;
@@ -371,10 +378,18 @@ internal sealed class ChangeRoutingPolicy
         else if (BytePattern.MatchesAny(
             path,
             ".github/workflows/deploy-inspect-web.yml",
-            ".github/workflows/deploy-inspect-web-coreclr.yml",
             ".github/workflows/deploy-inspect-web-runtime-sites.yml",
-            ".github/workflows/promote-inspect-web.yml"))
+            ".github/workflows/inspect-web-runtime-cohort-nightly.yml",
+            ".github/workflows/inspect-web-runtime-pin-proposal.yml"))
         {
+            state.Web = true;
+        }
+        else if (BytePattern.MatchesAny(
+            path,
+            ".github/workflows/release-candidate.yml",
+            ".github/workflows/release.yml"))
+        {
+            state.Code = true;
             state.Web = true;
         }
         else if (BytePattern.Matches(path, ".github/workflows/*"))
@@ -387,6 +402,9 @@ internal sealed class ChangeRoutingPolicy
         ReadOnlySpan<byte> path,
         ref RoutingState state)
     {
+        if (IsInspectWebManagedTestBuildFile(path))
+            return;
+
         if (BytePattern.MatchesAny(
             path,
             "tools/CSharpDiffHarness/*",
@@ -411,6 +429,9 @@ internal sealed class ChangeRoutingPolicy
         ReadOnlySpan<byte> path,
         ref RoutingState state)
     {
+        if (IsInspectWebManagedTestBuildFile(path))
+            return;
+
         if (BytePattern.MatchesAny(
             path,
             "tools/IlDiffHarness/*",
@@ -471,6 +492,9 @@ internal sealed class ChangeRoutingPolicy
         ReadOnlySpan<byte> path,
         ref RoutingState state)
     {
+        if (IsInspectWebManagedTestBuildFile(path))
+            return;
+
         if (BytePattern.MatchesAny(
             path,
             "eng/check-decompiler-gate.cs",
@@ -512,10 +536,13 @@ internal sealed class ChangeRoutingPolicy
         }
     }
 
-    private static void RouteIlRoundtrip(
+    private static void RouteTestBuildSurface(
         ReadOnlySpan<byte> path,
         ref RoutingState state)
     {
+        if (IsInspectWebManagedTestBuildFile(path))
+            return;
+
         if (BytePattern.MatchesAny(
             path,
             "tests/DotnetInspector.ILRoundtrip.Tests/*",
@@ -529,9 +556,15 @@ internal sealed class ChangeRoutingPolicy
             "*.sln",
             "*.slnx"))
         {
-            state.IlRoundtrip = true;
+            state.Code = true;
         }
     }
+
+    private static bool IsInspectWebManagedTestBuildFile(
+        ReadOnlySpan<byte> path) =>
+        BytePattern.Matches(
+            path,
+            "tests/DotnetInspect.Web.Tests/Directory.Build.props");
 
     private static void RoutePackaging(
         ReadOnlySpan<byte> path,
@@ -545,47 +578,25 @@ internal sealed class ChangeRoutingPolicy
             "Directory.Packages.props",
             "src/Directory.Build.props",
             "global.json",
+            "eng/CiChangeDetection/ReleaseCandidateWorkflowContract.cs",
+            "eng/CiChangeDetection/ReleasePublicationWorkflowContract.cs",
+            "eng/validate-release-candidate.cs",
+            "eng/validate-release-candidate.sh",
+            "eng/verify-nuget-retry-package.cs",
+            "eng/verify-release-candidate-artifact.sh",
             ".github/workflows/ci.yml",
+            ".github/workflows/release-candidate.yml",
             ".github/workflows/release.yml"))
         {
             state.Packaging = true;
         }
     }
 
-    private static void RouteShipped(
-        ReadOnlySpan<byte> path,
-        ref RoutingState state)
-    {
-        if (BytePattern.Matches(path, "src/*Tests/*"))
-        {
-            // Test projects cannot introduce a net11-only API into the shipped
-            // tool.
-        }
-        else if (BytePattern.MatchesAny(
-            path,
-            "src/*Fixtures*/*",
-            "src/DiffFixtures*/*"))
-        {
-            // Neither can fixtures.
-        }
-        else if (BytePattern.MatchesAny(
-            path,
-            "src/*",
-            "Directory.Build.props",
-            "Directory.Build.targets",
-            "Directory.Packages.props",
-            "src/Directory.Build.props",
-            "global.json",
-            ".github/workflows/ci.yml"))
-        {
-            state.Shipped = true;
-        }
-    }
-
     private bool IsWebProjectPath(ReadOnlySpan<byte> path) =>
-        webProjects is null
+        BytePattern.Matches(path, "src/MsdlProxy/*")
+        || (webProjects is null
             ? BytePattern.Matches(path, "src/*")
-            : webProjects.Covers(path);
+            : webProjects.Covers(path));
 
     private bool SkipsDecompilerProject(ReadOnlySpan<byte> path) =>
         decompilerSkipProjects is not null
@@ -594,16 +605,12 @@ internal sealed class ChangeRoutingPolicy
     private struct RoutingState
     {
         internal bool Code;
-        internal bool RepositoryGuards;
         internal bool CSharpDiff;
         internal bool Decompiler;
         internal bool Docs;
         internal bool IlDiff;
-        internal bool IlRoundtrip;
         internal bool Packaging;
-        internal bool Shipped;
         internal bool Web;
-        internal bool WebComprehensive;
         internal bool Skills;
         internal bool Tla;
     }

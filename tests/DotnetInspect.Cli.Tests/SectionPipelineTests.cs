@@ -162,7 +162,7 @@ public partial class SectionPipelineTests
     /// These sections read as noun phrases rather than carrying a <c>Group: Leaf</c> prefix,
     /// so the family is identified by the trailing "file"/"files" noun: every registered
     /// section named that way must either be behind the door or be the one deliberate
-    /// exception, plain <c>Package files</c>, which is the unfiltered superset. A section
+    /// exception, plain <c>Files</c>, which is the unfiltered superset. A section
     /// carrying a <c>Group: Leaf</c> prefix is claimed by that group's door instead.
     ///
     /// The membership list is not restated here. It is derived from the section names on one
@@ -188,7 +188,7 @@ public partial class SectionPipelineTests
     /// nothing. This drives the check from the declaration: it feeds a model containing one
     /// matching file per member and asserts each section produces rows.
     ///
-    /// This is a non-vacuity gate, not a formatting test — it caught <c>Package skill files</c>
+    /// This is a non-vacuity gate, not a formatting test — it caught <c>Skills</c>
     /// returning zero rows for a package that ships four of them.
     /// </summary>
     [System.Runtime.CompilerServices.MethodImpl(
@@ -306,14 +306,14 @@ public partial class SectionPipelineTests
         InspectionQueryResults results = LibrarySections.CreateQueryRegistry().Run(
             [
                 AuditMetadataQuery.Definition,
-                ClassifiedMethodsQuery.Definition,
+                MethodClassificationDemand.ModelCounts,
             ],
             context);
-        LibraryMetadataService.ApplyClassifiedMethodsResult(
+        LibraryMetadataService.ApplyMethodClassificationResult(
             context.AssemblyPath,
             context.Model,
             context.Logger,
-            results.Get(ClassifiedMethodsQuery.Definition));
+            results.Get(MethodClassificationDemand.ModelCounts));
         LibraryMetadataService.ApplyAuditMetadataResult(
             context.AssemblyPath,
             context.Model,
@@ -323,7 +323,7 @@ public partial class SectionPipelineTests
 
     private static string SignatureOf(LibraryInspection model) => string.Join(
         "|",
-        $"classified={PayloadCount(model.ClassifiedMethodInspection)}",
+        $"classified={model.UnsafeMethodCount},{model.PInvokeMethodCount},{model.AsyncMethodCount}",
         AuditSignatureOf(model));
 
     private static string AuditSignatureOf(LibraryInspection model) =>

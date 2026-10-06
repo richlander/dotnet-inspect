@@ -12,6 +12,105 @@ namespace ILInspector.Metadata.Tests;
 public sealed class MetadataTypeDeclarationEvidenceTests
 {
     [Fact]
+    public void RepeatedExactRequestReusesPostedResultWithoutAdditionalWork()
+    {
+        string path = typeof(int).Assembly.Location;
+        using var stream = File.OpenRead(path);
+        using var pe = new PEReader(stream);
+        MetadataReader reader = pe.GetMetadataReader();
+        MetadataTypeDefinitionAddress address =
+            MetadataTypeDefinitionAddress.FromHandle(
+                reader,
+                FindType(reader, "System", "Int32"));
+        MetadataTypeDefinitionAddress otherAddress =
+            MetadataTypeDefinitionAddress.FromHandle(
+                reader,
+                FindType(reader, "System", "Int64"));
+        using var assembly = AssemblyInspectionSession.Open(path);
+        using var operation = new MetadataOperationContext(
+            MetadataOperationPolicy.Unbounded);
+        using MetadataDeclarationSession declarations =
+            assembly.CreateDeclarationSession(operation);
+
+        MetadataTypeDeclarationResult first =
+            declarations.PostTypeDeclaration(
+                address,
+                TestContext.Current.CancellationToken);
+        MetadataOperationCounters counters = operation.Counters;
+        MetadataTypeDeclarationResult second =
+            declarations.PostTypeDeclaration(
+                address,
+                TestContext.Current.CancellationToken);
+
+        Assert.IsType<MetadataTypeDeclarationResult.Posted>(first);
+        Assert.Same(first, second);
+        Assert.Equal(counters, operation.Counters);
+
+        MetadataTypeDeclarationResult other =
+            declarations.PostTypeDeclaration(
+                otherAddress,
+                TestContext.Current.CancellationToken);
+        Assert.NotSame(first, other);
+        MetadataOperationCounters countersAfterOther =
+            operation.Counters;
+        Assert.NotEqual(counters, countersAfterOther);
+        Assert.Same(
+            first,
+            declarations.PostTypeDeclaration(
+                address,
+                TestContext.Current.CancellationToken));
+        Assert.Equal(countersAfterOther, operation.Counters);
+
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        Assert.Throws<OperationCanceledException>(
+            () => declarations.PostTypeDeclaration(
+                address,
+                cancellation.Token));
+    }
+
+    [Fact]
+    public void RepeatedExactRequestReusesRejectedResultWithoutAdditionalWork()
+    {
+        string path = typeof(int).Assembly.Location;
+        using var stream = File.OpenRead(path);
+        using var pe = new PEReader(stream);
+        MetadataReader reader = pe.GetMetadataReader();
+        MetadataTypeDefinitionAddress address =
+            MetadataTypeDefinitionAddress.FromHandle(
+                reader,
+                FindType(reader, "System", "Int32"));
+        MetadataTypeDefinitionAddress otherAddress =
+            MetadataTypeDefinitionAddress.FromHandle(
+                reader,
+                FindType(reader, "System", "Int64"));
+        using var assembly = AssemblyInspectionSession.Open(path);
+        using var operation = new MetadataOperationContext(
+            new MetadataOperationPolicy(maxMetadataRows: 0));
+        using MetadataDeclarationSession declarations =
+            assembly.CreateDeclarationSession(operation);
+
+        MetadataTypeDeclarationResult first =
+            declarations.PostTypeDeclaration(
+                address,
+                TestContext.Current.CancellationToken);
+        MetadataOperationCounters counters = operation.Counters;
+        MetadataTypeDeclarationResult second =
+            declarations.PostTypeDeclaration(
+                address,
+                TestContext.Current.CancellationToken);
+
+        Assert.IsType<MetadataTypeDeclarationResult.Rejected>(first);
+        Assert.Same(first, second);
+        Assert.Equal(counters, operation.Counters);
+        Assert.NotSame(
+            first,
+            declarations.PostTypeDeclaration(
+                otherAddress,
+                TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
     public void RealInt32PostsExactNamedPrimitiveAndCategoryEvidence()
     {
         string path = typeof(int).Assembly.Location;
@@ -266,6 +365,29 @@ public sealed class MetadataTypeDeclarationEvidenceTests
             [1, 1],
             posted.Evidence.DefinitionIdentity
                 .IntroducedGenericParameterCounts);
+        Assert.Collection(
+            posted.Evidence.Signature.GenericParameters,
+            parameter =>
+            {
+                Assert.Equal(0, parameter.DefinitionSegmentIndex);
+                Assert.Equal(0, parameter.MetadataIndex);
+                Assert.Equal("T", parameter.Name.ToString());
+                Assert.Equal(
+                    GenericParameterAttributes
+                        .ReferenceTypeConstraint
+                        | GenericParameterAttributes
+                            .DefaultConstructorConstraint,
+                    parameter.Attributes);
+            },
+            parameter =>
+            {
+                Assert.Equal(1, parameter.DefinitionSegmentIndex);
+                Assert.Equal(1, parameter.MetadataIndex);
+                Assert.Equal("U", parameter.Name.ToString());
+                Assert.Equal(
+                    GenericParameterAttributes.None,
+                    parameter.Attributes);
+            });
         var open = Assert.IsType<
             MetadataTypeIdentity.GenericInstance>(
                 posted.Evidence.OpenSelfIdentity);
@@ -2031,6 +2153,7 @@ public sealed class MetadataTypeDeclarationEvidenceTests
 }
 
 public sealed class TypeDeclarationGenericOuter<T>
+    where T : class, new()
 {
     public sealed class Inner<U>
     {

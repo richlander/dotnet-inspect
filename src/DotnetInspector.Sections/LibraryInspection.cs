@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Text.Json.Serialization;
 
 using DotnetInspector.Libraries;
+using DotnetInspector.LibraryMetadata;
 using ILInspector.Metadata;
 using InertText;
 
@@ -261,18 +262,133 @@ public sealed record LibraryTypePopulationRequest
 public sealed record LibraryInspectionPlan
 {
     public LibraryInspectionPlan(
-        LibraryTypePopulationRequest types,
-        ApiSurfaceExtractionBounds bounds)
+        LibraryTypePopulationRequest? types,
+        ApiSurfaceExtractionBounds bounds,
+        LibraryEnablementsRequest? enablements = null,
+        LibraryImageFactsRequest? image = null,
+        LibraryDescriptionFactsRequest? description = null)
     {
-        Types = types
-            ?? throw new ArgumentNullException(nameof(types));
+        Types = types;
         Bounds = bounds
             ?? throw new ArgumentNullException(nameof(bounds));
+        Enablements = enablements;
+        Image = image;
+        Description = description;
     }
 
-    public LibraryTypePopulationRequest Types { get; }
+    /// <summary>
+    /// The requested Type population, or null for a facts-only plan that
+    /// executes no population work.
+    /// </summary>
+    public LibraryTypePopulationRequest? Types { get; }
     public ApiSurfaceExtractionBounds Bounds { get; }
+
+    /// <summary>Requests the Enablements fact group.</summary>
+    public LibraryEnablementsRequest? Enablements { get; }
+
+    /// <summary>Requests the Image fact group.</summary>
+    public LibraryImageFactsRequest? Image { get; }
+
+    /// <summary>Requests the Description fact group.</summary>
+    public LibraryDescriptionFactsRequest? Description { get; }
 }
+
+/// <summary>Request for the Image fact group.</summary>
+public sealed record LibraryImageFactsRequest;
+
+/// <summary>Request for the Description fact group.</summary>
+public sealed record LibraryDescriptionFactsRequest;
+
+[JsonConverter(typeof(JsonStringEnumConverter<LibraryTextFactUnavailableReason>))]
+public enum LibraryTextFactUnavailableReason
+{
+    [JsonStringEnumMemberName("undecodable-metadata")]
+    UndecodableMetadata,
+
+    [JsonStringEnumMemberName("conflicting-values")]
+    ConflictingValues,
+}
+
+/// <summary>
+/// One attribute-text Library fact. A fact the image does not carry is absent
+/// (null), never empty text.
+/// </summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+[JsonDerivedType(typeof(Present), "present")]
+[JsonDerivedType(typeof(Unavailable), "unavailable")]
+public abstract record LibraryTextFact
+{
+    private LibraryTextFact()
+    {
+    }
+
+    public sealed record Present(
+        [property: JsonConverter(typeof(InertStringJsonConverter))] InertString Value)
+        : LibraryTextFact;
+
+    public sealed record Unavailable(LibraryTextFactUnavailableReason Reason)
+        : LibraryTextFact;
+
+    internal static LibraryTextFact? From(AssemblyAttributeText? text) =>
+        text switch
+        {
+            null => null,
+            { State: AssemblyAttributeTextState.Present, Value: { } value } =>
+                new Present(new InertString(TextPolicy.Field, value)),
+            { State: AssemblyAttributeTextState.Conflicting } =>
+                new Unavailable(LibraryTextFactUnavailableReason.ConflictingValues),
+            _ => new Unavailable(LibraryTextFactUnavailableReason.UndecodableMetadata),
+        };
+}
+
+/// <summary>
+/// The Image fact group of the API assembly
+/// (<c>docs/design/library-inspection-document.md#library-facts</c>).
+/// </summary>
+public sealed record LibraryImageFacts(
+    int ImageBytes,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    LibraryTextFact? TargetFramework,
+    LibraryCompilationForm Compilation,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    LibraryArchitecture? Architecture,
+    bool StrongNameSigned,
+    LibraryReproducibility Reproducibility)
+{
+    internal static LibraryImageFacts From(int imageBytes, AssemblyLibraryFactsObservation facts) =>
+        new(
+            imageBytes,
+            LibraryTextFact.From(facts.TargetFramework),
+            facts.Compilation,
+            facts.Architecture,
+            facts.StrongNameSigned,
+            facts.Reproducibility);
+}
+
+/// <summary>The Description fact group of the API assembly.</summary>
+public sealed record LibraryDescriptionFacts(
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    LibraryTextFact? InformationalVersion,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    LibraryTextFact? Company,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    LibraryTextFact? Product,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    LibraryTextFact? Copyright)
+{
+    internal static LibraryDescriptionFacts From(AssemblyLibraryFactsObservation facts) =>
+        new(
+            LibraryTextFact.From(facts.InformationalVersion),
+            LibraryTextFact.From(facts.Company),
+            LibraryTextFact.From(facts.Product),
+            LibraryTextFact.From(facts.Copyright));
+}
+
+/// <summary>
+/// Request for the Enablements fact group
+/// (<c>docs/design/library-inspection-document.md#library-facts</c>).
+/// </summary>
+public sealed record LibraryEnablementsRequest;
 
 /// <summary>
 /// An in-process request pairing portable execution intent with exact Library
@@ -713,9 +829,25 @@ public sealed record LibraryInspectionWork(
 public sealed record LibraryDocument(
     LibraryAssemblyIdentity Assembly,
     Guid ModuleVersionId,
-    LibraryTypePopulationResult Types,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    LibraryTypePopulationResult? Types,
     LibraryInspectionWork Work,
-    ApiSurfaceExtractionBounds Bounds);
+    ApiSurfaceExtractionBounds Bounds)
+{
+    /// <summary>The requested Image fact group, or null when not requested.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public LibraryImageFacts? Image { get; init; }
+
+    /// <summary>The requested Description fact group, or null when not requested.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public LibraryDescriptionFacts? Description { get; init; }
+
+    /// <summary>
+    /// The requested Enablements fact group, or null when not requested.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public LibraryEnablementsOutcome? Enablements { get; init; }
+}
 
 public enum LibraryInspectionRejection
 {

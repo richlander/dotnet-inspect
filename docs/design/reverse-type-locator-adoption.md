@@ -12,10 +12,11 @@ the new query contract. This map owns no participating component's internals.
 Metadata inventories, the Workspace's explicit-context population projection,
 the cold locator, the resident facade, and explicit package-backed reference
 population and Package Scope admission are implemented
-prerequisites. Existing
-Find, Type, Member, Platform routing, and Spotlight behavior remain supported
-as before. Other population producers and host adoption are still pending; no
-design-only row or mockup is advertised as implemented.
+prerequisites. CLI Find's pinned Package path and CLI Router's default bare
+Platform path now use the shared locator envelope. Type, Member, remaining
+Platform routes, and Spotlight behavior remain supported as before. Other
+population producers and host adoption are still pending; no design-only row
+or mockup is advertised as implemented.
 
 ## Counted production path
 
@@ -32,12 +33,12 @@ inside the Workspace owner.
 | 1 | [#6852](https://github.com/richlander/dotnet-inspect/issues/6852), Reverse Type-Declaration Locator: this contract and map. | Design review only; not product support. |
 | 2 | [#6847](https://github.com/richlander/dotnet-inspect/issues/6847), Source Selection: settle exact Library coordinates for local assemblies and project outputs in its coordinate owner. | Project and Local arms preserve source domain without paths, generations, or pseudo-Package/Platform provenance. |
 | 3 | [#6848](https://github.com/richlander/dotnet-inspect/issues/6848), Metadata: [borrowed declaration inventories](type-forwarding-resolution.md#detached-declaration-inventory) through `AssemblyInspectionSession.TypeDeclarations()`. | Implemented Metadata prerequisite: detached structured names, kinds, public/all views, and whole-inventory rejection; not yet locator or host adoption. |
-| 4 | [#6845](https://github.com/richlander/dotnet-inspect/issues/6845), [Workspace Live Locator](workspace-live-locator.md): [explicit context projection](workspace-live-locator.md#implemented-explicit-context-projection), its [resident facade](workspace-live-locator.md#implemented-resident-context-facade), [#7077](https://github.com/richlander/dotnet-inspect/issues/7077)'s [package-backed reference admission](workspace-live-locator.md#implemented-reference-population-admission), and [#7198](https://github.com/richlander/dotnet-inspect/issues/7198)'s explicit [Package Scope declaration admission](workspace-live-locator.md#implemented-package-scope-declaration-admission) are implemented. | Coherent first-use observation, occurrence-based reuse, receipt-pinned vectors and owner-governed close cover context-loader, package-backed reference, and Package Scope populations. Installed-reference and local/project adapters remain separate. |
+| 4 | [#6845](https://github.com/richlander/dotnet-inspect/issues/6845), [Workspace Live Locator](workspace-live-locator.md): [explicit context projection](workspace-live-locator.md#implemented-explicit-context-projection), its [resident facade](workspace-live-locator.md#implemented-resident-context-facade), [#7077](https://github.com/richlander/dotnet-inspect/issues/7077)'s [package-backed reference admission](workspace-live-locator.md#implemented-reference-population-admission), [#7198](https://github.com/richlander/dotnet-inspect/issues/7198)'s explicit [Package Scope declaration admission](workspace-live-locator.md#implemented-package-scope-declaration-admission), and [#6850](https://github.com/richlander/dotnet-inspect/issues/6850)'s [PlatformHouse population admission](workspace-live-locator.md#implemented-platformhouse-population-admission) are implemented. | Coherent first-use observation, occurrence-based reuse, receipt-pinned vectors and owner-governed close cover context-loader, package-backed reference, Package Scope, and transferred PlatformHouse populations. Local/project adapters remain separate. |
 | 5 | [#6849](https://github.com/richlander/dotnet-inspect/issues/6849), Queries: [cold reverse locator](reverse-type-declaration-locator.md#implemented-cold-query) over the implemented Workspace population input. | Implemented always-vector coordinate-plus-origin answers, deterministic outcomes and Release gates; additional population producers remain step 4 adoption, not inferred source authority. |
 | 6 | [#6846](https://github.com/richlander/dotnet-inspect/issues/6846), Sections: [adopt the locator result's row unit and structured multi-format projection](output-shapes.md#reverse-type-declaration-locator-projection). | Implemented typed answer row sets, source-generated JSON, common Markout lowering, and mandatory coverage/failure disclosure independent of selected candidate rows. |
 | 7 | [#6844](https://github.com/richlander/dotnet-inspect/issues/6844), CLI Find: the implemented exact-Package path uses the live facade in a short-lived Workspace when its selected implementation universe covers the established Find assembly population; Type and Member consume representable selected observations through exact typed handoff. | Implemented locate-once workflow, separate fallback requests, downstream limits, presentation-compatible Markdown and root-array JSON, and exact Package handoff. Multi-layout Packages, Platform Libraries, and other source adapters retain compatibility routing until their exact populations can be reproduced. Locator evidence remains internal to Find. |
 | 8 | [#6851](https://github.com/richlander/dotnet-inspect/issues/6851), [Inspect Web Type Find](inspect-web-type-find.md): after focused Queries prerequisite [#7198](https://github.com/richlander/dotnet-inspect/issues/7198), explicitly admit Package Scope occurrences, retain the same live facade across additions, and consume selected Type context. | Proposed Browser/Wasm Find-after-append and exact Type navigation use typed data, not displayed names; exact Member selection continues through the Type surface, and portable sharing remains owner-governed. |
-| 9 | [#6850](https://github.com/richlander/dotnet-inspect/issues/6850), Platform discovery in Services: retire or narrow `PlatformTypeCatalog` after its consumers migrate. | No duplicated general reverse scan; retain acquisition/probing/naming and Spotlight's static filename population. |
+| 9 | [#6850](https://github.com/richlander/dotnet-inspect/issues/6850), Platform discovery in Services: CLI Router now transfers the selected PlatformHouse population into a Workspace and uses one locator envelope for Type/member/namespace discovery. Continue retiring or narrowing `PlatformTypeCatalog` as remaining consumers migrate. | Implemented for the default bare Router path: no duplicate Services reverse scan after a complete locator miss. Retain explicit acquisition/probing/naming, Find compatibility, and Spotlight's static filename population until their own migrations. |
 
 Each successor names its focused owning document before implementation. If a
 producer cannot supply step 4's association through its existing contract, file
@@ -101,10 +102,12 @@ unknown evidence; CLI predicate bindings and `-Q` disclosure remain unshipped.
 Step 8 consumes the shared plan and typed evidence rather than implementing
 another filter.
 
-The remaining production step is step 8's TypeScript consumer of the same
-typed operation, followed by step 9's duplicate Platform lookup retirement.
-Additional source producers remain independently owned adapter work rather
-than a claim that the first CLI slice migrated every Find source.
+The remaining full production step is step 8's TypeScript consumer of the same
+typed operation. Step 9 has retired the default bare Router's duplicate
+Platform reverse scan; further `PlatformTypeCatalog` narrowing follows the
+remaining Find and Spotlight migrations. Additional source producers remain
+independently owned adapter work rather than a claim that the first CLI slice
+migrated every Find source.
 The completed common inspection supplies `InspectionEnvelope<TContent>` at
 the step 8 host boundary rather than nesting envelopes around prerequisite
 queries. That service envelope is not the CLI Find JSON document.

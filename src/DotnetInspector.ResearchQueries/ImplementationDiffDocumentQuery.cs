@@ -23,11 +23,38 @@ public static class ImplementationDiffDocumentQuery
                 nameof(input));
         }
 
-        return ImplementationDiff.CompareExactPair(
+        ImplementationComparisonResult comparison =
+            ImplementationComparisonQuery.Execute(input);
+        if (comparison is not ImplementationComparisonResult.Compared compared)
+        {
+            throw new InspectionQueryException(
+                comparison is ImplementationComparisonResult.TargetFailed failed
+                    ? failed.Summary
+                    : $"Implementation Diff comparison did not complete "
+                        + $"({comparison.GetType().Name}).");
+        }
+
+        return ImplementationDiff.CreateExactPairDocument(
             input.OldAssemblies[0],
             input.NewAssemblies[0],
+            compared.Comparison,
             new ImplementationDiffOptions(
-                TypeFilters: input.TypeFilters,
-                MemberTargetIdentities: input.MemberTargetIdentities));
+                input.Mechanisms,
+                TypeFilters: input.TypeFilters),
+            input.Population switch
+            {
+                ImplementationComparisonPopulation.All =>
+                    ImplementationDiffDocumentPopulation.All(),
+                ImplementationComparisonPopulation.Selected selected =>
+                    ImplementationDiffDocumentPopulation.Selected(
+                        [.. selected.Members.Select(selection =>
+                            new ImplementationDiffDocumentMemberSelection(
+                                selection.DeclaringType.ToEscapedFullName(),
+                                selection.Selector.RequestedText))]),
+                _ => throw new ArgumentOutOfRangeException(
+                    nameof(input),
+                    input.Population,
+                    "Unknown Implementation Diff population."),
+            });
     }
 }

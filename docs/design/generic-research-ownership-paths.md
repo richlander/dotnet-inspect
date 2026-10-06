@@ -23,8 +23,10 @@ those owner-issued facts; it does not redefine them.
 
 The motivating production evidence remains the pinned ArrayPool-heavy
 community corpus, including MessagePack 2.5.192, Npgsql 8.0.4, and
-Pipelines.Sockets.Unofficial 2.2.8. Their existing ArrayPool lifecycle and
-Research paths remain independent fidelity oracles during this migration.
+Pipelines.Sockets.Unofficial 2.2.8. The generic lifecycle and Research paths
+were certified against the former ArrayPool-specific implementations before
+those implementations were retired; the durable comparison is recorded in
+[ArrayPool ownership retirement](../evidence/arraypool-ownership-retirement.md).
 
 ## Analysis summary contract
 
@@ -74,6 +76,24 @@ does not reclassify another resource kind or another parameter at that call.
 When Analysis reuses the acquisition's owner-issued immutable domain for a
 method-local release, that shared identity is already exact evidence even when
 the containing method remains open generic.
+
+Whole-call value provenance can remain unresolved when a local may hold either
+an acquisition result or a non-resource value. Analysis may still publish an
+incomplete release for one acquisition definition when reaching definitions
+prove that definition reaches the exact release parameter and the retained
+method-level limitation has the same call, effect source, and exact resource
+domain. The rootless limitation remains visible; this join adds positive
+evidence without claiming complete source provenance.
+
+An incoming parameter remains resource-neutral until Research supplies an
+acquisition obligation from a caller. When reaching definitions prove that the
+parameter's entry definition can reach an unresolved release, Analysis may
+attach the limitation's exact resource domain to that incomplete terminal use
+without requiring or filtering through an incoming occurrence root. Unrelated
+incoming resource domains on the same parameter do not change that terminal's
+domain. Research accepts the terminal only when its existing exact domain join
+matches the caller's obligation. Replacement definitions do not inherit the
+parameter flow.
 
 Analysis builds the summary in the same execution that produced Resource
 Occurrence. It reuses the retained `MethodBodyAnalysisContext`, resolved
@@ -174,20 +194,26 @@ The focused gates establish:
 - a resource used as a field receiver is incomplete rather than a proven field
   store, and an unsupported rootless acquisition or release keeps its method
   summary incomplete;
+- a mixed acquisition-or-allocation local stored into an object and later
+  released preserves both the stored and incomplete released uses;
+- an incoming parameter conditionally replaced before a release preserves an
+  incomplete release only for a matching caller obligation whose value can
+  reach that release, even when the same parameter has an unrelated incoming
+  resource root;
 - missing and ambiguous body correspondence remain incomplete;
 - a positive terminal witness survives unrelated incompleteness; and
 - witness and path budgets preserve positive evidence while reporting their
   limits.
 
-The legacy `ArrayPoolOwnershipFlow` and
-`ArrayPoolOwnershipPathFindings` remain independently executable. They are not
-adapters, inputs, or fallback results for the generic path.
+The focused retirement comparison established that the former
+`ArrayPoolOwnershipFlow` and `ArrayPoolOwnershipPathFindings` implementations
+were not inputs, adapters, or fallback results for this generic path. They were
+removed after the comparison reached zero classified defects.
 
 ## Non-claims
 
 This design does not:
 
-- retire or rewrite the legacy ArrayPool Analysis or Research path;
 - redefine resource declarations, effect resolution, Resource Occurrence, or
   Resource Lifecycle policy;
 - infer a resource kind for an incoming parameter before a caller supplies an

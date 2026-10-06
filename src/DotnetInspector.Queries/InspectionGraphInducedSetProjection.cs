@@ -118,9 +118,9 @@ internal static class InspectionGraphInducedSetProjection
                 retainedNodeIds.Add(target.Id);
             }
             else if (failure.Target is
-                {
-                    Kind: InspectionGraphTargetKind.Group,
-                } groupTarget
+            {
+                Kind: InspectionGraphTargetKind.Group,
+            } groupTarget
                 && request.Subjects.Contains(
                     source.Groups[groupTarget.Id].Subject))
             {
@@ -242,10 +242,10 @@ internal static class InspectionGraphInducedSetProjection
                 .Where(static limit => limit is not null)
                 .Select(static limit => limit!),
             new InspectionGraphLimit(
-                InspectionGraphInducedSetCatalog.SubjectBound,
-                Evidence:
+                new InspectionGraphLimitPayload(
+                    InspectionGraphInducedSetCatalog.SubjectBound,
                     new InspectionGraphInducedSubjectBoundEvidence(
-                        request.Subjects.Length)),
+                        request.Subjects.Length))),
         ];
         InspectionGraphFailure[] failures =
         [
@@ -277,7 +277,7 @@ internal static class InspectionGraphInducedSetProjection
         RemoveOutOfContextBindingMissingDetails(
             InspectionGraphFailure failure)
     {
-        if (failure.Evidence
+        if (failure.Payload.Evidence
                 is not InspectionGraphIntegrationFailureEvidence evidence)
         {
             return failure;
@@ -297,11 +297,12 @@ internal static class InspectionGraphInducedSetProjection
         if (retainedDetails.Length == 0)
             return null;
 
-        return failure with
-        {
-            Evidence = new InspectionGraphIntegrationFailureEvidence(
-                retainedDetails),
-        };
+        return new InspectionGraphFailure(
+            new InspectionGraphFailurePayload(
+                failure.Payload.Descriptor,
+                new InspectionGraphIntegrationFailureEvidence(
+                    retainedDetails)),
+            failure.Target);
     }
 
     static bool RelatedToSubjectClosure(

@@ -14,7 +14,8 @@ internal sealed record LibraryBodyAnalysisPlan(
         ScopeExpansionDiagnostics = default,
     ResourceEffectAdmission? ResourceEffects = null,
     bool IncludesResourceLifecycle = false,
-    ImplementationMetricAnalysisPlan? ImplementationMetrics = null)
+    ImplementationMetricAnalysisPlan? ImplementationMetrics = null,
+    bool CapturesStageParticipation = false)
 {
     internal bool IsScoped
         => MethodScope is not null || TypeScope is not null;
@@ -36,7 +37,8 @@ internal sealed record LibraryBodyAnalysisPlan(
         ResourceEffectAdmission? resourceEffects = null,
         bool includeResourceLifecycle = false,
         ImplementationMetricAnalysisRequest?
-            implementationMetrics = null)
+            implementationMetrics = null,
+        bool captureStageParticipation = false)
     {
         LibraryBodyAnalysisFeatures requestedFeatures =
             features;
@@ -71,7 +73,7 @@ internal sealed record LibraryBodyAnalysisPlan(
                 : ImplementationMetricAnalysisPlan.Create(
                     implementationMetrics);
         if (metricPlan is not null
-            && !metricPlan.UsesPreContextExecution)
+            && !metricPlan.UsesFocusedExecution)
         {
             // Temporary execution bridge. The selective stages replace and
             // delete these compatibility features in later #8450 slices.
@@ -94,8 +96,6 @@ internal sealed record LibraryBodyAnalysisPlan(
         {
             features |= LibraryBodyAnalysisFeatures.MethodEvidence;
         }
-        if ((features & LibraryBodyAnalysisFeatures.OwnershipFlow) != 0)
-            features |= LibraryBodyAnalysisFeatures.MethodEvidence;
         if ((features
                 & (LibraryBodyAnalysisFeatures.JsonWireContractFlow
                     | LibraryBodyAnalysisFeatures.LocalThrows
@@ -106,13 +106,6 @@ internal sealed record LibraryBodyAnalysisPlan(
         }
         if (resourceEffects is not null)
             features |= LibraryBodyAnalysisFeatures.MethodEvidence;
-        if ((features & LibraryBodyAnalysisFeatures.LeakTriage) != 0
-            && (methodScope is not null || typeScope is not null))
-        {
-            throw new ArgumentException(
-                "Leak Triage requires a full assembly body census.");
-        }
-
         return new(
             features,
             requestedFeatures,
@@ -121,6 +114,8 @@ internal sealed record LibraryBodyAnalysisPlan(
             RequestedMethodScope: methodScope,
             ResourceEffects: resourceEffects,
             IncludesResourceLifecycle: includeResourceLifecycle,
-            ImplementationMetrics: metricPlan);
+            ImplementationMetrics: metricPlan,
+            CapturesStageParticipation:
+                captureStageParticipation);
     }
 }

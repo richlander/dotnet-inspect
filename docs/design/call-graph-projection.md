@@ -316,7 +316,8 @@ The projection owns everything a host must not re-invent in JavaScript:
   actually measured each fact.
 
   Merging is only sound when both sides measure the same quantity, so the units
-  are pinned in `LibraryBodyIndex` rather than reconciled here:
+  are pinned in Analysis's focused call-graph and method-signal contracts
+  rather than reconciled here:
 
   - **Fan-in counts distinct callers, never call sites.** It is a leverage cue —
     "how many members depend on this one" — and the reverse graph draws one edge
@@ -502,6 +503,32 @@ group-owned release, including disposal of the catalog scope.
 single-policy-evaluation, shared-storage, duplicate-artifact, and
 incomplete-evidence contracts.
 
+The shared physical graph retains one canonical edge population. Reverse
+caller traversal uses ordered ranges over that population rather than
+independently owned per-target edge payloads, and each range retains the
+distinct incoming-caller cardinality defined by those same physical edges.
+Forward callee traversal remains the control representation for this first
+validation slice; a later adopter can justify broadening the range shape after
+the reverse path has production evidence. The representation may change
+construction and lookup cost, but never edge identity, physical occurrence
+order, graph diagnostics, traversal bounds, or generation lifetime.
+`CallerTreeOrdersAttributedPhysicalSitesByIlOffset` gates physical occurrence
+order when one declared caller owns direct calls from multiple generated
+bodies.
+
+`CatalogCallGraphScorecard` is the performance host for representation changes.
+It measures graph construction, caller batches, callee batches, and complete
+census projection over pinned real assemblies. A replacement representation
+must preserve the exact scorecard fingerprint and show no credible NativeAOT
+regression in any measured operation before the next product graph adopts the
+same shape. Correctness checks and timed samples run in separate processes so
+fingerprint construction cannot contaminate elapsed-time or peak-RSS evidence.
+The timed host can isolate Build, Callers, Callees, or Census in its own process
+when a mixed-process high-water mark requires attribution. Its memory lane
+compares live managed bytes before and while retaining one fully constructed
+scope after forced full collections, so GC cadence is not mistaken for retained
+index size.
+
 `DotnetInspector.ResearchQueries.AnnotatedMemberDocumentQuery` is the first
 non-rendering consumer of this progressive seam. It accepts an already-acquired
 view and an already-open `MetadataSource`, projects the graph once, and returns
@@ -557,9 +584,10 @@ numbers alone.
 
 The production annotated-document consumer selects the ArrayPool resource kind
 as Research query policy. Analysis does not encode ArrayPool identity in the
-generic summary. The earlier `ArrayPoolOwnershipPathFindings` path remains
-independently executable as a fidelity oracle; it is not an input, adapter, or
-fallback for generic composition.
+generic summary. The earlier `ArrayPoolOwnershipPathFindings` implementation
+served only as an independent fidelity oracle and was retired after the
+generic path reached zero classified defects; it was never an input, adapter,
+or fallback for generic composition.
 
 Ownership completeness remains separate from positive Findings:
 `NotRequested`, `TraversalBoundary`, `IncompleteCorrespondence`,
@@ -608,15 +636,15 @@ The Inspect Web member Finding census adopts the same body-local relationship
 dimension through
 `ResearchFactRegistry.MemberCensusWithCallRelationships`. The source operation
 requires an exact MethodDef token, obtains physical calls from its retained
-`LibraryBodyIndex`, and builds one depth-one callee projection that also
-supplies invocation destinations. The resulting `call.edge` Findings share the
-ordinary census receipt and source targets while remaining outside the default
-annotation set; **All** reveals them without changing first paint. The Browser
-contract also transports one typed sidecar row per Finding with the caller
-MVID and MethodDef token, IL offset, operand token, call kind, loop state,
-stable edge row, and occurrence-specific graph target. Browser validation
-requires exact coverage between those rows and the document's `call.edge`
-Findings; it never recovers identity from labels or source text.
+focused member Analysis input, and builds one depth-one callee projection that
+also supplies invocation destinations. The resulting `call.edge` Findings
+share the ordinary census receipt and source targets while remaining outside
+the default annotation set; **All** reveals them without changing first paint.
+The Browser contract also transports one typed sidecar row per Finding with
+the caller MVID and MethodDef token, IL offset, operand token, call kind, loop
+state, stable edge row, and occurrence-specific graph target. Browser
+validation requires exact coverage between those rows and the document's
+`call.edge` Findings; it never recovers identity from labels or source text.
 
 The Annotated Source modal consumes that sidecar as a **Relationships**
 projection with **Table** and **Diagram** presentations. **Table** is the
@@ -746,8 +774,8 @@ MethodDef as the only
 destinations whose `MethodLocalThrowEvidence` contains at least one known
 site, and requests deterministic shortest witnesses with fixed depth, node,
 edge, and retained-path limits. The operation reuses the member projection's
-one `LibraryBodyIndex`; it performs no second body acquisition, source open, or
-graph build.
+one `LibraryCallGraphAnalysisResult`; it performs no second body acquisition,
+source open, or graph build.
 
 Each projected witness retains every physical `call.edge` fact for the
 Analysis-admitted `call`, `callvirt`, and `newobj` occurrences on its first

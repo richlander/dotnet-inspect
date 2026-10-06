@@ -31,6 +31,8 @@ export function memberFactsFixture(
       inLoop: false,
       estimatedSizeBytes: null,
       detail: null,
+      lifetimeUses: [],
+      lifetimeLimitations: [],
     }],
     calls: zero ? [] : [
       {
@@ -88,6 +90,8 @@ export function allocationFactsFixture(
         inLoop: false,
         estimatedSizeBytes: null,
         detail: null,
+        lifetimeUses: [],
+        lifetimeLimitations: [],
       },
       {
         kind: "Array",
@@ -101,6 +105,8 @@ export function allocationFactsFixture(
         inLoop: true,
         estimatedSizeBytes: long ? 2147483647 : 280,
         detail: null,
+        lifetimeUses: [],
+        lifetimeLimitations: [],
       },
       {
         kind: "Enumerator",
@@ -115,6 +121,8 @@ export function allocationFactsFixture(
         inLoop: false,
         estimatedSizeBytes: null,
         detail: null,
+        lifetimeUses: [],
+        lifetimeLimitations: [],
       },
     ],
   };

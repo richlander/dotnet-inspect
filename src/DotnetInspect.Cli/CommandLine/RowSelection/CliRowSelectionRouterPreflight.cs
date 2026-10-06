@@ -48,9 +48,17 @@ internal static class CliRowSelectionRouterPreflight
         ArgumentNullException.ThrowIfNull(arguments);
         ArgumentNullException.ThrowIfNull(commands);
         if (commands.Any(command =>
-                CliRowSelectionCommandRegistry.TryGetActiveAdoption(
-                    command.Parse(arguments),
-                    out _)))
+            {
+                ParseResult parseResult = command.Parse(arguments);
+                return (parseResult.Errors.Count == 0
+                        || CliRowSelectionCommandRegistry
+                            .HasRegisteredRowRequest(
+                                parseResult,
+                                arguments))
+                    && CliRowSelectionCommandRegistry.TryGetActiveAdoption(
+                        parseResult,
+                        out _);
+            }))
         {
             return false;
         }
@@ -146,10 +154,15 @@ internal static class CliRowSelectionRouterPreflight
     {
         ParseResult parseResult =
             command.Parse(arguments);
+        CliRowSelectionCommandAdoption? adoption = null;
         bool adopted =
-            CliRowSelectionCommandRegistry.TryGetActiveAdoption(
+            (parseResult.Errors.Count == 0
+                || CliRowSelectionCommandRegistry.HasRegisteredRowRequest(
+                    parseResult,
+                    arguments))
+            && CliRowSelectionCommandRegistry.TryGetActiveAdoption(
                 parseResult,
-                out CliRowSelectionCommandAdoption? adoption);
+                out adoption);
         return new(
             command,
             command,

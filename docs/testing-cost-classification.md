@@ -1,7 +1,6 @@
 # Classifying test cost
 
-[AGENTS.md](../AGENTS.md#building-and-testing) states the binding rule:
-classify every new or materially expanded test as PR-fast or
+Classify every new or materially expanded test as PR-fast or
 `[Trait("Speed", "Slow")]`. Exhaustive and whole-assembly tests are slow by
 policy; otherwise measure suspected slow tests in isolation. A slow
 classification is complete only when daily Deep Inspect or a focused
@@ -24,7 +23,8 @@ untagged, individually-expensive test.
 
 Tag a test `Speed=Slow` when it does one of the following:
 
-- Runs whole-assembly or whole-solution analysis (e.g. `LibraryBodyIndex.Open`
+- Runs whole-assembly or whole-solution analysis (e.g.
+  `LibraryBodyAnalysisService.ExecutePath`
   over a real multi-thousand-method assembly) more than once, or over more
   than one large assembly, in a single test.
 - Is a corpus, fidelity, or determinism sweep whose entire purpose is
@@ -73,34 +73,47 @@ public void SomeExpensiveTheory(string assemblyName)
 
 ## Existing consumers (no workflow changes needed to add a tag)
 
-- `ci.yml`'s PR-blocking fast leg filters `Speed=Slow` from the CLI and
-  Analysis suites. The CLI selection is split across six parallel matrix
-  entries: five select non-overlapping class-name prefix ranges, and the
-  sixth selects their complement. The complement makes the partition
-  exhaustive even when a future test class uses an unexpected identifier.
-  `deep-inspect.yml` runs both suites fully unfiltered, so a newly tagged test
-  automatically keeps running daily.
-- The CSharp text and inspection-query suites use the same PR filter. Deep
-  Inspect's daily platform lane runs both suites fully unfiltered.
-- The offline NuGet suite excludes both `Network=Live` and `Speed=Slow` in PR
-  CI. The daily platform lane retains the offline boundary but does not exclude
-  `Speed=Slow`. The focused repository guard selects the legacy
-  source-identity method directly, so that method remains a pre-merge gate for
-  changed C# paths even though ordinary Linux test runs exclude it.
-- The metadata suite uses the same MTP `--filter-not-trait "Speed=Slow"`
-  selection in PR CI and the optional Windows PR workflow. Deep Inspect runs
-  its full suite, including the pinned custom-attribute package gate, and
-  retains that gate's per-platform evidence report.
+The CI workflow has a ceiling of **16 runner jobs** for any event. Count matrix
+entries separately and include the always-run `changes`, `provenance`, and
+`ci-required` jobs. The workflow contract counts even path-gated jobs to keep
+the bound safe as routing changes. The current workflow defines 13 jobs, with
+the dependency-policy job selected only for pushes to `main`.
+
+- `ci.yml` runs one Release solution build and a bounded smoke population for
+  CLI routes, inspection queries, InertText, dependency policy, and the
+  package-manifest verifier. Embedded skill tests run in that job when selected.
+  The daily Linux Deep Inspect test lane runs the complete CLI, CSharp text,
+  query, analysis, NuGet, metadata, and other host-neutral suites. Its
+  Windows/macOS lane retains tests with platform-sensitive behavior.
+- The daily test lane runs the slow legacy source-identity inventory over the
+  full C# tree. It also owns the runtime-flavor and NativeAOT probes, the
+  DEBUG-conditional sidecar test, authenticated package fixture, JSExport
+  acceptance checks, and PR-quick decompiler corpus sensor formerly in the PR
+  matrix. PR CI does not repeat that exhaustive and specialized work.
+- Inspect Web keeps Browser/Wasm platform probes and managed API tests in PR
+  CI. Its daily Deep Inspect web lane runs frontend analysis and build, Node
+  tests, the browser engine, Firefox UI tests, complete facade and canary
+  checks, and published-application validation. The daily frontend build
+  generates its facades once before consuming them for analysis, build, and
+  browser tests.
+- Packaging PRs pack the pointer and `any` fallback packages. The daily Linux
+  test lane packs all three variants, installs the tool from local packages,
+  and runs the package command smokes.
 - The decompiler suite uses the same MTP trait options behind discoverable
   presets: `dotnet run --project tests/ILInspector.Decompiler.Tests -c Release
   -- --gate fast` expands to `--filter-not-trait "Speed=Slow"`, while `--gate
   slow` expands to `--filter-trait "Speed=Slow"`. The path-gated
-  `decompiler-gates` PR job owns the fast subset and a bounded compile-back
-  receipt; daily Deep Inspect's `--gate no-corpus` run owns every excluded
-  non-corpus test, including broad whole-pipeline sweeps. See
+  `decompiler-gates` PR job owns the fast subset. Daily Deep Inspect runs the
+  bounded compile-back receipt and `--gate no-corpus`, which owns every
+  excluded non-corpus test, including broad whole-pipeline sweeps. See
   [`docs/decompiler-correctness-pipeline.md`](decompiler-correctness-pipeline.md)
   for that suite's full `Area`/`Speed` trait combination and its
   `--gate fast`/`--gate slow` equivalents.
+
+  Deep Inspect runs that complete non-corpus population once on Linux.
+  Windows and macOS retain the fast decompiler population as a low-cost
+  boundary canary for newline, runtime-layout, and external-tool differences;
+  slow and corpus coverage is not repeated on those hosts.
 
   #6889 is the scale reference for this policy: measurement found 247 cases at
   or above two seconds plus policy-defined corpus, fidelity, compile-back, and

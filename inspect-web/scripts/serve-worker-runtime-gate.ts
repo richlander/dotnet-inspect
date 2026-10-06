@@ -53,9 +53,10 @@ createServer((request, response) => {
     .includes("worker-runtime-gate=observe-startup");
   const startupCaptures: Readonly<Record<string, string>> = {
     "/inspect-web-host.js": "host = { buildIdentity }",
-    "/inspect-web-catalog.js": "catalog = { listVocabulary, listHomeDemos }",
+    "/inspect-web-catalog.js":
+      "catalog = { inspectVocabulary, listEcosystems, listHomeDemos }",
     "/inspect-web-package.js":
-      "package = { listPackageActivityPackageSets, listPackageQueryCatalog }",
+      "package = { listPackageActivityEcosystems, listPackageQueryCatalog }",
   };
   const startupCapture = observeStartup ? startupCaptures[pathname] : undefined;
   void readFile(file).then(

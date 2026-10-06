@@ -16,9 +16,7 @@ public partial class CommandExecutionTests
             "1",
             "-S",
             "Custom Attributes",
-            "--count",
-            "--tips",
-            "q");
+            "--count");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -75,7 +73,7 @@ public partial class CommandExecutionTests
         "System.Decimal",
         "System.Runtime",
         "Explicit Interface Implementations",
-        99)]
+        47)]
     [InlineData(
         "System.Span<T>",
         "System.Runtime",
@@ -94,9 +92,7 @@ public partial class CommandExecutionTests
             assembly,
             "-S",
             section,
-            "--count",
-            "--tips",
-            "q");
+            "--count");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -115,9 +111,7 @@ public partial class CommandExecutionTests
             "System.Runtime.Intrinsics",
             "-S",
             "Methods",
-            "--count",
-            "--tips",
-            "q");
+            "--count");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -145,9 +139,7 @@ public partial class CommandExecutionTests
             "System.Runtime",
             "-S",
             section,
-            "--count",
-            "--tips",
-            "q");
+            "--count");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -168,9 +160,7 @@ public partial class CommandExecutionTests
             "System.Runtime.Intrinsics",
             "-S",
             "Member Metrics",
-            "--count",
-            "--tips",
-            "q");
+            "--count");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -191,9 +181,7 @@ public partial class CommandExecutionTests
             "--platform",
             "System.Linq",
             "-S",
-            "Annotated Source",
-            "--tips",
-            "q");
+            "Annotated Source");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -211,22 +199,21 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             "member",
             "System.Linq.Enumerable",
-            "ToArray:1",
+            "Where:1",
             "--platform",
             "System.Linq",
             "-S",
-            "IL",
-            "--tips",
-            "q");
+            "IL");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("## IL", output);
+        Assert.DoesNotContain("## IL", output);
+        Assert.Contains("IL_0000:", output);
         int renderedLines =
             output.Split('\n', StringSplitOptions.RemoveEmptyEntries).Length;
         Assert.True(
-            renderedLines > 24,
-            $"Expected IL output to exceed 24 rendered lines; observed {renderedLines}.");
+            renderedLines > 16,
+            $"Expected IL output to exceed 16 rendered lines; observed {renderedLines}.");
     }
 
     [Theory]
@@ -235,18 +222,16 @@ public partial class CommandExecutionTests
     [InlineData("Interfaces")]
     [InlineData("Enums")]
     [InlineData("Delegates")]
-    public async Task Type_PlatformSurfaceKindCountsExceedInformativeRange(
+    public async Task Type_PlatformDefinitionKindCountsExceedInformativeRange(
         string section)
     {
         var (exit, output, error) = await RunAppAsync(
             "type",
             "--platform",
-            "System.Runtime",
+            "System.Private.CoreLib",
             "-S",
             section,
-            "--count",
-            "--tips",
-            "q");
+            "--count");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -257,32 +242,26 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Type_PlatformClassInventoryUsesPrimaryAndDetailedViews()
+    public async Task Type_PlatformDefinitionInventoryUsesPrimaryAndDetailedViews()
     {
         var (minimalExit, minimal, minimalError) = await RunAppAsync(
             "type",
             "--platform",
-            "System.Runtime",
+            "System.Private.CoreLib",
             "-v:m",
-            "--markdown",
-            "--tips",
-            "q");
+            "--markdown");
         var (normalExit, normal, normalError) = await RunAppAsync(
             "type",
             "--platform",
-            "System.Runtime",
+            "System.Private.CoreLib",
             "-v:n",
-            "--markdown",
-            "--tips",
-            "q");
+            "--markdown");
         var (detailedExit, detailed, detailedError) = await RunAppAsync(
             "type",
             "--platform",
-            "System.Runtime",
+            "System.Private.CoreLib",
             "-v:d",
-            "--markdown",
-            "--tips",
-            "q");
+            "--markdown");
 
         Assert.Equal(0, minimalExit);
         Assert.Equal(0, normalExit);

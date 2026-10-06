@@ -218,12 +218,20 @@ test("runtime sites require exact accepted deployment evidence", () => {
     cohortText,
     `${JSON.stringify(variant("coreclr-il"))}\n`,
     sourceCommit,
+    "36090530150",
+    2,
   );
   assert.equal(il.admission.status, "admitted");
+  assert.deepEqual(il.candidate, {
+    runId: "36090530150",
+    attempt: 2,
+  });
   const r2r = createRuntimeSiteDeploymentReceipt(
     cohortText,
     `${JSON.stringify(variant("coreclr-r2r"))}\n`,
     sourceCommit,
+    "36090530150",
+    2,
   );
   assert.equal(r2r.admission.status, "correctness-rejection");
   assert.equal(
@@ -248,6 +256,8 @@ test("runtime sites require exact accepted deployment evidence", () => {
       JSON.stringify(unfamiliar),
       JSON.stringify(variant("coreclr-r2r")),
       sourceCommit,
+      "36090530150",
+      2,
     ),
     /deployable admission/u,
   );
@@ -256,6 +266,8 @@ test("runtime sites require exact accepted deployment evidence", () => {
       cohortText,
       JSON.stringify(variant("coreclr-il")),
       "9".repeat(40),
+      "36090530150",
+      2,
     ),
     /deployment source commit/u,
   );
@@ -267,8 +279,30 @@ test("runtime sites require exact accepted deployment evidence", () => {
       cohortText,
       JSON.stringify(mismatchedVariant),
       sourceCommit,
+      "36090530150",
+      2,
     ),
     /publication does not match/u,
+  );
+  assert.throws(
+    () => createRuntimeSiteDeploymentReceipt(
+      cohortText,
+      JSON.stringify(variant("coreclr-il")),
+      sourceCommit,
+      "0",
+      2,
+    ),
+    /run ID/u,
+  );
+  assert.throws(
+    () => createRuntimeSiteDeploymentReceipt(
+      cohortText,
+      JSON.stringify(variant("coreclr-il")),
+      sourceCommit,
+      "36090530150",
+      0,
+    ),
+    /attempt/u,
   );
 });
 

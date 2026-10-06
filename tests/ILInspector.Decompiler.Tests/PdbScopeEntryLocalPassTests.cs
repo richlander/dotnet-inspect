@@ -20,7 +20,7 @@ public sealed class PdbScopeEntryLocalPassTests
         new PdbScopeEntryLocalPass().Run(function, PassContext.None);
         new PdbLocalScopePass().Run(function, PassContext.None);
         function.CheckInvariant();
-        var result = CSharpPrinter.Print(function);
+        var result = DecidedPrint.Print(function);
 
         Assert.Equal(4, function.Locals.Length);
         Assert.Null(function.LocalNames[0]);
@@ -75,14 +75,14 @@ public sealed class PdbScopeEntryLocalPassTests
         var pass = new PdbScopeEntryLocalPass();
         pass.Run(function, PassContext.None);
         new PdbLocalScopePass().Run(function, PassContext.None);
-        string before = CSharpPrinter.Print(function).Output!;
+        string before = DecidedPrint.Print(function).Output!;
 
         pass.Run(function, PassContext.None);
         new PdbLocalScopePass().Run(function, PassContext.None);
         function.CheckInvariant();
 
         Assert.Equal(4, function.Locals.Length);
-        Assert.Equal(before, CSharpPrinter.Print(function).Output);
+        Assert.Equal(before, DecidedPrint.Print(function).Output);
     }
 
     [Fact]
@@ -93,7 +93,7 @@ public sealed class PdbScopeEntryLocalPassTests
         new PdbScopeEntryLocalPass().Run(function, PassContext.None);
         new PdbLocalScopePass().Run(function, PassContext.None);
         function.CheckInvariant();
-        var result = CSharpPrinter.Print(function);
+        var result = DecidedPrint.Print(function);
 
         Assert.Equal(8, function.Locals.Length);
         Assert.All(function.LocalNames.Take(4), Assert.Null);

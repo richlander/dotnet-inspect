@@ -19,11 +19,12 @@ import {
 } from "../src/engine-worker-startup-contract.ts";
 import type { BrowserBuildIdentity } from "../src/facades/inspect-web-host.d.ts";
 import type {
+  BrowserEcosystemCatalog,
   BrowserHomeDemoCatalog,
-  BrowserVocabularyDocument,
+  BrowserVocabularyInspection,
 } from "../src/facades/inspect-web-catalog.d.ts";
 import type {
-  BrowserPackageChangesPackageSetCatalog,
+  BrowserPackageChangesEcosystemCatalog,
   BrowserPackageQueryCatalog,
 } from "../src/facades/inspect-web-package.d.ts";
 import {
@@ -37,17 +38,37 @@ import { WorkerOperationCatalog } from "../src/worker-runtime-realm.ts";
 const identity: BrowserBuildIdentity = {
   version: "1.0", commit: null, builtAtUtc: "2026-09-06T00:00:00Z", commitUrl: null,
 };
-const vocabulary: BrowserVocabularyDocument = {
-  schema_version: 2,
-  sections: [{
-    id: "api", name: "API", summary: "API vocabulary",
-    accepted_by: ["type"],
-    fields: [{ id: "name", label: "Name", summary: "Member name", type: "string", operators: ["="] }],
-    values: [{ value: "public", extensions: [null, 42, { label: "\u03BB" }] }],
-  }],
+const vocabulary: BrowserVocabularyInspection = {
+  content: {
+    formatVersion: 1,
+    catalog: { value: "dotnet-inspect.product" },
+    identity: { value: `sha256:${"0".repeat(64)}` },
+    vocabularies: [],
+  },
+  share: {
+    kind: "nonProjectable",
+    path: "vocabulary/share",
+    reason: "Static vocabulary has no Share projection.",
+  },
+  diagnostics: [],
 };
 const demos: BrowserHomeDemoCatalog = {
   demos: [{ id: "source", title: "Source", summary: "Show generated source." }],
+};
+const productEcosystems: BrowserEcosystemCatalog = {
+  ecosystems: [{
+    id: "ecosystem.aspire",
+    title: "Aspire",
+    summary: "Aspire package and demo content.",
+    corePackageCount: 2,
+    namespaceRootCount: 1,
+    toolPackageCount: 1,
+    demoCount: 2,
+    hasPackageSet: true,
+    hasScanner: true,
+    hasPopulationLoader: false,
+    hasWorkspaceRegistration: true,
+  }],
 };
 const catalog: BrowserPackageQueryCatalog = {
   presets: [{
@@ -71,30 +92,37 @@ const catalog: BrowserPackageQueryCatalog = {
     multiline: false,
   }],
 };
-const packageSets: BrowserPackageChangesPackageSetCatalog = {
+const ecosystems: BrowserPackageChangesEcosystemCatalog = {
   version: 1,
-  packageSets: [{
-    id: "package-set.example",
-    title: "Example packages",
-    summary: "Example product-issued package set.",
+  ecosystems: [{
+    id: "ecosystem.example",
+    title: "Example",
+    summary: "Example product-issued Ecosystem.",
     order: 10,
+    prefixes: ["Example."],
   }],
 };
 const cases = [
   { operation: engineStartupOperations.buildIdentity, expected: identity, field: "version",
     read: (client: EngineStartupClient) => client.host.buildIdentity() },
-  { operation: engineStartupOperations.listVocabulary, expected: vocabulary, field: "sections",
-    read: (client: EngineStartupClient) => client.catalog.listVocabulary() },
+  { operation: engineStartupOperations.inspectVocabulary, expected: vocabulary, field: "content",
+    read: (client: EngineStartupClient) => client.catalog.inspectVocabulary() },
   { operation: engineStartupOperations.listHomeDemos, expected: demos, field: "demos",
     read: (client: EngineStartupClient) => client.catalog.listHomeDemos() },
+  {
+    operation: engineStartupOperations.listEcosystems,
+    expected: productEcosystems,
+    field: "ecosystems",
+    read: (client: EngineStartupClient) => client.catalog.listEcosystems(),
+  },
   { operation: engineStartupOperations.listPackageQueryCatalog, expected: catalog, field: "presets",
     read: (client: EngineStartupClient) => client.package.listPackageQueryCatalog() },
   {
-    operation: engineStartupOperations.listPackageActivityPackageSets,
-    expected: packageSets,
-    field: "packageSets",
+    operation: engineStartupOperations.listPackageActivityEcosystems,
+    expected: ecosystems,
+    field: "ecosystems",
     read: (client: EngineStartupClient) =>
-      client.package.listPackageActivityPackageSets(),
+      client.package.listPackageActivityEcosystems(),
   },
 ];
 
@@ -116,12 +144,16 @@ function fixture(options: {
   const operations = new WorkerOperationCatalog();
   registerEngineWorkerStartupOperations(operations, {
     async buildIdentity() { calls.push("identity"); return identity; },
-    async listVocabulary() { calls.push("vocabulary"); return vocabulary; },
+    async inspectVocabulary() { calls.push("vocabulary"); return vocabulary; },
     async listHomeDemos() { calls.push("demos"); return demos; },
+    async listEcosystems() {
+      calls.push("product-ecosystems");
+      return productEcosystems;
+    },
     async listPackageQueryCatalog() { calls.push("catalog"); return catalog; },
-    async listPackageActivityPackageSets() {
-      calls.push("package-sets");
-      return packageSets;
+    async listPackageActivityEcosystems() {
+      calls.push("ecosystems");
+      return ecosystems;
     },
     ...options.reads,
   });
@@ -156,11 +188,11 @@ function fixture(options: {
   return { host, client, environment, calls, failures, diagnostics, workers, starts: () => starts };
 }
 
-test("all five cold reads share readiness and preserve full generated-shaped results", async () => {
+test("all six cold reads share readiness and preserve full generated-shaped results", async () => {
   const ready = deferred<void>();
   const state = fixture({ bootstrap: () => ready.promise });
   const results = Promise.all(cases.map(item => item.read(state.client)));
-  assert.equal(state.host.snapshot().heldOperations, 5);
+  assert.equal(state.host.snapshot().heldOperations, 6);
   await state.environment.flushAsync();
   assert.equal(state.starts(), 1);
   assert.deepEqual(state.calls, []);
@@ -169,8 +201,20 @@ test("all five cold reads share readiness and preserve full generated-shaped res
   assert.deepEqual(await results, cases.map(item => item.expected));
   assert.deepEqual(
     state.calls,
-    ["identity", "vocabulary", "demos", "catalog", "package-sets"]);
-  assert.deepEqual(await Promise.all(cases.map(item => item.read(state.client))), cases.map(item => item.expected));
+    [
+      "identity", "vocabulary", "demos", "product-ecosystems",
+      "catalog", "ecosystems",
+    ]);
+  assert.deepEqual(
+    await Promise.all(cases.map(item => item.read(state.client))),
+    cases.map(item => item.expected));
+  assert.deepEqual(
+    state.calls,
+    [
+      "identity", "vocabulary", "demos", "product-ecosystems",
+      "catalog", "ecosystems",
+      "identity", "demos", "product-ecosystems", "catalog", "ecosystems",
+    ]);
   assert.equal(state.starts(), 1);
   assert.equal(state.host.snapshot().activeOperations, 0);
   assert.deepEqual(state.diagnostics, []);
@@ -194,8 +238,8 @@ test("concurrent calls to the same method complete independently and out of orde
 });
 
 test("a managed exception rejects its read without failing neighboring reads", async () => {
-  const state = fixture({ reads: { async listVocabulary() { throw new Error("Vocabulary unavailable."); } } });
-  const failure = assert.rejects(state.client.catalog.listVocabulary(), /Vocabulary unavailable/);
+  const state = fixture({ reads: { async inspectVocabulary() { throw new Error("Vocabulary unavailable."); } } });
+  const failure = assert.rejects(state.client.catalog.inspectVocabulary(), /Vocabulary unavailable/);
   const neighbor = state.client.catalog.listHomeDemos();
   await state.environment.flushAsync();
   await failure;
@@ -242,6 +286,33 @@ test("a closed-epoch client cannot dispatch into a replacement epoch", async () 
   await state.environment.flushAsync();
   await assert.rejects(state.client.host.buildIdentity(), /closed Worker epoch/);
   assert.deepEqual(state.calls, []);
+  state.host.dispose();
+});
+
+test("a cached vocabulary cannot outlive its disposed epoch", async () => {
+  const state = fixture();
+  const warm = state.client.catalog.inspectVocabulary();
+  await state.environment.flushAsync();
+  assert.deepEqual(await warm, vocabulary);
+  state.host.dispose();
+  await assert.rejects(
+    state.client.catalog.inspectVocabulary(),
+    /epoch-unavailable/);
+  assert.deepEqual(state.calls, ["vocabulary"]);
+});
+
+test("a cached vocabulary cannot cross into a replacement epoch", async () => {
+  const state = fixture();
+  const warm = state.client.catalog.inspectVocabulary();
+  await state.environment.flushAsync();
+  assert.deepEqual(await warm, vocabulary);
+  state.host.restart();
+  assert.equal(state.host.start("https://inspect.example").kind, "started");
+  await state.environment.flushAsync();
+  await assert.rejects(
+    state.client.catalog.inspectVocabulary(),
+    /closed Worker epoch/);
+  assert.deepEqual(state.calls, ["vocabulary"]);
   state.host.dispose();
 });
 

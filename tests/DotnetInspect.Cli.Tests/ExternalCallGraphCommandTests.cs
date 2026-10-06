@@ -8,6 +8,8 @@ using DotnetInspector.Cache;
 using DotnetInspector.Fixtures;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
+using DotnetInspector.PlatformHouse;
+using DotnetInspector.Platforms;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
@@ -32,6 +34,103 @@ public sealed class ExternalCallGraphCommandTests
 
     public ExternalCallGraphCommandTests() =>
         PersistentCache.Initialize("dotnet-inspect-test");
+
+    [Fact]
+    public void FirstUsePlatformTargetPolicyMatchesExactFrameworkBand()
+    {
+        PlatformSourceCapabilityIdentity installed =
+            PlatformSourceCapabilityIdentity.Create("installed");
+        PlatformSourceCapabilityIdentity package =
+            PlatformSourceCapabilityIdentity.Create("package");
+
+        Assert.True(
+            DesktopPackageDependencyMemberCallGraphContinuationSource
+                .TryCreateTargetPolicy(
+                    "runtime",
+                    "net11.0",
+                    installed,
+                    package,
+                    out PlatformVersionlessRuntimeTargetPolicy? policy));
+        Assert.NotNull(policy);
+        Assert.Equal(
+            PlatformVersion.Parse("11.0.0"),
+            policy.MinimumPreferredVersion);
+        Assert.IsType<PlatformTargetDiscoveryScope.ExactFramework>(
+            policy.Fallback.Scope);
+        Assert.False(
+            DesktopPackageDependencyMemberCallGraphContinuationSource
+                .TryCreateTargetPolicy(
+                    "runtime",
+                    "netstandard2.0",
+                    installed,
+                    package,
+                    out _));
+    }
+
+    [Fact]
+    public void PackageBackedPlatformWorkChargesBeforeSourceAdmission()
+    {
+        var exhausted = new AssemblyReferenceResolutionWorkLedger(
+            new(
+                maxPackageRouteOccurrences: 1,
+                maxPackageCandidateOperations: 1,
+                maxSourceOperations: 1,
+                maxAcquisitions: 0,
+                maxRealizedAssemblies: 10,
+                maxTransferBytes: 10,
+                maxRetainedAssemblyBytes: 10,
+                maxWorkspaceReplacements: 1,
+                deadline: DateTimeOffset.UtcNow.AddMinutes(1)));
+        var source = new PlatformHouseWorkBudget(
+            maxSourceOperations: 1,
+            maxTargetCandidates: 0,
+            maxAssemblies: 10,
+            maxXmlDocuments: 0,
+            maxPortablePdbs: 0,
+            maxSourceDocuments: 0,
+            maxBytes: 10,
+            maxForwardingHops: 0,
+            maxDuration: TimeSpan.FromMinutes(1));
+
+        AssemblyReferenceResolutionWorkExhaustedException failure =
+            Assert.Throws<
+                AssemblyReferenceResolutionWorkExhaustedException>(
+                () =>
+                    DesktopPackageDependencyMemberCallGraphContinuationSource
+                        .AdmitPackageBackedWork(
+                            source,
+                            exhausted,
+                            retainAssemblies: true));
+
+        Assert.Equal(
+            AssemblyReferenceResolutionWorkKind.Acquisition,
+            failure.Exhaustion.Kind);
+
+        var bounded = new AssemblyReferenceResolutionWorkLedger(
+            new(
+                maxPackageRouteOccurrences: 1,
+                maxPackageCandidateOperations: 1,
+                maxSourceOperations: 1,
+                maxAcquisitions: 1,
+                maxRealizedAssemblies: 7,
+                maxTransferBytes: 6,
+                maxRetainedAssemblyBytes: 4,
+                maxWorkspaceReplacements: 1,
+                deadline: DateTimeOffset.UtcNow.AddMinutes(1)));
+        PlatformHouseWorkBudget admitted =
+            DesktopPackageDependencyMemberCallGraphContinuationSource
+                .AdmitPackageBackedWork(
+                    source,
+                    bounded,
+                    retainAssemblies: true);
+
+        Assert.Equal(7, admitted.MaxAssemblies);
+        Assert.Equal(4, admitted.MaxBytes);
+        Assert.Equal(
+            0,
+            bounded.GetRemainingAllowance(
+                AssemblyReferenceResolutionWorkKind.Acquisition));
+    }
 
     [Fact]
     public void Command_ExposesExactRootAndAutomaticTraversal()
@@ -343,12 +442,10 @@ public sealed class ExternalCallGraphCommandTests
                     new AssemblyContextParticipant(
                         assembly,
                         policy)));
-        int methodToken =
-            Analysis.LibraryBodyIndex.Open(callerPath)
-                .Methods.Single(method =>
-                    method.DeclaringType.Name == "Entry"
-                    && method.Name == "RunOuter")
-                .MetadataToken;
+        int methodToken = MethodTokenOf(
+            callerPath,
+            "Entry",
+            "RunOuter");
         using var session = new MemberCallGraphSession(
             group,
             assemblies[0],
@@ -501,7 +598,7 @@ public sealed class ExternalCallGraphCommandTests
             count: true);
 
         Assert.Equal(0, execution.ExitCode);
-        Assert.Equal($"1{Environment.NewLine}", execution.Output);
+        Assert.Equal("1\n", execution.Output.ReplaceLineEndings("\n"));
     }
 
     [Fact]
@@ -540,7 +637,7 @@ public sealed class ExternalCallGraphCommandTests
         Assert.True(
             captured.ExitCode == 0,
             captured.Error);
-        Assert.Equal($"1{Environment.NewLine}", captured.Output);
+        Assert.Equal("1\n", captured.Output.ReplaceLineEndings("\n"));
         Assert.DoesNotContain(
             "unprojected output",
             captured.Error);
@@ -720,14 +817,14 @@ public sealed class ExternalCallGraphCommandTests
             node =>
                 node.Subject
                     is InspectionGraphSubject.MemberSubject
-                    {
-                        Identity:
+                {
+                    Identity:
                             InspectionGraphMemberIdentity.CallGraph
-                            {
-                                Member.Name:
+                    {
+                        Member.Name:
                                     "HandleTransientHttpError",
-                            },
-                    });
+                    },
+                });
         PackageDependencyMemberCallGraphPackageSubject package =
             Assert.Single(
                 available.Document.PackageSubjects,
@@ -898,18 +995,22 @@ public sealed class ExternalCallGraphCommandTests
                                         true,
                                 }))));
         await using var workspace = new InspectionWorkspace();
+        WorkspaceScopeSnapshot scope =
+            Assert.IsType<WorkspaceScopeReadResult.Available>(
+                await workspace.GetScopeSnapshotAsync()).Snapshot;
+        WorkspaceRegistrationRevision registrations =
+            Assert.IsType<WorkspaceRegistrationReadResult.Available>(
+                workspace.GetRegistrationSnapshot()).Revision;
         using AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 assemblies.Select(assembly =>
                     new AssemblyContextParticipant(
                         assembly,
                         policy)));
-        int methodToken =
-            Analysis.LibraryBodyIndex.Open(callerPath)
-                .Methods.Single(methodInfo =>
-                    methodInfo.DeclaringType.Name == "Entry"
-                    && methodInfo.Name == member)
-                .MetadataToken;
+        int methodToken = MethodTokenOf(
+            callerPath,
+            "Entry",
+            member);
         using var session = new MemberCallGraphSession(
             group,
             assemblies[0],
@@ -934,6 +1035,10 @@ public sealed class ExternalCallGraphCommandTests
                         ["test.root"],
                         [],
                         []),
+                    MemberCallGraphFocalScopeReceipt.CaptureEverything(
+                        scope,
+                        registrations),
+                    [],
                     [],
                     graph));
         return new InspectionEnvelope<
@@ -943,6 +1048,20 @@ public sealed class ExternalCallGraphCommandTests
                     "package-dependency-member-call-graph/share",
                     "Test projection."));
     }
+
+    static int MethodTokenOf(
+        string assemblyPath,
+        string declaringTypeName,
+        string methodName) =>
+        BodyAnalysisTestExecution.Open(
+                assemblyPath,
+                includeAllocations: false,
+                includeOpportunities: false)
+            .CallGraph.Methods
+            .Single(method =>
+                method.DeclaringType.Name == declaringTypeName
+                && method.Name == methodName)
+            .MetadataToken;
 
     static async Task CommitPackageAsync(
         InMemoryPackageStore store,

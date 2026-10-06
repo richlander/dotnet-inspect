@@ -91,9 +91,9 @@ path policy consumes Instructions-issued location and handler identities while
 retaining Analysis-owned conservative catch-interception policy; it does not
 claim shared exceptional-search or unwind facts.
 
-Raw byte/`ExceptionRegion` leak-triage and reaching-definitions overloads remain
-explicit Layer 0 compatibility entry points. They cannot publish correlated
-facts and are not used by the production `LibraryBodyIndex` path. An
+Raw byte/`ExceptionRegion` reaching-definitions overloads remain explicit
+Layer 0 compatibility entry points. They cannot publish correlated facts and
+are not used by the production `LibraryBodyAnalysisService` path. An
 instruction-only lifted-owner scan decodes only instructions rather than
 constructing an unused raw EH graph.
 
@@ -229,12 +229,12 @@ single-threaded results without scheduling or distributed state. Focused
 construction, correspondence, consumer, and product-host gates are the direct
 evidence.
 
-`LeakTriageAnalyzerTests` gates exact body/clause identity preservation,
-refusal of uncorrelated body signals, compiler-produced nested `finally`
-contexts, catch-all cleanup, typed-catch near misses, and nested catch
-interception through the production assembly-analysis path. Existing method
-signal, stable-getter, structural-clone, and reaching-definitions tests gate
-their migrated consumers.
+`ResourceLifecycleAnalysisTests` gates exact body/clause identity
+preservation, refusal of uncorrelated body signals, compiler-produced nested
+`finally` contexts, catch-all cleanup, typed-catch near misses, and nested
+catch interception through the production assembly-analysis path. Existing
+method signal, stable-getter, structural-clone, and reaching-definitions tests
+gate their migrated consumers.
 
 `DecompilerExceptionFactAdoptionTests` gates the same-body Instructions
 handoff, exact flat and structured clause association, Metadata catch order,

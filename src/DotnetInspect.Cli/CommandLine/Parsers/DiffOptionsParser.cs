@@ -47,6 +47,7 @@ public static class DiffOptionsParser
         Option<bool> PdbSourceOption,
         Option<bool> LegacyAuthoredSourceOption,
         Option<string?> FindingOption,
+        Option<string[]> AnalysisOption,
         Option<bool> LegendOption,
         Option<string[]> RepoOption,
         Option<bool> CompactOption);
@@ -69,7 +70,7 @@ public static class DiffOptionsParser
     /// <summary>
     /// Successfully parsed options ready for execution.
     /// </summary>
-    public record Success(DiffOptions Options, Verbosity Verbosity, TipLevel TipLevel) : DiffParseResult;
+    public record Success(DiffOptions Options, Verbosity Verbosity, CompanionOutput CompanionOutput) : DiffParseResult;
 
     /// <summary>
     /// Parses diff command options.
@@ -177,6 +178,10 @@ public static class DiffOptionsParser
             IncludePdbSource = parseResult.GetValue(args.PdbSourceOption)
                 || parseResult.GetValue(args.LegacyAuthoredSourceOption),
             Finding = parseResult.GetValue(args.FindingOption),
+            Analysis = ParseAnalysisSet(
+                parseResult.GetResult(args.AnalysisOption) is { Implicit: false },
+                parseResult.GetValue(args.AnalysisOption)),
+            Where = parseResult.GetValue(opts.RowWhere) ?? [],
             Legend = parseResult.GetValue(args.LegendOption),
             SourceRepositories = parseResult.GetValue(args.RepoOption) ?? [],
             SourceOptions = opts.ParseNuGetSourceOptions(parseResult),
@@ -194,11 +199,23 @@ public static class DiffOptionsParser
         };
 
         var verbosity = opts.ParseVerbosity(parseResult);
-        var tipLevel = options.FormatExplicitlySet || options.IsRawOutput || verbosity == Verbosity.Quiet || options.Discover != null || options.Select != null || options.SelectDefault || ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null
-            ? TipLevel.Quiet : opts.ParseTipLevel(parseResult);
+        var companionOutput = opts.ParseCompanionOutput(parseResult);
 
-        return new Success(options, verbosity, tipLevel);
+        return new Success(options, verbosity, companionOutput);
     }
+
+    /// <summary>
+    /// Splits comma-separated <c>--analysis</c> values and concatenates
+    /// repeated values in order. Empty tokens are kept so set validation
+    /// rejects them; null means the option was omitted.
+    /// </summary>
+    internal static string[]? ParseAnalysisSet(bool specified, string[]? values)
+        => specified
+            ? [
+                .. (values ?? []).SelectMany(static value => value.Split(','))
+                    .Select(static token => token.Trim()),
+            ]
+            : null;
 
     internal static string[]? ParseEffectiveSelect(
         ParseResult parseResult,

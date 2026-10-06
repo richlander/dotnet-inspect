@@ -1,28 +1,8 @@
 import type {
   BrowserOpportunityItem,
-  BrowserPackageOpportunities,
 } from "./facades/inspect-web-analysis.d.ts";
-import { renderIntegrationInspector } from "./integration-inspector.ts";
 
 export type OpportunityItem = BrowserOpportunityItem;
-type PackageOpportunities = Pick<
-  BrowserPackageOpportunities,
-  "categories" | "totalOpportunities" | "isComplete" | "inspectionError"
->;
-
-export interface RenderPackageOpportunitiesOptions {
-  libraryName: string;
-  assemblyIdentity: string;
-  assetPath: string;
-  coordinate: string;
-  requireLibrary: boolean;
-  pickerHtml: string;
-  fresh: boolean;
-  loading: boolean;
-  error: string;
-  data: PackageOpportunities | null;
-  escapeHtml: (value: unknown) => string;
-}
 
 export interface PackageOpportunitiesBindingActions {
   onLookForSelect: (query: string) => void;
@@ -115,7 +95,10 @@ function renderLookForChips(lookFor: string, escapeHtml: (value: unknown) => str
 // (a type in this package) navigates in place; a suggested package (a dotted namespace parsed
 // from the integration kind) loads on demand; each concrete "look for" API opens the spotlight
 // search. Naming patterns (wildcards) stay as muted, non-clickable hints.
-function renderOpportunityRow(item: OpportunityItem, escapeHtml: (value: unknown) => string): string {
+export function renderOpportunityRow(
+  item: OpportunityItem,
+  escapeHtml: (value: unknown) => string,
+): string {
   const api = splitApiName(item.api);
   const kind = splitOpportunityKind(item.integrationType);
   const hasSourceIdentity = Object.prototype.hasOwnProperty.call(
@@ -142,51 +125,4 @@ function renderOpportunityRow(item: OpportunityItem, escapeHtml: (value: unknown
         <div class="opp-lookfor"><span class="opp-lookfor-label">look for</span>${renderLookForChips(item.lookFor, escapeHtml)}</div>
       </div>
     </div>`;
-}
-
-export function renderPackageOpportunities(options: RenderPackageOpportunitiesOptions): string {
-  const {
-    libraryName,
-    requireLibrary, fresh, loading, error, data, escapeHtml,
-  } = options;
-  let status: string;
-  let content: string;
-  if (requireLibrary) {
-    status = "Select a library";
-    content = `<section class="document-section empty-document"><span class="large-glyph">&#x25B3;</span><h2>Pick a library to scan</h2><p>Choose a .NET platform library above to compare its public surface against ecosystem integration patterns.</p></section>`;
-  } else if (loading && fresh) {
-    status = "Scanning opportunities\u2026";
-    content = `<section class="document-section source-progress"><span class="loader"></span><h2>Scanning opportunities&hellip;</h2><p>Comparing the public surface against ecosystem integration patterns.</p></section>`;
-  } else if (fresh && error) {
-    status = "Scan failed";
-    content = `<section class="document-section empty-document"><span class="large-glyph">&#x25B3;</span><h2>Opportunity scan failed</h2><p>${escapeHtml(error)}</p></section>`;
-  } else {
-    const resolved = fresh ? data : null;
-    if (!resolved) {
-      status = "Loading\u2026";
-      content = `<section class="document-section empty-document"><span class="loader"></span><h2>Loading&hellip;</h2></section>`;
-    } else {
-      const categories = resolved.categories;
-      const partial = !resolved.isComplete || Boolean(resolved.inspectionError);
-      status = `${categories.length.toLocaleString()} area${categories.length === 1 ? "" : "s"} \u00b7 ${resolved.totalOpportunities.toLocaleString()} suggestion${resolved.totalOpportunities === 1 ? "" : "s"}${partial ? " \u00b7 partial" : ""}`;
-      const warning = partial
-        ? `<section class="document-section metadata-warning"><strong>&#x26A0; This library could not be scanned completely</strong>${resolved.inspectionError ? `<ul><li><code>${escapeHtml(resolved.inspectionError)}</code></li></ul>` : ""}</section>`
-        : "";
-      const note = categories.length
-        ? `<p class="library-opportunities-note">Types open in this package; suggested packages load on demand; each concrete "look for" API opens a workspace search.</p>`
-        : "";
-      const blocks = categories.map((category, index) => {
-        const rows = category.items.map(item => renderOpportunityRow(item, escapeHtml)).join("");
-        return `<section class="opportunity-category" aria-labelledby="opportunity-category-${index}">
-          <div class="section-title"><h2 id="opportunity-category-${index}">${escapeHtml(category.integration)}</h2><span>${category.items.length} suggestion${category.items.length === 1 ? "" : "s"}</span></div>
-          <div class="opp-list" role="list">${rows}</div>
-        </section>`;
-      }).join("");
-      const empty = partial
-        ? `<section class="document-section empty-document"><h2>Opportunity scan incomplete</h2><p>No opportunity suggestions are available from this incomplete scan.</p></section>`
-        : `<section class="document-section empty-document"><span class="large-glyph">&#x25C7;</span><h2>No integration opportunities</h2><p>The public surface of ${escapeHtml(libraryName)} shows no obvious auth, cloud-client, configuration, database, or AI-client patterns that suggest a missing ecosystem integration.</p></section>`;
-      content = `${warning}${note}${categories.length ? blocks : empty}`;
-    }
-  }
-  return renderIntegrationInspector(options, "opportunities", status, content);
 }

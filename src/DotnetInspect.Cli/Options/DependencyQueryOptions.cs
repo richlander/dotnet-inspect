@@ -157,9 +157,8 @@ internal static class DependencyQueryOptions
                     syntax.Value));
         }
 
-        PortableQueryStage[] stages = rowSelection is null
-            ? []
-            : [.. rowSelection.Operations.Select(ToPortableStage)];
+        PortableQueryStage[] stages =
+            [.. PortableQueryRowSelection.ToStages(rowSelection)];
         var orders = ImmutableArray.CreateBuilder<
             PortableQueryOrderOperation>();
         if (!string.IsNullOrWhiteSpace(orderBy))
@@ -395,23 +394,6 @@ internal static class DependencyQueryOptions
         return default;
     }
 
-    private static PortableQueryStage ToPortableStage(
-        RowSelectionIntentOperation<string> operation) =>
-        operation.Kind switch
-        {
-            RowSelectionStageKind.Head =>
-                PortableQueryStage.Head(operation.Count),
-            RowSelectionStageKind.Tail =>
-                PortableQueryStage.Tail(operation.Count),
-            RowSelectionStageKind.Window =>
-                PortableQueryStage.Window(
-                    operation.Start,
-                    operation.End),
-            RowSelectionStageKind.Top =>
-                PortableQueryStage.Top(operation.Count),
-            _ => throw new InvalidOperationException(
-                "Dependency Query received an unsupported row stage."),
-        };
 
     private static string Example(string key) =>
         key switch

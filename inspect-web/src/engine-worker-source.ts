@@ -34,8 +34,7 @@ const maxRequestCharacters = 64 * 1024;
 const maxAuxiliaryCharacters = 64 * 1024;
 const maxSourceTextCharacters = 32_000_000;
 
-export interface EngineWorkerTypeSourceInput {
-  readonly packageId: string;
+interface EngineWorkerTypeSourceSelection {
   readonly version: string;
   readonly framework: string;
   readonly assembly: string;
@@ -43,6 +42,17 @@ export interface EngineWorkerTypeSourceInput {
   readonly taste: string;
   readonly view: TypeSourceView;
 }
+
+export type EngineWorkerTypeSourceInput =
+  | ({
+      readonly kind: "package";
+      readonly packageId: string;
+    } & EngineWorkerTypeSourceSelection)
+  | ({
+      readonly kind: "platform";
+      readonly pack: string;
+      readonly contextId: string | null;
+    } & EngineWorkerTypeSourceSelection);
 
 export interface EngineWorkerTypeSourceFacade {
   queryTypeSource(
@@ -54,6 +64,17 @@ export interface EngineWorkerTypeSourceFacade {
     typeIdentity: string,
     styleOptionsJson: string,
     view: string,
+  ): Promise<BrowserTypeSourceResult>;
+  queryPlatformTypeSource(
+    operationId: string,
+    targetFramework: string,
+    platformVersion: string,
+    assemblyName: string,
+    pack: string,
+    typeIdentity: string,
+    styleOptionsJson: string,
+    view: string,
+    contextId: string | null,
   ): Promise<BrowserTypeSourceResult>;
   cancelTypeSourceQuery(
     operationId: string,
@@ -139,27 +160,44 @@ export const engineWorkerTypeSourceInput:
 BoundedPayloadDecoder<EngineWorkerTypeSourceInput> = {
   decode(value) {
     const candidate = dataRecord(value);
-    if (candidate === null || !hasExactData(candidate, [
-      "packageId",
-      "version",
-      "framework",
-      "assembly",
-      "type",
-      "taste",
-      "view",
-    ])) {
+    if (candidate === null) {
       return rejected("Expected a Type Source request.");
     }
 
-    const packageId = ownData(candidate, "packageId");
+    const kind = ownData(candidate, "kind");
+    const packageRequest = kind === "package"
+      && hasExactData(candidate, [
+        "kind",
+        "packageId",
+        "version",
+        "framework",
+        "assembly",
+        "type",
+        "taste",
+        "view",
+      ]);
+    const platformRequest = kind === "platform"
+      && hasExactData(candidate, [
+        "kind",
+        "version",
+        "framework",
+        "assembly",
+        "pack",
+        "contextId",
+        "type",
+        "taste",
+        "view",
+      ]);
+    if (!packageRequest && !platformRequest)
+      return rejected("Expected a Type Source request.");
+
     const version = ownData(candidate, "version");
     const framework = ownData(candidate, "framework");
     const assembly = ownData(candidate, "assembly");
     const type = ownData(candidate, "type");
     const taste = ownData(candidate, "taste");
     const view = ownData(candidate, "view");
-    if (typeof packageId !== "string"
-      || typeof version !== "string"
+    if (typeof version !== "string"
       || typeof framework !== "string"
       || typeof assembly !== "string"
       || typeof type !== "string"
@@ -170,14 +208,47 @@ BoundedPayloadDecoder<EngineWorkerTypeSourceInput> = {
     const selectedView = typeSourceView(view);
     if (selectedView === null)
       return rejected("Unknown Type Source view.");
-    const characters = packageId.length
-      + version.length
+    const characters = version.length
       + framework.length
       + assembly.length
       + type.length
       + taste.length
       + view.length;
-    if (characters > maxRequestCharacters) {
+    if (kind === "package") {
+      const packageId = ownData(candidate, "packageId");
+      if (typeof packageId !== "string")
+        return rejected("Type Source package ID must be text.");
+      if (characters + packageId.length > maxRequestCharacters) {
+        return rejected(
+          `Type Source request exceeds ${maxRequestCharacters} characters.`,
+          "oversized",
+        );
+      }
+      return {
+        kind: "decoded",
+        value: {
+          kind,
+          packageId,
+          version,
+          framework,
+          assembly,
+          type,
+          taste,
+          view: selectedView,
+        },
+      };
+    }
+
+    const pack = ownData(candidate, "pack");
+    const contextId = decodeNullableString(
+      ownData(candidate, "contextId"),
+      "Type Source Platform context",
+    );
+    if (typeof pack !== "string" || contextId.kind === "rejected")
+      return rejected("Type Source Platform fields are invalid.");
+    const platformCharacters =
+      characters + pack.length + (contextId.value?.length ?? 0);
+    if (platformCharacters > maxRequestCharacters) {
       return rejected(
         `Type Source request exceeds ${maxRequestCharacters} characters.`,
         "oversized",
@@ -187,10 +258,12 @@ BoundedPayloadDecoder<EngineWorkerTypeSourceInput> = {
     return {
       kind: "decoded",
       value: {
-        packageId,
+        kind: "platform",
         version,
         framework,
         assembly,
+        pack,
+        contextId: contextId.value,
         type,
         taste,
         view: selectedView,
@@ -506,15 +579,30 @@ WorkerRuntimeOperationRegistration<
     kind: engineWorkerTypeSourceKind,
     allowance: { kind: "unbounded" },
     encodeInput(request) {
-      return engineWorkerTypeSourceInput.decode({
-        packageId: request.packageId,
-        version: request.version,
-        framework: request.framework,
-        assembly: request.assembly,
-        type: request.type,
-        taste: request.taste,
-        view: request.view,
-      });
+      return engineWorkerTypeSourceInput.decode(
+        request.kind === "platform"
+          ? {
+            kind: "platform",
+            version: request.version,
+            framework: request.framework,
+            assembly: request.assembly,
+            pack: request.pack,
+            contextId: request.contextId,
+            type: request.type,
+            taste: request.taste,
+            view: request.view,
+          }
+          : {
+            kind: "package",
+            packageId: request.packageId,
+            version: request.version,
+            framework: request.framework,
+            assembly: request.assembly,
+            type: request.type,
+            taste: request.taste,
+            view: request.view,
+          },
+      );
     },
     value: engineWorkerTypeSourceValue,
     error: engineWorkerTypeSourceFailure,
@@ -543,16 +631,28 @@ export function registerEngineWorkerTypeSourceOperation(
     }),
     invoke: async (input, context) => {
       const source = facade();
-      const result = await source.queryTypeSource(
-        context.operation.operationId,
-        input.packageId,
-        input.version,
-        input.framework,
-        input.assembly,
-        input.type,
-        input.taste,
-        input.view,
-      );
+      const result = input.kind === "platform"
+        ? await source.queryPlatformTypeSource(
+          context.operation.operationId,
+          input.framework,
+          input.version,
+          input.assembly,
+          input.pack,
+          input.type,
+          input.taste,
+          input.view,
+          input.contextId,
+        )
+        : await source.queryTypeSource(
+          context.operation.operationId,
+          input.packageId,
+          input.version,
+          input.framework,
+          input.assembly,
+          input.type,
+          input.taste,
+          input.view,
+        );
       try {
         return mapEngineWorkerTypeSourceResult(result);
       } catch (error: unknown) {

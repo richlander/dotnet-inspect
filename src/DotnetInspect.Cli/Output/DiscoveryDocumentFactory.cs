@@ -25,7 +25,8 @@ internal static class DiscoveryDocumentFactory
         bool requireExactSelection = false,
         IReadOnlyDictionary<
             string,
-            SectionCardinalityDeclaration>? sectionCardinalities = null) =>
+            SectionCardinalityDeclaration>? sectionCardinalities = null,
+        IReadOnlyDictionary<string, SectionShape>? sectionShapes = null) =>
         CreateCore(
             catalog,
             discover,
@@ -38,6 +39,7 @@ internal static class DiscoveryDocumentFactory
             capabilities,
             requireExactSelection,
             sectionCardinalities,
+            sectionShapes,
             includeResourcePaths: false)?.Document;
 
     public static Projection? CreateProjection(
@@ -53,7 +55,8 @@ internal static class DiscoveryDocumentFactory
         bool requireExactSelection = false,
         IReadOnlyDictionary<
             string,
-            SectionCardinalityDeclaration>? sectionCardinalities = null) =>
+            SectionCardinalityDeclaration>? sectionCardinalities = null,
+        IReadOnlyDictionary<string, SectionShape>? sectionShapes = null) =>
         CreateCore(
             catalog,
             discover,
@@ -66,6 +69,7 @@ internal static class DiscoveryDocumentFactory
             capabilities,
             requireExactSelection,
             sectionCardinalities,
+            sectionShapes,
             includeResourcePaths: true);
 
     private static Projection? CreateCore(
@@ -82,6 +86,7 @@ internal static class DiscoveryDocumentFactory
         IReadOnlyDictionary<
             string,
             SectionCardinalityDeclaration>? sectionCardinalities,
+        IReadOnlyDictionary<string, SectionShape>? sectionShapes,
         bool includeResourcePaths)
     {
         IReadOnlyDictionary<string, string[]> categories =
@@ -94,6 +99,8 @@ internal static class DiscoveryDocumentFactory
                 schema.SectionNames);
         var resourcePaths =
             new List<StructuralResourcePathRegistration>();
+        IReadOnlyDictionary<string, SectionShape> shapes =
+            NormalizeShapes(sectionShapes, schema.SectionNames);
         List<DiscoveryResource> resources =
             CreateResources(
                 catalog,
@@ -101,6 +108,7 @@ internal static class DiscoveryDocumentFactory
                 categories,
                 capabilities,
                 cardinalities,
+                shapes,
                 includeResourcePaths ? resourcePaths : null);
         List<DiscoveryResourceIdentity> catalogEntries =
             CreateCatalogEntries(
@@ -138,6 +146,7 @@ internal static class DiscoveryDocumentFactory
         IReadOnlyDictionary<
             string,
             SectionCardinalityDeclaration> cardinalities,
+        IReadOnlyDictionary<string, SectionShape> shapes,
         List<StructuralResourcePathRegistration>? resourcePaths)
     {
         var resources = new List<DiscoveryResource>();
@@ -221,13 +230,18 @@ internal static class DiscoveryDocumentFactory
             cardinalities.TryGetValue(
                 sectionName,
                 out SectionCardinalityDeclaration? cardinality);
+            SectionShape? shape =
+                shapes.TryGetValue(sectionName, out SectionShape declaredShape)
+                    ? declaredShape
+                    : null;
             resources.Add(
                 new DiscoveryResource(
                     sectionIdentity,
                     members: itemIdentities,
                     outputModes:
                         capabilities.FormatsForSection(sectionName),
-                    cardinality: cardinality));
+                    cardinality: cardinality,
+                    shape: shape));
             if (resourcePaths is not null)
             {
                 AddPath(
@@ -297,6 +311,29 @@ internal static class DiscoveryDocumentFactory
                         + $"section '{canonicalName}'.",
                     nameof(cardinalities));
             }
+        }
+
+        return normalized;
+    }
+
+    private static IReadOnlyDictionary<string, SectionShape> NormalizeShapes(
+        IReadOnlyDictionary<string, SectionShape>? shapes,
+        IReadOnlyList<string> sectionNames)
+    {
+        var normalized = new Dictionary<string, SectionShape>(
+            StringComparer.OrdinalIgnoreCase);
+        if (shapes is null)
+            return normalized;
+
+        var known = sectionNames.ToDictionary(
+            static name => name,
+            StringComparer.OrdinalIgnoreCase);
+        foreach ((string name, SectionShape shape) in shapes)
+        {
+            // A shape declared for a section outside this schema (for example a
+            // section hidden from the current route) is simply not advertised.
+            if (known.TryGetValue(name, out string? canonicalName))
+                normalized[canonicalName] = shape;
         }
 
         return normalized;
@@ -620,11 +657,9 @@ internal static class DiscoveryDocumentFactory
             SectionCategoryNames.Member => "member",
             SectionCategoryNames.Diff => "diff",
             SectionCategoryNames.Project => "project",
-            SectionCategoryNames.Vocabulary => "vocabulary",
             SectionCategoryNames.Ecosystem => "ecosystem",
             SectionCategoryNames.Libraries => "libraries",
             SectionCategoryNames.Query => "query",
-            SectionCategoryNames.Api => "api",
             SectionCategoryNames.Audit => "audit",
             SectionCategoryNames.Dependencies => "dependencies",
             SectionCategoryNames.Calls => "calls",

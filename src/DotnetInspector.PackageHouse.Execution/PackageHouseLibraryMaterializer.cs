@@ -10,25 +10,57 @@ namespace DotnetInspector.Packages;
 public static class PackageHouseLibraryMaterializer
 {
     public static ValueTask<
+        PackageHouseLibraryMaterializationOutcome>
+        MaterializeSelectionAsync(
+            PackageHouseSettlement.Acquired settlement,
+            PackageHouseLibraryHandoff.Compile handoff,
+            PackageHouseLibraryMaterializationLimits? limits = null,
+            CancellationToken cancellationToken = default) =>
+        MaterializeCoreAsync(
+            settlement,
+            handoff,
+            includeImplementation: false,
+            PackageHouseLibraryOptionalArtifacts.None,
+            limits,
+            cancellationToken);
+
+    public static ValueTask<
         PackageHouseLibraryMaterializationOutcome> MaterializeAsync(
         PackageHouseSettlement.Acquired settlement,
         PackageHouseLibraryHandoff.Compile handoff,
         PackageHouseLibraryMaterializationLimits? limits = null,
         CancellationToken cancellationToken = default) =>
-        MaterializeAsync(
+        MaterializeCoreAsync(
             settlement,
             handoff,
+            includeImplementation: true,
             PackageHouseLibraryOptionalArtifacts.None,
             limits,
             cancellationToken);
 
-    public static async ValueTask<
+    public static ValueTask<
         PackageHouseLibraryMaterializationOutcome> MaterializeAsync(
         PackageHouseSettlement.Acquired settlement,
         PackageHouseLibraryHandoff.Compile handoff,
         PackageHouseLibraryOptionalArtifacts optionalArtifacts,
         PackageHouseLibraryMaterializationLimits? limits = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        MaterializeCoreAsync(
+            settlement,
+            handoff,
+            includeImplementation: true,
+            optionalArtifacts,
+            limits,
+            cancellationToken);
+
+    private static async ValueTask<
+        PackageHouseLibraryMaterializationOutcome> MaterializeCoreAsync(
+        PackageHouseSettlement.Acquired settlement,
+        PackageHouseLibraryHandoff.Compile handoff,
+        bool includeImplementation,
+        PackageHouseLibraryOptionalArtifacts optionalArtifacts,
+        PackageHouseLibraryMaterializationLimits? limits,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(settlement);
         ArgumentNullException.ThrowIfNull(handoff);
@@ -59,12 +91,13 @@ public static class PackageHouseLibraryMaterializer
                 implementationAsset,
                 handoff.Asset);
         string? implementationPath =
-            implementationAsset is null
+            !includeImplementation
+            || implementationAsset is null
             || oneAssemblyServesBothRoles
                 ? null
                 : implementationAsset.Path;
         string? documentationPath =
-            TryGetCompanionPath(apiPath, ".xml");
+            handoff.Asset.DocumentationCompanionPath;
         if (documentationPath is null)
         {
             return Terminal(
@@ -75,14 +108,13 @@ public static class PackageHouseLibraryMaterializer
         }
 
         string? portablePdbPath =
-            implementationAsset is null
+            !includeImplementation
+            || implementationAsset is null
             || optionalArtifacts
                 != PackageHouseLibraryOptionalArtifacts
                     .ImplementationPortablePdb
                 ? null
-                : TryGetCompanionPath(
-                    implementationAsset.Path,
-                    ".pdb");
+                : implementationAsset.PortablePdbCompanionPath;
         PackageHouseLibraryOptionalArtifactOmissionKind?
             portablePdbOmission = null;
 
@@ -163,7 +195,7 @@ public static class PackageHouseLibraryMaterializer
                 required: false,
                 limits.MaxContentBytes,
                 cancellationToken,
-                captureNonSeekable: true);
+                captureContent: true);
             if (!TryAcceptEntry(
                     portablePdbPreparation,
                     entries,
@@ -542,10 +574,19 @@ public static class PackageHouseLibraryMaterializer
         }
 
         if (settlement.Result.Evidence.Realization
-                is not PackageHouseRealizationReceipt.Compile realization
-            || !ReferenceEquals(realization.Receipt, handoff.Receipt)
-            || !realization.LibraryHandoffs.Any(candidate =>
+                is PackageHouseRealizationReceipt.Compile realization
+            && ReferenceEquals(realization.Receipt, handoff.Receipt)
+            && realization.LibraryHandoffs.Any(candidate =>
                 ReferenceEquals(candidate, handoff)))
+        {
+            return null;
+        }
+
+        if (settlement.Result.Evidence.LibraryAndInventory
+                is not { } libraryAndInventory
+            || !ReferenceEquals(
+                libraryAndInventory.SelectedLibrary,
+                handoff))
         {
             return PackageHouseLibraryMaterializationFailureKind
                 .InvalidHandoff;
@@ -560,7 +601,7 @@ public static class PackageHouseLibraryMaterializer
         bool required,
         long maxContentBytes,
         CancellationToken cancellationToken,
-        bool captureNonSeekable = false)
+        bool captureContent = false)
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (content is IPackageContentEntryManifest manifest)
@@ -578,6 +619,15 @@ public static class PackageHouseLibraryMaterializer
                     path);
             }
 
+            if (captureContent)
+            {
+                return CaptureEntry(
+                    content,
+                    path,
+                    maxContentBytes,
+                    cancellationToken);
+            }
+
             return new(
                 EntryPreparationKind.Present,
                 path,
@@ -587,12 +637,10 @@ public static class PackageHouseLibraryMaterializer
         try
         {
             Stream? stream;
-            bool opened = captureNonSeekable
-                ? content.TryOpenEntry(path, out stream)
-                : content.TryOpenEntry(
-                    path,
-                    maxContentBytes,
-                    out stream);
+            bool opened = content.TryOpenEntry(
+                path,
+                maxContentBytes,
+                out stream);
             if (!opened || stream is null)
             {
                 return required
@@ -612,42 +660,13 @@ public static class PackageHouseLibraryMaterializer
                         EntryPreparationKind.ContentByteLimit,
                         path);
                 }
-                if (length is null && captureNonSeekable)
+                if (captureContent)
                 {
-                    using var captured = new MemoryStream();
-                    byte[] buffer = new byte[81_920];
-                    while (true)
-                    {
-                        cancellationToken.ThrowIfCancellationRequested();
-                        int maximumRead = checked(
-                            (int)Math.Min(
-                                buffer.Length,
-                                (maxContentBytes - captured.Length)
-                                    + 1));
-                        int read = stream.Read(
-                            buffer,
-                            0,
-                            maximumRead);
-                        if (read == 0)
-                            break;
-                        if (captured.Length + read
-                            > maxContentBytes)
-                        {
-                            return new(
-                                EntryPreparationKind
-                                    .ContentByteLimit,
-                                path);
-                        }
-                        captured.Write(buffer, 0, read);
-                    }
-
-                    cancellationToken.ThrowIfCancellationRequested();
-                    byte[] bytes = captured.ToArray();
-                    return new(
-                        EntryPreparationKind.Present,
+                    return CaptureStream(
+                        stream,
                         path,
-                        bytes.LongLength,
-                        bytes);
+                        maxContentBytes,
+                        cancellationToken);
                 }
 
                 return new(
@@ -662,6 +681,84 @@ public static class PackageHouseLibraryMaterializer
                 EntryPreparationKind.Unreadable,
                 path);
         }
+    }
+
+    private static EntryPreparation CaptureEntry(
+        IPackageContent content,
+        string path,
+        long maxContentBytes,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            if (!content.TryOpenEntry(
+                    path,
+                    maxContentBytes,
+                    out Stream? stream)
+                || stream is null)
+            {
+                return new(
+                    EntryPreparationKind.Unreadable,
+                    path);
+            }
+
+            using (stream)
+            {
+                return CaptureStream(
+                    stream,
+                    path,
+                    maxContentBytes,
+                    cancellationToken);
+            }
+        }
+        catch (InvalidDataException)
+        {
+            return new(EntryPreparationKind.Unreadable, path);
+        }
+        catch (PackageEntryNotMaterializedException)
+        {
+            return new(EntryPreparationKind.Unreadable, path);
+        }
+        catch (IOException)
+        {
+            return new(EntryPreparationKind.Unreadable, path);
+        }
+    }
+
+    private static EntryPreparation CaptureStream(
+        Stream stream,
+        string path,
+        long maxContentBytes,
+        CancellationToken cancellationToken)
+    {
+        using var captured = new MemoryStream();
+        byte[] buffer = new byte[81_920];
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            int maximumRead = checked(
+                (int)Math.Min(
+                    buffer.Length,
+                    (maxContentBytes - captured.Length) + 1));
+            int read = stream.Read(buffer, 0, maximumRead);
+            if (read == 0)
+                break;
+            if (captured.Length + read > maxContentBytes)
+            {
+                return new(
+                    EntryPreparationKind.ContentByteLimit,
+                    path);
+            }
+            captured.Write(buffer, 0, read);
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        byte[] bytes = captured.ToArray();
+        return new(
+            EntryPreparationKind.Present,
+            path,
+            bytes.LongLength,
+            bytes);
     }
 
     private static bool TryAcceptEntry(
@@ -705,27 +802,6 @@ public static class PackageHouseLibraryMaterializer
                 throw new InvalidOperationException(
                     "Unknown package entry preparation.");
         }
-    }
-
-    private static string? TryGetCompanionPath(
-        string assemblyPath,
-        string companionExtension)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(
-            companionExtension);
-        int separator = assemblyPath.LastIndexOf('/');
-        int extension = assemblyPath.LastIndexOf('.');
-        if (extension <= separator
-            || !assemblyPath.AsSpan(extension).Equals(
-                ".dll",
-                StringComparison.OrdinalIgnoreCase))
-        {
-            return null;
-        }
-
-        return string.Concat(
-            assemblyPath.AsSpan(0, extension),
-            companionExtension);
     }
 
     private static bool IsCompanion(

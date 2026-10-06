@@ -30,7 +30,7 @@ public sealed class PackageSectionGrowthTests
         44)]
     [InlineData(
         "crestapps.agentskills.mcp.orchardcore.1.2.0.nupkg",
-        "Package skill files",
+        "Skills",
         172)]
     public async Task PackageBaseInventory_RealPackagePreservesMeasuredRows(
         string archive,
@@ -48,9 +48,7 @@ public sealed class PackageSectionGrowthTests
             packagePath,
             "-S",
             section,
-            "--count",
-            "--tips",
-            "q");
+            "--count");
 
         Assert.True(result.ExitCode == 0, result.Error);
         Assert.Equal(
@@ -94,8 +92,11 @@ public sealed class PackageSectionGrowthTests
     }
 
     [Fact]
-    public async Task PackageBaseInventory_NuspecPathsCanExceedInformativeRange()
+    public async Task PackageNuspecSection_SelectsOnlyTheRootManifest()
     {
+        // The nuspec section is one Text payload: the root manifest, which the
+        // package format places exactly once. Nested .nuspec paths stay in the
+        // whole-package listing (docs/design/section-shapes.md#text).
         (string packagePath, string tempDirectory) = await CreatePackageAsync(
             "Nuspec.Growth",
             archive =>
@@ -109,9 +110,21 @@ public sealed class PackageSectionGrowthTests
 
         try
         {
+            // The nuspec section is scalar, so its single row is observed
+            // through the row stream rather than Count.
+            var nuspec = await Run(
+                "package",
+                packagePath,
+                "-S",
+                "Nuspec",
+                "--tsv");
+            Assert.True(nuspec.ExitCode == 0, nuspec.Error);
+            Assert.Equal(
+                2,
+                nuspec.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries).Length);
             await AssertCountAsync(
                 packagePath,
-                "Package nuspec file",
+                "Files",
                 31);
         }
         finally
@@ -197,9 +210,7 @@ public sealed class PackageSectionGrowthTests
                 "net11.0",
                 "-S",
                 "Dependency Hierarchy",
-                "--count",
-                "--tips",
-                "q");
+                "--count");
 
             Assert.True(result.ExitCode == 0, result.Error);
             Assert.True(int.TryParse(result.Output.Trim(), out int count));
@@ -282,9 +293,7 @@ public sealed class PackageSectionGrowthTests
             packagePath,
             "-S",
             section,
-            "--count",
-            "--tips",
-            "q");
+            "--count");
 
         Assert.True(result.ExitCode == 0, result.Error);
         Assert.Equal(

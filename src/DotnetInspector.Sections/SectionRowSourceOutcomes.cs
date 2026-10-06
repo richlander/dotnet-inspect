@@ -36,21 +36,62 @@ public sealed class SectionRowSourceState<
             TCompletionEvidence> evidence,
         bool rowsAreUsable,
         bool countIsSufficient)
+        : this(
+            identity,
+            evidence,
+            rowsAreUsable,
+            countIsSufficient,
+            null)
+    {
+    }
+
+    public SectionRowSourceState(
+        TIdentity identity,
+        SectionRowSourceEvidence<
+            TDisposition,
+            TCompletionEvidence> evidence,
+        int exactCount)
+        : this(
+            identity,
+            evidence,
+            false,
+            true,
+            exactCount)
+    {
+    }
+
+    private SectionRowSourceState(
+        TIdentity identity,
+        SectionRowSourceEvidence<
+            TDisposition,
+            TCompletionEvidence> evidence,
+        bool rowsAreUsable,
+        bool countIsSufficient,
+        int? exactCount)
     {
         ArgumentNullException.ThrowIfNull(identity);
         ArgumentNullException.ThrowIfNull(evidence);
+        if (exactCount is < 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(exactCount));
+        }
         if (countIsSufficient && !rowsAreUsable)
         {
-            throw new ArgumentException(
-                "A source cannot satisfy residual Count without supplying "
-                + "usable rows.",
-                nameof(countIsSufficient));
+            if (exactCount is null)
+            {
+                throw new ArgumentException(
+                    "A source cannot satisfy Count without usable rows or "
+                    + "an exact cardinality.",
+                    nameof(countIsSufficient));
+            }
         }
 
         Identity = identity;
         Evidence = evidence;
         RowsAreUsable = rowsAreUsable;
         CountIsSufficient = countIsSufficient;
+        ExactCount = exactCount;
     }
 
     public TIdentity Identity { get; }
@@ -63,6 +104,8 @@ public sealed class SectionRowSourceState<
     public bool RowsAreUsable { get; }
 
     public bool CountIsSufficient { get; }
+
+    public int? ExactCount { get; }
 }
 
 public sealed class SectionSourceRowSetResult<

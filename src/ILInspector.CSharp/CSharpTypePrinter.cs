@@ -1072,6 +1072,7 @@ public sealed class CSharpTypePrinter
             HasMethodBody = member.HasMethodBody,
             IsAsync = member.IsAsync,
             Accessibility = member.Accessibility,
+            DeclaredAccessibility = member.DeclaredAccessibility,
             IsExtension = member.IsExtension,
             IsObsolete = member.IsObsolete,
             ObsoleteMessage = member.ObsoleteMessage,

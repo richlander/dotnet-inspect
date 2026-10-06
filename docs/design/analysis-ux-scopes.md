@@ -27,7 +27,7 @@ container names such as `Regions`, `Calls`, `Facts`, or `Triage`.
 
 ## Canonical examples from offset context
 
-The offset context sections established by `library coordinate` are the
+The offset context sections established by `library address` are the
 reference examples for future semantic analysis work.
 
 ### Source
@@ -35,7 +35,7 @@ reference examples for future semantic analysis work.
 Offset view:
 
 ```bash
-dotnet-inspect library coordinate 0x06000042+0x2A --library My.dll \
+dotnet-inspect library address 0x06000042+0x2A --library My.dll \
   -S "Context: Source Location"
 ```
 
@@ -61,7 +61,7 @@ Member/type analogs already exist as `Source Locations`, `PDB Source`, and
 Offset view:
 
 ```bash
-dotnet-inspect library coordinate 0x06000042+0x2A --library My.dll \
+dotnet-inspect library address 0x06000042+0x2A --library My.dll \
   -S "Context: Member"
 ```
 
@@ -91,7 +91,7 @@ Wider scopes already expose this through type/member identity and
 Offset view:
 
 ```bash
-dotnet-inspect library coordinate 0x06000042+0x2A --library My.dll \
+dotnet-inspect library address 0x06000042+0x2A --library My.dll \
   -S "Context: Instruction"
 ```
 
@@ -121,7 +121,7 @@ row view, not a separate offset-only concept.
 Offset view means "I am inside an exception region":
 
 ```bash
-dotnet-inspect library coordinate 0x06000042+0x1 --library My.dll \
+dotnet-inspect library address 0x06000042+0x1 --library My.dll \
   -S "Context: Exception"
 ```
 
@@ -156,7 +156,7 @@ member asks **what does this member contain?**
 Offset callsite view:
 
 ```bash
-dotnet-inspect library coordinate 0x06000042+0x2A --library My.dll \
+dotnet-inspect library address 0x06000042+0x2A --library My.dll \
   -S "Context: Callsite"
 ```
 
@@ -176,7 +176,7 @@ dotnet-inspect library coordinate 0x06000042+0x2A --library My.dll \
 Offset return-address view:
 
 ```bash
-dotnet-inspect library coordinate 0x06000042+0x2F --library My.dll \
+dotnet-inspect library address 0x06000042+0x2F --library My.dll \
   -S "Context: Return Address"
 ```
 

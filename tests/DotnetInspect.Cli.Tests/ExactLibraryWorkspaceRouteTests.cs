@@ -1,13 +1,17 @@
 using System.IO.Compression;
+using System.Text;
 using System.Text.Json;
 
 using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Planning;
+using DotnetInspect.Cli.Sections;
+using DotnetInspector.Fixtures;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using ILInspector.Metadata;
+using ILInspector.Research;
 using NuGetFetch;
 
 namespace DotnetInspect.Cli.Tests;
@@ -34,7 +38,7 @@ public sealed class ExactLibraryWorkspaceRouteTests
             PackagePath = $"{PackageId}@{Version}",
             AssemblyPath = Library,
             Tfm = Framework,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
         };
 
         (int exitCode, string output, string error) =
@@ -75,7 +79,7 @@ public sealed class ExactLibraryWorkspaceRouteTests
             Tfm = Framework,
             EnvelopeOutput = true,
             CompactJson = true,
-            TipLevel = TipLevel.Detailed,
+            CompanionOutput = CompanionOutput.Tips,
         };
 
         (int exitCode, string output, string error) =
@@ -97,11 +101,67 @@ public sealed class ExactLibraryWorkspaceRouteTests
         Assert.Equal(
             "exact-library-api",
             document.RootElement.GetProperty("result_kind").GetString());
-        Assert.Contains("Tips:", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("Tips:", error, StringComparison.Ordinal);
         Assert.Contains(
             "inspect type members",
             error,
             StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task IncompleteInspectionDoesNotEmitTips(bool jsonOutput)
+    {
+        byte[] libraryContent =
+            SourceForwarderResolutionTests.BuildTargetWithMalformedType(
+                requestedTypeIsMalformed: true);
+        var store = await CachedStoreAsync(libraryContent);
+        using var client = new HttpClient(new FailingHandler());
+        var options = new TypeOptions
+        {
+            PackagePath = $"{PackageId}@{Version}",
+            AssemblyPath = Library,
+            Tfm = Framework,
+            JsonOutput = jsonOutput,
+            Format = jsonOutput
+                ? OutputFormat.Json
+                : OutputFormat.Markdown,
+            FormatExplicitlySet = jsonOutput,
+            CompanionOutput = CompanionOutput.Tips,
+        };
+
+        (int exitCode, string output, string error) =
+            await ConsoleCapture.RunAsync(
+                () => TypeCommand.ExecuteAsync(
+                    options,
+                    ResolvedMemberInspectionPlan
+                        .FromCompatibilityOptions(options),
+                    new WorkspaceContextLoadOptions
+                    {
+                        HttpClient = client,
+                        SourceAuthorization =
+                            new UniformPackageSourceAuthorization([Source]),
+                        PackageStore = store,
+                    }));
+
+        Assert.Equal(1, exitCode);
+        if (jsonOutput)
+        {
+            using JsonDocument document = JsonDocument.Parse(output);
+            Assert.Equal(
+                (int)ExactLibraryApiInspectionOutcome.Available,
+                document.RootElement.GetProperty("outcome").GetInt32());
+            Assert.Contains(
+                "MalformedMetadata",
+                error,
+                StringComparison.Ordinal);
+        }
+        else
+        {
+            Assert.Contains("N.Other", output, StringComparison.Ordinal);
+        }
+        Assert.DoesNotContain("Tips:", error, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -238,8 +298,6 @@ public sealed class ExactLibraryWorkspaceRouteTests
             "--json",
             "--compact",
             $"-v:{verbosity}",
-            "-T",
-            "q",
         ];
         var root = CommandLineBuilder.CreateRootCommand();
         string[] processed =
@@ -276,8 +334,6 @@ public sealed class ExactLibraryWorkspaceRouteTests
             "--compact",
             "-n",
             "1",
-            "-T",
-            "q",
         ];
         var root = CommandLineBuilder.CreateRootCommand();
         string[] processed =
@@ -307,7 +363,7 @@ public sealed class ExactLibraryWorkspaceRouteTests
             PackagePath = $"{PackageId}@{Version}",
             AssemblyPath = Library,
             Tfm = Framework,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
             CompactJson = true,
         };
         WorkspaceContextLoadOptions capabilities = new()
@@ -360,6 +416,141 @@ public sealed class ExactLibraryWorkspaceRouteTests
     }
 
     [Fact]
+    public async Task
+        LibraryMetricsEnvelopePreservesExactPackageDocument()
+    {
+        const string packageId = "library-metrics-cli.test";
+        const string version = "1.0.0";
+        const string framework = "net11.0";
+        const string library =
+            "ILInspector.Analysis.CallerGraphTarget.dll";
+        using var directory =
+            new TemporaryTestDirectory("library-metrics-package-");
+        string packagePath = Path.Combine(
+            directory.FullName,
+            $"{packageId}.{version}.nupkg");
+        byte[] package = Archive(
+            ($"lib/{framework}/{library}",
+                await File.ReadAllBytesAsync(
+                    FixtureCatalog.AnalysisCallerGraphTarget
+                        .AssemblyPath(),
+                    TestContext.Current.CancellationToken)),
+            ($"{packageId}.nuspec",
+                Encoding.UTF8.GetBytes(
+                    $"""
+                    <package>
+                      <metadata>
+                        <id>{packageId}</id>
+                        <version>{version}</version>
+                        <authors>dotnet-inspect</authors>
+                        <description>Library Metrics CLI test package.</description>
+                      </metadata>
+                    </package>
+                    """)));
+        await File.WriteAllBytesAsync(
+            packagePath,
+            package,
+            TestContext.Current.CancellationToken);
+        var options = new LibraryOptions
+        {
+            PackagePath = packagePath,
+            AssemblyName = library,
+            Tfm = framework,
+            Select = [SectionNames.LibraryMetrics],
+            IncludeSections = [SectionNames.LibraryMetrics],
+            ExactIncludeSectionsOverride =
+                [SectionNames.LibraryMetrics],
+            SelectExplicitlySet = true,
+            EnvelopeOutput = true,
+            CompactJson = true,
+        };
+
+        (int exitCode, string output, string error) =
+            await ConsoleCapture.RunAsync(
+                () => LibraryCommand.ExecuteAsync(
+                    options,
+                    workspaceLoadOptions: null));
+
+        Assert.True(exitCode == 0, error);
+        Assert.Empty(error);
+        using JsonDocument document = JsonDocument.Parse(output);
+        JsonElement root = document.RootElement;
+        Assert.Equal(
+            "library-metrics",
+            root.GetProperty("result_kind").GetString());
+        Assert.Equal(
+            "library-metrics.v3",
+            root.GetProperty("content")
+                .GetProperty("methodologyVersion")
+                .GetString());
+        Assert.Equal(
+            library[..^4],
+            root.GetProperty("content")
+                .GetProperty("analysisReceipt")
+                .GetProperty("moduleIdentity")
+                .GetProperty("assemblyIdentity")
+                .GetProperty("name")
+                .GetString());
+        JsonElement content = root.GetProperty("content");
+        Assert.NotEmpty(
+            content.GetProperty("structuralSalience")
+                .GetProperty("namespaceIndex")
+                .GetProperty("rows")
+                .EnumerateArray());
+        Assert.NotEmpty(
+            content.GetProperty("structuralSalience")
+                .GetProperty("typeLeverageShards")
+                .EnumerateArray());
+        JsonElement[] summaries =
+        [
+            .. content.GetProperty("typeSummaries").EnumerateArray(),
+        ];
+        HashSet<string> typeKeys =
+        [
+            .. summaries.Select(summary =>
+                summary.GetProperty("typeKey").GetString()!),
+        ];
+        Assert.NotEmpty(typeKeys);
+        Assert.All(
+            summaries,
+            summary => Assert.Equal(
+                JsonValueKind.Object,
+                summary.GetProperty("type").ValueKind));
+        JsonElement[] relationships =
+        [
+            .. content.GetProperty("entangledRelationships")
+                .EnumerateArray(),
+        ];
+        Assert.NotEmpty(relationships);
+        Assert.All(
+            relationships,
+            relationship =>
+            {
+                Assert.Contains(
+                    relationship.GetProperty("sourceTypeKey")
+                        .GetString()!,
+                    typeKeys);
+                Assert.Contains(
+                    relationship.GetProperty("targetTypeKey")
+                        .GetString()!,
+                    typeKeys);
+            });
+        Assert.Equal(
+            "nonProjectable",
+            root.GetProperty("share").GetProperty("kind").GetString());
+        Assert.Equal(
+            "library-metrics/share",
+            root.GetProperty("share").GetProperty("path").GetString());
+        Assert.Contains(
+            "cannot yet restore an exact Library Metrics inspection",
+            root.GetProperty("share").GetProperty("reason").GetString()!,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            JsonValueKind.Array,
+            root.GetProperty("diagnostics").ValueKind);
+    }
+
+    [Fact]
     public async Task MissingLibraryPreservesCompatibilityError()
     {
         var store = await CachedStoreAsync();
@@ -369,7 +560,7 @@ public sealed class ExactLibraryWorkspaceRouteTests
             PackagePath = $"{PackageId}@{Version}",
             AssemblyPath = "Missing.dll",
             Tfm = Framework,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
         };
 
         (int exitCode, string output, string error) =
@@ -404,7 +595,7 @@ public sealed class ExactLibraryWorkspaceRouteTests
             PackagePath = $"{PackageId}@{Version}",
             AssemblyPath = "Missing.dll",
             Tfm = Framework,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
             JsonOutput = true,
             Format = OutputFormat.Json,
             FormatExplicitlySet = true,
@@ -433,14 +624,16 @@ public sealed class ExactLibraryWorkspaceRouteTests
             StringComparison.Ordinal);
     }
 
-    static async Task<IPackageStore> CachedStoreAsync()
+    static async Task<IPackageStore> CachedStoreAsync(
+        byte[]? libraryContent = null)
     {
         var store = new InMemoryPackageStore();
         byte[] package = Archive(
             ($"ref/{Framework}/{Library}",
-                await File.ReadAllBytesAsync(
-                    typeof(ApiSurface).Assembly.Location,
-                    TestContext.Current.CancellationToken)));
+                libraryContent
+                    ?? await File.ReadAllBytesAsync(
+                        typeof(ApiSurface).Assembly.Location,
+                        TestContext.Current.CancellationToken)));
         await store.CommitAsync(
             PackageId,
             Version,

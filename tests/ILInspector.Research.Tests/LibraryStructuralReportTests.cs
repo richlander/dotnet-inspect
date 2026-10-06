@@ -160,6 +160,59 @@ public sealed class LibraryStructuralReportTests
     }
 
     [Fact]
+    public void LibraryStructuralReport_AdmitsRelationshipsThroughGenericInstantiations()
+    {
+        LibraryBodyAnalysisExecution execution =
+            LibraryBodyAnalysisService.ExecutePath(
+                FixtureCatalog.AnalysisCalleeResolution.AssemblyPath(),
+                LibraryBodyAnalysisRequest.Create(
+                    LibraryBodyAnalysisFeatures.MethodEvidence
+                    | LibraryBodyAnalysisFeatures.ImplementationProfiles));
+
+        var available = Assert.IsType<LibraryStructuralReportResult.Available>(
+            LibraryStructuralReport.Execute(execution));
+
+        // Every call from Consumer into Box<T> and Pair<,> is a MemberRef on a
+        // TypeSpec; raw definition-token matching admits none of them.
+        Assert.DoesNotContain(
+            execution.CallGraph.DirectCalls,
+            call => call.Caller.DeclaringType.Name == "Consumer"
+                && ExactTypeIdentity(call.Callee.DeclaringType)
+                    is "CalleeResolution.Models.Box`1"
+                        or "CalleeResolution.Models.Pair`2"
+                && execution.CallGraph.DeclaredMethods.Any(method =>
+                    method.MetadataToken == call.CalleeDefinitionToken));
+        Assert.Contains(
+            available.Document.EntangledRelationships,
+            static relationship =>
+                relationship.Source.Name == "Consumer"
+                && ExactTypeIdentity(relationship.Target)
+                    == "CalleeResolution.Models.Box`1"
+                && relationship.CallSiteCount == 4);
+        Assert.Contains(
+            available.Document.EntangledRelationships,
+            static relationship =>
+                relationship.Source.Name == "Consumer"
+                && ExactTypeIdentity(relationship.Target)
+                    == "CalleeResolution.Models.Pair`2"
+                && relationship.CallSiteCount == 1);
+        // The direct call and lifted lambda both retain Consumer as owner.
+        Assert.Contains(
+            available.Document.EntangledRelationships,
+            static relationship =>
+                relationship.Source.Name == "Consumer"
+                && relationship.Target.Name == "Helper"
+                && relationship.CallSiteCount == 2);
+        Assert.DoesNotContain(
+            available.Document.EntangledRelationships,
+            static relationship =>
+                ExactTypeIdentity(relationship.Source)
+                    == "CalleeResolution.Models.Box`1"
+                && ExactTypeIdentity(relationship.Target)
+                    == "CalleeResolution.Models.Box`1");
+    }
+
+    [Fact]
     public void LibraryStructuralReport_ProjectsTypeAndEntangledRelationshipEvidence()
     {
         LibraryBodyAnalysisExecution execution =
@@ -215,6 +268,30 @@ public sealed class LibraryStructuralReportTests
                 relationship.Source.Name == "BodilessCallerApi"
                 && relationship.Target.Name == "IBodilessApi"
                 && relationship.CallSiteCount == 1);
+        Assert.Contains(
+            available.Document.TypeSummaries,
+            static summary =>
+                summary.Type.Name == "IBodilessApi"
+                && summary.BodyCount == 0);
+        HashSet<string> typeKeys =
+        [
+            .. available.Document.TypeSummaries.Select(
+                static summary =>
+                    LibraryStructuralReport.TypeKey(summary.Type)),
+        ];
+        Assert.All(
+            available.Document.EntangledRelationships,
+            relationship =>
+            {
+                Assert.Contains(
+                    LibraryStructuralReport.TypeKey(
+                        relationship.Source),
+                    typeKeys);
+                Assert.Contains(
+                    LibraryStructuralReport.TypeKey(
+                        relationship.Target),
+                    typeKeys);
+            });
         Assert.True(
             available.Document.EntangledRelationships.Length
                 <= LibraryStructuralReport.MaximumEntangledTypeCount
@@ -266,6 +343,11 @@ public sealed class LibraryStructuralReportTests
         Assert.Equal(
             oneArgument.DeclaringType.ToQualifiedDisplayString(),
             twoArguments.DeclaringType.ToQualifiedDisplayString());
+        Assert.NotEqual(
+            LibraryStructuralReport.TypeKey(
+                oneArgument.DeclaringType),
+            LibraryStructuralReport.TypeKey(
+                twoArguments.DeclaringType));
 
         HashSet<TypeRef> retainedTypes =
         [

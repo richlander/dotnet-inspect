@@ -615,18 +615,8 @@ public sealed class PackageSourcePayload
     /// ends rather than draining the unread body, then the content is
     /// disposed.
     /// </summary>
-    public async ValueTask AbandonAsync()
-    {
-        try
-        {
-            await NuGetOperationDeadline.AbandonTransferAsync(Content)
-                .ConfigureAwait(false);
-        }
-        finally
-        {
-            await Content.DisposeAsync().ConfigureAwait(false);
-        }
-    }
+    public ValueTask AbandonAsync() => Content.DisposeAsync();
+
 }
 
 /// <summary>The expected failure classes produced by source operations.</summary>

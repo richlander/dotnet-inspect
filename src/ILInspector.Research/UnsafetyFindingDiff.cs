@@ -40,44 +40,21 @@ internal static class UnsafetyFindingDiff
         {
             oldMethods.TryGetValue(key, out var oldMethod);
             newMethods.TryGetValue(key, out var newMethod);
-            var method = newMethod ?? oldMethod
-                ?? throw new InvalidOperationException(
-                    $"Unsafe method identity '{key}' has no payload.");
-            var subject = new FindingSubject(
+            AddMethodChanges(
+                changes,
                 key,
-                $"{method.DeclaringType.ToQualifiedDisplayString()}.{method.Name}");
-
-            var oldOccurrences = Occurrences(
                 oldAnalysis,
-                oldMethod);
-            var newOccurrences = Occurrences(
+                oldMethod,
                 newAnalysis,
                 newMethod);
-            AddComparisonChanges(
-                changes,
-                key,
-                AnalysisFindings.CompareUnsafety(
-                    oldOccurrences,
-                    newOccurrences,
-                    subject),
-                Project);
-
-            AddComparisonChanges(
-                changes,
-                key,
-                AnalysisFindings.CompareUnsafeEvidence(
-                    UncoveredEvidence(
-                        Evidence(oldAnalysis, oldMethod),
-                        oldOccurrences),
-                    UncoveredEvidence(
-                        Evidence(newAnalysis, newMethod),
-                        newOccurrences),
-                    subject),
-                Project);
         }
 
-        return
-        [
+        return Ordered(changes);
+    }
+
+    static ImmutableArray<UnsafetyFindingChange> Ordered(
+        ImmutableArray<UnsafetyFindingChange>.Builder changes)
+        => [
             .. changes
                 .OrderBy(static change => change.MemberKey, StringComparer.Ordinal)
                 .ThenBy(static change => change.Signal, StringComparer.Ordinal)
@@ -86,6 +63,81 @@ internal static class UnsafetyFindingDiff
                 .ThenBy(static change => change.Kind)
                 .ThenBy(static change => change.ILOffset),
         ];
+
+    /// <summary>
+    /// Compares exactly one selected endpoint method on each side. A missing
+    /// side contributes no occurrences.
+    /// </summary>
+    public static ImmutableArray<UnsafetyFindingChange> CompareMethods(
+        BodySignalAnalysisInput? oldAnalysis,
+        MethodIdentity? oldMethod,
+        BodySignalAnalysisInput? newAnalysis,
+        MethodIdentity? newMethod,
+        string memberKey)
+    {
+        ArgumentNullException.ThrowIfNull(memberKey);
+        if ((oldMethod is null) != (oldAnalysis is null)
+            || (newMethod is null) != (newAnalysis is null)
+            || (oldMethod is null && newMethod is null))
+        {
+            throw new ArgumentException(
+                "Each selected endpoint method requires its own Analysis "
+                    + "input, and at least one endpoint must be selected.");
+        }
+
+        var changes = ImmutableArray.CreateBuilder<UnsafetyFindingChange>();
+        AddMethodChanges(
+            changes,
+            memberKey,
+            oldAnalysis,
+            oldMethod,
+            newAnalysis,
+            newMethod);
+        return Ordered(changes);
+    }
+
+    static void AddMethodChanges(
+        ImmutableArray<UnsafetyFindingChange>.Builder changes,
+        string key,
+        BodySignalAnalysisInput? oldAnalysis,
+        MethodIdentity? oldMethod,
+        BodySignalAnalysisInput? newAnalysis,
+        MethodIdentity? newMethod)
+    {
+        var method = newMethod ?? oldMethod
+            ?? throw new InvalidOperationException(
+                $"Unsafe method identity '{key}' has no payload.");
+        var subject = new FindingSubject(
+            key,
+            $"{method.DeclaringType.ToQualifiedDisplayString()}.{method.Name}");
+
+        var oldOccurrences = Occurrences(
+            oldAnalysis,
+            oldMethod);
+        var newOccurrences = Occurrences(
+            newAnalysis,
+            newMethod);
+        AddComparisonChanges(
+            changes,
+            key,
+            AnalysisFindings.CompareUnsafety(
+                oldOccurrences,
+                newOccurrences,
+                subject),
+            Project);
+
+        AddComparisonChanges(
+            changes,
+            key,
+            AnalysisFindings.CompareUnsafeEvidence(
+                UncoveredEvidence(
+                    Evidence(oldAnalysis, oldMethod),
+                    oldOccurrences),
+                UncoveredEvidence(
+                    Evidence(newAnalysis, newMethod),
+                    newOccurrences),
+                subject),
+            Project);
     }
 
     static void AddComparisonChanges<T>(
@@ -248,9 +300,10 @@ internal static class UnsafetyFindingDiff
                 StringComparer.Ordinal);
 
     static ImmutableArray<UnsafetyOccurrence> Occurrences(
-        BodySignalAnalysisInput analysis,
+        BodySignalAnalysisInput? analysis,
         MethodIdentity? method)
-        => method is not null
+        => analysis is not null
+            && method is not null
             && analysis.UnsafetyOccurrences.TryGetValue(
                 method.MetadataToken,
                 out var occurrences)
@@ -258,9 +311,10 @@ internal static class UnsafetyFindingDiff
                 : [];
 
     static ImmutableArray<UnsafeEvidence> Evidence(
-        BodySignalAnalysisInput analysis,
+        BodySignalAnalysisInput? analysis,
         MethodIdentity? method)
-        => method is not null
+        => analysis is not null
+            && method is not null
             && analysis.UnsafeEvidenceByMember.TryGetValue(
                 method.MetadataToken,
                 out var evidence)

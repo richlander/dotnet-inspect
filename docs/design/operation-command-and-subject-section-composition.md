@@ -136,6 +136,13 @@ subject role, required context, supported query facets, cost, result unit, and
 projection. CLI and Browser/Wasm may expose different gestures while consuming
 the same semantic request and `InspectionEnvelope<TContent>`.
 
+For Type hierarchy relations, `Implementers` and `Derived Types` are curated
+views over the same Workspace-wide host-neutral operation that produces the
+canonical incoming relation population. `Implementers` selects the interface
+form; `Derived Types` selects the base-Type form. Neither host may add a second
+Metadata scanner, reinterpret candidate order, or materialize a private
+population before shaping its section.
+
 ## Relationship vocabulary is not command vocabulary
 
 `implements`, extension relationships, calls, Integration associations,

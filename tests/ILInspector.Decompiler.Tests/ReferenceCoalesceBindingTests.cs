@@ -74,7 +74,7 @@ public class ReferenceCoalesceBindingTests
     }
 
     [Fact]
-    public void PublishedAnnotationShapeDoesNotMaterializeItsSeparateUntypedNull()
+    public void PublishedAnnotationShapeMaterializesWithNullLiteralTestimony()
     {
         var coalesce = new Coalesce(new LoadArgument(0, "format", StringType),
             new Constant("annotation", StringType));
@@ -86,12 +86,18 @@ public class ReferenceCoalesceBindingTests
         new ReferenceCoalesceBindingPass().Run(function, PassContext.None);
 
         Assert.Equal(StringType, coalesce.AssignmentType);
-        Assert.False(Assert.Single(SlotMaterializationPass.Analyze(function)).WillMaterialize);
-        Assert.Contains("string S_0", CSharpPrinter.Print(function).Output);
+        Assert.True(Assert.Single(SlotMaterializationPass.Analyze(function)).WillMaterialize);
+
+        new SlotMaterializationPass().Run(function, PassContext.None);
+
+        Assert.Equal(StringType, Assert.Single(function.Locals));
+        Assert.Empty(function.Descendants.OfType<StoreStackSlot>());
+        Assert.Empty(function.Descendants.OfType<LoadStackSlot>());
+        function.CheckInvariant(includeSemantics: true);
     }
 
     [Fact]
-    public void ReferenceWideningDoesNotExpandExistingStorageAdmission()
+    public void ReferenceCoalesceAssignmentExpandsObjectStorageAdmission()
     {
         var coalesce = new Coalesce(new LoadArgument(0, "text", StringType),
             new LoadArgument(1, "fallback", ObjectType));
@@ -100,13 +106,15 @@ public class ReferenceCoalesceBindingTests
             new Return(new LoadStackSlot(0, ObjectType)));
         new ReferenceCoalesceBindingPass().Run(function, PassContext.None);
 
-        Assert.False(Assert.Single(SlotMaterializationPass.Analyze(function)).WillMaterialize);
+        Assert.True(Assert.Single(SlotMaterializationPass.Analyze(function)).WillMaterialize);
         new SlotMaterializationPass().Run(function, PassContext.None);
 
         Assert.Equal(ObjectType, coalesce.AssignmentType);
-        Assert.Empty(function.Locals);
-        Assert.Single(function.Descendants.OfType<StoreStackSlot>());
+        Assert.Equal(ObjectType, Assert.Single(function.Locals));
+        Assert.Empty(function.Descendants.OfType<StoreStackSlot>());
+        Assert.Empty(function.Descendants.OfType<LoadStackSlot>());
         Assert.Contains("object S_0", CSharpPrinter.Print(function).Output);
+        function.CheckInvariant(includeSemantics: true);
     }
 
     [Theory]
@@ -253,14 +261,13 @@ public class ReferenceCoalesceBindingTests
         Assert.All(results, result =>
         {
             Assert.False(result.UsedCompileBackFloor);
-            // These two nested shapes have the same generated-identity limits
-            // at the measured base; neither is an Exact fidelity claim.
+            // These nested shapes preserve their opcode contracts but retain
+            // generated-identity operand differences; neither is Exact.
             var expected = result.Plan.TargetMethod.Method switch
             {
                 nameof(ReferenceCoalesceBindingSamples.NestedObjectOverload)
+                    or nameof(ReferenceCoalesceBindingSamples.LocalFunctionObjectOverload)
                     => FidelityCheck.CompileBackStatus.OperandDiff,
-                nameof(ReferenceCoalesceBindingSamples.LocalFunctionObjectOverload)
-                    => FidelityCheck.CompileBackStatus.NotFull,
                 _ => FidelityCheck.CompileBackStatus.Exact,
             };
             Assert.True(result.Status == expected,

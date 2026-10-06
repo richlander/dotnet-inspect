@@ -15,10 +15,11 @@ consumes the latest completed certification evidence rather than rerunning the
 slow suites merely because `main` moved or the release decision happened
 later. Runs do not cancel earlier runs in the same lane; complete outcomes are
 required for release risk review.
-The `authored-corpus` ratchet runs on a separate daily schedule as a regression
-gate rather than release-certification or publish evidence. The comprehensive
-Inspect Web lane is also daily regression evidence rather than release
-certification. Every lane can be dispatched on demand during the day.
+The nightly release-candidate workflow builds immutable release assets and then
+calls the `release-candidate` lane for the exact same commit. That lane combines
+release certification, census, and comprehensive Inspect Web evidence without
+the separately scheduled authored-corpus ratchet. Every lane can also be
+dispatched on demand during the day.
 
 ## Lanes
 
@@ -30,6 +31,7 @@ certification. Every lane can be dispatched on demand during the day.
 | `package-sweep` | Weekly/on-demand discovery over current top NuGet packages | Product-backed package acquisition plus bounded per-library fully-raised, validity, defect-class, and promotion-candidate reporting. |
 | `authored-corpus` | Daily/on-demand regression ratchet against checksum-verified authored source | Restores the pinned authored-source corpus and fails on quality regression or measurement-integrity loss. |
 | `inspect-web` | Daily/on-demand comprehensive Browser/Wasm regression evidence | Runs generated-facade version invariance, mutation controls, and Mono/CoreCLR multi-facade and managed-operation canaries. |
+| `release-candidate` | Called after nightly release assets are assembled | Runs `test`, `platform-test`, decompiler corpus, `census`, and `inspect-web` for the candidate's exact SHA. |
 | `nightly` | Opt-in next-SDK/compiler validation | Builds with the .NET daily SDK and checks opt-in compiler lowering drift; intentionally excluded from `all`. |
 | `all` | Release-candidate deep read | The `test`, `platform-test`, decompiler-corpus, `census`, `authored-corpus`, and `inspect-web` lanes. |
 
@@ -42,6 +44,7 @@ gh workflow run deep-inspect.yml -f lane=census
 gh workflow run deep-inspect.yml -f lane=package-sweep
 gh workflow run deep-inspect.yml -f lane=authored-corpus
 gh workflow run deep-inspect.yml -f lane=inspect-web
+gh workflow run deep-inspect.yml -f lane=release-candidate
 gh workflow run deep-inspect.yml -f lane=nightly
 gh workflow run deep-inspect.yml -f lane=all
 ```

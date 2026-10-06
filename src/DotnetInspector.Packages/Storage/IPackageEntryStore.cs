@@ -13,30 +13,31 @@ internal interface IPackageEntryStore
     /// <summary>Whether this store keeps ranged reads at all.</summary>
     bool KeepsEntries { get; }
 
-    bool TryReadDirectory(
+    ValueTask<PackageEntryDirectory?> ReadDirectoryAsync(
         string packageId,
-        string version,
-        out ReadOnlyMemory<byte> region,
-        out long archiveLength);
+        string version);
 
-    void PublishDirectory(
+    ValueTask PublishDirectoryAsync(
         string packageId,
         string version,
         ReadOnlyMemory<byte> region,
         long archiveLength);
 
-    bool TryReadEntry(
+    ValueTask<byte[]?> ReadEntryAsync(
         string packageId,
         string version,
-        string entryPath,
-        out byte[] content);
+        string entryPath);
 
-    void PublishEntry(
+    ValueTask PublishEntryAsync(
         string packageId,
         string version,
         string entryPath,
         ReadOnlyMemory<byte> content);
 }
+
+internal sealed record PackageEntryDirectory(
+    ReadOnlyMemory<byte> Region,
+    long ArchiveLength);
 
 internal static class PackageEntryStoreNames
 {

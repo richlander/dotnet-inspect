@@ -90,6 +90,38 @@ public class PlatformHouseContractTests
     }
 
     [Fact]
+    public void FamilyDefaultDemand_AcceptsEachSharedFrameworkFamily()
+    {
+        PlatformSourceCapabilityIdentity package =
+            PlatformSourceCapabilityIdentity.Create("package-targets");
+        var policy = new PlatformVersionlessRuntimeTargetPolicy(
+            PlatformTargetSelectionPolicyIdentity.Create(
+                "versionless-aspnetcore-default"),
+            PlatformTargetSelectionPolicyGeneration.Create("generation-1"),
+            PlatformVersion.Parse("10.0.1"),
+            preferred: null,
+            new PlatformTargetDiscoveryStage(
+                new PlatformTargetDiscoveryScope.ExactFramework(
+                    PlatformTargetFramework.Parse("net10.0")),
+                [package]));
+
+        foreach (PlatformFamily family in Enum.GetValues<PlatformFamily>())
+        {
+            var demand = new PlatformTargetDemand.FamilyDefault(
+                family,
+                policy,
+                new PlatformTargetDiscoveryBudget(32, 64));
+            Assert.Equal(family, demand.Family);
+        }
+
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new PlatformTargetDemand.FamilyDefault(
+                (PlatformFamily)42,
+                policy,
+                new PlatformTargetDiscoveryBudget(32, 64)));
+    }
+
+    [Fact]
     public void FamilyDefaultPolicy_RejectsInvalidStageMembership()
     {
         PlatformSourceCapabilityIdentity installed =
@@ -575,8 +607,8 @@ public class PlatformHouseContractTests
     [Fact]
     public void ClosedOperations_SeparateLiveInputsFromReceiptIdentities()
     {
-        PlatformLibraryIdentity library =
-            PlatformLibraryIdentityAuthority.Create("catalog")
+        PlatformLibraryDemandIdentity library =
+            PlatformLibraryDemandIdentityAuthority.Create("catalog")
                 .Issue("System.Runtime");
         var realize = new PlatformHouseOperation.Realize(
             new PlatformPopulationDemand.Library(
@@ -663,6 +695,44 @@ public class PlatformHouseContractTests
             PlatformViewDemand.Implementation,
             ((PlatformHouseOperationSnapshot.ResolveTypeDefinition)
                 resolveImplementation.Snapshot).StartingView);
+    }
+
+    [Fact]
+    public void
+        AssemblyReferenceBindingDemand_UsesSelectedTargetVersionPolicy()
+    {
+        var request = new AssemblyReferenceIdentity(
+            "System.Text.Json",
+            new Version(8, 0, 0, 0),
+            Culture: "neutral",
+            PublicKeyToken: "cc7b13ffcd2ddd51");
+        var demand =
+            new PlatformLibraryDemand.AssemblyReferenceBinding(request);
+
+        Assert.Same(request, demand.Identity);
+        Assert.True(
+            PlatformAssemblyReferenceBindingPolicy.MatchesCandidate(
+                demand,
+                request with { Version = new Version(12, 0, 0, 0) }));
+        Assert.False(
+            PlatformAssemblyReferenceBindingPolicy.MatchesCandidate(
+                demand,
+                request with { Name = "System.Runtime" }));
+        Assert.False(
+            PlatformAssemblyReferenceBindingPolicy.MatchesCandidate(
+                demand,
+                request with { Culture = "fr-FR" }));
+        Assert.False(
+            PlatformAssemblyReferenceBindingPolicy.MatchesCandidate(
+                demand,
+                request with { PublicKeyToken = "0011223344556677" }));
+        Assert.Throws<ArgumentNullException>(
+            () => new PlatformLibraryDemand.AssemblyReferenceBinding(
+                null!));
+        Assert.Throws<ArgumentNullException>(
+            () => PlatformAssemblyReferenceBindingPolicy.MatchesCandidate(
+                demand,
+                null!));
     }
 
     [Fact]
@@ -1133,7 +1203,7 @@ public class PlatformHouseContractTests
                 PlatformSourceCoordinateIdentity.Create("coordinate"),
                 new PlatformPopulationDemand.Library(
                     new PlatformLibraryDemand.PlatformLibrary(
-                        PlatformLibraryIdentityAuthority.Create("catalog")
+                        PlatformLibraryDemandIdentityAuthority.Create("catalog")
                             .Issue("System.Runtime"))),
                 PlatformSourceContributionCompleteness.Authoritative),
             PlatformSourceSettlementDisposition.Selected);
@@ -1200,7 +1270,7 @@ public class PlatformHouseContractTests
                     "second-coordinate"),
                 new PlatformPopulationDemand.Library(
                     new PlatformLibraryDemand.PlatformLibrary(
-                        PlatformLibraryIdentityAuthority.Create("catalog")
+                        PlatformLibraryDemandIdentityAuthority.Create("catalog")
                             .Issue("System.Private.CoreLib"))),
                 PlatformSourceContributionCompleteness.Authoritative),
             PlatformSourceSettlementDisposition.Selected);
@@ -1307,7 +1377,7 @@ public class PlatformHouseContractTests
             Work());
         var population = new PlatformPopulationDemand.Library(
             new PlatformLibraryDemand.PlatformLibrary(
-                PlatformLibraryIdentityAuthority.Create("catalog")
+                PlatformLibraryDemandIdentityAuthority.Create("catalog")
                     .Issue("System.Runtime")));
         var source = new PlatformSourceSettlement(
             new PlatformSourceContribution.Realization(

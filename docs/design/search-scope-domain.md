@@ -287,7 +287,7 @@ executable, run in Release in normal CI. Its public-consumer gates cover:
 The tests use product construction and normalization, not replacement
 algorithms or manufactured acquisition evidence. The four multi-source CLI
 search adapters adopted declaration and normalization in #6142; the unary
-`library` and `library coordinate` adapters declare one source without search
+`library` and `library address` adapters declare one source without search
 defaulting in #7830. Browser execution, broader source realization, and
 end-to-end catalog prefix selection remain unverified until their respective
 adoption slices.

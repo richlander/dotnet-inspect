@@ -386,13 +386,29 @@ public static class QuerySpaceSectionRowResolver
         where TDisposition : notnull
         where TCompletionEvidence : notnull
     {
+        ArgumentNullException.ThrowIfNull(sources);
+
+        var exactCounts =
+            new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (SectionRowSourceState<
+            string,
+            TDisposition,
+            TCompletionEvidence>? source in sources)
+        {
+            if (source?.ExactCount is int exactCount)
+            {
+                exactCounts[source.Identity] = exactCount;
+            }
+        }
+
         QuerySpaceSectionRowResolutionResult<TProjection>
             completeSource =
                 Resolve(
                     querySpace,
                     request,
                     rowSets,
-                    scopeBinding);
+                    scopeBinding,
+                    exactCounts);
         if (!completeSource.IsSuccess)
         {
             return QuerySpaceSectionSourceRowResolutionResult<
@@ -434,7 +450,22 @@ public static class QuerySpaceSectionRowResolver
             QuerySpaceRequest request,
             IReadOnlyList<
                 SectionRowSetDeclaration<string, TProjection>> rowSets,
-            SectionQuerySpaceRowScopeBinding scopeBinding)
+            SectionQuerySpaceRowScopeBinding scopeBinding) =>
+        Resolve(
+            querySpace,
+            request,
+            rowSets,
+            scopeBinding,
+            null);
+
+    private static QuerySpaceSectionRowResolutionResult<TProjection>
+        Resolve<TProjection>(
+            QuerySpaceBinding querySpace,
+            QuerySpaceRequest request,
+            IReadOnlyList<
+                SectionRowSetDeclaration<string, TProjection>> rowSets,
+            SectionQuerySpaceRowScopeBinding scopeBinding,
+            IReadOnlyDictionary<string, int>? exactCounts)
     {
         ArgumentNullException.ThrowIfNull(querySpace);
         ArgumentNullException.ThrowIfNull(request);
@@ -510,15 +541,48 @@ public static class QuerySpaceSectionRowResolver
                     resolution.Failure));
         }
 
-        bool countOnly =
-            validatedRequest.Terminal
-                is QuerySpaceTerminalRequirement.Count
-            && resolution.SchemaBinding!
-                .CanExecuteCountWithoutRows;
+        bool canExecuteCountWithoutRows =
+            resolution.SchemaBinding!.CanExecuteCountWithoutRows;
+        var exactCountIdentities =
+            exactCounts is null
+                ? null
+                : new HashSet<string>(
+                    exactCounts.Keys,
+                    StringComparer.Ordinal);
+        var unresolved =
+            new List<
+                SectionRowSetDeclaration<string, TProjection>>(
+                    participating.Length);
+        foreach (SectionRowSetDeclaration<string, TProjection> rowSet
+            in participating)
+        {
+            if (exactCounts?.ContainsKey(rowSet.Identity) is not true)
+                unresolved.Add(rowSet);
+        }
+        SectionRowCapabilityPlan<string>? capabilityPlan =
+            unresolved.Count == 0
+                ? null
+                : SectionRowCapabilityPlanner.Plan(
+                    unresolved,
+                    validatedRequest.Terminal,
+                    canExecuteCountWithoutRows);
         for (int index = 0; index < participating.Length; index++)
         {
-            participating[index] =
-                participating[index].ResolveSnapshot(countOnly);
+            if (exactCounts?.TryGetValue(
+                    participating[index].Identity,
+                    out int exactCount)
+                is true)
+            {
+                participating[index] =
+                    participating[index]
+                        .ResolveExactCountSnapshot(exactCount);
+            }
+            else
+            {
+                participating[index] = participating[index].ResolveSnapshot(
+                    capabilityPlan!.IsCountOnly(
+                        participating[index].Identity));
+            }
         }
         var sectionAssociation =
             new SectionRowIntentAssociation<string>(
@@ -528,7 +592,8 @@ public static class QuerySpaceSectionRowResolver
             executionRequest =
                 SectionRowExecutionRequest<string, TProjection>.Create(
                     participating,
-                    sectionAssociation);
+                    sectionAssociation,
+                    exactCountIdentities);
         return QuerySpaceSectionRowResolutionResult<TProjection>.Success(
             new QuerySpaceSectionRowExecutionRequest<TProjection>(
                 validatedRequest,

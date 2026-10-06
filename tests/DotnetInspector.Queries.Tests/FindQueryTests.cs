@@ -85,6 +85,7 @@ public sealed class FindQueryTests
                 (RowSelectionStageKind.Tail, null, null, 1),
             ],
             plan.Rows.Operations.Select(Operation));
+        Assert.Null(plan.InputRowLimit);
 
         static (
             RowSelectionStageKind Kind,
@@ -107,6 +108,73 @@ public sealed class FindQueryTests
                         null,
                         operation.Count),
             };
+    }
+
+    [Theory]
+    [InlineData(FindQueryRouteKind.TypeResults)]
+    [InlineData(FindQueryRouteKind.MemberResults)]
+    public void PureHead_ExposesTheMaximumInputRowCount(
+        FindQueryRouteKind kind)
+    {
+        FindQueryPlan plan = Accepted(
+            FindQuery.ResolveIntent(
+                kind,
+                PortableQueryIntent.Create(
+                    [],
+                    [],
+                    [PortableQueryStage.Head(3)],
+                    []),
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(3, plan.InputRowLimit);
+    }
+
+    [Theory]
+    [InlineData(FindQueryRouteKind.TypeResults)]
+    [InlineData(FindQueryRouteKind.MemberResults)]
+    public void FiniteWindow_ExposesItsEndAsTheMaximumInputRowCount(
+        FindQueryRouteKind kind)
+    {
+        FindQueryPlan plan = Accepted(
+            FindQuery.ResolveIntent(
+                kind,
+                PortableQueryIntent.Create(
+                    [],
+                    [],
+                    [PortableQueryStage.Window(2, 5)],
+                    []),
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(5, plan.InputRowLimit);
+    }
+
+    [Theory]
+    [InlineData(FindQueryRouteKind.TypeResults)]
+    [InlineData(FindQueryRouteKind.MemberResults)]
+    public void OpenEndedWindowAndTail_RemainExhaustive(
+        FindQueryRouteKind kind)
+    {
+        FindQueryPlan openWindow = Accepted(
+            FindQuery.ResolveIntent(
+                kind,
+                PortableQueryIntent.Create(
+                    [],
+                    [],
+                    [PortableQueryStage.Window(2, null)],
+                    []),
+                TestContext.Current.CancellationToken));
+        FindQueryPlan tail = Accepted(
+            FindQuery.ResolveIntent(
+                kind,
+                PortableQueryIntent.Create(
+                    [],
+                    [],
+                    [PortableQueryStage.Tail(2)],
+                    []),
+                TestContext.Current.CancellationToken));
+
+        Assert.Null(openWindow.InputRowLimit);
+        Assert.Null(tail.InputRowLimit);
     }
 
     [Theory]

@@ -1,9 +1,8 @@
 # Agent session state
 
-[Session theme and resume](../AGENTS.md#session-theme-and-resume) and
-[Making your work findable](../AGENTS.md#making-your-work-findable) state the
-binding rules. This document owns the session-theme lifecycle, post-merge
-handoff, tmux mechanics, and the reasoning behind them.
+This document owns the session-theme lifecycle, post-merge handoff, tmux
+mechanics, and their reasoning. [`AGENTS.md`](../AGENTS.md#session-visibility)
+retains the directly usable operator templates.
 
 ## Establish the session theme
 
@@ -28,7 +27,7 @@ Before continuing:
 1. Restate the theme, using the transcript or the user's latest direction.
 2. Confirm the worktree, branch, and head from git. Fetch the effective base and
    re-check the PR per
-   [Canonical round flow](../AGENTS.md#canonical-round-flow). Do not pull or
+   [Candidate lifecycle](round-orchestration.md#candidate-lifecycle). Do not pull or
    rebase a pushed branch to catch up.
 3. Rename the window, update the pane title, and re-announce the PR as
    described below.
@@ -46,23 +45,33 @@ Before continuing:
 After every PR merge, relinquish PR ownership only after a visible theme
 handoff:
 
-1. Restate the theme in one or two sentences.
-2. Propose the next concrete work that advances that theme, without starting it.
-3. If no work remains, state that the theme is complete and ask whether to look
-   for a new theme or take on ad-hoc work unrelated to the completed theme.
+1. Restate the stable theme.
+2. Name the overall tracking issue for the theme, not the just-merged PR or its
+   focused issue. If work remains and no overall tracker exists, create one.
+3. Name the next independently mergeable slice without starting it.
+4. Report merged slices over the current planned total. Change the denominator
+   when the plan changes rather than preserving a stale forecast.
+5. List the active product or engineering domains in `Focus`; use short,
+   recognizable names rather than a closed taxonomy.
 
-Use one of these response shapes:
+Use this response shape:
 
 ```text
-Theme: <one- or two-sentence restatement>
-Next: <one concrete task that advances the theme>
+Theme: <stable session theme>
+Tracking issue: #<overall theme issue>
+Next slice: <next independently mergeable work, or none>
+Completed: <merged>/<currently planned> slices
+Focus: [<one or more short domains, such as Web | CLR | Decompiler | Core | Performance>]
 ```
 
-```text
-Theme: <one- or two-sentence restatement>
-No work remains on this theme. Should I look for a new theme or take on
-ad-hoc work?
-```
+Round reports are emitted once at their round boundaries and are historical
+after merge. Do not replay them, summarize every round, or repeat completed CI
+and review mechanics in the handoff unless an unresolved result constrains the
+next slice.
+
+If no work remains, use `Tracking issue: none` when there is no continuing
+owner, `Next slice: none — theme complete`, and `<total>/<total>` progress,
+then ask whether to find a new theme or take on ad-hoc work.
 
 ## Detecting tmux
 
@@ -183,7 +192,7 @@ runs and clear the ID before querying GitHub. Follow
 [GitHub status queries](github-status-queries.md) for the request and
 response contract and
 [Status discovery](round-orchestration.md#status-discovery) for round
-transitions and the 60-minute budget.
+transitions and the 30-minute budget.
 
 ## Signal when you need a person
 

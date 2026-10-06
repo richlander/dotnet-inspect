@@ -256,7 +256,7 @@ descriptor is preferred unchanged; otherwise the command consumes
 platform resolver's typed provenance. The command does not decode metadata to
 reclassify that result.
 
-The Coordinate child admits exact points and files before source resolution.
+The Address child admits exact points and files before source resolution.
 After admission, a `Rejected` selection is reported with the selected path
 before SourceLink probing, ordinary inspection, or single/batch coordinate
 resolution. A `Descriptorless` selection keeps the path-only compatibility
@@ -267,10 +267,10 @@ contributes a warning and non-zero exit status without suppressing healthy
 participants.
 
 `LibraryInspectionSubject_PreservesPreferredDescriptorForDownstreamOpen`,
-`LibraryCoordinateCommand_FileRejectsMissingFileBeforeLibraryAcquisition`,
-`LibraryCoordinateCommand_FileRejectsMalformedDescriptorBeforeResolvingCoordinates`,
-`LibraryCoordinateCommand_PackageFileRejectsMalformedDescriptorBeforeResolvingCoordinates`,
-`LibraryCoordinateCommand_PlatformFileRejectsMalformedAssemblyBeforeResolvingCoordinates`,
+`LibraryAddressCommand_FileRejectsMissingFileBeforeLibraryAcquisition`,
+`LibraryAddressCommand_FileRejectsMalformedDescriptorBeforeResolvingCoordinates`,
+`LibraryAddressCommand_PackageFileRejectsMalformedDescriptorBeforeResolvingCoordinates`,
+`LibraryAddressCommand_PlatformFileRejectsMalformedAssemblyBeforeResolvingCoordinates`,
 and
 `LibraryCommand_TfmAll_PreservesHealthyResultsWhenDescriptorSelectionIsRejected`
 gate this composition.
@@ -549,7 +549,7 @@ architectural subsystem:
 | Unary subject inspection | `package`, `project`, `library`, `type`, `member`, `ecosystem` | Resolve one subject and choose inspection lenses; ecosystem focus reads the product-owned static catalog without acquisition. |
 | Comparison and correlation | `diff`, `match` | Resolve ordered or paired subjects and choose comparison, History correlation, or correspondence producers. |
 | Search and relationships | `find`, `depends`, `extensions`, `implements`, `graph` | Resolve a bounded search/workspace scope and project typed relationships. |
-| Product metadata and utilities | `vocabulary`, `cache`, `skill`, `demo` | Expose product-owned vocabularies, CLI runtime state, embedded guidance, or closed demonstrations. |
+| Product metadata and utilities | `explain`, `cache`, `skill`, `demo` | Explain product resources such as product vocabularies, or expose CLI runtime state, embedded guidance, or closed demonstrations. |
 
 Noun-first and operation-first commands share independent source, focus, lens,
 traversal, and rendering axes. The

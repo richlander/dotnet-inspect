@@ -3,7 +3,6 @@ using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 using System.Net;
 using DotnetInspect.Cli.CommandLine;
-using CSharpText.MemberSlicing;
 using DotnetInspect.Cli.Inspectors;
 using ILInspector.Metadata;
 using DotnetInspect.Cli.Models;
@@ -286,8 +285,12 @@ public partial class ApiCommand
             return 1;
         }
 
+        // A lone Text with a bare payload writes its own facts-plus-content JSON
+        // once its payload is populated (below), not the type document.
+        bool textPayloadJson = IsTextPayloadJson(options) && !typeApiDeclarationsJson;
         if (options.JsonOutput && !options.Count && !IsProjectionRequested(options)
             && !typeApiDeclarationsJson
+            && !textPayloadJson
             && !sourceJson
             && !sourceDocumentJson && !findingCensusJson && !factsJson
             && !projectedFactsJson && !callsJson && !callersJson
@@ -347,6 +350,12 @@ public partial class ApiCommand
 
         if (sourceJson)
             return WriteSourceJson(options);
+
+        if (TryWriteCallSiteCount(type, options, sink)
+            is { } directCallCountResult)
+        {
+            return directCallCountResult;
+        }
 
         var view = ApiOutputFormatter.BuildTypeView(type, foundIn, packageName, packageVersion, apiSource, selectedTfm, options);
         EventsView? eventsView = null;
@@ -458,13 +467,11 @@ public partial class ApiCommand
             }
 
             // Type-scope analysis sections share one execution per type (opened lazily, only
-            // when such a section is requested). Compatibility consumers materialize the index.
+            // when such a section is requested).
             Analysis.LibraryBodyAnalysisExecution? typeAnalysis = null;
             Analysis.LibraryBodyAnalysisExecution TypeAnalysis() =>
                 typeAnalysis ??= ApiAnalysisInspection.OpenTypeAnalysis(
                     options.DllPath!, GetRequestedMemberSections(type, options), type, options, sourceAssembly);
-            Analysis.LibraryBodyIndex TypeAnalysisIndex() =>
-                TypeAnalysis().CompatibilityIndex();
 
             if (options.DllPath is not null
                 && GetRequestedMemberSections(type, options).Contains(SectionNames.UnsafeMembers))
@@ -491,7 +498,7 @@ public partial class ApiCommand
                 && (GetRequestedMemberSections(type, options).Contains(SectionNames.CalledTypes)
                     || options.IncludeSections?.Contains(SectionNames.CalledTypes) == true))
             {
-                ApiOutputFormatter.PopulateCalledTypes(view, type, TypeAnalysisIndex(), options.IncludeSections);
+                ApiOutputFormatter.PopulateCalledTypes(view, type, TypeAnalysis().CallGraph, options.IncludeSections);
             }
 
             var semanticSections = GetRequestedMemberSections(type, options);
@@ -514,7 +521,7 @@ public partial class ApiCommand
             if (options.DllPath is not null
                 && GetRequestedMemberSections(type, options).Contains(SectionNames.PerformanceTriage))
             {
-                ApiOutputFormatter.PopulateOptimizationOpportunities(view, type, TypeAnalysisIndex(), options.IncludeSections,
+                ApiOutputFormatter.PopulateOptimizationOpportunities(view, type, TypeAnalysis().Optimization, options.IncludeSections,
                     options.PerformanceTriage,
                     restrictToModelMembers: ApiMemberSectionPipelines.UsesDetailPipeline(options)
                         || ApiMemberSectionPipelines.UsesOverloadInventoryPipeline(options));
@@ -523,7 +530,7 @@ public partial class ApiCommand
             if (options.DllPath is not null
                 && GetRequestedMemberSections(type, options).Contains(SectionNames.TopLeverage))
             {
-                ApiOutputFormatter.PopulateTopLeverage(view, type, TypeAnalysisIndex(),
+                ApiOutputFormatter.PopulateTopLeverage(view, type, TypeAnalysis().Leverage,
                     restrictToModelMembers: ApiMemberSectionPipelines.UsesDetailPipeline(options)
                         || ApiMemberSectionPipelines.UsesOverloadInventoryPipeline(options));
             }
@@ -559,7 +566,7 @@ public partial class ApiCommand
                                 type,
                                 options)
                             : type,
-                        TypeAnalysisIndex(),
+                        TypeAnalysis().ImplementationProfiles,
                                 options is MemberOptions,
                                 restrictToModelMembers:
                             restrictImplementationProfiles,
@@ -1049,6 +1056,22 @@ public partial class ApiCommand
             {
                 projection.RecordRows(SectionNames.CallGraph, graphRows);
             }
+            // Source declares exact lines as its row unit (Source document
+            // cardinality); its rendered code fence has no table rows, so the
+            // owned line inventory replaces whatever the render recorded.
+            if (options.IncludeSections?.Contains(SectionNames.Source) == true
+                && ProjectionIncludesSection(
+                    schema, SectionNames.Source, options))
+            {
+                if (!TryProjectSourceLines(options, out var sourceLines, out string sourceFailure))
+                {
+                    CommandError.Write(sourceFailure);
+                    return 1;
+                }
+                projection.SetRows(
+                    SectionNames.Source,
+                    SelectedSourceLineCount(options.Rows, sourceLines));
+            }
             if (!TryReportEmptyProjection(
                     projection.WroteAnyContent,
                     options,
@@ -1111,14 +1134,43 @@ public partial class ApiCommand
             return 0;
         }
 
+        if (textPayloadJson && LonePayloadJsonTextSection(options) is { } jsonTextSection)
+        {
+            int result = WriteTextPayloadJson(sink, view, options, jsonTextSection);
+            ApiOutputFormatter.WriteCallGraphWarning(view);
+            return result;
+        }
+
+        if (options.Tabular && LoneFactRowTextSection(options) is { } factRowSection)
+        {
+            int result = WriteTextFactRow(sink, view, options, factRowSection);
+            ApiOutputFormatter.WriteCallGraphWarning(view);
+            return result;
+        }
+
         if (options.UsesNativePayloadDefault)
         {
             if (TryGetNativeApiPayload(view, options, out var raw))
             {
-                OutputFormatter.WriteLfLine(sink, raw.TrimEnd());
+                // A --rows selection of Source lines prints those lines exactly,
+                // trailing whitespace included; an unwindowed payload keeps its
+                // existing trimmed presentation.
+                bool selectedSourceLines =
+                    options.Rows is not null && IsLoneSourceSelection(options);
+                OutputFormatter.WriteLfLine(sink, selectedSourceLines ? raw : raw.TrimEnd());
                 ApiOutputFormatter.WriteCallGraphWarning(view);
                 return 0;
             }
+        }
+
+        if (options.Tabular && IsLoneSourceSelection(options))
+        {
+            if (!TryProjectSourceLines(options, out var sourceLines, out string sourceFailure))
+            {
+                CommandError.Write(sourceFailure);
+                return 1;
+            }
+            return WriteSourceLineTable(sink, options, sourceLines);
         }
 
         if (options.Tabular)
@@ -1682,7 +1734,14 @@ public partial class ApiCommand
             return false;
 
         raw = GetApiPayloadContent(view, included.First()) ?? "";
-        return raw.Length > 0;
+        // A --rows selection of Source lines can legitimately be empty (the
+        // empty final line after a trailing terminator); it is still the native
+        // payload, not a missing one.
+        bool selectedSourceLines =
+            options.Rows is not null
+            && included.First().Equals(SectionNames.Source, StringComparison.OrdinalIgnoreCase)
+            && view.MemberCode?.SourceCode is not null;
+        return raw.Length > 0 || selectedSourceLines;
     }
 
     private static string? GetApiPayloadContent(TypeView view, string section)

@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Globalization;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using ILInspector.Metadata;
@@ -502,6 +503,15 @@ public static class IrImporter
     }
 
     /// <summary>
+    /// One body-bearing candidate in stable-hash order, carrying its original
+    /// metadata-order sequence for consumers that restore source order after
+    /// selecting a ranked prefix.
+    /// </summary>
+    public readonly record struct StableRankedSampleCandidate(
+        StableSampleCandidate Candidate,
+        int MetadataSequence);
+
+    /// <summary>
     /// Evaluates a deterministic hash-ranked sample of method bodies from the
     /// assembly. An optional predicate filters metadata candidates before
     /// ranking, and an optional identity suffix distinguishes candidates for a
@@ -565,6 +575,120 @@ public static class IrImporter
         {
             yield return new StableSampleCandidate(candidate.TypeName, candidate.MethodName, candidate.OverloadIndex, candidate.TypeDefHandle, candidate.MethodHandle);
         }
+    }
+
+    /// <summary>
+    /// Ranks the complete scoped body-bearing population before any
+    /// consumer-specific eligibility decision. Consumers may deepen candidates
+    /// in this order and stop once a finite terminal settles.
+    /// </summary>
+    public static IReadOnlyList<StableRankedSampleCandidate>
+        GetStableRankedSampleCandidates(
+            MetadataSource source,
+            Func<StableSampleCandidate, bool>? scope = null,
+            bool includeGenericArity = false)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        Func<StableSampleCandidate, string?>? stableIdentitySuffix =
+            includeGenericArity
+                ? candidate =>
+                    "generic-arity:"
+                    + source.Reader
+                        .GetMethodDefinition(candidate.MethodHandle)
+                        .GetGenericParameters()
+                        .Count
+                        .ToString(CultureInfo.InvariantCulture)
+                : null;
+
+        return
+        [
+            .. CollectStableRankedSampleCandidates(
+                    source,
+                    scope,
+                    stableIdentitySuffix)
+                .OrderBy(candidate => candidate.Hash)
+                .ThenBy(
+                    candidate => candidate.Key,
+                    StringComparer.Ordinal)
+                .Select(
+                    static candidate =>
+                        new StableRankedSampleCandidate(
+                            new(
+                                candidate.TypeName,
+                                candidate.MethodName,
+                                candidate.OverloadIndex,
+                                candidate.TypeDefHandle,
+                                candidate.MethodHandle),
+                            candidate.Sequence)),
+        ];
+    }
+
+    static List<MethodCandidate> CollectStableRankedSampleCandidates(
+        MetadataSource source,
+        Func<StableSampleCandidate, bool>? predicate,
+        Func<StableSampleCandidate, string?>?
+            stableIdentitySuffix)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+
+        MetadataReader reader = source.Reader;
+        var candidates = new List<MethodCandidate>();
+        int sequence = 0;
+        foreach (TypeDefinitionHandle typeDefHandle
+            in reader.TypeDefinitions)
+        {
+            TypeDefinition typeDef =
+                reader.GetTypeDefinition(typeDefHandle);
+            string typeName = reader.GetFullTypeName(typeDef);
+            var seen = new Dictionary<string, int>();
+            foreach (MethodDefinitionHandle methodHandle
+                in typeDef.GetMethods())
+            {
+                MethodDefinition method =
+                    reader.GetMethodDefinition(methodHandle);
+                string memberName = reader.GetString(method.Name);
+                int overloadIndex =
+                    seen.GetValueOrDefault(memberName);
+                seen[memberName] = overloadIndex + 1;
+
+                if (method.RelativeVirtualAddress == 0)
+                    continue;
+                var stableCandidate = new StableSampleCandidate(
+                    typeName,
+                    memberName,
+                    overloadIndex,
+                    typeDefHandle,
+                    methodHandle);
+                if (predicate is not null
+                    && !predicate(stableCandidate))
+                {
+                    continue;
+                }
+
+                string key = StableSampleKey(
+                    reader,
+                    typeDef,
+                    method,
+                    typeName,
+                    memberName);
+                if (stableIdentitySuffix?.Invoke(stableCandidate)
+                    is { Length: > 0 } suffix)
+                {
+                    key += "|" + suffix;
+                }
+                candidates.Add(new MethodCandidate(
+                    typeDefHandle,
+                    methodHandle,
+                    typeName,
+                    memberName,
+                    sequence++,
+                    StableHash(key),
+                    key,
+                    overloadIndex));
+            }
+        }
+
+        return candidates;
     }
 
     /// <summary>
@@ -1191,6 +1315,20 @@ public static class IrImporter
                         function.Diagnostics.Add(new DecompilerDiagnostic(
                             DiagnosticIds.UnsupportedConstruct,
                             $"IL_{offset:X4} (join-type): slot {i} type unknown — paths carry {existing.Types[i]!.ToDisplayString()} and {types[i]!.ToDisplayString()}"));
+                    }
+                    else
+                    {
+                        // A reference merge to a common supertype proves each
+                        // narrower path assignable to it; publish that as a
+                        // function fact so storage decisions downstream need
+                        // no hierarchy of their own. A null-literal arm adopts
+                        // the other arm's type without proving anything about
+                        // System.Object, so it publishes nothing.
+                        if (!existing.NullLiterals[i] && !nullLiterals[i])
+                        {
+                            RecordReferenceWidening(source, function, existing.Types[i]!, merged);
+                            RecordReferenceWidening(source, function, types[i]!, merged);
+                        }
                     }
                     existing.Types[i] = merged;  // family-canonical, or null — never a guess
                     existing.NullLiterals[i] = false;
@@ -2140,6 +2278,17 @@ public static class IrImporter
         if (familyA is not null && familyB is not null && familyA == familyB)
             return TypeFamilies.Canonical(familyA.Value);
         return null;
+    }
+
+    /// <summary>
+    /// Records that the join merge proved <paramref name="from"/> assignable to
+    /// <paramref name="to"/>; equal types and non-reference types prove nothing.
+    /// </summary>
+    static void RecordReferenceWidening(MetadataSource source, IrFunction function, TypeRef from, TypeRef to)
+    {
+        if (from.Equals(to) || !IsReferenceType(source, from) || !IsReferenceType(source, to))
+            return;
+        function.RecordProvenReferenceWidening(from, to);
     }
 
     static TypeRef? EnumOverUnderlyingFamily(MetadataSource source, TypeRef enumSide, TypeRef integerSide)

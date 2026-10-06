@@ -52,10 +52,10 @@ Decompiler adoption sequence.
 
 `ILInspector.ILDiff` is a separate consumer above Instructions. It owns
 operation canonicalization, body and member alignment, Finding projection,
-typed diff failures, and producer-owned display. Its public types retain the
-`ILInspector.Instructions` namespace for source compatibility, but the assembly
-and project-reference boundary is authoritative: Instructions does not depend
-on ILDiff, Findings, or Text.
+typed diff failures, and producer-owned display. Its public types use the
+`ILInspector.ILDiff` namespace, so the assembly, namespace, and family
+classification agree; the assembly and project-reference boundary is
+authoritative: Instructions does not depend on ILDiff, Findings, or Text.
 `LayeringTests.InstructionDiff_DoesNotExpandInstructionSubstrate` gates that
 dependency direction and the assembly owner.
 
@@ -77,6 +77,25 @@ dependency direction and the assembly owner.
   bounded early-exit consumers; a complete visit enforces the same opcode,
   operand, switch-table, and dangling-prefix structure, while a stopped visit
   deliberately leaves the unseen suffix unvalidated.
+  `InstructionSequence` is the demand-driven retained-prefix primitive.
+  Independent cursors advance with `MoveNext`, and indexed access extends the
+  same shared scan frontier only through the requested instruction. The
+  `IndexAtOrAfter(offset)` and `TryGetAtOffset(offset, ...)` operations extend
+  that frontier only until the requested IL offset is covered; they do not
+  imply completion or validate an unreached suffix.
+  The
+  retained `InstructionEntry` is deliberately shallow: offset, opcode, and
+  encoded extent. `Resolve(index)` decodes and caches full operand and branch
+  detail only for the requested entry. The sequence has no count or implicit
+  completion operation. Reaching EOF marks it complete; an unreached suffix
+  remains unscanned and unvalidated. A reached structural failure fails
+  visibly and faults later requests that need more data, while already
+  returned prefix entries remain valid. The sequence is single-threaded.
+  An immutable IL snapshot is retained directly. A `MethodBodyBlock` is
+  accepted only through the explicit `Borrow` factory with an owner-liveness
+  callback; extending the frontier or resolving new detail checks that owner
+  before touching the retained image. Already retained shallow values remain
+  usable without the image.
 - **Layer 1 — interpretation (per-consumer, opt-in, not shared).** Reaching-defs
   (Analysis), ownership-flow summaries over reaching-defs (Analysis),
   allocation/loop facts (Analysis), the decompiler's symbolic IR stack, and the

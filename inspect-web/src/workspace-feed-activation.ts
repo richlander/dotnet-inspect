@@ -283,8 +283,7 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
       await dependencies.client.describeWorkspacePackageSources?.(packet);
     if (!dependencies.isCurrent(navigationSequence)
       || description === undefined
-      || !description.succeeded
-      || description.sources.length === 0) {
+      || !description.succeeded) {
       return false;
     }
 

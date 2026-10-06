@@ -45,7 +45,7 @@ internal sealed class WorkspaceResearchTargetFixture : IAsyncDisposable
                 QueryComparisonPopulationSealer.Execute(
                     new ImplementationComparisonPopulationRequest(
                         (before ?? Enumerable.Range(0, Nodes.Length).ToArray()).Select(Binding).ToArray(),
-                        (after ?? []).Select(Binding).ToArray(), null, null))).Population);
+                        (after ?? []).Select(Binding).ToArray(), null))).Population);
     }
 
     internal ImplementationComparisonBinding Binding(int index)

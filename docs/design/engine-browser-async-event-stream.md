@@ -228,6 +228,12 @@ worker adapter owns bounded batching:
 - a batch preserves event order; and
 - `Completed` cannot overtake an earlier batch.
 
+[Progressive JSONL Delivery](progressive-jsonl-delivery.md) is an
+encoding-specific consumer of this contract. It may represent one contiguous
+run of durable Item rows as one LF-framed string data event, but it does not
+change item credit, producer order, suspension flushing, non-row event meaning,
+or terminal settlement.
+
 A buffered batch is emitted when it reaches the adopter's declared batch size,
 before the adapter awaits a `MoveNextAsync` that did not complete
 synchronously, before the adapter returns the terminal result, and before the

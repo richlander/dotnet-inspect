@@ -48,7 +48,7 @@ The `package` command inspects a NuGet package. Its default view is *package ide
 | ----- | -------- |
 | `-v:q` | Title and fields only |
 | `-v:m` | Package Info |
-| `-v:n` | Dependencies, Manifest, Package Info, Package nuspec file, Package README file, Package skill files, Runtime Dependencies, Signature, Target Frameworks |
+| `-v:n` | Dependencies, Manifest, Package Info, Nuspec, README, Skills, Runtime Dependencies, Signature, Target Frameworks |
 | `-v:d` | everything at `-v:n`, plus Signals, Statistics, Vulnerabilities |
 
 **Mode-switch flags (lenses):**
@@ -68,12 +68,12 @@ The `package` command inspects a NuGet package. Its default view is *package ide
 Each lens is self-contained. `--files` shows a file tree and exits. It does not also show metadata or dependencies -- those belong to the identity view.
 
 The package file sections all expose package-relative paths and uncompressed
-byte sizes over one schema. `Package files` renders the full package depth and
+byte sizes over one schema. `Files` renders the full package depth and
 never auto-renders. The named slices over that same list are reachable together
-through the `@Files` category: `Package skill files` (`skills/**/SKILL.md`),
-`Package nuspec file` (the manifest path), `Package README file` (the best
+through the `@Files` category: `Skills` (`skills/**/SKILL.md`),
+`Nuspec` (the manifest path), `README` (the best
 README candidate, `README.md` > `PACKAGE.md` > declared readme), and the
-explicit-only `Package license files`. The license slice contains the exact
+explicit-only `Licenses`. The license slice contains the exact
 nuspec `<license type="file">` target plus conservative extensionless, text,
 and Markdown conventions for license names and license directories; it
 excludes notices and non-text lookalikes. Manifest-assigned roles are preserved
@@ -82,12 +82,12 @@ may show that path in multiple authored slices. The nuspec and README slices
 are singular because they yield at most one row. Slices by layout root
 (`lib/`, `ref/`, `runtimes/`) are not sections: `--path "lib/**"` scopes the
 listing instead, and `Package Info`'s `Content` field names the roots a package
-ships. `Package files` itself is the unfiltered superset rather than a family
+ships. `Files` itself is the unfiltered superset rather than a family
 member, so `@Files` does not re-render every path it already covers. For
 `project`, `Skills` renders every direct dependency package
 `skills/**/SKILL.md` file.
 
-**Why `Package files` is not in `-v:d`:** Files are structural layout data (what the package contains on disk), not identity metadata (what the package is). Mixing structural content into the identity view conflates two different concerns. The `--path`/`-S "Package files"` file-resolution view is the correct entry point for structural exploration.
+**Why `Files` is not in `-v:d`:** Files are structural layout data (what the package contains on disk), not identity metadata (what the package is). Mixing structural content into the identity view conflates two different concerns. The `--path`/`-S Files` file-resolution view is the correct entry point for structural exploration.
 
 ### `type` and `member` Commands
 
@@ -238,10 +238,10 @@ adopts the same native-payload default for its separate bodyless metadata view.
 
 | Command | Identity (verbosity) | Lenses (mode-switch flags) |
 | ------- | -------------------- | -------------------------- |
-| `package` | Package Info, Statistics, Dependencies, Vulnerabilities | `--path`, `-S "Package README file" --print`, `--versions`, `-S Signals` |
+| `package` | Package Info, Statistics, Dependencies, Vulnerabilities | `--path`, `-S README --print`, `--versions`, `-S Signals` |
 | `project` | — | `-S Skills`, `-S Skills --paths`, `-S Skills --print` |
 | `type`/`member` | Type/member identity and sectioned evidence | `-S "Source Files" --print --row N`, `-S "Source Locations" --print --row N`, `-S "PDB Source" --print` |
 | `library` | Library info, PE headers | `--sourcelink`, `--references` |
 | `platform` | Framework listing | (delegates to `library` when given a name) |
 | `type` | Type shape | (single view, verbosity controls depth) |
-| `diff` | API change summary | `-S "Analysis Diff"`, `-S "Implementation Diff"`, `-S "Finding Transitions"`, `--table`, `--tsv`, `--name-only` |
+| `diff` | API change summary | `-S "Analysis Diff"`, `-S "Implementation Diff"`, `--analysis`, `-S Transitions`, `--table`, `--tsv`, `--name-only` |

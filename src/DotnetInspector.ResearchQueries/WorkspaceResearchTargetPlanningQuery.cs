@@ -52,25 +52,99 @@ public static class WorkspaceResearchTargetPlanningQuery
         ArgumentNullException.ThrowIfNull(selector);
         cancellationToken.ThrowIfCancellationRequested();
 
+        return QueryResearchTargetPlanner.Plan(
+                population,
+                [new ComparisonMemberSelection(declaringType, selector)],
+                cancellationToken) switch
+        {
+            QueryResearchTargetPlanningStep.Resolved resolved =>
+                new WorkspaceResearchTargetPlanningOutcome.Planned(
+                    new(population, resolved.Projected, resolved.Resolution, declaringType)),
+            QueryResearchTargetPlanningStep.ProjectionRejected rejected =>
+                new WorkspaceResearchTargetPlanningOutcome.Rejected(rejected.Reason),
+            QueryResearchTargetPlanningStep.AdmissionRejected rejected =>
+                new WorkspaceResearchTargetPlanningOutcome.AdmissionRejected(rejected.Rejection),
+            QueryResearchTargetPlanningStep.PlanningRejected rejected =>
+                new WorkspaceResearchTargetPlanningOutcome.PlanningRejected(rejected.Rejection),
+            _ => throw new InvalidOperationException("Unknown Queries Research target planning step."),
+        };
+    }
+}
+
+/// <summary>
+/// One typed member-selection intent: a Metadata type definition and a member
+/// selector, the shape Research carries into target resolution.
+/// </summary>
+public sealed record ComparisonMemberSelection
+{
+    public ComparisonMemberSelection(
+        MetadataTypeDefinitionName declaringType,
+        MemberTargetSelector selector)
+    {
+        ArgumentNullException.ThrowIfNull(declaringType);
+        ArgumentNullException.ThrowIfNull(selector);
+        DeclaringType = declaringType;
+        Selector = selector;
+    }
+
+    public MetadataTypeDefinitionName DeclaringType { get; }
+    public MemberTargetSelector Selector { get; }
+}
+
+/// <summary>The profile-neutral projection, admission, and Research target-resolution step.</summary>
+internal abstract record QueryResearchTargetPlanningStep
+{
+    private QueryResearchTargetPlanningStep() { }
+
+    internal sealed record Resolved(
+        ProjectedQueryPopulation Projected,
+        ResearchTargetResolution Resolution) : QueryResearchTargetPlanningStep;
+
+    internal sealed record ProjectionRejected(QueryPopulationProjectionRejection Reason)
+        : QueryResearchTargetPlanningStep;
+
+    internal sealed record AdmissionRejected(ResearchAdmissionRejection Rejection)
+        : QueryResearchTargetPlanningStep;
+
+    internal sealed record PlanningRejected(ResearchTargetPlanningRejection Rejection)
+        : QueryResearchTargetPlanningStep;
+}
+
+/// <summary>
+/// Projects one sealed population of either profile into Research admission,
+/// assigns every admitted input the implementation role, and resolves one
+/// carried scope per typed member selection.
+/// </summary>
+internal static class QueryResearchTargetPlanner
+{
+    /// <exception cref="OperationCanceledException">Cancellation propagates without publishing a partial plan.</exception>
+    internal static QueryResearchTargetPlanningStep Plan(
+        QueryComparisonPopulation population,
+        IReadOnlyList<ComparisonMemberSelection> selections,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(population);
+        ArgumentNullException.ThrowIfNull(selections);
+        cancellationToken.ThrowIfCancellationRequested();
+
         QueryPopulationProjectionOutcome projection = QueryPopulationProjection.Execute(population);
         cancellationToken.ThrowIfCancellationRequested();
         return projection switch
         {
             QueryPopulationProjectionOutcome.Projected projected =>
-                Resolve(population, projected.Population, declaringType, selector, cancellationToken),
+                Resolve(population, projected.Population, selections, cancellationToken),
             QueryPopulationProjectionOutcome.Rejected rejected =>
-                new WorkspaceResearchTargetPlanningOutcome.Rejected(rejected.Reason),
+                new QueryResearchTargetPlanningStep.ProjectionRejected(rejected.Reason),
             QueryPopulationProjectionOutcome.AdmissionRejected rejected =>
-                new WorkspaceResearchTargetPlanningOutcome.AdmissionRejected(rejected.Rejection),
+                new QueryResearchTargetPlanningStep.AdmissionRejected(rejected.Rejection),
             _ => throw new InvalidOperationException("Unknown Queries population projection outcome."),
         };
     }
 
-    static WorkspaceResearchTargetPlanningOutcome Resolve(
-        QueryComparisonPopulation<ImplementationComparisonBinding> population,
+    static QueryResearchTargetPlanningStep Resolve(
+        QueryComparisonPopulation population,
         ProjectedQueryPopulation projected,
-        MetadataTypeDefinitionName declaringType,
-        MemberTargetSelector selector,
+        IReadOnlyList<ComparisonMemberSelection> selections,
         CancellationToken cancellationToken)
     {
         ResearchComparisonQuestionId question = projected.Receipt.Questions[population.Question];
@@ -78,16 +152,16 @@ public static class WorkspaceResearchTargetPlanningQuery
             projected.Admission,
             projected.Admission.Inputs.Select(input =>
                 new ResearchTargetInputRoleAssignment(input, ResearchTargetInputRole.Implementation)),
-            [new ResearchCarriedMemberSelection(question, declaringType, selector)]);
+            [.. selections.Select(selection =>
+                new ResearchCarriedMemberSelection(question, selection.DeclaringType, selection.Selector))]);
         ResearchTargetPlanningOutcome outcome = ResearchTargetResolver.Resolve(request, cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
         return outcome switch
         {
             ResearchTargetPlanningOutcome.Planned planned =>
-                new WorkspaceResearchTargetPlanningOutcome.Planned(
-                    new(population, projected, planned.Resolution, declaringType)),
+                new QueryResearchTargetPlanningStep.Resolved(projected, planned.Resolution),
             ResearchTargetPlanningOutcome.Rejected rejected =>
-                new WorkspaceResearchTargetPlanningOutcome.PlanningRejected(rejected.Rejection),
+                new QueryResearchTargetPlanningStep.PlanningRejected(rejected.Rejection),
             _ => throw new InvalidOperationException("Unknown Research target planning outcome."),
         };
     }

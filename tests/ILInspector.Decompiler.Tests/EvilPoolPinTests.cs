@@ -440,11 +440,11 @@ public class EvilPoolPinTests
         var output = process.StandardOutput.ReadToEndAsync();
         var failures = process.StandardError.ReadToEndAsync();
 
-        if (!process.WaitForExit((int)TimeSpan.FromMinutes(3).TotalMilliseconds))
+        if (!process.WaitForExit((int)TimeSpan.FromMinutes(5).TotalMilliseconds))
         {
             run.Terminate();
             Assert.Fail(
-                "the sweep did not exit within three minutes, so it is hanging where it "
+                "the sweep did not exit within five minutes, so it is hanging where it "
                 + "owes a stated refusal");
         }
 

@@ -88,10 +88,11 @@ single `library` inspection opened the *same* PE image multiple times:
   `PdbContext` already owns a `PEReader` and exposes metadata operations
   (`ExtractAssemblyInfo`, `ScanPresenceFlags`, `HasMetadata`). Full library Analysis prefetches
   that owner. AppContext scanning and member-drill projection use its public capabilities;
-  `LibraryBodyIndex` consumes immutable content from the prefetched image, so none of those
-  consumers reopens the target. Bounded unsafe-presence discovery instead uses a synchronous
-  capability callback over the same non-prefetched reader and scans sequentially, avoiding
-  complete-image materialization without granting a production assembly friendship.
+  library-body Analysis consumes immutable content from the prefetched image, so none of
+  those consumers reopens the target. Bounded unsafe-presence discovery instead uses a
+  synchronous capability callback over the same non-prefetched reader and scans
+  sequentially, avoiding complete-image materialization without granting a production
+  assembly friendship.
 - `MemberCodeProvider` opens a `PEReader` to build a type index, then calls
   `MetadataSource.Open`, which opens the PE image **again** internally.
 
@@ -813,6 +814,51 @@ through this path. The CLI still owns endpoint-range parsing, compatibility filt
 ranking, and rendering; it does not select package TFMs, merge assembly surfaces, or manage
 extraction directories.
 
+**Declaration and contextual Member populations.** Assembly Inspection can
+publish a completed declaration-only `ApiSurface` through
+`AssemblyInspectionSession.ApiSurface`, its bounded peer, and the underlying
+`ApiSurfaceExtractor.ExtractDeclarations` operations. At the current Assembly
+Inspection boundary, callers make separate declaration and extension-relation
+requests. A caller may issue both against the same retained session, but the
+results remain separate. This boundary does not introduce a combined
+population-selection request; #9183 owns that later QuerySpace composition.
+
+A declaration request publishes one completed `ApiSurface`. Each
+`ApiType.Members` population contains only declarations physically owned by
+that Type. An extension method therefore appears only on the static Type that
+declares it; its extension facts describe that declaration rather than add a
+second population to the surface. A contextual extension request separately
+returns receiver projections. Those rows are not integrated into the
+declaration surface, and no later request augments a completed declaration
+surface.
+
+`ExtractUntil` is always declaration-only. A prefix walk cannot soundly project
+an extension declared after its stopping point, and its initial production
+consumer is the natural-order Type inventory used by finite Find terminals.
+During migration only, the explicitly named retained-session
+`CompatibilityApiSurface` operations and the extractor's existing full,
+bounded, resolved, and compact-summary entry points remain an exception: they
+append same-image receiver projections before publishing their compatibility
+surface. Current product consumers use those explicitly named session
+operations where preserving their existing extension view requires it. The
+declaration and compatibility paths select their result during one image walk;
+neither builds the other surface and filters it afterward. Compatibility
+extraction does not discover cross-assembly extensions. #9192 introduced the
+declaration lane, and #9207 makes it the retained-session default without
+claiming compile-time immutability for the compatibility DTO graph. Retiring
+the compatibility projection remains part of the adoption tracked by #9183.
+
+`DeclarationSurface_KeepsExtensionsOnTheirPhysicalDeclaringTypes`,
+`DeclarationSurface_DoesNotAttachExtensionsToLocalReceivers`,
+`BoundedDeclarationSurface_DoesNotChargeContextualRows`, and
+`ExtractUntil_ReturnsDeclarationMembersOnly` gate the population boundary and
+bounded behavior. `SessionApiSurface_RequiresExplicitCompatibilityProjection`,
+`BoundedSessionApiSurface_ChargesOnlyDeclarations`, and
+`ResolvedSessionApiSurface_RequiresExplicitCompatibilityProjection` gate the
+retained-session default and explicit compatibility operations. Existing
+extension-attachment tests gate compatibility entry points until their
+retirement.
+
 **Cross-assembly constraint bridge.** Type/member extraction, assembly-set diff endpoints,
 wide platform type browse, and direct Research API comparison use the Metadata-owned
 type-resolution catalog when API extraction encounters a named generic
@@ -1265,18 +1311,19 @@ remains the public
 body-local Metadata capability, and high-level Metadata facets own drill projection. These paths
 remove target reopens without exposing the raw reader to the CLI.
 
-Every image-backed `LibraryBodyIndex` publishes one immutable
+Every image-backed library-body Analysis execution publishes one immutable
 `LibraryBodyModuleIdentity` derived from the same `MetadataReader` before
-feature selection or method filtering. It retains the exact assembly-definition
-identity and non-empty MVID; a standalone managed module has no assembly
-identity. The caller-supplied `Path` remains a display/acquisition input and
-method rows remain body evidence, so neither can substitute for module
-identity. `CatalogCallGraphScope` validates and keys participants with the
-issued identity even when an index has no declared methods. The internal
-`FromEvidence` test seam is not image-backed: non-empty synthetic method
-evidence is validated against its synthetic identity, and an empty synthetic
-index must receive identity explicitly rather than acquiring a success-shaped
-default. `ModuleIdentity_IsImageDerivedAcrossFeaturesAndScopes`,
+feature selection or method filtering. It retains the exact
+assembly-definition identity and non-empty MVID; a standalone managed module
+has no assembly identity. The caller-supplied path remains a
+display/acquisition input and method rows remain body evidence, so neither can
+substitute for module identity. `CatalogCallGraphScope` validates and keys
+participants with the focused call-graph result's issued identity even when it
+has no declared methods. The internal synthetic-evidence test seam is not
+image-backed: non-empty synthetic method evidence is validated against its
+synthetic identity, and empty synthetic evidence must receive identity
+explicitly rather than acquiring a success-shaped default.
+`ModuleIdentity_IsImageDerivedAcrossFeaturesAndScopes`,
 `ModuleIdentity_MethodlessPrefetchedImageRetainsExactIdentity`,
 `ModuleIdentity_DistinguishesAssemblyAndModuleGeneration`,
 `ModuleIdentity_StandaloneModuleHasNoAssemblyIdentity`,
@@ -1317,6 +1364,40 @@ friend only its test assemblies. The current
 `LayeringTests.Metadata_FriendsOnlyTestAssemblies` gate enforces the complete
 friend set rather than checking selected production assembly names.
 
+### Session-owned format admission
+
+Assembly Inspection owns general assembly-format admission for operations
+reached through `AssemblyInspectionSession`. The image owner classifies one
+immutable image and, for supported ECMA-335 metadata, establishes the retained
+`MetadataReader` before publishing the session. Unsupported Windows Metadata
+and malformed reader construction settle at that owner boundary before a
+Metadata producer runs. An image without managed metadata may still publish a
+session, but a metadata request settles as no metadata without invoking its
+producer.
+
+The admitted reader is a lifetime-bound precondition issued by the session.
+Metadata producers reached through that session consume the retained reader;
+they do not own general image-format classification or reader construction.
+Raw `PEReader` entry points that remain during incremental scanner migration
+are compatibility admission boundaries, not the producer contract. New
+session-backed producers consume the owner-issued precondition rather than
+copying those compatibility checks.
+
+Format admission does not make metadata rows trustworthy. Each producer
+remains responsible for high-fidelity answers on Roslyn-produced assemblies
+and for secure, bounded behavior on every admitted assembly. Guarded decoding,
+work budgets, recursion bounds, and visible partial or failed outcomes enforce
+that producer-local containment. General format admission and producer-local
+containment are separate boundaries; neither substitutes for the other.
+
+Implementation adoption must positively gate the supported ECMA-335,
+no-metadata, unsupported Windows Metadata, malformed-reader, lifetime, and
+visible producer-failure outcomes in Release. This design selects **no
+automated composition-absence gate** for the negative claim that no
+session-backed producer repeats admission. The absence remains unverified by
+automation and is enforced by owner review; implementation evidence must not
+describe positive session-path gates as repository-wide absence proof.
+
 ```csharp
 public sealed class AssemblyInspectionSession : IDisposable
 {
@@ -1353,6 +1434,218 @@ Mapping that constructs inspection facts belongs below the CLI; mapping typed
 facts into a presentation view does not move into the query merely to reduce
 adapter code. This keeps the assembly owner from regressing into formatter
 logic without making view types the currency of the service boundary.
+
+### Extension relation population producer contract
+
+Assembly Inspection owns the direct extension question over one admitted
+image: which physical extension declarations name one exact structured
+receiver assembly and Type identity? The request independently selects exact
+Count and/or one bounded Rows segment, visibility, operation policy, and an
+optional source MVID for continuation. It does not resolve receiver
+definitions, infer identity from display text, acquire another image, or claim
+complete C# applicability.
+
+One forward declaration-candidate walk owns discovery order, visibility,
+coverage, diagnostics, and operation charging. Each included declaration is
+decoded far enough to establish its exact receiver identity. A nonmatching
+declaration does not require rich display projection or canonical Member
+construction; matching declarations retain canonical physical Member identity,
+structured receiver evidence, declaring and receiver-context addresses, and
+declaration tokens. Unsupported or malformed candidate evidence remains a
+typed incomplete or failed outcome rather than exact absence.
+
+Count requires complete candidate coverage. Bounded Rows retains only the
+requested logical-row segment, but the direct producer may finish the walk to
+establish exact completion and a source-bound continuation ordinal. Logical
+row and occurrence order remain Metadata discovery order; presentation sorting
+is downstream. Repeated physical declarations with the same exact logical
+identity remain occurrences inside one row.
+
+`ExtensionPopulationPushesCountAndBoundedRowsForHttpClient`,
+`ExtensionPopulationMatchesRuntimeCensusInMetadataOrder`,
+`ExtensionPopulationPreservesMixedDeclarationDiscoveryOrder`,
+`ExtensionPopulationPreservesConstructedReceiverContext`, and
+`ExtensionAndReferenceProducersRetainExactEvidence` gate the result contract.
+The NativeAOT scorecard for #9284 gates equivalent cardinality and logical-row
+identity against the prior rich census/filter reference over zero, small, and
+dense real runtime receiver populations. Kernel diagnostics report retained-
+session latency and allocation; exact base/head apphosts gate end-to-end
+latency, RSS, startup, and generated-code cost.
+
+### Hierarchy relation producer and oracle contract
+
+Assembly Inspection owns the direct hierarchy question over one admitted
+image: which source Type definitions directly name one exact target definition
+as their base Type or an implemented interface? The target is a structured
+Metadata definition name, including namespace, nesting, and generic arity.
+The request may select one relation kind, public-only versus non-public
+declarations, hidden-declaration policy, an operation policy, row
+materialization, and an optional forward candidate window identified by start
+ordinal and maximum candidate count. Candidates before the start ordinal are
+matched but do not decode or retain source row names. It does not accept
+display text, resolve Workspace focus, acquire another image, or perform
+transitive hierarchy traversal.
+
+The fidelity domain is the `TypeDef`, `TypeRef`, and canonical generic
+`TypeSpec` hierarchy shapes emitted by Roslyn. The producer gives exact answers
+for those shapes. Every supported admitted ECMA-335 image remains inert and
+bounded, but shapes outside the fidelity domain may produce a typed unsupported
+or partial outcome rather than a semantic answer. Unsupported Windows Metadata
+remains outside admission. A malformed or unsupported occurrence, visibility
+failure, cancellation, or exhausted operation bound cannot become a complete
+negative result.
+
+One logical candidate is one source Type and selected hierarchy kind.
+Repeated interface occurrences for that source remain one candidate with all
+physical occurrence tokens retained in metadata order. Each materialized row
+preserves the source definition address, structured source name, relation kind,
+and occurrence tokens. The result also carries the admitted-image receipt,
+candidate count, coverage, ordered diagnostics, disposition, applied forward
+plan, and whether production stopped early. Candidate count is an observed
+count unless complete coverage or an owner-issued exact witness establishes
+cardinality. A matched candidate consumes its producer ordinal even when source
+row-name projection is unavailable, so a continued window cannot revisit a
+later materialized row. Consumers must not infer exact absence or Count from a
+partial zero.
+
+The producer may avoid work required only by an unrequested closing:
+
+- Exists may stop after the first candidate.
+- Head and a forward row window may stop after producing the required prefix
+  in Type-definition discovery order.
+- Count, Tail, and complete Rows inspect the complete requested population.
+- Exists and Count need not decode or retain source names or row projections.
+
+Early stopping remains visible through the result and does not strengthen
+coverage. Presentation sorting is downstream and cannot change the discovery
+order used by a forwarded closing. Subject Relations projection may later
+decode the retained occurrences into richer target identities, but that work
+is not part of the definition-name hierarchy question.
+
+Assembly Inspection also owns an optional prepared hierarchy capability over
+one admitted immutable image. Preparation performs one target-independent
+physical census in Type-definition discovery order and retains:
+
+- each source `TypeDef` handle with its visibility and hidden-declaration
+  classification or typed classification failure;
+- each supported base-Type or interface occurrence with its relation kind,
+  exact structured target definition name, and physical metadata token; and
+- reverse ranges keyed by exact target definition name plus relation kind.
+
+Repeated interface occurrences for one source and key remain one logical
+candidate with all physical tokens in metadata order. Source definition names
+are not retained by preparation; Rows decode them on demand, while Count and
+Exists consume candidate cardinality without row projection. A lookup that
+does not select a relation kind merges the two reverse ranges back into
+Type-definition discovery order, with the base occurrence preceding interface
+occurrences for the same source.
+
+The capability is issued by and remains tied to its
+`AssemblyInspectionSession`. It cannot be used after that session or its lender
+retires. Its receipt records image identity, source and physical-occurrence
+counts, reverse-key count, operation counters, diagnostics, and complete versus
+partial disposition. Retained physical relations have a dedicated operation
+bound. Exhausting that bound, encountering an unsupported target shape, or
+failing required Metadata classification produces typed partial preparation;
+an incomplete census cannot certify exact absence. Cancellation remains an
+exception and does not publish a partial capability.
+
+The direct targeted Planner remains the cold, single-target production
+reference. The prepared capability is selected only by a consumer that already
+requires repeated hierarchy answers over the same live session. The scorecard
+is the first production consumer: it reports preparation latency and
+allocation separately, then compares warm indexed terminals with independent
+LINQ, NLinq, and direct Planner answers. Adoption beyond the scorecard requires
+exact evidence for cold preparation, retained heap, warm terminal cost, and
+the crossover by target count and absence density. A warm win does not justify
+making preparation a default or adding it to a cold command path.
+
+Format admission is shared as described above. The hierarchy producer may also
+share narrow Metadata-owned primitives whose inputs and invariants are
+identical across callers:
+
+- structured definition-name construction and comparison;
+- guarded `TypeDef`, `TypeRef`, and canonical generic-`TypeSpec` decoding;
+- declaration visibility classification;
+- operation charging, coverage, diagnostics, and typed result contracts.
+
+Those primitives do not constitute a query implementation. Population
+traversal, occurrence enumeration, candidate grouping, terminal execution,
+early stopping, and row materialization are the hierarchy query and remain
+independently driven in the standard LINQ, NLinq, and Planner scorecard
+columns. Each column starts its own read over the same admitted immutable image
+and applies the same target, scope, visibility, ordering, projection, safety
+policy, and closing. LINQ is an idiomatic streaming `System.Linq` query, NLinq
+is the equivalent pinned struct query, and Planner is the shipping producer.
+Neither oracle calls the Planner query nor consumes a Planner-produced or
+shared materialized analysis sequence. The prepared reverse-index column is a
+separately labeled product candidate, not another independent oracle.
+
+A benchmark in which all columns consume one product analysis pass measures
+terminal overhead only. It may remain as a separately labeled diagnostic, but
+it is not the standard possibility-oracle comparison defined by
+[Performance oracles for QuerySpace enablement](../evidence-and-validation.md#performance-oracles-for-queryspace-enablement).
+The standard report links each query implementation, its common population
+source, pinned NLinq provenance, exact invocation, and whether each Planner
+cell is shipping. A faster oracle identifies a concrete traversal, decoding,
+materialization, or closing choice that the Planner can adopt rather than
+having Planner work added to the oracle.
+
+These claims are unverified on this design-only slice. Implementation adoption
+uses the following Release gates:
+
+- `HierarchyAnalysisMatchesRoslynGenericRelationEvidence`,
+  `HierarchyTargetSelectionRetainsMatchingGenericTypeSpecifications`, and
+  `HierarchyTargetSelectionReusesChargedSourceNameAcrossOccurrences` in
+  `MetadataRelationInspectionTests` gate exact Roslyn-produced generic answers,
+  occurrence retention, and source-name materialization over pinned framework
+  and compiled fixture assemblies.
+- `HierarchyAnalysisForwardPlanStopsOnlyAfterItsBound` and
+  `HierarchyAnalysisContainsProjectionBudgetFailure` in
+  `MetadataRelationInspectionTests`, and
+  `IndexedForwardPlanStartsAtTheRequestedOrdinal` in
+  `HierarchyRelationOracleTests` gate forward stopping, start-ordinal row
+  materialization, non-materializing Count, typed partial coverage, and
+  retained diagnostics.
+- `HierarchyAnalysisContainsMalformedGenericTypeSpecifications` and
+  `HierarchyAnalysisRejectsCyclicVisibilityBeforeCandidateScan` in
+  `MetadataRelationInspectionTests` gate bounded malformed-`TypeSpec` and
+  visibility-graph behavior.
+- `subject-relations-scorecard check` over
+  `'<assembly>|<base|interface>|<target>'...` gates independently executed
+  LINQ, NLinq, and Planner answers plus the prepared-index product candidate
+  for Exists, Count, Rows, Head, Tail, and strict-window terminals over the
+  pinned real assets named by the implementation PR. The existing independent
+  columns retain the Metadata safety-fixture comparison. The timing mode
+  reports preparation separately from warm terminal cells.
+- `IndependentColumnsAgreeOnRoslynHierarchyAssets`,
+  `IndexedCountDoesNotMaterializeSourceNames`,
+  `IndexedRowsContainProjectionBudgetFailure`,
+  `RetentionLimitProducesTypedPartialIndex`,
+  `CompleteIndexCertifiesExactAbsence`, and
+  `IndexRejectsUseAfterIssuingSessionIsDisposed`,
+  `DuplicateOccurrencesRemainOneLogicalCandidate`,
+  `VisibilityFailureOnlyLimitsPublicFilteredLookup`, and
+  `UnsupportedTargetShapePreventsExactAbsence` in
+  `HierarchyRelationOracleTests` gate independent answer equivalence, lazy row
+  projection, typed lookup-time projection-budget containment,
+  retained-relation bounds, complete-census absence, session lifetime,
+  physical occurrence grouping, policy-scoped classification failures, and
+  conservative unsupported-shape coverage.
+- `MetadataFormatAdmissionTests` and
+  `HierarchyAnalysisRejectsNativeImageBeforeProducerExecution` in
+  `MetadataRelationInspectionTests` retain the session admission, lifetime,
+  and unsupported-format boundary.
+
+The focused provisioned-capability plan is tracked by
+[#9161](https://github.com/richlander/dotnet-inspect/issues/9161).
+[QuerySpace composition](query-space-composition.md) owns future dependency
+declaration, plan selection, sharing, covering-result satisfaction, and
+lifetime coordination across consumers. This section owns only the Metadata
+capability's construction and semantics; it does not make QuerySpace build the
+index for Count alone. Subject Relations owns exact Workspace focus,
+cross-image correspondence, composition, and host projection. This slice does
+not revive the abandoned Subject Relations host stack.
 
 ### 4. `MemorySafetyMetadataIndex` — shared module and member meaning
 
@@ -1619,7 +1912,7 @@ share a model:
 
 - `MemberCodeProvider` — per-member decompiled source / IL / attributes / facts (drives the
   decompiler and Research overlays).
-- `ILOffsetQuery` (the `library coordinate` command adapter) — parses command input and
+- `ILOffsetQuery` (the `library address` command adapter) — parses command input and
   forwards an `ILOffsetProjectionRequest` to Research.
 
 These want the same shape as the assembly seam, one level down: a query in, a finished result
@@ -1866,7 +2159,7 @@ interface IResearchFactProducer {
     IReadOnlyList<Annotation> Produce(ResearchFactContext context);
 }
 // ResearchFactRegistry holds the producers and Collect()s them;
-// ResearchAssemblyContext.Create(LibraryBodyIndex) builds the shared inputs once.
+// MemberProjectionAnalysisInput joins focused results from one execution.
 ```
 
 The mapping to this spec is nearly 1:1:
@@ -1874,7 +2167,7 @@ The mapping to this spec is nearly 1:1:
 | This spec | Research API |
 | --- | --- |
 | **facet** (one owner) | a producer's `Produces` set — one producer per fact id |
-| **shared PE-owner, parsed once** | `ResearchAssemblyContext.Create(index)` — built once, read by all producers |
+| **shared evidence input** | `MemberProjectionAnalysisInput` — exact focused results from one Analysis execution |
 | **session / hub** | `ResearchFactRegistry` — holds producers, `Collect`s over the shared context |
 | **facet dependencies** | producer `DependsOn` |
 | **CLI selects + renders; service produces** | Research's own contract: *"Producers contribute projection-neutral facts; presenters render the merged set."* |

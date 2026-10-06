@@ -31,6 +31,8 @@ function type(id: string): BrowserTypeSurface {
     displayName: id,
     namespace: "Example",
     kind: "Class",
+    kindFacetId: "api.type-kind.class",
+    traitFacetIds: ["api.type-trait.object"],
     accessibility: "public",
     accessibilityId: "public",
     assembly: "Example.dll",
@@ -68,6 +70,36 @@ function surface(types: BrowserTypeSurface[]): BrowserPackageSurface {
       publicMembers: 0,
     }],
     types,
+    typeKinds: [{
+      id: "api.type-kind.class",
+      singularLabel: "class",
+      pluralLabel: "classes",
+      weight: 100,
+      count: types.length,
+      isDefault: true,
+    }],
+    typeTraits: [{
+      id: "api.type-trait.abstract",
+      singularLabel: "abstract",
+      pluralLabel: "abstract",
+      weight: 100,
+      count: 0,
+      isDefault: false,
+    }, {
+      id: "api.type-trait.static",
+      singularLabel: "static",
+      pluralLabel: "static",
+      weight: 200,
+      count: 0,
+      isDefault: false,
+    }, {
+      id: "api.type-trait.object",
+      singularLabel: "object",
+      pluralLabel: "objects",
+      weight: 300,
+      count: types.length,
+      isDefault: false,
+    }],
     accessibility: [{
       id: "public",
       label: "Public",
@@ -1225,6 +1257,90 @@ test("retained admission rejects non-progressing Type pages", async () => {
   await assert.rejects(
     loadRetainedWorkspaceModels(client, posting()),
     /invalid next Type offset 0/);
+});
+
+test("source-free complete packets use retained activation without credentials", async () => {
+  const events: string[] = [];
+  const client = createWorkspaceTestClient(events);
+  client.describeWorkspacePackageSources = () => ({
+    succeeded: true,
+    sources: [],
+    failure: null,
+  });
+  client.prepareRetainedWorkspaceDefinitionWithCredentials = async () => {
+    throw new Error("Source-free activation must not bind credentials.");
+  };
+  const harness = createCoordinatorHarness(client, events);
+  const location = "https://example.test/?w=complete-packet";
+
+  assert.equal(
+    await harness.coordinator.tryOpen(
+      new URL(location),
+      harness.sequence,
+      true),
+    true);
+  assert.equal(harness.visible, location);
+  assert.equal(harness.failure, null);
+  assert.equal(events.includes("prepare"), true);
+  assert.equal(events.includes("commit"), true);
+  assert.equal(events.includes("publish"), true);
+});
+
+test("unsupported packets remain available to the compatibility path", async () => {
+  const events: string[] = [];
+  const client = createWorkspaceTestClient(events);
+  client.describeWorkspacePackageSources = () => ({
+    succeeded: false,
+    sources: [],
+    failure: {
+      kind: "UnsupportedVersion",
+      path: "packet",
+      message: "Complete Workspace restoration does not support packet format 1.",
+    },
+  });
+  client.prepareRetainedWorkspaceDefinition = async () => {
+    throw new Error("Unsupported packets must not enter retained activation.");
+  };
+  const harness = createCoordinatorHarness(client, events);
+
+  assert.equal(
+    await harness.coordinator.tryOpen(
+      new URL("https://example.test/?w=legacy-packet"),
+      harness.sequence,
+      true),
+    false);
+  assert.equal(harness.visible, "incumbent");
+  assert.equal(harness.failure, null);
+  assert.equal(events.length, 0);
+});
+
+test("source-free deep views remain available to the compatibility path", async () => {
+  const events: string[] = [];
+  const client = createWorkspaceTestClient(events);
+  client.describeWorkspacePackageSources = () => ({
+    succeeded: false,
+    sources: [],
+    failure: {
+      kind: "UnsupportedDefinition",
+      path: "packet.view.active",
+      message:
+        "Source-free complete Workspace link activation currently supports only Workspace or Package Overview selections.",
+    },
+  });
+  client.prepareRetainedWorkspaceDefinition = async () => {
+    throw new Error("Deep views must not enter retained activation.");
+  };
+  const harness = createCoordinatorHarness(client, events);
+
+  assert.equal(
+    await harness.coordinator.tryOpen(
+      new URL("https://example.test/?w=deep-view-packet"),
+      harness.sequence,
+      true),
+    false);
+  assert.equal(harness.visible, "incumbent");
+  assert.equal(harness.failure, null);
+  assert.equal(events.length, 0);
 });
 
 test("anonymous source activation publishes before committing browser history", async () => {

@@ -2,7 +2,7 @@ import type {
   BrowserPackageChangesAdvisoryEvidence,
   BrowserPackageChangesAdvisoryReference,
   BrowserPackageChangesFailure,
-  BrowserPackageChangesPackageSetDescriptor,
+  BrowserPackageChangesEcosystemDescriptor,
   BrowserPackageChangesProgress,
   BrowserPackageChangesRow,
 } from "./facades/inspect-web-package.d.ts";
@@ -22,7 +22,7 @@ export interface PackageChangesBindingActions {
   readonly onCancel: () => void;
   readonly onResultViewportChange: () => void;
   readonly onRun: (
-    packageSetId: string,
+    ecosystemId: string,
     fromExclusive: string | null,
     throughInclusive: string | null,
     securityOnly: boolean,
@@ -32,7 +32,7 @@ export interface PackageChangesBindingActions {
 
 export interface RenderPackageChangesOptions {
   readonly state: PackageChangesState;
-  readonly packageSets: readonly BrowserPackageChangesPackageSetDescriptor[];
+  readonly ecosystems: readonly BrowserPackageChangesEcosystemDescriptor[];
   readonly catalogError?: string;
   readonly viewport?: PackageChangesViewportSnapshot | null;
   readonly escapeHtml: (value: unknown) => string;
@@ -69,14 +69,20 @@ export function bindPackageChangesView(
     input?.addEventListener("input", clearIntervalValidity);
   }
   synchronizeInterval();
-  const packageSet =
-    root.querySelector<HTMLSelectElement>("#package-changes-package-set");
-  const packageSetSummary =
-    root.querySelector<HTMLElement>(".package-changes-package-set-summary");
-  packageSet?.addEventListener("change", () => {
-    const option = packageSet.selectedOptions[0];
-    if (packageSetSummary && option) {
-      packageSetSummary.textContent = option.dataset.packageSetSummary ?? "";
+  const ecosystem =
+    root.querySelector<HTMLSelectElement>("#package-changes-ecosystem");
+  const ecosystemSummary =
+    root.querySelector<HTMLElement>(".package-changes-ecosystem-summary");
+  const ecosystemPrefixes =
+    root.querySelector<HTMLElement>(".package-changes-ecosystem-prefixes");
+  ecosystem?.addEventListener("change", () => {
+    const option = ecosystem.selectedOptions[0];
+    if (!option) return;
+    if (ecosystemSummary) {
+      ecosystemSummary.textContent = option.dataset.ecosystemSummary ?? "";
+    }
+    if (ecosystemPrefixes) {
+      ecosystemPrefixes.textContent = option.dataset.ecosystemPrefixes ?? "";
     }
   });
 
@@ -93,7 +99,7 @@ export function bindPackageChangesView(
       const through = intervalFields()[1];
       from?.setCustomValidity("");
       through?.setCustomValidity("");
-      if (!packageSet || !maximumRows || !securityOnly || !form.reportValidity()) {
+      if (!ecosystem || !maximumRows || !securityOnly || !form.reportValidity()) {
         return;
       }
       const interval = custom?.checked === true
@@ -110,7 +116,7 @@ export function bindPackageChangesView(
       from?.setCustomValidity("");
       through?.setCustomValidity("");
       actions.onRun(
-        packageSet.value,
+        ecosystem.value,
         interval.fromExclusive,
         interval.throughInclusive,
         securityOnly.checked,
@@ -123,15 +129,15 @@ export function renderPackageChangesView(
 ): string {
   const {
     state,
-    packageSets,
+    ecosystems,
     catalogError = "",
     viewport = null,
     escapeHtml,
   } = options;
-  const selectedId = state.request?.packageSetId ?? packageSets[0]?.id ?? "";
+  const selectedId = state.request?.ecosystemId ?? ecosystems[0]?.id ?? "";
   const explicitInterval = state.request?.fromExclusive !== null
     && state.request?.fromExclusive !== undefined;
-  const selected = packageSets.find(packageSet => packageSet.id === selectedId);
+  const selected = ecosystems.find(ecosystem => ecosystem.id === selectedId);
   return `
     <div class="query-page package-changes-page">
       <header class="query-page-bar">
@@ -142,20 +148,21 @@ export function renderPackageChangesView(
       </header>
       <main class="query-main">
         <div class="query-heading">
-          <p class="query-kicker">Product package sets · NuGet catalog and advisory evidence</p>
+          <p class="query-kicker">Product Ecosystems · NuGet catalog and advisory evidence</p>
           <h1 id="package-changes-heading" tabindex="-1">Package Activity</h1>
-          <p>Inspect a bounded package-set interval. Results preserve producer order, evidence availability, source coverage, and typed completion.</p>
+          <p>Inspect a bounded interval of an Ecosystem's package prefixes. Results preserve producer order, evidence availability, source coverage, and typed completion.</p>
         </div>
         ${catalogError
           ? `<div class="query-navigation-error" role="alert">${escapeHtml(catalogError)}</div>`
           : ""}
         <form id="package-changes-form" class="package-changes-form">
-          <label for="package-changes-package-set">Package set</label>
-          <select id="package-changes-package-set" required${packageSets.length ? "" : " disabled"}>
-            ${packageSets.map(packageSet =>
-              `<option value="${escapeHtml(packageSet.id)}" data-package-set-summary="${escapeHtml(packageSet.summary)}"${packageSet.id === selectedId ? " selected" : ""}>${escapeHtml(packageSet.title)}</option>`).join("")}
+          <label for="package-changes-ecosystem">Ecosystem</label>
+          <select id="package-changes-ecosystem" required${ecosystems.length ? "" : " disabled"}>
+            ${ecosystems.map(ecosystem =>
+              `<option value="${escapeHtml(ecosystem.id)}" data-ecosystem-summary="${escapeHtml(ecosystem.summary)}" data-ecosystem-prefixes="${escapeHtml(formatEcosystemPrefixes(ecosystem.prefixes))}"${ecosystem.id === selectedId ? " selected" : ""}>${escapeHtml(ecosystem.title)}</option>`).join("")}
           </select>
-          <p class="package-changes-package-set-summary">${escapeHtml(selected?.summary ?? "The product package-set catalog is unavailable.")}</p>
+          <p class="package-changes-ecosystem-summary">${escapeHtml(selected?.summary ?? "The product Ecosystem catalog is unavailable.")}</p>
+          <p class="package-changes-ecosystem-prefixes">${escapeHtml(selected ? formatEcosystemPrefixes(selected.prefixes) : "")}</p>
           <label class="package-changes-check">
             <input id="package-changes-custom-interval" type="checkbox"${explicitInterval ? " checked" : ""} />
             Use a custom UTC interval
@@ -173,7 +180,7 @@ export function renderPackageChangesView(
           <label for="package-changes-limit">Maximum results</label>
           <input id="package-changes-limit" type="number" min="1" max="1000" step="1" value="${state.request?.maximumRows ?? 100}" required />
           <div class="package-changes-actions">
-            <button id="package-changes-run" class="primary-action" type="submit"${packageSets.length ? "" : " disabled"}>Run report</button>
+            <button id="package-changes-run" class="primary-action" type="submit"${ecosystems.length ? "" : " disabled"}>Run report</button>
             <button id="package-changes-cancel" type="button"${state.settlement.kind === "running" ? "" : " disabled"}>Cancel</button>
           </div>
           <p class="query-facet-disclosure">The default interval is the product-owned previous 42 days. Custom endpoints must be paired, increasing UTC values no more than 42 days apart.</p>
@@ -185,9 +192,13 @@ export function renderPackageChangesView(
     </div>`;
 }
 
+function formatEcosystemPrefixes(prefixes: readonly string[]): string {
+  return prefixes.map(prefix => `${prefix}*`).join(", ");
+}
+
 export function patchPackageChangesStream(
   root: ParentNode,
-  options: Omit<RenderPackageChangesOptions, "packageSets" | "catalogError">,
+  options: Omit<RenderPackageChangesOptions, "ecosystems" | "catalogError">,
 ): boolean {
   const stream = root.querySelector<HTMLElement>("#package-changes-results");
   if (!stream) return false;
@@ -318,7 +329,7 @@ function renderStatus(
   switch (settlement.kind) {
     case "idle":
       text = "Ready";
-      detail = "Choose a product package set and run a report.";
+      detail = "Choose a product Ecosystem and run a report.";
       break;
     case "running":
       text = `${state.rows.length.toLocaleString()} activity events · streaming…`;
@@ -395,7 +406,7 @@ function renderCoverage(
   return `<section class="package-changes-coverage" aria-label="Report completion and coverage">
     <h2>Completion and coverage</h2>
     <dl>
-      <div><dt>Package scope</dt><dd>${escapeHtml(request.packageScope.selectionId ?? request.packageScope.kind)} · ${request.packageScope.packageIds.length.toLocaleString()} package IDs</dd></div>
+      <div><dt>Package scope</dt><dd>${escapeHtml(request.packageScope.selectionId ?? request.packageScope.kind)} · ${escapeHtml(formatEcosystemPrefixes(request.packageScope.prefixes))} · ${request.packageScope.prefixes.length.toLocaleString()} ${request.packageScope.prefixes.length === 1 ? "prefix" : "prefixes"}</dd></div>
       <div><dt>Requested interval</dt><dd>${escapeHtml(request.fromExclusive)} (exclusive) through ${escapeHtml(request.throughInclusive)} (inclusive)${request.usedDefaultInterval ? " · default interval" : ""}</dd></div>
       <div><dt>Catalog horizon</dt><dd>${escapeHtml(completion.capturedHorizon ?? "Unavailable")}</dd></div>
       <div><dt>Catalog source</dt><dd>${escapeHtml(source.producer)} · ${escapeHtml(source.transportKind)} · ${escapeHtml(completion.catalogCompletion)}</dd></div>

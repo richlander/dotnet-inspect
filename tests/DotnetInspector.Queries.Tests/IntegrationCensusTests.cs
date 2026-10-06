@@ -3424,10 +3424,10 @@ public sealed class IntegrationCensusTests
             Assert.Single(result.Document.Failures);
         Assert.Same(
             InspectionGraphIntegrationsCatalog.ProjectionFailure,
-            failure.Descriptor);
+            failure.Payload.Descriptor);
         var evidence = Assert.IsType<
             InspectionGraphIntegrationCensusFailureEvidence>(
-                failure.Evidence);
+                failure.Payload.Evidence);
         Assert.Single(evidence.CandidateAttempts);
         Assert.Empty(evidence.SourceAttempts);
         Assert.Empty(evidence.ProducerPolicyAttempts);

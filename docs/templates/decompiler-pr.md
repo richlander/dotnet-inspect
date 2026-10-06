@@ -97,7 +97,10 @@ rather than deleting the lens; Before → After and raw IL remain usable.
 Adversarial review evidence belongs in a separate PR comment, not this
 description. Before marking the PR ready, post a comment that names each
 reviewer/model, the exact head reviewed, findings and their resolution commits
-or explicit non-actions, and each reviewer's final verdict.
+or explicit non-actions, and each reviewer's final verdict. Append
+`docs/templates/decompiler-adversarial-review-appendix.md` after the canonical
+review prompt and completed review frame so the reviewer checks that the
+harness observed rather than repaired the product evidence.
 -->
 
 - Fixes/advances #{issue}

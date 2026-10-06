@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using DotnetInspector.LibraryMetadata;
 using DotnetInspector.Platforms;
 using DotnetInspector.SourceSelection;
 using ILInspector.Metadata;
@@ -53,7 +54,12 @@ public sealed partial class InspectionWorkspace
                     new(_identity, order, members.Count),
                     coordinate, assembly.Identity,
                     new WorkspaceDeclarationOrigin.ContextLoad(member.Declared, member.Realized),
-                    assembly.Provenance));
+                    assembly.Provenance,
+                    coordinate is ExactLibrarySourceCoordinate.Package
+                        ? new(
+                            request.Framework,
+                            request.RuntimeIdentifier)
+                        : null));
             }
         }
 
@@ -127,6 +133,22 @@ public sealed partial class InspectionWorkspace
     }
 
     /// <summary>
+    /// Captures the current admitted declaration contexts in publication order.
+    /// The returned contexts remain valid only while this Workspace remains open.
+    /// </summary>
+    public ImmutableArray<WorkspaceDeclarationContext>
+        GetDeclarationContextsSnapshot()
+    {
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(
+                _state != InspectionWorkspaceState.Open,
+                this);
+            return [.. _declarationContexts];
+        }
+    }
+
+    /// <summary>
     /// Gets this Workspace's lazy locator over its admitted declaration contexts.
     /// The first call fixes its limits; getting it does not activate inspection.
     /// </summary>
@@ -183,15 +205,46 @@ public sealed partial class InspectionWorkspace
         var ordered = contexts.OrderBy(static context => context.Receipt.Order).ToArray();
         var access = new Dictionary<
             WorkspaceDeclarationOccurrence,
-            (AssemblyContextGroup Group, ResolvedAssemblyReference Assembly)>();
+            WorkspaceDeclarationMemberAccess>();
         foreach (WorkspaceDeclarationContext context in ordered)
         {
-            if (context.Group is not { } group)
-                continue;
-            for (int index = 0; index < group.Participants.Length; index++)
+            if (context.Group is { } group)
             {
-                access.Add(context.Receipt.Members[index].Occurrence,
-                    (group, group.Participants[index].Assembly));
+                for (int index = 0;
+                    index < group.Participants.Length;
+                    index++)
+                {
+                    WorkspaceDeclarationMember member =
+                        context.Receipt.Members[index];
+                    access.Add(
+                        member.Occurrence,
+                        new WorkspaceDeclarationMemberAccess.AssemblyContext(
+                            member,
+                            group,
+                            group.Participants[index].Assembly));
+                }
+            }
+            else if (!context.LibraryOccurrences.IsDefaultOrEmpty)
+            {
+                LibraryTypeDeclarationInventoryInspectionBounds bounds =
+                    context.LibraryInspectionBounds
+                    ?? throw new InvalidOperationException(
+                        "A Library-backed declaration context requires "
+                            + "inspection bounds.");
+                for (int index = 0;
+                    index < context.LibraryOccurrences.Length;
+                    index++)
+                {
+                    WorkspaceDeclarationMember member =
+                        context.Receipt.Members[index];
+                    access.Add(
+                        member.Occurrence,
+                        new WorkspaceDeclarationMemberAccess
+                            .LibraryOccurrence(
+                                member,
+                                context.LibraryOccurrences[index],
+                                bounds));
+                }
             }
         }
         return new(this, new(_identity, [.. ordered.Select(static context => context.Receipt)]), access);

@@ -34,6 +34,8 @@ public static class KnownAttributeNames
     public const string ParamCollectionAttribute = Prefix + "ParamCollectionAttribute";
     public const string RefSafetyRulesAttribute = Prefix + "RefSafetyRulesAttribute";
     public const string RequiredMemberAttribute = Prefix + "RequiredMemberAttribute";
+    public const string SetsRequiredMembersAttribute =
+        "System.Diagnostics.CodeAnalysis.SetsRequiredMembersAttribute";
     public const string RequiresLocationAttribute = Prefix + "RequiresLocationAttribute";
 
     // RequiresUnsafeAttribute is emitted in System.Diagnostics.CodeAnalysis (the

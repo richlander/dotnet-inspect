@@ -373,7 +373,7 @@ public partial class PackageCommand
         }
 
         CommandError.Write($"Multiple package row output does not support section: {section}.");
-        CommandError.WriteLine("Use --json, or select Package Info, Signature, Package files, or a package file section (see -D @Files).");
+        CommandError.WriteLine("Use --json, or select Package Info, Signature, Files, or a package file section (see -D @Files).");
         return false;
     }
 

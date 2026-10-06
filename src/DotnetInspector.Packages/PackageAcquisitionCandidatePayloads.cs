@@ -275,13 +275,13 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
                     {
                         continue;
                     }
-                    EntryCacheState? state = ReadEntryCache(
+                    EntryCacheState? state = await ReadEntryCacheAsync(
                         entryStore,
                         candidate.Coordinate,
                         client.Source.Producer.Key,
                         rangedRead,
                         PackagePayloadAcquisition.ValidateLimits(limits),
-                        log);
+                        log).ConfigureAwait(false);
                     if (state is null)
                         continue;
                     if (state.Complete is { } complete)
@@ -373,6 +373,12 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
                             RangedAttempt attempt;
                             try
                             {
+                                long? knownArchiveLength =
+                                    result
+                                        is PackageSourcePayloadResult.Oversized
+                                            known
+                                        ? known.AdvertisedLength
+                                        : cachedState?.Directory.ArchiveLength;
                                 attempt = await TryAcquireRangedAsync(
                                     rangedSource!,
                                     client,
@@ -383,6 +389,7 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
                                     operation,
                                     log,
                                     requestLog,
+                                    knownArchiveLength,
                                     store as IPackageEntryStore,
                                     cachedState).ConfigureAwait(false);
                             }
@@ -585,6 +592,7 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
         NuGetOperationContext operation,
         Action<string>? log,
         PackageArchiveRequestLog requestLog,
+        long? knownArchiveLength,
         IPackageEntryStore? entryStore = null,
         EntryCacheState? cachedState = null)
     {
@@ -600,7 +608,8 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
                 RangedLimits(limits),
                 operation.CancellationToken,
                 operation,
-                requestLog).ConfigureAwait(false);
+                requestLog,
+                knownArchiveLength).ConfigureAwait(false);
         if (open.Value is not { } reader)
         {
             return ClassifyRanged(
@@ -630,8 +639,22 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
                     RangedOutcome.Fallback,
                     Fallback: PackageTransferFallbackReason.ArchiveChanged);
             }
-            IReadOnlyList<PackageContentEntry> entries =
-                DirectoryEntries(reader.Directory);
+            if (TryGetDirectoryEntries(
+                    reader.Directory,
+                    limits,
+                    out IReadOnlyList<PackageContentEntry> entries)
+                is { } directoryProblem)
+            {
+                return new(
+                    RangedOutcome.Failed,
+                    Failure: new PackageAuthorityFailure(
+                        display,
+                        PackageAuthorityFailureKind.ResponseRejected,
+                        $"The package archive was rejected because {directoryProblem}.")
+                    {
+                        ResultSource = client.Source,
+                    });
+            }
             string producerKey = client.Source.Producer.Key;
             RangedPackageContent directory =
                 RangedPackageContent.CreateDirectory(entries, producerKey);
@@ -750,19 +773,19 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
             {
                 if (cachedState is null)
                 {
-                    entryStore.PublishDirectory(
+                    await entryStore.PublishDirectoryAsync(
                         coordinate.PackageId,
                         coordinate.Version,
                         reader.Directory.Region,
-                        reader.Directory.ArchiveLength);
+                        reader.Directory.ArchiveLength).ConfigureAwait(false);
                 }
                 foreach (PackageArchiveEntryContent content in contents)
                 {
-                    entryStore.PublishEntry(
+                    await entryStore.PublishEntryAsync(
                         coordinate.PackageId,
                         coordinate.Version,
                         content.Entry.Name,
-                        content.Content);
+                        content.Content).ConfigureAwait(false);
                 }
             }
 
@@ -798,7 +821,7 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
         bool Invalid = false,
         RangedPackageContent? Complete = null);
 
-    private static EntryCacheState? ReadEntryCache(
+    private static async ValueTask<EntryCacheState?> ReadEntryCacheAsync(
         IPackageEntryStore entryStore,
         PackageSourceCoordinate coordinate,
         string producerKey,
@@ -806,22 +829,20 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
         PackagePayloadLimits limits,
         Action<string>? log)
     {
-        if (!entryStore.TryReadDirectory(
+        PackageEntryDirectory? storedDirectory =
+            await entryStore.ReadDirectoryAsync(
                 coordinate.PackageId,
-                coordinate.Version,
-                out ReadOnlyMemory<byte> region,
-                out long archiveLength))
-        {
+                coordinate.Version).ConfigureAwait(false);
+        if (storedDirectory is null)
             return null;
-        }
 
         var cached = new Dictionary<string, ReadOnlyMemory<byte>>(StringComparer.Ordinal);
         ZipDirectory directory;
         try
         {
             directory = ZipArchiveReader.ReadDirectoryFromRegion(
-                region,
-                archiveLength,
+                storedDirectory.Region,
+                storedDirectory.ArchiveLength,
                 RangedLimits(limits));
         }
         catch (ZipReadException exception)
@@ -832,8 +853,20 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
             return new EntryCacheState(null!, cached, Invalid: true);
         }
 
+        if (TryGetDirectoryEntries(
+                directory,
+                limits,
+                out IReadOnlyList<PackageContentEntry> entries)
+            is { } directoryProblem)
+        {
+            log?.Invoke(
+                $"The cached directory of {coordinate.PackageId} {coordinate.Version} "
+                + $"cannot be admitted ({directoryProblem}); it is kept and bypassed.");
+            return null;
+        }
+
         RangedPackageContent directoryView =
-            RangedPackageContent.CreateDirectory(DirectoryEntries(directory), producerKey);
+            RangedPackageContent.CreateDirectory(entries, producerKey);
         // An anchor requires its whole aligned block: a block is present when
         // all of its entries are, so a warm read naming a neighbour in a
         // cached block makes no request.
@@ -846,12 +879,16 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
         bool complete = true;
         foreach (string path in required)
         {
-            if (directory.Find(path) is not { } entry
-                || !entryStore.TryReadEntry(
-                    coordinate.PackageId,
-                    coordinate.Version,
-                    path,
-                    out byte[] content))
+            if (directory.Find(path) is not { } entry)
+            {
+                complete = false;
+                continue;
+            }
+            byte[]? content = await entryStore.ReadEntryAsync(
+                coordinate.PackageId,
+                coordinate.Version,
+                path).ConfigureAwait(false);
+            if (content is null)
             {
                 complete = false;
                 continue;
@@ -942,17 +979,34 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
         }
     }
 
-    private static IReadOnlyList<PackageContentEntry> DirectoryEntries(
-        ZipDirectory directory)
+    private static string? TryGetDirectoryEntries(
+        ZipDirectory directory,
+        PackagePayloadLimits limits,
+        out IReadOnlyList<PackageContentEntry> entries)
     {
-        var entries = new List<PackageContentEntry>(directory.Entries.Count);
+        var admission = new PackageArchiveDirectoryAdmission(limits);
+        var admitted = new List<PackageContentEntry>(
+            directory.Entries.Count);
         foreach (ZipEntry entry in directory.Entries)
         {
-            if (entry.Name.Length == 0 || entry.Name.EndsWith('/'))
-                continue;
-            entries.Add(new PackageContentEntry(entry.Name, entry.ExpandedLength));
+            if (admission.TryAdd(
+                    entry.Name,
+                    entry.ExpandedLength,
+                    out bool isDirectory) is { } admissionProblem)
+            {
+                entries = [];
+                return admissionProblem;
+            }
+            if (!isDirectory)
+            {
+                admitted.Add(
+                    new PackageContentEntry(
+                        entry.Name,
+                        entry.ExpandedLength));
+            }
         }
-        return entries.AsReadOnly();
+        entries = admitted.AsReadOnly();
+        return null;
     }
 
     private static ConfiguredPackagePayloadResult PayloadOperationTimedOut(

@@ -94,6 +94,7 @@ function workspaceState(
       memberSignature: null,
       section: "facts",
       libraries: ["Example.Second"],
+      sourceView: null,
     },
     ...overrides,
   };
@@ -388,10 +389,51 @@ test("workspace URLs delegate canonical encoding and product-decoded activation"
   assert.equal(parsed.memberSignature, null);
   assert.equal(parsed.overload, null);
   assert.equal(parsed.section, "facts");
+  assert.equal(parsed.memberSourceView, null);
+  assert.equal(parsed.memberAccessibilityFilter, "public");
   assert.deepEqual(parsed.contexts, state.contexts);
   assert.equal(parsed.selectedContextId, "g0");
 });
 
+test("decompiled member source view survives workspace URL projection", () => {
+  const baseline = workspaceState();
+  const state = workspaceState({
+    view: {
+      ...baseline.view,
+      section: "source",
+      sourceView: "decompiler-source",
+    },
+  });
+  const encodedStates: BrowserWorkspaceShareState[] = [];
+  const url = buildWorkspaceStateUrl(
+    "https://inspect.example/",
+    state,
+    shareState => {
+      encodedStates.push(shareState);
+      return encoded();
+    });
+
+  assert.equal(
+    encodedStates[0]?.view.sourceView,
+    "decompiler-source");
+  const parsed = parseWorkspaceLocation(
+    locationSnapshot(url),
+    () => decoded(state));
+  assert.equal(parsed.section, "source");
+  assert.equal(parsed.memberSourceView, "decompiler-source");
+});
+
+test("legacy workspace transport treats an omitted source view as authored", () => {
+  const legacyState = structuredClone(workspaceState());
+  Reflect.deleteProperty(legacyState.view, "sourceView");
+
+  const parsed = parseWorkspaceLocation(
+    locationSnapshot("https://inspect.example/?w=canonical"),
+    () => decoded(legacyState));
+
+  assert.equal(parsed.workspaceNotice, "");
+  assert.equal(parsed.memberSourceView, null);
+});
 test("workspace-subject URLs preserve retained coordinates and restore Workspace", () => {
   const state = workspaceState({
     subject: "workspace",
@@ -402,6 +444,7 @@ test("workspace-subject URLs preserve retained coordinates and restore Workspace
       memberSignature: null,
       section: null,
       libraries: [],
+      sourceView: null,
     },
   });
   const url = buildWorkspaceStateUrl(
@@ -445,6 +488,26 @@ test("canonical package dependency views restore the package root lens", () => {
   assert.equal(parsed.packageLens, "dependencies");
   assert.equal(parsed.lens, null);
   assert.equal(parsed.type, null);
+});
+
+test("canonical forwarded-Type Overview is distinct from Package Overview", () => {
+  const initial = workspaceState();
+  const state = workspaceState({
+    view: {
+      ...initial.view, lens: "overview",
+      type: "System.Xml:System.Xml.XmlReader", libraries: ["System.Xml"],
+      memberAnchor: null, memberSignature: null, section: null,
+    },
+  });
+  const parsed = parseWorkspaceLocation(
+    locationSnapshot("https://inspect.example/?w=canonical"),
+    () => decoded(state));
+  assert.equal(parsed.workspaceNotice, "");
+  assert.equal(parsed.atPackageRoot, false);
+  assert.equal(parsed.atLibraryRoot, false);
+  assert.equal(parsed.lens, "overview");
+  assert.equal(parsed.type, "System.Xml:System.Xml.XmlReader");
+  assert.equal(parsed.library, "System.Xml");
 });
 
 test("canonical package views reject contradictory structural selection", () => {
@@ -532,6 +595,7 @@ test("canonical context capture does not broaden a selected subset for Call Grap
       memberSignature: null,
       section: "Call Graph",
       libraries: [],
+      sourceView: null,
     },
   };
 
@@ -882,13 +946,16 @@ test("malformed courtesy package routes become typed failures", () => {
 
 test("valid courtesy package routes continue to decode normally", () => {
   const parsed = parseWorkspaceLocation(locationSnapshot(
-    "https://inspect.example/packages/Example%2EPackage/1.0.0%2Bbuild#source"),
+    "https://inspect.example/packages/Example%2EPackage/1.0.0%2Bbuild#package"),
   () => {
     throw new Error("unexpected packet decode");
   });
 
   assert.equal(parsed.package, "Example.Package");
   assert.equal(parsed.version, "1.0.0+build");
+  assert.equal(parsed.atPackageRoot, true);
+  assert.equal(parsed.workspaceSubjectOpen, false);
+  assert.equal(parsed.packageLens, "overview");
   assert.equal(parsed.routeFailure, null);
 });
 
@@ -1187,7 +1254,7 @@ test("history signatures distinguish captured library scope", () => {
       tabs: [{ id: "p", kind: "group", source: ":Platform", version: "11.0.0-preview.7.26381.103",
         framework: "net11.0", runtimeIdentifier: null }],
       contexts: [{ id: "g", tabIds: ["p"] }], activeTabId: "p", selectedContextId: "g",
-      view: { lens: null, type: null, memberAnchor: null, memberSignature: null, section: null, libraries: [] },
+      view: { lens: null, type: null, memberAnchor: null, memberSignature: null, section: null, libraries: [], sourceView: null },
     });
     for (const library of [null, '["aspnetcore.app","Microsoft.AspNetCore.dll"]']) {
       const state = { ...root, view: { ...root.view,

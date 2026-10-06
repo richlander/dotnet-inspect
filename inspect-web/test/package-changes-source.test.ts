@@ -3,7 +3,7 @@ import test from "node:test";
 
 import {
   createBrowserPackageChangesDataSource,
-  packageChangesPackageSets,
+  packageChangesEcosystems,
   type BrowserPackageChangesEngine,
 } from "../src/package-changes-source.ts";
 import { createPackageChangesRequest } from "../src/package-changes.ts";
@@ -16,29 +16,59 @@ function publish(sink: unknown, event: object): void {
   Reflect.set(sink, "event", JSON.stringify(event));
 }
 
-test("packageChangesPackageSets preserves product order and rejects reconstructed catalogs", () => {
-  const descriptors = packageChangesPackageSets({
+test("packageChangesEcosystems preserves product order and rejects reconstructed catalogs", () => {
+  const descriptors = packageChangesEcosystems({
     version: 1,
-    packageSets: [
-      { id: "package-set.first", title: "First", summary: "First set", order: 10 },
-      { id: "package-set.second", title: "Second", summary: "Second set", order: 20 },
+    ecosystems: [
+      {
+        id: "ecosystem.first",
+        title: "First",
+        summary: "First ecosystem",
+        order: 10,
+        prefixes: ["First."],
+      },
+      {
+        id: "ecosystem.second",
+        title: "Second",
+        summary: "Second ecosystem",
+        order: 20,
+        prefixes: ["Second.", "SecondToo."],
+      },
     ],
   });
   assert.deepEqual(
-    descriptors.map(descriptor => descriptor.id),
-    ["package-set.first", "package-set.second"]);
-  assert.throws(() => packageChangesPackageSets({
+    descriptors.map(descriptor => [descriptor.id, descriptor.prefixes]),
+    [
+      ["ecosystem.first", ["First."]],
+      ["ecosystem.second", ["Second.", "SecondToo."]],
+    ]);
+  assert.throws(() => packageChangesEcosystems({
     version: 2,
-    packageSets: descriptors,
+    ecosystems: descriptors,
   }), /version/);
-  assert.throws(() => packageChangesPackageSets({
+  assert.throws(() => packageChangesEcosystems({
     version: 1,
-    packageSets: [descriptors[1]!, descriptors[0]!],
+    ecosystems: [],
+  }), /at least one/);
+  assert.throws(() => packageChangesEcosystems({
+    version: 1,
+    ecosystems: [descriptors[1]!, descriptors[0]!],
   }), /product order/);
-  assert.throws(() => packageChangesPackageSets({
+  assert.throws(() => packageChangesEcosystems({
     version: 1,
-    packageSets: [descriptors[0]!, descriptors[0]!],
+    ecosystems: [descriptors[0]!, descriptors[0]!],
   }), /repeats/);
+  for (const prefixes of [
+    [],
+    [" "],
+    ["First.", "First."],
+    Array.from({ length: 17 }, (_, index) => `First${index}.`),
+  ]) {
+    assert.throws(() => packageChangesEcosystems({
+      version: 1,
+      ecosystems: [{ ...descriptors[0]!, prefixes }],
+    }), /invalid descriptor/);
+  }
 });
 
 test("source drains nonterminal events in callback order before terminal success", async () => {
@@ -73,7 +103,7 @@ test("source drains nonterminal events in callback order before terminal success
     createOperationId: () => "changes-1",
   });
   const observed: string[] = [];
-  const request = createPackageChangesRequest("package-set.example");
+  const request = createPackageChangesRequest("ecosystem.example");
   const result = await source.run(
     request,
     item => observed.push(`progress:${item.phase}`),
@@ -116,7 +146,7 @@ test("malformed callback events fail the observer and cancel managed work", asyn
 
   await assert.rejects(
     source.run(
-      createPackageChangesRequest("package-set.example"),
+      createPackageChangesRequest("ecosystem.example"),
       () => {},
       () => {},
       () => {},
@@ -150,7 +180,7 @@ test("abort requests managed cancellation and reports physical cancellation", as
     createOperationId: () => "changes-cancel",
   });
   const pending = source.run(
-    createPackageChangesRequest("package-set.example"),
+    createPackageChangesRequest("ecosystem.example"),
     () => {},
     () => {},
     () => {},
@@ -184,7 +214,7 @@ test("a successful physical settlement wins a cancellation race", async () => {
   });
 
   const result = await source.run(
-    createPackageChangesRequest("package-set.example"),
+    createPackageChangesRequest("ecosystem.example"),
     () => {},
     () => {},
     () => {},

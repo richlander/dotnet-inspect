@@ -142,15 +142,13 @@ internal static class ApiTypeLookupService
 
     public static MemberFilterValidationResult ValidateMemberFilters(
         ApiType type,
-        IReadOnlyCollection<string> filters)
+        IReadOnlyCollection<string> filters,
+        bool includeAccessorMethods = false)
     {
         if (filters.Count == 0)
             return new MemberFilterValidationResult([], []);
 
-        var memberNames = type.Members
-            .Select(m => m.Name)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
+        var memberNames = GetMemberNames(type, includeAccessorMethods);
         List<string> missedFilters = [];
 
         foreach (var filter in filters)
@@ -169,6 +167,24 @@ internal static class ApiTypeLookupService
 
         var memberLookup = TypeMatcher.LookupMembers(memberNames, missedFilters);
         return new MemberFilterValidationResult(missedFilters, memberLookup.Suggestions);
+    }
+
+    public static IReadOnlyList<string> GetMemberNames(
+        ApiType type,
+        bool includeAccessorMethods = false)
+    {
+        IEnumerable<ApiMember> members = type.Members;
+        if (includeAccessorMethods)
+        {
+            members = members.Concat(
+                type.Members.SelectMany(member =>
+                    ApiMemberAccessors.Create(member, type)));
+        }
+
+        return members
+            .Select(member => member.Name)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
     }
 
     /// <summary>

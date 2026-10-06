@@ -3,7 +3,6 @@ using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 using System.Net;
 using DotnetInspect.Cli.CommandLine;
-using CSharpText.MemberSlicing;
 using DotnetInspect.Cli.Inspectors;
 using ILInspector.Metadata;
 using DotnetInspect.Cli.Models;
@@ -472,6 +471,52 @@ public partial class ApiCommand
             [SectionNames.Events] = m => m.Kind == "event",
             [SectionNames.SourceLocations] = ApiMemberSectionDescriptors.IsMethodLike,
         };
+
+    /// <summary>
+    /// The sections the type document's <c>--json</c> carries for a single type or member
+    /// target: the member listings <see cref="MemberSectionPredicates"/> selects, the three
+    /// type facets, and the identity record. Every other section leaves the document as the
+    /// identity object alone, so a format catalog must not advertise <c>--json</c> for it.
+    /// </summary>
+    internal static IReadOnlySet<string> DocumentProjectedSections { get; } =
+        new HashSet<string>(
+            [
+                .. MemberSectionPredicates.Keys,
+                SectionNames.Baseclass,
+                SectionNames.TypeInterfaces,
+                SectionNames.TypeParameters,
+                SectionNames.TypeInfo,
+            ],
+            StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// The sections with a dedicated single-section <c>--json</c> lowering for a member target
+    /// (<see cref="IsFactsJson"/>, <see cref="IsCallsJson"/>, <see cref="IsCallersJson"/>,
+    /// <see cref="IsAnnotatedSourceDocumentJson"/>, <see cref="IsFindingCensusJson"/>,
+    /// <see cref="IsCallGraphTransport"/>, and the Source document).
+    /// </summary>
+    internal static IReadOnlySet<string> DedicatedJsonSections { get; } =
+        new HashSet<string>(
+            [
+                SectionNames.Source,
+                SectionNames.AnnotatedSourceDocument,
+                SectionNames.FindingCensus,
+                SectionNames.Facts,
+                SectionNames.Calls,
+                SectionNames.Callers,
+                SectionNames.CallGraph,
+            ],
+            StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// The single-type sections whose <c>--json</c> lowering exists only on the <c>type</c>
+    /// command (the type API declarations and the whole-type Source); the <c>member</c>
+    /// command's type view leaves them as the identity object.
+    /// </summary>
+    internal static IReadOnlySet<string> TypeCommandJsonSections { get; } =
+        new HashSet<string>(
+            [SectionNames.ApiDeclarations, SectionNames.Source],
+            StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// Builds a copy of <paramref name="type"/> scoped to the requested sections: members are

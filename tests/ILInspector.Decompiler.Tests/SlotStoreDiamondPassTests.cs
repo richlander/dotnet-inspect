@@ -60,7 +60,8 @@ public class SlotStoreDiamondPassTests
         var coerce = Assert.IsType<Coerce>(conditional.WhenFalse);
         Assert.Equal(UInt32, coerce.Target);
         Assert.Equal(-1, Assert.IsType<Constant>(coerce.Operand).Value);
-        Assert.Contains("unchecked((uint)(-1))", CSharpPrinter.Print(function).Output);
+        new ResidualSlotBindingPass().Run(function, PassContext.None);
+        Assert.Contains("unchecked((uint)(-1))", DecidedPrint.Print(function).Output);
     }
 
     // F1 review canary: a NON-constant int arm (no implicit conversion exists
@@ -75,7 +76,8 @@ public class SlotStoreDiamondPassTests
         var conditional = Assert.Single(function.Descendants.OfType<Conditional>());
         var coerce = Assert.IsType<Coerce>(conditional.WhenFalse);
         Assert.Equal(UInt32, coerce.Target);
-        Assert.Contains("(uint)x", CSharpPrinter.Print(function).Output);
+        new ResidualSlotBindingPass().Run(function, PassContext.None);
+        Assert.Contains("(uint)x", DecidedPrint.Print(function).Output);
     }
 
     static IrFunction BuildTestifiedJoinDiamond(IrExpression falseArmValue)

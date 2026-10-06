@@ -386,7 +386,7 @@ category. Three separate mechanisms are involved, and they do different jobs:
 
 Heap **addressing** is the one place this lens does introduce a new currency: a
 heap coordinate such as `#Strings:0x1a4` is not a section name, so it needs a
-carrier. `library coordinate` is that carrier: it makes a coordinate-scoped
+carrier. `library address` is that carrier: it makes a coordinate-scoped
 section available and discoverable only when present (see the coordinate-
 carrier family in [output-shapes.md](output-shapes.md)):
 
@@ -395,7 +395,7 @@ carrier family in [output-shapes.md](output-shapes.md)):
 dotnet-inspect library My.dll -S "Metadata: #Strings"
 
 # one address — a coordinate
-dotnet-inspect library coordinate "#Strings:0x1a4" --library My.dll
+dotnet-inspect library address "#Strings:0x1a4" --library My.dll
 ```
 
 **Status: implemented**
@@ -426,7 +426,7 @@ Every listing renders its coverage as a caveat, so a referenced-values listing
 never reads as a walk of the heap and `#US`'s empty table never reads as an
 empty heap. `#US` keeps its section rather than being hidden: the section is how
 a caller learns the heap exists, how large it is, and that
-`library coordinate "#US:<addr>"` still reads any address in it.
+`library address "#US:<addr>"` still reads any address in it.
 
 Reference scanning deliberately ignores a `--tables` filter. An entry is
 referenced by the *image*, not by whichever subset of tables the caller happens
@@ -1644,7 +1644,7 @@ Resolved:
   already taken as a presentation modifier ("render as a pretty table").
 - **Heap surfacing flags.** Per-heap listings are ordinary sections
   (`Metadata: #Strings`). Reading a specific address is a coordinate, so it gets
-  a carrier: `library coordinate "#Strings:0x1a4"`.
+  a carrier: `library address "#Strings:0x1a4"`.
 - **What a heap listing contains.** Not a byte scan, and not nothing. Each heap
   is listed by the strongest honest means it admits — complete for `#GUID`,
   referenced-values-only for `#Strings` and `#Blob`, nothing at all for `#US` —

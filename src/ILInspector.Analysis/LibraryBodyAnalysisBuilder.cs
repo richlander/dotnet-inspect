@@ -58,6 +58,7 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         _implementationMetricWork;
     readonly ImplementationMetricExecutionRecorder?
         _implementationMetricRecorder;
+    readonly LibraryBodyAnalysisStageRecorder? _stageRecorder;
 
     internal LibraryBodyAnalysisBuilder(
         string path,
@@ -78,7 +79,8 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         ImplementationMetricWorkBudget?
             implementationMetricWork = null,
         ImplementationMetricExecutionRecorder?
-            implementationMetricRecorder = null)
+            implementationMetricRecorder = null,
+        LibraryBodyAnalysisStageRecorder? stageRecorder = null)
     {
         _path = path;
         _reader = reader;
@@ -101,6 +103,7 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             implementationMetricWork;
         _implementationMetricRecorder =
             implementationMetricRecorder;
+        _stageRecorder = stageRecorder;
         _methodReferenceResolver =
             new LibraryBodyMethodReferenceResolver(
                 reader,
@@ -271,6 +274,36 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             scope,
             caller);
 
+    IMethodCallResolver
+        ILibraryMethodAnalysisInfrastructure.CreateCallResolver(
+            GenericScope scope,
+            MethodDefinitionHandle caller) =>
+        _primaryMetadataResolver.CreateCallResolver(
+            scope,
+            caller);
+
+    (TypeRef DeclaringType, ImmutableArray<TypeRef> TypeArguments)
+        ILibraryMethodAnalysisInfrastructure.ResolveMethodOwner(
+            int token,
+            GenericScope scope,
+            int maximumMethodSignatureBytes,
+            int unitToken) =>
+        _methodReferenceResolver.ResolveMethodOwner(
+            MetadataTokens.EntityHandle(token),
+            scope,
+            maximumMethodSignatureBytes,
+            unitToken);
+
+    MethodSignatureOutcome ILibraryMethodAnalysisInfrastructure
+        .MethodSignature(
+            BlobHandle signature,
+            int maximumMethodSignatureBytes,
+            int unitToken) =>
+        _methodReferenceResolver.MethodSignature(
+            signature,
+            maximumMethodSignatureBytes,
+            unitToken);
+
     CallerUnsafeMode?
         ILibraryMethodAnalysisInfrastructure
             .ResolveSameImageCallerUnsafeMode(
@@ -330,6 +363,19 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         CustomAttributeHandleCollection attributes) =>
         _primaryMetadataResolver.HasGeneratedCodeAttribute(
             attributes);
+
+    bool ILibraryMethodAnalysisInfrastructure
+        .TryResolveLocalTypeDefinition(
+            TypeRef type,
+            out TypeDefinitionHandle handle) =>
+        _primaryMetadataResolver.TryResolveLocalTypeDefinition(
+            type,
+            out handle);
+
+    bool ILibraryMethodAnalysisInfrastructure
+        .CanCanonicalizeCurrentModuleReference(TypeRef type) =>
+        _primaryMetadataResolver
+            .CanCanonicalizeCurrentModuleReference(type);
 
     bool ILibraryMethodAnalysisInfrastructure.HasCompilerGeneratedAttribute(
         CustomAttributeHandleCollection attributes) =>
@@ -537,7 +583,8 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                         _reader, ResolveExternalTypeDefinition)
                     : null,
                 _implementationMetricWork,
-                _implementationMetricRecorder);
+                _implementationMetricRecorder,
+                _stageRecorder);
         var accumulator =
             new LibraryBodyAnalysisAccumulator(
                 _reader,
@@ -565,6 +612,9 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             foreach (var methodHandle in typeDef.GetMethods())
                 workItems.Add((typeHandle, typeDef, typeSourceGenerated, methodHandle));
         }
+        _stageRecorder?.RecordCompleted(
+            LibraryBodyAnalysisStage.MethodEnumeration,
+            workItems.Count);
 
         var results =
             new LibraryMethodAnalysisResult[workItems.Count];
@@ -611,6 +661,9 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             }
         }
 
+        using LibraryBodyAnalysisStageRecorder.StageAttempt?
+            aggregation = _stageRecorder?.Start(
+                LibraryBodyAnalysisStage.ResultAggregation);
         LibraryBodyAnalysisResult analysis =
             _declaredSourceResolver.MergeScopeExpansionDiagnostics(
                 accumulator.Build(results),
@@ -626,6 +679,7 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         analysis = PublishResourceOccurrences(analysis, plan, results);
         analysis = PublishResourceOwnership(analysis, plan, results);
         analysis = PublishResourceLifecycle(analysis, plan, results);
+        aggregation?.Complete();
         return analysis with
         {
             ImplementationMetricWork =
@@ -633,42 +687,6 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             ImplementationMetricParticipation =
                 _implementationMetricRecorder?.Snapshot(),
         };
-    }
-
-    internal bool HasUnsafeEvidence()
-    {
-        var methodRunner =
-            new LibraryMethodAnalysisRunner(this);
-
-        foreach (var typeHandle in _reader.TypeDefinitions)
-        {
-            var typeDefinition =
-                _reader.GetTypeDefinition(typeHandle);
-            foreach (var methodHandle in typeDefinition.GetMethods())
-            {
-                UnsafeEvidencePresenceMethodResult result =
-                    methodRunner.ProbeUnsafeEvidence(
-                    typeHandle,
-                    typeDefinition,
-                    methodHandle);
-                ThrowIfIncomplete(result.Diagnostic);
-                if (result.HasEvidence)
-                    return true;
-            }
-        }
-
-        return false;
-
-        static void ThrowIfIncomplete(
-            AnalysisDiagnostic? diagnostic)
-        {
-            if (diagnostic is null)
-                return;
-
-            throw new InvalidDataException(
-                $"Unsafe evidence presence is incomplete because {diagnostic.Method} " +
-                $"could not be analyzed: {diagnostic.Message}");
-        }
     }
 
     // Assemblies with at least this many methods use the parallel per-method analysis path.

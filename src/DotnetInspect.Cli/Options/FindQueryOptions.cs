@@ -31,12 +31,7 @@ internal static class FindQueryOptions
             PortableQueryIntent.Create(
                 [],
                 [],
-                rowSelection is null
-                    ? []
-                    : [
-                        .. rowSelection.Operations.Select(
-                            ToPortableStage),
-                    ],
+                PortableQueryRowSelection.ToStages(rowSelection),
                 []);
         FindQueryPlanResult result =
             FindQuery.ResolveIntent(kind, intent);
@@ -53,21 +48,4 @@ internal static class FindQueryOptions
         error = null;
         return true;
     }
-
-    private static PortableQueryStage ToPortableStage(
-        RowSelectionIntentOperation<string> operation) =>
-        operation.Kind switch
-        {
-            RowSelectionStageKind.Head =>
-                PortableQueryStage.Head(operation.Count),
-            RowSelectionStageKind.Tail =>
-                PortableQueryStage.Tail(operation.Count),
-            RowSelectionStageKind.Window =>
-                PortableQueryStage.Window(
-                    operation.Start,
-                    operation.End),
-            _ => throw new InvalidOperationException(
-                "Find row selection contains an unsupported "
-                    + $"'{operation.Kind}' stage."),
-        };
 }

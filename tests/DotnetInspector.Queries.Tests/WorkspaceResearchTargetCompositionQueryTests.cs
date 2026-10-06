@@ -446,7 +446,7 @@ public sealed class WorkspaceResearchTargetCompositionQueryTests
         var population = fixture.Population();
         QueryComparisonPopulation<ImplementationComparisonBinding> With(
             QueryComparisonInput<ImplementationComparisonBinding> input) =>
-            new(population.Profile, population.Question, [input], [], null, null);
+            new(population.Profile, population.Question, [input], [], null);
         var foreignQuestion = new QueryComparisonQuestionId(new QueryComparisonOperationId());
         var foreignInput = new QueryComparisonInput<ImplementationComparisonBinding>(
             new QueryComparisonInputId(foreignQuestion, QueryComparisonSide.Before), population.Before[0].Binding);

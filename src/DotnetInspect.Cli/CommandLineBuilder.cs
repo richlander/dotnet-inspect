@@ -69,10 +69,49 @@ public static class CommandLineBuilder
 
     public static bool TryGetRemovedCommandError(
         string[] args,
-        out string? error) =>
-        ArgumentPreprocessor.TryGetRemovedCommandError(
+        out string? error)
+    {
+        if (!ArgumentPreprocessor.RequiresRemovedCommandOwnershipParse(args))
+        {
+            return ArgumentPreprocessor.TryGetRemovedCommandError(
+                args,
+                parseResult: null,
+                out error);
+        }
+
+        return TryGetRemovedCommandError(
             args,
+            CreateRootCommand(),
             out error);
+    }
+
+    internal static bool TryGetRemovedCommandError(
+        string[] args,
+        RootCommand rootCommand,
+        out string? error)
+    {
+        if (!ArgumentPreprocessor.RequiresRemovedCommandOwnershipParse(args))
+        {
+            return ArgumentPreprocessor.TryGetRemovedCommandError(
+                args,
+                parseResult: null,
+                out error);
+        }
+
+        bool isImplicitPackageCandidate =
+            ArgumentPreprocessor.IsImplicitPackageCandidate(
+                args,
+                UsesImplicitVersionDirectionPresence(
+                    args,
+                    rootCommand));
+        string[] ownershipArgs = isImplicitPackageCandidate
+            ? [PackageCommand.Name, .. args]
+            : args;
+        return ArgumentPreprocessor.TryGetRemovedCommandError(
+            args,
+            rootCommand.Parse(ownershipArgs),
+            out error);
+    }
 
     internal static bool TryGetCommandlessPackageVersionError(
         string[] args,
@@ -83,10 +122,38 @@ public static class CommandLineBuilder
             args.FirstOrDefault() == "router"
                 ? args[1..]
                 : args;
+        if (routerArgs.Contains(
+                "--package",
+                StringComparer.Ordinal))
+        {
+            error = null;
+            return false;
+        }
+
         ParseResult packageParse =
             rootCommand.Parse([PackageCommand.Name, .. routerArgs]);
+        bool hasBareVersion =
+            routerArgs.Contains(
+                "--version",
+                StringComparer.Ordinal);
+        if (packageParse.Errors.Count > 0 && !hasBareVersion)
+        {
+            error = null;
+            return false;
+        }
+
         if (HasParsedOption(packageParse, "--version"))
         {
+            // The Package probe captures unknown options in its variadic positional
+            // argument. Preserve an earlier malformed token's diagnostic.
+            if (HasEarlierPositionalOption(
+                    packageParse,
+                    "--version"))
+            {
+                error = null;
+                return false;
+            }
+
             error = "'--version' requires the explicit 'package' command. "
                 + "Use 'package Package --version VERSION'.";
             return true;
@@ -94,6 +161,36 @@ public static class CommandLineBuilder
 
         error = null;
         return false;
+    }
+
+    private static bool HasEarlierPositionalOption(
+        ParseResult parseResult,
+        string optionAlias)
+    {
+        Token? optionToken =
+            CliArgumentOwnership.GetOptionResults(parseResult)
+                .FirstOrDefault(result =>
+                    result.IdentifierToken?.Value.Equals(
+                        optionAlias,
+                        StringComparison.Ordinal) == true)
+                ?.IdentifierToken;
+        if (optionToken is null)
+            return false;
+
+        var precedingTokens = new HashSet<Token>(
+            parseResult.Tokens.TakeWhile(token =>
+                !ReferenceEquals(
+                    token,
+                    optionToken)),
+            ReferenceEqualityComparer.Instance);
+        return parseResult.CommandResult.Children
+            .OfType<ArgumentResult>()
+            .SelectMany(result => result.Tokens)
+            .Any(token =>
+                token.Value.StartsWith(
+                    "-",
+                    StringComparison.Ordinal)
+                && precedingTokens.Contains(token));
     }
 
     /// <summary>
@@ -166,7 +263,7 @@ public static class CommandLineBuilder
             processed,
             rootCommand,
             "library",
-            "coordinate");
+            "address");
         if (args.FirstOrDefault()?.StartsWith('-') == true
             && processed.FirstOrDefault() == "router")
         {
@@ -272,7 +369,7 @@ public static class CommandLineBuilder
             return args;
 
         string[] expanded = [.. result];
-        // Let the parser establish which literal `coordinate` token is the child.
+        // Let the parser establish which literal `address` token is the child.
         CommandResult selected = rootCommand.Parse(expanded).CommandResult;
         return selected.Command.Name == childName
             && selected.Parent is CommandResult selectedParent
@@ -1174,9 +1271,9 @@ public static class CommandLineBuilder
             StringComparer.OrdinalIgnoreCase,
             OptionParsers.ValidVerbosityValues);
         rootCommand.Options.Add(rootVerbosityOption);
-        var rootTipsOption = new Option<string?>("--tips") { Description = "Tip verbosity: q(uiet), m(inimal), d(etailed)", Arity = ArgumentArity.ZeroOrOne };
-        rootTipsOption.Aliases.Add("-T");
-        rootCommand.Options.Add(rootTipsOption);
+        Option<string?> rootCompanionOption =
+            SharedOptions.CreateCompanionOption();
+        rootCommand.Options.Add(rootCompanionOption);
         var offlineOption = new Option<bool>("--offline") { Description = "Disable all network access (use cached data only)" };
         rootCommand.Options.Add(offlineOption);
         var httpTimeoutOption = new Option<int?>("--http-timeout") { Description = "Seconds to wait for a network request before giving up (1-3600, default 30)" };
@@ -1215,9 +1312,6 @@ public static class CommandLineBuilder
 
         // Find command
         rootCommand.Subcommands.Add(SearchCommandDefinitions.CreateFindCommand(opts));
-
-        // Product-owned query vocabulary
-        rootCommand.Subcommands.Add(VocabularyCommandDefinitions.CreateVocabularyCommand(opts));
 
         // Product resource explanation
         rootCommand.Subcommands.Add(
@@ -1277,24 +1371,25 @@ public static class CommandLineBuilder
         {
             var hasVerbosity = parseResult.GetResult(rootVerbosityOption) != null;
             var verbosity = ParseVerbosity(parseResult.GetValue(rootVerbosityOption));
+            CompanionOutput companionOutput =
+                parseResult.GetValue(rootCompanionOption) == ".tips"
+                    ? CompanionOutput.Tips
+                    : CompanionOutput.None;
 
             // -v flag present: show CLI tree view (like former `cli` command)
             if (hasVerbosity)
-                return CliSchemaCommand.Execute(rootCommand, commandFilter: null, verbosity);
+            {
+                int exitCode = CliSchemaCommand.Execute(
+                    rootCommand,
+                    commandFilter: null,
+                    verbosity);
+                if (exitCode == 0)
+                    WriteRootTips(companionOutput);
+                return exitCode;
+            }
 
             HelpWriter.WriteHelp(rootCommand);
-
-            var tipLevel = HeadLines != null || TailLines != null
-                ? TipLevel.Quiet : ParseTipLevel(parseResult.GetValue(rootTipsOption), parseResult.GetResult(rootTipsOption) != null);
-            Hints.WriteTips(tipLevel,
-                new Tip(PackageCommand.Name, "<package>", "inspect a NuGet package"),
-                new Tip("package query", "<ID-or-prefix*>", "discover NuGet package IDs"),
-                new Tip("-T:d", "", "show more tips per command"),
-                new Tip(TypeCommand.Name, "--package <package>", "discover types in package"),
-                new Tip(MemberCommand.Name, "JsonSerializer --package System.Text.Json", "inspect type members"),
-                new Tip(FindCommand.Name, "<pattern> --package <package>", "search API symbols in a known package"),
-                new Tip(ProjectCommand.Name, "-S Skills", "index package skills for a project"),
-                new Tip(FindCommand.Name, "<pattern> --platform", "search platform libraries"));
+            WriteRootTips(companionOutput);
             return 0;
         });
 
@@ -1302,9 +1397,24 @@ public static class CommandLineBuilder
         return rootCommand;
     }
 
+    private static void WriteRootTips(CompanionOutput companionOutput)
+    {
+        Hints.WriteTips(
+            companionOutput,
+            static () =>
+            [
+                new(PackageCommand.Name, "<package>", "inspect a NuGet package"),
+                new("package query", "<ID-or-prefix*>", "discover NuGet package IDs"),
+                new(TypeCommand.Name, "--package <package>", "discover types in package"),
+                new(MemberCommand.Name, "JsonSerializer --package System.Text.Json", "inspect type members"),
+                new(FindCommand.Name, "<pattern> --package <package>", "search API symbols in a known package"),
+                new(ProjectCommand.Name, "-S Skills", "index package skills for a project"),
+                new(FindCommand.Name, "<pattern> --platform", "search platform libraries"),
+            ]);
+    }
+
     // Parse helpers delegated to OptionParsers (for backward compatibility)
     public static Verbosity ParseVerbosity(string? value) => OptionParsers.ParseVerbosity(value);
-    public static TipLevel ParseTipLevel(string? value, bool optionPresent) => OptionParsers.ParseTipLevel(value, optionPresent);
     public static HashSet<string>? ParseSectionList(string? value) => OptionParsers.ParseSectionList(value);
     public static NuGetSourceOptions ParseNuGetSourceOptions(
         ParseResult parseResult, Option<string[]> sourceOption,

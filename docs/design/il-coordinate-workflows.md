@@ -29,8 +29,8 @@ construction, Analysis index construction policy, PDB acquisition, or
 multi-assembly coordinate joins.
 
 The CLI places exact and sparse IL-coordinate requests under
-`library coordinate`, as specified by
-[Coordinate child command](coordinate-child-command.md). The former parent
+`library address`, as specified by
+[Address child command](coordinate-child-command.md). The former parent
 options are retired.
 
 The sparse file mode is a prototype for explaining runtime coordinates. It
@@ -48,7 +48,7 @@ The command resolves each coordinate against one assembly and prints a compact
 summary:
 
 ```bash
-dotnet-inspect library coordinate --file coords.txt --library My.dll
+dotnet-inspect library address --file coords.txt --library My.dll
 ```
 
 ```text
@@ -103,9 +103,9 @@ beyond the terminal boundary is not a resolved record and produces a typed
 
 `ProjectILOffset_NonBoundaryToleranceRejectsOffsetOutsideMethodExtent` gates
 the Research boundary.
-`LibraryCoordinateCommand_FileEffectiveDiscoveryUnionsHeterogeneousEvidence`
+`LibraryAddressCommand_FileEffectiveDiscoveryUnionsHeterogeneousEvidence`
 and
-`LibraryCoordinateCommand_FileEffectiveDiscoveryRejectsOffsetOutsideMethodExtent`
+`LibraryAddressCommand_FileEffectiveDiscoveryRejectsOffsetOutsideMethodExtent`
 gate the CLI distinction between an interior non-boundary coordinate and an
 out-of-range coordinate.
 
@@ -119,7 +119,7 @@ likely the collection and normalization step, not the `dotnet-inspect` query.
 1. Use a debugger, SOS, or dump inspection tool to collect stack frames that
    include a method identity and IL offset.
 2. Normalize frames to `0x06000000+0x0` coordinates in a text file.
-3. Run `library coordinate --file` to explain return addresses, callsites,
+3. Run `library address --file` to explain return addresses, callsites,
    exception regions, and semantic context rows.
 4. Malformed lines are kept as `error` rows so partially-clean artifacts can
    still produce a useful summary.
@@ -128,7 +128,7 @@ likely the collection and normalization step, not the `dotnet-inspect` query.
 
 1. Use a profiler or EventPipe trace tool to identify hot methods and offsets.
 2. Symbolize native/IP data to method token + IL offset when needed.
-3. Run `library coordinate --file` with labels such as `hot-sample` or
+3. Run `library address --file` with labels such as `hot-sample` or
    `alloc-sample` to summarize what each sparse coordinate represents.
 
 ### Analyzer / CI artifact workflow
@@ -136,7 +136,7 @@ likely the collection and normalization step, not the `dotnet-inspect` query.
 1. A static analyzer or test harness emits method tokens and IL offsets for
    suspicious points.
 2. The agent turns the artifact into the coordinate file format.
-3. `library coordinate --file` produces the shared explanation table used in
+3. `library address --file` produces the shared explanation table used in
    PR or issue triage.
 
 ## Deferrals

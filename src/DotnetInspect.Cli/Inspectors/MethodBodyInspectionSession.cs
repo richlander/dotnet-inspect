@@ -34,12 +34,6 @@ public sealed class MethodBodyInspectionSession
         BindingPolicy = bindingPolicy;
     }
 
-    /// <summary>
-    /// Compatibility facade for consumers not yet migrated to focused results.
-    /// </summary>
-    public Analysis.LibraryBodyIndex BodyIndex =>
-        AnalysisExecution.CompatibilityIndex();
-
     /// <summary>Detached local call-graph evidence for this execution.</summary>
     public Analysis.LibraryCallGraphAnalysisResult CallGraphAnalysis =>
         AnalysisExecution.CallGraph;

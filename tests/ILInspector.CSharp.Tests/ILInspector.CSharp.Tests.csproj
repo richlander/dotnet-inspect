@@ -29,6 +29,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\fixtures\metadata\ILInspector.Metadata.MemorySafetyFixtures\ILInspector.Metadata.MemorySafetyFixtures.csproj" />
     <ProjectReference Include="..\..\src\ILInspector.CSharp\ILInspector.CSharp.csproj" />
   </ItemGroup>
 

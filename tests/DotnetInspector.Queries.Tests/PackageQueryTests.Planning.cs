@@ -26,6 +26,7 @@ public partial class PackageQueryTests
             [
                 ("package", 10),
                 ("prefix", 20),
+                ("ecosystem", 25),
                 ("prerelease", 30),
                 ("dependencies", 100),
                 ("dependency-target", 150),
@@ -47,6 +48,7 @@ public partial class PackageQueryTests
                 (term.Key, term.Weight)));
         Assert.Equal(
             [
+                PackageQueryTermRole.Population,
                 PackageQueryTermRole.Population,
                 PackageQueryTermRole.Population,
                 PackageQueryTermRole.Population,
@@ -100,6 +102,7 @@ public partial class PackageQueryTests
             [
                 ("package", PackageQueryAcquisitionTier.SearchMetadata, PackageQueryExecutionClass.SearchMetadata),
                 ("prefix", PackageQueryAcquisitionTier.SearchMetadata, PackageQueryExecutionClass.SearchMetadata),
+                ("ecosystem", PackageQueryAcquisitionTier.SearchMetadata, PackageQueryExecutionClass.SearchMetadata),
                 ("prerelease", PackageQueryAcquisitionTier.SearchMetadata, PackageQueryExecutionClass.SearchMetadata),
                 ("dependencies", PackageQueryAcquisitionTier.Nuspec, PackageQueryExecutionClass.Nuspec),
                 ("dependency-target", PackageQueryAcquisitionTier.Nuspec, PackageQueryExecutionClass.Nuspec),

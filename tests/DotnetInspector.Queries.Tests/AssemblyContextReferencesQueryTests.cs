@@ -23,6 +23,20 @@ public sealed class AssemblyContextReferencesQueryTests
         Assert.Equal(
             group.Participants[0].Assembly.Registration,
             available.Subject.Registration);
+
+        AssemblyContextEntry<ImmutableArray<AssemblyReferenceRow>> rows =
+            AssemblyContextReferencesQuery.ExecuteParticipantRows(
+                group,
+                group.Participants[0]);
+        var portable = Assert.IsType<
+            AssemblyContextEntry<ImmutableArray<AssemblyReferenceRow>>.Available>(
+                rows);
+        AssemblyReferenceRow systemRuntime = Assert.Single(
+            portable.Value,
+            reference => reference.Name == "System.Runtime");
+        Assert.False(string.IsNullOrWhiteSpace(systemRuntime.Version));
+        Assert.Equal("neutral", systemRuntime.Culture);
+        Assert.False(string.IsNullOrWhiteSpace(systemRuntime.PublicKeyToken));
     }
 
     [Fact]
@@ -57,6 +71,15 @@ public sealed class AssemblyContextReferencesQueryTests
         Assert.IsType<
             AssemblyContextEntry<ImmutableArray<AssemblyReferenceIdentity>>.Available>(
                 result.Assemblies[1]);
+
+        var portableRejected = Assert.IsType<
+            AssemblyContextEntry<ImmutableArray<AssemblyReferenceRow>>.Rejected>(
+                AssemblyContextReferencesQuery.ExecuteParticipantRows(
+                    group,
+                    group.Participants[0]));
+        Assert.Equal(
+            CandidateOpenFailureKind.InvalidImage,
+            portableRejected.Failure.Kind);
     }
 
     [Fact]

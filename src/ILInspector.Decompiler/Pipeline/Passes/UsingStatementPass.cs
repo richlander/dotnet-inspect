@@ -64,7 +64,7 @@ public sealed class UsingStatementPass : IIrPass
 
     static bool TransformOne(IrFunction function, Stepper stepper)
     {
-        foreach (var block in function.Descendants.OfType<Block>().ToList())
+        foreach (var block in function.DescendantsOutsideNestedFunctions.OfType<Block>().ToList())
         {
             var children = block.Children;
             for (int i = 0; i < children.Count; i++)

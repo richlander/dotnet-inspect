@@ -1,8 +1,8 @@
 # Development practices
 
 This document owns the repository's development-practice model: how convention,
-design, evidence, implementation, demos, and review work together. `AGENTS.md`
-states the binding summary. Focused documents such as
+design, evidence, implementation, demos, and review work together.
+[`AGENTS.md`](../AGENTS.md) routes agents here at launch. Focused documents such as
 [Design scope and composition](design-scope.md),
 [Evidence and validation](evidence-and-validation.md), and
 [Round orchestration](round-orchestration.md) own their specialized contracts
@@ -207,6 +207,57 @@ on rather than copying it.
   toward the source, as in the [QuerySpace library](design/query-space-library.md).
 
 Record drift found while working in an issue instead of copying it again.
+
+## Modernize for the intended production outcome
+
+Modern infrastructure is a means, not the acceptance criterion. A migration
+does not satisfy its contract merely because it uses the prescribed layers,
+types, QuerySpace vocabulary, host-neutral operation, or producer interface.
+It must deliver the intended production behavior and work reduction. A path
+that follows the architectural shape while still materializing the legacy
+population, repeating legacy acquisition, or moving the same cost behind a new
+abstraction has not completed modernization.
+
+Before implementation, state the production intent that distinguishes the new
+path from the legacy one: for example, which work reaches the producer, which
+materialization is avoided, which population is authoritative, or which hosts
+share one result. Preserve that intent through planning, implementation,
+testing, and review. Treat a performance result that scales with work the
+modern path was intended to avoid as an architectural failure, not as a
+benchmark footnote.
+
+Choose the work-reduction and code-sharing boundary together. The target is
+terminal-optimal work: acquire, decode, and materialize only the information
+needed to answer the terminal and present its data, while sharing mechanisms
+whose inputs, invariants, and outputs genuinely align. Optimal does not mean
+one bespoke metadata decoder per query, which duplicates correctness-sensitive
+logic and carrying cost. Nor does sharing justify one monolithic decoder that
+computes every possible fact for every query, defeating pushdown. State which
+stages and facts are shared, which are specialized, the alternatives rejected,
+and why the boundary is the pragmatic middle ground for current terminals,
+measured costs, and expected consumers.
+
+Every modernization or legacy-path replacement must perform and report an
+exact base-versus-head NativeAOT comparison for every terminal the adopted
+surface supports, like Count. Exercise the complete production-host path,
+not only an internal kernel, and verify result cardinality and content so
+reduced work cannot be confused with reduced behavior. Use representative
+zero, small, and population-sensitive scenarios when input size can affect the
+design.
+
+The evidence must exist before merge readiness is claimed. A regression may be
+accepted only when the changed work or result explains it, the result remains
+within the named product target, and the tradeoff still satisfies the stated
+modernization intent. Otherwise fix the execution path or narrow the adoption
+boundary. Passing structural, correctness, and layering gates does not waive
+this requirement.
+
+[#8411](https://github.com/richlander/dotnet-inspect/pull/8411) is the reference
+adoption pattern: it used a narrow producer-owned path for eligible production
+modes, retained the existing path outside that boundary, measured exact
+NativeAOT base/head behavior, verified changed cardinality, and reported the
+one bounded tradeoff rather than treating architectural conformance as proof
+of success.
 
 ## Choose rendering strategy deliberately
 

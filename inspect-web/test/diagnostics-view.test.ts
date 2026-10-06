@@ -50,6 +50,10 @@ const ready: DiagnosticsViewModel = {
       residentBytes: 12_582_912,
       maxResidentBytes: 134_217_728,
       maxWorkspaceRetainedImageBytes: 67_108_864,
+      entryStoreDurability: "persistent",
+      entryStoreHits: 3,
+      entryStoreWrites: 4,
+      entryStoreError: null,
     },
   },
   capturedAtUtc: "2026-01-23T15:45:00Z",
@@ -79,6 +83,9 @@ test("Diagnostics renders runtime, build, and isolated-storage evidence in order
   assert.match(html, /Workspace slots[\s\S]*2 of 4/);
   assert.match(html, /Workspace assembly budget[\s\S]*256 per role/);
   assert.match(html, /Workspace image budget[\s\S]*64 MB each/);
+  assert.match(html, /Ranged-entry storage[\s\S]*persistent/);
+  assert.match(html, /Ranged-entry hits[\s\S]*>3</);
+  assert.match(html, /Ranged-entry writes[\s\S]*>4</);
   assert.match(html, /Startup phase legend/);
   assert.match(html, /Browser Performance API/);
 });
@@ -112,6 +119,10 @@ test("Diagnostics distinguishes valid zero bytes from unavailable values", () =>
         residentBytes: 0,
         maxResidentBytes: 134_217_728,
         maxWorkspaceRetainedImageBytes: 67_108_864,
+        entryStoreDurability: "best-effort",
+        entryStoreHits: 0,
+        entryStoreWrites: 0,
+        entryStoreError: null,
       },
     },
   }, escapeHtml);

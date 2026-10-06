@@ -1,0 +1,4 @@
+asset	fingerprints_equal	baseline_median_ms	experiment_median_ms	paired_ratio_median	paired_ratio_range	baseline_p95_ms	experiment_p95_ms	baseline_cpu_ms	experiment_cpu_ms	paired_cpu_ratio_median	paired_cpu_ratio_range	allocation_delta_median
+System.Text.Json	True	39.4067	39.0054	0.9588	0.8798..1.0694	43.8559	46.1817	38.9082	37.0574	0.9429	0.8696..1.0408	-5.0000
+MessagePack	True	18.7837	17.9073	0.9726	0.9178..1.1785	20.9620	20.0015	18.7576	17.8330	0.9757	0.9173..1.1785	-8.0000
+Jurassic	True	29.2993	27.3116	0.9929	0.8038..1.0694	35.6712	30.9860	28.8022	27.0194	0.9840	0.8046..1.0640	-8.0000

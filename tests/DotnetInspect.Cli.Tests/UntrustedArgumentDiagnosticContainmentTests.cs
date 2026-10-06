@@ -85,8 +85,8 @@ public class UntrustedArgumentDiagnosticContainmentTests : IDisposable
             // Command-time failures that quote the offending argument.
             data.Add("select-miss", ["library", library, "-S", hostile]);
             data.Add(
-                "coordinate",
-                ["library", "coordinate", hostile, "--library", library]);
+                "address",
+                ["library", "address", hostile, "--library", library]);
             data.Add("order-by", ["library", library, "--order-by", hostile]);
             data.Add("where", ["library", library, "--where", hostile]);
 
@@ -302,7 +302,7 @@ public class UntrustedArgumentDiagnosticContainmentTests : IDisposable
         Directory.CreateDirectory(obsolete);
         File.WriteAllText(Path.Combine(obsolete, "stale.txt"), "stale");
 
-        var (output, error) = RunCli(["cache", "--json", "-T:q"]);
+        var (output, error) = RunCli(["cache", "--json"]);
 
         Assert.Empty(error);
         Assert.False(Directory.Exists(obsolete));

@@ -114,15 +114,15 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
         var readme = await RunCommandAsync(
             ["package", id, "--version", Version, "--source", FirstFeed,
                 "--path", "readme.md", "--content", "--out", readmePath,
-                "--tips", "q"]);
+                ]);
         var skill = await RunCommandAsync(
             ["package", $"{id}@{Version}", "--source", FirstFeed,
                 "--path", "skills\\demo\\SKILL.md", "--content", "--out",
-                skillPath, "--tips", "q"]);
+                skillPath]);
         var missing = await RunCommandAsync(
             ["package", $"{id}@{Version}", "--source", FirstFeed,
                 "--path", "skills/missing/SKILL.md", "--content", "--out",
-                missingPath, "--tips", "q"]);
+                missingPath]);
 
         Assert.Equal(0, readme.Exit);
         Assert.Empty(readme.Output);
@@ -162,7 +162,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
         var result = await RunCommandAsync(
             ["package", $"{id}@{Version}", "--source", FirstFeed,
                 "--path", "README.md", "--tfm", "net11.0",
-                "--content", "--out", outputPath, "--tips", "q"]);
+                "--content", "--out", outputPath]);
 
         Assert.Equal(1, result.Exit);
         Assert.Empty(result.Output);
@@ -192,7 +192,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
             var result = await RunCommandAsync(
                 ["package", $"{id}@{Version}", "--source", source,
                     "--path", "README.md", "--content", "--out", outputPath,
-                    "--tips", "q"]);
+                    ]);
 
             Assert.Equal(1, result.Exit);
             Assert.Empty(result.Output);
@@ -257,7 +257,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
         var result = await RunCommandAsync(
             ["package", $"{wrapperId}@{Version}", "--source", source,
                 "--path", "README.md", "--content", "--out", readmePath,
-                "--tips", "q"]);
+                ]);
 
         Assert.True(result.Exit == 0, $"Exit {result.Exit}: {result.Error}");
         Assert.Empty(result.Output);
@@ -284,7 +284,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
 
         var (exit, output, error) = await RunCommandAsync(
             ["package", $"{id}@{Version}", "--source", FirstFeed,
-                "--layout", "--tfm", "bad tfm", "--tips", "q"]);
+                "--layout", "--tfm", "bad tfm"]);
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -313,7 +313,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
 
         var (exit, output, error) = await RunCommandAsync(
             ["package", $"{id}@{Version}", "--source", FirstFeed,
-                "-S", "Package Info", "--tfm", "bad tfm", "--tips", "q"]);
+                "-S", "Package Info", "--tfm", "bad tfm"]);
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -512,7 +512,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
         var (exit, output, error) = await RunCommandAsync(
             ["package", $"{id}@{Version}", "--source", source,
                 "--library", "--tfm", "net11.0",
-                "-S", "Integration Opportunities", "--markdown", "--verbose", "--tips", "q"]);
+                "-S", "Integration Opportunities", "--markdown", "--verbose"]);
 
         Assert.True(exit == 0, $"Exit {exit}: {error}");
         Assert.Contains("Using artifact-backed selected-entry package Integrations.", error);
@@ -1180,7 +1180,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
 
         var info = await RunCommandAsync(
             ["package", $"{id}@{Version}", "--source", FirstFeed,
-                "-S", "Package Info", "--tips", "q"]);
+                "-S", "Package Info", "--markdown"]);
 
         Assert.True(info.Exit == 0, $"Exit {info.Exit}: {info.Error}");
         Assert.Contains(
@@ -1194,7 +1194,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
             ["package", $"{id}@{Version}", "--source", FirstFeed,
                 "-S", PackageSections.EcosystemDependencies,
                 "--columns", "Ecosystem,Kind,Dependency,Declared By",
-                "--tips", "q"]);
+                ]);
 
         Assert.True(
             details.Exit == 0,
@@ -1210,8 +1210,8 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
         var selected = await RunCommandAsync(
             ["package", $"{id}@{Version}", "--source", FirstFeed,
                 "-S", PackageSections.EcosystemDependencies,
-                "-n", "1",
-                "--tips", "q"]);
+                "-n", "1", "--markdown",
+                ]);
 
         Assert.True(
             selected.Exit == 0,
@@ -1224,8 +1224,8 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
         var windowed = await RunCommandAsync(
             ["package", $"{id}@{Version}", "--source", FirstFeed,
                 "-S", PackageSections.EcosystemDependencies,
-                "--rows", "2..3",
-                "--tips", "q"]);
+                "--rows", "2..3", "--markdown",
+                ]);
 
         Assert.True(
             windowed.Exit == 0,
@@ -1258,7 +1258,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
             ["package", $"{id}@{Version}", "--source", FirstFeed,
                 "-S", PackageSections.EcosystemDependencies,
                 "--rows", "2..2",
-                "--json", "--tips", "q"]);
+                "--json"]);
 
         Assert.True(result.Exit == 0, $"Exit {result.Exit}: {result.Error}");
         using JsonDocument document = JsonDocument.Parse(result.Output);
@@ -1316,7 +1316,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
 
         var result = await RunCommandAsync(
             ["package", packagePath,
-                "-S", "Package Info", "--tips", "q"]);
+                "-S", "Package Info", "--markdown"]);
 
         Assert.True(result.Exit == 0, $"Exit {result.Exit}: {result.Error}");
         Assert.DoesNotContain(
@@ -1329,7 +1329,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
         var details = await RunCommandAsync(
             ["package", packagePath,
                 "-S", PackageSections.EcosystemDependencies,
-                "--tips", "q"]);
+                ]);
 
         Assert.True(
             details.Exit == 0,
@@ -1348,7 +1348,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
             ["package", packagePath,
                 "-S",
                 $"{PackageSections.EcosystemDependencies},{PackageSections.Dependencies}",
-                "--tips", "q"]);
+                ]);
 
         Assert.True(
             multiSectionDetails.Exit == 0,
@@ -1395,7 +1395,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
 
             var result = await RunCommandAsync(
                 ["package", $"{id}@{Version}", "--source", FirstFeed,
-                    "-S", "Package Info", "--tips", "q"]);
+                    "-S", "Package Info", "--markdown"]);
 
             Assert.True(
                 result.Exit == 0,
@@ -1437,7 +1437,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
 
         var result = await RunCommandAsync(
             ["package", $"{id}@{Version}", "--source", FirstFeed,
-                "-S", "Package Info", "--tips", "q"]);
+                "-S", "Package Info", "--markdown"]);
 
         Assert.True(result.Exit == 0, $"Exit {result.Exit}: {result.Error}");
         Assert.DoesNotContain(
@@ -1471,7 +1471,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
         var result = await RunCommandAsync(
             ["package", $"{id}@{Version}", "--source", FirstFeed,
                 "-S", PackageSections.EcosystemDependencies,
-                "--tips", "q"]);
+                ]);
 
         Assert.True(result.Exit == 0, $"Exit {result.Exit}: {result.Error}");
         Assert.Contains(
@@ -1485,7 +1485,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
             ["package", $"{id}@{Version}", "--source", FirstFeed,
                 "-S",
                 $"{PackageSections.EcosystemDependencies},{PackageSections.Dependencies}",
-                "--tips", "q"]);
+                ]);
 
         Assert.True(
             multiSectionResult.Exit == 0,
@@ -1505,7 +1505,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
                 "-S",
                 $"{PackageSections.PackageInfo},{PackageSections.EcosystemDependencies}",
                 "--rows", "2..2",
-                "--json", "--tips", "q"]);
+                "--json"]);
 
         Assert.Equal(1, result.Exit);
         Assert.Empty(result.Output);
@@ -1544,7 +1544,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
         var result = await RunCommandAsync(
             ["package", $"{id}@{Version}", "--source", FirstFeed,
                 "-S", PackageSections.EcosystemDependencies,
-                "--json", "--tips", "q"]);
+                "--json"]);
 
         Assert.True(result.Exit == 0, $"Exit {result.Exit}: {result.Error}");
         using JsonDocument document = JsonDocument.Parse(result.Output);
@@ -1599,7 +1599,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
 
         var result = await RunCommandAsync(
             ["package", $"{id}@{Version}", "--source", FirstFeed,
-                "-S", "Package Info", "--tips", "q"]);
+                "-S", "Package Info", "--markdown"]);
 
         Assert.True(result.Exit == 0, $"Exit {result.Exit}: {result.Error}");
         Assert.DoesNotContain(
@@ -1631,7 +1631,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
 
         var result = await RunCommandAsync(
             ["package", $"{id}@{Version}", "--source", FirstFeed,
-                "-S", "Package Info", "--tips", "q"]);
+                "-S", "Package Info", "--markdown"]);
 
         Assert.True(result.Exit == 0, $"Exit {result.Exit}: {result.Error}");
         Assert.DoesNotContain(
@@ -1643,12 +1643,16 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
 
         var files = await RunCommandAsync(
             ["package", $"{id}@{Version}", "--source", FirstFeed,
-                "-S", PackageSections.Files, "--tips", "q"]);
+                "-S", PackageSections.Files]);
 
-        Assert.Equal(1, files.Exit);
+        Assert.True(
+            files.Exit == 0,
+            $"Exit {files.Exit}: {files.Error}");
         Assert.Contains(
-            "Package manifest is not well-formed XML",
-            files.Error);
+            $"{id}.nuspec",
+            files.Output,
+            StringComparison.Ordinal);
+        Assert.Empty(files.Error);
     }
 
     [Fact]
@@ -1667,7 +1671,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
 
         var result = await RunCommandAsync(
             ["package", $"{id}@{Version}", "--source", FirstFeed,
-                "-S", "Package Info", "--tips", "q"]);
+                "-S", "Package Info", "--markdown"]);
 
         Assert.True(result.Exit == 0, $"Exit {result.Exit}: {result.Error}");
         Assert.DoesNotContain(
@@ -1704,7 +1708,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
         {
             var (exit, output, error) = await RunCommandAsync(
                 ["package", $"{id}@{Version}", "--source", FirstFeed,
-                    "-S", "Package Info", "--tfm", "all", "--tips", "q"]);
+                    "-S", "Package Info", "--tfm", "all", "--markdown"]);
 
             Assert.True(exit == 0, $"Exit {exit}: {error}");
             Assert.Contains("| Type | Tool |", output);
@@ -1744,7 +1748,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
         var (measuredExit, measuredOutput, measuredError) =
             await RunCommandAsync(
                 ["package", $"{id}@{Version}", "--source", FirstFeed,
-                    "-S", "Package Info", "--json", "--tips", "q"]);
+                    "-S", "Package Info", "--json"]);
 
         Assert.True(
             measuredExit == 0,
@@ -1798,7 +1802,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
             await RunCommandAsync(
                 ["package", $"{id}@{Version}", "--source", FirstFeed,
                     "-S", "Package Info", "--tfm", "net6.0",
-                    "--json", "--tips", "q"]);
+                    "--json"]);
 
         Assert.True(
             noApplicableExit == 0,
@@ -1862,7 +1866,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
         var (markoutExit, markoutOutput, markoutError) =
             await RunCommandAsync(
                 ["package", $"{id}@{Version}", "--source", FirstFeed,
-                    "-S", "Package Info", "--tips", "q"]);
+                    "-S", "Package Info", "--markdown"]);
 
         Assert.True(
             markoutExit == 0,
@@ -1876,7 +1880,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
         var (jsonExit, jsonOutput, jsonError) =
             await RunCommandAsync(
                 ["package", $"{id}@{Version}", "--source", FirstFeed,
-                    "-S", "Package Info", "--json", "--tips", "q"]);
+                    "-S", "Package Info", "--json"]);
 
         Assert.True(jsonExit == 0, $"Exit {jsonExit}: {jsonError}");
         using JsonDocument document = JsonDocument.Parse(jsonOutput);
@@ -1907,7 +1911,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
 
         var (exit, output, error) = await RunCommandAsync(
             ["package", $"{id}@{Version}", "--source", FirstFeed,
-                "-S", "Package Info", "--tips", "q"]);
+                "-S", "Package Info", "--markdown"]);
 
         Assert.True(exit == 0, $"Exit {exit}: {error}");
         Assert.Contains("| Type | Tool |", output);
@@ -1954,7 +1958,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
 
         var (exit, output, error) = await RunCommandAsync(
             ["package", $"{wrapperId}@{Version}", "--source", source,
-                "-S", "Package Info", "--tips", "q"]);
+                "-S", "Package Info", "--markdown"]);
 
         Assert.True(exit == 0, $"Exit {exit}: {error}");
         Assert.Contains("| Type | Tool v2 |", output);
@@ -2003,6 +2007,128 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
         {
             DesktopPackageExtractor.Cleanup(result.TempDir);
         }
+    }
+
+    [Fact]
+    public async Task PackageCommand_PackageFilesUsesDirectPackageHouseInventory()
+    {
+        const string Id = "Pinned.PackageFiles";
+        string source = Path.Combine(_root, "package-files");
+        WriteLocalPackage(
+            source,
+            Id,
+            "package files payload",
+            extraEntries:
+            [
+                ("0.txt", [1]),
+                ("AGENTS.md", [2]),
+            ]);
+
+        var (exit, output, error) = await RunCommandAsync(
+            ["package", $"{Id}@{Version}", "--source", source,
+                "-S", "Files", "--rows", "1..1",
+                "--table", "--jsonl"]);
+
+        Assert.True(exit == 0, $"Exit {exit}: {error}");
+        using JsonDocument document = JsonDocument.Parse(output);
+        Assert.Equal(
+            "0.txt",
+            document.RootElement.GetProperty("path").GetString());
+        Assert.Empty(error);
+
+        var table = await RunCommandAsync(
+            ["package", $"{Id}@{Version}", "--source", source,
+                "-S", "Files", "--rows", "4..4",
+                "--table"]);
+
+        Assert.True(
+            table.Exit == 0,
+            $"Exit {table.Exit}: {table.Error}");
+        Assert.Contains("README.md", table.Output, StringComparison.Ordinal);
+        Assert.DoesNotContain("0.txt", table.Output, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "AGENTS.md",
+            table.Output,
+            StringComparison.Ordinal);
+        Assert.Empty(table.Error);
+
+        var count = await RunCommandAsync(
+            ["package", Id, "--source", source,
+                "-S", "Files", "--rows", "2..3",
+                "--count"]);
+
+        Assert.True(
+            count.Exit == 0,
+            $"Exit {count.Exit}: {count.Error}");
+        Assert.Equal("2", count.Output.Trim());
+        Assert.Empty(count.Error);
+    }
+
+    [Fact]
+    public async Task PackageCommand_PackageFilesDoesNotParseNuspec()
+    {
+        const string Id = "Pinned.PackageFiles.NoNuspec";
+        byte[] archive = CreatePackage(
+            Id,
+            "package files payload",
+            extraEntries:
+            [
+                ("payload.txt", [1, 2, 3]),
+            ],
+            nuspecContent: "<not-valid-xml");
+        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(
+            source => new PayloadFeedHandler(
+                source,
+                Id,
+                () => new ByteArrayContent(archive),
+                new ConcurrentQueue<string>()));
+
+        var (exit, output, error) = await RunCommandAsync(
+            ["package", $"{Id}@{Version}", "--source", FirstFeed,
+                "-S", "Files", "--paths"]);
+
+        Assert.True(exit == 0, $"Exit {exit}: {error}");
+        Assert.Contains("payload.txt", output, StringComparison.Ordinal);
+        Assert.Contains("README.md", output, StringComparison.Ordinal);
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task PackageCommand_PackageFilesPreservesToolWrapperRedirect()
+    {
+        const string WrapperId = "Pinned.PackageFiles.Wrapper";
+        const string PayloadId = "Pinned.PackageFiles.Payload";
+        string source = Path.Combine(_root, "package-files-wrapper");
+        WriteLocalPackage(
+            source,
+            WrapperId,
+            "wrapper readme",
+            redirectId: PayloadId,
+            extraEntries:
+            [
+                ("wrapper.txt", [1]),
+            ]);
+        WriteLocalPackage(
+            source,
+            PayloadId,
+            "payload readme",
+            extraEntries:
+            [
+                ("payload.txt", [2]),
+            ]);
+
+        var (exit, output, error) = await RunCommandAsync(
+            ["package", $"{WrapperId}@{Version}", "--source", source,
+                "-S", "Files", "--paths"]);
+
+        Assert.True(exit == 0, $"Exit {exit}: {error}");
+        Assert.Contains("payload.txt", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("wrapper.txt", output, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "DotnetToolSettings.xml",
+            output,
+            StringComparison.Ordinal);
+        Assert.Empty(error);
     }
 
     [Theory]
@@ -2137,7 +2263,8 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
         string libraryName = "Npgsql.dll",
         byte[]? documentation = null,
         string libraryDirectory = "lib/net11.0",
-        byte[]? pdb = null)
+        byte[]? pdb = null,
+        IReadOnlyList<(string Path, byte[] Content)>? extraEntries = null)
     {
         string directory = hierarchical ? Path.Combine(root, id.ToLowerInvariant(), version) : root;
         Directory.CreateDirectory(directory);
@@ -2152,6 +2279,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
                 libraryName,
                 documentation,
                 libraryDirectory,
+                extraEntries,
                 pdb: pdb));
     }
 

@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Metadata-owned performance-oracle projections that require either an
+    internal prepared model or narrow admitted-reader primitives. Query
+    implementations remain independent where the owning contract requires it.
+    This remains a test assembly so raw metadata-reader lifetime does not enter
+    the public API.
+  -->
+  <PropertyGroup>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <LangVersion>preview</LangVersion>
+    <RootNamespace>DotnetInspector.PerformanceOracles</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/DotnetInspector.Queries/DotnetInspector.Queries.csproj" />
+    <ProjectReference Include="../../src/DotnetInspector.Sections/DotnetInspector.Sections.csproj" />
+    <ProjectReference Include="../../src/ILInspector.Metadata/ILInspector.Metadata.csproj" />
+    <ProjectReference Include="../DotnetInspector.FixtureInfrastructure/DotnetInspector.FixtureInfrastructure.csproj" />
+    <ProjectReference Include="../DotnetInspector.PerformanceOracles/DotnetInspector.PerformanceOracles.csproj" />
+    <ProjectReference Include="../NLinq.Oracle/NLinq.Oracle.csproj" />
+  </ItemGroup>
+
+</Project>

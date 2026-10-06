@@ -46,9 +46,20 @@ public sealed partial class MethodBodySource : IOperandNameResolver
     readonly Action _ensureAlive;
 
     internal MethodBodySource(PEReader peReader, Action ensureAlive)
+        : this(
+            peReader,
+            MetadataFormatAdmission.GetMetadataReader(peReader),
+            ensureAlive)
+    {
+    }
+
+    internal MethodBodySource(
+        PEReader peReader,
+        MetadataReader reader,
+        Action ensureAlive)
     {
         _peReader = peReader;
-        _reader = MetadataFormatAdmission.GetMetadataReader(peReader);
+        _reader = reader;
         _resolver = new MetadataOperandNameResolver(_reader);
         _ensureAlive = ensureAlive;
     }
@@ -72,6 +83,47 @@ public sealed partial class MethodBodySource : IOperandNameResolver
                     _reader.GetString(method.Name),
                     method.RelativeVirtualAddress != 0));
             }
+        }
+        return methods;
+    }
+
+    /// <summary>
+    /// Methods declared on the same TypeDef as one MethodDef and sharing its
+    /// exact name, including that method, in metadata order and regardless
+    /// of accessibility.
+    /// </summary>
+    public IReadOnlyList<MethodBodyMember> EnumerateSameNameMethods(
+        int methodDefinitionToken)
+    {
+        _ensureAlive();
+        EntityHandle handle =
+            MetadataTokens.EntityHandle(methodDefinitionToken);
+        if (handle.Kind != HandleKind.MethodDefinition
+            || MetadataTokens.GetRowNumber(handle) is var row
+                && (row < 1 || row > _reader.MethodDefinitions.Count))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(methodDefinitionToken),
+                $"Token 0x{methodDefinitionToken:X8} is not a MethodDef in "
+                    + "this image.");
+        }
+
+        var selected =
+            _reader.GetMethodDefinition((MethodDefinitionHandle)handle);
+        var type = _reader.GetTypeDefinition(selected.GetDeclaringType());
+        string typeName = _reader.GetFullTypeName(type);
+        string name = _reader.GetString(selected.Name);
+        List<MethodBodyMember> methods = [];
+        foreach (var methodHandle in type.GetMethods())
+        {
+            var method = _reader.GetMethodDefinition(methodHandle);
+            if (!_reader.StringComparer.Equals(method.Name, name))
+                continue;
+            methods.Add(new MethodBodyMember(
+                MetadataTokens.GetToken(methodHandle),
+                typeName,
+                name,
+                method.RelativeVirtualAddress != 0));
         }
         return methods;
     }
@@ -118,6 +170,41 @@ public sealed partial class MethodBodySource : IOperandNameResolver
 
         var methodHandle = ValidateMethod(typeHandle, methodName, preferredToken)
             ?? FindMethod(typeHandle, methodName, overloadIndex, publicOnly);
+        return methodHandle is { } handle ? CreateSelection(handle) : null;
+    }
+
+    public MethodBodySelection? ResolveUniqueMethod(
+        string typeName,
+        string methodName,
+        bool publicOnly)
+    {
+        _ensureAlive();
+        var typeHandle = FindType(typeName);
+        if (typeHandle.IsNil)
+            return null;
+
+        MethodDefinitionHandle? methodHandle =
+            FindUniqueMethod(typeHandle, methodName, publicOnly);
+        return methodHandle is { } handle ? CreateSelection(handle) : null;
+    }
+
+    public MethodBodySelection? ResolveAccessorMethod(
+        string typeName,
+        string memberName,
+        int accessorIndex,
+        bool publicOnly)
+    {
+        _ensureAlive();
+        var typeHandle = FindType(typeName);
+        if (typeHandle.IsNil)
+            return null;
+
+        MethodDefinitionHandle? methodHandle =
+            FindAccessorMethod(
+                typeHandle,
+                memberName,
+                accessorIndex,
+                publicOnly);
         return methodHandle is { } handle ? CreateSelection(handle) : null;
     }
 
@@ -265,6 +352,154 @@ public sealed partial class MethodBodySource : IOperandNameResolver
                 return handle;
         }
         return null;
+    }
+
+    MethodDefinitionHandle? FindUniqueMethod(
+        TypeDefinitionHandle typeHandle,
+        string methodName,
+        bool publicOnly)
+    {
+        MethodDefinitionHandle match = default;
+        foreach (var handle in _reader.GetTypeDefinition(typeHandle).GetMethods())
+        {
+            var method = _reader.GetMethodDefinition(handle);
+            if (!TypeMatcher.MatchesMemberName(
+                    _reader.GetString(method.Name),
+                    methodName))
+                continue;
+            if (publicOnly
+                && (method.Attributes & MethodAttributes.MemberAccessMask) != MethodAttributes.Public)
+            {
+                continue;
+            }
+            if (!match.IsNil)
+                return null;
+
+            match = handle;
+        }
+        var type = _reader.GetTypeDefinition(typeHandle);
+        foreach (var handle in type.GetProperties())
+        {
+            var property = _reader.GetPropertyDefinition(handle);
+            if (TypeMatcher.MatchesMemberName(
+                    _reader.GetString(property.Name),
+                    methodName))
+            {
+                return null;
+            }
+        }
+        foreach (var handle in type.GetEvents())
+        {
+            var @event = _reader.GetEventDefinition(handle);
+            if (TypeMatcher.MatchesMemberName(
+                    _reader.GetString(@event.Name),
+                    methodName))
+            {
+                return null;
+            }
+        }
+        foreach (var handle in type.GetFields())
+        {
+            var field = _reader.GetFieldDefinition(handle);
+            if (TypeMatcher.MatchesMemberName(
+                    _reader.GetString(field.Name),
+                    methodName))
+            {
+                return null;
+            }
+        }
+        return match.IsNil ? null : match;
+    }
+
+    MethodDefinitionHandle? FindAccessorMethod(
+        TypeDefinitionHandle typeHandle,
+        string memberName,
+        int accessorIndex,
+        bool publicOnly)
+    {
+        if (accessorIndex < 0)
+            return null;
+
+        MethodDefinitionHandle match = default;
+        bool found = false;
+        var type = _reader.GetTypeDefinition(typeHandle);
+        foreach (var handle in type.GetMethods())
+        {
+            var method = _reader.GetMethodDefinition(handle);
+            if (TypeMatcher.MatchesMemberName(
+                    _reader.GetString(method.Name),
+                    memberName))
+            {
+                return null;
+            }
+        }
+        foreach (var handle in type.GetFields())
+        {
+            var field = _reader.GetFieldDefinition(handle);
+            if (TypeMatcher.MatchesMemberName(
+                    _reader.GetString(field.Name),
+                    memberName))
+            {
+                return null;
+            }
+        }
+        foreach (var handle in type.GetProperties())
+        {
+            var property = _reader.GetPropertyDefinition(handle);
+            if (!TypeMatcher.MatchesMemberName(
+                    _reader.GetString(property.Name),
+                    memberName))
+                continue;
+            if (found)
+                return null;
+
+            found = true;
+            PropertyAccessors accessors = property.GetAccessors();
+            match = SelectPresentAccessor(
+                accessors.Getter,
+                accessors.Setter,
+                accessorIndex);
+        }
+        foreach (var handle in type.GetEvents())
+        {
+            var @event = _reader.GetEventDefinition(handle);
+            if (!TypeMatcher.MatchesMemberName(
+                    _reader.GetString(@event.Name),
+                    memberName))
+                continue;
+            if (found)
+                return null;
+
+            found = true;
+            EventAccessors accessors = @event.GetAccessors();
+            match = SelectPresentAccessor(
+                accessors.Adder,
+                accessors.Remover,
+                accessorIndex);
+        }
+
+        if (match.IsNil)
+            return null;
+        var selectedMethod = _reader.GetMethodDefinition(match);
+        return !publicOnly
+            || (selectedMethod.Attributes & MethodAttributes.MemberAccessMask)
+                == MethodAttributes.Public
+                ? match
+                : null;
+    }
+
+    static MethodDefinitionHandle SelectPresentAccessor(
+        MethodDefinitionHandle first,
+        MethodDefinitionHandle second,
+        int accessorIndex)
+    {
+        if (!first.IsNil)
+        {
+            if (accessorIndex == 0)
+                return first;
+            accessorIndex--;
+        }
+        return accessorIndex == 0 ? second : default;
     }
 
     MethodBodySelection CreateSelection(MethodDefinitionHandle handle)

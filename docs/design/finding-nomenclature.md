@@ -262,15 +262,15 @@ successful missing census for exact recurrence-safe onset, or use a bounded
 bracket/binary strategy only when its predicate is known to be monotonic.
 The range and sparse probes locate a candidate boundary; they are not
 themselves the introduction result. The final old/new comparison must produce
-the native `PairFinding<T>.Added` transition. `diff -S "Finding Transitions"`
-exposes Metadata-owned API pairs directly. For a member-scoped allocation
-boundary, `--finding analysis.allocation` selects Analysis-owned allocation
-pairs instead:
+the native `PairFinding<T>.Added` transition. `diff -S Transitions` exposes
+the `api` analysis's Metadata-owned API pairs directly. For a member-scoped
+allocation boundary, `--analysis allocation` selects Analysis-owned
+allocation pairs instead:
 
 ```bash
 dotnet-inspect diff --package Foo@1.4.0..1.5.0 \
   --type Foo.Parser --member Parse \
-  --finding analysis.allocation
+  --analysis allocation
 ```
 
 Research retains exact as well as changed allocation comparisons when this lens
@@ -284,7 +284,7 @@ observation:
 ```bash
 dotnet-inspect diff --package Foo@1.4.0..1.5.0 \
   --type Foo.Parser --member Parse \
-  --finding analysis.call-site
+  --analysis call-site
 ```
 
 `PairFinding.Added` confirms a new direct-call occurrence. `Changed` can report
@@ -298,7 +298,7 @@ disappeared:
 ```bash
 dotnet-inspect diff --package Foo@1.4.0..1.5.0 \
   --type Foo.Parser --member Parse \
-  --finding analysis.unsafety
+  --analysis unsafety
 ```
 
 Each row identifies an unsafe operation kind and producer detail.

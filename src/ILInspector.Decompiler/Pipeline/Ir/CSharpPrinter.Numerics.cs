@@ -308,11 +308,7 @@ public sealed partial class CSharpPrinter
     /// the pairing is the proof it is an enum.
     /// </summary>
     bool IsEnumLikeInteger(TypeRef? type)
-        => type is { Kind: TypeRefKind.Definition }
-                && TypeFamilies.Of(type) is null
-                && _function.TypeShapes.GetValueOrDefault(type) is not (TypeShape.Reference or TypeShape.ValueType)
-            || type is { Kind: TypeRefKind.GenericInstance }
-                && CoercionRendering.IsEnum(type, _function.TypeShapes);
+        => CoercionRendering.IsEnumLikeInteger(type, _function.TypeShapes);
 
     /// <summary>
     /// Wraps a synthesized same-width integer reinterpret cast — <c>(uint)x</c>,
@@ -2093,19 +2089,40 @@ public sealed partial class CSharpPrinter
     /// </summary>
     string CoerceNodeText(Coerce coerce)
     {
-        var rendered = coerce.Kind == CoercionKind.ReferenceWitness
-            ? new CoercedText($"({TypeText(coerce.Target)}){Operand(coerce.Operand)}", "ConversionExpression")
-            : RenderCoercion(coerce.Operand, coerce.Target);
+        var rendered = coerce.Kind switch
+        {
+            CoercionKind.ReferenceWitness
+                => new CoercedText($"({TypeText(coerce.Target)}){Operand(coerce.Operand)}", "ConversionExpression"),
+            CoercionKind.Exact => ExactCoercion(coerce.Operand, coerce.Target),
+            _ => RenderCoercion(coerce.Operand, coerce.Target),
+        };
         return WithNodeKind(
             coerce,
             rendered.Text,
             rendered.Kind);
     }
 
+    // An exact sink (a box operand) was decided pre-print to differ from its
+    // spelled natural type. The ordinary rendering already spells any cast,
+    // enum member, unchecked reinterpret, or long literal the target needs; a
+    // spelling it leaves bare (a fitting literal, an implicit widening) still
+    // carries the operand's own type, so the target is cast explicitly.
+    CoercedText ExactCoercion(IrExpression operand, TypeRef target)
+    {
+        var rendered = RenderCoercion(operand, target);
+        if (!rendered.IsBare)
+            return rendered;
+        string targetText = TypeText(target);
+        return new($"({targetText}){CastOperand(rendered.Text, targetText)}", "ConversionExpression");
+    }
+
+    // IsBare marks a rendering that spells the value without any conversion
+    // syntax, so its C# type is the operand's own.
     readonly record struct CoercedText(
         string Text,
         string Kind,
-        bool IsContextualWrapper = false);
+        bool IsContextualWrapper = false,
+        bool IsBare = false);
 
     string CoerceText(IrExpression value, TypeRef? target)
     {
@@ -2123,7 +2140,7 @@ public sealed partial class CSharpPrinter
     CoercedText TransparentCoercion(IrExpression value)
     {
         string text = Expression(value);
-        return new(text, RenderedNodeKind(value));
+        return new(text, RenderedNodeKind(value), IsBare: true);
     }
 
     CoercedText RenderCoercion(IrExpression value, TypeRef? target)
@@ -2392,7 +2409,7 @@ public sealed partial class CSharpPrinter
         }
         if (value is SwitchExpression switchExpression
             && target is { } switchTarget
-            && CanRenderSwitchExpressionForTarget(switchExpression, switchTarget))
+            && switchExpression.CanRenderValueJoinAt(switchTarget, _function.TypeShapes))
             return new(SwitchExpressionInline(switchExpression, switchTarget), "SwitchExpression");
         if (value is UnionSwitchExpression unionSwitchExpression
             && target is { } unionSwitchTarget)
@@ -2410,7 +2427,7 @@ public sealed partial class CSharpPrinter
         // every store — both diverge from the rendered type in slot-confused or
         // generic bodies, where a keyed cast would be illegal (CS0030). Leave
         // those to render as-is (the enum cast above is the one safe exception).
-        if (value is Conditional or Coalesce or LoadStackSlot)
+        if (value is Conditional or Coalesce)
             return TransparentCoercion(value);
         // A constant carries an exact value: C# converts an in-range one to the
         // target type implicitly (render bare), while an out-of-range one — a
@@ -2420,12 +2437,14 @@ public sealed partial class CSharpPrinter
         if (value is Constant { Value: int or long } konst && target is { } t && TypeFamilies.IsNumericPrimitive(t))
         {
             long literal = konst.Value is int i ? i : (long)konst.Value!;
+            bool fits = CSharpConversionRules.ConstantFits(literal, t);
             return new(
                 NumericConstant(konst, t),
-                CSharpConversionRules.ConstantFits(literal, t)
+                fits
                     ? "LiteralExpression"
                     : "ConversionExpression",
-                IsContextualWrapper: !CSharpConversionRules.ConstantFits(literal, t));
+                IsContextualWrapper: !fits,
+                IsBare: fits);
         }
         var numericSource = CoercionSourceType(value);
         if (target is not { } numericTarget || !CoercionRendering.CanSpellPrimitiveNumeric(numericSource, numericTarget))
@@ -2476,11 +2495,13 @@ public sealed partial class CSharpPrinter
             if (conv.Operand is Constant { Value: int or long } convConst)
             {
                 long literal = convConst.Value is int i ? i : (long)convConst.Value!;
+                bool fits = CSharpConversionRules.ConstantFits(literal, numericTarget);
                 return new(
                     NumericConstant(convConst, numericTarget),
-                    CSharpConversionRules.ConstantFits(literal, numericTarget)
+                    fits
                         ? "LiteralExpression"
-                        : "ConversionExpression");
+                        : "ConversionExpression",
+                    IsBare: fits);
             }
             return new(
                 CheckedSafeNumericCast(
@@ -3006,41 +3027,23 @@ public sealed partial class CSharpPrinter
             && (armType.Equals(target) || CSharpConversionRules.IsImplicitIntegerWidening(armType, target));
     }
 
+    // Join target compatibility is decided before printing
+    // (value-typed-emission.md, "Join target testimony"): the printer asks the
+    // issued testimony whether a join renders at the target and only spells it.
     string? TryConditionalTextForTarget(Conditional conditional, TypeRef target)
-        => CanRenderConditionalForTarget(conditional, target)
+        => conditional.CanRenderConditionalAt(target, _function.TypeShapes)
             ? ConditionalText(conditional, target)
             : null;
 
-    bool CanRenderConditionalForTarget(Conditional conditional, TypeRef target)
-        => (IsCoreChar(target)
-                && TryCharConstantText(conditional.WhenTrue, out _)
-                && TryCharConstantText(conditional.WhenFalse, out _))
-            || (IsEnumLikeInteger(target)
-                && IsIntegerArm(conditional.WhenTrue)
-                && IsIntegerArm(conditional.WhenFalse))
-            || conditional.CanRenderPrimitiveJoinAt(target)
-            || conditional.CanAssignReferenceArmsTo(target, _function.TypeShapes);
-
-    static bool IsIntegerArm(IrExpression arm)
-        => arm.ResultType is { } type && TypeFamilies.IsIntegerLike(type);
-
-    bool CanRenderSwitchExpressionForTarget(SwitchExpression expression, TypeRef target)
-        => (IsEnumLikeInteger(target) && expression.Arms.All(arm => IsIntegerArm(arm.Value)))
-            || expression.CanRenderPrimitiveJoinAt(target);
-
     string? TryCoalesceTextForTarget(Coalesce coalesce, TypeRef target)
     {
-        // The primitive clause mirrors the conditional/switch gates (the
-        // #2145 one-rule-in-all-three discipline); a plain-primitive coalesce
-        // left cannot be null so it rarely fires, but the rule must not be
-        // width-partial across the three consumers.
-        if (coalesce.CanRenderPrimitiveJoinAt(target))
+        if (coalesce.CanRenderValueJoinAt(target, _function.TypeShapes))
             return CoalesceText(coalesce, target);
-        if (!IsEnumLikeInteger(target))
-            return null;
-        if (NullableValueType(coalesce.Left.ResultType)?.Equals(target) == true && IsIntegerArm(coalesce.Right))
-            return CoalesceText(coalesce, target);
-        return TryCoerceEnumOperand(coalesce, target)?.Text;
+        // Not a value join at an enum target: the whole coalesce takes the
+        // enum operand spelling (a cast) or declines.
+        return IsEnumLikeInteger(target)
+            ? TryCoerceEnumOperand(coalesce, target)?.Text
+            : null;
     }
 
     static bool IsCoreChar(TypeRef type)

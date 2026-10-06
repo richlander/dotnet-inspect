@@ -80,13 +80,16 @@ and diagnostics from one physical MethodDef body without exposing the snapshot
 or Analysis index to its consumer. Analysis index execution remains sequential,
 preserving the Browser/Wasm baseline. The `extensions`,
 `implements`, and `find` commands also execute typed queries through ephemeral
-workspaces. Ordinary search fan-out creates and disposes one-participant groups
-sequentially; explicit extension reachability uses one binding-consistent group
-so its name index, lazy member-edge traversal, and extension census observe the
-same retained participant images. That group retains the workspace's bounded
-image budget; participants rejected by acquisition or the budget remain visible
-as extension and reachability warnings rather than silently shortening the
-search. Other foundations include shared image and inspection session ownership,
+workspaces. Unscoped `find` realizes the platform Workspace through
+PlatformHouse and retains its Runtime and ASP.NET Core Focus participants in
+one invocation-owned group shared by Type and Member queries. Other ordinary
+search fan-out creates and disposes one-participant groups sequentially;
+explicit extension reachability uses one binding-consistent group so its name
+index, lazy member-edge traversal, and extension census observe the same
+retained participant images. Each group retains the workspace's bounded image
+budget; participants rejected by acquisition or the budget remain visible as
+search or reachability failures rather than silently shortening the answer.
+Other foundations include shared image and inspection session ownership,
 catalog generations, `PersistentCache`, typed provenance and resolution currencies,
 and `InertString`; the remaining workspace model describes how those pieces
 will be composed.
@@ -408,6 +411,76 @@ so suspension does not reopen a mutable path. Disposing the group prevents new
 access and releases its retained references after active callbacks complete,
 but it never attempts to revoke or recycle an already returned span or retained
 descriptor.
+
+#### Participant-scoped prepared-resource leases
+
+`AssemblyContextGroup` owns the lifetime of prepared resources derived from one
+participant snapshot. A participant-resource lease is identified by the exact
+participant registration and the exact registered group-owned resource. The
+group validates both identities and admits the lease only while the group and
+participant remain open.
+
+Requesting participant or group release closes new participant-resource lease
+admission immediately. An already admitted lease remains usable until its
+owner disposes it; it keeps the participant snapshot retained and accounted,
+and group release remains non-quiescent. Abandoning a lease can therefore keep
+terminal release waiting because the group cannot infer that repeated
+execution has ended. Preparation that still needs snapshot access after lease
+admission uses the lease-bound snapshot operation; ordinary snapshot admission
+continues to reject a participant whose release has already been requested.
+
+After release is requested and the final lease for one participant-resource
+pair closes, the group may retire that resource's participant state. Every
+registered participant resource retires before the participant snapshot
+releases. Cleanup runs without the group lifetime gate held, and existing
+cleanup-failure reporting remains visible. Releasing one participant does not
+retire a sibling's resources or snapshot.
+
+A participant resource owns only synchronous retirement of its derived state.
+It does not maintain a second execution count, decide whether new leases are
+admitted, or authorize snapshot release. A producer may expose a one-shot
+operation that acquires and disposes the same lease internally, or a prepared
+execution that retains it across repeated terminals. QuerySpace capability
+planning may select such a prepared provision, but does not own its lease or
+release mechanics.
+
+The
+[participant prepared-resource handle](design/participant-prepared-resource-handles.md)
+is the producer-facing construction boundary for this protocol. It binds one
+group-owned producer state to exact participant/resource admission, performs
+preparation through lease-bound snapshot access, issues reusable execution
+borrows, and dispatches participant cleanup. Raw participant-resource
+registration, borrowing, and retirement remain InspectionSpace implementation
+details rather than producer-facing composition points.
+
+The underlying lease contract's first production adoption migrated the
+prepared declared-Method source from
+[#9143](https://github.com/richlander/dotnet-inspect/pull/9143) through
+[#9321](https://github.com/richlander/dotnet-inspect/issues/9321). Its
+preparation and reusable execution now pass through the typed handle. Live
+execution, stale-ready rejection, retained-image accounting, cleanup order,
+and sibling-independence outcomes remain unchanged while producer-local lease
+coordination is retired.
+
+The second production adoption binds Metadata's target-independent hierarchy
+reverse index to the same typed participant lifetime. Available and rejected
+preparation outcomes settle and publish while the preparation borrow is live.
+One settled preparation per exact participant and preparation policy may serve
+repeated target analyses; each reusable execution retains the group-issued
+borrow, and the resource retires its session and indexes before the participant
+snapshot. Metadata continues to own hierarchy facts, diagnostics, budgets, and
+terminal materialization. QuerySpace provision selection remains separate.
+Tracks
+[#9300](https://github.com/richlander/dotnet-inspect/issues/9300) and
+[#9322](https://github.com/richlander/dotnet-inspect/issues/9322).
+
+The
+[participant-resource lifecycle model](models/assembly-context-participant-resource-lifecycle/README.md)
+checks lease admission, final-lease retirement, resource-before-snapshot
+ordering, retained accounting, sibling independence, and eventual participant
+and group release. Release tests remain the implementation gates. Tracks
+[#9270](https://github.com/richlander/dotnet-inspect/issues/9270).
+
 `InspectionWorkspaceTests` gates policy-version consistency, immutable snapshot
 isolation, callback and span lifetimes, concurrent disposal, bounded retention,
 per-participant single-flight acquisition, and typed acquisition failures.
@@ -1003,97 +1076,43 @@ roster retention, relationship containment, visible invalid selections, and
 participant isolation. `ImplementationProfileFamilyInspectionOperationTests`
 gate completed envelope Share, diagnostic, and failure behavior.
 
-`AssemblyContextStructuralCloneRetrievalQuery` is the first query that joins
-two explicitly selected assembly participants while both immutable snapshots
-remain borrowed. Its input names the seed and candidate groups and
-participants, selects the seed by a MethodDef token or an exact structured type
-plus `MemberAnchor`, and declares either one exact candidate type or an explicit
-whole-assembly population. A-vs-A uses one reader only when both selections
-refer to the same participant in the same group. Every other request uses
-independent readers, including equal-MVID content acquired under separate
-registrations, so reader-local identity is never inferred from module identity.
+`AssemblyContextTypeImplementationHeatQuery` is the Type-scoped sibling used for
+Inspect Web member-list heat. For one metadata Type definition identity it
+selects every eligible overload family (at least two public overloads, all of
+member kind `method`), adds every same-name method the Type declares regardless
+of accessibility, and measures all of them in one Analysis execution. It issues
+a compact record per family: each method's size (logical body plus attributed
+generated bodies), trivial and complete flags, same-name call relationships, and
+scoped coverage, plus the execution's receipt. Raw metrics stay with the family
+query. `TypeImplementationHeatInspectionOperation` hands it to hosts as an
+`InspectionEnvelope` with a non-projectable Share result; the normative owner is
+`docs/design/inspect-web-implementation-profiles.md`, and
+`AssemblyContextTypeImplementationHeatQueryTests` gate it on fixture,
+System.Text.Json, and Dapper assets.
 
-The query resolves only exact metadata identities, enumerates the full selected
-population without query-side truncation, and dispatches one mutually exclusive
-same-image or cross-image Analysis path. The exactly-once Analysis call count is
-unverified beyond direct inspection. The returned
-`StructuralCloneRetrievalResult` is not projected or reconstructed: ranks,
-score components, method outcomes, blockers, receipts, MVID-scoped method
-addresses, and the four product dispositions remain owned by Analysis.
-Acquisition rejection, missing or ambiguous exact targets, and pre-retrieval
-metadata failure are separate typed query outcomes. The query is `Unbounded`;
-whole-assembly scope is explicit, and Analysis method, result, and
-body-production limits remain the visible work controls. Exact selection still
-uses Metadata-owned cumulative name, member-anchor, method-row, decode-failure,
-and custom-attribute work ceilings, so malformed metadata fails visibly before
-retrieval rather than multiplying per-row work. Each candidate type-name
-attempt consumes structural-name work, and decode failures also count against
-the decode-failure ceiling. Method projection is validated once per image
-rather than at each projection site: the query admits a reader only after
-confirming that no TypeDef method range reports a negative length and that
-the ranges cover the MethodDef table exactly once, and seed and population
-resolution accept only an image carrying that confirmation. Those two
-requirements bound the underlying `MethodList` column jointly, which is why
-neither is redundant: a negative length is what makes the starts
-non-decreasing, and coverage is what forces the first non-null start to row 1
-and holds every later start within one past the projected table. A null start
-sits outside that chain: ECMA-335 II.22.37 permits it and the reader reports
-its range as length zero rather than as the difference to the next start.
-A repeated or out-of-range row, a `MethodPtr` table
-that aliases one MethodDef row into two types, a descending range, and a
-`MethodList` start past the table -- which SRM reports as an empty or
-negative-length range rather than an error -- are all typed
-metadata failures in the participant role that read the image, instead of
-reaching Analysis as untyped argument errors, being reported as a member
-ambiguity, or returning a success-shaped empty population. The check is a
-single pass over the image's own tables and reads no raw table bytes; it is not
-a claim that every malformed image is diagnosed before Analysis. It introduces
-no network, source, Research, Finding, Decompiler, or presentation capability.
-`AssemblyContextStructuralCloneRetrievalQueryTests` gates A-vs-A and A-vs-B
-product-result preservation, type and whole-assembly population behavior,
-exact-member, extension-member, and token selection, ambiguity, limit
-separation, unsupported bodies, seed-before-candidate failure precedence,
-malformed acquisition and metadata-neighbor isolation, and same-MVID
-independent-reader handling. Its virtual-token, repeated-long-leaf,
-repeated-long-unequal-leaf, repeated-malformed-leaf, near-limit-member-anchor,
-repeated-container-attribute, and rejected-TypeSpec-attribute cases gate the
-pre-retrieval work ceilings and visible metadata-failure boundary. Its
-type-name decode-failure case gates the decode-failure ceiling, paired with a
-below-ceiling case that proves isolated malformed neighbors remain tolerable.
-Fifteen cases gate whole-image method ownership across the type-scoped,
-whole-assembly same-image, whole-assembly cross-image, and member-seed paths,
-covering duplicate, out-of-range, cross-type aliased, and silently empty
-projections, a descending `MethodList` range, an uncovered `MethodPtr` row, and
-metadata declaring no TypeDef rows. The descending cases pin the check on both
-metadata shapes -- a `MethodPtr`-free image and a reordered `MethodPtr`
-permutation -- and each is rejected at the module row, before any row is
-projected. A further case pushes every start past the end of the projected
-table so the earlier ranges report length zero and enumerate nothing, isolating
-the one path that reaches the end of the derived bound with a negative final
-range. Every fixture in this group pins its per-row range lengths, so the shape
-it claims to exercise is gated rather than asserted in prose. A further case starts
-the column past MethodDef row 1 while every range keeps a non-negative length,
-so it is rejected by coverage alone and pins the half of the ordering proof the
-range-length check cannot supply. A further case carries a null start *after* a
-populated run, which ECMA-335 II.22.37 cannot express because each run is
-delimited by the following start, so the negative length lands on the preceding
-row. Those fifteen are all rejections; a
-sixteenth case gates that a null
-`MethodList`, which ECMA-335 permits and the runtime reader projects as an
-empty run, is accepted rather than reported as malformed. A seventeenth gates
-uniqueness of the exact seed member, which a rejected sibling leaves unproven,
-and an eighteenth gates that matching a candidate leaf charges the
-declaring-chain traversal it performs rather than only the names it compares;
-that case pins its fixture's declaring depth, because a shallow fixture would
-exhaust the same budget while leaving the traversal unexercised.
-
-`WorkspaceStructuralCloneSearchQuery` composes that single-pair retrieval into
-one Library, Type, or Member search over an exact caller-supplied participant
-snapshot. Its request binds the seed subject, one candidate breadth (`Self`,
-`SelfAndRegisteredEcosystems`, or `Everything`), one candidate discovery value
-(`SimilarNames` or `All`), and its result and work bounds; the default is
-`Everything` plus `SimilarNames`. The normative contract is
+`WorkspaceStructuralCloneSearchQuery` is the single structural-clone retrieval
+query over retained inspection-space content. It accepts Library, Type, Member,
+or exact MethodDef seeds; an every-method or containing-library exact-Type
+candidate population; one candidate breadth (`Self`,
+`SelfAndRegisteredEcosystems`, or `Everything`); one candidate discovery value
+(`SimilarNames` or `All`); and independent result and work bounds. The default
+is every method plus `Everything` plus `SimilarNames`. An exact-Type candidate
+population requires `Self`, so a point scope cannot be silently reinterpreted
+in other participants. The normative contract is
 [Structural clone search scope](design/structural-clone-search-scope.md).
+
+The query validates each image once through
+`StructuralCloneValidatedImage`, resolves exact metadata identities through the
+shared bounded metadata-selection helpers, and dispatches the common
+same-image or cross-image Analysis retrieval path. Summary consumers retain
+global rows and coverage only. A detailed consumer may opt into the unmodified
+per-call `StructuralCloneRetrievalResult`, preserving method outcomes,
+blockers, receipts, and MVID-scoped addresses without rerunning retrieval or
+making every consumer retain that evidence. `StructuralMatchDiscoveryInspection`
+uses that detailed mode with one participant, one exact MethodDef seed,
+`Discovery=All`, and one retrieval chunk; this preserves root `match --similar`
+method evidence while combining its work counts with the query's globally
+bounded rank counts, and removes the former parallel assembly-context query.
 
 Registration-derived participant realization is not yet adopted by this query,
 so breadth membership is supplied rather than inferred: each snapshot entry carries its own

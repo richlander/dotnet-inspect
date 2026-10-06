@@ -106,14 +106,14 @@ public partial class SectionPipelineTests
         InspectionQueryResults results = queryRegistry.Run(
             [
                 AuditMetadataQuery.Definition,
-                ClassifiedMethodsQuery.Definition,
+                MethodClassificationDemand.ModelCounts,
             ],
             context);
-        LibraryMetadataService.ApplyClassifiedMethodsResult(
+        LibraryMetadataService.ApplyMethodClassificationResult(
             context.AssemblyPath,
             context.Model,
             context.Logger,
-            results.Get(ClassifiedMethodsQuery.Definition));
+            results.Get(MethodClassificationDemand.ModelCounts));
         LibraryMetadataService.ApplyAuditMetadataResult(
             context.AssemblyPath,
             context.Model,
@@ -122,12 +122,12 @@ public partial class SectionPipelineTests
 
         Assert.Equal(2, context.SharedQueryCount);
         Assert.NotNull(context.Session());
-        Assert.NotNull(context.Model.ClassifiedMethodInspection);
+        Assert.NotNull(context.Model.UnsafeMethodCount);
         Assert.NotNull(context.Model.AuditSignals);
     }
 
     [Fact]
-    public void Trace_RecordsClassifiedMethodsAsDirectQueryDemand()
+    public void Trace_RecordsPInvokeSectionClassificationAsDirectQueryDemand()
     {
         var registry = LibrarySections.CreateQueryRegistry();
         var pipeline = LibrarySections.CreatePipeline();
@@ -142,7 +142,7 @@ public partial class SectionPipelineTests
         trace.RecordQueryClosure(registry.ExpandRequired(requested));
 
         Assert.Equal(
-            [ClassifiedMethodsQuery.Definition],
+            [MethodClassificationDemand.PInvokeMethods],
             trace.RequestedQueries);
         Assert.Contains(
             trace.QueryDemand,
@@ -150,7 +150,7 @@ public partial class SectionPipelineTests
             {
                 Section: SectionNames.PInvokeMethods,
                 Query: var query,
-            } && ReferenceEquals(query, ClassifiedMethodsQuery.Definition));
+            } && ReferenceEquals(query, MethodClassificationDemand.PInvokeMethods));
         Assert.Equal(trace.RequestedQueries, trace.QueryClosure);
     }
 
@@ -202,10 +202,13 @@ public partial class SectionPipelineTests
             [
                 AssemblyReferencesQuery.Definition,
                 AuditMetadataQuery.Definition,
-                ClassifiedMethodsQuery.Definition,
                 CustomAttributesQuery.Definition,
                 ExtensionMethodsQuery.Definition,
                 MetadataImageQuery.Definition,
+                MethodClassificationDemand.AsyncMethods,
+                MethodClassificationDemand.LibraryInfo,
+                MethodClassificationDemand.PInvokeMethods,
+                MethodClassificationDemand.Signals,
                 ResourcesQuery.Definition,
                 SourceAvailabilityQuery.Definition,
                 SwitchesQuery.Definition,
@@ -223,7 +226,7 @@ public partial class SectionPipelineTests
     }
 
     [Fact]
-    public void Trace_RecordsNoBodyIndexForClassifiedMethodsQuery()
+    public void Trace_RecordsNoBodyIndexForMethodClassification()
     {
         // The negative half of the minimum-work claim, and the one worth gating. A regression that
         // makes a metadata-only scan open the whole-assembly IL index costs seconds and changes no
@@ -242,7 +245,7 @@ public partial class SectionPipelineTests
         };
 
         registry.Run(
-            [ClassifiedMethodsQuery.Definition],
+            [MethodClassificationDemand.ModelCounts],
             context,
             trace.RecordQueryExecution);
 
@@ -441,7 +444,7 @@ public partial class SectionPipelineTests
     }
 
     [Fact]
-    public void LibraryMetricsQuery_RunsOnlyItsFocusedProducer()
+    public void LibraryMetricsQuery_RunsOnlyItsFocusedProducers()
     {
         var registry = LibrarySections.CreateQueryRegistry();
         var trace = new InspectionTrace();
@@ -589,6 +592,122 @@ public partial class SectionPipelineTests
         Assert.DoesNotContain(
             trace.Resources,
             resource => resource.Resource == "drill map");
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void OptimizationOpportunitiesQuery_CountUsesScalarResult()
+    {
+        var registry = LibrarySections.CreateQueryRegistry();
+        var trace = new InspectionTrace();
+        using var service = SourceLinkService.OpenPrefetched(
+            typeof(SectionPipelineTests).Assembly.Location,
+            _ => { });
+        using var context = new InspectionQueryContext
+        {
+            AssemblyPath =
+                typeof(SectionPipelineTests).Assembly.Location,
+            Model = new LibraryInspection(),
+            Logger = new Output.VerboseLogger(false),
+            MetadataContext = service.Context,
+            BodyAnalysisFeatures =
+                Analysis.LibraryBodyAnalysisFeatures
+                    .OptimizationOpportunities,
+            CountOnly = true,
+            Trace = trace,
+        };
+
+        InspectionQueryResults results = registry.Run(
+            [OptimizationOpportunitiesQuery.Definition],
+            context);
+
+        var counted =
+            Assert.IsType<OptimizationOpportunitiesResult.Counted>(
+                results.Get(
+                    OptimizationOpportunitiesQuery.Definition));
+        Assert.True(counted.Counts.Total > 0);
+        var stages = Assert.Single(
+            trace.Resources,
+            resource =>
+                resource.Resource == "body analysis stages");
+        Assert.Contains(
+            "CanonicalMethodContext",
+            stages.Detail.ToString());
+        Assert.Contains(
+            "CallAnalysis",
+            stages.Detail.ToString());
+        Assert.Contains(
+            "OptimizationOpportunityAnalysis",
+            stages.Detail.ToString());
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void OptimizationOpportunitiesQuery_FilteredCountRetainsRows()
+    {
+        var registry = LibrarySections.CreateQueryRegistry();
+        using var service = SourceLinkService.OpenPrefetched(
+            typeof(SectionPipelineTests).Assembly.Location,
+            _ => { });
+        using var context = new InspectionQueryContext
+        {
+            AssemblyPath =
+                typeof(SectionPipelineTests).Assembly.Location,
+            Model = new LibraryInspection
+            {
+                PerformanceTriageOptions =
+                    new PerformanceTriageOptions
+                    {
+                        Shapes = ["small-array"],
+                    },
+            },
+            Logger = new Output.VerboseLogger(false),
+            MetadataContext = service.Context,
+            BodyAnalysisFeatures =
+                Analysis.LibraryBodyAnalysisFeatures
+                    .OptimizationOpportunities,
+            CountOnly = true,
+        };
+
+        InspectionQueryResults results = registry.Run(
+            [OptimizationOpportunitiesQuery.Definition],
+            context);
+
+        Assert.IsType<OptimizationOpportunitiesResult.Available>(
+            results.Get(
+                OptimizationOpportunitiesQuery.Definition));
+    }
+
+    [Fact]
+    public void OptimizationOpportunitiesQuery_CountProjectsTypedKinds()
+    {
+        var counts = new Analysis.OptimizationOpportunityCounts(
+            2,
+            new Dictionary<
+                Analysis.OptimizationOpportunityKind,
+                int>
+            {
+                [Analysis.OptimizationOpportunityKind.Boxing] = 2,
+            }.ToImmutableDictionary());
+        var inspection = new LibraryInspection();
+
+        LibraryMetadataService.ApplyOptimizationOpportunitiesResult(
+            "counted.dll",
+            inspection,
+            new Output.VerboseLogger(false),
+            new OptimizationOpportunitiesResult.Counted(
+                counts,
+                []));
+
+        Assert.Same(counts, inspection.PerformanceTriageCounts);
+        Assert.Empty(inspection.PerformanceTriageOpportunities);
+        Assert.Null(inspection.OptimizationOpportunities);
+        Assert.True(
+            LibrarySections.PerformanceBoxing.CanRender(
+                inspection));
+        Assert.False(
+            LibrarySections.PerformanceArrays.CanRender(
+                inspection));
     }
 
     [Fact]
@@ -782,7 +901,7 @@ public partial class SectionPipelineTests
             context,
             trace.RecordQueryExecution);
 
-        Assert.IsType<ResourceTriageResult.Available>(
+        Assert.IsType<ResourceTriageResult.Incomplete>(
             results.Get(ResourceTriageQuery.Definition));
         Assert.IsType<TopLeverageResult.Available>(
             results.Get(TopLeverageQuery.Definition));
@@ -1007,16 +1126,10 @@ public partial class SectionPipelineTests
         var logger = new Output.VerboseLogger(false);
         const string Path = "disposed.dll";
 
-        var classifiedResult = Assert.IsType<ClassifiedMethodsResult.Failed>(
-            ClassifiedMethodsQuery.Execute(session));
-        var classifiedModel = new LibraryInspection();
-        LibraryMetadataService.ApplyClassifiedMethodsResult(
-            Path,
-            classifiedModel,
-            logger,
-            classifiedResult);
-        Assert.IsType<FindingInspection<ClassifiedMethodObservation>.Failed>(
-            classifiedModel.ClassifiedMethodInspection!.Value);
+        Assert.Throws<ObjectDisposedException>(
+            () => MethodClassificationQuery.Execute(
+                session,
+                MethodClassificationDemand.AllQuestions));
 
         var auditResult = Assert.IsType<AuditMetadataResult.Failed>(
             AuditMetadataQuery.Execute(session));
@@ -1087,13 +1200,13 @@ public partial class SectionPipelineTests
             };
 
             InspectionQueryResults classifiedResults = queryRegistry.Run(
-                [ClassifiedMethodsQuery.Definition],
+                [MethodClassificationDemand.ModelCounts],
                 context);
-            LibraryMetadataService.ApplyClassifiedMethodsResult(
+            LibraryMetadataService.ApplyMethodClassificationResult(
                 linkedAssembly,
                 model,
                 context.Logger,
-                classifiedResults.Get(ClassifiedMethodsQuery.Definition));
+                classifiedResults.Get(MethodClassificationDemand.ModelCounts));
 
             Assert.True(TryLinkDirectory(link, dirB), "Could not retarget the directory link.");
 
@@ -1407,6 +1520,42 @@ public partial class SectionPipelineTests
     }
 
     [Fact]
+    public void CanRender_PInvokeMethods_ExactApplicabilityOverridesBroadPresence()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+        var model = new LibraryInspection
+        {
+            AssemblyInfo = new AssemblyInfo(),
+            HasPInvokeImports = true,
+            PInvokeMethodPresence = false,
+        };
+
+        var effective = pipeline.GetEffectiveSections(
+            model,
+            Verbosity.Detailed);
+
+        Assert.DoesNotContain("P/Invoke Methods", effective);
+    }
+
+    [Fact]
+    public void CanRender_AsyncMethods_ExactApplicabilityOverridesBroadPresence()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+        var model = new LibraryInspection
+        {
+            AssemblyInfo = new AssemblyInfo(),
+            HasRuntimeAsync = true,
+            AsyncMethodPresence = false,
+        };
+
+        var effective = pipeline.GetEffectiveSections(
+            model,
+            Verbosity.Detailed);
+
+        Assert.DoesNotContain("Async Methods", effective);
+    }
+
+    [Fact]
     public void FailedClassifiedMethods_AreContainedAndReportedInsteadOfRendered()
     {
         var pipeline = LibrarySections.CreatePipeline();
@@ -1414,11 +1563,7 @@ public partial class SectionPipelineTests
         {
             AssemblyInfo = new AssemblyInfo(),
             HasPInvokeImports = true,
-            ClassifiedMethodInspection = new FindingInspection<ClassifiedMethodObservation>.Failed(
-                new InspectionError(
-                    FindingTestData.Subject,
-                    MetadataFindings.ClassifiedMethodDescriptor,
-                    "method scan failed")),
+            MethodClassificationFailure = "method scan failed",
         };
         HashSet<string> selected = new(StringComparer.OrdinalIgnoreCase)
         {

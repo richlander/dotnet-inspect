@@ -3,7 +3,9 @@ using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Queries;
 using ILInspector.Metadata;
+using ILInspector.Research;
 using InertText;
+using QuerySpace.Rows;
 using Analysis = ILInspector.Analysis;
 
 namespace DotnetInspect.Cli.Sections;
@@ -53,8 +55,39 @@ public sealed class InspectionQueryContext : IDisposable
     public Analysis.LibraryBodyAnalysisRequest? BodyAnalysisRequest
     { get; init; }
 
+    /// <summary>
+    /// The queries this run requested, so the method classification consumers
+    /// among them run as one request. Null when the caller runs queries one by
+    /// one; each consumer then asks alone.
+    /// </summary>
+    public IReadOnlyCollection<InspectionQueryDefinition>? RequestedQueries { get; init; }
+
+    /// <summary>
+    /// <c>--count</c>: a row section asks for its count instead of its rows.
+    /// </summary>
+    public bool CountOnly { get; init; }
+
+    /// <summary>
+    /// Effective discovery asks row sections for exact Exists applicability
+    /// instead of acquiring their rows.
+    /// </summary>
+    public bool ApplicabilityOnly { get; init; }
+
+    public LibraryNameFamilyPopulationKind NameFamilyPopulation
+    { get; init; } =
+        LibraryNameFamilyPopulationKind.AllTypes;
+
+    public RowSelectionIntent<string>? NameFamilyRowSelection
+    { get; init; }
+
+    public bool ArchitecturalFamilyTypeRows { get; init; }
+
+    public RowSelectionIntent<string>? DependencyStructureRowSelection
+    { get; init; }
+
     private MethodBodyInspectionSession? _bodySession;
-    private bool _bodyIndexRecorded;
+    private MethodClassificationBindingResult? _methodClassification;
+    private IReadOnlyList<ClassificationQuestion>? _methodClassificationQuestions;
     private AssemblyInspectionSession? _session;
     private Exception? _sessionOpenFailure;
     private bool _sessionOpenAttempted;
@@ -180,6 +213,48 @@ public sealed class InspectionQueryContext : IDisposable
     }
 
     /// <summary>
+    /// Answers <paramref name="demand"/>'s method classification questions,
+    /// running every requested consumer's questions as one
+    /// <see cref="MethodClassificationQuery"/> request on the shared session.
+    /// Later consumers of the same run read that one result.
+    /// </summary>
+    public MethodClassificationBindingResult MethodClassification(
+        InspectionQueryDefinition demand)
+    {
+        IReadOnlyList<ClassificationQuestion> questions =
+            MethodClassificationDemand.QuestionsFor(
+                [.. RequestedQueries ?? [], demand],
+                CountOnly,
+                ApplicabilityOnly);
+        if (_methodClassification is { } cached
+            && questions.All(_methodClassificationQuestions!.Contains))
+        {
+            return cached;
+        }
+
+        _methodClassificationQuestions = questions;
+        _methodClassification = Query<MethodClassificationBindingResult>(
+            session =>
+            {
+                try
+                {
+                    PreparedMethodClassificationQuery prepared =
+                        MethodClassificationQuery.Prepare(
+                            session,
+                            questions);
+                    return new MethodClassificationBindingResult.Available(
+                        MethodClassificationQuery.Execute(prepared));
+                }
+                catch (Exception ex) when (ex is not ILInspector.Analysis.Planning.ProducerContractException)
+                {
+                    return new MethodClassificationBindingResult.Failed(ex);
+                }
+            },
+            static ex => new MethodClassificationBindingResult.Failed(ex));
+        return _methodClassification;
+    }
+
+    /// <summary>
     /// How many typed query adapters have taken the shared-session branch of
     /// <see cref="Scan{TScan}"/> or <see cref="Query{TResult}"/>.
     ///
@@ -206,15 +281,15 @@ public sealed class InspectionQueryContext : IDisposable
     /// <summary>
     /// Refuses a shared resource to a query that did not declare it could afford one.
     ///
-    /// Body analysis is a whole-assembly IL build. The registry cannot see that an executor
-    /// touches it because focused results and the compatibility <see cref="BodyIndex"/> are
-    /// acquired lazily, so the declaration is enforced at acquisition rather than inferred from
+    /// Body analysis is a whole-assembly IL build. The registry cannot see that
+    /// an executor touches it because focused results are acquired lazily, so
+    /// the declaration is enforced at acquisition rather than inferred from
     /// delegate shape.
     ///
     /// So the declaration is enforced where the cost is actually incurred. Adding a body-analysis
     /// call to a producer that still claims to be cheap fails loudly instead of quietly restoring
     /// the defect. Gates:
-    /// <c>SectionPipelineTests.Query_CannotTakeTheBodyIndexWithoutDeclaringItsCost</c>.
+    /// The section-pipeline cost-declaration tests gate this boundary.
     /// </summary>
     private void RequireUnboundedDeclaration(string resource)
     {
@@ -262,42 +337,21 @@ public sealed class InspectionQueryContext : IDisposable
         return _bodySession!.AnalysisExecution;
     }
 
-    /// <summary>
-    /// Compatibility index for consumers not yet migrated to focused Analysis
-    /// results. It adapts the same shared execution returned by
-    /// <see cref="BodyAnalysis"/>.
-    /// </summary>
-    public Analysis.LibraryBodyIndex BodyIndex()
-    {
-        RequireUnboundedDeclaration("body index");
-        if (_bodySession is null)
-        {
-            OpenBodySession("body index");
-            _bodyIndexRecorded = true;
-        }
-        else if (!_bodyIndexRecorded)
-        {
-            Trace?.RecordResource(
-                "body index",
-                new InertString(
-                    TextPolicy.Field,
-                    "adapted from the shared body analysis"));
-            _bodyIndexRecorded = true;
-        }
-        return _bodySession!.BodyIndex;
-    }
-
     private void OpenBodySession(string resource)
     {
         var start = System.Diagnostics.Stopwatch.GetTimestamp();
         try
         {
+            Analysis.LibraryBodyAnalysisRequest request =
+                BodyAnalysisRequest
+                    ?? Analysis.LibraryBodyAnalysisRequest.Create(
+                        BodyAnalysisFeatures);
+            if (Trace is not null)
+                request = request.WithStageParticipation();
             _bodySession = MethodBodyInspectionSession.OpenWithPrefetchedImage(
                 AssemblyPath,
                 GetMetadataContext().GetPrefetchedImage(),
-                BodyAnalysisRequest
-                    ?? Analysis.LibraryBodyAnalysisRequest.Create(
-                        BodyAnalysisFeatures),
+                request,
                 BodyReferenceResolver,
                 assembly: AssemblyReference);
         }
@@ -319,6 +373,22 @@ public sealed class InspectionQueryContext : IDisposable
                 + $"{BodyAnalysisRequest?.Features ?? BodyAnalysisFeatures}; "
                 + $"resource lifecycle: "
                 + $"{BodyAnalysisRequest?.IncludesResourceLifecycle == true})"));
+        if (_bodySession.AnalysisExecution.Receipt.StageParticipation
+            is { } participation)
+        {
+            Trace?.RecordResource(
+                "body analysis stages",
+                new InertString(
+                    TextPolicy.Field,
+                    string.Join(
+                        "; ",
+                        participation.Stages.Select(
+                            static stage =>
+                                $"{stage.Stage} "
+                                + $"{stage.Completions}/"
+                                + $"{stage.Attempts} complete, "
+                                + $"{stage.Failures} failed"))));
+        }
     }
 
     private static string Elapsed(long start)

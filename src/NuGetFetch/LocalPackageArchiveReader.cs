@@ -60,15 +60,71 @@ internal static class LocalPackageArchiveReader
                 "The local package archive changed after it was observed.");
         }
 
-        if (length > options.MaxPackageBytes)
-            throw new LocalPackageSourceLimitExceededException();
+        long maximumManifestBytes = Math.Min(
+            options.MaxManifestBytes,
+            ledger.RemainingManifestBytes);
+        LocalPackageArchive archive = await ReadCoreAsync(
+            stream,
+            length,
+            options.MaxPackageBytes,
+            options.MaxArchiveEntries,
+            options.MaxCentralDirectoryBytes,
+            maximumManifestBytes,
+            operation).ConfigureAwait(false);
+        ledger.ChargeManifestBytes(archive.Manifest.Length);
+        return archive;
+    }
 
+    internal static async Task<LocalPackageArchive> ReadAsync(
+        Stream stream,
+        long advertisedLength,
+        long maxPackageBytes,
+        int maxArchiveEntries,
+        long maxCentralDirectoryBytes,
+        long maxManifestBytes,
+        NuGetOperationDeadline operation)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+        ArgumentNullException.ThrowIfNull(operation);
+        if (!stream.CanRead || !stream.CanSeek)
+        {
+            throw new IOException(
+                "The package source returned a non-seekable archive stream.");
+        }
+        if (stream.Length != advertisedLength)
+        {
+            throw new IOException(
+                "The package archive length does not match its admitted snapshot.");
+        }
+
+        return await ReadCoreAsync(
+            stream,
+            advertisedLength,
+            maxPackageBytes,
+            maxArchiveEntries,
+            maxCentralDirectoryBytes,
+            maxManifestBytes,
+            operation).ConfigureAwait(false);
+    }
+
+    private static async Task<LocalPackageArchive> ReadCoreAsync(
+        Stream stream,
+        long length,
+        long maxPackageBytes,
+        int maxArchiveEntries,
+        long maxCentralDirectoryBytes,
+        long maxManifestBytes,
+        NuGetOperationDeadline operation)
+    {
+        if (length > maxPackageBytes)
+            throw new LocalPackageSourceLimitExceededException();
         var limits = new ZipReadLimits(
-            maxArchiveBytes: options.MaxPackageBytes,
-            maxEntryCount: options.MaxArchiveEntries,
-            maxDirectoryBytes: options.MaxCentralDirectoryBytes,
-            maxExpandedBytes: Math.Max(1, options.MaxManifestBytes));
-        var source = new StreamRandomAccessSource(stream, leaveOpen: true);
+            maxArchiveBytes: maxPackageBytes,
+            maxEntryCount: maxArchiveEntries,
+            maxDirectoryBytes: maxCentralDirectoryBytes,
+            maxExpandedBytes: Math.Max(1, maxManifestBytes));
+        await using var source =
+            new StreamRandomAccessSource(stream, leaveOpen: true);
         ZipDirectory directory = await ProjectAsync(
             () => ZipArchiveReader.ReadDirectoryAsync(
                 source,
@@ -79,21 +135,16 @@ internal static class LocalPackageArchiveReader
 
         ZipEntry manifest = SelectManifest(
             directory,
-            options,
-            ledger.RemainingManifestBytes);
-        long maximumExpandedBytes = Math.Min(
-            options.MaxManifestBytes,
-            ledger.RemainingManifestBytes);
+            maxManifestBytes);
         byte[] content = await ProjectAsync(
             () => ZipArchiveReader.ReadEntryAsync(
                 source,
                 directory,
                 manifest,
                 limits,
-                maximumExpandedBytes,
+                maxManifestBytes,
                 operation.OperationToken),
             operation).ConfigureAwait(false);
-        ledger.ChargeManifestBytes(content.Length);
         operation.ThrowIfExpired();
 
         try
@@ -110,8 +161,7 @@ internal static class LocalPackageArchiveReader
 
     private static ZipEntry SelectManifest(
         ZipDirectory directory,
-        LocalPackageSourceOptions options,
-        long remainingManifestBytes)
+        long maxManifestBytes)
     {
         ZipEntry? selected = null;
         foreach (ZipEntry entry in directory.Entries)
@@ -131,9 +181,8 @@ internal static class LocalPackageArchiveReader
                     "The package archive uses unsupported manifest flags.");
             }
 
-            if (entry.CompressedLength > options.MaxManifestBytes
-                || entry.ExpandedLength > options.MaxManifestBytes
-                || entry.ExpandedLength > remainingManifestBytes)
+            if (entry.CompressedLength > maxManifestBytes
+                || entry.ExpandedLength > maxManifestBytes)
             {
                 throw new LocalPackageSourceLimitExceededException();
             }

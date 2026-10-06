@@ -217,7 +217,7 @@ physical observations.
 
 For an explicitly selected `netstandard2.0` Polly.Core hub, the context retains
 that Root's exact selection intent and four declarations. The traversal
-`ProductDefault(net12.0)` may independently govern realization of each
+`ProductDefault(net11.0)` may independently govern realization of each
 destination package.
 Selecting Polly.Core's `net8.0` group would lose source evidence; using
 `netstandard2.0` as the destination target would conflate source association

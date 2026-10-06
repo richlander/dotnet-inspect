@@ -23,10 +23,6 @@ jobs:
         include:
           - scope: solution
             project: dotnet-inspect.slnx
-          - scope: inspect-web
-            project: inspect-web/DotnetInspect.Web.Tests/DotnetInspect.Web.Tests.csproj
-          - scope: msdl-proxy
-            project: inspect-web/msdl-proxy.Tests/MsdlProxy.Tests.csproj
           - scope: il-roundtrip
             project: tests/DotnetInspector.ILRoundtrip.Tests/DotnetInspector.ILRoundtrip.Tests.csproj
     steps:
@@ -34,10 +30,6 @@ jobs:
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '11.0.100-rc.1.26425.128'
-
-      - name: Install browser workload
-        if: matrix.scope == 'inspect-web'
-        run: dotnet workload install wasm-experimental
 
       - name: Restore vendored ILAssembler
         if: matrix.scope == 'il-roundtrip'

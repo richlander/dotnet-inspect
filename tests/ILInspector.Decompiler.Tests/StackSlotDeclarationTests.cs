@@ -32,7 +32,7 @@ public class StackSlotDeclarationTests
         new SlotMaterializationPass().Run(
             function,
             PassContext.None);
-        string output = CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n");
+        string output = DecidedPrint.Print(function).Output!.ReplaceLineEndings("\n");
 
         Assert.DoesNotContain("Unsafe.NullRef", output);
         Assert.Contains("ref string S_0 = ref V_0;", output);

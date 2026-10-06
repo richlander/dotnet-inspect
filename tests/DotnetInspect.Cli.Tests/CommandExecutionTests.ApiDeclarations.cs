@@ -17,8 +17,8 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             "type", type,
             "--platform", "System.Private.CoreLib",
-            "-S", "API Declarations",
-            "--tips", "q");
+            "-S", "API Declarations"
+            );
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -37,7 +37,6 @@ public partial class CommandExecutionTests
             "type", "DotnetInspector.Fixtures.IApiDeclarationConstantsFixture",
             "--library", typeof(IApiDeclarationConstantsFixture).Assembly.Location,
             "-S", "API Declarations",
-            "--tips", "q",
             .. scope]);
 
         Assert.Equal(0, exit);
@@ -57,7 +56,6 @@ public partial class CommandExecutionTests
             "type", "DotnetInspector.Fixtures.ApiDeclarationConstantsFixture",
             "--library", typeof(ApiDeclarationConstantsFixture).Assembly.Location,
             "-S", "API Declarations",
-            "--tips", "q",
             .. scope]);
 
         Assert.Equal(0, exit);
@@ -78,13 +76,11 @@ public partial class CommandExecutionTests
             "type", "DotnetInspector.Fixtures.BodyShapeFixture",
             "--library", assembly,
             "-S", "API Declarations",
-            "--tips", "q",
             .. scope]);
         var (declaringExit, declaringOutput, declaringError) = await RunAppAsync([
             "type", "DotnetInspector.Fixtures.BodyShapeFixtureExtensions",
             "--library", assembly,
             "-S", "API Declarations",
-            "--tips", "q",
             .. scope]);
 
         Assert.Equal(0, receiverExit);
@@ -100,7 +96,7 @@ public partial class CommandExecutionTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task Type_ApiDeclarations_PrivateExplicitImplementationsRequireAll(
+    public async Task Type_ApiDeclarations_PrivateExplicitPropertyRequiresAllAndUsesLogicalSpelling(
         bool includeAll)
     {
         string[] scope = includeAll ? ["--all"] : [];
@@ -108,15 +104,18 @@ public partial class CommandExecutionTests
             "type", "System.Collections.Generic.List<T>",
             "--platform", "System.Private.CoreLib",
             "-S", "API Declarations",
-            "--tips", "q",
             .. scope]);
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        if (includeAll)
-            Assert.Contains("System.Collections.IList.get_IsFixedSize();", output);
-        else
-            Assert.DoesNotContain("System.Collections.IList.get_IsFixedSize();", output);
+        Assert.Equal(
+            includeAll,
+            output.Contains(
+                "bool System.Collections.IList.IsFixedSize { get; }",
+                StringComparison.Ordinal));
+        Assert.DoesNotContain(
+            "System.Collections.IList.get_IsFixedSize",
+            output);
     }
 
     [Fact]
@@ -125,8 +124,8 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             "type", "JsonNamingPolicy",
             "--platform", "System.Text.Json",
-            "-S", "API Declarations",
-            "--tips", "q");
+            "-S", "API Declarations"
+            );
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -145,8 +144,7 @@ public partial class CommandExecutionTests
             "type", "JsonNamingPolicy",
             "--platform", "System.Text.Json",
             "-S", "API Declarations",
-            "--all",
-            "--tips", "q");
+            "--all");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -162,8 +160,7 @@ public partial class CommandExecutionTests
             "type", "JsonNamingPolicy",
             "--platform", "System.Text.Json",
             "-S", "API Declarations",
-            "--markdown",
-            "--tips", "q");
+            "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -180,8 +177,7 @@ public partial class CommandExecutionTests
             "type", "JsonNamingPolicy",
             "--platform", "System.Text.Json",
             "-S", "API Declarations",
-            "--json",
-            "--tips", "q");
+            "--json");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -214,8 +210,8 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             "type", "JsonNamingPolicy",
             "--platform", "System.Text.Json",
-            "-S", "API Declarations,Fields",
-            "--tips", "q");
+            "-S", "API Declarations,Fields"
+            );
 
         Assert.Equal(0, exit);
         Assert.Contains(
@@ -233,8 +229,7 @@ public partial class CommandExecutionTests
             "type", "JsonNamingPolicy",
             "--platform", "System.Text.Json",
             "-S", "API Declarations",
-            "--print",
-            "--tips", "q");
+            "--print");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);

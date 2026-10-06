@@ -136,17 +136,20 @@ const testTsconfig = readJson<TsconfigFile>("tsconfig.json");
 const nodeTsconfig = readJson<TsconfigFile>("../tsconfig.node.json");
 const staticWebAppConfig
   = readJson<StaticWebAppConfig>("../staticwebapp.config.json");
+const generatedLintScript = packageJson.scripts["lint:generated"] ?? "";
 
 // The lint targets are read here rather than inside the gate that checks coverage,
 // because the pruning rules below also need to know which directories hold authored
-// source. Both answers come from the one `lint` script, so neither can drift from it.
+// source. Both answers come from the one `lint:generated` script, so neither can drift
+// from it.
 //
 // The script chains more than one linter, so the scan stops at the next `&&`. Without
 // that, `html-validate` and its glob are read as oxlint targets, and a bogus target is a
 // target the coverage gate below will happily consider a file "covered" by.
 const lintTokens = (() => {
-  const lint = packageJson.scripts?.lint ?? "";
-  const oxlintCall = lint.slice(lint.indexOf("oxlint "));
+  const oxlintCall = generatedLintScript.slice(
+    generatedLintScript.indexOf("oxlint "),
+  );
   const tokens = oxlintCall.split(/\s+/u).slice(1);
   const chained = tokens.indexOf("&&");
   return chained === -1 ? tokens : tokens.slice(0, chained);
@@ -187,6 +190,7 @@ test("TypeScript compiler contexts keep Node globals out of browser source", () 
       "../playwright.worker-cpu.config.ts",
       "../playwright.package-adoption.config.ts",
       "../playwright.published-benchmark.config.ts",
+      "../playwright.find-unit-cost.config.ts",
       "../playwright.source-comparison.config.ts",
     ],
   );
@@ -217,12 +221,21 @@ test("TypeScript compiler contexts keep Node globals out of browser source", () 
   assert.equal(packageJson.scripts.dev, "npm run facades && vite");
   assert.equal(
     packageJson.scripts.build,
-    "npm run typecheck && vite build && node scripts/verify-site-artifact.ts dist",
+    "npm run facades && npm run build:generated",
+  );
+  assert.equal(
+    packageJson.scripts["build:generated"],
+    "npm run typecheck:authored && vite build"
+      + " && node scripts/verify-site-artifact.ts dist",
   );
   assert.equal(packageJson.scripts.test, "npm run typecheck && node --test");
   assert.equal(
     packageJson.scripts["test:browser"],
-    "npm run facades && playwright test --project=firefox",
+    "npm run facades && npm run test:browser:generated",
+  );
+  assert.equal(
+    packageJson.scripts["test:browser:generated"],
+    "playwright test --project=firefox",
   );
 });
 
@@ -547,7 +560,7 @@ test("facade compilation replaces stale transient inventories", () => {
 test("MSBuild admits only the exact generated facade modules after derivation", () => {
   const root = fileURLToPath(new URL("../", import.meta.url));
   const project = readFileSync(
-    resolve(root, "DotnetInspect.Web/DotnetInspect.Web.csproj"),
+    resolve(root, "../src/DotnetInspect.Web/DotnetInspect.Web.csproj"),
     "utf8",
   );
   const configuredModules = [
@@ -562,7 +575,7 @@ test("MSBuild admits only the exact generated facade modules after derivation", 
   assert.deepEqual(
     configuredModules,
     publishedFacadeModules.map(path =>
-      path.replace("DotnetInspect.Web/", "")),
+      `../../inspect-web/${path}`),
   );
   assert.ok(
     project.includes('<Content Remove="wwwroot\\inspect-web-*.js" />'),
@@ -575,7 +588,7 @@ test("MSBuild admits only the exact generated facade modules after derivation", 
   const target = targetMatch[0];
   const generation = target.indexOf("<Exec ");
   const admission = target.indexOf(
-    '<Content Include="@(_InspectWebGeneratedFacadeModule)" />',
+    '<Content Include="@(_InspectWebGeneratedFacadeModule)" Link="wwwroot\\%(Filename)%(Extension)" />',
   );
   assert.ok(generation >= 0 && admission > generation,
     "MSBuild must admit the exact facade set only after derivation");
@@ -1274,7 +1287,10 @@ test("the generated facade TypeScript uses its SDK-owned compiler gates", () => 
 
   assert.match(
     multiFacadeGenerationScript,
-    /canary="\$repo_root\/inspect-web\/multi-facade-canary"/);
+    /managed_canary="\$repo_root\/tests\/InspectWeb\.MultiFacadeCanary"/);
+  assert.match(
+    multiFacadeGenerationScript,
+    /frontend_canary="\$repo_root\/inspect-web\/multi-facade-canary"/);
   assert.match(
     multiFacadeGenerationScript,
     /Microsoft\.NETCore\.App\.Runtime\.Mono\.browser-wasm[\s\S]*dotnet\.d\.ts/);
@@ -1292,7 +1308,10 @@ test("the generated facade TypeScript uses its SDK-owned compiler gates", () => 
 
   assert.match(
     managedBridgeGenerationScript,
-    /canary="\$repo_root\/inspect-web\/managed-operation-bridge-canary"/);
+    /managed_canary="\$repo_root\/tests\/InspectWeb\.ManagedOperationBridgeCanary"/);
+  assert.match(
+    managedBridgeGenerationScript,
+    /frontend_canary="\$repo_root\/inspect-web\/managed-operation-bridge-canary"/);
   assert.match(
     managedBridgeGenerationScript,
     /Microsoft\.NETCore\.App\.Runtime\.Mono\.browser-wasm[\s\S]*dotnet\.d\.ts/);
@@ -2068,12 +2087,14 @@ test("the lint runs in the mode the unsafe-operation rules require", () => {
 // an `.eslintignore` entry each returned `npm run analyze` to green with an unsafe `any`
 // file present. The invocation therefore refuses both, and this pins the refusal.
 test("the lint invocation refuses config and ignore files it did not declare", () => {
-  const lint = packageJson.scripts?.lint ?? "";
-
-  assert.match(lint, /\boxlint\b/u, "the lint script must run oxlint");
-  assert.ok(lint.includes("--no-ignore"),
+  assert.match(
+    generatedLintScript,
+    /\boxlint\b/u,
+    "the lint:generated script must run oxlint",
+  );
+  assert.ok(generatedLintScript.includes("--no-ignore"),
     "without this an .eslintignore file silently drops sources from the lint run");
-  assert.ok(lint.includes("--disable-nested-config"),
+  assert.ok(generatedLintScript.includes("--disable-nested-config"),
     "without this a nested .oxlintrc.json silently overrides the rules pinned above");
 });
 
@@ -2404,8 +2425,9 @@ test("the oxlint configuration relaxes only the rules it documents", () => {
 // all written at the project root -- stayed green; `--config` is what makes the committed
 // file the one that runs, and reading the flag from the script is what keeps it there.
 const htmlValidateInvocation = (() => {
-  const lint = packageJson.scripts?.lint ?? "";
-  const match = /html-validate\s+--config\s+(\S+)\s+"([^"]+)"/u.exec(lint);
+  const match = /html-validate\s+--config\s+(\S+)\s+"([^"]+)"/u.exec(
+    generatedLintScript,
+  );
   return match === null
     ? undefined
     : { config: match[1] ?? "", glob: match[2] ?? "" };
@@ -3016,7 +3038,11 @@ test("the analysis host check matches locked native packages and lint wiring", (
 
   assert.equal(
     packageJson.scripts.lint,
-    "npm run facades && node scripts/verify-analysis-host.ts && "
+    "npm run facades && npm run lint:generated",
+  );
+  assert.equal(
+    packageJson.scripts["lint:generated"],
+    "node scripts/verify-analysis-host.ts && "
       + "oxlint --no-ignore --disable-nested-config src test browser scripts "
       + "multi-facade-canary/coordinator.ts multi-facade-canary/exercise.ts "
       + "multi-facade-canary/facades "
@@ -3029,36 +3055,40 @@ test("the analysis host check matches locked native packages and lint wiring", (
       + "playwright.worker-cpu.config.ts "
       + "playwright.package-adoption.config.ts "
       + "playwright.published-benchmark.config.ts "
+      + "playwright.find-unit-cost.config.ts "
       + "playwright.source-comparison.config.ts && "
       + "html-validate --config .htmlvalidate.json \"**/*.{html,htm,xhtml}\"",
   );
 });
 
 test("the lint gate includes all compiler-derived facade artifacts", () => {
-  const lintScript = packageJson.scripts.lint;
-  assert.ok(lintScript !== undefined, "package.json must define a lint script");
+  assert.notEqual(generatedLintScript, "",
+    "package.json must define a lint:generated script");
   for (const declaration of generatedFacadeDeclarations) {
     assert.ok(
       new RegExp(`(?:^| )${declaration.replaceAll(/[./]/g, String.raw`\$&`)}(?: |$)`)
-        .test(lintScript),
+        .test(generatedLintScript),
       `the lint gate does not name ${declaration}`,
     );
   }
-  assert.match(lintScript, /(?:^| )src(?: |$)/);
+  assert.match(generatedLintScript, /(?:^| )src(?: |$)/);
   assert.match(
-    lintScript,
+    generatedLintScript,
     /(?:^| )multi-facade-canary\/coordinator\.ts(?: |$)/,
   );
   assert.match(
-    lintScript,
+    generatedLintScript,
     /(?:^| )multi-facade-canary\/exercise\.ts(?: |$)/,
   );
-  assert.match(lintScript, /(?:^| )multi-facade-canary\/facades(?: |$)/);
-  assert.match(lintScript, /(?:^| )DotnetInspect.Web\/facades(?: |$)/);
+  assert.match(
+    generatedLintScript,
+    /(?:^| )multi-facade-canary\/facades(?: |$)/,
+  );
+  assert.match(generatedLintScript, /(?:^| )DotnetInspect.Web\/facades(?: |$)/);
   for (const module of publishedFacadeModules) {
     assert.ok(
       new RegExp(`(?:^| )${module.replaceAll(/[./]/g, String.raw`\$&`)}(?: |$)`)
-        .test(lintScript),
+        .test(generatedLintScript),
       `the lint gate does not name ${module}`);
   }
 });
@@ -3087,6 +3117,10 @@ test("the site artifact rejects a missing Vite output", (context) => {
   };
   const manifest: Record<string, ManifestEntry> = {
     "index.html": indexEntry,
+    "src/browser-package-entry-cache.ts": {
+      file: "browser-package-entry-cache.js",
+      isEntry: true,
+    },
     "src/dotnet-inspect.ts": {
       file: "assets/app.js",
       isDynamicEntry: true,
@@ -3104,6 +3138,7 @@ test("the site artifact rejects a missing Vite output", (context) => {
   writeFileSync(join(site, "assets/index.js"), "");
   writeFileSync(join(site, "assets/index.css"), "");
   writeFileSync(join(site, "assets/app.js"), "");
+  writeFileSync(join(site, "browser-package-entry-cache.js"), "");
 
   assert.doesNotThrow(() => verifySiteArtifact(site));
   writeFileSync(
@@ -3144,10 +3179,47 @@ test("the site artifact rejects a missing Vite output", (context) => {
     join(site, "index.html"),
     '<base href="/">'
       + '<link rel="preload" href="/_framework/dotnet.js">'
+      + '<script type="module" src="/assets/index.js"></script>'
+      + '<link rel="stylesheet" href="/assets/index.css">',
+  );
+  assert.throws(
+    () => verifySiteArtifact(site),
+    /index\.html is missing the import map/,
+  );
+  writeFileSync(
+    join(site, "index.html"),
+    '<base href="/">'
+      + '<link rel="preload" href="/_framework/dotnet.js">'
+      + '<script type="module" src="/assets/index.js"></script>'
+      + '<script type="importmap">{}</script>'
+      + '<link rel="stylesheet" href="/assets/index.css">',
+  );
+  assert.throws(
+    () => verifySiteArtifact(site),
+    /index\.html places Vite entry 'assets\/index\.js' before the import map/,
+  );
+  writeFileSync(
+    join(site, "index.html"),
+    '<base href="/">'
+      + '<link rel="preload" href="/_framework/dotnet.js">'
       + '<script type="importmap">{}</script>'
       + '<script type="module" src="/assets/index.js"></script>'
       + '<link rel="stylesheet" href="/assets/index.css">',
   );
+  manifest["src/browser-package-entry-cache.ts"] = {
+    file: "unexpected-root.js",
+    isEntry: true,
+  };
+  writeFileSync(join(site, "manifest.json"), JSON.stringify(manifest));
+  assert.throws(
+    () => verifySiteArtifact(site),
+    /manifest contains invalid asset 'unexpected-root\.js'/,
+  );
+
+  manifest["src/browser-package-entry-cache.ts"] = {
+    file: "browser-package-entry-cache.js",
+    isEntry: true,
+  };
   delete manifest["src/dotnet-inspect.ts"];
   writeFileSync(join(site, "manifest.json"), JSON.stringify(manifest));
   assert.throws(

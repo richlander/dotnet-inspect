@@ -36,7 +36,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         [
             "diff", "--history", "--package", $"{Id}@1.0.0..3.0.0",
             "--type", RangeType, "--finding", "api.type", "--at", "all",
-            "--source", FirstFeed, "--tips", "q",
+            "--source", FirstFeed,
         ];
 
         var withEvidence = await RunCommandAsync(

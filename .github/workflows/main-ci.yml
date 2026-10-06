@@ -1,0 +1,18 @@
+name: Main CI
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    permissions:
+      contents: read
+      packages: read
+    uses: ./.github/workflows/ci.yml
+    with:
+      event-name: push
+      base-sha: ${{ github.event.before }}

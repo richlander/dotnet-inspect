@@ -3,7 +3,6 @@ using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 using System.Net;
 using DotnetInspect.Cli.CommandLine;
-using CSharpText.MemberSlicing;
 using DotnetInspect.Cli.Inspectors;
 using ILInspector.Metadata;
 using DotnetInspect.Cli.Models;
@@ -299,6 +298,18 @@ public partial class ApiCommand
                 SelectDeferredToListing = false
             }
             : options with { SelectDeferredToListing = false };
+        listingOptions = (TypeOptions)ApplyNativeShapeOutput(
+            listingOptions,
+            typePipeline.SectionShapes,
+            listingOptions.IncludeSections);
+        if (ValidateApiScalarTerminals(
+                listingOptions,
+                ApiTypeSectionCardinality.Declarations,
+                listingOptions.IncludeSections) is { } scalarError)
+        {
+            CommandError.Write(scalarError);
+            return null;
+        }
 
         // Re-check selection arity against the final listing catalog. The payload projections are
         // deliberately not re-checked: the listing refuses them outright further down, and that
@@ -701,6 +712,25 @@ public partial class ApiCommand
                 SectionNames.Callers
             };
         }
+        // Section shapes: a lone explicitly selected section renders natively
+        // unless the caller named a format, and a lone scalar rejects the row
+        // terminals. The decision is taken over the effective selection: a
+        // caller scope adds Callers later, so "-S Calls --bin X" is a two-section
+        // composition, not a lone Table. Both checks stand down for a deferred
+        // select, which ReresolveSectionsForListing re-runs once the listing is
+        // known.
+        options = ApplyNativeShapeOutput(
+            options,
+            singleTypeMode ? memberPipeline.SectionShapes : typePipeline.SectionShapes,
+            countMapSelectionSections);
+        if (ValidateApiScalarTerminals(
+                options,
+                ApiCardinalities(singleTypeMode, memberPipeline),
+                countMapSelectionSections) is { } scalarError)
+        {
+            CommandError.Write(scalarError);
+            return (null!, 1);
+        }
         var countMapSections =
             options is TypeOptions { CountDefaultPopulation: true }
                 ? null
@@ -928,12 +958,23 @@ public partial class ApiCommand
 
         if (options.Tree)
         {
-            if (sections is not { Count: 1 }
-                || !sections.Contains(SectionNames.CallGraph, StringComparer.OrdinalIgnoreCase))
+            bool memberGroupTree =
+                options.MemberFilter.Count == 1
+                && options.OverloadIndex is null
+                && string.IsNullOrWhiteSpace(options.MemberDigest)
+                && options.MemberGenericArity is null
+                && options.Select is null
+                && !options.SelectDefault;
+            if (!memberGroupTree
+                && (sections is not { Count: 1 }
+                    || !sections.Contains(
+                        SectionNames.CallGraph,
+                        StringComparer.OrdinalIgnoreCase)))
             {
                 CommandError.Write(
                     "--tree requires exactly one selected tree shape.",
-                    "Use -S \"Call Graph\" --tree.");
+                    "Use an exact member-group name or "
+                        + "-S \"Call Graph\" --tree.");
                 return false;
             }
         }
@@ -1307,20 +1348,20 @@ public partial class ApiCommand
             CommandError.WriteNote($"{empty.Count} sections have no data for {type.FullName}{suffix}: {string.Join(", ", empty)}.");
     }
 
+    // The Metadata owner's admission decides which declarations are
+    // compiler-generated; a host does not narrow the population further by name
+    // (docs/design/api-population-scope.md#accessibility-within-api-visibility-scope).
     internal static ApiType BuildFilteredTypeForSections(ApiType type, ApiOptions options)
-        => BuildFilteredType(type, options, excludeCompilerGeneratedNames: true);
+        => BuildFilteredType(type, options);
 
     internal static ApiType BuildFilteredTypeForBodyShapes(ApiType type, ApiOptions options)
-        => BuildFilteredType(type, options, excludeCompilerGeneratedNames: false);
+        => BuildFilteredType(type, options);
 
     private static ApiType BuildFilteredType(
         ApiType type,
-        ApiOptions options,
-        bool excludeCompilerGeneratedNames)
+        ApiOptions options)
     {
         IEnumerable<ApiMember> members = type.Members;
-        if (excludeCompilerGeneratedNames)
-            members = members.Where(m => !MemberFilters.IsCompilerGenerated(m.Name));
 
         if (options.MemberFilter.Count > 0)
             members = members.Where(m => TypeMatcher.MatchesMemberFilter(m.Name, options.MemberFilter));
@@ -1400,6 +1441,10 @@ public partial class ApiCommand
         var detailSchema = MergeSchemas(schema,
             ApiViewContext.Default.GetSchemaInfo<MemberCodeView>()!.ToDocumentSchema());
         LibraryCommand.AddCloneCandidateSchema(detailSchema);
+        // Source's rows are its exact lines (Source document cardinality); the
+        // row formats emit these columns, so projection validation and
+        // discovery read the same vocabulary the writer produces.
+        detailSchema.Add(SectionNames.Source, "column", SourceLineHeaders);
         if (!includeExactMemberColumns)
             return detailSchema;
         if (detailSchema.GetSection(SectionNames.Calls) == null)

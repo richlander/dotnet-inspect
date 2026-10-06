@@ -10,10 +10,11 @@ namespace ILInspector.AnalysisHarness;
 
 /// <summary>
 /// Materializes analysis fixtures into temporary assemblies and grades them with the real
-/// analyzer (<see cref="LibraryBodyIndex"/>). Each fixture builds in isolation: a consumer
-/// assembly (the inspected one) plus, when the fixture is cross-assembly, a referenced external
-/// assembly. Isolation keeps same-fully-qualified-name collision fixtures and extern aliases
-/// from clashing across catalogue entries.
+/// focused Analysis results. Each fixture builds in isolation: a consumer
+/// assembly (the inspected one) plus, when the fixture is cross-assembly, a
+/// referenced external assembly. Isolation keeps same-fully-qualified-name
+/// collision fixtures and extern aliases from clashing across catalogue
+/// entries.
 /// </summary>
 public static class AnalysisFixtureRunner
 {
@@ -73,20 +74,37 @@ public static class AnalysisFixtureRunner
         if (!File.Exists(consumerDll))
             throw new InvalidOperationException($"Fixture '{fixture.Id}' did not produce {consumerDll}.");
 
-        var index = LibraryBodyIndex.Open(consumerDll);
-        var signalsByToken = index.GetMethodSignals();
+        LibraryBodyAnalysisExecution analysis =
+            LibraryBodyAnalysisService.ExecutePath(
+                consumerDll,
+                LibraryBodyAnalysisRequest.Create(
+                    LibraryBodyAnalysisFeatures
+                        .OptimizationOpportunities));
+        LibraryCallGraphAnalysisResult callGraph = analysis.CallGraph;
+        IReadOnlyDictionary<int, MethodSignals> signalsByToken =
+            callGraph.MethodSignals;
 
         foreach (var target in fixture.Targets)
-            yield return Grade(fixture, target, index, signalsByToken);
+        {
+            yield return Grade(
+                fixture,
+                target,
+                callGraph,
+                analysis.Optimization,
+                signalsByToken);
+        }
     }
 
     static AnalysisFixtureResult Grade(
         AnalysisFixtureDefinition fixture,
         AnalysisFixtureTarget target,
-        LibraryBodyIndex index,
+        LibraryCallGraphAnalysisResult callGraph,
+        LibraryOptimizationAnalysisResult optimization,
         IReadOnlyDictionary<int, MethodSignals> signalsByToken)
     {
-        var matches = index.Methods.Where(m => m.Name == target.Method).ToList();
+        var matches = callGraph.Methods
+            .Where(m => m.Name == target.Method)
+            .ToList();
         if (matches.Count != 1)
         {
             // Grade only an unambiguous target: 0 matches is a missing method, >1 is an
@@ -103,7 +121,7 @@ public static class AnalysisFixtureRunner
         var method = matches[0];
         var signals = signalsByToken.GetValueOrDefault(method.MetadataToken, MethodSignals.None);
         var exceptionTypes = signals.ExceptionTypes;
-        var opportunityShapes = index.OptimizationOpportunities
+        var opportunityShapes = optimization.Opportunities
             .Where(o => o.Method.MetadataToken == method.MetadataToken)
             .Select(o => o.Shape)
             .Distinct(StringComparer.Ordinal)

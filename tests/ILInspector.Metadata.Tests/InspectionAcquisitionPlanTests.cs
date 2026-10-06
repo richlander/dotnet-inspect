@@ -554,6 +554,40 @@ public class InspectionAcquisitionPlanTests
     }
 
     [Fact]
+    public void ArtifactPathDescriptor_PreservesPathAndReadsArtifactSnapshot()
+    {
+        Guid mvid = Guid.NewGuid();
+        byte[] image =
+            BuildSimpleAssembly("ArtifactBound", "Type", mvid);
+        ArtifactAcquisitionRegistration artifactRegistration =
+            RegisterArtifact(
+                () => new MemoryStream(image, writable: false));
+        string path = Path.Combine(
+            "relative",
+            "ArtifactBound.dll");
+
+        ResolvedAssemblyReference descriptor =
+            ResolvedAssemblyReference.CreateFromArtifactPathIfManaged(
+                artifactRegistration,
+                path,
+                () => new MemoryStream(image, writable: false),
+                AssemblyResolutionProvenance.Local("test"))
+            ?? throw new InvalidOperationException(
+                "The managed assembly was not recognized.");
+
+        Assert.Equal(Path.GetFullPath(path), descriptor.Path);
+        Assert.Equal("ArtifactBound.dll", descriptor.AssetFileName);
+        Assert.Same(
+            artifactRegistration,
+            descriptor.Registration.ArtifactRegistration);
+        Assert.Equal(mvid, descriptor.Registration.ModuleVersionId);
+
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Open(descriptor);
+        Assert.Equal("ArtifactBound", session.AssemblyInfo().AssemblyName);
+    }
+
+    [Fact]
     public void ArtifactDescriptor_RejectsSameIdentityFromDifferentModuleGeneration()
     {
         byte[] selected =

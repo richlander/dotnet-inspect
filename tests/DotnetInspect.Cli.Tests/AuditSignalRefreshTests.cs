@@ -58,7 +58,7 @@ public class AuditSignalRefreshTests
                     },
                     AssemblyReferencesQuery.Definition,
                     AuditMetadataQuery.Definition,
-                    ClassifiedMethodsQuery.Definition);
+                    MethodClassificationDemand.Signals);
             using var httpClient = new HttpClient();
 
             var inspection = await LibraryMetadataService.InspectAsync(

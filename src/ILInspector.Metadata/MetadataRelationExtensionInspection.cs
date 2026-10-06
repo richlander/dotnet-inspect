@@ -47,76 +47,19 @@ internal static partial class MetadataRelationInspection
                 {
                     continue;
                 }
-                if (extension.DeclaringTypeDefinition is null
-                    || extension.Anchor is null
-                    || extension.DeclaringTypeHandle.IsNil
-                    || extension.ReceiverContextTypeHandle.IsNil
-                    || extension.ReceiverMethodHandle.IsNil)
-                {
-                    diagnostics.Add(
-                        UnsupportedDiagnostic(
-                            MetadataRelationFamily.Extensions,
-                            null,
-                            "An extension declaration lacks exact Metadata identity."));
-                    continue;
-                }
-
-                TypeDefinition receiverContext =
-                    reader.GetTypeDefinition(
-                        extension.ReceiverContextTypeHandle);
-                MethodDefinition receiverMethod =
-                    reader.GetMethodDefinition(
-                        extension.ReceiverMethodHandle);
-                MetadataMethodSignatureDecodeResult signature =
-                    MetadataTypeIdentityDecoder.DecodeMethod(
+                if (!TryReadExtensionDeclaration(
                         reader,
-                        receiverContext,
-                        receiverMethod,
-                        operation);
-                if (signature
-                    is MetadataMethodSignatureDecodeResult.Rejected rejected)
+                        extension,
+                        operation,
+                        out DecodedExtensionDeclaration? declaration,
+                        out MetadataRelationDiagnostic? diagnostic))
                 {
-                    diagnostics.Add(
-                        UnsupportedDiagnostic(
-                            MetadataRelationFamily.Extensions,
-                            extension.DeclarationMetadataToken,
-                            rejected.Detail));
+                    diagnostics.Add(diagnostic!);
                     continue;
                 }
-                MetadataMethodSignatureIdentity identity =
-                    ((MetadataMethodSignatureDecodeResult.Decoded)
-                        signature).Signature;
-                if ((identity.ParameterTypes.Length != 1
-                        && extension.Kind == "property")
-                    || identity.ParameterTypes.IsEmpty)
-                {
-                    diagnostics.Add(
-                        UnsupportedDiagnostic(
-                            MetadataRelationFamily.Extensions,
-                            extension.DeclarationMetadataToken,
-                            "An extension declaration has no exact receiver parameter."));
-                    continue;
-                }
-
-                operation.Charge(
-                    MetadataOperationDimension.RelationshipEdges);
                 admittedDeclarations.Add(
                     extension.DeclarationMetadataToken);
-                evidence.Add(
-                    new(
-                        MetadataTypeDefinitionAddress.FromHandle(
-                            reader,
-                            extension.DeclaringTypeHandle),
-                        extension.DeclaringTypeDefinition,
-                        MetadataTypeDefinitionAddress.FromHandle(
-                            reader,
-                            extension.ReceiverContextTypeHandle),
-                        extension.DeclarationMetadataToken,
-                        MetadataMethodAddress.Create(
-                            reader,
-                            extension.ReceiverMethodHandle),
-                        extension.Anchor,
-                        identity.ParameterTypes[0]));
+                evidence.Add(declaration!.ToEvidence());
             }
             scanCompleted = true;
         }
@@ -183,20 +126,55 @@ internal static partial class MetadataRelationInspection
 
     private sealed record ExtensionCandidatePopulation(
         HashSet<int> Included,
-        int Excluded);
+        int Excluded,
+        ImmutableArray<ExtensionDeclarationCandidate> Candidates);
+
+    private readonly record struct ExtensionDeclarationCandidate(
+        TypeDefinitionHandle DeclaringType,
+        TypeDefinitionHandle GroupingType,
+        MethodDefinitionHandle Method,
+        PropertyDefinitionHandle Property,
+        int MetadataToken)
+    {
+        internal bool IsProperty => !Property.IsNil;
+    }
 
     private static ExtensionCandidatePopulation ExtensionCandidates(
         MetadataReader reader,
         MetadataRelationInspectionRequest request,
+        CancellationToken cancellationToken) =>
+        ExtensionCandidates(
+            reader,
+            handle => request.IncludesType(reader, handle),
+            request.IncludeNonPublic,
+            cancellationToken);
+
+    private static ExtensionCandidatePopulation ExtensionCandidates(
+        MetadataReader reader,
+        bool includeNonPublic,
+        CancellationToken cancellationToken) =>
+        ExtensionCandidates(
+            reader,
+            static _ => true,
+            includeNonPublic,
+            cancellationToken);
+
+    private static ExtensionCandidatePopulation ExtensionCandidates(
+        MetadataReader reader,
+        Func<TypeDefinitionHandle, bool> includesType,
+        bool includeNonPublic,
         CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(includesType);
         var included = new HashSet<int>();
+        var candidates =
+            ImmutableArray.CreateBuilder<ExtensionDeclarationCandidate>();
         int excluded = 0;
         foreach (TypeDefinitionHandle typeHandle
             in reader.TypeDefinitions)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (!request.IncludesType(reader, typeHandle))
+            if (!includesType(typeHandle))
                 continue;
 
             TypeDefinition type = reader.GetTypeDefinition(typeHandle);
@@ -213,38 +191,10 @@ internal static partial class MetadataRelationInspection
             }
 
             bool typeExcluded =
-                !request.IncludeNonPublic
+                !includeNonPublic
                 && AttributeReader.HasHiddenAttribute(
                     reader,
                     type.GetCustomAttributes());
-            foreach (MethodDefinitionHandle methodHandle
-                in type.GetMethods())
-            {
-                MethodDefinition method =
-                    reader.GetMethodDefinition(methodHandle);
-                if ((method.Attributes & MethodAttributes.Static) == 0
-                    || !AttributeReader.HasExtensionAttribute(
-                        reader,
-                        method.GetCustomAttributes()))
-                {
-                    continue;
-                }
-
-                bool methodExcluded =
-                    typeExcluded
-                    || (!request.IncludeNonPublic
-                        && ((method.Attributes
-                                & MethodAttributes.MemberAccessMask)
-                                != MethodAttributes.Public
-                            || AttributeReader.HasHiddenAttribute(
-                                reader,
-                                method.GetCustomAttributes())));
-                if (methodExcluded)
-                    excluded++;
-                else
-                    included.Add(MetadataTokens.GetToken(methodHandle));
-            }
-
             foreach (TypeDefinitionHandle groupingHandle
                 in type.GetNestedTypes())
             {
@@ -271,7 +221,7 @@ internal static partial class MetadataRelationInspection
                         continue;
                     bool propertyExcluded =
                         typeExcluded
-                        || (!request.IncludeNonPublic
+                        || (!includeNonPublic
                             && (AttributeReader.HasHiddenAttribute(
                                     reader,
                                     property.GetCustomAttributes())
@@ -286,13 +236,164 @@ internal static partial class MetadataRelationInspection
                     if (propertyExcluded)
                         excluded++;
                     else
-                        included.Add(
-                            MetadataTokens.GetToken(propertyHandle));
+                    {
+                        int metadataToken =
+                            MetadataTokens.GetToken(propertyHandle);
+                        included.Add(metadataToken);
+                        candidates.Add(
+                            new(
+                                typeHandle,
+                                groupingHandle,
+                                default,
+                                propertyHandle,
+                                metadataToken));
+                    }
+                }
+            }
+
+            foreach (MethodDefinitionHandle methodHandle
+                in type.GetMethods())
+            {
+                MethodDefinition method =
+                    reader.GetMethodDefinition(methodHandle);
+                if ((method.Attributes & MethodAttributes.Static) == 0
+                    || !AttributeReader.HasExtensionAttribute(
+                        reader,
+                        method.GetCustomAttributes()))
+                {
+                    continue;
+                }
+
+                bool methodExcluded =
+                    typeExcluded
+                    || (!includeNonPublic
+                        && ((method.Attributes
+                                & MethodAttributes.MemberAccessMask)
+                                != MethodAttributes.Public
+                            || AttributeReader.HasHiddenAttribute(
+                                reader,
+                                method.GetCustomAttributes())));
+                if (methodExcluded)
+                    excluded++;
+                else
+                {
+                    int metadataToken =
+                        MetadataTokens.GetToken(methodHandle);
+                    included.Add(metadataToken);
+                    candidates.Add(
+                        new(
+                            typeHandle,
+                            default,
+                            methodHandle,
+                            default,
+                            metadataToken));
                 }
             }
         }
 
-        return new(included, excluded);
+        return new(
+            included,
+            excluded,
+            candidates.ToImmutable());
+    }
+
+    private static bool TryReadExtensionDeclaration(
+        MetadataReader reader,
+        ExtensionMethodInfo extension,
+        MetadataOperationContext operation,
+        out DecodedExtensionDeclaration? declaration,
+        out MetadataRelationDiagnostic? diagnostic)
+    {
+        if (extension.DeclaringTypeDefinition is null
+            || extension.Anchor is null
+            || extension.DeclaringTypeHandle.IsNil
+            || extension.ReceiverContextTypeHandle.IsNil
+            || extension.ReceiverMethodHandle.IsNil)
+        {
+            declaration = null;
+            diagnostic = UnsupportedDiagnostic(
+                MetadataRelationFamily.Extensions,
+                null,
+                "An extension declaration lacks exact Metadata identity.");
+            return false;
+        }
+
+        TypeDefinition receiverContext =
+            reader.GetTypeDefinition(
+                extension.ReceiverContextTypeHandle);
+        MethodDefinition receiverMethod =
+            reader.GetMethodDefinition(
+                extension.ReceiverMethodHandle);
+        MetadataMethodSignatureDecodeResult signature =
+            MetadataTypeIdentityDecoder.DecodeMethod(
+                reader,
+                receiverContext,
+                receiverMethod,
+                operation);
+        if (signature
+            is MetadataMethodSignatureDecodeResult.Rejected rejected)
+        {
+            declaration = null;
+            diagnostic = UnsupportedDiagnostic(
+                MetadataRelationFamily.Extensions,
+                extension.DeclarationMetadataToken,
+                rejected.Detail);
+            return false;
+        }
+
+        MetadataMethodSignatureIdentity identity =
+            ((MetadataMethodSignatureDecodeResult.Decoded)
+                signature).Signature;
+        if ((identity.ParameterTypes.Length != 1
+                && extension.Kind == "property")
+            || identity.ParameterTypes.IsEmpty)
+        {
+            declaration = null;
+            diagnostic = UnsupportedDiagnostic(
+                MetadataRelationFamily.Extensions,
+                extension.DeclarationMetadataToken,
+                "An extension declaration has no exact receiver parameter.");
+            return false;
+        }
+
+        operation.Charge(
+            MetadataOperationDimension.RelationshipEdges);
+        declaration = new(
+            MetadataTypeDefinitionAddress.FromHandle(
+                reader,
+                extension.DeclaringTypeHandle),
+            extension.DeclaringTypeDefinition,
+            MetadataTypeDefinitionAddress.FromHandle(
+                reader,
+                extension.ReceiverContextTypeHandle),
+            extension.DeclarationMetadataToken,
+            MetadataMethodAddress.Create(
+                reader,
+                extension.ReceiverMethodHandle),
+            extension.Anchor,
+            identity.ParameterTypes[0]);
+        diagnostic = null;
+        return true;
+    }
+
+    internal sealed record DecodedExtensionDeclaration(
+        MetadataTypeDefinitionAddress DeclaringType,
+        MetadataTypeDefinitionName DeclaringTypeName,
+        MetadataTypeDefinitionAddress ReceiverContextType,
+        int DeclarationMetadataToken,
+        MetadataMethodAddress ReceiverDeclarationMethod,
+        MemberAnchor Member,
+        MetadataTypeIdentity Receiver)
+    {
+        internal MetadataExtensionRelationEvidence ToEvidence() =>
+            new(
+                DeclaringType,
+                DeclaringTypeName,
+                ReceiverContextType,
+                DeclarationMetadataToken,
+                ReceiverDeclarationMethod,
+                Member,
+                Receiver);
     }
 
     private static void AuditRejectedExtensionCandidates(

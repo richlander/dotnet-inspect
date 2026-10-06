@@ -513,12 +513,11 @@ Queries-owned and does not change this population-sealing contract.
 ### Legacy query execution seam
 
 `ImplementationComparisonInput` currently accepts independent old/new
-collections of Research-owned `ImplementationAssemblyInput` values.
-`BodySignalComparisonInput` accepts independent old/new
-`BodySignalAnalysisInput` collections. Both query adapters pass those collections
-directly to Research. Neither adapter has a query-owned operation identity,
+collections of Research-owned `ImplementationAssemblyInput` values and passes
+them directly to Research. That adapter has no query-owned operation identity,
 sealed population, or receipt proving which query inputs became which Research
-admission values.
+admission values. `BodySignalComparisonQuery` has left this seam: it seals a
+body-signal population before Research admission.
 
 `AssemblyContextGroup` already seals participant registration and
 binding-policy consistency for one live workspace group. That remains a
@@ -578,19 +577,21 @@ id kinds. The sealer does not deduplicate borrowed values, and it does not open
 content, hash bytes, read an MVID, compare paths, or use list position as the
 resulting identity.
 
-The implemented boundary has one typed profile used by the direct-member query:
+The implemented boundary has two typed profiles. Queries owns each profile
+value and population sealing. The body-signal binding borrows a Research-owned
+Analysis input, so it lives in the ResearchQueries companion, which alone may
+reference Research, and seals through the internal Queries sealer.
 
 | Profile | Query-owned input binding | Borrowed owner values |
 | --- | --- | --- |
 | Implementation comparison | one binding per submitted assembly input | exact `ResolvedAssemblyReference`, `IAssemblyReferenceResolver`, and Analysis `LibraryCallGraphAnalysisResult` |
+| Body signal | one binding per submitted assembly input | exact `ResolvedAssemblyReference`, `IAssemblyReferenceResolver`, and Analysis `BodySignalAnalysisInput` |
 
 The separate whole-assembly execution migration must replace the Research-owned
 `ImplementationAssemblyInput` at its public L1 input seam with a query-owned
-idless binding. A body-signal adoption must supply its required Metadata target
-evidence and an actual public execution consumer together; the unused
-index-only population request, sealer overload, and projection are not retained
-as placeholders for that future work. Research's own supported profiles and the
-existing `BodySignalComparisonQuery` are unchanged by this Queries contraction.
+idless binding. The body-signal profile supplies its Metadata target evidence,
+the same descriptor and resolver as the implementation profile, together with
+its public execution consumer, `BodySignalComparisonQuery`.
 
 The sealer copies caller-owned collections and selection sets into immutable
 storage before returning. Subsequent caller mutation cannot change the
@@ -1607,12 +1608,14 @@ canaries:
   enumerated siblings relative to each parent first, then installed platform
   assets; it does not import the inspecting process's dependency closure.
 - `AssemblyContextReferencesQuery` owns session access for every participant in
-  a binding-consistent group. `PackageDependencyGroupsQuery` reads one bounded
-  root manifest through `IPackageContent`, validates its package ID and version,
-  retains its groups as declared, and reports exact-framework absence separately
-  from an empty dependency set.
-  Browser-Wasm composes those two typed results without parsing XML or opening
-  an assembly session.
+  a binding-consistent group. Its participant entry point also issues detached
+  `AssemblyReferenceRow` values for hosts that need reference fields but do not
+  own Metadata identity semantics. `PackageDependencyGroupsQuery` reads one
+  bounded root manifest through `IPackageContent`, validates its package ID and
+  version, retains its groups as declared, and reports exact-framework absence
+  separately from an empty dependency set. Browser-Wasm composes those two
+  typed results without parsing XML, opening an assembly session, or projecting
+  Metadata identities itself.
 - `AssemblyContextTypeDependencyQuery` retains the admitted descriptors for one
   binding-consistent group and invokes the Metadata-owned population scan once.
   Ordinary population lookup scans the committed participant order. Its
@@ -1671,24 +1674,27 @@ above preserve the real-asset observation.
 - `UnionTypesQuery` returns deeply immutable, metadata-ordered union facts for
   `Union Types`. The CLI adds path-based Finding provenance and contains exact
   metadata identity at the presentation row boundary.
-- `ClassifiedMethodsQuery` returns immutable, metadata-ordered method
-  classifications shared by `Library Info`, P/Invoke Methods, Async Methods,
-  and Signals. The CLI adds path-based Finding provenance and compatibility
-  summaries after query execution, and P/Invoke and async rows contain exact
-  evidence at the presentation boundary.
+- `MethodClassificationQuery` answers each consumer's question of the P/Invoke,
+  async, and pointer-signature analyzers: `Library Info` and Signals ask for
+  counts, and the P/Invoke Methods and Async Methods sections ask for rows in
+  the order they show, or a count under `--count`. The CLI maps the typed
+  answers into its model without filtering, sorting, or counting, and the rows'
+  identity text is already inert when it reaches the view.
 - `AuditMetadataQuery` returns immutable assembly/module/member audit facts as
   `Available`, `NoMetadata`, or `Failed`. `Signals` composes those facts with
   direct references, classified methods, and later source evidence in the CLI;
   metadata acquisition no longer requires a mutable composition scanner.
-- `UnsafeEvidenceQuery` consumes an already-acquired `LibraryBodyIndex` and
-  returns immutable Analysis-owned unsafe evidence plus diagnostics. The CLI
+- `UnsafeEvidenceQuery` consumes an already-produced
+  `LibrarySafetyAnalysisResult` and returns immutable Analysis-owned unsafe
+  evidence plus diagnostics. The CLI
   adds path-scoped per-method Finding provenance, retains partial-census
   diagnostics, and projects compatibility JSON, while Markdown rows contain raw
   evidence only at the `UnsafeMemberRow` sink.
-- `TopLeverageQuery` consumes that same host-acquired body index and returns the
-  unbounded ranked `MethodLeverage` set, generated-framework type evidence, and
-  Analysis diagnostics. The CLI owns visibility and selector enrichment plus
-  legacy JSON projection; Markdown formats raw method identity and introduces
+- `TopLeverageQuery` consumes an already-produced
+  `LibraryLeverageAnalysisResult` and returns the unbounded ranked
+  `MethodLeverage` set, generated-framework type evidence, and Analysis
+  diagnostics. The CLI owns visibility and selector enrichment plus legacy
+  JSON projection; Markdown formats raw method identity and introduces
   `InertString` only at the `TopLeverageRow` sink.
 - `SwitchesQuery` lives in the optional Research-backed query companion. It
   composes attribute-declared metadata with Research-owned AppContext IL
@@ -1704,11 +1710,13 @@ above preserve the real-asset observation.
   both their Finding correspondence and Metadata-owned compatibility
   classification. The `diff` command keeps endpoint acquisition and member
   filtering host-owned.
-- `BodySignalComparisonQuery` consumes old/new `BodySignalAnalysisInput`
-  collections composed from focused Analysis results of one execution per
-  assembly, and returns the Research-owned `ResearchComparison`. The diff
-  adapter executes Analysis only under selected Analysis query demand; path
-  acquisition remains an explicit host-owned migration boundary.
+- `BodySignalComparisonQuery` consumes old/new body-signal bindings, each with
+  an assembly descriptor, a resolver, and a `BodySignalAnalysisInput` composed
+  from focused Analysis results of one execution. It also consumes optional
+  typed member selections, and returns the Research-owned `ResearchComparison`
+  or a typed target failure. The diff adapter executes Analysis only under
+  selected Analysis query demand; path acquisition remains an explicit
+  host-owned migration boundary.
 - `ImplementationComparisonQuery` consumes old/new retained assembly
   descriptors, reference resolvers, and Analysis
   `LibraryCallGraphAnalysisResult` values and returns

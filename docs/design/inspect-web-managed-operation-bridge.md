@@ -91,6 +91,12 @@ The managed bridge guarantees only operation-scoped callback lifetime and
 release plus producer-order callback invocation. It does not coalesce progress,
 discard durable events, batch messages, or grant DOM publication authority.
 
+[Progressive JSONL Delivery](progressive-jsonl-delivery.md) consumes this
+lifetime with a feature-owned data-batch variant whose content crosses as a
+string primitive and whose record count is a sibling primitive field. The
+bridge does not frame records, interpret JSONL, or wrap the batch content in a
+second serialized JSON document.
+
 ### User cancellation and supersession
 
 The main-thread operation owner first completes the logical operation with a

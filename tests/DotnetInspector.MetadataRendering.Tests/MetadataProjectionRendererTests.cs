@@ -71,10 +71,10 @@ public class MetadataProjectionRendererTests
         string caveat = Assert.Single(
             MetadataProjectionRenderer.Caveats(
                 entries,
-                "library coordinate"));
+                "library address"));
 
         Assert.Contains(
-            "library coordinate \"#US:<address>\"",
+            "library address \"#US:<address>\"",
             caveat);
         Assert.DoesNotContain("with --heap", caveat);
     }

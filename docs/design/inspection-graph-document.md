@@ -6,6 +6,12 @@ and packages without turning every relationship into a call.
 
 Related documents:
 
+- [Inspector.Graph library
+  boundary](inspector-graph-library-boundary.md) owns the target
+  subject-neutral structural carrier and its dependency boundary. This
+  document retains product Inspection Graph semantics and remains the current
+  runtime owner until the focused carrier migration retires the Queries-owned
+  structure.
 - [Call-graph projection](call-graph-projection.md) owns the current
   member-to-member call topology, identity, boundaries, and stable edge rows.
 - [Call-graph characteristics](call-graph-characteristics.md) maps the current

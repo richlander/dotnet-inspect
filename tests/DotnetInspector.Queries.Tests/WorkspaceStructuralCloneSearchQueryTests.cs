@@ -6,6 +6,7 @@ using System.Reflection.PortableExecutable;
 using System.Runtime.InteropServices;
 
 using DotnetInspector.Fixtures;
+using DotnetInspector.Sections;
 using ILInspector.Analysis;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
@@ -52,6 +53,11 @@ public sealed class WorkspaceStructuralCloneSearchQueryTests
         Assert.Equal(
             StructuralCloneCandidateDiscovery.SimilarNames,
             input.Discovery);
+        Assert.IsType<StructuralCloneCandidatePopulation.All>(
+            input.CandidatePopulation);
+        Assert.Equal(
+            StructuralCloneSearchEvidence.Summary,
+            input.Evidence);
         Assert.Equal(
             0.6,
             WorkspaceStructuralCloneSearchQuery.NameSimilarityThreshold);
@@ -166,6 +172,337 @@ public sealed class WorkspaceStructuralCloneSearchQueryTests
         Assert.Equal(
             1,
             SeedCount(fixture, fixture.MemberSeed("Compute0")));
+    }
+
+    [Fact]
+    public async Task Execute_MethodDefinitionTokenSeedsOneExactBody()
+    {
+        await using Fixture fixture = await Fixture.CreateAsync();
+        int token = fixture.SelfMethodToken("N.Alpha", "Compute0");
+
+        WorkspaceStructuralCloneSearchResult.Available result =
+            Available(
+                Execute(
+                    new WorkspaceStructuralCloneSearchInput(
+                        fixture.Snapshot(),
+                        new StructuralCloneSearchSeed
+                            .MethodDefinitionToken(token),
+                        StructuralCloneCandidateBreadth.Self,
+                        StructuralCloneCandidateDiscovery.All)));
+
+        Assert.Equal(1, result.Receipt.SeedMethods);
+        Assert.Equal(token, Assert.Single(result.Seeds).Seed.Method.Token);
+    }
+
+    [Fact]
+    public async Task Execute_MissingMethodDefinitionTokenIsTypedFailure()
+    {
+        await using Fixture fixture = await Fixture.CreateAsync();
+
+        WorkspaceStructuralCloneSearchResult.Failed result =
+            Assert.IsType<WorkspaceStructuralCloneSearchResult.Failed>(
+                Execute(
+                    new WorkspaceStructuralCloneSearchInput(
+                        fixture.Snapshot(),
+                        new StructuralCloneSearchSeed
+                            .MethodDefinitionToken(0x06FFFFFF),
+                        StructuralCloneCandidateBreadth.Self,
+                        StructuralCloneCandidateDiscovery.All)));
+
+        Assert.Equal(
+            StructuralCloneSearchFailureKind.SeedMethodNotFound,
+            result.Failure.Kind);
+    }
+
+    [Fact]
+    public async Task Execute_ContainingTypePopulationLimitsCandidateWork()
+    {
+        await using Fixture fixture = await Fixture.CreateAsync();
+        int seed = fixture.SelfMethodToken("N.Alpha", "Compute0");
+
+        WorkspaceStructuralCloneSearchResult.Available result =
+            Available(
+                Execute(
+                    new WorkspaceStructuralCloneSearchInput(
+                        fixture.Snapshot(),
+                        new StructuralCloneSearchSeed
+                            .MethodDefinitionToken(seed),
+                        StructuralCloneCandidateBreadth.Self,
+                        StructuralCloneCandidateDiscovery.All,
+                        new WorkspaceStructuralCloneSearchLimits(
+                            MaximumSeedMethods: 1,
+                            MaximumCandidateMethods: 10,
+                            MaximumParticipants: 1,
+                            MaximumRetrievalPairs: 10,
+                            MaximumRetrievalChunkMethods: 10),
+                        new StructuralCloneCandidatePopulation
+                            .ContainingLibraryType(
+                                TypeName("N.Zulu")),
+                        StructuralCloneSearchEvidence
+                            .DetailedRetrievals)));
+
+        Assert.IsType<
+            StructuralCloneCandidatePopulation.ContainingLibraryType>(
+                result.CandidatePopulation);
+        Assert.Equal(1, result.Receipt.CandidateMethods);
+        Assert.Equal(1, result.Receipt.DiscoveredCandidateMethods);
+        Assert.Single(result.Pairs);
+        StructuralCloneSearchRetrievalEvidence retrieval =
+            Assert.Single(Assert.Single(result.Seeds).Retrievals);
+        Assert.Equal(1, retrieval.Retrieval.Receipt.InputMethods);
+        Assert.Single(retrieval.Retrieval.Methods);
+    }
+
+    [Fact]
+    public async Task MatchInspection_PreservesOneDetailedAnalysisResult()
+    {
+        await using Fixture fixture = await Fixture.CreateAsync();
+        int seed = fixture.SelfMethodToken("N.Alpha", "Compute0");
+
+        InspectionEnvelope<StructuralMatchDiscoveryInspectionResult>
+            inspection =
+                StructuralMatchDiscoveryInspection.Execute(
+                    fixture.Snapshot(),
+                    seed,
+                    new StructuralCloneCandidatePopulation
+                        .ContainingLibraryType(TypeName("N.Alpha")),
+                    new StructuralCloneRetrievalLimits(
+                        MaximumMethods: 10,
+                        MaximumResults: 3),
+                    TestContext.Current.CancellationToken);
+        var available = Assert.IsType<
+            StructuralMatchDiscoveryInspectionResult.Available>(
+                inspection.Content);
+
+        Assert.Equal(
+            StructuralCloneRetrievalDisposition.Completed,
+            available.Retrieval.Disposition);
+        Assert.Equal(5, available.Retrieval.Receipt.InputMethods);
+        Assert.Equal(4, available.Retrieval.Receipt.ProcessedMethods);
+        Assert.Equal(4, available.Retrieval.Methods.Length);
+        Assert.Equal(3, available.Candidates.Length);
+        Assert.Equal(4, available.Receipt.RankedCandidates);
+        Assert.Equal(3, available.Receipt.ReturnedCandidates);
+        Assert.Equal(1, available.Receipt.SuppressedCandidates);
+        Assert.Empty(inspection.Diagnostics);
+    }
+
+    [Fact]
+    public async Task MatchInspection_MapsCandidateLimitToProductOutcome()
+    {
+        await using Fixture fixture = await Fixture.CreateAsync();
+        int seed = fixture.SelfMethodToken("N.Alpha", "Compute0");
+
+        InspectionEnvelope<StructuralMatchDiscoveryInspectionResult>
+            inspection =
+                StructuralMatchDiscoveryInspection.Execute(
+                    fixture.Snapshot(),
+                    seed,
+                    new StructuralCloneCandidatePopulation
+                        .ContainingLibraryType(TypeName("N.Alpha")),
+                    new StructuralCloneRetrievalLimits(
+                        MaximumMethods: 1),
+                    TestContext.Current.CancellationToken);
+        var limited = Assert.IsType<
+            StructuralMatchDiscoveryInspectionResult.LimitReached>(
+                inspection.Content);
+
+        Assert.Equal(seed, limited.Seed.Token);
+        Assert.Equal(5, limited.InputMethods);
+        Assert.Equal(4, limited.SuppressedCandidates);
+        Assert.Contains(
+            inspection.Diagnostics,
+            diagnostic => diagnostic.Code
+                == "structural-match-discovery.analysis-incomplete");
+    }
+
+    [Fact]
+    public async Task MatchInspection_CandidateLimitPreservesPopulationOutsideSeedType()
+    {
+        await using Fixture fixture = await Fixture.CreateAsync();
+        int seed = fixture.SelfMethodToken("N.Zulu", "Compute4");
+
+        InspectionEnvelope<StructuralMatchDiscoveryInspectionResult>
+            inspection =
+                StructuralMatchDiscoveryInspection.Execute(
+                    fixture.Snapshot(),
+                    seed,
+                    new StructuralCloneCandidatePopulation
+                        .ContainingLibraryType(TypeName("N.Alpha")),
+                    new StructuralCloneRetrievalLimits(
+                        MaximumMethods: 1),
+                    TestContext.Current.CancellationToken);
+        var limited = Assert.IsType<
+            StructuralMatchDiscoveryInspectionResult.LimitReached>(
+                inspection.Content);
+
+        Assert.Equal(5, limited.InputMethods);
+        Assert.Equal(5, limited.SuppressedCandidates);
+    }
+
+    [Fact]
+    public async Task MatchInspection_PreservesSeedFailureSuppression()
+    {
+        await using Fixture fixture = await Fixture.CreateAsync();
+        int seed = fixture.SelfMethodToken("N.Alpha", "Compute7");
+
+        InspectionEnvelope<StructuralMatchDiscoveryInspectionResult>
+            inspection =
+                StructuralMatchDiscoveryInspection.Execute(
+                    fixture.Snapshot(),
+                    seed,
+                    new StructuralCloneCandidatePopulation
+                        .ContainingLibraryType(TypeName("N.Zulu")),
+                    new StructuralCloneRetrievalLimits(
+                        MaximumMethods: 10,
+                        ComparisonLimits:
+                            new StructuralCloneComparisonLimits(
+                                MaximumInstructions: 1)),
+                    TestContext.Current.CancellationToken);
+        var available = Assert.IsType<
+            StructuralMatchDiscoveryInspectionResult.Available>(
+                inspection.Content);
+
+        Assert.Equal(
+            StructuralCloneRetrievalDisposition.LimitReached,
+            available.Retrieval.Disposition);
+        Assert.Equal(1, available.Retrieval.Receipt.SuppressedCandidates);
+        Assert.Equal(1, available.Receipt.SuppressedCandidates);
+    }
+
+    [Fact]
+    public async Task MatchInspection_PreservesEmptyCandidatePopulation()
+    {
+        await using Fixture fixture = await Fixture.CreateAsync();
+        int seed = fixture.SelfMethodToken("N.Alpha", "Compute0");
+
+        InspectionEnvelope<StructuralMatchDiscoveryInspectionResult>
+            inspection =
+                StructuralMatchDiscoveryInspection.Execute(
+                    fixture.Snapshot(),
+                    seed,
+                    new StructuralCloneCandidatePopulation
+                        .ContainingLibraryType(TypeName("N.Empty")),
+                    new StructuralCloneRetrievalLimits(),
+                    TestContext.Current.CancellationToken);
+        var available = Assert.IsType<
+            StructuralMatchDiscoveryInspectionResult.Available>(
+                inspection.Content);
+
+        Assert.Equal(
+            StructuralCloneRetrievalDisposition.Completed,
+            available.Retrieval.Disposition);
+        Assert.Equal(0, available.Receipt.InputMethods);
+        Assert.Empty(available.Candidates);
+        Assert.Empty(available.Retrieval.Methods);
+    }
+
+    [Fact]
+    public async Task Execute_RejectsMalformedMethodOwnershipBeforeSearch()
+    {
+        (string Detail, byte[] Image)[] cases =
+        [
+            (
+                "repeats a MethodDef",
+                MetadataMethodPtrFixture.BuildDuplicate()),
+            (
+                "repeats a MethodDef",
+                MetadataMethodPtrFixture.BuildAliased()),
+            (
+                "outside the MethodDef table",
+                MetadataMethodPtrFixture.BuildOutOfRange()),
+            (
+                "non-decreasing",
+                MetadataMethodPtrFixture.BuildDescending()),
+            (
+                "cover the MethodDef table exactly once",
+                MetadataMethodPtrFixture.BuildUncovered()),
+            (
+                "not a permutation",
+                MetadataMethodPtrFixture.BuildCountMismatch()),
+        ];
+
+        foreach ((string detail, byte[] bytes) in cases)
+        {
+            ImmutableArray<byte> image =
+                ImmutableCollectionsMarshal.AsImmutableArray(bytes);
+            await using var workspace = new InspectionWorkspace();
+            using AssemblyContextGroup group =
+                Fixture.Group(workspace, image);
+            WorkspaceScopeRevision revision =
+                (await ScopeSnapshot(workspace)).Revision;
+            var entry =
+                new StructuralCloneParticipantEntry(
+                    group,
+                    group.Participants[0],
+                    StructuralCloneParticipantMembership
+                        .ContainingLibrary);
+            var snapshot =
+                new StructuralCloneParticipantSnapshot(
+                    revision,
+                    revision,
+                    [entry]);
+
+            WorkspaceStructuralCloneSearchResult.Failed result =
+                Assert.IsType<WorkspaceStructuralCloneSearchResult.Failed>(
+                    Execute(
+                        new WorkspaceStructuralCloneSearchInput(
+                            snapshot,
+                            new StructuralCloneSearchSeed
+                                .MethodDefinitionToken(0x06000001),
+                            StructuralCloneCandidateBreadth.Self,
+                            StructuralCloneCandidateDiscovery.All)));
+
+            Assert.Equal(
+                StructuralCloneSearchFailureKind.MetadataInspectionFailed,
+                result.Failure.Kind);
+            Assert.Contains(detail, result.Failure.Detail);
+        }
+    }
+
+    [Fact]
+    public async Task Request_TypePopulationRequiresSelfBreadth()
+    {
+        await using Fixture fixture = await Fixture.CreateAsync();
+
+        Assert.Throws<ArgumentException>(
+            () => new WorkspaceStructuralCloneSearchInput(
+                fixture.Snapshot(),
+                new StructuralCloneSearchSeed.Library(),
+                StructuralCloneCandidateBreadth.Everything,
+                StructuralCloneCandidateDiscovery.All,
+                candidatePopulation:
+                    new StructuralCloneCandidatePopulation
+                        .ContainingLibraryType(TypeName("N.Alpha"))));
+    }
+
+    [Fact]
+    public async Task Execute_MissingCandidateTypeIsVisibleCoverageFailure()
+    {
+        await using Fixture fixture = await Fixture.CreateAsync();
+
+        WorkspaceStructuralCloneSearchResult.Available result =
+            Available(
+                Execute(
+                    new WorkspaceStructuralCloneSearchInput(
+                        fixture.Snapshot(),
+                        fixture.MemberSeed("Compute0"),
+                        StructuralCloneCandidateBreadth.Self,
+                        StructuralCloneCandidateDiscovery.All,
+                        candidatePopulation:
+                            new StructuralCloneCandidatePopulation
+                                .ContainingLibraryType(
+                                    TypeName("N.Missing")))));
+
+        Assert.Empty(result.Pairs);
+        Assert.False(result.CoverageIsComplete);
+        StructuralCloneSearchLibraryCoverage library =
+            Assert.Single(
+                result.Libraries.Where(
+                    static value => value.Admitted));
+        Assert.Equal(
+            StructuralCloneSearchFailureKind.CandidateTypeNotFound,
+            Assert.Single(library.Failures).Kind);
     }
 
     /// <summary>
@@ -2128,6 +2465,15 @@ public sealed class WorkspaceStructuralCloneSearchQueryTests
         internal AssemblyContextParticipant EcosystemParticipant =>
             EcosystemGroup.Participants[0];
 
+        internal int SelfMethodToken(string typeName, string methodName)
+        {
+            using var image = new PEReader(SelfImage);
+            MetadataReader reader = image.GetMetadataReader();
+            TypeDefinitionHandle type = Type(reader, typeName);
+            return MetadataTokens.GetToken(
+                Method(reader, type, methodName));
+        }
+
         internal static async ValueTask<Fixture> CreateAsync()
         {
             InspectionWorkspace workspace =
@@ -2597,9 +2943,10 @@ public sealed class WorkspaceStructuralCloneSearchQueryTests
                         ("Unrelated", 1),
                     ]),
                 ("N", "Zulu", [("Compute4", 1)]),
+                ("N", "Empty", []),
             ];
 
-        static AssemblyContextGroup Group(
+        internal static AssemblyContextGroup Group(
             InspectionWorkspace workspace,
             ImmutableArray<byte> image)
             => workspace.CreateAssemblyContextGroup(

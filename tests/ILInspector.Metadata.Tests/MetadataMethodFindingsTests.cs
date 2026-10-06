@@ -1,3 +1,4 @@
+using ILInspector.Metadata.LegacyOracles;
 using System.Collections.Immutable;
 using System.Reflection.PortableExecutable;
 using Inspector.Findings;
@@ -16,7 +17,7 @@ public sealed class MetadataMethodFindingsTests
         using var peReader = new PEReader(stream);
 
         var method = Assert.Single(
-            MethodClassificationScanner.Scan(peReader),
+            LegacyMethodClassificationScanner.Scan(peReader),
             static method => method.MethodName == nameof(ClassifiedPointerMethod));
 
         Assert.NotNull(method.Anchor);
@@ -175,7 +176,7 @@ public sealed class MetadataMethodFindingsTests
     {
         using var stream = File.OpenRead(typeof(MetadataMethodFindingsTests).Assembly.Location);
         using var peReader = new PEReader(stream);
-        var methods = MethodClassificationScanner.Scan(peReader);
+        var methods = LegacyMethodClassificationScanner.Scan(peReader);
 
         var inspection = MetadataFindings.InspectClassifiedMethods(methods, Subject);
 

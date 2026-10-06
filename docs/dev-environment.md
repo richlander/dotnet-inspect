@@ -1,7 +1,35 @@
 # Local development environment
 
-Supplementary notes for [Building and testing](../AGENTS.md#building-and-testing)
-that most contributors won't need but should be able to find.
+This document owns repository SDK selection, build and test commands, package
+acquisition, and local tool activation. Start with the
+[repository workflow](repository-workflow.md#building-testing-and-evidence).
+
+## SDK and normal build
+
+Before any other `dotnet` command, inspect the available and selected SDK:
+
+```bash
+command -v dotnet
+dotnet --list-sdks
+dotnet --version
+```
+
+Use the SDK selected by repository configuration and CI, following
+[Repository development SDK](cli-reference.md#repository-development-sdk).
+Never replace or shadow a centrally installed `dotnet`; when the required SDK
+is absent, install it only under the current worktree as the repository
+instructions specify.
+
+Build the normal graph with:
+
+```bash
+dotnet build dotnet-inspect.slnx -c Release
+```
+
+The primary dependencies are the .NET SDK,
+`Microsoft.CodeAnalysis.CSharp`, and Markout. For a major dependency update,
+check all three and update the .NET SDK and `Microsoft.CodeAnalysis.CSharp`
+together.
 
 ## Which dotnet-inspect to run
 
@@ -115,19 +143,28 @@ Run the managed Browser/Wasm host suite and the frontend suite from their
 respective repository roots:
 
 ```bash
-dotnet run --project inspect-web/DotnetInspect.Web.Tests -c Release
+dotnet run --project tests/DotnetInspect.Web.Tests -c Release
 cd inspect-web
 npm test
 npm run lint
 ```
 
-The managed suite is an xUnit Microsoft Testing Platform executable. Use
+The WebAssembly host is part of the normal solution graph, but its default
+build compiles only managed code and does not invoke Node. Build the frontend
+first and pass `-p:InspectWebIncludeFrontend=true` for a complete browser build
+or publish; publishing without that explicit opt-in fails rather than producing
+an incomplete site. The managed and WebAssembly modes use isolated restore and
+artifact paths: Release outputs are under `artifacts/*/DotnetInspect.Web/release`
+and `artifacts/*/DotnetInspect.Web/release_browser-wasm`, respectively.
+
+The managed suite is part of the normal solution graph and requires neither
+Node nor the WebAssembly workload. It is an xUnit Microsoft Testing Platform
+executable. Use
 `--filter-class` and `--filter-method` after `--` for focused selections. It
 covers the `DotnetInspect.Web` host, shared Sections and Networking
 implementation, and domain-specific `DotnetInspect.Web.Interop.*` export
-assemblies. The frontend gates cover the generated public facade contracts and
-browser application
-without renaming the published `inspect-web-*` modules.
+assemblies. The frontend gates own the generated public facade contracts and
+browser application without renaming the published `inspect-web-*` modules.
 
 ### Network tests
 
@@ -156,6 +193,18 @@ dotnet run --project tests/DotnetInspector.Sections.Tests -c Release
 This Microsoft Testing Platform executable owns semantic row shaping and the
 cross-host completed-inspection envelope, portable-share, contained-diagnostic,
 and JSON round-trip contracts.
+
+### Graph substrate tests
+
+Run the domain-neutral graph carrier suite from the repository root:
+
+```bash
+dotnet run --project tests/Inspector.Graph.Tests -c Release
+```
+
+This Microsoft Testing Platform executable owns structural invariants, the
+independently compiled direct-consumer proof, and the project plus assembly
+dependency boundary.
 
 ### Persistent-cache tests
 

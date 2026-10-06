@@ -9,6 +9,11 @@ interaction. It does not own which subject, target, or lens is active, the
 contents of coordinate selectors, or the consumer effect lifecycle that
 resolves focus after a navigation result installs; those are separately owned.
 
+Rendered-interaction continuity is tracked end to end by
+[#8617](https://github.com/richlander/dotnet-inspect/issues/8617). The focused
+Spotlight adoption is
+[#8618](https://github.com/richlander/dotnet-inspect/issues/8618).
+
 ## Ownership and boundaries
 
 This owner defines:
@@ -184,6 +189,12 @@ The Application menu starts from three established patterns:
   Palette. The useful transfer is action parity, not VS Code's desktop
   application menu bar or user-editable keybinding system
   ([VS Code keyboard shortcuts](https://code.visualstudio.com/docs/configure/keybindings)).
+- React list keys and Lit's keyed `repeat` preserve the association between one
+  logical list item and its rendered instance while collections change. The
+  useful transfer is stable item identity, not either framework or its
+  component model
+  ([React list keys](https://react.dev/learn/rendering-lists#keeping-list-items-in-order-with-key),
+  [Lit keyed lists](https://lit.dev/docs/templates/lists/#the-repeat-directive)).
 
 The deliberate divergence is that the separate Application menu remains small
 and non-navigational. It contains only the shell-owned Share, Settings, and
@@ -227,6 +238,7 @@ Shell maintenance that replaces an open menu while the current routed product
 destination remains Home, Query, Workspace, Activity, or Demos preserves the
 open state and the focused stable destination. A product-destination change closes
 the outgoing menu and follows the ordinary routed destination-focus contract.
+Maintenance replacement also preserves focus when the closed trigger owns it.
 Surfaces outside that product-destination inventory retain their own
 replacement-focus contract.
 
@@ -346,7 +358,7 @@ modal.
 Home, Workspace, Type Explorer, Package query, Package Activity, and
 Diagnostics are routed full-bleed surfaces rather than dialogs. Navigation
 places focus on their visible level-one heading or, for Package query, its
-prefix input, and for Package Activity, its package-set selector under that
+prefix input, and for Package Activity, its Ecosystem selector under that
 heading. Type Explorer's entry, exact-Type route state, return, and restoration
 effects are separately owned by
 [Inspect Web Navigation Consumer](inspect-web-navigation-consumer.md) and its
@@ -373,7 +385,8 @@ Spotlight as the one search experience for:
 - Libraries;
 - Types;
 - Members;
-- platform inputs; and
+- platform inputs;
+- installed capabilities; and
 - commands.
 
 The row-one Search control uses the expanded label
@@ -389,6 +402,129 @@ explicit `Search packages` action that closes the menu and opens Spotlight in
 package scope. Search and coordinate selection use the same result identities
 and acquisition path.
 
+#### Search composition and Ecosystem scope
+
+Spotlight is a fused presentation over owner-issued Workspace Find and package
+discovery results. It does not own another Type matcher, Member matcher,
+Ecosystem classifier, package query, or cross-source relevance score.
+
+Ordinary `All`, `Types`, and `Members` scopes use this phase order:
+
+1. exact Libraries already admitted to the active Workspace;
+2. registered Ecosystem populations, in the Find owner's dependency-aware
+   search order; and
+3. external package discovery when the selected result-kind scope admits
+   packages.
+
+The first phase answers the user's immediate context before broader configured
+populations. A finite result window stops at an owner-issued phase or
+Ecosystem-layer boundary; later populations are not realized merely to be
+discarded by the Browser. The Browser composes only owner-issued counts and
+remaining-window evidence; it does not count rendered rows to authorize source
+work.
+
+Spotlight adds an `Ecosystems` scope beside its result-kind scopes. It admits
+Library, Type, and Member results, including Find rows sourced from exact
+package candidates, but not standalone Package hits, the All-only Capabilities
+group, or Commands. It carries an optional exact selected Ecosystem filter and
+reverses the first two phases:
+
+1. the selected Ecosystem followed by its dependency lineage in layered Find
+   order, or all active Workspace registrations in owner-issued order when
+   there is no exact selection;
+2. exact admitted Workspace Libraries not already represented by those
+   results; and
+3. package-prefix Find blocks resumed from the same exact selected-Ecosystem
+   session.
+
+The initial Ecosystems scope has no exact filter. Its bounded request searches
+active Workspace registrations without package-prefix demand, and the
+catalog-backed selector remains independent of result blocks. Selecting an
+exact Ecosystem starts one replacement staged session for that Ecosystem, its
+dependencies, and its declared package prefixes. Spotlight consumes its
+bounded blocks, searches admitted Workspace Libraries with the owner-issued
+remaining window, then resumes the session's opaque prefix continuation with
+the still-available window. A zero remaining window finalizes the continuation
+without starting package enumeration. No external package phase runs in the
+unfiltered registered-Ecosystems mode.
+
+Selecting an Ecosystem filters a search request; it does not add, remove, or
+rewrite Workspace registrations. Workspace configuration remains a separate
+explicit gesture. The selector offers the canonical owner-issued identities in
+the product Ecosystem catalog and uses their owner-issued labels, including
+Ecosystems not registered in the active Workspace. Changing the selected
+Ecosystem replaces the running request under Spotlight's existing operation
+authority. The request identity includes search text, optional exact Ecosystem,
+prefix demand, and finite result window. Spotlight never filters a fully
+realized result set in TypeScript.
+
+Changing search text, result-kind scope, exact Ecosystem, or finite result
+window starts a replacement session. A completed or zero-capacity-finalized
+continuation is never resumed across requests. Owner-issued caches may reuse
+source facts under their own keys, but Shell Interaction makes no
+cross-session no-repeat claim.
+
+When no Ecosystem filter is selected, ordinary scopes preserve the product's
+configured Workspace registrations. The Ecosystems owner remains responsible
+for the product-curated registration set, which continues to include
+Microsoft.Extensions and its dependencies. Home consumes an owner-supplied
+product Workspace search authority with that configuration; Shell Interaction
+does not construct a Workspace, expand a lineage, or infer registrations from
+the selected filter.
+
+Ordinary `All` and `Packages` scopes continue to consume the unfiltered NuGet
+state owned by
+[Inspect Web Spotlight package search
+state](inspect-web-spotlight-package-search-state.md). That state does not
+admit the Ecosystems scope. Ecosystem-constrained API results from exact package candidates instead arrive
+as owner-issued prefix Find blocks in the same
+[Ecosystem Find Search](ecosystem-find-search.md) session as its bounded
+Ecosystem blocks. Its owner-issued continuation is retained inside the .NET
+Browser operation rather than transported to TypeScript. Changing the exact
+filter therefore cannot reuse an unfiltered NuGet hit, continuation, or prefix
+block from another Ecosystem.
+
+Each result retains its producer coordinate, source observation, optional
+Ecosystem memberships, phase identity, completion evidence, and exact
+activation association. Spotlight may coalesce repeated publication of the
+same exact result identity at its first occurrence. It must not coalesce a
+Package observation with a framework observation merely because their
+displayed Library or Type names match.
+
+Later result blocks do not move the selected logical result. Empty, partial,
+failed, canceled, and superseded phases remain distinguishable. A failed local
+or Ecosystem phase is not presented as a complete miss merely because package
+discovery remains available.
+
+The motivating cases are:
+
+- `System.Collections.Generic.IList<T>` from the .NET Runtime on Home;
+- `JsonSerializer` from both `System.Text.Json@10.0.0` and the corresponding
+  .NET framework population in one Workspace; and
+- `.Add*` with Aspire selected, where Aspire precedes ASP.NET Core,
+  Microsoft.Extensions, and .NET Runtime.
+
+This ordering follows the conventional project-first search behavior exposed
+by JetBrains Search Everywhere, which requires an explicit `All Places`
+expansion for non-project items, and Visual Studio Go To, which provides one
+search surface with separate type and scope controls:
+
+- <https://www.jetbrains.com/help/idea/searching-everywhere.html>
+- <https://learn.microsoft.com/en-us/visualstudio/ide/go-to?view=vs-2022>
+
+The deliberate divergence is that external NuGet discovery remains a separate
+typed phase rather than another symbol location. It can involve network work
+and package-level results, so its progress, failures, and activation retain
+their own owners instead of being hidden inside a global symbol rank.
+
+[#9169](https://github.com/richlander/dotnet-inspect/issues/9169) tracks the
+focused adoption sequence. The shared Find result and Ecosystem-block owners
+land before Browser operation adoption, including the staged continuation in
+[#9172](https://github.com/richlander/dotnet-inspect/pull/9172); Spotlight then
+adopts their typed blocks and the Ecosystem control; Home receives the
+configured search authority; and duplicate local matching, static framework
+search, and Spotlight-owned ranking retire after parity.
+
 Spotlight reacts to every supported way its input value changes, including
 typing, paste, drag and drop of text, autofill where applicable, and input
 method composition. Pasting a package coordinate updates results immediately;
@@ -401,12 +537,65 @@ selection may use Platform-owned realization internally, but neither that
 provenance nor the existence of a resident runtime pack creates a user-facing
 Platform result.
 
+Capability search participates only in Spotlight's `All` scope. It adds no
+persistent scope chip or shell control. Matching installed resources appear in
+one transient `Capabilities` group; a capability such as `library-literal` is
+a result named `Library literal`, not a `Literals` category. Each row presents
+the owner-issued resource name with its resource kind, owning route, and first
+canonical key as secondary metadata.
+
+The result identity is the capability search result's canonical Resource Path.
+The shell does not reconstruct identity from the displayed name, metadata, or
+array position. Activation follows the typed available Browser binding. The
+first production binding opens Package Query without executing it; selecting a
+Query Facet also opens that exact owner-issued term's editor. An example-value
+match such as `https://` preserves the entered text as the draft value;
+conceptual matches such as `literal` open an empty editor. The typed match
+provenance, not Browser-authored syntax recognition, selects that behavior.
+Capability search remains local and resource-free and runs independently of
+the network-backed package search.
+
+This is deliberately host-specific interactive rendering over the generated
+Browser capability-search transport. Capability Catalog Search continues to
+own result construction and ranking; Spotlight owns grouping, row lowering,
+selection, and destination activation. A completed empty capability result
+contributes no `Capabilities` group to the blended result list, matching the
+group's transient nature rather than adding a persistent empty-state row.
+Because this lookup is local, bounded, and normally completes within one
+Worker turn, Spotlight does not add a second loading hint beside the
+network-backed NuGet status. A complete empty result therefore requires no
+completion render; matches, diagnostics, and failures remain visible.
+
 Spotlight's
 [destination-activation
 owner](inspect-web-spotlight-destination-activation.md) supplies each exact
 result's effect and settled product outcome. Shell Interaction retains only
 Spotlight opening, dismissal, focus, keyboard, and modal behavior; it does not
 classify Workspace coverage or reconstruct activation from the selected row.
+
+Each rendered Spotlight result is bound to the exact
+`spotlightResultIdentity` that produced it. Array position remains a transient
+presentation coordinate for selection and `aria-activedescendant`; it is never
+activation identity. Spotlight admits at most one interactive control for each
+exact result identity; alternate discovery paths coalesce at their first
+occurrence. When asynchronous search or shell maintenance renders the same
+result identity again, the Browser preserves that result control's DOM identity
+and updates its position, selected state, content, and exact current descriptor
+in place. Activation resolves only that identity's current rendered descriptor.
+If the identity is absent, activation has no effect; another result that
+occupies the former index cannot receive it.
+
+This preserves native pointer, keyboard, focus, and assistive-technology
+behavior rather than replaying a gesture through application code. It applies
+only to interactive Spotlight result controls. Static group labels, loading
+hints, empty and failure messages, and results whose identity disappeared may
+be replaced normally.
+
+The motivating production asset is `System.Text.Json@9.0.4`. Under the
+published application gate in #8567, ordinary asynchronous rendering could
+replace its exact package result during a physical pointer sequence. #8578
+made that scenario atomic at the test boundary; #8618 moves the guarantee into
+the Shell-owned production renderer.
 
 [Package-row removal](inspect-web-package-removal.md) owns the trailing close
 control for open and recent NuGet package rows in Home and modal Spotlight.
@@ -542,6 +731,39 @@ discoverable palette shortcut plus ordinary control-specific keyboard behavior
 is sufficient.
 
 ## Implementation gates
+
+Search-composition implementation must add and pass these named gates:
+
+- `spotlight.test.ts`:
+  `workspace and Ecosystem phases preserve owner order and stable selection`
+  supplies typed owner-issued result blocks, changes the Ecosystem filter while
+  work is pending, and proves phase order, exact-identity coalescing,
+  package/framework distinction, selection continuity, and visible partial and
+  failure states without reimplementing matching or lineage expansion. It also
+  proves that Capabilities, standalone Package hits, and unfiltered NuGet state
+  remain absent from the Ecosystems scope and that no continuation capability
+  crosses into TypeScript.
+- `BrowserRetainedWorkspaceActivationTests.TypeFind.cs`:
+  `Spotlight find request preserves Workspace and Ecosystem block identity`
+  proves that the generated Browser operation projects the shared Find
+  operation's request identity, producer, phase, Ecosystem membership,
+  completion evidence, and exact activation association, including distinct
+  replacement sessions for different exact Ecosystem filters. It also proves
+  that admitted Workspace results reduce the owner-issued remaining window and
+  that zero capacity finalizes the exact continuation without prefix work.
+  Increasing the window starts a replacement bounded session and cannot resume
+  that finalized continuation.
+- `spotlight-search.spec.ts`:
+  `published Spotlight searches Workspace Ecosystems and packages in order`
+  uses the Release-published Firefox/Wasm application and the real
+  `System.Text.Json@10.0.0` and `Aspire.Hosting@13.6.0` assets to prove Home
+  `IList<T>`, overlapping `JsonSerializer` observations, Aspire `.Add*`
+  dependency order, bounded phase settlement, and exact result activation.
+
+The shared Find and Ecosystem owners name their own Release correctness gates.
+Any change to CLI-used shared execution also carries the repository's exact
+NativeAOT base/head evidence for each affected terminal. The Shell Interaction
+gate does not substitute TypeScript fixtures for those product gates.
 
 Before implementation claims this application-control contract, it must add
 and pass these named Inspect Web tests:
@@ -685,7 +907,7 @@ outcomes.
 10. Repeat with text that is not a valid package-ID prefix and confirm that the
     query surface starts with an empty prefix.
 11. Activate the visible `Package Activity` action and confirm that Spotlight
-    closes, `/activity` is pushed, and the package-set selector receives focus.
+    closes, `/activity` is pushed, and the Ecosystem selector receives focus.
     Use Back and Forward and confirm the prior Search focus and Activity
     destination are restored.
 12. Open general and command-scoped Spotlight at the narrow supported width and
@@ -693,6 +915,62 @@ outcomes.
     visible within the modal.
 13. Confirm that Spotlight exposes no Platform scope or root result and that a
     matching installed framework assembly appears only as a Library result.
+14. Press a rendered package result, publish an ordinary asynchronous package
+    search update before release, and confirm that a surviving exact result
+    retains the same DOM node and activates exactly that package once.
+15. Focus a rendered package result, press Space, publish an ordinary
+    asynchronous package search update before release, and confirm that the
+    surviving exact result retains focus and activates exactly that package
+    once on release.
+16. In modal Spotlight, focus a rendered package result, press Space, replace
+    the whole application shell, and wait through the next focus-restoration
+    frame. Confirm that the surviving exact result retains the same DOM node
+    and browser focus and activates exactly once on release.
+17. In Add package, retain the active result and modal backdrop while a shell
+    replacement installs a new input and Cancel control. Confirm that Tab and
+    Shift+Tab cycle through the current controls rather than a detached input.
+18. With the resident runtime surface loaded, search in All scope for a Type
+    discovered through both general Type matching and framework-Library
+    matching. Confirm that production composition renders one exact result,
+    then hold Space across an asynchronous result refresh and confirm that the
+    same focused control activates once.
+19. Press a framework-Library result on its descendant label while ordinary
+    acquisition changes that result's visible metadata. Confirm that the
+    button and pressed descendant remain connected and release activates once.
+20. On Home, hold Space on a result while a whole-application render changes
+    its positional DOM ID. Confirm that focus remains on the exact result
+    identity and release activates that result once.
+21. Repeat while removing the pressed result identity and confirm that release
+    does not activate the result that inherited its former array position.
+22. On Home, search for `IList<T>` in ordinary All and Types scopes. Confirm
+    that the .NET Runtime Type arrives through the configured product Workspace
+    authority without exposing a Platform scope, component, or root.
+23. In a Workspace containing `System.Text.Json@10.0.0`, search for
+    `JsonSerializer`. Confirm that the admitted Package Library observation
+    precedes the framework observation and each activates its own exact
+    destination.
+24. Select the Ecosystems scope without an exact filter and search for
+    `.Add*`. Confirm that active registered Ecosystem blocks precede ordinary
+    Workspace Libraries, no package-prefix work starts, and Capabilities do not
+    appear. Then select Aspire and confirm that result blocks arrive for
+    Aspire, ASP.NET Core, Microsoft.Extensions, and .NET Runtime in that order
+    before ordinary Workspace Libraries.
+25. Apply a finite result limit satisfied by Aspire and confirm that no
+    ancestor, ordinary Workspace, or package-discovery phase starts. Then use a
+    limit not filled by the bounded Ecosystem blocks but filled by admitted
+    Workspace results; confirm that the exact prefix continuation finalizes
+    with zero capacity and no package source starts. Increase the limit and
+    confirm that a replacement session starts from its bounded phase rather
+    than resuming the finalized continuation; owner-issued caches may satisfy
+    repeated source facts without changing that session boundary.
+26. Change the selected Ecosystem while work is pending. Confirm that the old
+    request is superseded, stale completion cannot alter the visible list, and
+    the new filter does not mutate Workspace registrations.
+27. Fail an Ecosystem phase while package discovery can still run. Confirm
+    that the failure remains visible and is not presented as an empty local
+    result or erased by later package-sourced Find results. Confirm that those
+    results are prefix Find blocks from the exact Ecosystem Find request rather
+    than standalone hits retained by the unfiltered Spotlight NuGet state.
 
 ### Local Open
 
@@ -729,7 +1007,7 @@ outcomes.
    level-one heading, no coordinate/subject command, and a persistent
    `dotnet-inspect` control that opens Workspace. Confirm that Type Explorer
    focuses its heading, Package query places initial focus on its prefix input,
-   and Package Activity focuses its package-set selector under its heading.
+   and Package Activity focuses its Ecosystem selector under its heading.
 10. Use Browser Back and Forward while a modal is open and confirm that the
    modal is dismissed, the restored destination heading receives focus, and the
    modal does not reopen.

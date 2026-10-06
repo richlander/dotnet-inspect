@@ -4,6 +4,7 @@ using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using DotnetInspector.Fixtures;
 using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Models;
@@ -19,6 +20,530 @@ namespace DotnetInspect.Cli.Tests;
 
 public partial class CommandExecutionTests
 {
+    [Fact]
+    public async Task Member_CommandExplanation_IsAcquisitionFree()
+    {
+        var (exit, output, error) =
+            await RunAppAsync("member", "--explain");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("# Explain member", output);
+        Assert.Contains("Context: Member command", output);
+        Assert.Contains("Selected Content:", output);
+        Assert.DoesNotContain("Related Operations", output);
+    }
+
+    [Fact]
+    public async Task Member_ExactExplanation_UsesResolvedSubject()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            typeof(MemberCallGraphFixture).FullName!,
+            "--library",
+            TestAssemblyPath,
+            $"{nameof(MemberCallGraphFixture.RootCall)}:1",
+            "--explain");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("Context: Exact Member", output);
+        Assert.Contains(nameof(MemberCallGraphFixture.RootCall), output);
+        Assert.Contains("Default View: member.overview", output);
+        Assert.Contains("Selected Content: Signature", output);
+        Assert.Contains("member.inspect", output);
+        Assert.Contains("type.hierarchy", output);
+        Assert.DoesNotContain("Expanded Resources", output);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Member_BareExplanation_PreservesStdoutAndUsesStderr(
+        bool selectOverload)
+    {
+        string[] arguments =
+        [
+            "member",
+            typeof(MemberCallGraphFixture).FullName!,
+            "--library",
+            TestAssemblyPath,
+            selectOverload
+                ? $"{nameof(MemberCallGraphFixture.RootCall)}:1"
+                : nameof(MemberCallGraphFixture.RootCall),
+        ];
+
+        var ordinary = await RunAppAsync(arguments);
+        var explained = await RunAppAsync([.. arguments, "-E"]);
+
+        Assert.Equal(0, ordinary.Exit);
+        Assert.Equal(0, explained.Exit);
+        Assert.Empty(ordinary.Error);
+        Assert.Equal(ordinary.Output, explained.Output);
+        Assert.Contains(
+            selectOverload
+                ? "Context: Exact Member"
+                : "Context: MemberGroup",
+            explained.Error);
+        Assert.Contains(
+            selectOverload
+                ? "Selected Content: Signature"
+                : "Selected Content: Methods",
+            explained.Error);
+        if (!selectOverload)
+        {
+            Assert.DoesNotContain(
+                $"{nameof(MemberCallGraphFixture.RootCall)}:1",
+                explained.Error);
+        }
+        Assert.DoesNotContain("Tips:", explained.Error);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Member_OverloadedBareNameExplainsOneMemberGroup(
+        bool selectMethodKind)
+    {
+        string[] arguments =
+        [
+            "member",
+            "System.Text.Json.JsonSerializer",
+            "--platform",
+            "System.Text.Json",
+            "Serialize",
+            .. selectMethodKind ? new[] { "--kind", "method" } : [],
+            "--explain",
+        ];
+        var (exit, output, error) = await RunAppAsync(arguments);
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains(
+            "# Explain System.Text.Json.JsonSerializer.Serialize",
+            output);
+        Assert.Contains("Context: MemberGroup", output);
+        Assert.Contains("Subject: Method / Declared", output);
+        Assert.Contains("Default View: member.overview", output);
+        Assert.Contains("Selected Content: Methods", output);
+        Assert.DoesNotContain("Serialize:1", output);
+        Assert.DoesNotContain("Context: Exact Member", output);
+    }
+
+    [Fact]
+    public async Task Member_SingletonMethodKindExplainsOneMemberGroup()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            typeof(MemberCallGraphFixture).FullName!,
+            "--library",
+            TestAssemblyPath,
+            nameof(MemberCallGraphFixture.RootCall),
+            "--kind",
+            "method",
+            "--explain");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("Context: MemberGroup", output);
+        Assert.Contains("Selected Content: Methods", output);
+        Assert.DoesNotContain(
+            $"{nameof(MemberCallGraphFixture.RootCall)}:1",
+            output);
+        Assert.DoesNotContain("Context: Exact Member", output);
+    }
+
+    [Fact]
+    public async Task Member_OverloadedGroupCompanionsPreserveTreeAndProjection()
+    {
+        string[] subject =
+        [
+            "member",
+            "System.Text.Json.JsonSerializer",
+            "--platform",
+            "System.Text.Json",
+            "Serialize",
+        ];
+
+        var ordinary = await RunAppAsync(subject);
+        var explanation = await RunAppAsync([.. subject, "-E"]);
+        var primaryTips =
+            await RunAppAsync([.. subject, "--explain", ".tips"]);
+        var companionTips =
+            await RunAppAsync([.. subject, "-E", ".tips"]);
+
+        Assert.Equal(0, ordinary.Exit);
+        Assert.Equal(0, explanation.Exit);
+        Assert.Equal(0, primaryTips.Exit);
+        Assert.Equal(0, companionTips.Exit);
+        Assert.Empty(ordinary.Error);
+        Assert.Equal(ordinary.Output, explanation.Output);
+        Assert.Equal(ordinary.Output, companionTips.Output);
+        Assert.Contains("Context: MemberGroup", explanation.Error);
+        Assert.DoesNotContain("Serialize:1", explanation.Error);
+        Assert.Equal(
+            primaryTips.Output.Trim(),
+            companionTips.Error.Trim());
+    }
+
+    [Theory]
+    [InlineData("Serialize:7", "System.IO.Stream")]
+    [InlineData("Serialize~1dc14dd1fb", "Serialize~1dc14dd1fb")]
+    public async Task Member_ExactSelectorsRemainExactExplanationSubjects(
+        string selector,
+        string expectedSelector)
+    {
+        string[] subject =
+        [
+            "member",
+            "System.Text.Json.JsonSerializer",
+            "--platform",
+            "System.Text.Json",
+            selector,
+        ];
+        var ordinary = await RunAppAsync(subject);
+        var primary = await RunAppAsync([.. subject, "--explain"]);
+        var companion = await RunAppAsync([.. subject, "-E"]);
+
+        Assert.Equal(0, ordinary.Exit);
+        Assert.Equal(0, primary.Exit);
+        Assert.Equal(0, companion.Exit);
+        Assert.Empty(ordinary.Error);
+        Assert.Empty(primary.Error);
+        Assert.Equal(ordinary.Output, companion.Output);
+        Assert.Contains("Context: Exact Member", primary.Output);
+        Assert.Contains(
+            "# Explain System.Text.Json.JsonSerializer.Serialize~",
+            primary.Output);
+        Assert.Contains(expectedSelector, primary.Output);
+        Assert.DoesNotContain(
+            "Context: MemberGroup",
+            primary.Output);
+        Assert.Contains(
+            "Context: Exact Member",
+            companion.Error);
+        Assert.Contains(expectedSelector, companion.Error);
+    }
+
+    [Fact]
+    public async Task Member_ExactExplanation_ComposesWithTips()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            typeof(MemberCallGraphFixture).FullName!,
+            "--library",
+            TestAssemblyPath,
+            $"{nameof(MemberCallGraphFixture.RootCall)}:1",
+            "--explain",
+            "-E",
+            ".tips");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("Context: Exact Member", output);
+        Assert.DoesNotContain("Tips:", error);
+        Assert.Contains("view member detail (source, IL)", error);
+        Assert.Contains("view type tree", error);
+    }
+
+    [Fact]
+    public async Task Member_ExactTipsProjection_UsesStdoutAndMatchesCompanion()
+    {
+        string[] subject =
+        [
+            "member",
+            typeof(MemberCallGraphFixture).FullName!,
+            "--library",
+            TestAssemblyPath,
+            $"{nameof(MemberCallGraphFixture.RootCall)}:1",
+        ];
+
+        var primary =
+            await RunAppAsync([.. subject, "--explain", ".tips"]);
+        var companion =
+            await RunAppAsync([.. subject, "-E", ".tips"]);
+
+        Assert.Equal(0, primary.Exit);
+        Assert.Empty(primary.Error);
+        Assert.Contains("view member detail (source, IL)", primary.Output);
+        Assert.Contains("view type tree", primary.Output);
+        Assert.DoesNotContain("Context: Exact Member", primary.Output);
+        Assert.DoesNotContain("## Signature", primary.Output);
+        Assert.Equal(
+            primary.Output.Trim(),
+            companion.Error.Trim());
+    }
+
+    [Fact]
+    public async Task Member_NonFirstOverloadTipsPreserveExactSelector()
+    {
+        string[] subject =
+        [
+            "member",
+            "System.Text.Json.JsonSerializer",
+            "--platform",
+            "System.Text.Json",
+            "Serialize:7",
+        ];
+
+        var primary =
+            await RunAppAsync([.. subject, "--explain", ".tips"]);
+        var companion =
+            await RunAppAsync([.. subject, "-E", ".tips"]);
+
+        Assert.Equal(0, primary.Exit);
+        Assert.Equal(0, companion.Exit);
+        Assert.Empty(primary.Error);
+        Assert.Contains("Serialize:7", primary.Output);
+        Assert.DoesNotContain("Serialize:1", primary.Output);
+        Assert.Equal(primary.Output.Trim(), companion.Error.Trim());
+        Assert.Contains("System.IO.Stream utf8Json", companion.Output);
+    }
+
+    [Fact]
+    public async Task Member_PrimaryTips_ComposesWithCompanionExplanation()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            typeof(MemberCallGraphFixture).FullName!,
+            "--library",
+            TestAssemblyPath,
+            $"{nameof(MemberCallGraphFixture.RootCall)}:1",
+            "--explain",
+            ".tips",
+            "-E");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("view member detail (source, IL)", output);
+        Assert.DoesNotContain("Context: Exact Member", output);
+        Assert.Contains("Context: Exact Member", error);
+        Assert.DoesNotContain("Tips:", output);
+    }
+
+    [Fact]
+    public async Task Member_CommandTipsProjection_RequiresSubject()
+    {
+        var (exit, output, error) =
+            await RunAppAsync("member", "--explain", ".tips");
+
+        Assert.NotEqual(0, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "requires one Member subject and source",
+            error);
+    }
+
+    [Theory]
+    [InlineData("-E", "same complete explanation twice")]
+    [InlineData("-S", "terminal content operation")]
+    public async Task Member_Explain_RejectsCompetingContentOperations(
+        string option,
+        string expectedError)
+    {
+        string[] tail = option == "-E"
+            ? [option]
+            : [option, SectionNames.Signature];
+        var (exit, output, error) = await RunAppAsync(
+            [
+                "member",
+                typeof(MemberCallGraphFixture).FullName!,
+                "--library",
+                TestAssemblyPath,
+                $"{nameof(MemberCallGraphFixture.RootCall)}:1",
+                "--explain",
+                .. tail,
+            ]);
+
+        Assert.NotEqual(0, exit);
+        Assert.Empty(output);
+        Assert.Contains(expectedError, error);
+    }
+
+    [Fact]
+    public async Task Member_Explain_RejectsDuplicateTipsProjection()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            typeof(MemberCallGraphFixture).FullName!,
+            "--library",
+            TestAssemblyPath,
+            $"{nameof(MemberCallGraphFixture.RootCall)}:1",
+            "--explain",
+            ".tips",
+            "-E",
+            ".tips");
+
+        Assert.NotEqual(0, exit);
+        Assert.Empty(output);
+        Assert.Contains("same contextual tips twice", error);
+    }
+
+    [Theory]
+    [InlineData("DefinitelyMissing", "No members matched")]
+    public async Task Member_Explain_UnresolvedSubjectDoesNotFallBackToCommand(
+        string member,
+        string expectedError)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            "JsonSerializer",
+            "--platform",
+            "System.Text.Json",
+            member,
+            "--explain");
+
+        Assert.NotEqual(0, exit);
+        Assert.Empty(output);
+        Assert.Contains(expectedError, error);
+        Assert.DoesNotContain("Explain member", error);
+    }
+
+    [Fact]
+    public async Task Member_Explain_PartialSubjectDoesNotFallBackToCommand()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            "JsonSerializer",
+            "--platform",
+            "System.Text.Json",
+            "--explain");
+
+        Assert.NotEqual(0, exit);
+        Assert.Empty(output);
+        Assert.Contains("requires one Member selector", error);
+        Assert.DoesNotContain("Explain member", error);
+    }
+
+    [Fact]
+    public async Task Member_JsonTipsPreserveStdoutAndUseStderr()
+    {
+        string[] arguments =
+        [
+            "member",
+            typeof(MemberCallGraphFixture).FullName!,
+            "--library",
+            TestAssemblyPath,
+            "--json",
+        ];
+
+        var withoutTips = await RunAppAsync(arguments);
+        var withTips = await RunAppAsync([.. arguments, "-E", ".tips"]);
+
+        Assert.Equal(0, withoutTips.Exit);
+        Assert.Equal(0, withTips.Exit);
+        Assert.Empty(withoutTips.Error);
+        Assert.Equal(withoutTips.Output, withTips.Output);
+        Assert.DoesNotContain("Tips:", withTips.Error);
+        Assert.Contains(
+            CliCommandText.Render(
+            [
+                CliCommandToken.Syntax("--library"),
+                CliCommandToken.ValueToken(TestAssemblyPath),
+            ]),
+            withTips.Error);
+        Assert.Contains("view member detail (source, IL)", withTips.Error);
+        Assert.Contains("view type tree", withTips.Error);
+        Assert.Contains("dotted member syntax", withTips.Error);
+        using var document = JsonDocument.Parse(withTips.Output);
+        Assert.Equal(JsonValueKind.Object, document.RootElement.ValueKind);
+    }
+
+    [Theory]
+    [InlineData("--explain")]
+    [InlineData("-E")]
+    public async Task Member_BareExplanationAfterInlineLibraryRetainsExactMember(
+        string option)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            typeof(MemberCallGraphFixture).FullName!,
+            $"--library={TestAssemblyPath}",
+            option,
+            $"{nameof(MemberCallGraphFixture.RootCall)}:1");
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("Unknown", error);
+        Assert.Contains("Exact Member", option == "--explain" ? output : error);
+    }
+
+    [Fact]
+    public async Task Member_NativeGroupTipsPreserveStdoutAndUseStderr()
+    {
+        string[] arguments =
+        [
+            "member",
+            typeof(MemberCallGraphFixture).FullName!,
+            "--library",
+            TestAssemblyPath,
+            nameof(MemberCallGraphFixture.RootCall),
+        ];
+
+        var withoutTips = await RunAppAsync(arguments);
+        var primaryTips =
+            await RunAppAsync([.. arguments, "--explain", ".tips"]);
+        var withTips = await RunAppAsync([.. arguments, "-E", ".tips"]);
+
+        Assert.Equal(0, withoutTips.Exit);
+        Assert.Equal(0, primaryTips.Exit);
+        Assert.Equal(0, withTips.Exit);
+        Assert.Empty(withoutTips.Error);
+        Assert.Empty(primaryTips.Error);
+        Assert.Equal(withoutTips.Output, withTips.Output);
+        Assert.Equal(primaryTips.Output.Trim(), withTips.Error.Trim());
+        Assert.DoesNotContain("Tips:", withTips.Error);
+        Assert.Contains("view member detail (source, IL)", withTips.Error);
+        Assert.Contains("view type tree", withTips.Error);
+        Assert.Contains("dotted member syntax", withTips.Error);
+    }
+
+    [Fact]
+    public async Task Member_AutoSelectedOverloadTipsRemainPresent()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            typeof(MemberCallGraphFixture).FullName!,
+            "--library",
+            TestAssemblyPath,
+            nameof(MemberCallGraphFixture.RootCall),
+            "-S",
+            SectionNames.Signature,
+            "--markdown",
+            "-E",
+            ".tips");
+
+        Assert.Equal(0, exit);
+        Assert.Contains(SectionNames.Signature, output);
+        Assert.Contains("view member detail (source, IL)", error);
+        Assert.Contains(
+            $"{nameof(MemberCallGraphFixture.RootCall)}:1",
+            error);
+    }
+
+    [Fact]
+    public async Task Member_PlatformTipsUseBoundOwnerAffordances()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            "System.Text.Json.JsonSerializer",
+            "--platform",
+            "System.Text.Json",
+            "-E",
+            ".tips");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("System.Text.Json.JsonSerializer", output);
+        Assert.DoesNotContain("Tips:", error);
+        Assert.Contains(
+            "member JsonSerializer --platform System.Text.Json",
+            error);
+        Assert.Contains(
+            "member JsonSerializer --platform System.Text.Json -S 'Member Index'",
+            error);
+        Assert.Contains(
+            "type JsonSerializer --platform System.Text.Json --tree",
+            error);
+        Assert.DoesNotContain("dotted member syntax", error);
+    }
+
     [Theory]
     [InlineData("--mermaid", false)]
     [InlineData("--tree", false)]
@@ -39,7 +564,6 @@ public partial class CommandExecutionTests
         if (markdown)
             arguments.Add("--markdown");
         arguments.Add(format);
-        arguments.AddRange(["--tips", "q"]);
 
         var (exit, output, error) = await RunAppAsync(arguments.ToArray());
 
@@ -65,8 +589,7 @@ public partial class CommandExecutionTests
             "--library", TestAssemblyPath,
             "-S", "Calls,Safety Facts",
             "--count",
-            format,
-            "--tips", "q");
+            format);
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -84,8 +607,7 @@ public partial class CommandExecutionTests
             "-S", "Calls,Safety Facts",
             "--count",
             "--markdown",
-            "--mermaid",
-            "--tips", "q");
+            "--mermaid");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -106,9 +628,7 @@ public partial class CommandExecutionTests
             "--bin",
             Path.GetDirectoryName(TestAssemblyPath)!,
             "--count",
-            "--tree",
-            "--tips",
-            "q");
+            "--tree");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -162,7 +682,7 @@ public partial class CommandExecutionTests
             "type", typeName,
             "--library", TestAssemblyPath,
             "--all",
-            "-S", "Member Index",
+            "-S", "Member Index", "--markdown",
             "-n", "80", "--lines");
         Assert.Equal(0, index.Exit);
         var stable = index.Output
@@ -184,6 +704,563 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         Assert.Contains("NestedDrillTarget", output);
         Assert.Contains("Value = value", output);
+    }
+
+    [Fact]
+    public async Task Member_DiscoverDetails_ReportsDeclaredShapeAndCardinality()
+    {
+        // Member adopts Section shapes: the exact-member catalog is published
+        // as member-detail and the overload catalog as member-overload, each
+        // section with its declared shape and cardinality. Every Text payload
+        // is scalar, Source included until its Lines inventory is executed;
+        // Call Graph is a Graph with no shape but its own tree and Mermaid
+        // formats.
+        var (exit, output, error) = await RunAppAsync(
+            "member", "DotnetInspect.Cli.Tests.CommandExecutionTests+ConstructorChainTarget", ".ctor:1",
+            "--library", TestAssemblyPath,
+            "-D", "--details");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        // Formats are the executed set: Signature is a Table the type document's
+        // JSON does not carry, Decompiled Source a Text with no fact row and no
+        // dedicated JSON, Source a Text with a dedicated JSON document.
+        Assert.Contains(
+            "| Signature | section | member-detail/sections/signature "
+            + "| --markdown, --plaintext, --table, --tsv, --jsonl "
+            + "| table | inventory | rows, count |",
+            output);
+        Assert.Contains(
+            "| Decompiled Source | section | member-detail/sections/decompiled-source "
+            + "| --markdown, --plaintext, --json, --table, --tsv, --jsonl "
+            + "| text | scalar |  |",
+            output);
+
+
+        var (sourceExit, source, sourceError) = await RunAppAsync(
+            "member", "DotnetInspect.Cli.Tests.CommandExecutionTests+ConstructorChainTarget", ".ctor:1",
+            "--library", TestAssemblyPath,
+            "-D", SectionNames.Source, "--details", "--json");
+
+        Assert.Equal(0, sourceExit);
+        Assert.Empty(sourceError);
+        using JsonDocument sourceDocument = JsonDocument.Parse(source);
+        JsonElement sourceRow = Assert.Single(sourceDocument.RootElement.EnumerateArray());
+        Assert.Equal("text", sourceRow.GetProperty("shape").GetString());
+        // Source is the Text with a Lines inventory: rows and count observe
+        // lines, and its rows lower to the row formats beside its JSON document.
+        Assert.Equal("inventory", sourceRow.GetProperty("cardinality").GetString());
+        Assert.Equal(
+            ["rows", "count"],
+            sourceRow.GetProperty("terminals").EnumerateArray().Select(static t => t.GetString()));
+        Assert.Equal(
+            ["--markdown", "--plaintext", "--json", "--table", "--tsv", "--jsonl"],
+            sourceRow.GetProperty("formats").EnumerateArray().Select(static f => f.GetString()));
+
+        var (graphExit, graph, graphError) = await RunAppAsync(
+            "member", "DotnetInspect.Cli.Tests.CommandExecutionTests+ConstructorChainTarget", ".ctor:1",
+            "--library", TestAssemblyPath,
+            "-D", SectionNames.CallGraph, "--details", "--json");
+
+        Assert.Equal(0, graphExit);
+        Assert.Empty(graphError);
+        using JsonDocument graphDocument = JsonDocument.Parse(graph);
+        JsonElement graphRow = Assert.Single(graphDocument.RootElement.EnumerateArray());
+        Assert.False(graphRow.TryGetProperty("shape", out _));
+        string[] formats =
+            [.. graphRow.GetProperty("formats").EnumerateArray().Select(static f => f.GetString()!)];
+        Assert.Contains("--tree", formats);
+        Assert.Contains("--mermaid", formats);
+
+        var (overloadExit, overload, overloadError) = await RunAppAsync(
+            "member", "DotnetInspect.Cli.Tests.CommandExecutionTests+ConstructorChainTarget", ".ctor",
+            "--library", TestAssemblyPath,
+            "-D", "--details");
+
+        Assert.Equal(0, overloadExit);
+        Assert.Empty(overloadError);
+        Assert.Contains(
+            "| Methods | section | member-overload/sections/methods "
+            + "| --markdown, --plaintext, --json, --table, --tsv, --jsonl "
+            + "| table | inventory | rows, count |",
+            overload);
+
+        // Target-free: --details is structural and reports the single-type
+        // member catalog without a target (round-2 finding).
+        var (freeExit, free, freeError) = await RunAppAsync(
+            "member", "-D", "--details", "--json");
+
+        Assert.Equal(0, freeExit);
+        Assert.Empty(freeError);
+        using JsonDocument freeDocument = JsonDocument.Parse(free);
+        JsonElement methods = freeDocument.RootElement.EnumerateArray()
+            .Single(static r => r.GetProperty("name").GetString() == SectionNames.Methods);
+        Assert.Equal("member/sections/methods", methods.GetProperty("path").GetString());
+        Assert.Equal("table", methods.GetProperty("shape").GetString());
+        Assert.Equal("inventory", methods.GetProperty("cardinality").GetString());
+
+        // Source-less member target: --details follows the same target
+        // resolution as bare -D (the platform overload catalog), never the
+        // parser-level --schema ambiguity rule (round-3 finding).
+        var (platformExit, platform, platformError) = await RunAppAsync(
+            "member", "System.String.Trim", "-D", SectionNames.Methods, "--details", "--json");
+
+        Assert.Equal(0, platformExit);
+        Assert.Empty(platformError);
+        using JsonDocument platformDocument = JsonDocument.Parse(platform);
+        JsonElement platformRow = Assert.Single(platformDocument.RootElement.EnumerateArray());
+        Assert.Equal("member-overload/sections/methods", platformRow.GetProperty("path").GetString());
+        Assert.Equal("table", platformRow.GetProperty("shape").GetString());
+    }
+
+    [Fact]
+    public async Task Member_AdvertisedFormats_ExecuteOnTheFixtureMember()
+    {
+        // The executed-format contract: every format -D --details advertises
+        // for the exact-member catalog runs to exit 0 on a real member, and
+        // --json parses. Sections that need an input the gesture does not
+        // carry (Body Shapes' --where) are reported as such, not as a format
+        // defect. Rounds 4 and 5 of PR 9388 found advertised formats that
+        // returned nothing or were rejected; this gate pins the catalog to
+        // what executes.
+        string[] target =
+        [
+            "member", "DotnetInspect.Cli.Tests.CommandExecutionTests+ConstructorChainTarget", ".ctor:1",
+            "--library", TestAssemblyPath, "--all",
+        ];
+        var (discoverExit, discover, discoverError) = await RunAppAsync(
+            [.. target, "-D", "--details", "--json"]);
+
+        Assert.Equal(0, discoverExit);
+        Assert.Empty(discoverError);
+        using JsonDocument catalog = JsonDocument.Parse(discover);
+        var failures = new List<string>();
+        foreach (JsonElement row in catalog.RootElement.EnumerateArray())
+        {
+            if (row.GetProperty("kind").GetString() != "section")
+                continue;
+            string section = row.GetProperty("name").GetString()!;
+            foreach (JsonElement format in row.GetProperty("formats").EnumerateArray())
+            {
+                string flag = format.GetString()!;
+                var (exit, output, error) = await RunAppAsync([.. target, "-S", section, flag]);
+                if (exit != 0 && error.Contains("requires --where", StringComparison.Ordinal))
+                    continue;
+                if (exit != 0)
+                {
+                    failures.Add($"{section} {flag}: exit {exit}: {error.Trim()}");
+                    continue;
+                }
+                if (flag == "--json")
+                {
+                    try
+                    {
+                        JsonDocument.Parse(output).Dispose();
+                    }
+                    catch (JsonException exception)
+                    {
+                        failures.Add($"{section} {flag}: not JSON: {exception.Message}");
+                    }
+                }
+            }
+        }
+
+        Assert.True(failures.Count == 0, string.Join(Environment.NewLine, failures));
+    }
+
+    [Fact]
+    public async Task Member_LoneSection_RendersInItsDeclaredShape()
+    {
+        // Section shapes, member adoption slice 2: a lone Text prints its
+        // undecorated payload (the shape decides, not a list of section
+        // names), a lone Table streams TSV, a scalar rejects --count and
+        // --rows but keeps the bare -n line window, and an explicit format
+        // wins. Call Graph is a Graph and keeps its composed rendering.
+        string[] target =
+        [
+            "member", "DotnetInspect.Cli.Tests.CommandExecutionTests+ConstructorChainTarget", ".ctor:1",
+            "--library", TestAssemblyPath, "--all",
+        ];
+        var (textExit, text, textError) = await RunAppAsync(
+            [.. target, "-S", SectionNames.DecompiledSource]);
+
+        Assert.Equal(0, textExit);
+        Assert.Empty(textError);
+        Assert.DoesNotContain("## Decompiled Source", text);
+        Assert.Contains("ConstructorChainTarget(int value) : base(value)", text);
+
+        var (markdownExit, markdown, _) = await RunAppAsync(
+            [.. target, "-S", SectionNames.DecompiledSource, "--markdown"]);
+
+        Assert.Equal(0, markdownExit);
+        Assert.Contains("## Decompiled Source", markdown);
+
+        var (tableExit, table, tableError) = await RunAppAsync(
+            [.. target, "-S", SectionNames.Signature]);
+
+        Assert.Equal(0, tableExit);
+        Assert.Empty(tableError);
+        Assert.StartsWith("signature\t", table);
+        Assert.DoesNotContain("## Signature", table);
+
+        // Signature is a one-row inventory: Count observes that row.
+        var (countExit, countOutput, countError) = await RunAppAsync(
+            [.. target, "-S", SectionNames.Signature, "--count"]);
+
+        Assert.Equal(0, countExit);
+        Assert.Empty(countError);
+        Assert.Equal("1", countOutput.Trim());
+
+        // A scalar record (Type Info on the type view) and a scalar Text (IL)
+        // reject the row terminals before acquisition.
+        var (scalarExit, scalarOutput, scalarError) = await RunAppAsync(
+            "member", "DotnetInspect.Cli.Tests.CommandExecutionTests+ConstructorChainTarget",
+            "--library", TestAssemblyPath, "--all", "-S", SectionNames.TypeInfo, "--count");
+
+        Assert.Equal(1, scalarExit);
+        Assert.Empty(scalarOutput);
+        Assert.Contains("Section 'Type Info' is scalar and does not support --count", scalarError);
+
+        var (rowsExit, _, rowsError) = await RunAppAsync(
+            [.. target, "-S", SectionNames.IL, "--rows", "1"]);
+
+        Assert.Equal(1, rowsExit);
+        Assert.Contains("Section 'IL' is scalar and does not support --rows", rowsError);
+
+        var (windowExit, window, windowError) = await RunAppAsync(
+            [.. target, "-S", SectionNames.Signature, "-n", "1"]);
+
+        Assert.Equal(0, windowExit);
+        Assert.Empty(windowError);
+        Assert.StartsWith("signature\t", window);
+
+        var (graphExit, graph, _) = await RunAppAsync(
+            [.. target, "-S", SectionNames.CallGraph]);
+
+        Assert.Equal(0, graphExit);
+        Assert.Contains("## Call Graph", graph);
+    }
+
+    [Fact]
+    public async Task Member_CallerScope_WithLoneSelectedSection_ComposesBothSections()
+    {
+        // A caller scope adds Callers on the user's behalf, so "-S Calls --bin X"
+        // is a two-section composition and must not take the one-section
+        // native TSV path (PR 9419 round-2 finding: it rendered a method
+        // summary instead of either section).
+        var testDirectory = Path.GetDirectoryName(TestAssemblyPath)!;
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(MemberCallGraphFixture).FullName!, "--library", TestAssemblyPath,
+            nameof(MemberCallGraphFixture.Inner), "-S", "Calls", "--bin", testDirectory);
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## Calls", output);
+        Assert.Contains("## Callers", output);
+        Assert.DoesNotContain("kind\tname\treturn_type", output);
+
+        // The row terminals read the same effective selection: a scalar Text
+        // under a caller scope is a two-section count map, exactly as when
+        // both sections are spelled out (PR 9419 round-3 finding).
+        var (scopedCountExit, scopedCount, scopedCountError) = await RunAppAsync(
+            "member", typeof(MemberCallGraphFixture).FullName!, "--library", TestAssemblyPath,
+            nameof(MemberCallGraphFixture.Inner), "-S", SectionNames.IL, "--bin", testDirectory,
+            "--count", "--json");
+        var (spelledCountExit, spelledCount, _) = await RunAppAsync(
+            "member", typeof(MemberCallGraphFixture).FullName!, "--library", TestAssemblyPath,
+            nameof(MemberCallGraphFixture.Inner), "-S", $"{SectionNames.IL},{SectionNames.Callers}",
+            "--bin", testDirectory, "--count", "--json");
+
+        Assert.Equal(0, scopedCountExit);
+        Assert.Empty(scopedCountError);
+        Assert.Equal(0, spelledCountExit);
+        Assert.Equal(spelledCount, scopedCount);
+        Assert.Contains("\"section\"", scopedCount);
+
+        var (scopedRowsExit, _, scopedRowsError) = await RunAppAsync(
+            "member", typeof(MemberCallGraphFixture).FullName!, "--library", TestAssemblyPath,
+            nameof(MemberCallGraphFixture.Inner), "-S", SectionNames.IL, "--bin", testDirectory,
+            "--rows", "1");
+
+        Assert.Equal(0, scopedRowsExit);
+        Assert.DoesNotContain("is scalar", scopedRowsError);
+
+        // Unscoped, the lone scalar Text still rejects --count before acquisition.
+        var (loneScalarExit, loneScalar, loneScalarError) = await RunAppAsync(
+            "member", typeof(MemberCallGraphFixture).FullName!, "--library", TestAssemblyPath,
+            nameof(MemberCallGraphFixture.Inner), "-S", SectionNames.IL, "--count");
+
+        Assert.Equal(1, loneScalarExit);
+        Assert.Empty(loneScalar);
+        Assert.Contains("Section 'IL' is scalar and does not support --count", loneScalarError);
+
+        // Without the scope the lone Table streams TSV as usual.
+        var (loneExit, lone, loneError) = await RunAppAsync(
+            "member", typeof(MemberCallGraphFixture).FullName!, "--library", TestAssemblyPath,
+            nameof(MemberCallGraphFixture.Inner), "-S", "Calls");
+
+        Assert.Equal(0, loneExit);
+        Assert.Empty(loneError);
+        Assert.DoesNotContain("## Calls", lone);
+        Assert.StartsWith("il_offset\t", lone);
+    }
+
+    [Fact]
+    public async Task Source_CountAndRowsObserveExactLines()
+    {
+        // Source document cardinality, CLI slice 4 on Complete execution:
+        // --count is the exact line Count (including the empty final line
+        // after a trailing terminator), --rows selects line rows in every
+        // rendering, the row formats emit number/start/content/terminator,
+        // and default output is unchanged.
+        string[] member =
+        [
+            "member", "DotnetInspect.Cli.Tests.CommandExecutionTests+ConstructorChainTarget", ".ctor:1",
+            "--library", TestAssemblyPath, "--all", "-S", SectionNames.Source,
+        ];
+        var (nativeExit, native, _) = await RunAppAsync(member);
+        var (tsvExit, tsv, tsvError) = await RunAppAsync([.. member, "--tsv"]);
+        var (countExit, count, countError) = await RunAppAsync([.. member, "--count"]);
+
+        Assert.Equal(0, nativeExit);
+        Assert.Equal(0, tsvExit);
+        Assert.Equal(0, countExit);
+        // Source provenance notes go to stderr on every Source path; stdout
+        // carries only the count.
+        Assert.DoesNotContain("Error:", countError);
+        Assert.DoesNotContain("Error:", tsvError);
+        Assert.Matches("^[0-9]+\n$", count);
+        string[] rows = tsv.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        Assert.Equal("number\tstart\tcontent\tterminator", rows[0]);
+        int lineCount = int.Parse(count.Trim(), CultureInfo.InvariantCulture);
+        Assert.Equal(lineCount, rows.Length - 1);
+        Assert.Equal("1", rows[1].Split('\t')[0]);
+        Assert.Equal("0", rows[1].Split('\t')[1]);
+
+        // The line contents reconstruct the unchanged native payload.
+        string reconstructed = string.Join(
+            "\n",
+            rows.Skip(1).Select(static row => row.Split('\t')[2]));
+        Assert.Equal(native.TrimEnd(), reconstructed.TrimEnd());
+
+        // --rows selects line rows in native, Markdown, and Count alike.
+        var (windowExit, window, _) = await RunAppAsync([.. member, "--rows", "1..2"]);
+        var (markdownExit, markdown, _) = await RunAppAsync([.. member, "--rows", "1..2", "--markdown"]);
+        var (windowCountExit, windowCount, _) = await RunAppAsync([.. member, "--rows", "1..2", "--count"]);
+
+        Assert.Equal(0, windowExit);
+        Assert.Equal(0, markdownExit);
+        Assert.Equal(0, windowCountExit);
+        string[] nativeLines = native.Split('\n');
+        Assert.Equal(
+            string.Join("\n", nativeLines.Take(2)),
+            window.TrimEnd('\n'));
+        Assert.Contains(nativeLines[1], markdown);
+        Assert.DoesNotContain(nativeLines[2], markdown);
+        Assert.Equal("2", windowCount.Trim());
+
+        // The type command's Source is the same inventory.
+        var (typeCountExit, typeCount, _) = await RunAppAsync(
+            "type", "DotnetInspect.Cli.Tests.CommandExecutionTests+ConstructorChainTarget",
+            "--library", TestAssemblyPath, "--all", "-S", SectionNames.Source, "--count");
+
+        Assert.Equal(0, typeCountExit);
+        Assert.True(int.Parse(typeCount.Trim(), CultureInfo.InvariantCulture) >= lineCount);
+
+        // The type Source of a whole authored file ends with a terminator, so
+        // its last line row is the empty final line: Count includes it, its
+        // row has empty content and no terminator, and native output of that
+        // one-line selection is still native text (round-1 finding).
+        string[] type =
+        [
+            "type", "DotnetInspect.Cli.Tests.CommandExecutionTests+ConstructorChainTarget",
+            "--library", TestAssemblyPath, "--all", "-S", SectionNames.Source,
+        ];
+        int typeLines = int.Parse(typeCount.Trim(), CultureInfo.InvariantCulture);
+        string last = $"{typeLines}..{typeLines}";
+        var (lastRowExit, lastRow, _) = await RunAppAsync([.. type, "--rows", last, "--tsv"]);
+        var (lastNativeExit, lastNative, _) = await RunAppAsync([.. type, "--rows", last]);
+
+        Assert.Equal(0, lastRowExit);
+        string[] lastCells = lastRow.Split('\n', StringSplitOptions.RemoveEmptyEntries)[1].Split('\t');
+        Assert.Equal(typeLines.ToString(CultureInfo.InvariantCulture), lastCells[0]);
+        Assert.Equal("", lastCells[2]);
+        Assert.Equal("none", lastCells[3]);
+        Assert.Equal(0, lastNativeExit);
+        Assert.Equal("\n", lastNative);
+
+        // Native --rows prints the selected lines exactly, trailing whitespace
+        // included (round-2 finding); JSONL carries the same content exactly.
+        string[] whitespaceType =
+        [
+            "type", "DotnetInspect.Cli.Tests.ApiSurfaceExtractorTests",
+            "--library", TestAssemblyPath, "--all", "-S", SectionNames.Source,
+        ];
+        var (linesExit, linesJsonl, _) = await RunAppAsync([.. whitespaceType, "--jsonl"]);
+        Assert.Equal(0, linesExit);
+        JsonElement trailing = linesJsonl
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Select(static line => JsonDocument.Parse(line).RootElement)
+            .First(static row =>
+            {
+                string text = row.GetProperty("content").GetString()!;
+                return text.Length > 0 && text != text.TrimEnd();
+            });
+        int trailingNumber = trailing.GetProperty("number").GetInt32();
+        string trailingContent = trailing.GetProperty("content").GetString()!;
+        var (trailingExit, trailingNative, _) = await RunAppAsync(
+            [.. whitespaceType, "--rows", $"{trailingNumber}..{trailingNumber}"]);
+
+        Assert.Equal(0, trailingExit);
+        Assert.Equal(trailingContent + "\n", trailingNative);
+
+        // Source --json is the complete document: a --rows window fails
+        // visibly instead of being dropped (round-1 finding).
+        var (jsonRowsExit, jsonRows, jsonRowsError) = await RunAppAsync([.. member, "--json", "--rows", "1..1"]);
+
+        Assert.Equal(1, jsonRowsExit);
+        Assert.Empty(jsonRows);
+        Assert.Contains("cannot represent a --rows selection", jsonRowsError);
+
+        // The line columns are the Source schema, so they project (round-1 finding).
+        var (projectedExit, projected, projectedError) = await RunAppAsync(
+            [.. member, "--tsv", "--columns", "Content"]);
+
+        Assert.Equal(0, projectedExit);
+        Assert.DoesNotContain("No columns matched", projectedError);
+        Assert.Equal("content", projected.Split('\n')[0]);
+        Assert.Equal(rows[1].Split('\t')[2], projected.Split('\n')[1]);
+
+        // A count map over Source and another section keeps per-section meaning.
+        var (mapExit, map, _) = await RunAppAsync(
+            [.. member[..^1], $"{SectionNames.Source},{SectionNames.Signature}", "--count", "--json"]);
+
+        Assert.Equal(0, mapExit);
+        using JsonDocument mapDocument = JsonDocument.Parse(map);
+        JsonElement sourceCount = mapDocument.RootElement.EnumerateArray()
+            .Single(static r => r.GetProperty("section").GetString() == SectionNames.Source);
+        Assert.Equal(lineCount, sourceCount.GetProperty("count").GetInt32());
+    }
+
+    [Fact]
+    public async Task Text_FactRowAndJsonCarryThePayload()
+    {
+        // A Text with a bare payload lowers to one fact row in the row formats
+        // and to a facts-plus-content JSON value (#9456), while composed
+        // Markdown keeps every body (the type/member divergence recorded in
+        // Section shapes) and native output keeps the bare payload.
+        string[] member =
+        [
+            "member", "DotnetInspect.Cli.Tests.CommandExecutionTests+ConstructorChainTarget", ".ctor:1",
+            "--library", TestAssemblyPath, "--all",
+        ];
+        var (nativeExit, native, _) = await RunAppAsync([.. member, "-S", SectionNames.DecompiledSource]);
+        var (tsvExit, tsv, tsvError) = await RunAppAsync([.. member, "-S", SectionNames.DecompiledSource, "--tsv"]);
+        var (jsonExit, json, jsonError) = await RunAppAsync([.. member, "-S", SectionNames.DecompiledSource, "--json"]);
+
+        Assert.Equal(0, nativeExit);
+        Assert.Equal(0, tsvExit);
+        Assert.Empty(tsvError);
+        string[] rows = tsv.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        Assert.Equal(["section\tlines\tcharacters", $"{SectionNames.DecompiledSource}\t{native.TrimEnd().Split('\n').Length}"], [rows[0], string.Join('\t', rows[1].Split('\t').Take(2))]);
+        Assert.Equal(2, rows.Length);
+
+        Assert.Equal(0, jsonExit);
+        Assert.Empty(jsonError);
+        using JsonDocument document = JsonDocument.Parse(json);
+        JsonElement root = document.RootElement;
+        Assert.Equal(SectionNames.DecompiledSource, root.GetProperty("section").GetString());
+        string content = root.GetProperty("content").GetString()!;
+        Assert.Equal(native.TrimEnd(), content.TrimEnd());
+        Assert.Equal(content.Length, root.GetProperty("characters").GetInt32());
+        Assert.Equal(rows[1].Split('\t')[1], root.GetProperty("lines").GetInt32().ToString(CultureInfo.InvariantCulture));
+
+        // IL, a different Text family, lowers the same way.
+        var (ilExit, il, _) = await RunAppAsync([.. member, "-S", SectionNames.IL, "--jsonl"]);
+        Assert.Equal(0, ilExit);
+        using JsonDocument ilRow = JsonDocument.Parse(il.Trim());
+        Assert.Equal(SectionNames.IL, ilRow.RootElement.GetProperty("section").GetString());
+        Assert.True(ilRow.RootElement.GetProperty("lines").GetInt32() > 0);
+        Assert.False(ilRow.RootElement.TryGetProperty("content", out _));
+
+        // Composed Markdown keeps both bodies side by side.
+        var (composedExit, composed, _) = await RunAppAsync(
+            [.. member, "-S", $"{SectionNames.DecompiledSource},{SectionNames.IL}", "--markdown"]);
+        Assert.Equal(0, composedExit);
+        Assert.Contains("## Decompiled Source", composed);
+        Assert.Contains("## IL", composed);
+        Assert.Contains(native.Split('\n')[0], composed);
+        Assert.DoesNotContain("| Section | Lines | Characters |", composed);
+
+        // API Declarations keeps its dedicated inspection envelope as its JSON
+        // (round-1 finding): its content carries the complete text, while its
+        // row formats show the generic fact row.
+        string[] declarations =
+        [
+            "type", "DotnetInspect.Cli.Tests.CommandExecutionTests+ConstructorChainTarget",
+            "--library", TestAssemblyPath, "--all", "-S", SectionNames.ApiDeclarations,
+        ];
+        var (declarationsJsonExit, declarationsJson, _) = await RunAppAsync([.. declarations, "--json"]);
+        var (declarationsNativeExit, declarationsNative, _) = await RunAppAsync(declarations);
+        var (declarationsRowExit, declarationsRow, _) = await RunAppAsync([.. declarations, "--tsv"]);
+
+        Assert.Equal(0, declarationsJsonExit);
+        Assert.Equal(0, declarationsNativeExit);
+        Assert.Equal(0, declarationsRowExit);
+        using JsonDocument envelope = JsonDocument.Parse(declarationsJson);
+        Assert.Equal(
+            declarationsNative.TrimEnd(),
+            envelope.RootElement.GetProperty("content").GetProperty("text").GetString()!.TrimEnd());
+        Assert.StartsWith($"section\tlines\tcharacters\n{SectionNames.ApiDeclarations}\t", declarationsRow);
+
+        // Every format the type route advertises for a Text executes there
+        // (round-2 finding: IL was advertised on the type route without a
+        // payload). Text sections are explicit-only, so discovery is asked for
+        // each by name; the walk must reach the two Texts the type route
+        // populates (round-3 observation: a catalog-level walk found none).
+        string[] typeTarget =
+        [
+            "type", "DotnetInspect.Cli.Tests.CommandExecutionTests+ConstructorChainTarget",
+            "--library", TestAssemblyPath, "--all",
+        ];
+        var typeFailures = new List<string>();
+        var rowFormatTexts = new List<string>();
+        foreach (string section in new[]
+                 {
+                     SectionNames.ApiDeclarations,
+                     SectionNames.DecompiledSource,
+                     SectionNames.Source,
+                     SectionNames.IL,
+                     SectionNames.PdbSource,
+                     SectionNames.SourceDiff,
+                 })
+        {
+            var (discoverExit, discover, _) = await RunAppAsync(
+                [.. typeTarget, "-D", section, "--details", "--json"]);
+            if (discoverExit != 0)
+                continue;
+            using JsonDocument discoverDocument = JsonDocument.Parse(discover);
+            JsonElement row = Assert.Single(discoverDocument.RootElement.EnumerateArray());
+            string[] formats =
+                [.. row.GetProperty("formats").EnumerateArray().Select(static f => f.GetString()!)];
+            if (formats.Contains("--tsv"))
+                rowFormatTexts.Add(section);
+            foreach (string format in formats)
+            {
+                var (exit, output, error) = await RunAppAsync([.. typeTarget, "-S", section, format]);
+                if (exit != 0 || output.Trim().Length == 0)
+                    typeFailures.Add($"{section} {format}: exit {exit}: {error.Trim()}");
+            }
+        }
+        Assert.True(typeFailures.Count == 0, string.Join(Environment.NewLine, typeFailures));
+        Assert.Contains(SectionNames.ApiDeclarations, rowFormatTexts);
+        Assert.Contains(SectionNames.DecompiledSource, rowFormatTexts);
+        Assert.DoesNotContain(SectionNames.IL, rowFormatTexts);
+
+        // A fact row is not an inventory: Count and --rows stay rejected.
+        var (countExit, _, countError) = await RunAppAsync([.. member, "-S", SectionNames.DecompiledSource, "--count"]);
+        Assert.Equal(1, countExit);
+        Assert.Contains("is scalar and does not support --count", countError);
     }
 
     [Fact]
@@ -229,9 +1306,7 @@ public partial class CommandExecutionTests
                     dllPath,
                     "--all",
                     "-S",
-                    "Decompiled Source",
-                    "--tips",
-                    "q");
+                    "Decompiled Source");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -252,7 +1327,7 @@ public partial class CommandExecutionTests
 
     [Fact]
     public async Task
-        MemberCommand_SharedAccessorProjectionPreservesPhysicalModifiers()
+        MemberCommand_SharedAccessorProjectionUsesLogicalPropertyShape()
     {
         var readOnly =
             await RunAppAsync(
@@ -263,9 +1338,7 @@ public partial class CommandExecutionTests
                     .AssemblyPath(),
                 "Count:1",
                 "-S",
-                "Decompiled Source",
-                "--tips",
-                "q");
+                "Decompiled Source");
         var unsafeAccessor =
             await RunAppAsync(
                 "member",
@@ -273,12 +1346,10 @@ public partial class CommandExecutionTests
                 "--library",
                 FixtureCatalog.DecompilerUnsafeNew
                     .AssemblyPath(),
-                "explicit:ILInspector.Decompiler.Fixtures.NewUnsafe.IMemorySafetyAccessorContract.get_Value:1",
+                "ILInspector.Decompiler.Fixtures.NewUnsafe.IMemorySafetyAccessorContract.Value:1",
                 "--all",
                 "-S",
-                "Decompiled Source",
-                "--tips",
-                "q");
+                "Decompiled Source");
 
         Assert.Equal(0, readOnly.Exit);
         Assert.Empty(readOnly.Error);
@@ -288,8 +1359,9 @@ public partial class CommandExecutionTests
         Assert.Equal(0, unsafeAccessor.Exit);
         Assert.Empty(unsafeAccessor.Error);
         Assert.Contains(
-            "unsafe int ILInspector.Decompiler.Fixtures.NewUnsafe.IMemorySafetyAccessorContract.Value => 42;",
+            "int ILInspector.Decompiler.Fixtures.NewUnsafe.IMemorySafetyAccessorContract.Value => 42;",
             unsafeAccessor.Output);
+        Assert.DoesNotContain("unsafe int", unsafeAccessor.Output);
     }
 
     [Fact]
@@ -299,13 +1371,13 @@ public partial class CommandExecutionTests
         var member = await RunAppAsync(
             "member", typeName, ".ctor:1",
             "--library", TestAssemblyPath,
-            "-S", "Decompiled Source",
-            "--tips", "q");
+            "-S", "Decompiled Source"
+            );
         var type = await RunAppAsync(
             "type", typeName,
             "--library", TestAssemblyPath,
-            "-S", "Decompiled Source",
-            "--tips", "q");
+            "-S", "Decompiled Source"
+            );
 
         Assert.Equal(0, member.Exit);
         Assert.Empty(member.Error);
@@ -342,9 +1414,7 @@ public partial class CommandExecutionTests
             "member",
             "JsonSerializer.Deser*",
             "--platform",
-            "System.Text.Json",
-            "--tips",
-            "q");
+            "System.Text.Json");
 
         Assert.Equal(0, exit);
         Assert.Contains("Deserialize", output);
@@ -358,9 +1428,7 @@ public partial class CommandExecutionTests
             "System.Collections.Immutable.ImmutableArray<T>.Builder.Capacity",
             "--platform",
             "System.Collections.Immutable",
-            "--markdown",
-            "--tips",
-            "q");
+            "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -375,9 +1443,7 @@ public partial class CommandExecutionTests
             "System.Collections.Immutable.ImmutableArray<T>.Builder",
             "--platform",
             "System.Collections.Immutable",
-            "--markdown",
-            "--tips",
-            "q");
+            "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -397,16 +1463,12 @@ public partial class CommandExecutionTests
             target,
             "--platform",
             "System.Collections.Immutable",
-            "-v:n",
-            "--tips",
-            "q");
+            "-v:n");
         var deferred = await RunAppAsync(
             target,
             "--platform",
             "System.Collections.Immutable",
-            "-v:n",
-            "--tips",
-            "q");
+            "-v:n");
 
         Assert.Equal(direct, deferred);
         Assert.Equal(0, deferred.Exit);
@@ -425,9 +1487,7 @@ public partial class CommandExecutionTests
             "--library",
             missingAssembly,
             "-S",
-            "DefinitelyNotASection",
-            "--tips",
-            "q");
+            "DefinitelyNotASection");
         var explicitMember = await RunAppAsync(
             "member",
             "Missing.Type",
@@ -436,9 +1496,7 @@ public partial class CommandExecutionTests
             "-m",
             "Member",
             "-S",
-            "DefinitelyNotASection",
-            "--tips",
-            "q");
+            "DefinitelyNotASection");
 
         Assert.Equal(1, ambiguous.Exit);
         Assert.Equal(1, explicitMember.Exit);
@@ -470,9 +1528,7 @@ public partial class CommandExecutionTests
             "--library",
             missingAssembly,
             "-S",
-            "Signature",
-            "--tips",
-            "q");
+            "Signature");
 
         Assert.Equal(1, result.Exit);
         Assert.Empty(result.Output);
@@ -495,8 +1551,6 @@ public partial class CommandExecutionTests
             "-S",
             "Methods",
             "--count",
-            "--tips",
-            "q"
         ];
         var simple = await RunAppAsync(
             ["member", typeName, "-m", "String.Contains", .. tail]);
@@ -527,8 +1581,6 @@ public partial class CommandExecutionTests
             "-S",
             "Signature",
             "--count",
-            "--tips",
-            "q"
         ];
         var direct = await RunAppAsync(
             ["member", "System.Text.Json.JsonElement", .. tail]);
@@ -561,9 +1613,7 @@ public partial class CommandExecutionTests
             "--all",
             "-S",
             "Member Index",
-            "--count",
-            "--tips",
-            "q");
+            "--count");
 
         Assert.Equal(0, exit);
         Assert.Equal("1", output.Trim());
@@ -582,9 +1632,7 @@ public partial class CommandExecutionTests
                 + ".ConvertAll<TOutput?>",
             "-S",
             "Signature",
-            "--count",
-            "--tips",
-            "q");
+            "--count");
 
         Assert.Equal(0, exit);
         Assert.Equal("1", output.Trim());
@@ -604,9 +1652,7 @@ public partial class CommandExecutionTests
             "--all",
             "-S",
             "Member Index",
-            "--count",
-            "--tips",
-            "q");
+            "--count");
 
         Assert.Equal(0, exit);
         Assert.Equal("1", output.Trim());
@@ -623,9 +1669,7 @@ public partial class CommandExecutionTests
             "forged",
             "--platform",
             "System.Collections.Immutable",
-            "--markdown",
-            "--tips",
-            "q");
+            "--markdown");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -636,13 +1680,196 @@ public partial class CommandExecutionTests
     public async Task Member_FullyQualifiedPlatformMember_UsesPlatformMemberFindIfMiss()
     {
         var (exit, output, error) = await RunAppAsync(
-            "member", "System.String.IndexOf", "--table", "-S", "Member Index", "--tips", "q");
+            "member", "System.String.IndexOf", "--table", "-S", "Member Index");
 
         Assert.Equal(0, exit);
         Assert.Contains("IndexOf:1", output);
         Assert.Contains("IndexOf~", output);
         Assert.Contains("M:System.String.IndexOf(char)", output);
         Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task
+        Member_ExactMethodGroup_DefaultAndTreeUseTheSameNativeDocument()
+    {
+        var natural = await RunAppAsync(
+            "member",
+            "System.Text.Json.JsonSerializer.Serialize",
+            "--platform",
+            "System.Text.Json");
+        var explicitTree = await RunAppAsync(
+            "member",
+            "System.Text.Json.JsonSerializer.Serialize",
+            "--platform",
+            "System.Text.Json",
+            "--tree");
+        var caseInsensitive = await RunAppAsync(
+            "member",
+            "System.Text.Json.JsonSerializer.serialize",
+            "--platform",
+            "System.Text.Json");
+
+        Assert.Equal(0, natural.Exit);
+        Assert.Equal(natural, explicitTree);
+        Assert.Equal(natural, caseInsensitive);
+        Assert.StartsWith(
+            "method System.Text.Json.JsonSerializer.Serialize (15 overloads)",
+            natural.Output);
+        Assert.Contains(
+            "├─ public static string Serialize<TValue>(",
+            natural.Output);
+        Assert.Contains(
+            "└─ public static void Serialize(",
+            natural.Output);
+        Assert.DoesNotContain("## Methods", natural.Output);
+    }
+
+    [Fact]
+    public async Task Member_ExactMethodGroup_DistinguishesExtensionReceivers()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            "System.Text.Json.JsonSerializer.Deserialize",
+            "--platform",
+            "System.Text.Json");
+
+        Assert.Equal(0, exit);
+        Assert.StartsWith(
+            "method System.Text.Json.JsonSerializer.Deserialize (",
+            output);
+        Assert.Contains("public static ", output);
+        Assert.Contains("public extension ", output);
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task
+        Member_SingleMethod_DefaultAndTreeUseTheSameNativeDocument()
+    {
+        string typeName = typeof(MemberCallGraphFixture).FullName!;
+        var natural = await RunAppAsync(
+            "member",
+            typeName,
+            nameof(MemberCallGraphFixture.RootCall),
+            "--library",
+            TestAssemblyPath);
+        var explicitTree = await RunAppAsync(
+            "member",
+            typeName,
+            nameof(MemberCallGraphFixture.RootCall),
+            "--library",
+            TestAssemblyPath,
+            "--tree");
+
+        Assert.Equal(0, natural.Exit);
+        Assert.Equal(natural, explicitTree);
+        Assert.StartsWith(
+            $"method {typeName}.{nameof(MemberCallGraphFixture.RootCall)} "
+                + "(1 overload)",
+            natural.Output);
+        Assert.Contains(
+            "└─ public static void RootCall()",
+            natural.Output);
+        Assert.DoesNotContain("## Method", natural.Output);
+        Assert.Empty(natural.Error);
+    }
+
+    [Fact]
+    public async Task
+        Member_ExactMethodSelector_DefaultUsesOneMemberDocument()
+    {
+        var ordinal = await RunAppAsync(
+            "member",
+            "System.Text.Json.JsonSerializer.Serialize:6",
+            "--platform",
+            "System.Text.Json");
+        Match digest =
+            Regex.Match(
+                ordinal.Output,
+                @"\|\s+`(?<digest>[0-9a-f]{10})`\s+\|");
+        Assert.True(digest.Success, ordinal.Output);
+        var fingerprint = await RunAppAsync(
+            "member",
+            "System.Text.Json.JsonSerializer.Serialize~"
+                + digest.Groups["digest"].Value,
+            "--platform",
+            "System.Text.Json");
+
+        Assert.Equal(0, ordinal.Exit);
+        Assert.Equal(ordinal, fingerprint);
+        Assert.StartsWith("## Signature", ordinal.Output);
+        Assert.Contains(
+            "| Signature | Digest | Canonical Signature |",
+            ordinal.Output);
+        Assert.DoesNotContain("Description", ordinal.Output);
+        Assert.DoesNotContain("overloads)", ordinal.Output);
+        Assert.Empty(ordinal.Error);
+    }
+
+    [Fact]
+    public async Task
+        Member_SingleMethodExactSelectorDoesNotCollapseBareGroup()
+    {
+        string typeName = typeof(MemberCallGraphFixture).FullName!;
+        var group = await RunAppAsync(
+            "member",
+            typeName,
+            nameof(MemberCallGraphFixture.RootCall),
+            "--library",
+            TestAssemblyPath);
+        var exact = await RunAppAsync(
+            "member",
+            typeName,
+            $"{nameof(MemberCallGraphFixture.RootCall)}:1",
+            "--library",
+            TestAssemblyPath);
+
+        Assert.Equal(0, group.Exit);
+        Assert.Equal(0, exact.Exit);
+        Assert.StartsWith(
+            $"method {typeName}.{nameof(MemberCallGraphFixture.RootCall)} "
+                + "(1 overload)",
+            group.Output);
+        Assert.StartsWith("## Signature", exact.Output);
+        Assert.DoesNotContain("(1 overload)", exact.Output);
+        Assert.Empty(exact.Error);
+    }
+
+    [Fact]
+    public async Task Member_ExactMethodSelector_RejectsNativeTree()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            typeof(MemberCallGraphFixture).FullName!,
+            $"{nameof(MemberCallGraphFixture.RootCall)}:1",
+            "--library",
+            TestAssemblyPath,
+            "--tree");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "--tree requires exactly one selected tree shape",
+            error);
+    }
+
+    [Fact]
+    public async Task Member_NonMethodGroup_RejectsTreePresentation()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            typeof(MemberCallGraphFixture).FullName!,
+            nameof(MemberCallGraphFixture.Descriptor),
+            "--library",
+            TestAssemblyPath,
+            "--tree");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "--tree requires exactly one selected tree shape.",
+            error);
     }
 
     [Theory]
@@ -656,8 +1883,6 @@ public partial class CommandExecutionTests
             "-S",
             SectionNames.Signature,
             "--count",
-            "--tips",
-            "q"
         ];
         var direct = await RunAppAsync(
             [
@@ -692,9 +1917,7 @@ public partial class CommandExecutionTests
             SectionNames.MemberIndex,
             "--columns",
             "Stable",
-            "--tsv",
-            "--tips",
-            "q");
+            "--tsv");
         Assert.Equal(0, inventory.Exit);
         var stableSelector = inventory.Output
             .Split('\n', StringSplitOptions.RemoveEmptyEntries)
@@ -707,8 +1930,6 @@ public partial class CommandExecutionTests
             "-S",
             SectionNames.Signature,
             "--count",
-            "--tips",
-            "q"
         ];
         var direct = await RunAppAsync(
             [
@@ -744,8 +1965,6 @@ public partial class CommandExecutionTests
             "--tsv",
             "--columns",
             "canonical_signature",
-            "--tips",
-            "q"
         ];
         var direct = await RunAppAsync(
             [
@@ -763,14 +1982,14 @@ public partial class CommandExecutionTests
         Assert.Equal(direct.Output, found.Output);
         Assert.Equal(0, found.Exit);
         Assert.Contains("StatusCode", found.Output);
-        Assert.Empty(found.Error);
+        Assert.DoesNotContain("Error:", found.Error);
     }
 
     [Fact]
     public async Task Member_GenericMemberSelector_NormalizesGenericTypeArguments()
     {
         var (exit, output, error) = await RunAppAsync(
-            "member", "JsonSerializer", "-m", "Deserialize<TValue>", "--table", "--tips", "q");
+            "member", "JsonSerializer", "-m", "Deserialize<TValue>", "--table");
 
         Assert.Equal(0, exit);
         Assert.Contains("Deserialize", output);
@@ -782,7 +2001,7 @@ public partial class CommandExecutionTests
     public async Task Member_MethodsTable_OmitsDecodeColumn()
     {
         var (exit, output, error) = await RunAppAsync(
-            "member", "JsonSerializer", "-m", "Serialize", "--table", "--tips", "q");
+            "member", "JsonSerializer", "-m", "Serialize", "--table");
 
         Assert.Equal(0, exit);
         Assert.Contains("Serialize", output);
@@ -795,11 +2014,14 @@ public partial class CommandExecutionTests
     public async Task Member_MethodsTable_ShowsAlwaysOnDigestColumn()
     {
         var (exit, output, error) = await RunAppAsync(
-            "member", "JsonSerializer", "-m", "Serialize", "--tips", "q");
+            "member", "JsonSerializer", "-m", "Serialize",
+            "--table");
 
         Assert.Equal(0, exit);
         // The durable ~digest handle is always shown as a Digest column in the default member table.
-        Assert.Contains("| Name | Digest | Signature | Description |", output);
+        Assert.Matches(
+            @"(?m)^Name\s+Digest\s+Signature\s+Description\s*$",
+            output);
         Assert.Empty(error);
     }
 
@@ -809,7 +2031,7 @@ public partial class CommandExecutionTests
         // The compact per-kind summary tables (Constructors, Properties, Fields, Method
         // Groups) also drop the empty Decode degradation column; degradation surfaces on stderr.
         var (exit, output, error) = await RunAppAsync(
-            "member", "JsonSerializerOptions", "--platform", "System.Text.Json", "--tips", "q");
+            "member", "JsonSerializerOptions", "--platform", "System.Text.Json");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Constructors", output);
@@ -824,7 +2046,7 @@ public partial class CommandExecutionTests
         // The agent-facing JSON must expose the durable overload handle (digest) and the
         // doc-ID canonical signature, not just the human-facing Markdown Digest column.
         var (exit, output, error) = await RunAppAsync(
-            "System.Text.Json.JsonSerializer.Serialize:1", "--json", "--tips", "q");
+            "System.Text.Json.JsonSerializer.Serialize:1", "--json");
 
         Assert.Equal(0, exit);
         Assert.Contains("\"digest\": \"1dc14dd1fb\"", output);
@@ -837,10 +2059,10 @@ public partial class CommandExecutionTests
     {
         var shortSelector = await RunAppAsync(
             "member", "String", "--platform", "System.Private.CoreLib",
-            "-m", "5", "--table", "--tips", "q");
+            "-m", "5", "--table");
         var longSelector = await RunAppAsync(
             "member", "String", "--platform", "System.Private.CoreLib",
-            "--member", "5", "--table", "--tips", "q");
+            "--member", "5", "--table");
 
         Assert.Equal(longSelector, shortSelector);
         Assert.Equal(1, shortSelector.Exit);
@@ -854,11 +2076,14 @@ public partial class CommandExecutionTests
         // Drilling into a single overload (even via the non-durable positional :N) must surface
         // the durable Digest and the Canonical Signature so the reference can be upgraded.
         var (exit, output, error) = await RunAppAsync(
-            "System.Text.Json.JsonSerializer.Serialize:6", "--tips", "q");
+            "System.Text.Json.JsonSerializer.Serialize:6");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Signature", output);
-        Assert.Contains("| Signature | Digest | Canonical Signature | Description |", output);
+        Assert.Contains(
+            "| Signature | Digest | Canonical Signature |",
+            output);
+        Assert.DoesNotContain("Description", output);
         Assert.Contains("M:System.Text.Json.JsonSerializer.Serialize", output);
         Assert.Empty(error);
     }
@@ -867,7 +2092,7 @@ public partial class CommandExecutionTests
     public async Task Member_ConstructorSelector_NormalizesCtorAlias()
     {
         var (exit, output, error) = await RunAppAsync(
-            "member", "String", "-m", "ctor", "--table", "--tips", "q");
+            "member", "String", "-m", "ctor", "--table");
 
         Assert.Equal(0, exit);
         Assert.Contains(".ctor", output);
@@ -879,7 +2104,7 @@ public partial class CommandExecutionTests
     public async Task Member_BareSimpleTypeMiss_UsesPlatformFindIfMiss()
     {
         var (exit, output, error) = await RunAppAsync(
-            "member", "Regex", "-m", "Match", "-S", "Member Index", "--rows", "4", "--tips", "q");
+            "member", "Regex", "-m", "Match", "-S", "Member Index", "--rows", "4", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Contains("# System.Text.RegularExpressions.Regex", output);
@@ -891,7 +2116,7 @@ public partial class CommandExecutionTests
     public async Task Member_NamespacePrefixInput_PrintsPrefixBrowseHint()
     {
         var (exit, output, error) = await RunAppAsync(
-            "member", "System.Text", "--tips", "q");
+            "member", "System.Text");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -909,7 +2134,7 @@ public partial class CommandExecutionTests
             "--library", TestAssemblyPath,
             nameof(SampleKeywordParameterHost.Instance),
             "-S", "Methods,Member Index,Signature",
-            "--count", "--json", "--tips", "q");
+            "--count", "--json");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -929,7 +2154,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, _) = await RunAppAsync(
             "member", "System.Text.Json.JsonSerializer", "--platform", "System.Text.Json",
-            "-S", "Properties", "--tips", "q");
+            "-S", "Properties", "--markdown");
 
         Assert.Equal(0, exit);
 
@@ -1024,9 +2249,7 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             "member",
             "-D",
-            "--table",
-            "--tips",
-            "q");
+            "--table");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1073,9 +2296,7 @@ public partial class CommandExecutionTests
             "member",
             "-D",
             SectionCategoryNames.Calls,
-            "--table",
-            "--tips",
-            "q");
+            "--table");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1112,9 +2333,7 @@ public partial class CommandExecutionTests
             "System.Text.Json",
             "-D",
             category,
-            "--table",
-            "--tips",
-            "q");
+            "--table");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1132,9 +2351,7 @@ public partial class CommandExecutionTests
             "System.Text.Json",
             "-D",
             SectionCategoryNames.Member,
-            "--table",
-            "--tips",
-            "q");
+            "--table");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1155,9 +2372,7 @@ public partial class CommandExecutionTests
             TestAssemblyPath,
             $"{nameof(CostOverlayFixture.Caller)}:1",
             "-S",
-            SectionCategoryNames.Performance,
-            "--tips",
-            "q");
+            SectionCategoryNames.Performance);
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1169,6 +2384,7 @@ public partial class CommandExecutionTests
     [Fact]
     public async Task Member_BroadGlob_DoesNotSelectExactOnlySections()
     {
+        // Match every asserted exact-only section without selecting the Source domain.
         var (exit, output, error) = await RunAppAsync(
             "member",
             "System.String",
@@ -1176,12 +2392,11 @@ public partial class CommandExecutionTests
             "--platform",
             "System.Private.CoreLib",
             "-S",
-            "*",
-            "--tips",
-            "q");
+            "M*,Sign*,Custom*",
+            "--markdown");
 
         Assert.Equal(0, exit);
-        Assert.Empty(error);
+        Assert.DoesNotContain("Error:", error);
         Assert.Contains("## Methods", output);
         Assert.DoesNotContain("## Member Index", output);
         Assert.DoesNotContain("## Signature", output);
@@ -1202,9 +2417,8 @@ public partial class CommandExecutionTests
             "--platform",
             "System.Private.CoreLib",
             "-S",
-            $"{selector},{SectionCategoryNames.Member}",
-            "--tips",
-            "q");
+            $"{selector},{SectionCategoryNames.Member}"
+            );
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1226,9 +2440,7 @@ public partial class CommandExecutionTests
             "System.Private.CoreLib",
             "-S",
             selector,
-            "--markdown",
-            "--tips",
-            "q");
+            "--markdown");
         var resolved = await RunAppAsync(
             "member",
             "String",
@@ -1236,9 +2448,7 @@ public partial class CommandExecutionTests
             "System.Private.CoreLib",
             "-S",
             selector,
-            "--markdown",
-            "--tips",
-            "q");
+            "--markdown");
 
         Assert.Equal(qualified.Exit, resolved.Exit);
         Assert.Equal(qualified.Output, resolved.Output);
@@ -1267,7 +2477,7 @@ public partial class CommandExecutionTests
         };
         if (schema)
             args.Add("--schema");
-        args.AddRange(["--table", "--tips", "q"]);
+        args.AddRange(["--table"]);
 
         var (exit, output, error) = await RunAppAsync([.. args]);
 
@@ -1294,7 +2504,7 @@ public partial class CommandExecutionTests
         };
         if (schema)
             args.Add("--schema");
-        args.AddRange(["--table", "--tips", "q"]);
+        args.AddRange(["--table"]);
 
         var (exit, output, error) = await RunAppAsync([.. args]);
 
@@ -1305,7 +2515,6 @@ public partial class CommandExecutionTests
 
     [Theory]
     [InlineData("@Calls")]
-    [InlineData("@Source")]
     [InlineData("@Audit")]
     public async Task Member_OverloadDomainCategory_PreservesInventoryRoute(
         string category)
@@ -1317,15 +2526,39 @@ public partial class CommandExecutionTests
             TestAssemblyPath,
             nameof(MemberCallsFixture.Overloaded),
             "-S",
-            category,
-            "--tips",
-            "q");
+            category);
 
         Assert.Equal(0, exit);
         Assert.DoesNotContain(
             "requires a single selected overload",
             error,
             StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Member_OverloadSourceCategory_RequiresSingleSelectedOverload()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            typeof(MemberCallsFixture).FullName!,
+            "--library",
+            TestAssemblyPath,
+            nameof(MemberCallsFixture.Overloaded),
+            "-S",
+            "@Source");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "sections 'Source', 'Decompiled Source', 'PDB Source', "
+                + "'Source Diff' require a single selected overload",
+            error,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(
+            $"{nameof(MemberCallsFixture.Overloaded)}:1 through "
+                + $"{nameof(MemberCallsFixture.Overloaded)}:2",
+            error,
+            StringComparison.Ordinal);
     }
 
     [Theory]
@@ -1341,9 +2574,7 @@ public partial class CommandExecutionTests
             "--platform",
             "System.Text.Json",
             "-S",
-            selector,
-            "--tips",
-            "q");
+            selector);
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -1475,9 +2706,7 @@ public partial class CommandExecutionTests
             "NoSuchField",
             "--tsv",
             "--rows",
-            "1",
-            "--tips",
-            "q");
+            "1");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -1497,10 +2726,10 @@ public partial class CommandExecutionTests
         {
             var execution = await RunAppAsync(
                 "member", "N.Widget", "--library", path,
-                "Value:1", "-S", "Signature", "--tips", "q");
+                "Value:1", "-S", "Signature");
             var discovery = await RunAppAsync(
                 "member", "N.Widget", "--library", path,
-                "Value:1", "-D", "Signature", "--tips", "q");
+                "Value:1", "-D", "Signature");
 
             Assert.Equal(0, execution.Exit);
             Assert.Empty(execution.Error);
@@ -1531,8 +2760,14 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("## Signature", output);
-        Assert.Contains("public static System.Text.Json.JsonElement SerializeToElement<TValue>(TValue value, System.Text.Json.JsonSerializerOptions? options = null)", output);
-        Assert.Contains("Type: System.Text.Json.JsonSerializer", output);
+        Assert.Contains(
+            "public static System.Text.Json.JsonElement "
+                + "SerializeToElement<TValue>(TValue value, "
+                + "System.Text.Json.JsonSerializerOptions options = null)",
+            output);
+        Assert.DoesNotContain(
+            "Type: System.Text.Json.JsonSerializer",
+            output);
         Assert.DoesNotContain("## Methods", output);
         Assert.DoesNotContain("## Decompiled Source", output);
         Assert.DoesNotContain("## PDB Source", output);
@@ -1567,7 +2802,8 @@ public partial class CommandExecutionTests
             PlatformAssembly = "System.Text.Json",
             TypeName = "JsonSerializer",
             MemberFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "SerializeToNode" },
-            Select = ["Member Index"]
+            Select = ["Member Index"],
+            FormatExplicitlySet = true,
         };
 
         var (exit, output, _) = await ConsoleCapture.RunAsync(
@@ -1591,7 +2827,8 @@ public partial class CommandExecutionTests
             PlatformAssembly = "System.Text.Json",
             TypeName = "JsonSerializerOptions",
             MemberFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "GetConverter" },
-            Select = ["Member Index"]
+            Select = ["Member Index"],
+            FormatExplicitlySet = true,
         };
 
         var (exit, output, _) = await ConsoleCapture.RunAsync(
@@ -1628,7 +2865,7 @@ public partial class CommandExecutionTests
             () => MemberCommand.ExecuteAsync(options));
 
         Assert.Equal(0, exit);
-        Assert.Contains("## IL", output);
+        Assert.DoesNotContain("## IL", output);
         Assert.Contains("IL_0000:", output);
     }
 
@@ -1640,7 +2877,8 @@ public partial class CommandExecutionTests
             PlatformAssembly = "System.Text.Json",
             TypeName = "JsonSerializerOptions",
             MemberFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "GetConverter" },
-            Select = ["Signature"]
+            Select = ["Signature"],
+            FormatExplicitlySet = true,
         };
 
         var (exit, output, _) = await ConsoleCapture.RunAsync(
@@ -1660,7 +2898,8 @@ public partial class CommandExecutionTests
             TypeName = "JsonSerializer",
             MemberFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "SerializeToNode" },
             OverloadIndex = 1,
-            Select = ["Custom Attributes"]
+            Select = ["Custom Attributes"],
+            FormatExplicitlySet = true,
         };
 
         var (exit, output, _) = await ConsoleCapture.RunAsync(
@@ -1704,7 +2943,7 @@ public partial class CommandExecutionTests
     public async Task Member_DumpStages_IsNotRegistered()
     {
         var (exit, _, error) = await RunAppAsync(
-            "member", "JsonSerializer", "--package", "System.Text.Json", "--dump-stages", "--tips", "q");
+            "member", "JsonSerializer", "--package", "System.Text.Json", "--dump-stages");
 
         Assert.NotEqual(0, exit);
         Assert.Contains("Unrecognized option '--dump-stages'", error);
@@ -1740,7 +2979,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(MemberCallGraphFixture).FullName!, "--library", TestAssemblyPath,
-            nameof(MemberCallGraphFixture.Inner), "-S", "Call Graph", "--tips", "q");
+            nameof(MemberCallGraphFixture.Inner), "-S", "Call Graph");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1761,7 +3000,7 @@ public partial class CommandExecutionTests
             Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", environmentFormat);
             var (exit, output, error) = await RunAppAsync(
                 "member", typeof(MemberCallGraphFixture).FullName!, "--library", TestAssemblyPath,
-                nameof(MemberCallGraphFixture.Inner), "-S", "Call Graph", "--tree", "--tips", "q");
+                nameof(MemberCallGraphFixture.Inner), "-S", "Call Graph", "--tree");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -1784,10 +3023,10 @@ public partial class CommandExecutionTests
             Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", "mermaid");
             var graph = await RunAppAsync(
                 "member", typeof(MemberCallGraphFixture).FullName!, "--library", TestAssemblyPath,
-                nameof(MemberCallGraphFixture.Inner), "-S", "Call Graph", "--tips", "q");
+                nameof(MemberCallGraphFixture.Inner), "-S", "Call Graph");
             var calls = await RunAppAsync(
                 "member", typeof(MemberCallGraphFixture).FullName!, "--library", TestAssemblyPath,
-                nameof(MemberCallGraphFixture.Inner), "-S", "Calls", "--tips", "q");
+                nameof(MemberCallGraphFixture.Inner), "-S", "Calls");
 
             Assert.Equal(0, graph.Exit);
             Assert.Empty(graph.Error);
@@ -1808,7 +3047,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(MemberCallsFixture).FullName!, "--library", TestAssemblyPath,
-            nameof(MemberCallsFixture.Overloaded), "-S", "Call Graph", "--tips", "q");
+            nameof(MemberCallsFixture.Overloaded), "-S", "Call Graph");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -1842,9 +3081,7 @@ public partial class CommandExecutionTests
                 "-S",
                 "Call Graph",
                 "--bin",
-                directory,
-                "--tips",
-                "q");
+                directory);
 
             Assert.Equal(0, exit);
             Assert.Contains("## Call Graph", output);
@@ -1888,9 +3125,7 @@ public partial class CommandExecutionTests
                 "-S",
                 "Call Graph",
                 "--bin",
-                directory,
-                "--tips",
-                "q");
+                directory);
 
             Assert.Equal(0, exit);
             Assert.Contains("## Call Graph", output);
@@ -1920,9 +3155,7 @@ public partial class CommandExecutionTests
             "-S",
             "Call Graph",
             "--bin",
-            Path.GetDirectoryName(target)!,
-            "--tips",
-            "q");
+            Path.GetDirectoryName(target)!);
         var unscoped = await RunAppAsync(
             "member",
             "Shared.Entry",
@@ -1930,9 +3163,7 @@ public partial class CommandExecutionTests
             "--library",
             caller,
             "-S",
-            "Call Graph",
-            "--tips",
-            "q");
+            "Call Graph");
 
         Assert.Equal(0, scoped.Exit);
         Assert.Empty(scoped.Error);
@@ -1954,7 +3185,7 @@ public partial class CommandExecutionTests
         var testDirectory = Path.GetDirectoryName(TestAssemblyPath)!;
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(MemberCallGraphFixture).FullName!, "--library", TestAssemblyPath,
-            nameof(MemberCallGraphFixture.Inner), "-S", "Callers", "--bin", testDirectory, "--tips", "q");
+            nameof(MemberCallGraphFixture.Inner), "-S", "Callers", "--markdown", "--bin", testDirectory);
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1969,7 +3200,7 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(MemberCallGraphFixture).FullName!, "--library", TestAssemblyPath,
             nameof(MemberCallGraphFixture.Inner), "-S", SectionCategoryNames.Member,
-            "--bin", testDirectory, "--tips", "q");
+            "--bin", testDirectory);
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1983,7 +3214,7 @@ public partial class CommandExecutionTests
         var testDirectory = Path.GetDirectoryName(TestAssemblyPath)!;
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(MemberCallsFixture).FullName!, "--library", TestAssemblyPath,
-            nameof(MemberCallsFixture.Overloaded), "-S", "Callers", "--bin", testDirectory, "--tips", "q");
+            nameof(MemberCallsFixture.Overloaded), "-S", "Callers", "--bin", testDirectory);
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -1999,7 +3230,7 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(MemberCallsFixture).FullName!, "--library", TestAssemblyPath,
             nameof(MemberCallsFixture.Overloaded), "-S", SectionCategoryNames.Member,
-            "--bin", testDirectory, "--tips", "q");
+            "--bin", testDirectory);
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -2014,7 +3245,7 @@ public partial class CommandExecutionTests
         var testDirectory = Path.GetDirectoryName(TestAssemblyPath)!;
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(MemberCallGraphFixture).FullName!, "--library", TestAssemblyPath,
-            nameof(MemberCallGraphFixture.Inner), "--bin", testDirectory, "--tips", "q");
+            nameof(MemberCallGraphFixture.Inner), "--bin", testDirectory);
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2028,7 +3259,7 @@ public partial class CommandExecutionTests
         var testDirectory = Path.GetDirectoryName(TestAssemblyPath)!;
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(MemberCallsFixture).FullName!, "--library", TestAssemblyPath,
-            nameof(MemberCallsFixture.Overloaded), "--bin", testDirectory, "--tips", "q");
+            nameof(MemberCallsFixture.Overloaded), "--bin", testDirectory);
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -2049,9 +3280,9 @@ public partial class CommandExecutionTests
             nameof(CommandCaretGestureFixture.DisposedOnlyUsingResource),
         ];
         var markdown = await RunAppAsync(
-            [.. member, "-S", "Decompiled Source", "--tips", "q"]);
+            [.. member, "-S", "Decompiled Source"]);
         var structured = await RunAppAsync(
-            [.. member, "-S", "Annotated Source Document", "--json", "--tips", "q"]);
+            [.. member, "-S", "Annotated Source Document", "--json"]);
 
         Assert.Equal(0, markdown.Exit);
         Assert.Empty(markdown.Error);
@@ -2078,7 +3309,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(CommandCaretGestureFixture).FullName!, "--library", TestAssemblyPath,
-            "Pump:1", "-S", selection, "--json", "--tips", "q");
+            "Pump:1", "-S", selection, "--json");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2105,7 +3336,7 @@ public partial class CommandExecutionTests
 
             var (markdownExit, markdown, markdownError) = await RunAppAsync(
                 "member", "Hostile.Target", "--library", dllPath,
-                "GetCount:1", "-S", "Annotated Source,IL", "--tips", "q");
+                "GetCount:1", "-S", "Annotated Source,IL");
 
             Assert.Equal(0, markdownExit);
             Assert.Empty(markdownError);
@@ -2119,7 +3350,7 @@ public partial class CommandExecutionTests
             {
                 var (jsonExit, json, jsonError) = await RunAppAsync(
                     "member", "Hostile.Target", "--library", dllPath,
-                    "GetCount:1", "-S", section, "--print", "--json-array", "--tips", "q");
+                    "GetCount:1", "-S", section, "--print", "--json-array");
 
                 Assert.Equal(0, jsonExit);
                 Assert.Empty(jsonError);
@@ -2157,7 +3388,7 @@ public partial class CommandExecutionTests
 
             var (exit, output, error) = await RunAppAsync(
                 "member", "Hostile.Target", "--library", dllPath,
-                "Make", "-S", "Annotated Source", "--focus", "allocation", "--tips", "q");
+                "Make", "-S", "Annotated Source", "--focus", "allocation");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -2203,7 +3434,7 @@ public partial class CommandExecutionTests
 
         var (exit, output, _) = await RunAppAsync(
             "member", typeName, "--library", TestAssemblyPath,
-            selector, "--index", "1", "--all", "-S", section, "--focus", focus, "--tips", "q");
+            selector, "--index", "1", "--all", "-S", section, "--focus", focus);
 
         Assert.Equal(0, exit);
         Assert.Contains("^^^^", output);
@@ -2257,7 +3488,7 @@ public partial class CommandExecutionTests
         // visibility basis the member index numbered them on (all overloads under --all).
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(MemberCallsFixture).FullName!, "--library", TestAssemblyPath,
-            "--all", "InternalHelper:1", "-S", "Decompiled Source,IL", "--tips", "q");
+            "--all", "InternalHelper:1", "-S", "Decompiled Source,IL");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2272,7 +3503,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(MemberCallsFixture).FullName!, "--library", TestAssemblyPath,
-            "CallsInterfaceItem:1", "-S", "IL", "--tips", "q");
+            "CallsInterfaceItem:1", "-S", "IL");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2291,7 +3522,8 @@ public partial class CommandExecutionTests
             TypeName = "JsonSerializer",
             MemberFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "SerializeToElement" },
             OverloadIndex = 1,
-            IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Facts" }
+            IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Facts" },
+            FormatExplicitlySet = true,
         };
 
         var (exit, output, _) = await ConsoleCapture.RunAsync(
@@ -2310,7 +3542,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(FactsTableFixture).FullName!, "--library", TestAssemblyPath,
-            nameof(FactsTableFixture.BoxInt), "-S", "Facts", "--tips", "q");
+            nameof(FactsTableFixture.BoxInt), "-S", "Facts", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2320,8 +3552,12 @@ public partial class CommandExecutionTests
             output);
         Assert.Contains("FactsTableFixture::BoxInt", output);
         Assert.Contains("`IL_", output);
+        Assert.Contains("| offset | Allocation | alloc.box |", output);
+        Assert.Contains(
+            "escape-kind=escapes-return; lifetime-uses=IL_",
+            output);
         Assert.Matches(
-            @"\| offset \| Allocation \| alloc\.box \| `int; alloc=boxed System\.Int32; path=straight-line; path-confidence=dominates-return; post-dominance=return-post-dominates; escape=escapes; escape-kind=escapes-return; multiplicity=once` \|  \|  \|  \| Always \| [0-9a-f-]{36} \| 1 \|",
+            @"multiplicity=once` \|  \|  \|  \| Always \| [0-9a-f-]{36} \| 1 \|",
             output);
     }
 
@@ -2330,7 +3566,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(FactsTableFixture).FullName!, "--library", TestAssemblyPath,
-            nameof(FactsTableFixture.BoxInt), "-S", "Facts", "--tsv", "--no-headers", "--tips", "q");
+            nameof(FactsTableFixture.BoxInt), "-S", "Facts", "--tsv", "--no-headers");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2353,21 +3589,33 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_SelectedOverload_FindingCensusMarkdown_RendersEnvelope()
+    public async Task Member_SelectedOverload_FindingCensusUnindexedSelection_RendersEnvelope()
     {
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(FactsTableFixture).FullName!,
             "--library", TestAssemblyPath,
             nameof(FactsTableFixture.BoxInt),
-            "-S", "Finding Census", "--tips", "q");
+            "-S", "Finding Census");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("## Finding Census", output);
-        Assert.Contains("```json", output);
-        Assert.Contains("\"fact_census_receipt\":", output);
-        Assert.Contains("\"annotated_source_document\":", output);
-        Assert.Contains("\"source_fact_instances\":", output);
+        Assert.DoesNotContain("## Finding Census", output);
+        using JsonDocument envelope = JsonDocument.Parse(output);
+        Assert.NotEqual(
+            Guid.Empty,
+            envelope.RootElement
+                .GetProperty("fact_census_receipt")
+                .GetGuid());
+        Assert.NotEqual(
+            JsonValueKind.Null,
+            envelope.RootElement
+                .GetProperty("annotated_source_document")
+                .ValueKind);
+        Assert.Equal(
+            JsonValueKind.Array,
+            envelope.RootElement
+                .GetProperty("source_fact_instances")
+                .ValueKind);
     }
 
     [Fact]
@@ -2377,7 +3625,7 @@ public partial class CommandExecutionTests
             "member", typeof(FactsTableFixture).FullName!,
             "--library", TestAssemblyPath,
             $"{nameof(FactsTableFixture.BoxInt)}:1",
-            "-S", "Finding Census", "--tips", "q");
+            "-S", "Finding Census");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2397,7 +3645,7 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(IGenericExplicitInterfaceFixture<>).FullName!,
             "--library", TestAssemblyPath,
-            "Map:1", "-S", "Finding Census", "--tips", "q");
+            "Map:1", "-S", "Finding Census");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -2413,7 +3661,7 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(IBodylessFindingCensusFixture).FullName!,
             "--library", TestAssemblyPath,
-            memberSelector, "-D", "--tips", "q");
+            memberSelector, "-D");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2443,8 +3691,8 @@ public partial class CommandExecutionTests
                 var (bodylessExit, bodylessOutput, bodylessError) =
                     await RunAppAsync(
                         "member", "RuntimeAccessor.Target", "--library", dllPath,
-                        $"{memberName}:1", "-S", "Finding Census", "--json",
-                        "--tips", "q");
+                        $"{memberName}:1", "-S", "Finding Census", "--json"
+                        );
 
                 Assert.Equal(1, bodylessExit);
                 Assert.Empty(bodylessOutput);
@@ -2452,8 +3700,8 @@ public partial class CommandExecutionTests
 
                 var (bodyExit, bodyOutput, bodyError) = await RunAppAsync(
                     "member", "RuntimeAccessor.Target", "--library", dllPath,
-                    $"{memberName}:2", "-S", "Finding Census", "--json",
-                    "--tips", "q");
+                    $"{memberName}:2", "-S", "Finding Census", "--json"
+                    );
 
                 Assert.Equal(0, bodyExit);
                 Assert.Empty(bodyError);
@@ -2482,9 +3730,7 @@ public partial class CommandExecutionTests
             "Item:2",
             "-S",
             "Finding Census",
-            "--json",
-            "--tips",
-            "q");
+            "--json");
 
         Assert.Equal(0, result.Exit);
         Assert.Empty(result.Error);
@@ -2514,7 +3760,7 @@ public partial class CommandExecutionTests
 
             var (abstractExit, abstractOutput, abstractError) = await RunAppAsync(
                 "member", "RuntimeAccessor.Target", "--library", dllPath,
-                $"{memberName}:1", "-S", "Decompiled Source", "--tips", "q");
+                $"{memberName}:1", "-S", "Decompiled Source");
 
             Assert.Equal(0, abstractExit);
             Assert.Empty(abstractError);
@@ -2523,11 +3769,11 @@ public partial class CommandExecutionTests
 
             var (concreteExit, concreteOutput, concreteError) = await RunAppAsync(
                 "member", "RuntimeAccessor.Target", "--library", dllPath,
-                $"{memberName}:2", "-S", "Decompiled Source", "--tips", "q");
+                $"{memberName}:2", "-S", "Decompiled Source");
 
             Assert.Equal(0, concreteExit);
             Assert.Empty(concreteError);
-            Assert.Contains("## Decompiled Source", concreteOutput);
+            Assert.DoesNotContain("## Decompiled Source", concreteOutput);
             Assert.Contains($"public void {concreteAccessor}(", concreteOutput);
             Assert.DoesNotContain("virtual ", concreteOutput);
             Assert.DoesNotContain("abstract ", concreteOutput);
@@ -2546,7 +3792,7 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             "member", "String", "--platform", "System.Private.CoreLib",
             "extension:AsMemory:1", "-S", "Finding Census",
-            "--json", "--compact", "--tips", "q");
+            "--json", "--compact");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2567,7 +3813,7 @@ public partial class CommandExecutionTests
             "member", typeof(MemberCallsFixture).FullName!,
             "--library", TestAssemblyPath,
             nameof(MemberCallsFixture.Overloaded),
-            "-S", "Finding Census", "--tips", "q");
+            "-S", "Finding Census");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -2598,7 +3844,6 @@ public partial class CommandExecutionTests
             $"{nameof(FactsTableFixture.BoxInt)}:1",
             "-S", "Finding Census",
             .. projection,
-            "--tips", "q",
         ]);
 
         Assert.Equal(1, exit);
@@ -2613,7 +3858,7 @@ public partial class CommandExecutionTests
             "member", typeof(FactsTableFixture).FullName!,
             "--library", TestAssemblyPath,
             $"{nameof(FactsTableFixture.BoxInt)}:1",
-            "-S", "Finding Census,Facts", "--json", "--tips", "q");
+            "-S", "Finding Census,Facts", "--json");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -2638,7 +3883,6 @@ public partial class CommandExecutionTests
             $"{nameof(FactsTableFixture.BoxInt)}:1",
             "-S", SectionCategoryNames.Decompiler,
             .. projection,
-            "--tips", "q",
         ]);
 
         Assert.Equal(0, exit);
@@ -2652,26 +3896,10 @@ public partial class CommandExecutionTests
             "member", typeof(FactsTableFixture).FullName!,
             "--library", TestAssemblyPath,
             $"{nameof(FactsTableFixture.BoxInt)}:1",
-            "-S", SectionCategoryNames.Decompiler, "--tips", "q");
+            "-S", SectionCategoryNames.Decompiler);
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.DoesNotContain("## Finding Census", output);
-        Assert.DoesNotContain("\"fact_census_receipt\":", output);
-    }
-
-    [Fact]
-    public async Task Member_AllSectionsWildcard_OmitsFindingCensus()
-    {
-        var (exit, output, error) = await RunAppAsync(
-            "member", typeof(FactsTableFixture).FullName!,
-            "--library", TestAssemblyPath,
-            $"{nameof(FactsTableFixture.BoxInt)}:1",
-            "-S", "*", "--tips", "q");
-
-        Assert.Equal(0, exit);
-        Assert.Empty(error);
-        Assert.Contains("## Facts", output);
         Assert.DoesNotContain("## Finding Census", output);
         Assert.DoesNotContain("\"fact_census_receipt\":", output);
     }
@@ -2683,7 +3911,7 @@ public partial class CommandExecutionTests
             "member", typeof(FactsTableFixture).FullName!,
             "--library", TestAssemblyPath,
             $"{nameof(FactsTableFixture.BoxInt)}:1",
-            "-D", SectionCategoryNames.Decompiler, "--tips", "q");
+            "-D", SectionCategoryNames.Decompiler);
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2703,7 +3931,6 @@ public partial class CommandExecutionTests
             $"{nameof(FactsTableFixture.BoxInt)}:1",
             "-S", "Finding*",
             .. format,
-            "--tips", "q",
         ]);
 
         Assert.Equal(0, exit);
@@ -2725,7 +3952,6 @@ public partial class CommandExecutionTests
             $"{nameof(FactsTableFixture.BoxInt)}:1",
             "-S", $"{SectionCategoryNames.Member},Finding*",
             .. format,
-            "--tips", "q",
         ]);
 
         Assert.Equal(0, exit);
@@ -2739,7 +3965,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(FactsTableFixture).FullName!, "--library", TestAssemblyPath,
-            nameof(FactsTableFixture.BoxInt), "-S", "Fidelity Causes", "--table", "--tips", "q");
+            nameof(FactsTableFixture.BoxInt), "-S", "Fidelity Causes", "--table");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2753,8 +3979,8 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(FidelityCauseFixture).FullName!, "--library", TestAssemblyPath,
             nameof(FidelityCauseFixture.EmptyBody),
-            "-S", "Decompiled Source,Fidelity Causes,Annotated Source,Cost Overlay,Semantics Overlay",
-            "--tips", "q");
+            "-S", "Decompiled Source,Fidelity Causes,Annotated Source,Cost Overlay,Semantics Overlay"
+            );
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2782,7 +4008,7 @@ public partial class CommandExecutionTests
             var (exit, output, error) = await RunAppAsync(
                 "member", "FidelityFailedFixture.Malformed", "InvalidCall",
                 "--library", assemblyPath,
-                "-S", "Fidelity Causes", "--table", "--tips", "q");
+                "-S", "Fidelity Causes", "--table");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -2803,7 +4029,7 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(SamplePInvokeClass).FullName!, "--library", TestAssemblyPath,
             nameof(SamplePInvokeClass.GetCurrentProcessId), "--all",
-            "-S", "Fidelity Causes", "--table", "--tips", "q");
+            "-S", "Fidelity Causes", "--table");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2817,7 +4043,7 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(FidelityCauseFixture).FullName!, "--library", TestAssemblyPath,
             nameof(FidelityCauseFixture.TypedReferenceType),
-            "-S", "Fidelity Causes", "--tsv", "--tips", "q");
+            "-S", "Fidelity Causes", "--tsv");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2845,7 +4071,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(FactsTableFixture).FullName!, "--library", TestAssemblyPath,
-            nameof(FactsTableFixture.BoxInt), "-v:d", "--tips", "q");
+            nameof(FactsTableFixture.BoxInt), "-v:d");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2860,7 +4086,7 @@ public partial class CommandExecutionTests
         // selected Applied Taste section renders its empty-state note, not a row.
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(FactsTableFixture).FullName!, "--library", TestAssemblyPath,
-            nameof(FactsTableFixture.BoxInt), "-S", "Applied Taste", "--tips", "q");
+            nameof(FactsTableFixture.BoxInt), "-S", "Applied Taste", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2886,7 +4112,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(FactsTableFixture).FullName!, "--library", TestAssemblyPath,
-            nameof(FactsTableFixture.BoxInt), "-v:d", "--tips", "q");
+            nameof(FactsTableFixture.BoxInt), "-v:d");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2898,7 +4124,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(FactsHeaderFixture).FullName!, "--library", TestAssemblyPath,
-            nameof(FactsHeaderFixture.Hot), "--all", "-S", "Facts", "--tsv", "--no-headers", "--tips", "q");
+            nameof(FactsHeaderFixture.Hot), "--all", "-S", "Facts", "--tsv", "--no-headers");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2910,7 +4136,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(CostOverlayFixture).FullName!, "--library", TestAssemblyPath,
-            nameof(CostOverlayFixture.CallsExceptionOnly), "--index", "1", "--all", "-S", "Facts", "--table", "--tips", "q");
+            nameof(CostOverlayFixture.CallsExceptionOnly), "--index", "1", "--all", "-S", "Facts", "--table");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2925,8 +4151,8 @@ public partial class CommandExecutionTests
             "member", typeof(CostOverlayFixture).FullName!,
             "--library", TestAssemblyPath,
             nameof(CostOverlayFixture.CallsStackalloc),
-            "--index", "1", "--all", "-S", "Facts", "--table",
-            "--tips", "q");
+            "--index", "1", "--all", "-S", "Facts", "--table"
+            );
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2945,8 +4171,8 @@ public partial class CommandExecutionTests
             "member", typeof(CostOverlayFixture).FullName!,
             "--library", TestAssemblyPath,
             nameof(CostOverlayFixture.CallsStackalloc),
-            "--index", "1", "--all", "-S", "Facts", "--json",
-            "--tips", "q");
+            "--index", "1", "--all", "-S", "Facts", "--json"
+            );
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2989,8 +4215,8 @@ public partial class CommandExecutionTests
             "member", typeof(CostOverlayFixture).FullName!,
             "--library", TestAssemblyPath,
             nameof(CostOverlayFixture.Caller),
-            "--index", "1", "--all", "-S", "Facts", "--json",
-            "--tips", "q");
+            "--index", "1", "--all", "-S", "Facts", "--json"
+            );
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -3017,8 +4243,8 @@ public partial class CommandExecutionTests
             "member", typeof(CostOverlayFixture).FullName!,
             "--library", TestAssemblyPath,
             nameof(CostOverlayFixture.CallsPointerDeref),
-            "--index", "1", "--all", "-S", "Facts", "--json",
-            "--tips", "q");
+            "--index", "1", "--all", "-S", "Facts", "--json"
+            );
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -3049,8 +4275,8 @@ public partial class CommandExecutionTests
             "--library", TestAssemblyPath,
             nameof(CostOverlayFixture.CallsStackalloc),
             "--index", "1", "--all", "-S", "Facts", "--json",
-            projection, "Id,Evidence Subject,Evidence State",
-            "--tips", "q");
+            projection, "Id,Evidence Subject,Evidence State"
+            );
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -3086,7 +4312,7 @@ public partial class CommandExecutionTests
             "--library", TestAssemblyPath,
             nameof(FactsTableFixture.MultipleFacts),
             "--index", "1", "--all", "-S", "Facts", "--json",
-            "--columns", "Id", "--tips", "q",
+            "--columns", "Id",
         ];
         var (allExit, allOutput, allError) =
             await RunAppAsync(common);
@@ -3130,7 +4356,7 @@ public partial class CommandExecutionTests
             "--library", TestAssemblyPath,
             nameof(FactsTableFixture.MultipleFacts),
             "--index", "1", "--all", "-S", "Facts", "--json",
-            "--columns", "Id", "--rows", "999..999", "--tips", "q");
+            "--columns", "Id", "--rows", "999..999");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -3148,7 +4374,7 @@ public partial class CommandExecutionTests
             "--library", TestAssemblyPath,
             nameof(FactsTableFixture.MultipleFacts),
             "--index", "1", "--all", "-S", "Facts,Facts", "--json",
-            "--columns", "Id", "-n", "1", "--tips", "q");
+            "--columns", "Id", "-n", "1");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -3167,8 +4393,8 @@ public partial class CommandExecutionTests
             "--library", TestAssemblyPath,
             nameof(FactsTableFixture.MultipleFacts),
             "--index", "1", "--all", "-S", "Facts", "--json",
-            "--columns", "Id", "--count", "--rows", "999..999",
-            "--tips", "q");
+            "--columns", "Id", "--count", "--rows", "999..999"
+            );
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -3192,7 +4418,7 @@ public partial class CommandExecutionTests
             "--library", TestAssemblyPath,
             nameof(FactsTableFixture.MultipleFacts),
             "--index", "1", "--all", "-S", "Facts", "--count",
-            "--rows", rows, "-n", "1", direction, "--tips", "q");
+            "--rows", rows, "-n", "1", direction);
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -3215,7 +4441,7 @@ public partial class CommandExecutionTests
             nameof(FactsTableFixture.MultipleFacts),
             .. discovery,
             "-S", "Facts", "--json",
-            "--columns", "Name", "-n", "1", "--tips", "q",
+            "--columns", "Name", "-n", "1",
         ];
         var (exit, output, error) = await RunAppAsync(arguments);
 
@@ -3238,7 +4464,7 @@ public partial class CommandExecutionTests
             "--library", TestAssemblyPath,
             nameof(CostOverlayFixture.CallsStackalloc),
             "--index", "1", "--all", "-S", "Facts", "--json",
-            direction, "--tips", "q");
+            direction);
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -3250,11 +4476,11 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(CostOverlayFixture).FullName!, "--library", TestAssemblyPath,
-            nameof(CostOverlayFixture.Caller), "--index", "1", "--all", "-S", "Cost Overlay", "--tips", "q");
+            nameof(CostOverlayFixture.Caller), "--index", "1", "--all", "-S", "Cost Overlay");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("## Cost Overlay", output);
+        Assert.DoesNotContain("## Cost Overlay", output);
         Assert.Contains("cost.callee", output);
         Assert.Contains("alloc-loop", output);
         Assert.DoesNotContain("cost.method(root-reach 1", output);
@@ -3265,7 +4491,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(CostOverlayFixture).FullName!, "--library", TestAssemblyPath,
-            nameof(CostOverlayFixture.Caller), "--index", "1", "--all", "-v:d", "--tips", "q");
+            nameof(CostOverlayFixture.Caller), "--index", "1", "--all", "-v:d");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -3274,25 +4500,12 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_SelectedOverload_CostOverlay_DefaultRendersPayload()
-    {
-        var (exit, output, error) = await RunAppAsync(
-            "member", typeof(CostOverlayFixture).FullName!, "--library", TestAssemblyPath,
-            nameof(CostOverlayFixture.Caller), "--index", "1", "--all", "-S", "Cost Overlay", "--tips", "q");
-
-        Assert.Equal(0, exit);
-        Assert.Empty(error);
-        Assert.DoesNotContain("## Cost Overlay", output);
-        Assert.Contains("cost.callee", output);
-    }
-
-    [Fact]
     public async Task Member_SelectedOverload_DiscoveryListsCostOverlayAsOptIn()
     {
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(CostOverlayFixture).FullName!, "--library", TestAssemblyPath,
             nameof(CostOverlayFixture.Caller), "--index", "1", "--all",
-            "-D", SectionCategoryNames.Performance, "--table", "--tips", "q");
+            "-D", SectionCategoryNames.Performance, "--table");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -3304,11 +4517,11 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(CostOverlayFixture).FullName!, "--library", TestAssemblyPath,
-            nameof(CostOverlayFixture.CallsExceptionOnly), "--index", "1", "--all", "-S", "Semantics Overlay", "--tips", "q");
+            nameof(CostOverlayFixture.CallsExceptionOnly), "--index", "1", "--all", "-S", "Semantics Overlay");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("## Semantics Overlay", output);
+        Assert.DoesNotContain("## Semantics Overlay", output);
         Assert.Contains("semantics.callee", output);
         Assert.Contains("may-throw FormatException", output);
         Assert.DoesNotContain("cost.callee", output);
@@ -3319,7 +4532,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(CostOverlayFixture).FullName!, "--library", TestAssemblyPath,
-            nameof(CostOverlayFixture.CallsExceptionOnly), "--index", "1", "--all", "-v:d", "--tips", "q");
+            nameof(CostOverlayFixture.CallsExceptionOnly), "--index", "1", "--all", "-v:d");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -3332,7 +4545,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(CostOverlayFixture).FullName!, "--library", TestAssemblyPath,
-            nameof(CostOverlayFixture.CallsStackalloc), "--index", "1", "--all", "-S", "Semantics Overlay", "--tips", "q");
+            nameof(CostOverlayFixture.CallsStackalloc), "--index", "1", "--all", "-S", "Semantics Overlay");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -3347,7 +4560,7 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(CostOverlayFixture).FullName!, "--library", TestAssemblyPath,
             nameof(CostOverlayFixture.CallsExceptionOnly), "--index", "1", "--all",
-            "-D", SectionCategoryNames.Audit, "--table", "--tips", "q");
+            "-D", SectionCategoryNames.Audit, "--table");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -3517,7 +4730,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonSerializer", "--platform", "System.Text.Json",
-            "-m", "Serialize", format, "--tips", "q");
+            "-m", "Serialize", format);
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -3561,7 +4774,7 @@ public partial class CommandExecutionTests
             Environment.CurrentDirectory,
             [
                 "member", "JsonSerializer", "--platform", "System.Text.Json",
-                "-m", "Serialize", format, window, value, .. lineSelection, "--tips", "q",
+                "-m", "Serialize", format, window, value, .. lineSelection,
             ]);
 
         Assert.Equal(0, exit);
@@ -3602,7 +4815,7 @@ public partial class CommandExecutionTests
 
         (exit, output, error) = await RunAppAsync(
             "member", "JsonSerializer", "--package", "System.Text.Json",
-            stableSelector, "-S", "Signature", "--tips", "q");
+            stableSelector, "-S", "Signature", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -3749,7 +4962,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonSerializer", "--package", "System.Text.Json",
-            "-m", "Serialize", "-m", "IsReflectionEnabledByDefault", "--tsv", "--tips", "q");
+            "-m", "Serialize", "-m", "IsReflectionEnabledByDefault", "--tsv");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -3764,7 +4977,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "AppDomain", "--platform", "System.Private.CoreLib",
-            "-S", "Methods,Events", "--tips", "q");
+            "-S", "Methods,Events");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -3778,7 +4991,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "String", "--platform", "System.Private.CoreLib",
-            "-S", "@Member", "--tips", "q", "--rows", "3");
+            "-S", "@Member", "--rows", "3");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -3809,7 +5022,7 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             "member", "String", "--platform", "System.Private.CoreLib",
             "-S", "Operators,Explicit Interface Implementations,Extension Methods",
-            "--tips", "q", "--rows", "3");
+            "--rows", "3");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -3826,7 +5039,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "String", "--platform", "System.Private.CoreLib",
-            "-S", "Explicit Interface Implementations,Member Index", "--tips", "q", "--rows", "4");
+            "-S", "Explicit Interface Implementations,Member Index", "--rows", "4");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -3835,7 +5048,7 @@ public partial class CommandExecutionTests
 
         (exit, output, error) = await RunAppAsync(
             "member", "String", "--platform", "System.Private.CoreLib",
-            "explicit:System.IConvertible.ToBoolean:1", "-S", "Signature", "--tips", "q");
+            "explicit:System.IConvertible.ToBoolean:1", "-S", "Signature");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -3843,16 +5056,16 @@ public partial class CommandExecutionTests
 
         (exit, output, error) = await RunAppAsync(
             "member", "String", "--platform", "System.Private.CoreLib",
-            "explicit:System.IConvertible.ToBoolean:1", "-S", "IL", "--tips", "q", "-n", "12", "--lines");
+            "explicit:System.IConvertible.ToBoolean:1", "-S", "IL", "-n", "12", "--lines");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("## IL", output);
+        Assert.DoesNotContain("## IL", output);
         Assert.Contains("System.Convert::ToBoolean", output);
 
         (exit, output, error) = await RunAppAsync(
             "member", "String", "--platform", "System.Private.CoreLib",
-            "explicit:System.IConvertible.ToBoolean:1", "-S", "Decompiled Source", "--tips", "q", "-n", "12", "--lines");
+            "explicit:System.IConvertible.ToBoolean:1", "-S", "Decompiled Source", "-n", "12", "--lines");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -3861,7 +5074,7 @@ public partial class CommandExecutionTests
 
         (exit, output, error) = await RunAppAsync(
             "member", "String", "--platform", "System.Private.CoreLib",
-            "-S", "Extension Methods,Member Index", "--tips", "q", "--rows", "4");
+            "-S", "Extension Methods,Member Index", "--rows", "4");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -3870,16 +5083,16 @@ public partial class CommandExecutionTests
 
         (exit, output, error) = await RunAppAsync(
             "member", "String", "--platform", "System.Private.CoreLib",
-            "extension:AsMemory:1", "-S", "IL", "--tips", "q", "-n", "12", "--lines");
+            "extension:AsMemory:1", "-S", "IL", "-n", "12", "--lines");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("## IL", output);
+        Assert.DoesNotContain("## IL", output);
         Assert.Contains("IL_0000:", output);
 
         (exit, output, error) = await RunAppAsync(
             "member", "String", "--platform", "System.Private.CoreLib",
-            "extension:Normalize:1", "-S", "Signature", "--tips", "q");
+            "extension:Normalize:1", "-S", "Signature");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -3901,7 +5114,7 @@ public partial class CommandExecutionTests
     public async Task Member_BareStringAliasWithMemberFilter_RendersStringMembers()
     {
         var (exit, output, error) = await RunAppAsync(
-            "member", "string", "-m", "Normalize", "-S", "Methods", "--tips", "q");
+            "member", "string", "-m", "Normalize", "-S", "Methods", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -3915,7 +5128,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "DayOfWeek", "--platform", "System.Private.CoreLib",
-            "-m", "Friday", "--tsv", "--tips", "q");
+            "-m", "Friday", "--tsv");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -4005,7 +5218,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(MemberCallsFixture).FullName!, nameof(MemberCallsFixture.Overloaded),
-            "--library", TestAssemblyPath, "-D", "--tips", "q");
+            "--library", TestAssemblyPath, "-D");
 
         Assert.Equal(0, exit);
         Assert.DoesNotContain("Tip:", error);
@@ -4024,10 +5237,10 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "System.Text.Json.JsonSerializer.SerializeToNode:1",
-            "-S", "Signature");
+            "-S", "Signature", "--markdown");
         var (countExit, countOutput, countError) = await RunAppAsync(
             "member", "System.Text.Json.JsonSerializer.SerializeToNode:1",
-            "-S", "Signature", "--count", "--tips", "q");
+            "-S", "Signature", "--count");
 
         Assert.Equal(0, exit);
         Assert.Equal([SectionNames.Signature], SectionHeadings(output));
@@ -4064,7 +5277,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "System.Text.Json.JsonSerializer",
-            "-m", "SerializeToNode", "-S", "Methods", "--tips", "q");
+            "-m", "SerializeToNode", "-S", "Methods", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Equal([SectionNames.Methods], SectionHeadings(output));
@@ -4077,7 +5290,7 @@ public partial class CommandExecutionTests
     public async Task MemberList_ExplicitPackageQualifiedType_DoesNotSplitTrailingTypeName()
     {
         var (exit, output, error) = await RunAppAsync(
-            "member", "System.Text.Json.JsonSerializer", "--package", "System.Text.Json", "--tips", "q");
+            "member", "System.Text.Json.JsonSerializer", "--package", "System.Text.Json");
 
         Assert.Equal(0, exit);
         Assert.DoesNotContain("Type 'System.Text.Json' not found", error);
@@ -4089,7 +5302,7 @@ public partial class CommandExecutionTests
     public async Task MemberList_QualifiedPlatformTypeTypo_SuggestsType()
     {
         var (exit, output, error) = await RunAppAsync(
-            "member", "System.Text.Json.JsonSerializizer", "--tips", "q");
+            "member", "System.Text.Json.JsonSerializizer");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -4103,7 +5316,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, _) = await RunAppAsync(
             "member", "System.Text.Json.JsonSerializer", "--package", "System.Text.Json",
-            "-m", "Serialize", "--rows", "10", "--tips", "q");
+            "-m", "Serialize", "--rows", "10");
 
         Assert.Equal(0, exit);
         Assert.Contains("Serialize<TValue>(TValue value", output);
@@ -4114,7 +5327,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(MemberGenericSelectorFixture).FullName!, "--library", TestAssemblyPath,
-            "GenericChoice<T>", "-S", "Signature", "--tips", "q");
+            "GenericChoice<T>", "-S", "Signature");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -4127,7 +5340,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(MemberGenericSelectorFixture).FullName!, "--library", TestAssemblyPath,
-            "GenericChoice<T>", "--rows", "10", "--tips", "q");
+            "GenericChoice<T>", "--rows", "10");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -4154,7 +5367,7 @@ public partial class CommandExecutionTests
 
         (exit, output, error) = await RunAppAsync(
             "member", typeof(MemberGenericSelectorFixture).FullName!, "--library", TestAssemblyPath,
-            selector, "-S", "Signature", "--tips", "q");
+            selector, "-S", "Signature");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -4170,7 +5383,7 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             "member", $"{typeof(MemberGenericSelectorFixture).FullName!}.{memberSelector}",
             "--library", TestAssemblyPath,
-            "-S", "Signature", "--tips", "q");
+            "-S", "Signature");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -4184,7 +5397,7 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             "member", $"{typeof(MemberGenericSelectorFixture).FullName!}.GenericChoice<T>",
             "--library", TestAssemblyPath,
-            "--rows", "10", "--tips", "q");
+            "--rows", "10");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -4197,7 +5410,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "MemoryExtensions.AsSpan<T>", "--platform", "System.Memory",
-            "-m", "AsSpan`0", "--table", "--tips", "q");
+            "-m", "AsSpan`0", "--table");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -4209,7 +5422,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "List<T>.ConvertAll<TOutput>", "--platform", "System.Private.CoreLib",
-            "-m", "Add", "--table", "--tips", "q");
+            "-m", "Add", "--table");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -4222,7 +5435,7 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             "member", "System.Collections.Generic.List<T>.ConvertAll<TOutput>",
             "--platform", "System.Collections",
-            "-S", "Signature", "--count", "--tips", "q");
+            "-S", "Signature", "--count");
 
         Assert.Equal(0, exit);
         Assert.Equal("1", output.Trim());
@@ -4245,9 +5458,7 @@ public partial class CommandExecutionTests
             "System.Collections",
             "-S",
             "Signature",
-            "--count",
-            "--tips",
-            "q");
+            "--count");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -4266,9 +5477,7 @@ public partial class CommandExecutionTests
             "explicit:DotnetInspect.Cli.Tests.IGenericExplicitInterfaceFixture<T>.Map<U,V>",
             "-S",
             SectionNames.Signature,
-            "--count",
-            "--tips",
-            "q");
+            "--count");
 
         Assert.Equal(0, exit);
         Assert.Equal("1", output.Trim());
@@ -4281,7 +5490,7 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             "member", "System.Collections.Generic.List<T>",
             "--platform", "System.Private.CoreLib",
-            "-S", "Signature", "--tips", "q");
+            "-S", "Signature");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -4295,7 +5504,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "--platform", "System.Text.Json",
-            "--section", "Async Methods", "-v:d", "--tips", "q");
+            "--section", "Async Methods", "-v:d");
 
         Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
         // Generic declaring types expand arity to a C#-friendly code span (no raw `2, no escaped angle brackets).
@@ -4325,17 +5534,43 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task AsyncMethods_PackageAggregateCount_UsesTheCountAnswerAndRowWindow()
+    {
+        // The aggregate package route asks the async analyzer for a Count
+        // under --count; its count and windowed count equal the per-library ones.
+        string package = Path.Combine(
+            CommandErrorOwnershipTests.RepositoryRoot(),
+            "fixtures", "services", "signatures", "newtonsoft.json.13.0.3.nupkg");
+        var (libraryExit, libraryCount, _) = await RunAppAsync(
+            "package", package, "--library", "Newtonsoft.Json.dll", "--tfm", "net6.0",
+            "-S", "Async Methods", "--count");
+        var (aggregateExit, aggregateCount, _) = await RunAppAsync(
+            "package", package, "--library", "--tfm", "net6.0",
+            "-S", "Async Methods", "--count");
+        var (windowExit, windowCount, _) = await RunAppAsync(
+            "package", package, "--library", "--tfm", "net6.0",
+            "-S", "Async Methods", "--count", "--rows", "3..7");
+
+        Assert.Equal(0, libraryExit);
+        Assert.Equal(0, aggregateExit);
+        Assert.Equal(0, windowExit);
+        Assert.NotEqual("0", libraryCount.Trim());
+        Assert.Equal(libraryCount.Trim(), aggregateCount.Trim());
+        Assert.Equal("5", windowCount.Trim());
+    }
+
+    [Fact]
     public async Task PInvokeMethods_LocalFixture_RendersMarkdownMachineRowAndCount()
     {
         var (markdownExit, markdown, markdownError) = await RunAppAsync(
             "library", TestAssemblyPath,
-            "--section", "P/Invoke Methods", "--tips", "q");
+            "--section", "P/Invoke Methods");
         var (jsonlExit, jsonl, jsonlError) = await RunAppAsync(
             "library", TestAssemblyPath,
-            "--section", "P/Invoke Methods", "--jsonl", "--tips", "q");
+            "--section", "P/Invoke Methods", "--jsonl");
         var (countExit, count, countError) = await RunAppAsync(
             "library", TestAssemblyPath,
-            "--section", "P/Invoke Methods", "--count", "--tips", "q");
+            "--section", "P/Invoke Methods", "--count");
 
         Assert.Equal(0, markdownExit);
         Assert.Equal(0, jsonlExit);
@@ -4360,7 +5595,7 @@ public partial class CommandExecutionTests
             "Interop.User32.EnumWindows P/Invokes exist only in the Windows build of System.Diagnostics.Process.");
         var (exit, output, error) = await RunAppAsync(
             "library", "--platform", "System.Diagnostics.Process",
-            "--section", "P/Invoke Methods", "-v:d", "--tips", "q");
+            "--section", "P/Invoke Methods", "-v:d");
 
         Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
         Assert.Contains("`Interop.User32`", output);

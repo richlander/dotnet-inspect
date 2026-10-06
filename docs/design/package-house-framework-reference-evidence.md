@@ -102,7 +102,8 @@ another cache entry, or another package generation.
 A complete payload already contains the root nuspec. A ranged PackageHouse
 realization may otherwise materialize only selected assembly entries.
 Framework-reference evidence therefore requires an explicit House request
-demand that adds the root nuspec to ranged-read planning.
+demand, `PackageHouseEvidenceDemand.FrameworkReferences`, that adds the root
+nuspec to ranged-read planning.
 
 The demand:
 
@@ -156,7 +157,7 @@ source spelling.
 Conceptually:
 
 ```text
-PackageHouseFrameworkReferenceProjectionOutcome
+PackageHouseFrameworkReferenceOutcome
   NotRequested(Association)
   Selected(Evidence)
   NoFrameworkReferenceGroups(Association)
@@ -172,8 +173,8 @@ PackageHouseFrameworkReferenceAssociation
   Realization: exact PackageHouseRealizationReceipt.Compile
   Generation: exact PackageContentGenerationIdentity
   TargetBasis:
-    Requested(PackageHouseTargetContext.Exact)
-    SelectedCompileTarget(string)
+    Exact(string)
+    CompileSelection(string)
     Unavailable
 
 PackageHouseFrameworkReferenceEvidence
@@ -259,10 +260,11 @@ The selected names are package-authored framework-reference evidence only.
 
 The [Assembly Reference Resolution
 Ladder](assembly-reference-resolution-ladder.md) consumes this evidence only
-as framework-family eligibility. Exact platform correspondence, package
-pruning, and the requested AssemblyRef's membership in one Platform Library
-remain separate owner-issued inputs. The ladder applies package pruning before
-platform applicability.
+as framework-family eligibility. Exact Platform target selection, package
+pruning, and
+[target-aware Platform binding](platform-assembly-reference-binding.md)
+remain separate owner-issued inputs. The ladder evaluates retained Package
+candidates before invoking Platform binding.
 
 The nuspec `<frameworkAssemblies>` element is a legacy .NET Framework assembly
 declaration and is not shared-framework evidence.
@@ -281,10 +283,11 @@ group and does not inherit `net8.0`.
 
 The overlapping-package case remains the route-pathological case. If the same
 inspection also retains a `System.Text.Json` package edge, framework evidence
-cannot override it. PackageHouse pruning must first determine whether the
-package edge remains package-owned or delegates to Platform; only delegated or
-absent package ownership permits the ladder to consider exact Platform Library
-membership. Package versions and assembly versions are never compared.
+cannot override a successful Package binding. PackageHouse pruning first
+determines whether the edge is retained or delegated. A retained edge gets the
+first opportunity to bind, but an owner-attested Package identity miss remains
+provisional while target-aware Platform binding evaluates. Package versions
+and assembly versions are never compared.
 
 ## Conventional basis and deliberate choices
 
@@ -336,9 +339,14 @@ seven owner-separated slices:
    by PackageHouse.
 3. #8504 adds the PackageHouse request demand and exact-settlement projection
    specified here.
-4. #8503 supplies exact platform package-to-Library correspondence.
-5. the ladder composes framework eligibility, correspondence, and
-   pruning-before-platform applicability.
+4. #8503 locks
+   [Platform assembly-reference
+   binding](platform-assembly-reference-binding.md) and the thin
+   [Package-origin supplier composition](package-origin-assemblyref-supply-routing.md)
+   over ordinary Package correlation, deferred Platform binding, and
+   orthogonal pruning.
+5. the ladder consumes that complete external-supplier result under its
+   ordinary context precedence.
 6. Workspace publishes the selected platform closure as an immutable
    replacement generation.
 7. Browser/Wasm and CLI resolution consumers adopt the shared PackageHouse

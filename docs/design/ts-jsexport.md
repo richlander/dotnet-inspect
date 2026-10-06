@@ -405,6 +405,14 @@ input parameters select deserialize declarations. Parsed JSON returns,
 including `JsonText<T>` realization, select serialize declarations. Raw
 `[JSExport]` signatures remain unchanged.
 
+The later
+[JSON Schema Vocabulary Bindings](json-schema-vocabulary-bindings.md) design
+does not introduce another direction binding. Its implementation extracts this
+plan into the target-language-neutral `JsExportSurface` layer without changing
+the plan's semantics. TypeScript declarations, JSON Schema, and schema-location
+bindings then consume that one plan; TypeScript naming and syntax remain owned
+here.
+
 Directional projection does not broaden an unsupported serializer contract.
 In particular, polymorphic deserialization remains unsupported until its
 owning contract establishes reader-side case selection. A declaration whose

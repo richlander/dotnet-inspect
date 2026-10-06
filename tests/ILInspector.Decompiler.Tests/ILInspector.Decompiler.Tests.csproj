@@ -38,7 +38,14 @@
 
   <ItemGroup>
     <PackageDownload Include="docopt.net" Version="[0.8.3]" />
-    <PackageDownload Include="System.Text.Json" Version="[11.0.0-preview.7.26381.103]" />
+    <PackageDownload Include="System.Text.Json"
+                     Version="[9.0.0];[10.0.0];[11.0.0-preview.7.26381.103]" />
+    <None Include="$(NuGetPackageRoot)system.text.json/9.0.0/lib/net9.0/System.Text.Json.dll"
+          Link="RealAssets/BodyIdentity/9.0.0/System.Text.Json.dll"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NuGetPackageRoot)system.text.json/10.0.0/lib/net9.0/System.Text.Json.dll"
+          Link="RealAssets/BodyIdentity/10.0.0/System.Text.Json.dll"
+          CopyToOutputDirectory="PreserveNewest" />
     <None Include="$(NuGetPackageRoot)system.text.json/11.0.0-preview.7.26381.103/lib/netstandard2.0/System.Text.Json.dll"
           Link="RealAssets/StructuredTypes/System.Text.Json.dll"
           CopyToOutputDirectory="PreserveNewest" />
@@ -52,6 +59,23 @@
     <PackageDownload Include="Microsoft.CodeAnalysis.Common" Version="[5.0.0]" />
     <None Include="$(NuGetPackageRoot)microsoft.codeanalysis.common/5.0.0/lib/net9.0/Microsoft.CodeAnalysis.dll"
           Link="RealAssets/PrimitiveJoin/Microsoft.CodeAnalysis.dll"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NuGetPackageRoot)microsoft.codeanalysis.common/5.0.0/lib/net9.0/Microsoft.CodeAnalysis.dll"
+          Link="RealAssets/PdbNestedLambda/Microsoft.CodeAnalysis.dll"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NuGetPackageRoot)microsoft.codeanalysis.common/5.0.0/lib/net9.0/Microsoft.CodeAnalysis.pdb"
+          Link="RealAssets/PdbNestedLambda/Microsoft.CodeAnalysis.pdb"
+          CopyToOutputDirectory="PreserveNewest" />
+    <PackageDownload Include="System.CommandLine" Version="[3.0.0-preview.5.26302.115]" />
+    <None Include="$(NuGetPackageRoot)system.commandline/3.0.0-preview.5.26302.115/lib/net10.0/System.CommandLine.dll"
+          Link="RealAssets/NestedLambda/System.CommandLine.dll"
+          CopyToOutputDirectory="PreserveNewest" />
+    <PackageDownload Include="dotnet-inspect.any" Version="[0.14.0]" />
+    <None Include="$(NuGetPackageRoot)dotnet-inspect.any/0.14.0/tools/net10.0/any/ILInspector.Decompiler.dll"
+          Link="RealAssets/SwitchSection/ILInspector.Decompiler.dll"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NuGetPackageRoot)dotnet-inspect.any/0.14.0/tools/net10.0/any/dotnet-inspect.dll"
+          Link="RealAssets/SwitchSection/dotnet-inspect.dll"
           CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
@@ -78,9 +102,11 @@
     <ProjectReference Include="..\..\src\ILInspector.SourceLink\ILInspector.SourceLink.csproj" />
     <ProjectReference Include="..\..\src\DotnetInspector.DependencyManifests\DotnetInspector.DependencyManifests.csproj" />
     <ProjectReference Include="..\..\src\DotnetInspector.Services\DotnetInspector.Services.csproj" />
+    <ProjectReference Include="..\..\src\DotnetInspector.ResearchSections\DotnetInspector.ResearchSections.csproj" />
     <ProjectReference Include="..\..\src\Inspector.Artifacts.Workspaces\Inspector.Artifacts.Workspaces.csproj" />
     <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.CallerGraphTarget\ILInspector.Analysis.CallerGraphTarget.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.CallerGraphTargetV2\ILInspector.Analysis.CallerGraphTargetV2.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.CallFunctionPointerScopeFixtures\ILInspector.Analysis.CallFunctionPointerScopeFixtures.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\decompiler\ILInspector.Decompiler.Fixtures.ForwardedFieldCaller\ILInspector.Decompiler.Fixtures.ForwardedFieldCaller.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\decompiler\ILInspector.Decompiler.Fixtures.ForwardedFieldTarget.Deployment\ILInspector.Decompiler.Fixtures.ForwardedFieldTarget.Deployment.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\decompiler\ILInspector.Decompiler.Fixtures.ForwardedFieldTarget.Reference\ILInspector.Decompiler.Fixtures.ForwardedFieldTarget.Reference.csproj" ReferenceOutputAssembly="false" />
@@ -99,12 +125,14 @@
     <ProjectReference Include="..\..\fixtures\decompiler\ILInspector.Decompiler.Fixtures.AuthoredRebuild\ILInspector.Decompiler.Fixtures.AuthoredRebuild.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\decompiler\ILInspector.Decompiler.Fixtures.TypeIdentity\ILInspector.Decompiler.Fixtures.TypeIdentity.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\decompiler\ILInspector.Decompiler.Fixtures.StructuredTypes\ILInspector.Decompiler.Fixtures.StructuredTypes.csproj" />
+    <ProjectReference Include="..\..\fixtures\decompiler\ILInspector.Decompiler.Fixtures.ExpressionTreeSpoof\ILInspector.Decompiler.Fixtures.ExpressionTreeSpoof.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\metadata\ILInspector.Metadata.StateMachineFixtures\ILInspector.Metadata.StateMachineFixtures.csproj" />
     <ProjectReference Include="..\..\fixtures\services\DotnetInspector.Services.RouteLearning.Middle\DotnetInspector.Services.RouteLearning.Middle.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\diff\DiffFixtures.V1\DiffFixtures.V1.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\diff\DiffFixtures.V2\DiffFixtures.V2.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\sourcelink\DotnetInspector.SourceLinkPartiallyMalformedFixtures\DotnetInspector.SourceLinkPartiallyMalformedFixtures.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\DotnetInspector.FixtureInfrastructure\DotnetInspector.FixtureInfrastructure.csproj" />
+    <ProjectReference Include="..\DotnetInspector.PerformanceOracles\DotnetInspector.PerformanceOracles.csproj" />
     <ProjectReference Include="..\..\tools\HarnessReportProtocol\HarnessReportProtocol.csproj" />
     <ProjectReference Include="..\..\tools\RoundTripCompilation\RoundTripCompilation.csproj" />
     <!-- Built, not referenced: AuthoredCorpusHarnessProcessTests runs the harness
@@ -179,6 +207,8 @@
              Link="ReturnToSenderClosureEvidence.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\ReturnToSenderSourceProbe.cs"
              Link="ReturnToSenderSourceProbe.cs" />
+    <Compile Include="..\..\tools\DecompilerHarness\ReturnToSenderTargetCount.cs"
+             Link="ReturnToSenderTargetCount.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\AuthoredRebuildFidelity.cs"
              Link="AuthoredRebuildFidelity.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\AuthoredBuildContext.cs"
@@ -209,8 +239,8 @@
              Link="StructuralReview.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\SlotResidualCensus.cs"
              Link="SlotResidualCensus.cs" />
-    <Compile Include="..\..\tools\DecompilerHarness\SlotUnifierCensus.cs"
-             Link="SlotUnifierCensus.cs" />
+    <Compile Include="..\..\tools\DecompilerHarness\ResidualBindingCensus.cs"
+             Link="ResidualBindingCensus.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\AnnotationCheck.cs"
              Link="AnnotationCheck.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\Completeness.cs"

@@ -49,42 +49,6 @@ public sealed class OptimizationRecognizerAnalysisTests
     }
 
     [Fact]
-    public void ArrayFlowDistinguishesLocalUseFromEscape()
-    {
-        byte[] localIl =
-        [
-            0x17,
-            0x8D, 0x04, 0x00, 0x00, 0x01,
-            0x0A,
-            0x06,
-            0x8E,
-            0x26,
-            0x2A,
-        ];
-        byte[] escapingIl =
-        [
-            0x17,
-            0x8D, 0x04, 0x00, 0x00, 0x01,
-            0x0A,
-            0x06,
-            0x2A,
-        ];
-
-        Assert.True(
-            ArrayEscapeAnalysis.ArrayProvablyStaysLocal(
-                Context(localIl),
-                ReachingDefinitions.Analyze(localIl, argumentSlotCount: 0),
-                positionAfterNewarr: 6));
-        Assert.False(
-            ArrayEscapeAnalysis.ArrayProvablyStaysLocal(
-                Context(escapingIl),
-                ReachingDefinitions.Analyze(
-                    escapingIl,
-                    argumentSlotCount: 0),
-                positionAfterNewarr: 6));
-    }
-
-    [Fact]
     public void SpanToArrayFlowDistinguishesLocalUseFromEscape()
     {
         byte[] localIl =

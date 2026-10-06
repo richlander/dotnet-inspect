@@ -7,6 +7,18 @@ on:
         description: Exact accepted cohort evidence artifact
         value: ${{ jobs.benchmark.outputs.evidence_artifact_name }}
     inputs:
+      source_sha:
+        description: Exact source commit to build
+        required: true
+        type: string
+      candidate_run_id:
+        description: Release-candidate run represented by this cohort
+        required: false
+        type: string
+      candidate_attempt:
+        description: Release-candidate attempt represented by this cohort
+        required: false
+        type: string
       dotnet_sdk_version:
         description: Candidate SDK version to validate instead of the checked-in pin
         required: false
@@ -35,6 +47,10 @@ on:
         default: 10
   workflow_dispatch:
     inputs:
+      source_sha:
+        description: Exact source commit to build
+        required: true
+        type: string
       samples:
         description: Samples per admitted runtime
         required: true
@@ -64,6 +80,8 @@ jobs:
     runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.source_sha }}
 
       - name: Setup .NET
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
@@ -110,6 +128,8 @@ jobs:
     runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.source_sha }}
 
       - name: Setup .NET
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
@@ -158,18 +178,19 @@ jobs:
             -nologo)
           built_at=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
           dotnet publish \
-            inspect-web/DotnetInspect.Web/DotnetInspect.Web.csproj \
+            src/DotnetInspect.Web/DotnetInspect.Web.csproj \
             -c Release \
             --output "$output" \
+            -p:InspectWebIncludeFrontend=true \
             -p:VersionPrefix="$version" \
-            -p:SourceRevisionId="$GITHUB_SHA" \
+            -p:SourceRevisionId="${{ inputs.source_sha }}" \
             -p:BuildTimestampUtc="$built_at" \
             -p:InspectWebExpectedAsyncLowering=compiler \
             -p:InspectWebAsyncLoweringReceiptDirectory="$GITHUB_WORKSPACE/$receipt_dir" \
             -p:CustomAfterMicrosoftCommonTargets="$GITHUB_WORKSPACE/eng/InspectWebAsyncLoweringReceipt.targets"
           eng/verify-inspect-web-async-deployment.sh \
             compiler \
-            inspect-web/DotnetInspect.Web/bin/Release/net11.0/DotnetInspect.Web.dll \
+            artifacts/bin/DotnetInspect.Web/release_browser-wasm/DotnetInspect.Web.dll \
             "$output/wwwroot" \
             "$output/async-lowering.json" \
             "$receipt_dir"
@@ -188,7 +209,7 @@ jobs:
             | tail -n 1)
           test -n "$runtime_version"
           jq -n \
-            --arg source_commit "$GITHUB_SHA" \
+            --arg source_commit "${{ inputs.source_sha }}" \
             --arg sdk_version "$sdk_version" \
             --arg runtime_version "$runtime_version" \
             --arg frontend_manifest_sha256 \
@@ -254,6 +275,8 @@ jobs:
       RUNTIME_COHORT_VMR_COMMIT_OVERRIDE: ${{ inputs.dotnet_vmr_commit || '' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.source_sha }}
 
       - name: Setup Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -350,7 +373,7 @@ jobs:
           test "$vmr_commit" = "$DOTNET_VMR_COMMIT"
 
           target_framework=$(dotnet msbuild \
-            inspect-web/DotnetInspect.Web/DotnetInspect.Web.csproj \
+            src/DotnetInspect.Web/DotnetInspect.Web.csproj \
             -getProperty:TargetFramework \
             -nologo)
           test "$target_framework" = "$INSPECT_WEB_RUNTIME_TARGET_FRAMEWORK"
@@ -480,12 +503,13 @@ jobs:
             ready_to_run_arguments+=("-p:PublishReadyToRunComposite=false")
           fi
           dotnet publish \
-            inspect-web/DotnetInspect.Web/DotnetInspect.Web.csproj \
+            src/DotnetInspect.Web/DotnetInspect.Web.csproj \
             -c Release \
             --output "$output" \
             --configfile "$nuget_config" \
+            -p:InspectWebIncludeFrontend=true \
             -p:VersionPrefix="$version" \
-            -p:SourceRevisionId="$GITHUB_SHA" \
+            -p:SourceRevisionId="${{ inputs.source_sha }}" \
             -p:BuildTimestampUtc="$built_at" \
             -p:Features=runtime-async=on \
             -p:UseMonoRuntime=false \
@@ -505,13 +529,13 @@ jobs:
             node inspect-web/scripts/verify-coreclr-r2r-publication.ts \
               --record \
               "$output/wwwroot" \
-              inspect-web/DotnetInspect.Web/obj/Release/net11.0/R2R \
+              artifacts/obj/DotnetInspect.Web/release_browser-wasm/R2R \
               "$output/runtime-cohort"
           fi
           RestoreConfigFile="$nuget_config" \
             eng/verify-inspect-web-async-deployment.sh \
               runtime \
-              inspect-web/DotnetInspect.Web/bin/Release/net11.0/DotnetInspect.Web.dll \
+              artifacts/bin/DotnetInspect.Web/release_browser-wasm/DotnetInspect.Web.dll \
               "$output/wwwroot" \
               "$output/async-lowering.json" \
               "$receipt_dir"
@@ -538,7 +562,7 @@ jobs:
           jq -n \
             --arg name "${{ matrix.name }}" \
             --arg role "${{ matrix.role }}" \
-            --arg source_commit "$GITHUB_SHA" \
+            --arg source_commit "${{ inputs.source_sha }}" \
             --arg sdk_version "$DOTNET_SDK_VERSION" \
             --arg runtime_version "$DOTNET_RUNTIME_VERSION" \
             --arg vmr_commit "$DOTNET_VMR_COMMIT" \
@@ -602,8 +626,12 @@ jobs:
     env:
       BENCHMARK_SAMPLES: ${{ inputs.samples || '5' }}
       BENCHMARK_MEMBER_COUNT: ${{ inputs.member_count || '10' }}
+      CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id || '' }}
+      CANDIDATE_ATTEMPT: ${{ inputs.candidate_attempt || '' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.source_sha }}
 
       - name: Setup .NET
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
@@ -698,11 +726,25 @@ jobs:
         run: |
           set +e
           node inspect-web/scripts/record-runtime-cohort.ts record \
-            --source-commit "$GITHUB_SHA" \
+            --source-commit "${{ inputs.source_sha }}" \
             --evidence-root "$RUNNER_TEMP/runtime-cohort/evidence" \
             --output "$RUNNER_TEMP/runtime-cohort/evidence/runtime-cohort.json"
           status=$?
           set -e
+          if [[ -n "$CANDIDATE_RUN_ID" || -n "$CANDIDATE_ATTEMPT" ]]; then
+            [[ "$CANDIDATE_RUN_ID" =~ ^[1-9][0-9]*$ ]]
+            [[ "$CANDIDATE_ATTEMPT" =~ ^[1-9][0-9]*$ ]]
+            jq -n \
+              --arg run_id "$CANDIDATE_RUN_ID" \
+              --argjson attempt "$CANDIDATE_ATTEMPT" \
+              --arg source "${{ inputs.source_sha }}" \
+              '{
+                schema: 1,
+                runId: $run_id,
+                attempt: $attempt,
+                sourceCommit: $source
+              }' > "$RUNNER_TEMP/runtime-cohort/evidence/candidate-identity.json"
+          fi
           echo "exit_code=$status" >> "$GITHUB_OUTPUT"
 
       - name: Benchmark admitted variants

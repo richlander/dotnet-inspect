@@ -6,10 +6,9 @@ until it is unreviewable, and over parallel PRs that race in the same files. The
 alternative to a stack is not a smaller change; it is the same change reviewed
 worse.
 
-[AGENTS.md](../AGENTS.md#stacked-prs-for-multi-slice-issues) states the rules
-that bind. This document explains the mechanics behind them: why restacking
+This document owns the binding stack rules and mechanics: why restacking
 force-pushes, what a restack must and must not change, and how a stack interacts
-with the fixed-head review rule.
+with fixed-head review.
 
 ## Building the stack
 

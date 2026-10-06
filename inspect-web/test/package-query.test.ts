@@ -6,6 +6,7 @@ import {
   appendFailure,
   appendProgress,
   appendRows,
+  createEcosystemQueryRequest,
   createPackageQueryController,
   createQueryRequest,
   emptyOutcome,
@@ -196,6 +197,16 @@ test("createQueryRequest gives candidate and match limits independent defaults",
   assert.notEqual(defaults.requestedLimit, defaults.requestedMatchLimit);
   assert.equal(defaults.includePrerelease, false);
   assert.deepEqual(defaults.terms, []);
+});
+
+test("Ecosystem requests preserve curated identity with 24 initial and 96 maximum matches", () => {
+  const request = createEcosystemQueryRequest("ecosystem.aspire");
+
+  assert.equal(request.ecosystemId, "ecosystem.aspire");
+  assert.equal(request.scopeQuery, "");
+  assert.equal(request.initialMatchCredit, 24);
+  assert.equal(request.requestedMatchLimit, 96);
+  assert.equal(shouldExecuteQuery(request), true);
 });
 
 test("library-literal is an ordinary composable term with metadata-expensive bounds", () => {
@@ -611,6 +622,34 @@ test("controller does not count rejected replenishment as granted credit", async
   assert.equal(requests, 2);
   finish({ kind: "cancelled" });
   await running;
+});
+
+test("controller grants explicit cumulative capacity deltas without pressure", async () => {
+  const state = initialQueryState();
+  const requested: number[] = [];
+  let finish!: (completion: TerminalQueryCompletion) => void;
+  const source: PackageQueryDataSource = {
+    initialMatchCredit: 24,
+    requestMore(additionalMatchCredit) {
+      requested.push(additionalMatchCredit);
+      return true;
+    },
+    async run() {
+      return await new Promise<TerminalQueryCompletion>(
+        resolve => { finish = resolve; });
+    },
+  };
+  const controller = createPackageQueryController(state, source, () => {});
+  const running = controller.run(
+    createEcosystemQueryRequest("ecosystem.aspire"));
+
+  assert.equal(await controller.requestAdditionalMatchCredit(24), true);
+  assert.equal(await controller.requestAdditionalMatchCredit(48), true);
+  assert.deepEqual(requested, [24, 48]);
+
+  finish({ kind: "exhausted" });
+  await running;
+  assert.equal(await controller.requestAdditionalMatchCredit(1), false);
 });
 
 test("controller publishes progress without clearing streamed rows", async () => {

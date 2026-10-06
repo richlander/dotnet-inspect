@@ -15,7 +15,8 @@ public sealed class LibraryBodyAnalysisRequest
         Func<TypeRef, bool>? bodyTypeScope,
         ResourceEffectAdmission? resourceEffects,
         bool includeResourceLifecycle,
-        ImplementationMetricAnalysisRequest? implementationMetrics)
+        ImplementationMetricAnalysisRequest? implementationMetrics,
+        bool captureStageParticipation)
     {
         ImmutableHashSet<int>? bodyScopeSnapshot =
             bodyScope?.ToImmutableHashSet();
@@ -25,13 +26,15 @@ public sealed class LibraryBodyAnalysisRequest
         ResourceEffects = resourceEffects;
         IncludesResourceLifecycle = includeResourceLifecycle;
         ImplementationMetrics = implementationMetrics;
+        CapturesStageParticipation = captureStageParticipation;
         Plan = LibraryBodyAnalysisPlan.Create(
             features,
             bodyScopeSnapshot,
             bodyTypeScope,
             resourceEffects,
             includeResourceLifecycle,
-            implementationMetrics);
+            implementationMetrics,
+            captureStageParticipation);
     }
 
     /// <summary>The features requested before prerequisite expansion.</summary>
@@ -61,6 +64,12 @@ public sealed class LibraryBodyAnalysisRequest
     internal ImplementationMetricAnalysisRequest? ImplementationMetrics
     { get; }
 
+    /// <summary>
+    /// Whether this execution publishes diagnostic evidence of the current
+    /// physical Analysis stages that participated.
+    /// </summary>
+    public bool CapturesStageParticipation { get; }
+
     internal LibraryBodyAnalysisPlan Plan { get; }
 
     public static LibraryBodyAnalysisRequest Create(
@@ -73,7 +82,8 @@ public sealed class LibraryBodyAnalysisRequest
             bodyTypeScope,
             resourceEffects: null,
             includeResourceLifecycle: false,
-            implementationMetrics: null);
+            implementationMetrics: null,
+            captureStageParticipation: false);
 
     /// <summary>
     /// Selects the current complete implementation profile through the
@@ -90,11 +100,12 @@ public sealed class LibraryBodyAnalysisRequest
             resourceEffects: null,
             includeResourceLifecycle: false,
             ImplementationMetricAnalysisRequest
-                .CompleteProfileCompatibility());
+                .CompleteProfileCompatibility(),
+            captureStageParticipation: false);
 
     internal static LibraryBodyAnalysisRequest
         CreateImplementationMetrics(
-            ImplementationMetricEvidenceKind evidence,
+            ImplementationMetricKind metrics,
             ImplementationMetricWorkLimits limits,
             IReadOnlySet<int> bodyScope,
             LibraryBodyAnalysisFeatures features =
@@ -115,10 +126,35 @@ public sealed class LibraryBodyAnalysisRequest
             resourceEffects: null,
             includeResourceLifecycle: false,
             new ImplementationMetricAnalysisRequest(
-                evidence,
+                metrics,
                 limits,
-                ImplementationMetricRequestOrigin.Explicit));
+                ImplementationMetricRequestOrigin.Explicit),
+            captureStageParticipation: false);
     }
+
+    /// <summary>
+    /// Selects source-native direct-invocation counts for an explicit method
+    /// scope under finite work bounds.
+    /// </summary>
+    public static LibraryBodyAnalysisRequest CreateDirectCallCounts(
+        ImplementationMetricWorkLimits limits,
+        IReadOnlySet<int> bodyScope) =>
+        CreateImplementationMetrics(
+            ImplementationMetricKind.DirectCallCount,
+            limits,
+            bodyScope);
+
+    /// <summary>
+    /// Selects source-native Calls-row cardinalities for an explicit method
+    /// scope under finite work bounds.
+    /// </summary>
+    public static LibraryBodyAnalysisRequest CreateCallSiteCounts(
+        ImplementationMetricWorkLimits limits,
+        IReadOnlySet<int> bodyScope) =>
+        CreateImplementationMetrics(
+            ImplementationMetricKind.CallSiteCount,
+            limits,
+            bodyScope);
 
     /// <summary>
     /// Selects Resource Occurrence Analysis with explicit admitted effect
@@ -139,7 +175,8 @@ public sealed class LibraryBodyAnalysisRequest
             bodyTypeScope,
             resourceEffects,
             includeResourceLifecycle: false,
-            implementationMetrics: null);
+            implementationMetrics: null,
+            captureStageParticipation: false);
     }
 
     /// <summary>
@@ -160,6 +197,23 @@ public sealed class LibraryBodyAnalysisRequest
             bodyTypeScope,
             resourceEffects,
             includeResourceLifecycle: true,
-            implementationMetrics: null);
+            implementationMetrics: null,
+            captureStageParticipation: false);
     }
+
+    /// <summary>
+    /// Returns an equivalent request that also publishes diagnostic
+    /// stage-participation evidence.
+    /// </summary>
+    public LibraryBodyAnalysisRequest WithStageParticipation() =>
+        CapturesStageParticipation
+            ? this
+            : new(
+                Features,
+                BodyScope,
+                BodyTypeScope,
+                ResourceEffects,
+                IncludesResourceLifecycle,
+                ImplementationMetrics,
+                captureStageParticipation: true);
 }

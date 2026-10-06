@@ -1739,7 +1739,7 @@ public class SourceForwarderResolutionTests
                         Discover = discover ? [SectionNames.BodyShapes] : null,
                         Columns = project ? ["Kind"] : null,
                         DocsExplicitlySet = true,
-                        TipLevel = TipLevel.Quiet,
+                        CompanionOutput = CompanionOutput.None,
                         Verbosity = Verbosity.Minimal,
                     },
                     source,
@@ -1798,7 +1798,7 @@ public class SourceForwarderResolutionTests
                         Select = [SectionNames.BodyShapes],
                         Discover = discover ? [SectionNames.BodyShapes] : null,
                         DocsExplicitlySet = true,
-                        TipLevel = TipLevel.Quiet,
+                        CompanionOutput = CompanionOutput.None,
                         Verbosity = Verbosity.Minimal,
                     },
                     source,
@@ -1853,7 +1853,7 @@ public class SourceForwarderResolutionTests
                         MemberFilter = [nameof(BodyShapeFixture.ReadableLocal)],
                         Select = [SectionNames.DecompiledSource],
                         DocsExplicitlySet = true,
-                        TipLevel = TipLevel.Quiet,
+                        CompanionOutput = CompanionOutput.None,
                         Verbosity = Verbosity.Minimal,
                     },
                     source,
@@ -1908,7 +1908,7 @@ public class SourceForwarderResolutionTests
                         MemberFilter = [nameof(BodyShapeFixture.ReadableLocal)],
                         Select = [SectionNames.DecompiledSource],
                         DocsExplicitlySet = true,
-                        TipLevel = TipLevel.Quiet,
+                        CompanionOutput = CompanionOutput.None,
                         Verbosity = Verbosity.Minimal,
                     },
                     source,
@@ -1950,7 +1950,7 @@ public class SourceForwarderResolutionTests
                 TypeName = TypeName,
                 Select = [SectionNames.DecompiledSource],
                 DocsExplicitlySet = true,
-                TipLevel = TipLevel.Quiet,
+                CompanionOutput = CompanionOutput.None,
                 Verbosity = Verbosity.Minimal,
             };
             var loaded = Assert.IsType<ApiServices.LoadedApiSurface>(
@@ -2001,7 +2001,7 @@ public class SourceForwarderResolutionTests
                 TypeName = typeName,
                 Select = [SectionNames.DecompiledSource],
                 DocsExplicitlySet = true,
-                TipLevel = TipLevel.Quiet,
+                CompanionOutput = CompanionOutput.None,
                 Verbosity = Verbosity.Minimal,
             };
             var loaded = Assert.IsType<ApiServices.LoadedApiSurface>(
@@ -2047,7 +2047,7 @@ public class SourceForwarderResolutionTests
                 OverloadIndex = 1,
                 Select = [SectionNames.DecompiledSource],
                 DocsExplicitlySet = true,
-                TipLevel = TipLevel.Quiet,
+                CompanionOutput = CompanionOutput.None,
                 Verbosity = Verbosity.Minimal,
             };
             var loaded = Assert.IsType<ApiServices.LoadedApiSurface>(
@@ -2093,7 +2093,7 @@ public class SourceForwarderResolutionTests
                 OverloadIndex = 1,
                 Select = [SectionNames.DecompiledSource],
                 DocsExplicitlySet = true,
-                TipLevel = TipLevel.Quiet,
+                CompanionOutput = CompanionOutput.None,
                 Verbosity = Verbosity.Minimal,
             };
             var loaded = Assert.IsType<ApiServices.LoadedApiSurface>(
@@ -2187,7 +2187,7 @@ public class SourceForwarderResolutionTests
                     {
                         TypeName = fixture.Type.FullName,
                         DocsExplicitlySet = true,
-                        TipLevel = TipLevel.Quiet,
+                        CompanionOutput = CompanionOutput.None,
                         Verbosity = Verbosity.Minimal,
                     },
                     source,
@@ -2230,7 +2230,7 @@ public class SourceForwarderResolutionTests
                         TypeName = fixture.Type.FullName,
                         Discover = [SectionCategoryNames.Decompiler],
                         DocsExplicitlySet = true,
-                        TipLevel = TipLevel.Quiet,
+                        CompanionOutput = CompanionOutput.None,
                         Verbosity = Verbosity.Minimal,
                     },
                     source,
@@ -2286,7 +2286,7 @@ public class SourceForwarderResolutionTests
                         OverloadIndex = 1,
                         Select = [SectionNames.DecompiledSource],
                         DocsExplicitlySet = true,
-                        TipLevel = TipLevel.Quiet,
+                        CompanionOutput = CompanionOutput.None,
                         Verbosity = Verbosity.Minimal,
                     },
                     source,
@@ -2354,7 +2354,7 @@ public class SourceForwarderResolutionTests
                             OverloadIndex = 1,
                             Select = [section],
                             DocsExplicitlySet = true,
-                            TipLevel = TipLevel.Quiet,
+                            CompanionOutput = CompanionOutput.None,
                             Verbosity = Verbosity.Minimal,
                         },
                         source,
@@ -2422,7 +2422,7 @@ public class SourceForwarderResolutionTests
                                     .Decompiler,
                             ],
                             DocsExplicitlySet = true,
-                            TipLevel = TipLevel.Quiet,
+                            CompanionOutput = CompanionOutput.None,
                             Verbosity = Verbosity.Minimal,
                         },
                         source,
@@ -2488,7 +2488,7 @@ public class SourceForwarderResolutionTests
                             typeof(BodyShapeFixture).Assembly.Location,
                             ".pdb"),
                         DocsExplicitlySet = true,
-                        TipLevel = TipLevel.Quiet,
+                        CompanionOutput = CompanionOutput.None,
                         Verbosity = Verbosity.Minimal,
                     },
                     source,
@@ -2554,7 +2554,7 @@ public class SourceForwarderResolutionTests
                             typeof(BodyShapeFixture).Assembly.Location,
                             ".pdb"),
                         DocsExplicitlySet = true,
-                        TipLevel = TipLevel.Quiet,
+                        CompanionOutput = CompanionOutput.None,
                         Verbosity = Verbosity.Minimal,
                     },
                     source,
@@ -2615,7 +2615,7 @@ public class SourceForwarderResolutionTests
                             typeof(BodyShapeFixture).Assembly.Location,
                             ".pdb"),
                         DocsExplicitlySet = true,
-                        TipLevel = TipLevel.Quiet,
+                        CompanionOutput = CompanionOutput.None,
                         Verbosity = Verbosity.Minimal,
                     },
                     source,
@@ -2662,7 +2662,7 @@ public class SourceForwarderResolutionTests
                         MemberFilter =
                             [nameof(BodyShapeFixture.ReadableLocal)],
                         DocsExplicitlySet = true,
-                        TipLevel = TipLevel.Quiet,
+                        CompanionOutput = CompanionOutput.None,
                         Verbosity = Verbosity.Minimal,
                     },
                     source,
@@ -2710,8 +2710,9 @@ public class SourceForwarderResolutionTests
                             [nameof(BodyShapeFixture.ReadableLocal)],
                         OverloadIndex = 1,
                         Select = [SectionNames.Calls],
+                        FormatExplicitlySet = true,
                         DocsExplicitlySet = true,
-                        TipLevel = TipLevel.Quiet,
+                        CompanionOutput = CompanionOutput.None,
                         Verbosity = Verbosity.Minimal,
                     },
                     source,
@@ -2759,8 +2760,9 @@ public class SourceForwarderResolutionTests
                             [nameof(BodyShapeFixture.ReadableLocal)],
                         OverloadIndex = 1,
                         Select = [SectionNames.ExceptionRegions],
+                        FormatExplicitlySet = true,
                         DocsExplicitlySet = true,
-                        TipLevel = TipLevel.Quiet,
+                        CompanionOutput = CompanionOutput.None,
                         Verbosity = Verbosity.Minimal,
                     },
                     source,
@@ -2818,7 +2820,7 @@ public class SourceForwarderResolutionTests
                         Discover = discover ? [SectionNames.ExceptionRegions] : null,
                         Columns = project ? ["Clause"] : null,
                         DocsExplicitlySet = true,
-                        TipLevel = TipLevel.Quiet,
+                        CompanionOutput = CompanionOutput.None,
                         Verbosity = Verbosity.Minimal,
                     },
                     source,
@@ -2873,7 +2875,7 @@ public class SourceForwarderResolutionTests
                         Select = [SectionNames.ExceptionRegions],
                         Discover = discover ? [SectionNames.ExceptionRegions] : null,
                         DocsExplicitlySet = true,
-                        TipLevel = TipLevel.Quiet,
+                        CompanionOutput = CompanionOutput.None,
                         Verbosity = Verbosity.Minimal,
                     },
                     source,
@@ -2934,7 +2936,7 @@ public class SourceForwarderResolutionTests
                         Discover = discover ? [SectionNames.AllocationFacts] : null,
                         Columns = project ? ["Member"] : null,
                         DocsExplicitlySet = true,
-                        TipLevel = TipLevel.Quiet,
+                        CompanionOutput = CompanionOutput.None,
                         Verbosity = Verbosity.Minimal,
                     },
                     source,
@@ -2997,7 +2999,7 @@ public class SourceForwarderResolutionTests
                             Select =
                                 [SectionNames.ApiDeclarations],
                             DocsExplicitlySet = true,
-                            TipLevel = TipLevel.Quiet,
+                            CompanionOutput = CompanionOutput.None,
                             Verbosity = Verbosity.Minimal,
                         },
                         source,
@@ -3057,7 +3059,7 @@ public class SourceForwarderResolutionTests
                         Select = [SectionNames.AllocationFacts],
                         Discover = discover ? [SectionNames.AllocationFacts] : null,
                         DocsExplicitlySet = true,
-                        TipLevel = TipLevel.Quiet,
+                        CompanionOutput = CompanionOutput.None,
                     },
                     source,
                     fixture.Loaded));
@@ -3103,7 +3105,7 @@ public class SourceForwarderResolutionTests
                     {
                         TypeName = fixture.Type.FullName,
                         DocsExplicitlySet = true,
-                        TipLevel = TipLevel.Quiet,
+                        CompanionOutput = CompanionOutput.None,
                         Verbosity = Verbosity.Minimal,
                     },
                     source,
@@ -3142,23 +3144,22 @@ public class SourceForwarderResolutionTests
             typeof(BodyShapeFixture));
         try
         {
-            Analysis.LibraryBodyIndex index =
+            Analysis.LibraryBodyAnalysisExecution index =
                 ApiAnalysisInspection.OpenTypeAnalysis(
                         fixture.AssemblyPath,
                         [section],
                         fixture.Type,
                         sourceAssembly:
                             fixture.Loaded.GetSourceAssembly(
-                                fixture.Type))
-                    .CompatibilityIndex();
+                                fixture.Type));
 
             Assert.Equal(1, opens);
-            Assert.Equal(allocations, index.Features.HasFlag(Analysis.LibraryBodyAnalysisFeatures.Allocations));
-            Assert.Equal(opportunities, index.Features.HasFlag(Analysis.LibraryBodyAnalysisFeatures.OptimizationOpportunities));
-            Assert.NotEmpty(index.DirectCalls);
+            Assert.Equal(allocations, index.Receipt.Features.HasFlag(Analysis.LibraryBodyAnalysisFeatures.Allocations));
+            Assert.Equal(opportunities, index.Receipt.Features.HasFlag(Analysis.LibraryBodyAnalysisFeatures.OptimizationOpportunities));
+            Assert.NotEmpty(index.CallGraph.DirectCalls);
             Assert.Equal(
                 wholeAssembly,
-                index.DirectCalls.Any(call =>
+                index.CallGraph.DirectCalls.Any(call =>
                     !ApiAnalysisInspection.SameType(call.Caller.DeclaringType, fixture.Type)));
         }
         finally
@@ -3193,8 +3194,9 @@ public class SourceForwarderResolutionTests
                         AssemblyPath = path,
                         TypeName = typeof(EmbeddedSourceFixture).FullName,
                         Select = [SectionNames.CostFacts],
+                        FormatExplicitlySet = true,
                         DocsExplicitlySet = true,
-                        TipLevel = TipLevel.Quiet,
+                        CompanionOutput = CompanionOutput.None,
                         RouterDeferredTypeOrMember = true,
                     })
                     : TypeCommand.ExecuteAsync(new TypeOptions
@@ -3202,8 +3204,9 @@ public class SourceForwarderResolutionTests
                         AssemblyPath = path,
                         TypeName = typeof(EmbeddedSourceFixture).FullName,
                         Select = [SectionNames.CostFacts],
+                        FormatExplicitlySet = true,
                         DocsExplicitlySet = true,
-                        TipLevel = TipLevel.Quiet,
+                        CompanionOutput = CompanionOutput.None,
                     }));
 
             Assert.Equal(0, exit);
@@ -3683,7 +3686,7 @@ public class SourceForwarderResolutionTests
         return image.ToArray();
     }
 
-    static byte[] BuildTargetWithMalformedType(
+    internal static byte[] BuildTargetWithMalformedType(
         bool requestedTypeIsMalformed)
     {
         var metadata = new MetadataBuilder();

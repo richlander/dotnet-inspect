@@ -1,7 +1,7 @@
 # Method Body Inspection
 
 > Design north-star for raising `member` body sections and the
-> `library coordinate` child onto one service model. This complements the
+> `library address` child onto one service model. This complements the
 > assembly acquisition/session seam
 > in the [assembly inspection query model](assembly-inspection-query.md):
 > assembly inspection opens and identifies an assembly; method-body inspection
@@ -9,7 +9,7 @@
 
 ## Problem
 
-`member` and `library coordinate` expose peer facts about method bodies:
+`member` and `library address` expose peer facts about method bodies:
 
 - source and decompiled source
 - IL
@@ -34,7 +34,7 @@ opcode heuristics. It was no longer just a source query.
 Both paths have useful pieces, but neither is the target architecture:
 
 - `member` uses the normal command pipeline, but its formatter constructs facts.
-- `library coordinate` needs a thin command query over a Research-owned
+- `library address` needs a thin command query over a Research-owned
   projection.
 - Both paths construct overlapping method-body facts differently.
 
@@ -107,11 +107,13 @@ session is disposed, while copied body data remains safe to retain.
   call-graph, and leverage results issued by one Analysis execution. CLI and
   Workspace/L1 composition supply it, so the producer never reopens Analysis.
 
-`ResearchAssemblyContext` is no longer a member-projection input. The
-Workspace/L1 query retains it only for residual query-owned callee evidence
-that still uses the compatibility index. The focused member input is not a
+`ResearchAssemblyContext` is no longer a member-projection input or an index
+owner. The Workspace/L1 query builds it from the same focused member input for
+residual query-owned callee evidence. The focused member input is not a
 universal Research result bag: its constructor names the four result families
-used by the default registry and requires one shared execution receipt.
+used by the default registry and requires one shared execution receipt. The
+query's focused member input also supplies the later call-relationship,
+invocation-destination, and local-throw evidence.
 
 This migration is tracked by
 [#2786](https://github.com/richlander/dotnet-inspect/issues/2786).
@@ -145,10 +147,10 @@ public sealed record ILCoordinateSelector(
     int ILOffset);
 ```
 
-This is the `library coordinate` selector shape. It is not a separate command
+This is the `library address` selector shape. It is not a separate command
 architecture; it establishes the child request while remaining another
 selector for the same method-body inspection pipeline.
-[Coordinate child command](coordinate-child-command.md) owns that CLI
+[Address child command](coordinate-child-command.md) owns that CLI
 placement.
 
 ## Facets
@@ -196,7 +198,6 @@ public sealed class MethodBodyInspectionSession
     public string SourceName { get; }
     public LibraryBodyAnalysisExecution AnalysisExecution { get; }
     public LibraryCallGraphAnalysisResult CallGraphAnalysis { get; }
-    public LibraryBodyIndex BodyIndex { get; } // compatibility only
 }
 ```
 
@@ -212,7 +213,6 @@ migrated queries. The boundary:
 - local and catalog member graphs compose
   `LibraryCallGraphAnalysisResult` values, while optional graph annotations
   consume `LibraryOptimizationAnalysisResult`
-- `LibraryBodyIndex` remains only for explicitly unmigrated compatibility paths
 - session methods exist only for composition requiring session-owned state,
   such as source attribution or multiple assembly scopes
 - the CLI composes and renders; it does not classify or infer Analysis facts
@@ -256,8 +256,6 @@ Owns IL analysis facts:
 - allocation, safety, and cost facts
 - unsafe operations and unsafe API evidence
 
-`LibraryBodyIndex` remains a temporary compatibility facade over one shared
-body acquisition. The
 [library body Analysis service](library-body-analysis-service.md) owns
 stateless path and immutable-image execution plus publication of focused
 detached results. `LibraryBodyAnalysisPlan` owns producer dependencies and
@@ -330,9 +328,12 @@ object binds the canonical context and Layer-1 query methods before other topic
 producers run. When allocation collection is selected, one scan populates that
 same object with both the discovered and escape-refined occurrences. The
 published allocation facts take the classified occurrences, and
-`OptimizationOpportunityAnalysis` reuses the discovered occurrences plus the
-query methods
+`OptimizationOpportunityAnalysis` reuses the classified occurrences, including
+their owner-issued lifetime verdicts, plus the query methods
 (`PathContextAt`, `PathConfidenceAt`, `PostDominanceAt`, `MultiplicityAt`).
+It does not run a second array escape analysis. The focused
+[Allocation Lifetime Analysis](allocation-lifetime-analysis.md) design owns
+the meaning and limits of those verdicts.
 `FactsBundlesBindContextOccurrencesAndQueries` gates the bundle's context,
 occurrence, and query coherence.
 `OptimizationOpportunityAnalysis` owns the per-method optimization instruction
@@ -890,10 +891,8 @@ Owns only:
 - render the resulting shape
 - write command-line diagnostics for invalid user input
 
-The CLI may depend on `LibraryBodyIndex` only for compatibility consumers
-named by the migration plan. New and migrated sections consume focused
-Analysis result types. The CLI must not copy Analysis classification, matching,
-or aggregation rules into formatters.
+The CLI consumes focused Analysis result types and must not copy Analysis
+classification, matching, or aggregation rules into formatters.
 
 ## Relationship to assembly inspection
 
@@ -913,11 +912,12 @@ not another string-only seam. That assembly session is **no longer pending**:
 session can consume the real type from the start rather than a placeholder.
 
 One caveat on "open the image once": true single-open convergence — sharing the
-assembly's `AssemblyImage` with `PdbContext`, `MetadataSource`, and `LibraryBodyIndex`
-— depends on the shared-PE-owner composition that is **still pending** (the `PdbContext`
-/ `MetadataSource` work called out as Symptom 3 in the assembly design). Until it lands,
-early method-body slices will still open their own readers for the decompiler/analysis
-paths; the single-open convergence arrives with that composition, not this doc.
+assembly's `AssemblyImage` with `PdbContext`, `MetadataSource`, and library-body
+Analysis execution — depends on the shared-PE-owner composition that is **still
+pending** (the `PdbContext` / `MetadataSource` work called out as Symptom 3 in
+the assembly design). Until it lands, early method-body slices will still open
+their own readers for the decompiler/analysis paths; the single-open convergence
+arrives with that composition, not this doc.
 
 This depends on the sibling assembly acquisition design in
 [Assembly Inspection Query Model](assembly-inspection-query.md). Treat the
@@ -945,7 +945,7 @@ Move in reviewable slices.
 4. **Raise remaining semantic construction.** Move any classification,
    matching, or aggregation still implemented in CLI code to its canonical
    owner. Thin CLI row mapping is presentation, not a second semantic surface.
-5. **Converge selectors.** Route member and `library coordinate` selection
+5. **Converge selectors.** Route member and `library address` selection
    through shared metadata/Analysis query identities while preserving their
    command-specific error behavior.
 6. **Unify overlays and lifetime.** Compose Research/source/decompiler facts
@@ -957,13 +957,13 @@ comparison, implementation comparison, and PDB-source target indexing remain
 named compatibility consumers. Diff History Analysis uses shared PackageHouse
 cell inspection and the method-body session path.
 Separate `diff` phases may retain distinct executions and capability policies;
-`diff --finding analysis.*` still delegates path-backed acquisition to
-`ResearchDiff` until its focused migration.
+`diff --analysis` body analyses still delegate path-backed acquisition to
+`ResearchDiff` until their focused migration.
 
 ## Acceptance tests for the architecture
 
 - Adding a new method-body fact requires changing one producer/service, not both
-  `member` and `library coordinate`.
+  `member` and `library address`.
 - Adding a neutral Analysis query does not require a
   `MethodBodyInspectionSession` forwarding method.
 - One command performs one service execution with the requested capability and
@@ -984,7 +984,7 @@ Separate `diff` phases may retain distinct executions and capability policies;
 
 - Should missing facts be represented as empty lists, diagnostics, or
   unavailable-facet reasons? `member` sections often render empty-state notes;
-  `library coordinate` returns command errors for required contexts while its
+  `library address` returns command errors for required contexts while its
   bare child requires a useful bounded result.
 - How should caller-scope assembly resolution move behind assembly inspection
   while source attribution and cross-index composition remain session concerns?

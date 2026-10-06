@@ -336,7 +336,9 @@ public sealed class QueryOperationDefinition<TPredicate, TPlan>
         IReadOnlyList<PortableQueryOperator> operators,
         string parameterName)
     {
-        foreach (string value in binding.Description.Values)
+        foreach (string value in binding.Description.Values
+                     .Concat(binding.Description.Examples)
+                     .Distinct(StringComparer.Ordinal))
         {
             foreach (PortableQueryOperator @operator in operators)
             {

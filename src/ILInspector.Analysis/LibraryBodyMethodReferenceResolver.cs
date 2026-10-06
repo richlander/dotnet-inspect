@@ -3,6 +3,7 @@ using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 
+using ILInspector.Analysis.Planning;
 using ILInspector.Metadata;
 
 namespace ILInspector.Analysis;
@@ -46,6 +47,9 @@ internal sealed class LibraryBodyMethodReferenceResolver
         _genericScopeIdentities = new();
     long _methodReferenceSignatureWork;
     long _methodReferenceDecodeWork;
+    long _bodyUseMethodSignatureBytes;
+    readonly object _bodyUseMethodSignatureReservationLock = new();
+    readonly HashSet<BlobHandle> _bodyUseMethodSignatureReservations = [];
 
     internal LibraryBodyMethodReferenceResolver(
         MetadataReader reader,
@@ -751,9 +755,428 @@ internal sealed class LibraryBodyMethodReferenceResolver
                 LazyThreadSafetyMode.ExecutionAndPublication)).Value;
     }
 
-    MemberRef DecodeMethodSpecification(
+    /// <summary>A method operand's declaring type and instantiation.</summary>
+    internal (TypeRef DeclaringType, ImmutableArray<TypeRef> TypeArguments)
+        ResolveMethodOwner(
+            EntityHandle handle,
+            GenericScope scope,
+            int maximumMethodSignatureBytes,
+            int unitToken)
+    {
+        if (handle.Kind != HandleKind.MethodSpecification)
+        {
+            return (
+                MethodOwnerOf(
+                    handle,
+                    scope,
+                    maximumMethodSignatureBytes,
+                    unitToken).DeclaringType,
+                []);
+        }
+
+        MethodSpecification specification =
+            _reader.GetMethodSpecification(
+                (MethodSpecificationHandle)handle);
+        if (specification.Method.Kind
+            is not (HandleKind.MethodDefinition
+                or HandleKind.MemberReference))
+        {
+            throw new BadImageFormatException(
+                "The MethodSpec target is not a method definition or reference.");
+        }
+        MethodOwner target = MethodOwnerOf(
+            specification.Method,
+            scope,
+            maximumMethodSignatureBytes,
+            unitToken);
+        return (
+            target.DeclaringType,
+            MethodSpecificationArguments(
+                specification,
+                target.Supported,
+                target.GenericArity,
+                scope,
+                maximumMethodSignatureBytes,
+                unitToken));
+    }
+
+    readonly ConcurrentDictionary<
+        MethodSpecificationArgumentsKey,
+        MethodSpecificationArgumentsOutcome>
+        _methodSpecificationArguments = new();
+    readonly ConcurrentDictionary<
+        BlobHandle,
+        Lazy<MethodSpecificationArgumentsOutcome>>
+        _methodSpecificationInstantiations = new();
+
+    ImmutableArray<TypeRef> MethodSpecificationArguments(
         MethodSpecification specification,
-        MemberRef target,
+        bool targetSupported,
+        int targetGenericArity,
+        GenericScope scope,
+        int maximumMethodSignatureBytes,
+        int unitToken)
+    {
+        var key = new MethodSpecificationArgumentsKey(
+            specification.Signature,
+            targetSupported,
+            targetGenericArity,
+            scope.TypeParameters.Length,
+            scope.MethodParameters.Length);
+        if (!_methodSpecificationArguments.TryGetValue(
+                key,
+                out MethodSpecificationArgumentsOutcome? outcome))
+        {
+            try
+            {
+                MethodSpecificationArgumentsOutcome instantiation =
+                    MethodSpecificationInstantiation(
+                        specification,
+                        scope,
+                        maximumMethodSignatureBytes,
+                        unitToken);
+                if (instantiation.Failure is { } decodeFailure)
+                    throw new MethodSignatureFailureException(decodeFailure);
+                ValidateMethodSpecificationArguments(
+                    instantiation.Arguments,
+                    targetSupported,
+                    targetGenericArity,
+                    scope);
+                outcome = instantiation;
+            }
+            catch (MethodSignatureFailureException exception)
+            {
+                outcome = new([], exception.Description);
+            }
+            catch (Exception exception)
+                when (LibraryMethodAnalysisRunner
+                    .IsRecoverableMethodFailure(exception))
+            {
+                outcome = new(
+                    [],
+                    ProducerFailure.Describe(exception));
+            }
+            outcome = _methodSpecificationArguments.GetOrAdd(key, outcome);
+        }
+        if (outcome.Failure is { } failure)
+            throw new MethodSignatureFailureException(failure);
+        return outcome.Arguments;
+    }
+
+    MethodSpecificationArgumentsOutcome MethodSpecificationInstantiation(
+        MethodSpecification specification,
+        GenericScope scope,
+        int maximumMethodSignatureBytes,
+        int unitToken) =>
+        _methodSpecificationInstantiations.GetOrAdd(
+            specification.Signature,
+            _ => new Lazy<MethodSpecificationArgumentsOutcome>(
+                () => DecodeMethodSpecificationInstantiation(
+                    specification,
+                    scope,
+                    maximumMethodSignatureBytes,
+                    unitToken),
+                LazyThreadSafetyMode.ExecutionAndPublication)).Value;
+
+    MethodSpecificationArgumentsOutcome
+        DecodeMethodSpecificationInstantiation(
+            MethodSpecification specification,
+            GenericScope scope,
+            int maximumMethodSignatureBytes,
+            int unitToken)
+    {
+        try
+        {
+            BlobReader blob =
+                _reader.GetBlobReader(specification.Signature);
+            ReserveBodyUseMethodSignatureBlob(
+                specification.Signature,
+                blob.Length,
+                maximumMethodSignatureBytes,
+                unitToken);
+            if (!SignatureBlobGuard.IsSafeAndCompleteToDecode(
+                    blob,
+                    SignatureBlobGuard.Kind.MethodSpecification))
+            {
+                throw new BadImageFormatException(
+                    "The MethodSpec signature exceeds its structural limits.");
+            }
+            return new(
+                specification.DecodeSignature(
+                    TypeRefDecoder.Instance,
+                    scope),
+                Failure: null);
+        }
+        catch (Exception exception)
+            when (LibraryMethodAnalysisRunner
+                .IsRecoverableMethodFailure(exception))
+        {
+            return new([], ProducerFailure.Describe(exception));
+        }
+    }
+
+    readonly record struct MethodSpecificationArgumentsKey(
+        BlobHandle Signature,
+        bool TargetSupported,
+        int TargetGenericArity,
+        int TypeArity,
+        int MethodArity);
+
+    sealed record MethodSpecificationArgumentsOutcome(
+        ImmutableArray<TypeRef> Arguments,
+        string? Failure);
+
+    readonly ConcurrentDictionary<
+        MethodDefinitionHandle,
+        Lazy<MethodOwnerOutcome>>
+        _methodDefinitionOwners = new();
+    readonly ConcurrentDictionary<
+        BodyUseMemberReferenceKey,
+        Lazy<MethodOwnerOutcome>>
+        _memberReferenceOwners = new();
+
+    MethodOwner MethodOwnerOf(
+        EntityHandle handle,
+        GenericScope scope,
+        int maximumMethodSignatureBytes,
+        int unitToken)
+    {
+        MethodOwnerOutcome outcome;
+        switch (handle.Kind)
+        {
+            case HandleKind.MethodDefinition:
+                var definition = (MethodDefinitionHandle)handle;
+                outcome = _methodDefinitionOwners.GetOrAdd(
+                    definition,
+                    _ => new Lazy<MethodOwnerOutcome>(
+                        () => Capture(
+                            () => MethodDefinitionOwner(
+                                definition,
+                                maximumMethodSignatureBytes,
+                                unitToken)),
+                        LazyThreadSafetyMode.ExecutionAndPublication)).Value;
+                break;
+            case HandleKind.MemberReference:
+                var reference = (MemberReferenceHandle)handle;
+                var key = new BodyUseMemberReferenceKey(
+                    reference,
+                    scope.TypeParameters.Length,
+                    scope.MethodParameters.Length);
+                outcome = _memberReferenceOwners.GetOrAdd(
+                    key,
+                    _ => new Lazy<MethodOwnerOutcome>(
+                        () => Capture(
+                            () => MemberReferenceOwner(
+                                reference,
+                                scope,
+                                maximumMethodSignatureBytes,
+                                unitToken)),
+                        LazyThreadSafetyMode.ExecutionAndPublication)).Value;
+                break;
+            default:
+                return MethodOwner.Unsupported(
+                    $"callee handle kind {handle.Kind}");
+        }
+        if (outcome.Failure is { } failure)
+            throw new MethodSignatureFailureException(failure);
+        return outcome.Owner;
+    }
+
+    static MethodOwnerOutcome Capture(Func<MethodOwner> resolve)
+    {
+        try
+        {
+            return new(resolve(), Failure: null);
+        }
+        catch (Exception exception)
+            when (LibraryMethodAnalysisRunner
+                .IsRecoverableMethodFailure(exception))
+        {
+            return new(default, ProducerFailure.Describe(exception));
+        }
+    }
+
+    readonly record struct BodyUseMemberReferenceKey(
+        MemberReferenceHandle Handle,
+        int TypeArity,
+        int MethodArity);
+
+    MethodOwner MethodDefinitionOwner(
+        MethodDefinitionHandle handle,
+        int maximumMethodSignatureBytes,
+        int unitToken)
+    {
+        MethodDefinition method = _reader.GetMethodDefinition(handle);
+        TypeRef declaring = TypeRefDecoder.Instance.GetTypeFromDefinition(
+            _reader,
+            method.GetDeclaringType(),
+            0);
+        MethodSignatureOutcome signature = MethodSignature(
+            method.Signature,
+            maximumMethodSignatureBytes,
+            unitToken);
+        if (!signature.Safe)
+        {
+            return MethodOwner.Unsupported(
+                signature.Failure
+                    ?? "method signature structure is unavailable");
+        }
+        signature.ThrowIfFailed();
+        return new(declaring, signature.GenericArity, Supported: true);
+    }
+
+    MethodOwner MemberReferenceOwner(
+        MemberReferenceHandle handle,
+        GenericScope scope,
+        int maximumMethodSignatureBytes,
+        int unitToken)
+    {
+        MemberReference member = _reader.GetMemberReference(handle);
+        TypeRef declaring = MemberResolver.ResolveParentType(
+            _reader,
+            member.Parent,
+            scope);
+        MethodSignatureOutcome signature = MethodSignature(
+            member.Signature,
+            maximumMethodSignatureBytes,
+            unitToken);
+        if (!signature.Safe)
+        {
+            return MethodOwner.Unsupported(
+                signature.Failure
+                    ?? "member-reference signature structure is unavailable");
+        }
+        signature.ThrowIfFailed();
+        return new(declaring, signature.GenericArity, Supported: true);
+    }
+
+    sealed record MethodOwnerOutcome(MethodOwner Owner, string? Failure);
+
+    readonly ConcurrentDictionary<
+        BlobHandle,
+        Lazy<MethodSignatureOutcome>>
+        _methodSignatures = new();
+
+    internal MethodSignatureOutcome MethodSignature(
+        BlobHandle signature,
+        int maximumMethodSignatureBytes,
+        int unitToken) =>
+        _methodSignatures.GetOrAdd(
+            signature,
+            _ => new Lazy<MethodSignatureOutcome>(
+                () => InspectMethodSignature(
+                    signature,
+                    maximumMethodSignatureBytes,
+                    unitToken),
+                LazyThreadSafetyMode.ExecutionAndPublication)).Value;
+
+    MethodSignatureOutcome InspectMethodSignature(
+        BlobHandle signature,
+        int maximumMethodSignatureBytes,
+        int unitToken)
+    {
+        try
+        {
+            BlobReader blob = _reader.GetBlobReader(signature);
+            ReserveBodyUseMethodSignatureBlob(
+                signature,
+                blob.Length,
+                maximumMethodSignatureBytes,
+                unitToken);
+            if (!SignatureBlobGuard.IsSafeAndCompleteToDecode(
+                    blob,
+                    SignatureBlobGuard.Kind.Method))
+            {
+                return MethodSignatureOutcome.Unsafe;
+            }
+
+            blob = _reader.GetBlobReader(signature);
+            SignatureHeader header = blob.ReadSignatureHeader();
+            int genericArity =
+                header.IsGeneric ? blob.ReadCompressedInteger() : 0;
+            return new(
+                Safe: true,
+                genericArity,
+                Failure: null);
+        }
+        catch (Exception exception)
+            when (LibraryMethodAnalysisRunner
+                .IsRecoverableMethodFailure(exception))
+        {
+            return new(
+                Safe: false,
+                0,
+                ProducerFailure.Describe(exception));
+        }
+    }
+
+    void ReserveBodyUseMethodSignatureBlob(
+        BlobHandle blob,
+        int charge,
+        int maximum,
+        int unitToken)
+    {
+        lock (_bodyUseMethodSignatureReservationLock)
+        {
+            if (!_bodyUseMethodSignatureReservations.Add(blob))
+            {
+                if (_bodyUseMethodSignatureBytes < 0)
+                {
+                    throw BodyUseMethodSignatureBudgetExceeded(
+                        unitToken);
+                }
+                return;
+            }
+
+            ReserveBodyUseMethodSignatureBytes(
+                charge,
+                maximum,
+                unitToken);
+        }
+    }
+
+    void ReserveBodyUseMethodSignatureBytes(
+        int charge,
+        int maximum,
+        int unitToken)
+    {
+        while (true)
+        {
+            long current = Volatile.Read(
+                ref _bodyUseMethodSignatureBytes);
+            if (current < 0 || charge > maximum - current)
+            {
+                Interlocked.Exchange(
+                    ref _bodyUseMethodSignatureBytes,
+                    -1);
+                throw BodyUseMethodSignatureBudgetExceeded(unitToken);
+            }
+            if (Interlocked.CompareExchange(
+                    ref _bodyUseMethodSignatureBytes,
+                    current + charge,
+                    current)
+                == current)
+            {
+                return;
+            }
+        }
+    }
+
+    static ProducerAbortException BodyUseMethodSignatureBudgetExceeded(
+        int unitToken) =>
+        new(
+            new(
+                "AnalysisLibraryBodyUse",
+                "MethodSignatureBytes",
+                unitToken,
+                $"MethodDef 0x{unitToken:X8}",
+                "The Analysis body-use method-signature byte budget "
+                    + "was exceeded."));
+
+    ImmutableArray<TypeRef> DecodeMethodSpecificationArguments(
+        MethodSpecification specification,
+        bool targetSupported,
+        int targetGenericArity,
         GenericScope scope)
     {
         if (!SignatureBlobGuard.IsSafeToDecode(
@@ -769,9 +1192,23 @@ internal sealed class LibraryBodyMethodReferenceResolver
             specification.DecodeSignature(
                 TypeRefDecoder.Instance,
                 scope);
-        if (target.Kind == MemberKind.Unsupported
-            || target.GenericArity == 0
-            || arguments.Length != target.GenericArity
+        ValidateMethodSpecificationArguments(
+            arguments,
+            targetSupported,
+            targetGenericArity,
+            scope);
+        return arguments;
+    }
+
+    static void ValidateMethodSpecificationArguments(
+        ImmutableArray<TypeRef> arguments,
+        bool targetSupported,
+        int targetGenericArity,
+        GenericScope scope)
+    {
+        if (!targetSupported
+            || targetGenericArity == 0
+            || arguments.Length != targetGenericArity
             || !MethodSignatureTypeShape
                 .InspectMethodSpecificationArguments(
                     arguments,
@@ -782,6 +1219,19 @@ internal sealed class LibraryBodyMethodReferenceResolver
             throw new BadImageFormatException(
                 "The MethodSpec signature is invalid for its target and caller scope.");
         }
+    }
+
+    MemberRef DecodeMethodSpecification(
+        MethodSpecification specification,
+        MemberRef target,
+        GenericScope scope)
+    {
+        ImmutableArray<TypeRef> arguments =
+            DecodeMethodSpecificationArguments(
+                specification,
+                target.Kind != MemberKind.Unsupported,
+                target.GenericArity,
+                scope);
 
         return target with
         {
@@ -849,4 +1299,38 @@ internal sealed class LibraryBodyMethodReferenceResolver
             type,
             scope.TypeParameters.Length,
             scope.MethodParameters.Length);
+}
+
+/// <summary>
+/// One method signature blob's guarded decode outcome: unsafe to decode, its
+/// generic arity, or the recoverable failure its full decode raised.
+/// </summary>
+internal sealed record MethodSignatureOutcome(
+    bool Safe,
+    int GenericArity,
+    string? Failure)
+{
+    internal static MethodSignatureOutcome Unsafe { get; } =
+        new(
+            Safe: false,
+            0,
+            "The method signature is malformed or exceeds its structural limits.");
+
+    /// <summary>
+    /// Raises a fresh exception carrying the retained failure's description,
+    /// so repeated failures neither re-decode nor grow one shared exception.
+    /// </summary>
+    internal void ThrowIfFailed()
+    {
+        if (Failure is not null)
+            throw new MethodSignatureFailureException(Failure);
+    }
+}
+
+/// <summary>A retained method-signature decode failure.</summary>
+internal sealed class MethodSignatureFailureException(string description)
+    : BadImageFormatException(description)
+{
+    /// <summary>The original failure, as <c>ProducerFailure.Describe</c> spelled it.</summary>
+    internal string Description { get; } = description;
 }

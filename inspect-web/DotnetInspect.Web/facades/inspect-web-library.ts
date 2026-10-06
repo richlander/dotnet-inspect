@@ -1,6 +1,20 @@
 import { dotnet } from "./runtime-loader.js";
 
+export type BrowserLibraryDocumentOutcome = "Available" | "Rejected" | "Failed" | "Unavailable" | number;
+
+export type BrowserLibraryEnablementId = "aot-compatible" | "runtime-async" | "memory-safety-v2" | number;
+
+export type BrowserLibraryEnablementKind = "enabled" | "not-enabled" | "unavailable" | number;
+
+export type BrowserLibraryEnablementUnavailableReason = "reference-assembly" | "undecodable-metadata" | "unrecognized-value" | "conflicting-values" | "unsupported-memory-safety-rules" | "malformed-memory-safety-rules" | "conflicting-memory-safety-rules" | "memory-safety-metadata-unavailable" | number;
+
+export type BrowserLibraryEnablementsOutcome = "Available" | "Failed" | number;
+
+export type BrowserLibraryEnablementsRole = "implementation-assembly" | "api-assembly" | number;
+
 export type BrowserLibraryInspectionShareKind = "Available" | "NonProjectable" | number;
+
+export type BrowserLibrarySelectorKind = "Package" | "Platform" | number;
 
 export type BrowserUploadedLibraryFailureKind = "InvalidDeclaredName" | "EmptyImage" | "ResourceBudget" | "DescriptorUnavailable" | "NotAssembly" | "InvalidImage" | "UnsupportedMetadataFormat" | "InspectionFailed" | "ProjectionTruncated" | number;
 
@@ -20,6 +34,15 @@ export interface BrowserLibraryAccessibilityDescriptor {
   readonly count: number;
 }
 
+export interface BrowserLibraryApiFacetDescriptor {
+  readonly id: string;
+  readonly singularLabel: string;
+  readonly pluralLabel: string;
+  readonly weight: number;
+  readonly count: number;
+  readonly isDefault: boolean;
+}
+
 export interface BrowserLibraryAssemblyReference {
   readonly name: string;
   readonly version: string;
@@ -37,6 +60,28 @@ export interface BrowserLibraryAssemblySurface {
   readonly publicTypes: number;
   readonly publicMembers: number;
   readonly platformPack: string | null;
+}
+
+export interface BrowserLibraryDocumentInspection {
+  readonly outcome: BrowserLibraryDocumentOutcome;
+  readonly detail: string | null;
+  readonly assembly: BrowserLibraryAssemblyReference | null;
+  readonly enablements: BrowserLibraryEnablements | null;
+  readonly diagnostics: ReadonlyArray<BrowserLibraryInspectionDiagnostic>;
+}
+
+export interface BrowserLibraryEnablement {
+  readonly id: BrowserLibraryEnablementId;
+  readonly kind: BrowserLibraryEnablementKind;
+  readonly label: string;
+  readonly reason: BrowserLibraryEnablementUnavailableReason | null;
+}
+
+export interface BrowserLibraryEnablements {
+  readonly outcome: BrowserLibraryEnablementsOutcome;
+  readonly role: BrowserLibraryEnablementsRole | null;
+  readonly failure: string | null;
+  readonly items: ReadonlyArray<BrowserLibraryEnablement>;
 }
 
 export interface BrowserLibraryExceptionSurface {
@@ -59,6 +104,15 @@ export interface BrowserLibraryInspectionFailure {
   readonly detail: string;
   readonly subjectAssembly: BrowserLibraryAssemblyReference | null;
   readonly dependencyAssembly: BrowserLibraryAssemblyReference | null;
+}
+
+export interface BrowserLibraryInspectionPlan {
+  readonly enablements: boolean;
+}
+
+export interface BrowserLibraryInspectionRequest {
+  readonly library: BrowserLibrarySelector;
+  readonly plan: BrowserLibraryInspectionPlan;
 }
 
 export interface BrowserLibraryInspectionShare {
@@ -100,6 +154,7 @@ export interface BrowserLibraryMemberSurface {
   readonly anchorDigest: string;
   readonly canonicalSignature: string;
   readonly anchorTypeFullName: string;
+  readonly declaringTypeDefinitionId: string | null;
   readonly graphSelectorKey: string;
   readonly bodySelectors: ReadonlyArray<BrowserLibraryMemberBodySelector>;
 }
@@ -113,6 +168,12 @@ export interface BrowserLibraryParameterSurface {
   readonly description: string | null;
 }
 
+export interface BrowserLibrarySelector {
+  readonly kind: BrowserLibrarySelectorKind;
+  readonly package: BrowserPackageLibrarySelector | null;
+  readonly platform: BrowserPlatformLibrarySelector | null;
+}
+
 export interface BrowserLibraryTypeSurface {
   readonly id: string;
   readonly definitionId: string;
@@ -122,6 +183,8 @@ export interface BrowserLibraryTypeSurface {
   readonly displayName: string;
   readonly namespace: string;
   readonly kind: string;
+  readonly kindFacetId: string;
+  readonly traitFacetIds: ReadonlyArray<string>;
   readonly accessibility: string;
   readonly accessibilityId: string;
   readonly assembly: string;
@@ -131,6 +194,20 @@ export interface BrowserLibraryTypeSurface {
   readonly signature: string;
   readonly api: ReadonlyArray<BrowserLibraryMemberSurface>;
   readonly platformPack: string | null;
+}
+
+export interface BrowserPackageLibrarySelector {
+  readonly packageId: string;
+  readonly version: string;
+  readonly targetFramework: string;
+  readonly assemblyId: string;
+}
+
+export interface BrowserPlatformLibrarySelector {
+  readonly targetFramework: string;
+  readonly platformVersion: string;
+  readonly assemblyFileName: string;
+  readonly pack: string;
 }
 
 export interface BrowserUploadedLibraryFailure {
@@ -160,6 +237,8 @@ export interface BrowserUploadedLibraryResult {
 export interface BrowserUploadedLibrarySurface {
   readonly assemblies: ReadonlyArray<BrowserLibraryAssemblySurface>;
   readonly types: ReadonlyArray<BrowserLibraryTypeSurface>;
+  readonly typeKinds: ReadonlyArray<BrowserLibraryApiFacetDescriptor>;
+  readonly typeTraits: ReadonlyArray<BrowserLibraryApiFacetDescriptor>;
   readonly accessibility: ReadonlyArray<BrowserLibraryAccessibilityDescriptor>;
   readonly totalMembers: number;
   readonly inspectionErrors: ReadonlyArray<string>;
@@ -173,6 +252,7 @@ type $ManagedExports = {
       readonly "Interop": {
         readonly "Library": {
           readonly "LibraryExports": {
+            readonly "InspectLibrary.976702342": (requestJson: string) => Promise<string>;
             readonly "OpenUploadedLibrary.833021020": (declaredName: string, content: number[]) => Promise<string>;
           };
         };
@@ -230,6 +310,18 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "Interop");
     value = $ownDataProperty(value, "Library");
     value = $ownDataProperty(value, "LibraryExports");
+    value = $ownDataProperty(value, "InspectLibrary.976702342");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Library.LibraryExports.InspectLibrary.976702342\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "DotnetInspect");
+    value = $ownDataProperty(value, "Web");
+    value = $ownDataProperty(value, "Interop");
+    value = $ownDataProperty(value, "Library");
+    value = $ownDataProperty(value, "LibraryExports");
     value = $ownDataProperty(value, "OpenUploadedLibrary.833021020");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Library.LibraryExports.OpenUploadedLibrary.833021020\u0027 is not callable.");
@@ -270,6 +362,26 @@ export function runEntryPoint(
   args?: string[],
 ): Promise<number> {
   return $requireRuntime().runMain(mainAssemblyName, args);
+}
+
+function $serializeJsonInput(
+  value: unknown,
+  operation: string,
+  parameter: string,
+): string {
+  const json = JSON.stringify(value);
+  if (json === undefined) {
+    throw new TypeError(
+      `${operation} parameter '${parameter}' could not be serialized as JSON.`,
+    );
+  }
+  return json;
+}
+
+export async function inspectLibrary(requestJson: BrowserLibraryInspectionRequest): Promise<BrowserLibraryDocumentInspection> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Library"]["LibraryExports"]["InspectLibrary.976702342"]($serializeJsonInput(requestJson, "DotnetInspect.Web.Interop.Library.LibraryExports.InspectLibrary.976702342", "requestJson"));
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserLibraryDocumentInspection;
 }
 
 export async function openUploadedLibrary(declaredName: string, content: number[]): Promise<BrowserUploadedLibraryInspection> {

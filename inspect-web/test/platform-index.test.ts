@@ -2,23 +2,10 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
-  DEFAULT_PLATFORM_FRAMEWORK,
-  isExactPlatformPruningFramework,
   parsePlatformCatalogTarget,
   parsePlatformIndex,
   platformCatalogFramework,
-  requirePlatformPackageSupplies,
 } from "../src/platform-index.ts";
-
-test("platform pruning accepts only exact modern .NET TFMs", () => {
-  assert.equal(isExactPlatformPruningFramework("net11.0"), true);
-  assert.equal(isExactPlatformPruningFramework("NET8.0"), true);
-  assert.equal(isExactPlatformPruningFramework("netstandard2.0"), false);
-  assert.equal(isExactPlatformPruningFramework("net472"), false);
-  assert.equal(isExactPlatformPruningFramework("net4.8"), false);
-  assert.equal(isExactPlatformPruningFramework("net8.0-windows"), false);
-  assert.equal(isExactPlatformPruningFramework("netcoreapp3.1"), false);
-});
 
 function row(assembly: string, overrides: Record<string, unknown> = {}) {
   return {
@@ -32,7 +19,7 @@ function row(assembly: string, overrides: Record<string, unknown> = {}) {
 function catalog() {
   return {
     schemaVersion: 2,
-    defaultFramework: DEFAULT_PLATFORM_FRAMEWORK,
+    defaultFramework: "net11.0",
     targets: [{
       tfm: "net11.0", version: "11.0.0-preview.7.26381.103",
       supplies: [{
@@ -135,25 +122,6 @@ test("catalog rejects mismatched versions and invalid rather than empty inventor
   assert.throws(() => parsePlatformIndex({ ...catalog(), defaultFramework: "net12.0" }), /default target/);
 });
 
-test("discovered targets without supply evidence cannot authorize pruning", () => {
-  const index = parsePlatformIndex(catalog());
-  const version = "12.0.0-preview.1";
-  index.addTarget(parsePlatformCatalogTarget({
-    tfm: "net12.0",
-    version,
-    rows: [row("System.Runtime", {
-      tfm: "net12.0",
-      packVersion: version,
-    })],
-  }));
-  const target = index.target("net12.0");
-  assert.ok(target);
-  assert.equal(target.supplies, null);
-  assert.throws(
-    () => requirePlatformPackageSupplies(target),
-    /no exact package supply inventory/);
-});
-
 test("library identity includes its pack instead of choosing a colliding name", () => {
   const value = catalog();
   const target = value.targets[0];
@@ -164,11 +132,11 @@ test("library identity includes its pack instead of choosing a colliding name", 
   assert.equal(index.lookup("net11.0", "System.Text.Json", "netcore.app")?.pack, "netcore.app");
 });
 
-test("shipped catalog supplies the exact default target and representative library roles", async () => {
+test("shipped catalog has the exact default target and representative library roles", async () => {
   const value: unknown = JSON.parse(await readFile(
     new URL("../assets/platform-index.json", import.meta.url), "utf8"));
   const index = parsePlatformIndex(value);
-  const target = index.target(DEFAULT_PLATFORM_FRAMEWORK);
+  const target = index.target(index.defaultFramework);
   assert.ok(target);
   assert.match(target.version, /^11\.0\./);
   const json = index.lookup(target.tfm, "System.Text.Json", "netcore.app", target.version);
@@ -181,10 +149,5 @@ test("shipped catalog supplies the exact default target and representative libra
   assert.equal(core?.kind, "impl");
   assert.equal(core?.inReferencePack, false);
   assert.equal(core?.hasImplementation, true);
-  const supplies = requirePlatformPackageSupplies(target);
-  const supply = supplies.find(entry => entry.package === "System.Text.Json");
-  assert.equal(supply?.pack, "netcore.app");
-  assert.equal(supply?.family, "Microsoft.NETCore.App");
-  assert.equal(supply?.version, target.version);
   assert.ok(target.rows.every(library => library.packVersion === target.version));
 });
