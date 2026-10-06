@@ -298,6 +298,18 @@ public partial class ApiCommand
                 SelectDeferredToListing = false
             }
             : options with { SelectDeferredToListing = false };
+        listingOptions = (TypeOptions)ApplyNativeShapeOutput(
+            listingOptions,
+            typePipeline.SectionShapes,
+            listingOptions.IncludeSections);
+        if (ValidateApiScalarTerminals(
+                listingOptions,
+                ApiTypeSectionCardinality.Declarations,
+                listingOptions.IncludeSections) is { } scalarError)
+        {
+            CommandError.Write(scalarError);
+            return null;
+        }
 
         // Re-check selection arity against the final listing catalog. The payload projections are
         // deliberately not re-checked: the listing refuses them outright further down, and that
@@ -699,6 +711,25 @@ public partial class ApiCommand
             {
                 SectionNames.Callers
             };
+        }
+        // Section shapes: a lone explicitly selected section renders natively
+        // unless the caller named a format, and a lone scalar rejects the row
+        // terminals. The decision is taken over the effective selection: a
+        // caller scope adds Callers later, so "-S Calls --bin X" is a two-section
+        // composition, not a lone Table. Both checks stand down for a deferred
+        // select, which ReresolveSectionsForListing re-runs once the listing is
+        // known.
+        options = ApplyNativeShapeOutput(
+            options,
+            singleTypeMode ? memberPipeline.SectionShapes : typePipeline.SectionShapes,
+            countMapSelectionSections);
+        if (ValidateApiScalarTerminals(
+                options,
+                ApiCardinalities(singleTypeMode, memberPipeline),
+                countMapSelectionSections) is { } scalarError)
+        {
+            CommandError.Write(scalarError);
+            return (null!, 1);
         }
         var countMapSections =
             options is TypeOptions { CountDefaultPopulation: true }
