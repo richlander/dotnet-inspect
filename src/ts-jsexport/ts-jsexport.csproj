@@ -41,7 +41,7 @@
 
   <ItemGroup>
     <ProjectReference Include="../DotnetInspector.JsonSchema/DotnetInspector.JsonSchema.csproj" />
-    <ProjectReference Include="../DotnetInspector.Sections/DotnetInspector.Sections.csproj" />
+    <ProjectReference Include="../DotnetInspector.InspectionContracts/DotnetInspector.InspectionContracts.csproj" />
     <ProjectReference Include="../ILInspector.TypeScriptGeneration/ILInspector.TypeScriptGeneration.csproj" />
     <ProjectReference Include="../TsJsExport.Contracts/TsJsExport.Contracts.csproj" />
   </ItemGroup>

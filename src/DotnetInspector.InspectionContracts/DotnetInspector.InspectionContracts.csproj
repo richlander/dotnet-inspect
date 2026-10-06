@@ -15,6 +15,7 @@
 
   <ItemGroup>
     <ProjectReference Include="../InertText/InertText.csproj" />
+    <ProjectReference Include="../QuerySpace.Primitives/QuerySpace.Primitives.csproj" />
   </ItemGroup>
 
 </Project>

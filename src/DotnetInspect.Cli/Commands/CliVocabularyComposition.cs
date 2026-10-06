@@ -1,3 +1,4 @@
+using DotnetInspector.InspectionContracts;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using ILInspector.Decompiler;
@@ -34,7 +35,7 @@ internal static class CliVocabularyComposition
                 BodyShapeVocabulary.Declare(catalog),
                 "decompiler.body-kind"),
             new(
-                PackageQueryDurableRowContract.DeclareVocabulary(catalog),
+                PackageQueryDurableRowVocabulary.Declare(catalog),
                 PackageQueryDurableRowContract.ContractIdentity),
         ];
     }

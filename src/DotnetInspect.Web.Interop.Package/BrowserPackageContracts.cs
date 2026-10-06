@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using DotnetInspector.InspectionContracts;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using TsJsExport;

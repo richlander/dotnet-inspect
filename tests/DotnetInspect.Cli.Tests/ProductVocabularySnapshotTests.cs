@@ -1,5 +1,6 @@
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.ProductVocabularyTesting;
+using DotnetInspector.InspectionContracts;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using ILInspector.Decompiler;
@@ -64,7 +65,16 @@ public sealed class ProductVocabularySnapshotTests
         AssertComposed(snapshot, BodyShapeVocabulary.Declare(catalog));
         AssertComposed(
             snapshot,
-            PackageQueryDurableRowContract.DeclareVocabulary(catalog));
+            PackageQueryDurableRowVocabulary.Declare(catalog));
+        VocabularySnapshotReference reference =
+            PackageQueryDurableRowContract.CreateVocabularySnapshotReference();
+        Assert.Equal(snapshot.Catalog, reference.Catalog);
+        Assert.Equal(snapshot.Identity, reference.Identity);
+        foreach (VocabularyTerm term in
+            PackageQueryDurableRowVocabulary.Declare(catalog).Terms)
+        {
+            Assert.True(reference.Contains(term.Identity));
+        }
     }
 
     private static void AssertComposed(

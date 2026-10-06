@@ -33,6 +33,7 @@
     <ProjectReference Include="../../src/ILInspector.Metadata/ILInspector.Metadata.csproj" />
     <ProjectReference Include="../../src/ILInspector.Analysis/ILInspector.Analysis.csproj" />
     <ProjectReference Include="../../src/ILInspector.JsExportSurface/ILInspector.JsExportSurface.csproj" />
+    <ProjectReference Include="../../src/DotnetInspector.InspectionContracts/DotnetInspector.InspectionContracts.csproj" />
     <ProjectReference Include="../../src/ts-jsexport/ts-jsexport.csproj" />
     <ProjectReference Include="../../src/TsJsExport.Contracts/TsJsExport.Contracts.csproj" />
     <ProjectReference Include="../../src/DotnetInspect.Web.Interop.Package/DotnetInspect.Web.Interop.Package.csproj" />

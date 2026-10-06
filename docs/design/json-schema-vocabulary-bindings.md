@@ -499,6 +499,14 @@ contracts, one generation run emits:
 
 All three consume the same shared wire plan. TypeScript names remain a
 TypeScript projection and do not enter the descriptor identity.
+`ts-jsexport` consumes the durable-row owner's compact authenticated
+`VocabularySnapshotReference`: the exact catalog and snapshot identity plus
+the term identities this descriptor needs. It does not compose or retain the
+full product Vocabulary snapshot, whose labels, summaries, maps, and unrelated
+terms are not used by schema generation. The Queries owner retains the complete
+display Vocabulary declaration. CLI and Browser hosts continue to compose that
+declaration into the complete snapshot, and their composition test pins the
+compact reference to that exact identity and term set.
 
 Inspect Web is the first Browser/Wasm host. It obtains the generated
 `package-query.durable-row` output descriptor, resolves every binding against

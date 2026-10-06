@@ -1,6 +1,7 @@
 using System.Text.Json;
 
 using DotnetInspect.Cli.Commands;
+using DotnetInspector.InspectionContracts;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Sections;

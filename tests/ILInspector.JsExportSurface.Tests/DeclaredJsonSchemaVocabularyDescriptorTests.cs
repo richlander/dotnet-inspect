@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Reflection.PortableExecutable;
 using DotnetInspect.Web.Interop.Package;
+using DotnetInspector.InspectionContracts;
 using DotnetInspector.JsonSchema;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
@@ -15,6 +16,21 @@ namespace ILInspector.JsExportSurface.Tests;
 
 public sealed class DeclaredJsonSchemaVocabularyDescriptorTests
 {
+    [Fact]
+    public void Create_WithoutDeclaredSchemaReturnsNoStaticExport()
+    {
+        var surface =
+            new global::ILInspector.JsExportSurface.JsExportSurface();
+
+        IReadOnlyList<TypeScriptStaticJsonExport> exports =
+            DeclaredJsonSchemaExports.Create(
+                surface,
+                out JsonWireDeclarationPlan declarationPlan);
+
+        Assert.Empty(exports);
+        Assert.NotNull(declarationPlan);
+    }
+
     [Fact]
     public void Extract_PreservesSchemaDeclarationAndNamedDisplayability()
     {
@@ -105,12 +121,13 @@ public sealed class DeclaredJsonSchemaVocabularyDescriptorTests
             DeclaredJsonSchemaExports.Create(
                 loadedSurface,
                 out JsonWireDeclarationPlan declarationPlan);
+        VocabularySnapshotReference vocabularyReference =
+            PackageQueryDurableRowContract.CreateVocabularySnapshotReference();
         var inspection = new JsonSchemaVocabularyInspection(
             loadedSurface,
             declarationPlan,
             JsExportContractIdentity.Api,
-            VocabularySnapshotReference.FromSnapshot(
-                TsJsExportVocabularyComposition.Snapshot));
+            vocabularyReference);
         JsonSchemaVocabularyInspectionRequest request =
             Assert.Single(inspection.Requests);
         InspectionEnvelope<JsonSchemaVocabularyDescriptor> envelope =
@@ -139,13 +156,35 @@ public sealed class DeclaredJsonSchemaVocabularyDescriptorTests
                     declarationPlan,
                     JsExportContractIdentity.Api,
                     new VocabularySnapshotReference(
-                        TsJsExportVocabularyComposition.Snapshot.Catalog,
+                        vocabularyReference.Catalog,
                         new(
                             "sha256:0000000000000000000000000000000000000000000000000000000000000000"),
                         [])));
         Assert.Contains(
             "provided snapshot",
             staleProducerSnapshot.Reason,
+            StringComparison.Ordinal);
+        VocabularyDefinition durableRowVocabulary =
+            PackageQueryDurableRowVocabulary.Declare(
+                vocabularyReference.Catalog);
+        JsonSchemaVocabularyException missingTermException =
+            Assert.Throws<JsonSchemaVocabularyException>(() =>
+                new JsonSchemaVocabularyInspection(
+                    loadedSurface,
+                    declarationPlan,
+                    JsExportContractIdentity.Api,
+                    new VocabularySnapshotReference(
+                        vocabularyReference.Catalog,
+                        vocabularyReference.Identity,
+                        durableRowVocabulary.Terms
+                            .Where(term =>
+                                term.Identity.Value
+                                != PackageQueryDurableRowContract
+                                    .EcosystemAdmission)
+                            .Select(term => term.Identity))));
+        Assert.Contains(
+            PackageQueryDurableRowContract.EcosystemAdmission,
+            missingTermException.Reason,
             StringComparison.Ordinal);
 
         TypeScriptStaticJsonExport descriptorExport =
@@ -162,7 +201,7 @@ public sealed class DeclaredJsonSchemaVocabularyDescriptorTests
             "serialize",
             descriptor.GetProperty("direction").GetString());
         Assert.Equal(
-            TsJsExportVocabularyComposition.Snapshot.Identity.Value,
+            vocabularyReference.Identity.Value,
             descriptor
                 .GetProperty("vocabularySnapshotIdentity")
                 .GetString());

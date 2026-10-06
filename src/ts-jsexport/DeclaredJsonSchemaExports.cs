@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using DotnetInspector.InspectionContracts;
 using DotnetInspector.JsonSchema;
 using DotnetInspector.Sections;
 using ILInspector.JsExportSurface;
@@ -22,12 +23,14 @@ internal static class DeclaredJsonSchemaExports
         try
         {
             declarationPlan = JsonWireDeclarationPlan.Create(surface);
+            if (surface.JsonSchemaRoots.Count == 0)
+                return [];
+
             var operation = new JsonSchemaVocabularyInspection(
                     surface,
                     declarationPlan,
                     JsExportContractIdentity.Api,
-                    VocabularySnapshotReference.FromSnapshot(
-                        TsJsExportVocabularyComposition.Snapshot));
+                    TsJsExportVocabularyReference.Reference);
             inspections = [
                 .. operation.Requests.Select(operation.Inspect),
             ];
