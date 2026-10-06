@@ -113,6 +113,28 @@ public static class MetadataHierarchySubjectRelationsOperation
         bool includeHidden = false,
         MetadataHierarchySubjectRelationsContinuationAuthority?
             continuationAuthority = null,
+        CancellationToken cancellationToken = default) =>
+        Execute(
+            session,
+            MetadataRelationGraphSource.From(source),
+            MetadataRelationGraphSource.From(focusAssembly),
+            request,
+            policy,
+            includeNonPublic,
+            includeHidden,
+            continuationAuthority,
+            cancellationToken);
+
+    public static MetadataHierarchySubjectRelationsExecution Execute(
+        AssemblyInspectionSession session,
+        MetadataRelationGraphSource source,
+        MetadataRelationGraphSource focusAssembly,
+        SubjectRelationsInspectionRequest request,
+        MetadataOperationPolicy policy,
+        bool includeNonPublic = false,
+        bool includeHidden = false,
+        MetadataHierarchySubjectRelationsContinuationAuthority?
+            continuationAuthority = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(session);
@@ -323,8 +345,8 @@ public static class MetadataHierarchySubjectRelationsOperation
     }
 
     private static SubjectRelationPopulationRowsOutcome? MapRows(
-        ResolvedAssemblyReference source,
-        ResolvedAssemblyReference focusAssembly,
+        MetadataRelationGraphSource source,
+        MetadataRelationGraphSource focusAssembly,
         SubjectRelationsInspectionRequest request,
         MetadataHierarchyTargetSelection target,
         bool includeNonPublic,
@@ -530,9 +552,9 @@ public static class MetadataHierarchySubjectRelationsOperation
                 authority.PopulationAuthority);
     }
 
-    private static MetadataHierarchyTargetSelection ValidateRequest(
-        ResolvedAssemblyReference source,
-        ResolvedAssemblyReference focusAssembly,
+    internal static MetadataHierarchyTargetSelection ValidateRequest(
+        MetadataRelationGraphSource source,
+        MetadataRelationGraphSource focusAssembly,
         SubjectRelationsInspectionRequest request)
     {
         if (source.Registration.ModuleVersionId is null)
@@ -542,13 +564,14 @@ public static class MetadataHierarchySubjectRelationsOperation
                 nameof(source));
         }
         if (request.Route != SubjectRelationsRouteKind.Type
-            || request.Focus
-                is not StructuralSubjectIdentity.TypeSubject focus)
+            || request.Focus.Kind != StructuralSubjectKind.Type)
         {
             throw new ArgumentException(
                 "Hierarchy relation execution requires one exact Type focus.",
                 nameof(request));
         }
+        NavigationTypeIdentity focus =
+            request.Focus.RequireTypeIdentity();
         SubjectRelationPopulationSelection selection =
             request.Request.Selection;
         MetadataHierarchyRelationKind kind;
@@ -589,11 +612,11 @@ public static class MetadataHierarchySubjectRelationsOperation
         }
 
         var target = new MetadataHierarchyTargetSelection(
-            focus.Identity.Type,
+            focus.Type,
             kind);
         MetadataRelationGraphAdapter.ValidateHierarchyFocus(
             focusAssembly,
-            focus,
+            request.Focus,
             target);
         return target;
     }
