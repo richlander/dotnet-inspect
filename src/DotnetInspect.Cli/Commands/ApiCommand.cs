@@ -304,7 +304,8 @@ public partial class ApiCommand
             listingOptions.IncludeSections);
         if (ValidateApiScalarTerminals(
                 listingOptions,
-                ApiTypeSectionCardinality.Declarations) is { } scalarError)
+                ApiTypeSectionCardinality.Declarations,
+                listingOptions.IncludeSections) is { } scalarError)
         {
             CommandError.Write(scalarError);
             return null;
@@ -724,7 +725,8 @@ public partial class ApiCommand
             countMapSelectionSections);
         if (ValidateApiScalarTerminals(
                 options,
-                ApiCardinalities(singleTypeMode, memberPipeline)) is { } scalarError)
+                ApiCardinalities(singleTypeMode, memberPipeline),
+                countMapSelectionSections) is { } scalarError)
         {
             CommandError.Write(scalarError);
             return (null!, 1);

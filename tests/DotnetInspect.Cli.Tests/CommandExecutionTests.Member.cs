@@ -955,6 +955,41 @@ public partial class CommandExecutionTests
         Assert.Contains("## Callers", output);
         Assert.DoesNotContain("kind\tname\treturn_type", output);
 
+        // The row terminals read the same effective selection: a scalar Text
+        // under a caller scope is a two-section count map, exactly as when
+        // both sections are spelled out (PR 9419 round-3 finding).
+        var (scopedCountExit, scopedCount, scopedCountError) = await RunAppAsync(
+            "member", typeof(MemberCallGraphFixture).FullName!, "--library", TestAssemblyPath,
+            nameof(MemberCallGraphFixture.Inner), "-S", SectionNames.IL, "--bin", testDirectory,
+            "--count", "--json");
+        var (spelledCountExit, spelledCount, _) = await RunAppAsync(
+            "member", typeof(MemberCallGraphFixture).FullName!, "--library", TestAssemblyPath,
+            nameof(MemberCallGraphFixture.Inner), "-S", $"{SectionNames.IL},{SectionNames.Callers}",
+            "--bin", testDirectory, "--count", "--json");
+
+        Assert.Equal(0, scopedCountExit);
+        Assert.Empty(scopedCountError);
+        Assert.Equal(0, spelledCountExit);
+        Assert.Equal(spelledCount, scopedCount);
+        Assert.Contains("\"section\"", scopedCount);
+
+        var (scopedRowsExit, _, scopedRowsError) = await RunAppAsync(
+            "member", typeof(MemberCallGraphFixture).FullName!, "--library", TestAssemblyPath,
+            nameof(MemberCallGraphFixture.Inner), "-S", SectionNames.IL, "--bin", testDirectory,
+            "--rows", "1");
+
+        Assert.Equal(0, scopedRowsExit);
+        Assert.DoesNotContain("is scalar", scopedRowsError);
+
+        // Unscoped, the lone scalar Text still rejects --count before acquisition.
+        var (loneScalarExit, loneScalar, loneScalarError) = await RunAppAsync(
+            "member", typeof(MemberCallGraphFixture).FullName!, "--library", TestAssemblyPath,
+            nameof(MemberCallGraphFixture.Inner), "-S", SectionNames.IL, "--count");
+
+        Assert.Equal(1, loneScalarExit);
+        Assert.Empty(loneScalar);
+        Assert.Contains("Section 'IL' is scalar and does not support --count", loneScalarError);
+
         // Without the scope the lone Table streams TSV as usual.
         var (loneExit, lone, loneError) = await RunAppAsync(
             "member", typeof(MemberCallGraphFixture).FullName!, "--library", TestAssemblyPath,

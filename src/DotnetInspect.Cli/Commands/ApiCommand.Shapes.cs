@@ -73,7 +73,8 @@ public partial class ApiCommand
     /// </summary>
     internal static string? ValidateApiScalarTerminals(
         ApiOptions options,
-        IReadOnlyDictionary<string, SectionCardinalityDeclaration> cardinalities)
+        IReadOnlyDictionary<string, SectionCardinalityDeclaration> cardinalities,
+        IReadOnlyCollection<string>? effectiveSections)
     {
         if (options.SelectDeferredToListing)
             return null;
@@ -84,8 +85,11 @@ public partial class ApiCommand
                 : options.Rows is not null
                     ? SectionTerminalCapability.Rows
                     : null;
+        // The same effective selection the native decision uses: a caller scope
+        // adds Callers, so "-S IL --bin X --count" is a two-section count map,
+        // not a lone scalar.
         return SectionShapeOutputPolicy.ValidateScalarTerminal(
-            options.IncludeSections,
+            effectiveSections,
             cardinalities,
             terminal,
             discovery: options.Discover is not null);
