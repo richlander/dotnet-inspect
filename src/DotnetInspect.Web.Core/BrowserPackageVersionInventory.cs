@@ -5,6 +5,7 @@ namespace DotnetInspect.Web;
 
 internal sealed record BrowserPackageVersionInventory(
     string[] Versions,
+    string[] UnlistedVersions,
     int CurrentVersionInsertionIndex,
     string? PreviousVersion,
     string? PreviousVersionUnavailableReason)
@@ -24,6 +25,8 @@ internal sealed record BrowserPackageVersionInventory(
             .ToArray();
         string[] versions =
             [.. candidates.Select(row => row.Candidate.Version)];
+        string[] unlistedVersions = [.. candidates.Where(row => !row.Candidate.Listed)
+            .Select(row => row.Candidate.Version)];
         int currentVersionInsertionIndex = candidates
             .TakeWhile(row => VersionComparer.VersionRelease.Compare(row.Version, current) > 0)
             .Count();
@@ -32,6 +35,7 @@ internal sealed record BrowserPackageVersionInventory(
         {
             return new(
                 versions,
+                unlistedVersions,
                 currentVersionInsertionIndex,
                 null,
                 "Automatic selection is unavailable because authoritative listing state "
@@ -45,6 +49,6 @@ internal sealed record BrowserPackageVersionInventory(
                 && VersionComparer.VersionRelease.Compare(row.Version, current) < 0)
             .Select(row => row.Candidate.Version)
             .FirstOrDefault();
-        return new(versions, currentVersionInsertionIndex, previous, null);
+        return new(versions, unlistedVersions, currentVersionInsertionIndex, previous, null);
     }
 }
