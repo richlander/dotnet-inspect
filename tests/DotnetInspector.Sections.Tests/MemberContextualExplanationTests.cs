@@ -1,73 +1,39 @@
+using System.Text.Json;
 using DotnetInspector.Queries;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
+using QuerySpace.Explanation;
 
 namespace DotnetInspector.Sections.Tests;
 
 public class MemberContextualExplanationTests
 {
     [Fact]
-    public void CommandExplanation_UsesRegisteredResourceAndDefaults()
+    public void CommandExplanation_IsOneInstalledCommonDocument()
     {
-        ResourceExplanationDocument resource =
-            ResourceDocument("member");
+        ResourceExplanationDocument document =
+            MemberContextualExplanationOperation
+                .ExplainCommand(["Values", "Fields"])
+                .Content;
 
-        InspectionEnvelope<MemberContextualExplanationDocument>
-            explanation =
-                MemberContextualExplanationOperation.ExplainCommand(
-                    resource,
-                    ["Values", "Fields"]);
-
-        Assert.Equal(
-            MemberContextualExplanationKind.Command,
-            explanation.Content.Kind);
-        Assert.Same(resource, explanation.Content.Resource);
-        Assert.Null(explanation.Content.Subject);
-        Assert.Null(explanation.Content.DefaultFacet);
+        Assert.Equal("member", document.RequestedPath?.Value);
+        ResourceExplanationResource root =
+            Assert.Single(document.Resources);
+        Assert.Equal("member", root.Path?.Value);
+        Assert.Equal(document.Root, root.Key);
+        Assert.Equal("member", root.Owner.Value);
+        Assert.Equal("command", root.ResourceType.Value);
+        Assert.Equal(ExplanationSnapshotScope.Installed, root.Scope);
+        Assert.Equal("Member command", Text(root, "context"));
         Assert.Equal(
             ["Values", "Fields"],
-            explanation.Content.SelectedSections);
-        Assert.Empty(explanation.Content.RelatedOperations);
+            Texts(root, "selected-content"));
+        Assert.Empty(document.Relationships);
     }
 
     [Fact]
-    public void Document_RejectsKindAndSubjectMismatch()
+    public void MemberGroupExplanation_ProjectsTypedContextAndOperations()
     {
-        ResourceExplanationDocument resource =
-            ResourceDocument("member-detail");
-        ExactMemberContextualExplanationSubject exact =
-            Assert.IsType<ExactMemberContextualExplanationSubject>(
-                MemberContextualExplanationOperation
-                    .ExplainExactMember(
-                        resource,
-                        ExactBasis([]),
-                        ["Signature"])
-                    .Content
-                    .Subject);
-
-        Assert.Throws<ArgumentException>(() =>
-            new MemberContextualExplanationDocument(
-                MemberContextualExplanationKind.Command,
-                resource,
-                exact,
-                defaultFacet: null,
-                selectedSections: [],
-                relatedOperations: []));
-        Assert.Throws<ArgumentException>(() =>
-            new MemberContextualExplanationDocument(
-                MemberContextualExplanationKind.MemberGroup,
-                resource,
-                subject: null,
-                defaultFacet: null,
-                selectedSections: [],
-                relatedOperations: []));
-    }
-
-    [Fact]
-    public void MemberGroupExplanation_PreservesOwnerIssuedGroup()
-    {
-        ResourceExplanationDocument resource =
-            ResourceDocument("member-overload");
         var group = new MemberGroupSubject(
             TypeName(),
             "Serialize");
@@ -77,140 +43,124 @@ public class MemberContextualExplanationTests
             MemberDefaultFacet(),
             new(["Overloads"], ["Overloads"]));
 
-        MemberContextualExplanationDocument content =
+        ResourceExplanationDocument document =
             MemberContextualExplanationOperation
                 .ExplainMemberGroup(
-                    resource,
                     basis,
                     ["Methods"])
                 .Content;
 
-        Assert.Equal(
-            MemberContextualExplanationKind.MemberGroup,
-            content.Kind);
-        Assert.Same(resource, content.Resource);
-        Assert.Equal(["Overloads"], content.SelectedSections);
-        MemberGroupContextualExplanationSubject subject =
-            Assert.IsType<MemberGroupContextualExplanationSubject>(
-                content.Subject);
-        Assert.Same(group, subject.Group);
+        ResourceExplanationResource root = document.Resources[0];
+        Assert.Null(document.RequestedPath);
+        Assert.All(document.Resources, resource =>
+            Assert.Null(resource.Path));
+        Assert.Equal("member-group", root.ResourceType.Value);
+        Assert.Equal("MemberGroup", Text(root, "context"));
         Assert.Equal(
             "System.Text.Json.JsonSerializer",
-            subject.TypeName);
-        Assert.Equal("System.Text.Json", subject.Library);
+            Text(root, "type-name"));
+        Assert.Equal("System.Text.Json", Text(root, "library"));
         Assert.Equal(
             "System.Text.Json@10.0.0",
-            subject.Package);
-        Assert.Equal("net10.0", subject.Framework);
+            Text(root, "package"));
+        Assert.Equal("net10.0", Text(root, "framework"));
+        Assert.Equal(
+            MemberDefaultFacet().Value,
+            Text(root, "default-view"));
+        Assert.Equal(["Overloads"], Texts(root, "selected-content"));
+        Assert.Equal(5, document.Resources.Length);
+        ResourceExplanationRelationship relationship =
+            Assert.Single(document.Relationships);
+        Assert.Equal(
+            "related-operation",
+            relationship.Relationship.Value);
         Assert.Equal(
             MemberRelatedOperationAffordances.All
-                .Select(static operation => operation.Id),
-            content.RelatedOperations
-                .Select(static operation => operation.Id));
+                .Select(static operation => operation.Id.Value),
+            relationship.Targets.Select(target =>
+                Assert.IsType<ExplanationValue.Scalar>(
+                    target.Resource.IdentityValue).Value.Text));
     }
 
     [Fact]
-    public void MemberGroupExplanation_UsesRegisteredDefaultsForBareDemand()
+    public void ExactExplanation_ProjectsResolvedIdentityAndDefaults()
     {
-        var group = new MemberGroupSubject(
-            TypeName(),
-            "Serialize");
-        MemberContextualExplanationDocument content =
-            MemberContextualExplanationOperation
-                .ExplainMemberGroup(
-                    ResourceDocument("member-overload"),
-                    new(
-                        Source(),
-                        group,
-                        MemberDefaultFacet(),
-                        new([], [])),
-                    ["Overloads"])
-                .Content;
+        ResolvedMemberInspectionBasis basis = ExactBasis([]);
 
-        Assert.Equal(["Overloads"], content.SelectedSections);
-    }
-
-    [Fact]
-    public void ExactExplanation_PreservesResolvedBasisInMemory()
-    {
-        ResourceExplanationDocument resource =
-            ResourceDocument("member-detail");
-        ResolvedMemberInspectionBasis basis =
-            ExactBasis(["Signature"]);
-
-        InspectionEnvelope<MemberContextualExplanationDocument>
-            explanation =
-                MemberContextualExplanationOperation
-                    .ExplainExactMember(
-                        resource,
-                        basis,
-                        ["Documentation"]);
-
-        MemberContextualExplanationDocument content =
-            explanation.Content;
-        Assert.Equal(
-            MemberContextualExplanationKind.ExactMember,
-            content.Kind);
-        Assert.Same(resource, content.Resource);
-        Assert.Equal(["Signature"], content.SelectedSections);
-        ExactMemberContextualExplanationSubject subject =
-            Assert.IsType<ExactMemberContextualExplanationSubject>(
-                content.Subject);
-        Assert.Equal(
-            basis.Target.Member.CanonicalSignature,
-            subject.CanonicalSignature);
-        Assert.Equal(
-            "System.Text.Json@10.0.0",
-            subject.Package);
-        Assert.Equal("net10.0", subject.Framework);
-        Assert.Equal(
-            "member.overview",
-            content.DefaultFacet?.Value);
-        Assert.Equal(
-            MemberRelatedOperationAffordances.All
-                .Select(static operation => operation.Id),
-            content.RelatedOperations
-                .Select(static operation => operation.Id));
-    }
-
-    [Fact]
-    public void ExactExplanation_UsesRegisteredDefaultsForBareDemand()
-    {
-        MemberContextualExplanationDocument content =
+        ResourceExplanationDocument document =
             MemberContextualExplanationOperation
                 .ExplainExactMember(
-                    ResourceDocument("member-detail"),
-                    ExactBasis([]),
+                    basis,
                     ["Signature"])
                 .Content;
 
-        Assert.Equal(["Signature"], content.SelectedSections);
+        ResourceExplanationResource root = document.Resources[0];
+        Assert.Equal("exact-member", root.ResourceType.Value);
+        Assert.Equal("Exact Member", Text(root, "context"));
+        Assert.Equal(
+            basis.Target.Member.StableSelector,
+            Text(root, "stable-selector"));
+        Assert.Equal(
+            basis.Target.Member.CanonicalSignature,
+            Text(root, "canonical-signature"));
+        Assert.Equal(
+            basis.Target.Member.Fingerprint,
+            Text(root, "fingerprint"));
+        Assert.Equal(["Signature"], Texts(root, "selected-content"));
+        Assert.Equal(
+            MemberRelatedOperationAffordances.All
+                .Select(static operation => operation.Id.Value),
+            document.Resources.Skip(1)
+                .Select(resource => Text(resource, "identity")));
     }
 
-    private static ResourceExplanationDocument ResourceDocument(
-        string path)
+    [Fact]
+    public void PathlessDocument_RoundTripsWithoutSyntheticPaths()
     {
-        ResourceExplanationCatalog catalog =
-            ResourceExplanationCatalog.CreateStructural(
-                new DiscoveryDocument(
-                    path,
-                    [],
-                    [],
-                    new DiscoverySelection(
-                        isCatalog: true,
-                        addressedResources: [],
-                        rows: [])),
-                []);
-        ResourcePathResolution.Resolved resolved =
-            Assert.IsType<ResourcePathResolution.Resolved>(
-                catalog.Resolve(path));
-        return catalog.Explain(
-            resolved,
-            new(
-                depth: 0,
-                resourceLimit: 1,
-                relationshipLimit: 1)).Content;
+        ResourceExplanationDocument document =
+            MemberContextualExplanationOperation
+                .ExplainExactMember(
+                    ExactBasis(["Signature"]),
+                    ["Documentation"])
+                .Content;
+
+        string json = JsonSerializer.Serialize(
+            document,
+            ResourceExplanationJsonContext
+                .Default
+                .ResourceExplanationDocument);
+        ResourceExplanationDocument roundTripped =
+            JsonSerializer.Deserialize(
+                json,
+                ResourceExplanationJsonContext
+                    .Default
+                    .ResourceExplanationDocument)!;
+
+        Assert.DoesNotContain("\"requested_path\"", json);
+        Assert.DoesNotContain("\"path\"", json);
+        Assert.Null(roundTripped.RequestedPath);
+        Assert.All(roundTripped.Resources, resource =>
+            Assert.Null(resource.Path));
+        Assert.Equal(document.Root, roundTripped.Root);
     }
+
+    private static string Text(
+        ResourceExplanationResource resource,
+        string identity) =>
+        Assert.IsType<ExplanationValue.Scalar>(
+            Assert.Single(
+                resource.Facts.Single(fact =>
+                    fact.Fact.Value == identity).Values)).Value.Text!;
+
+    private static string[] Texts(
+        ResourceExplanationResource resource,
+        string identity) =>
+    [
+        .. resource.Facts.Single(fact =>
+                fact.Fact.Value == identity).Values
+            .Select(value =>
+                Assert.IsType<ExplanationValue.Scalar>(value).Value.Text!),
+    ];
 
     private static ResolvedMemberInspectionBasis ExactBasis(
         string[] sections)

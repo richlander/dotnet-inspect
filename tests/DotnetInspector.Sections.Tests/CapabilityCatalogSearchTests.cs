@@ -393,7 +393,7 @@ public sealed class CapabilityCatalogSearchTests
             explanation.Resolve(result.ResourcePath));
         Assert.Equal(
             explanation.Resources.Single(resource =>
-                resource.Path.Value == result.ResourcePath).Key,
+                resource.Path!.Value == result.ResourcePath).Key,
             resolved.Key);
     }
 
