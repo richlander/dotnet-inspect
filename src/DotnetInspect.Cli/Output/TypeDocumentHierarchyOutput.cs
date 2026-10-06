@@ -9,7 +9,7 @@ namespace DotnetInspect.Cli.Output;
 internal static class TypeDocumentHierarchyOutput
 {
     internal static void Write(
-        TypeDocument document,
+        TypeDocumentInspectionContent document,
         InspectionHierarchyRequest request,
         TextWriter output)
     {
@@ -181,9 +181,14 @@ internal static class TypeDocumentHierarchyOutput
                 ILInspector.Metadata.MetadataTypeDeclarationCategory
                     .Class => "class",
                 ILInspector.Metadata.MetadataTypeDeclarationCategory
-                    .Struct => subject.IsByRefLike
-                        ? "ref struct"
-                        : "struct",
+                    .Struct => (subject.IsReadOnly, subject.IsByRefLike)
+                        switch
+                        {
+                            (true, true) => "readonly ref struct",
+                            (true, false) => "readonly struct",
+                            (false, true) => "ref struct",
+                            _ => "struct",
+                        },
                 ILInspector.Metadata.MetadataTypeDeclarationCategory
                     .Interface => "interface",
                 ILInspector.Metadata.MetadataTypeDeclarationCategory

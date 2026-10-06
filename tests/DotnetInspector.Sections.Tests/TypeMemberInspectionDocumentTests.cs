@@ -324,6 +324,7 @@ public sealed class TypeMemberInspectionDocumentTests
             MetadataTypeDeclarationCategory.Class,
             TypeAttributes.Public,
             isByRefLike: false,
+            isReadOnly: false,
             definesCoreLibraryRoot: false,
             declaringTypeDefinitionToken: null);
         var typePopulation = new TypeMemberGroupPopulationBinding(

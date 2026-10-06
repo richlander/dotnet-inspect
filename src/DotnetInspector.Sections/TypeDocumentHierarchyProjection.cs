@@ -31,7 +31,7 @@ public static class TypeDocumentHierarchyProjection
     ];
 
     public static void Write(
-        TypeDocument document,
+        TypeDocumentInspectionContent document,
         InspectionHierarchyRequest request,
         IInspectionHierarchySink<TypeDocumentHierarchyNode> sink)
     {

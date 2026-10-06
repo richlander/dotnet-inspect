@@ -92,6 +92,7 @@ public sealed record TypeSubject
         MetadataTypeDeclarationCategory category,
         TypeAttributes attributes,
         bool isByRefLike,
+        bool isReadOnly,
         bool definesCoreLibraryRoot,
         int? declaringTypeDefinitionToken)
     {
@@ -121,6 +122,7 @@ public sealed record TypeSubject
         Category = category;
         Attributes = attributes;
         IsByRefLike = isByRefLike;
+        IsReadOnly = isReadOnly;
         DefinesCoreLibraryRoot = definesCoreLibraryRoot;
         DeclaringTypeDefinitionToken = declaringTypeDefinitionToken;
     }
@@ -135,6 +137,7 @@ public sealed record TypeSubject
         MetadataTypeDeclarationCategory category,
         TypeAttributes attributes,
         bool isByRefLike,
+        bool isReadOnly,
         bool definesCoreLibraryRoot,
         int? declaringTypeDefinitionToken)
         : this(
@@ -146,6 +149,7 @@ public sealed record TypeSubject
             category,
             attributes,
             isByRefLike,
+            isReadOnly,
             definesCoreLibraryRoot,
             declaringTypeDefinitionToken)
     {
@@ -176,6 +180,7 @@ public sealed record TypeSubject
     public MetadataTypeDeclarationCategory Category { get; }
     public TypeAttributes Attributes { get; }
     public bool IsByRefLike { get; }
+    public bool IsReadOnly { get; }
     public bool DefinesCoreLibraryRoot { get; }
     public int? DeclaringTypeDefinitionToken { get; }
 }

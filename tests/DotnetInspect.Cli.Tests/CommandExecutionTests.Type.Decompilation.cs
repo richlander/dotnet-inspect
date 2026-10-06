@@ -1112,6 +1112,33 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("static abstract sealed class", output);
     }
 
+    [Theory]
+    [InlineData("System.DateTime", "readonly struct System.DateTime")]
+    [InlineData(
+        "System.ReadOnlySpan<T>",
+        "readonly ref struct System.ReadOnlySpan<T>")]
+    public async Task Type_Tree_RetainsReadonlyStructModifiers(
+        string typeName,
+        string expectedHeader)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            typeName,
+            "--platform",
+            "System.Private.CoreLib",
+            "--tree",
+            "-n",
+            "1",
+            "--lines");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.StartsWith(
+            expectedHeader,
+            output,
+            StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task Type_BareStringAlias_RendersCoreLibString()
     {

@@ -263,6 +263,7 @@ public static class TypeDocumentInspectionOperation
                         document.Subject.Category,
                         document.Subject.Attributes,
                         document.Subject.IsByRefLike,
+                        document.Subject.IsReadOnly,
                         document.Subject.DefinesCoreLibraryRoot,
                         document.Subject.DeclaringType?.Definition.Value),
                     declarations,

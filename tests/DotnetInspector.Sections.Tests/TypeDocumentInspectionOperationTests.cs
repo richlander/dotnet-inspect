@@ -114,6 +114,38 @@ public sealed class TypeDocumentInspectionOperationTests
     }
 
     [Fact]
+    public async Task ReadonlyStructSubject_RetainsDeclarationModifier()
+    {
+        byte[] content =
+            await File.ReadAllBytesAsync(
+                typeof(DateTime).Assembly.Location,
+                TestContext.Current.CancellationToken);
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+
+        TypeDocumentInspectionContent document =
+            Available(
+                Execute(
+                    library,
+                    type: Name("System", "DateTime")));
+
+        Assert.Equal(
+            MetadataTypeDeclarationCategory.Struct,
+            document.Subject.Category);
+        Assert.True(document.Subject.IsReadOnly);
+        Assert.False(document.Subject.IsByRefLike);
+
+        string json =
+            JsonSerializer.Serialize<TypeDocumentInspectionOutcome>(
+                new TypeDocumentInspectionOutcome.Available(document));
+        Assert.Contains("\"IsReadOnly\":true", json);
+
+        await library.RetireAsync();
+    }
+
+    [Fact]
     public async Task
         SubjectOnly_RetainsDistinctLibraryAuthorityForIdenticalBytes()
     {
@@ -239,6 +271,7 @@ public sealed class TypeDocumentInspectionOperationTests
             source.Category,
             source.Attributes,
             source.IsByRefLike,
+            source.IsReadOnly,
             source.DefinesCoreLibraryRoot,
             source.DeclaringTypeDefinitionToken);
 
@@ -335,7 +368,7 @@ public sealed class TypeDocumentInspectionOperationTests
             await LibraryInspectionTestLibrary.CreateAsync(
                 content,
                 LibraryInspectionTestLibrary.Identity(content));
-        TypeDocument document =
+        TypeDocumentInspectionContent document =
             Available(
                 Execute(
                     library,
@@ -424,7 +457,7 @@ public sealed class TypeDocumentInspectionOperationTests
             await LibraryInspectionTestLibrary.CreateAsync(
                 content,
                 LibraryInspectionTestLibrary.Identity(content));
-        TypeDocument document =
+        TypeDocumentInspectionContent document =
             Available(
                 Execute(
                     library,
