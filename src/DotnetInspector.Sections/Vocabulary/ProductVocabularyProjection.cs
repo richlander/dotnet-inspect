@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 
+using DotnetInspector.InspectionContracts;
 using DotnetInspector.Queries;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
@@ -34,6 +35,9 @@ public static class ProductVocabularyProjection
         VocabularyDefinition bodyKinds = Get(
             snapshot,
             BodyShapeVocabulary.BodyKindsId);
+        VocabularyDefinition packageQueryDurableRow = Get(
+            snapshot,
+            PackageQueryDurableRowContract.Vocabulary);
 
         return new(
             2,
@@ -148,6 +152,21 @@ public static class ProductVocabularyProjection
                             "Product-owned display label.",
                             VocabularyOperator.Equals,
                             VocabularyOperator.Glob),
+                    ]),
+                CreateSection(
+                    packageQueryDurableRow,
+                    AcceptedBy(index, packageQueryDurableRow),
+                    [
+                        IdentityField(
+                            "Stable Package Query durable-row field identity."),
+                        DisplayField(
+                            "label",
+                            "Label",
+                            "Product-owned field label.",
+                            VocabularyOperator.Equals,
+                            VocabularyOperator.Glob),
+                        SummaryField(
+                            "What the durable-row field represents."),
                     ]),
             ]);
     }

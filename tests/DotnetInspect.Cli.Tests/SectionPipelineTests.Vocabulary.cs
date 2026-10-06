@@ -20,6 +20,7 @@ public partial class SectionPipelineTests
             [
                 SectionCategoryNames.Api,
                 SectionCategoryNames.Decompiler,
+                SectionCategoryNames.Query,
                 SectionCategoryNames.Vocabulary,
             ],
             categories.Keys.Order(StringComparer.Ordinal));
@@ -30,6 +31,7 @@ public partial class SectionPipelineTests
                 StyleOptionVocabularies.StyleTiersLabel,
                 StyleOptionVocabularies.StyleChoicesLabel,
                 BodyShapeVocabulary.BodyKindsLabel,
+                PackageQueryDurableRowVocabulary.Label,
             ],
             categories[SectionCategoryNames.Vocabulary]);
         Assert.Equal(
@@ -42,6 +44,9 @@ public partial class SectionPipelineTests
                 StyleOptionVocabularies.StyleTiersLabel,
             ],
             categories[SectionCategoryNames.Decompiler]);
+        Assert.Equal(
+            [PackageQueryDurableRowVocabulary.Label],
+            categories[SectionCategoryNames.Query]);
         Assert.Equal(
             pipeline.SelectableSectionNames,
             pipeline.BaseSectionNames);
@@ -69,6 +74,7 @@ public partial class SectionPipelineTests
                 BodyShapeVocabulary.BodyKindsLabel,
                 StyleOptionVocabularies.StyleChoicesLabel,
                 StyleOptionVocabularies.StyleTiersLabel,
+                PackageQueryDurableRowVocabulary.Label,
                 ProductVocabularyComposition.SectionsLabel,
             ],
             pipeline.AlphabeticalSectionOrder);
@@ -85,6 +91,7 @@ public partial class SectionPipelineTests
             section => Assert.Equal(SectionCost.NetworkFree, section.Cost));
         Assert.True(VocabularySections.Accessibility.ExplicitOnly);
         Assert.True(VocabularySections.BodyKinds.ExplicitOnly);
+        Assert.True(VocabularySections.PackageQueryDurableRow.ExplicitOnly);
         Assert.True(VocabularySections.StyleChoices.ExplicitOnly);
         Assert.True(VocabularySections.StyleTiers.ExplicitOnly);
         Assert.Empty(pipeline.BareSelectSectionNames);

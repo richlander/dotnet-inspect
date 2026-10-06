@@ -5,6 +5,8 @@ namespace DotnetInspector.Queries;
 
 public static class PackageQueryDurableRowVocabulary
 {
+    public const string Label = "Package Query Durable Row";
+
     public static VocabularyDefinition Declare(
         VocabularyCatalogIdentity catalog)
     {
@@ -13,7 +15,7 @@ public static class PackageQueryDurableRowVocabulary
             PackageQueryDurableRowContract.Vocabulary);
         return new(
             identity,
-            "Package Query Durable Row",
+            Label,
             "Stable semantic fields in the compact Package Query durable row.",
             maps: null,
             [

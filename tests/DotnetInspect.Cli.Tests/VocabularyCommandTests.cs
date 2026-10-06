@@ -42,7 +42,6 @@ public sealed class VocabularyCommandTests
             .. CliVocabularyDocument.Document.Sections
                 .Skip(1)
                 .Select(section => section.Id),
-            PackageQueryDurableRowContract.Vocabulary,
         ];
         Assert.Equal(
             expectedSections,
@@ -81,6 +80,21 @@ public sealed class VocabularyCommandTests
             bodyKinds.Fields,
             field => field.Id == "id");
         Assert.Equal([VocabularyOperator.Equals], bodyKindId.Operators);
+
+        VocabularySection durableRow =
+            CliVocabularyDocument.GetById(
+                PackageQueryDurableRowContract.Vocabulary);
+        Assert.Equal(
+            PackageQueryDurableRowVocabulary.Declare(
+                    CliVocabularyComposition.Snapshot.Catalog)
+                .Terms.Select(term => term.Identity.Value),
+            durableRow.Values.Select(ValueId));
+        Assert.Equal(
+            PackageQueryDurableRowVocabulary.Declare(
+                    CliVocabularyComposition.Snapshot.Catalog)
+                .Terms.Select(term => term.DisplayLabel),
+            durableRow.Values.Select(row =>
+                row.GetRequired("label").Text));
     }
 
     [Fact]
@@ -122,11 +136,13 @@ public sealed class VocabularyCommandTests
             | ---- | ---- |
             | @API | category |
             | @Decompiler | category |
+            | @Query | category |
             | @Vocabulary | category |
             | Accessibility | section |
             | C# Body Kinds | section |
             | C# Style Choices | section |
             | C# Style Tiers | section |
+            | Package Query Durable Row | section |
             | Vocabulary Sections | section |
             """,
             result.Output.ReplaceLineEndings("\n").Trim());
@@ -140,8 +156,11 @@ public sealed class VocabularyCommandTests
         SectionCategoryNames.Decompiler,
         "C# Body Kinds|C# Style Choices|C# Style Tiers")]
     [InlineData(
+        SectionCategoryNames.Query,
+        "Package Query Durable Row")]
+    [InlineData(
         SectionCategoryNames.Vocabulary,
-        "Accessibility|C# Body Kinds|C# Style Choices|C# Style Tiers|Vocabulary Sections")]
+        "Accessibility|C# Body Kinds|C# Style Choices|C# Style Tiers|Package Query Durable Row|Vocabulary Sections")]
     public async Task Command_DiscoveryDrillsIntoAuthoredCategory(
         string category,
         string expectedNames)
@@ -206,6 +225,7 @@ public sealed class VocabularyCommandTests
                 "csharp.body-kinds",
                 "csharp.style-choices",
                 "csharp.style-tiers",
+                "package-query.durable-row",
                 "vocabulary.sections",
             ],
             document.RootElement.GetProperty("sections")

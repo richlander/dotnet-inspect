@@ -19,13 +19,15 @@ public static class VocabularySections
             .Add<StyleTiers>()
             .Add<StyleChoices>()
             .Add<BodyKinds>()
+            .Add<PackageQueryDurableRow>()
             .AddBaseCategory(
                 SectionCategoryNames.Vocabulary,
                 Index.Name,
                 Accessibility.Name,
                 StyleTiers.Name,
                 StyleChoices.Name,
-                BodyKinds.Name)
+                BodyKinds.Name,
+                PackageQueryDurableRow.Name)
             .AddCategory(
                 SectionCategoryNames.Api,
                 Accessibility.Name)
@@ -33,7 +35,10 @@ public static class VocabularySections
                 SectionCategoryNames.Decompiler,
                 BodyKinds.Name,
                 StyleChoices.Name,
-                StyleTiers.Name);
+                StyleTiers.Name)
+            .AddCategory(
+                SectionCategoryNames.Query,
+                PackageQueryDurableRow.Name);
 
     public sealed class Index : ISectionDescriptor<VocabularyDocument>
     {
@@ -84,6 +89,17 @@ public static class VocabularySections
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
+        public static bool CanRender(VocabularyDocument model) =>
+            Contains(model, Name);
+    }
+
+    public sealed class PackageQueryDurableRow :
+        ISectionDescriptor<VocabularyDocument>
+    {
+        public static string Name => PackageQueryDurableRowVocabulary.Label;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Terse;
         public static bool CanRender(VocabularyDocument model) =>
             Contains(model, Name);
     }
