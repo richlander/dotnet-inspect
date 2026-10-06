@@ -3268,7 +3268,8 @@ public sealed class InspectionPlanningTests
             "-S",
             SectionNames.Signature,
             "-S",
-            SectionNames.Methods);
+            SectionNames.Methods,
+            "--markdown");
 
         Assert.Equal(0, result.Exit);
         Assert.Contains(SectionNames.Signature, result.Output);

@@ -309,7 +309,7 @@ public partial class CommandExecutionTests
     public async Task Type_MemberIndexSection_OmitsEmptyDecodeColumn()
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", "System.Text.StringBuilder", "-S", "Member Index");
+            "type", "System.Text.StringBuilder", "-S", "Member Index", "--markdown");
 
         Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
         Assert.Empty(error);
