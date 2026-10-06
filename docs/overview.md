@@ -53,6 +53,7 @@ Three shared systems keep the command core small while inspection stays deep:
 | [`ComparisonDocument<T>`](design/comparison-document.md) | Composition of compared subjects and their comparison payloads |
 | [`InspectionGraphDocument`](design/inspection-graph-document.md) | Topology |
 | `AnnotatedSourceDocument` ([Member body substrate](design/member-body-substrate.md)) | Placement at source and IL coordinates |
+| [`IInspectionHierarchySink<TNode>`](design/host-neutral-hierarchy-projection.md) | Synchronous host-neutral hierarchy projection without a retained presentation tree |
 | Markout | Format lowering |
 
 New analyses and operations reach users through these structures. An analysis
