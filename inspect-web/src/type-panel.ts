@@ -608,6 +608,7 @@ export interface TypeNavOptions {
   statusHtml?: string;
   current?: TypeInventoryRow | null;
   visible: readonly TypeInventoryRow[];
+  totalCount: number;
   typeGroups: ReadonlyMap<string, readonly TypeInventoryRow[]>;
   typeFilter: string;
   namespaceFilter: string;
@@ -649,7 +650,7 @@ export interface TypeNavNamespaceLeverageCue {
 
 export function renderTypeNav(options: TypeNavOptions): string {
   const {
-    current, visible, typeGroups, typeFilter, namespaceFilter, kindFilter,
+    current, visible, totalCount, typeGroups, typeFilter, namespaceFilter, kindFilter,
     accessibilityFilter, traitFilter, namespaceCount, namespaceOptionsHtml,
     kindOptions, accessibilityOptions, traitOptions,
     library, parentSubject, filtersExpanded, filterSummary, escapeHtml,
@@ -669,7 +670,7 @@ export function renderTypeNav(options: TypeNavOptions): string {
         <small>library</small>
       </button>` : ""}
       <details class="filter-disclosure type-filter-disclosure" data-type-filter-disclosure${filtersExpanded ? " open" : ""}>
-        <summary id="type-filter-summary" title="Show Type filters"><span aria-hidden="true">›</span><strong>Types</strong><small>${visible.length.toLocaleString()} shown · ${escapeHtml(filterSummary)}</small><span class="filter-action">Filters</span></summary>
+        <summary id="type-filter-summary" title="Show Type filters"><span aria-hidden="true">›</span><strong>Types</strong><small>${visible.length.toLocaleString()} of ${totalCount.toLocaleString()} · ${escapeHtml(filterSummary)}</small><span class="filter-action">Filters</span></summary>
         <label class="type-search">
           <span aria-hidden="true">/</span>
           <input id="type-filter" aria-label="Filter types" value="${escapeHtml(typeFilter)}" placeholder="Filter types" autocomplete="off" spellcheck="false" />

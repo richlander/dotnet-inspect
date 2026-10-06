@@ -25,6 +25,7 @@ test("forwarded Type rows have no invented kind or member cardinality", () => {
   const html = renderTypeNav({
     current: xmlReader,
     visible: [xmlReader],
+    totalCount: 1,
     typeGroups: new Map([["System.Xml", [xmlReader]]]),
     typeFilter: "", namespaceFilter: "", kindFilter: "",
     accessibilityFilter: "", traitFilter: "",

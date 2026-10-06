@@ -124,6 +124,7 @@ const longDataBarMode = params.has("long-data-bar");
 const workspaceMode = params.has("workspace");
 const packageOverviewMode = params.has("package-overview");
 const libraryOverviewMode = params.has("library-overview");
+const pushedTypeInventoryMode = params.has("pushed-type-inventory");
 const overviewMode = packageOverviewMode || libraryOverviewMode;
 const packageDependenciesMode = params.has("package-dependencies");
 const packageMetadataMode = params.has("package-metadata");
@@ -389,11 +390,54 @@ function scopeBarHtml() {
 
 const contentNavigationLabel = activeScope === "package"
   ? "Frameworks"
+  : pushedTypeInventoryMode
+    ? "Types"
   : activeScope === "library"
     ? "Libraries"
   : memberMode ? "Members" : "Types";
+const pushedTypeNavigationHtml = `
+  <aside id="content-navigation-pane" class="type-browser has-parent-subject"
+    aria-label="Public types">
+    <div class="browser-filter-head">
+      <button class="nav-back-row" type="button">
+        <span class="chevron">‹</span>
+        <span class="type-name">System.Text.Json</span>
+        <small>library</small>
+      </button>
+      <details class="filter-disclosure type-filter-disclosure"
+        data-type-filter-disclosure>
+        <summary id="type-filter-summary" title="Show Type filters">
+          <span aria-hidden="true">›</span><strong>Types</strong>
+          <small>80 of 80 · public</small>
+          <span class="filter-action">Filters</span>
+        </summary>
+      </details>
+      ${renderContentNavigationCloseButton()}
+    </div>
+    <div class="type-list" role="listbox" tabindex="0" id="type-list"
+      data-nav-scope="types">
+      <section class="type-group">
+        <button class="namespace-row" type="button">
+          <span class="chevron">⌄</span>
+          <span>System.Text.Json</span>
+          <small>80</small>
+        </button>
+        ${Array.from(
+          { length: 80 },
+          (_, index) => `<button class="type-row" type="button" role="option"
+            aria-selected="false" data-pushed-type-row="${index + 1}">
+            <span class="kind-icon">C</span>
+            <span class="type-name">JsonType${index + 1}</span>
+            <small>class</small>
+          </button>`,
+        ).join("")}
+      </section>
+    </div>
+  </aside>`;
 const navigationHtml = workspaceMode
   ? workspaceNavigationHtml()
+  : pushedTypeInventoryMode
+    ? pushedTypeNavigationHtml
   : activeScope === "package"
     ? renderPackageNav({
         frameworks: ["net10.0", "net10.0-windows10.0.19041.0"],
@@ -923,7 +967,8 @@ const harnessKeyboardHelpBindings = [
     : []),
 ];
 const contentFrameFullWidth =
-  activeScope === "package" || activeScope === "library";
+  activeScope === "package" || activeScope === "library"
+  || pushedTypeInventoryMode;
 const navigationActionHtml = workspaceMode
   ? ""
   : renderContentNavigationBar(contentNavigationLabel, contentFrameFullWidth);

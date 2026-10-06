@@ -10065,11 +10065,14 @@ function renderTypeNavPane(
 ) {
   const definingLibraries = aggregateTypeLibraryLabels();
   const diffPresence = libraryApiDiffPresence(state.libraryApiDiff);
+  const totalPopulation = typeSelectorDefinitions();
   const { definitions, forwarders } =
     accessibilityScopedTypeSelectorDefinitions();
   return renderTypeNav({
     current: selectedForwarder() ?? current ?? null,
     visible,
+    totalCount:
+      totalPopulation.definitions.length + totalPopulation.forwarders.length,
     typeGroups: typeGroups(),
     typeFilter: state.typeFilter,
     namespaceFilter: state.namespaceFilter,

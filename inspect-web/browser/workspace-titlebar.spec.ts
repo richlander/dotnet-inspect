@@ -706,6 +706,46 @@ for (const [subject, width] of [
   });
 }
 
+for (const width of [1440, 390]) {
+  test(`pushed Type inventory owns its scroll area at ${width}px`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 700 });
+    await page.goto(
+      "/browser/workspace-titlebar.html?library-overview=1&pushed-type-inventory=1",
+    );
+
+    await page.getByRole("button", { name: "Types", exact: true }).click();
+    const pane = page.locator("#content-navigation-pane");
+    const list = page.locator("#type-list");
+    await expect(pane).toBeVisible();
+    await expect(list).toBeFocused();
+
+    const geometry = await list.evaluate(element => {
+      const paneElement =
+        element.closest<HTMLElement>("#content-navigation-pane");
+      if (!paneElement)
+        throw new Error("The Type inventory pane is unavailable.");
+      const paneRect = paneElement.getBoundingClientRect();
+      const listRect = element.getBoundingClientRect();
+      return {
+        paneBottom: paneRect.bottom,
+        listBottom: listRect.bottom,
+        clientHeight: element.clientHeight,
+        scrollHeight: element.scrollHeight,
+      };
+    });
+    expect(geometry.listBottom).toBeLessThanOrEqual(geometry.paneBottom + 1);
+    expect(geometry.scrollHeight).toBeGreaterThan(geometry.clientHeight);
+
+    await list.evaluate(element => {
+      element.scrollTop = element.scrollHeight;
+    });
+    await expect(page.locator("[data-pushed-type-row='80']"))
+      .toBeInViewport();
+  });
+}
+
 test("Package Overview keeps empty totals and available documents", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 700 });
   await page.goto("/browser/workspace-titlebar.html?package-overview=1&empty=1");

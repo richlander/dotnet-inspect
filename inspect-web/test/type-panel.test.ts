@@ -368,6 +368,7 @@ function recordingActions(calls: string[]): TypePanelBindingActions {
 }
 
 const typeSelectorOptions = {
+  totalCount: 2,
   accessibilityFilter: "public",
   traitFilter: "",
   kindOptions: [
@@ -764,6 +765,7 @@ test("the type nav lists namespace groups with the current type selected", () =>
     namespaceFilter: "",
     kindFilter: "",
     ...typeSelectorOptions,
+    totalCount: 3,
     namespaceCount: 1,
     namespaceOptionsHtml: '<option value="System.Text.Json">System.Text.Json · 2</option>',
     library: "System.Text.Json",
@@ -777,7 +779,7 @@ test("the type nav lists namespace groups with the current type selected", () =>
     kindIcon,
   });
 
-  assert.match(html, /2 shown/);
+  assert.match(html, /2 of 3/);
   assert.match(
     html,
     /data-type="System\.Text\.Json\.JsonSerializer" role="option" aria-selected="true"/);
@@ -792,7 +794,7 @@ test("the type nav lists namespace groups with the current type selected", () =>
   assert.match(html, /<summary id="type-filter-summary" title="Show Type filters">/);
   assert.match(
     html,
-    /<strong>Types<\/strong><small>2 shown · public<\/small><span class="filter-action">Filters<\/span>/);
+    /<strong>Types<\/strong><small>2 of 3 · public<\/small><span class="filter-action">Filters<\/span>/);
   assert.match(html, /id="type-filter"/);
   assert.match(html, /id="namespace-jump"/);
   assert.match(html, /id="content-navigation-pane"/);
@@ -833,6 +835,7 @@ test("the type nav preserves the host selection value for the global namespace",
     namespaceFilter: "__global__",
     kindFilter: "",
     ...typeSelectorOptions,
+    totalCount: 1,
     namespaceCount: 1,
     namespaceOptionsHtml: '<option value="__global__">global namespace · 1</option>',
     namespaceSelectionValue: namespace =>
@@ -985,6 +988,7 @@ test("the type nav omits a parent action when the Library has no visible parent"
     namespaceFilter: "",
     kindFilter: "",
     ...typeSelectorOptions,
+    totalCount: 1,
     namespaceCount: 1,
     namespaceOptionsHtml: "",
     library: "System.Text.Json",
@@ -1009,6 +1013,7 @@ test("the type nav handles a package with no projected types", () => {
     namespaceFilter: "",
     kindFilter: "",
     ...typeSelectorOptions,
+    totalCount: 0,
     namespaceCount: 0,
     namespaceOptionsHtml: "",
     library: "System.Text.Json",
