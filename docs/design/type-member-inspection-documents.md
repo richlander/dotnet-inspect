@@ -31,6 +31,9 @@ This owner defines:
 - the declaration completeness boundary between those documents;
 - the subject and population correspondence shared by overview and complete
   documents;
+- the Type MemberGroup and exact-Member population bindings exposed by those
+  documents;
+- Rows and Count correspondence for one bound population and intent;
 - the count-directed distinction between a Member overview and an exact Member
   document; and
 - the resolved subject handed to contextual explanation.
@@ -115,6 +118,33 @@ identity and retain its population correspondence.
 
 Display names and signatures are data carried by a document. They never become
 identity, selectors, or population receipts.
+
+## Population bindings and Counts
+
+This owner binds its document populations to the exact parent subject and the
+owner-issued dimensions that select the active declarations. Those dimensions
+include spelling, accessibility, receiver, and hidden-declaration admission
+when their focused owners make them available. This document does not redefine
+the meaning or legal values of those dimensions.
+
+`TypeOverviewDocument` Member rows, each nested exact-Member Count, and an
+optional declaration Composition Count observe one Type population binding and
+intent. `TypeDocument` complete declarations preserve that same membership and
+correspondence while adding full signatures.
+
+`MemberOverviewDocument` rows and exact-Member Count observe one MemberGroup
+population binding and intent. The Count used to select `MemberDocument`
+versus `MemberOverviewDocument` is that same Count; it is not an unfiltered,
+cached, or presentation-derived approximation.
+
+Count and completely drained Rows for one binding and intent must agree.
+Filtering dimensions apply before either terminal. Hosts do not materialize
+rows and recount them to establish document identity.
+
+QuerySpace retains ownership of generic predicate, ordering, terminal,
+continuation, and execution mechanics. This owner defines which bound
+declaration population those mechanics observe and how its outcomes correspond
+to these four documents.
 
 ## TypeOverviewDocument
 
@@ -259,7 +289,8 @@ operation never loads or executes inspected code.
 production adoption as focused slices:
 
 1. Lock this four-document object model and explanation handoff.
-2. Establish the public document declarations and serialization contracts.
+2. Establish the public document declarations, population bindings, Rows and
+   Count correspondence, and serialization contracts.
 3. Implement `MemberOverviewDocument` and exact `MemberDocument` resolution.
 4. Adopt the resolved Member subject mapping in Contextual Resource
    Explanation.
@@ -283,6 +314,10 @@ Implementation slices must add Release gates proving:
   population for one binding;
 - `MemberDocument` returns exactly one complete declaration with its containing
   population correspondence;
+- accessibility, receiver, spelling, and hidden admission select rows and
+  Counts through one binding and intent before document routing;
+- Count and completely drained Rows agree for each supported Type MemberGroup
+  or exact-Member population intent;
 - name-only singleton, name-only multi-declaration, and exact selectors resolve
   the document subjects defined above;
 - contextual explanation receives that resolved exact-Member or MemberGroup

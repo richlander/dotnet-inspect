@@ -183,7 +183,7 @@ the step says otherwise.
 2. Share one Metadata admission predicate between extraction and the Count
    kernel, including the C# composition rule, and add the one-pass
    composition kernel for both spellings.
-3. Deliver #8430 step 7 with the `accessibility` projection and Composition
+3. Deliver #8430 step 5 with the `accessibility` projection and Composition
    Count.
 4. CLI: route Type-subject Rows and `--count` through that population, and
    report actual members in Type tree headings (`Methods (10)` rather than
