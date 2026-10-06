@@ -6,7 +6,7 @@ using Inspector.Artifacts;
 
 namespace ILInspector.Research.Tests;
 
-public sealed class LibraryFamilyRoleCompositionTests
+public sealed class LibraryArchitecturalFamilyCompositionTests
 {
     private static readonly (
         string Source,
@@ -28,7 +28,7 @@ public sealed class LibraryFamilyRoleCompositionTests
         LibraryStructuralSalienceDocument structural =
             Structural(names, s_relationships);
 
-        LibraryFamilyRoleCompositionDocument document =
+        LibraryArchitecturalFamilyCompositionDocument document =
             Available(Compose(names, structural));
 
         Assert.Equal(names.Types.Length, document.Types.Length);
@@ -45,7 +45,7 @@ public sealed class LibraryFamilyRoleCompositionTests
                     + population.OrchestratorCount
                     + population.NoIssuedStructuralRoleCount));
 
-        LibraryFamilyRoleTypeRow foundation =
+        LibraryArchitecturalFamilyTypeRow foundation =
             Type(document, "CustomerValidator");
         Assert.Equal(
             LibraryStructuralTypeRole.Foundation,
@@ -54,7 +54,7 @@ public sealed class LibraryFamilyRoleCompositionTests
             LibraryStructuralTypePole.SeaLevel,
             foundation.StructuralPole);
 
-        LibraryFamilyRoleTypeRow orchestrator =
+        LibraryArchitecturalFamilyTypeRow orchestrator =
             Type(document, "GenericValidator`1");
         Assert.Equal(
             LibraryStructuralTypeRole.Orchestrator,
@@ -66,7 +66,7 @@ public sealed class LibraryFamilyRoleCompositionTests
         Assert.Equal(
             LibraryStructuralTypeRole.Hub,
             Type(document, "OrderValidator").StructuralRole);
-        LibraryFamilyRoleTypeRow unassigned =
+        LibraryArchitecturalFamilyTypeRow unassigned =
             Type(document, "InventoryValidator");
         Assert.Null(unassigned.StructuralRole);
         Assert.Null(unassigned.SignatureIncomingDegree);
@@ -74,10 +74,10 @@ public sealed class LibraryFamilyRoleCompositionTests
             LibraryStructuralEvidenceDisposition.Complete,
             unassigned.StructuralDisposition);
 
-        LibraryFamilyRolePopulation all = Population(
+        LibraryArchitecturalFamilyPopulation all = Population(
             document,
             LibraryNameFamilyPopulationKind.AllTypes);
-        LibraryFamilyRoleRow validators = Family(
+        LibraryArchitecturalFamilyRow validators = Family(
             all,
             LibraryNameFamilyKind.OneWordSuffix,
             ["Validator"]);
@@ -110,11 +110,11 @@ public sealed class LibraryFamilyRoleCompositionTests
             validators.NoIssuedStructuralRoleCount,
             validators.NoIssuedStructuralRoles.Length);
 
-        LibraryFamilyRoleTypeRow topLevel = Assert.Single(
+        LibraryArchitecturalFamilyTypeRow topLevel = Assert.Single(
             document.Types,
             static type =>
                 type.Name.Segments.SequenceEqual(["Validator"]));
-        LibraryFamilyRoleTypeRow nested = Assert.Single(
+        LibraryArchitecturalFamilyTypeRow nested = Assert.Single(
             document.Types,
             static type =>
                 type.Name.Segments.SequenceEqual(["Outer", "Validator"]));
@@ -147,7 +147,7 @@ public sealed class LibraryFamilyRoleCompositionTests
             s_relationships,
             MetadataLibrarySignatureUseDisposition.Partial);
 
-        LibraryFamilyRoleCompositionDocument document =
+        LibraryArchitecturalFamilyCompositionDocument document =
             Available(Compose(names, structural));
 
         Assert.Equal(
@@ -193,7 +193,7 @@ public sealed class LibraryFamilyRoleCompositionTests
                 Types = [.. names.Types, names.Types[0]],
             },
             structural,
-            LibraryFamilyRoleCompositionRejection.DuplicateNameFamilyType);
+            LibraryArchitecturalFamilyCompositionRejection.DuplicateNameFamilyType);
 
         LibraryStructuralNamespaceLeverageRow firstNamespace =
             structural.NamespaceIndex.Rows[0];
@@ -213,7 +213,7 @@ public sealed class LibraryFamilyRoleCompositionTests
                     ],
                 },
             },
-            LibraryFamilyRoleCompositionRejection
+            LibraryArchitecturalFamilyCompositionRejection
                 .NamespaceTypeCountMismatch);
 
         AssertRejected(
@@ -225,7 +225,7 @@ public sealed class LibraryFamilyRoleCompositionTests
                     .. structural.TypeLeverageShards.Reverse(),
                 ],
             },
-            LibraryFamilyRoleCompositionRejection
+            LibraryArchitecturalFamilyCompositionRejection
                 .NamespaceShardOrderMismatch);
 
         LibraryStructuralTypeLeverageShard populated =
@@ -246,7 +246,7 @@ public sealed class LibraryFamilyRoleCompositionTests
                         .. populated.Rows[1..],
                     ],
                 }),
-            LibraryFamilyRoleCompositionRejection.StructuredNameMismatch);
+            LibraryArchitecturalFamilyCompositionRejection.StructuredNameMismatch);
 
         AssertRejected(
             names,
@@ -257,7 +257,7 @@ public sealed class LibraryFamilyRoleCompositionTests
                 {
                     Rows = [.. populated.Rows, first],
                 }),
-            LibraryFamilyRoleCompositionRejection
+            LibraryArchitecturalFamilyCompositionRejection
                 .DuplicateStructuralType);
 
         MetadataTypeDefinitionAddress unknown =
@@ -277,7 +277,7 @@ public sealed class LibraryFamilyRoleCompositionTests
                         first with { Type = unknown },
                     ],
                 }),
-            LibraryFamilyRoleCompositionRejection.StructuralTypeNotFound);
+            LibraryArchitecturalFamilyCompositionRejection.StructuralTypeNotFound);
 
         LibraryStructuralTypeLeverageRow seaLevel =
             populated.Rows.First(static row =>
@@ -298,7 +298,7 @@ public sealed class LibraryFamilyRoleCompositionTests
                         ],
                     },
                 }),
-            LibraryFamilyRoleCompositionRejection
+            LibraryArchitecturalFamilyCompositionRejection
                 .StructuralOrderPoleMismatch);
     }
 
@@ -309,7 +309,7 @@ public sealed class LibraryFamilyRoleCompositionTests
         LibraryNameFamilyDocument names = NameFamilies(fixture);
         LibraryStructuralSalienceDocument structural =
             Structural(names, s_relationships);
-        LibraryFamilyRoleCompositionDocument expected =
+        LibraryArchitecturalFamilyCompositionDocument expected =
             Available(Compose(names, structural));
 
         LibraryNameFamilyDocument reversedNames = names with
@@ -334,16 +334,16 @@ public sealed class LibraryFamilyRoleCompositionTests
                 ],
             };
 
-        LibraryFamilyRoleCompositionDocument actual =
+        LibraryArchitecturalFamilyCompositionDocument actual =
             Available(Compose(reversedNames, reversedStructural));
 
         Assert.Equal(Projection(expected), Projection(actual));
     }
 
-    private static LibraryFamilyRoleCompositionOutcome Compose(
+    private static LibraryArchitecturalFamilyCompositionOutcome Compose(
         LibraryNameFamilyDocument names,
         LibraryStructuralSalienceDocument structural) =>
-        LibraryFamilyRoleComposition.Execute(
+        LibraryArchitecturalFamilyComposition.Execute(
             new(
                 names.Binding.Artifact,
                 names.Binding.Assembly,
@@ -354,24 +354,24 @@ public sealed class LibraryFamilyRoleCompositionTests
     private static void AssertRejected(
         LibraryNameFamilyDocument names,
         LibraryStructuralSalienceDocument structural,
-        LibraryFamilyRoleCompositionRejection reason)
+        LibraryArchitecturalFamilyCompositionRejection reason)
     {
         var rejected =
-            Assert.IsType<LibraryFamilyRoleCompositionOutcome.Rejected>(
+            Assert.IsType<LibraryArchitecturalFamilyCompositionOutcome.Rejected>(
                 Compose(names, structural));
         Assert.Equal(reason, rejected.Reason);
         Assert.False(string.IsNullOrWhiteSpace(rejected.Detail));
     }
 
-    private static LibraryFamilyRoleCompositionDocument Available(
-        LibraryFamilyRoleCompositionOutcome outcome)
+    private static LibraryArchitecturalFamilyCompositionDocument Available(
+        LibraryArchitecturalFamilyCompositionOutcome outcome)
     {
-        if (outcome is LibraryFamilyRoleCompositionOutcome.Rejected rejected)
+        if (outcome is LibraryArchitecturalFamilyCompositionOutcome.Rejected rejected)
         {
             Assert.Fail($"{rejected.Reason}: {rejected.Detail}");
         }
         return Assert.IsType<
-            LibraryFamilyRoleCompositionOutcome.Available>(outcome).Document;
+            LibraryArchitecturalFamilyCompositionOutcome.Available>(outcome).Document;
     }
 
     private static LibraryStructuralSalienceDocument ReplaceShard(
@@ -502,23 +502,23 @@ public sealed class LibraryFamilyRoleCompositionTests
                 fixture.Session,
                 provenance: fixture.Provenance)).Document;
 
-    private static LibraryFamilyRoleTypeRow Type(
-        LibraryFamilyRoleCompositionDocument document,
+    private static LibraryArchitecturalFamilyTypeRow Type(
+        LibraryArchitecturalFamilyCompositionDocument document,
         string metadataSimpleName) =>
         Assert.Single(
             document.Types,
             type =>
                 type.Name.Segments[^1] == metadataSimpleName);
 
-    private static LibraryFamilyRolePopulation Population(
-        LibraryFamilyRoleCompositionDocument document,
+    private static LibraryArchitecturalFamilyPopulation Population(
+        LibraryArchitecturalFamilyCompositionDocument document,
         LibraryNameFamilyPopulationKind kind) =>
         Assert.Single(
             document.Populations,
             population => population.Kind == kind);
 
-    private static LibraryFamilyRoleRow Family(
-        LibraryFamilyRolePopulation population,
+    private static LibraryArchitecturalFamilyRow Family(
+        LibraryArchitecturalFamilyPopulation population,
         LibraryNameFamilyKind kind,
         string[] words) =>
         Assert.Single(
@@ -528,7 +528,7 @@ public sealed class LibraryFamilyRoleCompositionTests
                 && family.Identity.Words.SequenceEqual(words));
 
     private static string Projection(
-        LibraryFamilyRoleCompositionDocument document) =>
+        LibraryArchitecturalFamilyCompositionDocument document) =>
         string.Join(
             "\n",
             document.Populations.SelectMany(population =>
@@ -568,7 +568,7 @@ public sealed class LibraryFamilyRoleCompositionTests
                 contribution.Registration,
                 () => new MemoryStream(image, writable: false),
                 AssemblyResolutionProvenance.Local(
-                    "family-role-composition-fixture"))
+                    "architectural-family-composition-fixture"))
             ?? throw new InvalidOperationException(
                 "The fixture must contain managed metadata.");
         PdbContext context = PdbContext.OpenEmbeddedPdbOnly(assembly);

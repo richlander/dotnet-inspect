@@ -53,6 +53,8 @@ public sealed class AssemblyContextSourceQueryContext
     public ISourceLinkIndexCache? SourceLinkCache { get; init; }
     public IReadOnlyList<string>? RepositoryPaths { get; init; }
     public NuGetSourceOptions? NuGetSourceOptions { get; init; }
+    public IPortablePdbSettlementCapability?
+        PortablePdbSettlementCapability { get; init; }
     /// <summary>Optional PDB acquisition fallback; authoritative package/Platform provenance takes precedence.</summary>
     public PackageCoordinate? PdbFallbackPackage { get; init; }
     public bool CacheOnly { get; init; }
@@ -1562,27 +1564,64 @@ public static partial class AssemblyContextSourceQuery
         return result;
     }
 
-    static Task<PortablePdbAcquisitionResult?>
+    static async Task<PortablePdbAcquisitionResult?>
         AcquirePdbAsync(
         SourceLinkService source,
         ResolvedAssemblyReference retained,
         AssemblyContextSourceQueryContext context,
         PortablePdbAcquisitionEvidenceCollector? pdbEvidence,
         CancellationToken cancellationToken)
-        => PdbAcquisitionService.AcquireAsync(
-            source.Context,
-            retained,
-            context.SymbolClient,
-            context.PdbStore,
-            context.PackageSourceAuthorization,
-            context.Log,
-            context.CacheOnly,
-            context.NuGetSourceOptions,
-            cancellationToken,
-            context.SymbolAcquisitionLimits,
-            context.PdbFallbackPackage?.PackageId,
-            context.PdbFallbackPackage?.Version,
-            pdbEvidence);
+    {
+        if (context.PortablePdbSettlementCapability
+            is not { } settlementCapability)
+        {
+            return await PdbAcquisitionService.AcquireAsync(
+                    source.Context,
+                    retained,
+                    context.SymbolClient,
+                    context.PdbStore,
+                    context.PackageSourceAuthorization,
+                    context.Log,
+                    context.CacheOnly,
+                    context.NuGetSourceOptions,
+                    cancellationToken,
+                    context.SymbolAcquisitionLimits,
+                    context.PdbFallbackPackage?.PackageId,
+                    context.PdbFallbackPackage?.Version,
+                    pdbEvidence)
+                .ConfigureAwait(false);
+        }
+
+        PortablePdbSettlementResult settlement =
+            await settlementCapability.SettleAsync(
+                    new PortablePdbSettlementTarget(source.Context),
+                    retained,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        switch (settlement)
+        {
+            case PortablePdbSettlementResult.Acquired acquired:
+                await acquired.LoadIntoAsync(
+                        source.Context,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+                return null;
+            case PortablePdbSettlementResult.Unavailable:
+                return null;
+            case PortablePdbSettlementResult.Canceled:
+                throw new OperationCanceledException(
+                    cancellationToken);
+            case PortablePdbSettlementResult.Incomplete:
+                throw new InvalidDataException(
+                    "Portable PDB settlement was incomplete.");
+            case PortablePdbSettlementResult.Failed failed:
+                throw new InvalidDataException(
+                    $"Portable PDB settlement failed: {failed.Failure}.");
+            default:
+                throw new InvalidOperationException(
+                    "Portable PDB settlement returned an unknown outcome.");
+        }
+    }
 
     internal static Task<SourceLinkOpenResult> OpenSourceLinkAsync(
         ResolvedAssemblyReference retained,

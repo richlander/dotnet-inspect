@@ -17,9 +17,9 @@ internal static class LibrarySectionCardinality
                 SectionCardinalityDeclaration.Scalar,
             [SectionNames.NameFamilies] =
                 SectionCardinalityDeclaration.Inventory,
-            [SectionNames.NameFamilyRoles] =
+            [SectionNames.ArchitecturalFamilies] =
                 SectionCardinalityDeclaration.Inventory,
-            [SectionNames.NameFamilyRoleTypes] =
+            [SectionNames.ArchitecturalFamilyTypes] =
                 SectionCardinalityDeclaration.Inventory,
             [SectionNames.DependencyStructure] =
                 SectionCardinalityDeclaration.Inventory,

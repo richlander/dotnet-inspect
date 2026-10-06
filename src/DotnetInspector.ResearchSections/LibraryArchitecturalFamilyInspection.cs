@@ -10,13 +10,13 @@ using QuerySpace.Composition;
 
 namespace DotnetInspector.ResearchSections;
 
-public static class LibraryFamilyRoleInspection
+public static class LibraryArchitecturalFamilyInspection
 {
-    public static LibraryFamilyRoleQueryResult Execute(
+    public static LibraryArchitecturalFamilyQueryResult Execute(
         ResolvedAssemblyReference assembly,
         AssemblyInspectionSession session,
         PdbSourceProvenanceOutcome? provenance,
-        LibraryFamilyRoleQueryPlan operation,
+        LibraryArchitecturalFamilyQueryPlan operation,
         QuerySpaceRequest request,
         CancellationToken cancellationToken = default)
     {
@@ -36,13 +36,13 @@ public static class LibraryFamilyRoleInspection
             if (names
                 is LibraryNameFamilySummaryOutcome.Unavailable unavailable)
             {
-                return new LibraryFamilyRoleQueryResult
+                return new LibraryArchitecturalFamilyQueryResult
                     .NameFamiliesUnavailable(unavailable);
             }
             if (names
                 is LibraryNameFamilySummaryOutcome.Rejected rejected)
             {
-                return new LibraryFamilyRoleQueryResult
+                return new LibraryArchitecturalFamilyQueryResult
                     .NameFamiliesRejected(rejected);
             }
             LibraryNameFamilyDocument nameDocument =
@@ -57,15 +57,15 @@ public static class LibraryFamilyRoleInspection
                 is LibrarySurfaceLeverageResult.Rejected
                     structuralRejected)
             {
-                return new LibraryFamilyRoleQueryResult
+                return new LibraryArchitecturalFamilyQueryResult
                     .StructuralRejected(structuralRejected);
             }
             LibraryStructuralSalienceDocument structuralDocument =
                 ((LibrarySurfaceLeverageResult.AvailableExhaustive)
                     structure).Document;
 
-            LibraryFamilyRoleCompositionOutcome composition =
-                LibraryFamilyRoleComposition.Execute(
+            LibraryArchitecturalFamilyCompositionOutcome composition =
+                LibraryArchitecturalFamilyComposition.Execute(
                     new(
                         nameDocument.Binding.Artifact,
                         nameDocument.Binding.Assembly,
@@ -73,64 +73,64 @@ public static class LibraryFamilyRoleInspection
                     nameDocument,
                     structuralDocument);
             if (composition
-                is LibraryFamilyRoleCompositionOutcome.Rejected
+                is LibraryArchitecturalFamilyCompositionOutcome.Rejected
                     compositionRejected)
             {
-                return new LibraryFamilyRoleQueryResult
+                return new LibraryArchitecturalFamilyQueryResult
                     .CompositionRejected(compositionRejected);
             }
 
             return Execute(
-                ((LibraryFamilyRoleCompositionOutcome.Available)
+                ((LibraryArchitecturalFamilyCompositionOutcome.Available)
                     composition).Document,
                 operation,
                 request);
         }
         catch (Exception error)
         {
-            return new LibraryFamilyRoleQueryResult.Failed(error);
+            return new LibraryArchitecturalFamilyQueryResult.Failed(error);
         }
     }
 
     public static InspectionEnvelope<
-        LibraryFamilyRoleCompositionDocument> Envelope(
-            LibraryFamilyRoleQueryResult.Available available)
+        LibraryArchitecturalFamilyCompositionDocument> Envelope(
+            LibraryArchitecturalFamilyQueryResult.Available available)
     {
         ArgumentNullException.ThrowIfNull(available);
         return new(
             available.Document,
             new InspectionShare.NonProjectable(
-                "library-family-roles/share",
+                "architectural-families/share",
                 "Inspect Web cannot yet restore an exact Library "
-                    + "family-role inspection."),
+                    + "Architectural Families inspection."),
             []);
     }
 
-    public static LibraryFamilyRoleQueryResult Execute(
-        LibraryFamilyRoleCompositionDocument document,
-        LibraryFamilyRoleQueryPlan operation,
+    public static LibraryArchitecturalFamilyQueryResult Execute(
+        LibraryArchitecturalFamilyCompositionDocument document,
+        LibraryArchitecturalFamilyQueryPlan operation,
         QuerySpaceRequest request)
     {
         ArgumentNullException.ThrowIfNull(document);
         ArgumentNullException.ThrowIfNull(operation);
         ArgumentNullException.ThrowIfNull(request);
 
-        LibraryFamilyRolePopulation? population =
+        LibraryArchitecturalFamilyPopulation? population =
             document.Populations.SingleOrDefault(
                 candidate => candidate.Kind == operation.Population);
         if (population is null)
         {
-            return new LibraryFamilyRoleQueryResult.PopulationUnavailable(
+            return new LibraryArchitecturalFamilyQueryResult.PopulationUnavailable(
                 document,
                 operation.Population);
         }
 
-        ImmutableArray<LibraryFamilyRoleTypeRow> populationTypes =
+        ImmutableArray<LibraryArchitecturalFamilyTypeRow> populationTypes =
             SelectTypes(document, population.Kind);
         if (populationTypes.Length != population.TypeCount)
         {
             throw new InvalidOperationException(
-                "The selected Library family-role population and its "
+                "The selected Architectural Families population and its "
                     + "Type rows disagree.");
         }
 
@@ -142,7 +142,7 @@ public static class LibraryFamilyRoleInspection
         string scope = request.RowIntents.Single().Scope;
         if (string.Equals(
                 scope,
-                LibraryFamilyRoleQuery.FamilyRowsScopeIdentity,
+                LibraryArchitecturalFamilyQuery.FamilyRowsScopeIdentity,
                 StringComparison.Ordinal))
         {
             return Apply(
@@ -154,7 +154,7 @@ public static class LibraryFamilyRoleInspection
         }
         if (string.Equals(
                 scope,
-                LibraryFamilyRoleQuery.TypeRowsScopeIdentity,
+                LibraryArchitecturalFamilyQuery.TypeRowsScopeIdentity,
                 StringComparison.Ordinal))
         {
             return Apply(
@@ -165,21 +165,21 @@ public static class LibraryFamilyRoleInspection
                 familyScope: false);
         }
 
-        return new LibraryFamilyRoleQueryResult.SelectionFailed(
-            $"Unknown Library family-role row scope '{scope}'.");
+        return new LibraryArchitecturalFamilyQueryResult.SelectionFailed(
+            $"Unknown Architectural Families row scope '{scope}'.");
     }
 
-    private static LibraryFamilyRoleQueryResult Apply(
+    private static LibraryArchitecturalFamilyQueryResult Apply(
         QuerySpaceSectionRowResolutionResult<Projection> resolution,
         Projection projection,
         QuerySpaceRequest request,
-        LibraryFamilyRolePopulation population,
+        LibraryArchitecturalFamilyPopulation population,
         bool familyScope)
     {
         if (!resolution.IsSuccess)
         {
-            return new LibraryFamilyRoleQueryResult.SelectionFailed(
-                "The Library family-role row query could not be resolved.",
+            return new LibraryArchitecturalFamilyQueryResult.SelectionFailed(
+                "The Architectural Families row query could not be resolved.",
                 resolution.Failure!.RowQueryFailure);
         }
 
@@ -206,16 +206,16 @@ public static class LibraryFamilyRoleInspection
                         completed.Counts.Single().Value,
                         completed.Counts.Single().Value),
                 SectionCountOutcome<string, string>.Semantic semantic =>
-                    new LibraryFamilyRoleQueryResult.SelectionFailed(
-                        "The Library family-role Count selection exceeded "
+                    new LibraryArchitecturalFamilyQueryResult.SelectionFailed(
+                        "The Architectural Families Count selection exceeded "
                             + "the available rows.",
                         SemanticFailure:
-                            new LibraryFamilyRoleSemanticSelectionFailure(
+                            new LibraryArchitecturalFamilySemanticSelectionFailure(
                             semantic.StageNumber,
                             semantic.RequiredPosition,
                             semantic.AvailableCount)),
                 _ => throw new InvalidOperationException(
-                    "Library family-role Count did not produce an exact "
+                    "Architectural Families Count did not produce an exact "
                         + "completed or semantic outcome."),
             };
         }
@@ -225,11 +225,11 @@ public static class LibraryFamilyRoleInspection
                 resolution.Request!);
         if (!rows.IsSuccess)
         {
-            return new LibraryFamilyRoleQueryResult.SelectionFailed(
-                "The Library family-role row selection exceeded the "
+            return new LibraryArchitecturalFamilyQueryResult.SelectionFailed(
+                "The Architectural Families row selection exceeded the "
                     + "available rows.",
                 SemanticFailure:
-                    new LibraryFamilyRoleSemanticSelectionFailure(
+                    new LibraryArchitecturalFamilySemanticSelectionFailure(
                         rows.Failure!.Failure.StageNumber,
                         rows.Failure.Failure.RequiredPosition,
                         rows.Failure.Failure.AvailableCount));
@@ -249,9 +249,9 @@ public static class LibraryFamilyRoleInspection
             Count: null);
     }
 
-    private static LibraryFamilyRoleQueryResult.Available Available(
+    private static LibraryArchitecturalFamilyQueryResult.Available Available(
         Projection projection,
-        LibraryFamilyRolePopulation population,
+        LibraryArchitecturalFamilyPopulation population,
         QuerySpaceRequest request,
         bool familyScope,
         int total,
@@ -267,8 +267,8 @@ public static class LibraryFamilyRoleInspection
             selected,
             Count);
 
-    private static ImmutableArray<LibraryFamilyRoleTypeRow> SelectTypes(
-        LibraryFamilyRoleCompositionDocument document,
+    private static ImmutableArray<LibraryArchitecturalFamilyTypeRow> SelectTypes(
+        LibraryArchitecturalFamilyCompositionDocument document,
         LibraryNameFamilyPopulationKind population) =>
         population switch
         {
@@ -293,8 +293,8 @@ public static class LibraryFamilyRoleInspection
                 nameof(population)),
         };
 
-    private static ImmutableArray<LibraryFamilyRoleTypeRow> SelectTypes(
-        LibraryFamilyRoleCompositionDocument document,
+    private static ImmutableArray<LibraryArchitecturalFamilyTypeRow> SelectTypes(
+        LibraryArchitecturalFamilyCompositionDocument document,
         PdbTypeSourceDisposition disposition) =>
         [
             .. document.Types.Where(
@@ -302,17 +302,17 @@ public static class LibraryFamilyRoleInspection
         ];
 
     private sealed record Projection(
-        LibraryFamilyRoleCompositionDocument Document,
-        LibraryFamilyRolePopulation Population,
-        ImmutableArray<LibraryFamilyRoleRow> Families,
-        ImmutableArray<LibraryFamilyRoleTypeRow> Types);
+        LibraryArchitecturalFamilyCompositionDocument Document,
+        LibraryArchitecturalFamilyPopulation Population,
+        ImmutableArray<LibraryArchitecturalFamilyRow> Families,
+        ImmutableArray<LibraryArchitecturalFamilyTypeRow> Types);
 
     private static class FamilyRows
     {
         private static readonly SectionRowSchemaIdentity<
-            LibraryFamilyRoleRow> Schema =
+            LibraryArchitecturalFamilyRow> Schema =
                 SectionRowSchemaIdentity<
-                    LibraryFamilyRoleRow>.Create();
+                    LibraryArchitecturalFamilyRow>.Create();
 
         internal static QuerySpaceSectionRowResolutionResult<Projection>
             Resolve(
@@ -323,8 +323,8 @@ public static class LibraryFamilyRoleInspection
                 new SectionRowSetDeclaration<
                     string,
                     Projection,
-                    LibraryFamilyRoleRow>(
-                        LibraryFamilyRoleQuery.FamilyRowsRowSet,
+                    LibraryArchitecturalFamilyRow>(
+                        LibraryArchitecturalFamilyQuery.FamilyRowsRowSet,
                         Schema,
                         projection.Families,
                         static (current, rows) =>
@@ -333,12 +333,12 @@ public static class LibraryFamilyRoleInspection
                                 Families = [.. rows],
                             });
             return QuerySpaceSectionRowResolver.Resolve<Projection>(
-                LibraryFamilyRoleQuery.QuerySpace,
+                LibraryArchitecturalFamilyQuery.QuerySpace,
                 request,
                 [declaration],
                 new SectionQuerySpaceRowScopeBinding<
-                    LibraryFamilyRoleRow>(
-                        LibraryFamilyRoleQuery.FamilyRowsScope,
+                    LibraryArchitecturalFamilyRow>(
+                        LibraryArchitecturalFamilyQuery.FamilyRowsScope,
                         Schema));
         }
     }
@@ -346,9 +346,9 @@ public static class LibraryFamilyRoleInspection
     private static class TypeRows
     {
         private static readonly SectionRowSchemaIdentity<
-            LibraryFamilyRoleTypeRow> Schema =
+            LibraryArchitecturalFamilyTypeRow> Schema =
                 SectionRowSchemaIdentity<
-                    LibraryFamilyRoleTypeRow>.Create();
+                    LibraryArchitecturalFamilyTypeRow>.Create();
 
         internal static QuerySpaceSectionRowResolutionResult<Projection>
             Resolve(
@@ -359,8 +359,8 @@ public static class LibraryFamilyRoleInspection
                 new SectionRowSetDeclaration<
                     string,
                     Projection,
-                    LibraryFamilyRoleTypeRow>(
-                        LibraryFamilyRoleQuery.TypeRowsRowSet,
+                    LibraryArchitecturalFamilyTypeRow>(
+                        LibraryArchitecturalFamilyQuery.TypeRowsRowSet,
                         Schema,
                         projection.Types,
                         static (current, rows) =>
@@ -369,12 +369,12 @@ public static class LibraryFamilyRoleInspection
                                 Types = [.. rows],
                             });
             return QuerySpaceSectionRowResolver.Resolve<Projection>(
-                LibraryFamilyRoleQuery.QuerySpace,
+                LibraryArchitecturalFamilyQuery.QuerySpace,
                 request,
                 [declaration],
                 new SectionQuerySpaceRowScopeBinding<
-                    LibraryFamilyRoleTypeRow>(
-                        LibraryFamilyRoleQuery.TypeRowsScope,
+                    LibraryArchitecturalFamilyTypeRow>(
+                        LibraryArchitecturalFamilyQuery.TypeRowsScope,
                         Schema));
         }
     }

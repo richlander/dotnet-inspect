@@ -477,6 +477,7 @@ independently decides *to* call the family, and *which target type* to hand it:
 | retyped enum constant | route through `EnumConstantText` |
 | `switch` case label | route through `EnumConstantText` |
 | array-element store | derive the semantic element type (`StoreElementTargetType`), route through `Coerce` |
+| array-literal element | route through `Coerce` at the literal's `newarr` element type (the sink its raised element store had; [array literal fill raise](array-literal-fill-raise.md#element-coercion)) |
 | `box` / `return` / call args / stores | route through `Coerce` with the sink's declared type |
 | constant typing | `TypedConstantsPass` retypes **`int`-only**, does not pierce `Convert` |
 
@@ -832,12 +833,13 @@ rules to the pass.
 
 **Position.** The pass runs on every body — function, raised lambda, raised
 local function — immediately after `CoercionInsertionPass` and before
-`ScalarSelfUpdatePass`, in every pipeline that includes
-`SlotMaterializationPass` (`Default`, `Lowered`, and the capturing-lambda
-completion split) and in none that excludes it: the `ForReconstruction`
-pipelines and the intermediate re-runs of a reconstructed body
-(`ForIntermediateBody`) leave their slot nodes for the host's tail, which binds
-the transplanted body. It is the last pass that may observe a stack-slot node. The position is chosen so
+`ScalarSelfUpdatePass` in the complete presentation pipelines (`Default`,
+`Lowered`, and the capturing-lambda completion split). `ForReconstruction`
+excludes both materialization and residual binding because reconstruction still
+needs structural slot evidence. `ForIntermediateBody` retains materialization
+but defers residual binding so the host tail binds the transplanted body's
+remaining slot webs. It is the last pass that may observe a stack-slot node.
+The position is chosen so
 the pass sees exactly the tree the printer sees today in that pipeline: the
 slot-consuming raises present in it (`SwapIdiomPass`,
 `PointerCompoundAssignmentPass`, `UnsafeAwaitBoundaryPass`) have run;

@@ -7,11 +7,11 @@ using Inspector.Graph;
 
 namespace DotnetInspector.ResearchSections;
 
-public static class LibraryFamilyRoleInspectionJson
+public static class LibraryArchitecturalFamilyInspectionJson
 {
     public static void Write(
         Utf8JsonWriter writer,
-        LibraryFamilyRoleCompositionDocument document)
+        LibraryArchitecturalFamilyCompositionDocument document)
     {
         ArgumentNullException.ThrowIfNull(writer);
         ArgumentNullException.ThrowIfNull(document);
@@ -39,12 +39,12 @@ public static class LibraryFamilyRoleInspectionJson
             graphDocuments);
         writer.WritePropertyName("types");
         writer.WriteStartArray();
-        foreach (LibraryFamilyRoleTypeRow type in document.Types)
+        foreach (LibraryArchitecturalFamilyTypeRow type in document.Types)
             WriteType(writer, type);
         writer.WriteEndArray();
         writer.WritePropertyName("populations");
         writer.WriteStartArray();
-        foreach (LibraryFamilyRolePopulation population
+        foreach (LibraryArchitecturalFamilyPopulation population
             in document.Populations)
         {
             WritePopulation(writer, population);
@@ -60,7 +60,7 @@ public static class LibraryFamilyRoleInspectionJson
 
     private static void WriteBinding(
         Utf8JsonWriter writer,
-        LibraryFamilyRoleBinding binding)
+        LibraryArchitecturalFamilyBinding binding)
     {
         writer.WriteStartObject();
         writer.WriteBoolean("artifactBound", true);
@@ -76,7 +76,7 @@ public static class LibraryFamilyRoleInspectionJson
 
     private static void WriteType(
         Utf8JsonWriter writer,
-        LibraryFamilyRoleTypeRow type)
+        LibraryArchitecturalFamilyTypeRow type)
     {
         writer.WriteStartObject();
         writer.WritePropertyName("type");
@@ -139,7 +139,7 @@ public static class LibraryFamilyRoleInspectionJson
 
     private static void WritePopulation(
         Utf8JsonWriter writer,
-        LibraryFamilyRolePopulation population)
+        LibraryArchitecturalFamilyPopulation population)
     {
         writer.WriteStartObject();
         writer.WriteString("kind", population.Kind.ToString());
@@ -161,7 +161,7 @@ public static class LibraryFamilyRoleInspectionJson
             population.StructuralDisposition.ToString());
         writer.WritePropertyName("families");
         writer.WriteStartArray();
-        foreach (LibraryFamilyRoleRow family in population.Families)
+        foreach (LibraryArchitecturalFamilyRow family in population.Families)
             WriteFamily(writer, family);
         writer.WriteEndArray();
         writer.WriteEndObject();
@@ -169,7 +169,7 @@ public static class LibraryFamilyRoleInspectionJson
 
     private static void WriteFamily(
         Utf8JsonWriter writer,
-        LibraryFamilyRoleRow family)
+        LibraryArchitecturalFamilyRow family)
     {
         writer.WriteStartObject();
         writer.WritePropertyName("identity");
@@ -218,7 +218,7 @@ public static class LibraryFamilyRoleInspectionJson
 
     private static void WriteCompositionReceipt(
         Utf8JsonWriter writer,
-        LibraryFamilyRoleCompositionReceipt receipt,
+        LibraryArchitecturalFamilyCompositionReceipt receipt,
         Dictionary<GraphDocumentIdentity, string> graphDocuments)
     {
         writer.WriteStartObject();
@@ -239,7 +239,7 @@ public static class LibraryFamilyRoleInspectionJson
             receipt.TwoWordFamilyRowCount);
         writer.WritePropertyName("populations");
         writer.WriteStartArray();
-        foreach (LibraryFamilyRolePopulationReceipt population
+        foreach (LibraryArchitecturalFamilyPopulationReceipt population
             in receipt.Populations)
         {
             writer.WriteStartObject();
@@ -270,7 +270,7 @@ public static class LibraryFamilyRoleInspectionJson
 
     private static void WriteStructuralReceipt(
         Utf8JsonWriter writer,
-        LibraryFamilyRoleStructuralReceipt receipt,
+        LibraryArchitecturalFamilyStructuralReceipt receipt,
         Dictionary<GraphDocumentIdentity, string> graphDocuments)
     {
         writer.WriteStartObject();
@@ -289,7 +289,7 @@ public static class LibraryFamilyRoleInspectionJson
             receipt.SignatureUse);
         writer.WritePropertyName("shards");
         writer.WriteStartArray();
-        foreach (LibraryFamilyRoleStructuralShardReceipt shard
+        foreach (LibraryArchitecturalFamilyStructuralShardReceipt shard
             in receipt.Shards)
         {
             writer.WriteStartObject();

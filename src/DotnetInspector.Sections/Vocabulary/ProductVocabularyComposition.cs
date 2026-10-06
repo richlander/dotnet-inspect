@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 
+using QuerySpace.Explanation;
 using QuerySpace.Vocabulary;
 
 namespace DotnetInspector.Sections;
@@ -103,14 +104,14 @@ public static class ProductVocabularyComposition
             "accepted_by",
             "Accepted By",
             "Typed query inputs that consume these values.",
-            VocabularyScalarKind.Text,
+            ExplanationScalarKind.Text,
             VocabularyMapCardinality.OneOrMore);
         VocabularyMapDefinition values = VocabularyMapDefinition.Scalar(
             identity,
             "values",
             "Values",
             "Number of legal values.",
-            VocabularyScalarKind.Integer);
+            ExplanationScalarKind.Integer);
 
         return new(
             identity,
@@ -124,10 +125,10 @@ public static class ProductVocabularyComposition
                 [
                     new(
                         acceptedBy.Identity,
-                        item.AcceptedBy.Select(VocabularyMapValue.Text)),
+                        item.AcceptedBy.Select(ExplanationValue.Text)),
                     new(
                         values,
-                        VocabularyMapValue.Integer(item.Vocabulary.Terms.Length)),
+                        ExplanationValue.Integer(item.Vocabulary.Terms.Length)),
                 ])));
     }
 }

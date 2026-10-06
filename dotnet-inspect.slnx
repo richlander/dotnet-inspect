@@ -76,6 +76,7 @@
     <Project Path="fixtures/inspect-web/InspectWeb.CloneTransportFixtures/InspectWeb.CloneTransportFixtures.csproj" />
     <Project Path="fixtures/inspect-web/InspectWeb.DocumentationFixtures/InspectWeb.DocumentationFixtures.csproj" />
     <Project Path="fixtures/inspect-web/InspectWeb.MethodBodyFixtures/InspectWeb.MethodBodyFixtures.csproj" />
+    <Project Path="fixtures/inspect-web/InspectWeb.PackagePdbFixture/InspectWeb.PackagePdbFixture.csproj" />
     <Project Path="fixtures/inspect-web/InspectWeb.SourceComparisonFixtures.V1/InspectWeb.SourceComparisonFixtures.V1.csproj" />
     <Project Path="fixtures/inspect-web/InspectWeb.SourceComparisonFixtures.V2/InspectWeb.SourceComparisonFixtures.V2.csproj" />
     <Project Path="fixtures/js-export/ILInspector.JsExportSurface.DirectionalJsonValueFixtures/ILInspector.JsExportSurface.DirectionalJsonValueFixtures.csproj" />
@@ -308,7 +309,7 @@
     <Project Path="tools/PackageHouse.CliBenchmarks/PackageHouse.CliBenchmarks.csproj" />
     <Project Path="tools/MethodClassificationScorecard/MethodClassificationScorecard.csproj" />
     <Project Path="tools/LibraryInfoCountScorecard/LibraryInfoCountScorecard.csproj" />
-    <Project Path="tools/LibraryFamilyRoleScorecard/LibraryFamilyRoleScorecard.csproj" />
+    <Project Path="tools/LibraryArchitecturalFamilyScorecard/LibraryArchitecturalFamilyScorecard.csproj" />
     <Project Path="tools/OwnershipIncidenceScorecard/OwnershipIncidenceScorecard.csproj" />
     <Project Path="tools/QuerySpaceScorecard/QuerySpaceScorecard.csproj" />
     <Project Path="tools/ReturnToSenderTargetScorecard/ReturnToSenderTargetScorecard.csproj" />

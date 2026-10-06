@@ -18,17 +18,26 @@ using QuerySpace.Rows;
 
 namespace DotnetInspector.Queries.Tests;
 
-public sealed class LibraryFamilyRoleQueryTests
+public sealed class LibraryArchitecturalFamilyQueryTests
 {
     [Fact]
     public void QuerySpace_DeclaresBothOwnerRowVocabularies()
     {
-        QuerySpaceBinding querySpace = LibraryFamilyRoleQuery.QuerySpace;
+        QuerySpaceBinding querySpace = LibraryArchitecturalFamilyQuery.QuerySpace;
 
         Assert.Equal(
+            "architectural-families",
+            LibraryArchitecturalFamilyQuery.OperationIdentity);
+        Assert.Equal(
+            "families",
+            LibraryArchitecturalFamilyQuery.FamilyRowsRowSet);
+        Assert.Equal(
+            "types",
+            LibraryArchitecturalFamilyQuery.TypeRowsRowSet);
+        Assert.Equal(
             [
-                LibraryFamilyRoleQuery.FamilyRowsRowSet,
-                LibraryFamilyRoleQuery.TypeRowsRowSet,
+                LibraryArchitecturalFamilyQuery.FamilyRowsRowSet,
+                LibraryArchitecturalFamilyQuery.TypeRowsRowSet,
             ],
             querySpace.Descriptor.Operation.RowSets);
         Assert.Equal(
@@ -39,16 +48,16 @@ public sealed class LibraryFamilyRoleQueryTests
             querySpace.Descriptor.Terminals);
         Assert.Equal(2, querySpace.RowScopes.Count);
         Assert.Contains(
-            LibraryFamilyRoleQuery.FamilyRowsScope.Descriptor.Facets,
+            LibraryArchitecturalFamilyQuery.FamilyRowsScope.Descriptor.Facets,
             facet =>
                 facet.Key
-                    == LibraryFamilyRoleQuery
+                    == LibraryArchitecturalFamilyQuery
                         .FamilyOrchestratorCountKey);
         Assert.Contains(
-            LibraryFamilyRoleQuery.TypeRowsScope.Descriptor.Facets,
+            LibraryArchitecturalFamilyQuery.TypeRowsScope.Descriptor.Facets,
             facet =>
                 facet.Key
-                    == LibraryFamilyRoleQuery.TypeStructuralRoleKey);
+                    == LibraryArchitecturalFamilyQuery.TypeStructuralRoleKey);
     }
 
     [Theory]
@@ -66,12 +75,12 @@ public sealed class LibraryFamilyRoleQueryTests
         LibraryNameFamilyPopulationKind expected)
     {
         var accepted =
-            Assert.IsType<LibraryFamilyRoleQueryPlanResult.Accepted>(
-                LibraryFamilyRoleQuery.ResolveIntent(
+            Assert.IsType<LibraryArchitecturalFamilyQueryPlanResult.Accepted>(
+                LibraryArchitecturalFamilyQuery.ResolveIntent(
                     PortableQueryIntent.Create(
                         [
                             new(
-                                LibraryFamilyRoleQuery.PopulationTermKey,
+                                LibraryArchitecturalFamilyQuery.PopulationTermKey,
                                 PortableQueryOperator.Equal,
                                 token),
                         ],
@@ -87,19 +96,19 @@ public sealed class LibraryFamilyRoleQueryTests
     public void Execute_SelectsRowsAfterOneCompleteComposition()
     {
         using FixtureExecution fixture = OpenFixture();
-        LibraryFamilyRoleQueryPlan operation =
-            LibraryFamilyRoleQuery.CreatePlan(
+        LibraryArchitecturalFamilyQueryPlan operation =
+            LibraryArchitecturalFamilyQuery.CreatePlan(
                 LibraryNameFamilyPopulationKind.AllTypes);
         QuerySpaceRequest request =
-            LibraryFamilyRoleQuery.CreateFamilyRequest(
+            LibraryArchitecturalFamilyQuery.CreateFamilyRequest(
                 operation,
                 RowSelectionIntent<string>.Create(
                     [RowSelectionIntentOperation<string>.Head(5)]),
                 QuerySpaceTerminalRequirement.Rows);
 
         var available =
-            Assert.IsType<LibraryFamilyRoleQueryResult.Available>(
-                LibraryFamilyRoleInspection.Execute(
+            Assert.IsType<LibraryArchitecturalFamilyQueryResult.Available>(
+                LibraryArchitecturalFamilyInspection.Execute(
                     fixture.Assembly,
                     fixture.Session,
                     fixture.Provenance,
@@ -123,23 +132,23 @@ public sealed class LibraryFamilyRoleQueryTests
     public void Execute_CountAndTypeRowsRetainExactPopulationTotals()
     {
         using FixtureExecution fixture = OpenFixture();
-        LibraryFamilyRoleQueryPlan operation =
-            LibraryFamilyRoleQuery.CreatePlan(
+        LibraryArchitecturalFamilyQueryPlan operation =
+            LibraryArchitecturalFamilyQuery.CreatePlan(
                 LibraryNameFamilyPopulationKind.AllTypes);
         QuerySpaceRequest countRequest =
-            LibraryFamilyRoleQuery.CreateFamilyRequest(
+            LibraryArchitecturalFamilyQuery.CreateFamilyRequest(
                 operation,
                 RowSelectionIntent<string>.Create([]),
                 QuerySpaceTerminalRequirement.Count);
         QuerySpaceRequest typeRequest =
-            LibraryFamilyRoleQuery.CreateTypeRequest(
+            LibraryArchitecturalFamilyQuery.CreateTypeRequest(
                 operation,
                 RowSelectionIntent<string>.Create([]),
                 QuerySpaceTerminalRequirement.Rows);
 
         var count =
-            Assert.IsType<LibraryFamilyRoleQueryResult.Available>(
-                LibraryFamilyRoleInspection.Execute(
+            Assert.IsType<LibraryArchitecturalFamilyQueryResult.Available>(
+                LibraryArchitecturalFamilyInspection.Execute(
                     fixture.Assembly,
                     fixture.Session,
                     fixture.Provenance,
@@ -147,8 +156,8 @@ public sealed class LibraryFamilyRoleQueryTests
                     countRequest,
                     TestContext.Current.CancellationToken));
         var types =
-            Assert.IsType<LibraryFamilyRoleQueryResult.Available>(
-                LibraryFamilyRoleInspection.Execute(
+            Assert.IsType<LibraryArchitecturalFamilyQueryResult.Available>(
+                LibraryArchitecturalFamilyInspection.Execute(
                     fixture.Assembly,
                     fixture.Session,
                     fixture.Provenance,
@@ -175,18 +184,18 @@ public sealed class LibraryFamilyRoleQueryTests
     public void CompleteJson_RetainsTypesPopulationsAndSupportAddresses()
     {
         using FixtureExecution fixture = OpenFixture();
-        LibraryFamilyRoleQueryPlan operation =
-            LibraryFamilyRoleQuery.CreatePlan(
+        LibraryArchitecturalFamilyQueryPlan operation =
+            LibraryArchitecturalFamilyQuery.CreatePlan(
                 LibraryNameFamilyPopulationKind.AllTypes);
         QuerySpaceRequest request =
-            LibraryFamilyRoleQuery.CreateFamilyRequest(
+            LibraryArchitecturalFamilyQuery.CreateFamilyRequest(
                 operation,
                 RowSelectionIntent<string>.Create(
                     [RowSelectionIntentOperation<string>.Head(1)]),
                 QuerySpaceTerminalRequirement.Rows);
         var available =
-            Assert.IsType<LibraryFamilyRoleQueryResult.Available>(
-                LibraryFamilyRoleInspection.Execute(
+            Assert.IsType<LibraryArchitecturalFamilyQueryResult.Available>(
+                LibraryArchitecturalFamilyInspection.Execute(
                     fixture.Assembly,
                     fixture.Session,
                     fixture.Provenance,
@@ -196,7 +205,7 @@ public sealed class LibraryFamilyRoleQueryTests
 
         using var stream = new MemoryStream();
         using (var writer = new Utf8JsonWriter(stream))
-            LibraryFamilyRoleInspectionJson.Write(
+            LibraryArchitecturalFamilyInspectionJson.Write(
                 writer,
                 available.Document);
         using JsonDocument json = JsonDocument.Parse(stream.ToArray());
@@ -213,9 +222,9 @@ public sealed class LibraryFamilyRoleQueryTests
             root.GetProperty("receipt")
                 .GetProperty("typeCount")
                 .GetInt32());
-        LibraryFamilyRolePopulation population =
+        LibraryArchitecturalFamilyPopulation population =
             available.Document.Populations[0];
-        LibraryFamilyRoleRow family = population.Families[0];
+        LibraryArchitecturalFamilyRow family = population.Families[0];
         JsonElement jsonFamily = root.GetProperty("populations")[0]
             .GetProperty("families")[0];
         Assert.Equal(
@@ -227,27 +236,27 @@ public sealed class LibraryFamilyRoleQueryTests
                 .GetArrayLength());
         Assert.Same(
             available.Document,
-            LibraryFamilyRoleInspection.Envelope(available).Content);
+            LibraryArchitecturalFamilyInspection.Envelope(available).Content);
     }
 
     [Fact]
     public void TypeRoleAndPolePredicates_SelectExactOwnerValues()
     {
-        LibraryFamilyRoleTypeRow foundation = TypeRow(
+        LibraryArchitecturalFamilyTypeRow foundation = TypeRow(
             row: 1,
             LibraryStructuralTypeRole.Foundation,
             LibraryStructuralTypePole.SeaLevel);
-        LibraryFamilyRoleTypeRow orchestrator = TypeRow(
+        LibraryArchitecturalFamilyTypeRow orchestrator = TypeRow(
             row: 2,
             LibraryStructuralTypeRole.Orchestrator,
             LibraryStructuralTypePole.MountainPeak);
-        RowQueryResolutionResult<LibraryFamilyRoleTypeRow>
+        RowQueryResolutionResult<LibraryArchitecturalFamilyTypeRow>
             roleResolution =
-                LibraryFamilyRoleQuery.TypeRowsScope.Resolve(
+                LibraryArchitecturalFamilyQuery.TypeRowsScope.Resolve(
                     PortableQueryIntent.Create(
                         [
                             new(
-                                LibraryFamilyRoleQuery
+                                LibraryArchitecturalFamilyQuery
                                     .TypeStructuralRoleKey,
                                 PortableQueryOperator.Equal,
                                 "Foundation"),
@@ -255,13 +264,13 @@ public sealed class LibraryFamilyRoleQueryTests
                         [],
                         [],
                         []));
-        RowQueryResolutionResult<LibraryFamilyRoleTypeRow>
+        RowQueryResolutionResult<LibraryArchitecturalFamilyTypeRow>
             poleResolution =
-                LibraryFamilyRoleQuery.TypeRowsScope.Resolve(
+                LibraryArchitecturalFamilyQuery.TypeRowsScope.Resolve(
                     PortableQueryIntent.Create(
                         [
                             new(
-                                LibraryFamilyRoleQuery
+                                LibraryArchitecturalFamilyQuery
                                     .TypeStructuralPoleKey,
                                 PortableQueryOperator.Equal,
                                 "MountainPeak"),
@@ -287,22 +296,22 @@ public sealed class LibraryFamilyRoleQueryTests
     [Fact]
     public void FamilyCountPredicate_PreservesPrevalenceOrder()
     {
-        LibraryFamilyRoleRow smaller =
+        LibraryArchitecturalFamilyRow smaller =
             FamilyRow("Small", typeCount: 2, namespaces: 2);
-        LibraryFamilyRoleRow narrower =
+        LibraryArchitecturalFamilyRow narrower =
             FamilyRow("Narrow", typeCount: 5, namespaces: 1);
-        LibraryFamilyRoleRow wider =
+        LibraryArchitecturalFamilyRow wider =
             FamilyRow(
                 "Wide",
                 typeCount: 5,
                 namespaces: 2,
                 foundationCount: 2);
-        RowQueryResolutionResult<LibraryFamilyRoleRow> resolution =
-            LibraryFamilyRoleQuery.FamilyRowsScope.Resolve(
+        RowQueryResolutionResult<LibraryArchitecturalFamilyRow> resolution =
+            LibraryArchitecturalFamilyQuery.FamilyRowsScope.Resolve(
                 PortableQueryIntent.Create(
                     [
                         new(
-                            LibraryFamilyRoleQuery
+                            LibraryArchitecturalFamilyQuery
                                 .FamilyFoundationCountKey,
                             PortableQueryOperator.AtLeast,
                             "1"),
@@ -318,9 +327,9 @@ public sealed class LibraryFamilyRoleQueryTests
                 [smaller, narrower, wider],
                 resolution.Plan!).Values);
 
-        RowQueryResolutionResult<LibraryFamilyRoleRow>
+        RowQueryResolutionResult<LibraryArchitecturalFamilyRow>
             prevalenceResolution =
-                LibraryFamilyRoleQuery.FamilyRowsScope.Resolve(
+                LibraryArchitecturalFamilyQuery.FamilyRowsScope.Resolve(
                     PortableQueryIntent.Create([], [], [], []));
         Assert.Equal(
             [wider, narrower, smaller],
@@ -340,20 +349,20 @@ public sealed class LibraryFamilyRoleQueryTests
         string token,
         LibraryNameFamilyKind expected)
     {
-        LibraryFamilyRoleRow oneWord =
+        LibraryArchitecturalFamilyRow oneWord =
             FamilyRow("One", typeCount: 2, namespaces: 1);
-        LibraryFamilyRoleRow twoWord =
+        LibraryArchitecturalFamilyRow twoWord =
             FamilyRow(
                 "Two",
                 typeCount: 2,
                 namespaces: 1,
                 kind: LibraryNameFamilyKind.TwoWordSuffix);
-        RowQueryResolutionResult<LibraryFamilyRoleRow> resolution =
-            LibraryFamilyRoleQuery.FamilyRowsScope.Resolve(
+        RowQueryResolutionResult<LibraryArchitecturalFamilyRow> resolution =
+            LibraryArchitecturalFamilyQuery.FamilyRowsScope.Resolve(
                 PortableQueryIntent.Create(
                     [
                         new(
-                            LibraryFamilyRoleQuery.FamilyKindKey,
+                            LibraryArchitecturalFamilyQuery.FamilyKindKey,
                             PortableQueryOperator.Equal,
                             token),
                     ],
@@ -379,28 +388,28 @@ public sealed class LibraryFamilyRoleQueryTests
                 WindowFirst: 1,
                 WindowLast: 2);
         IReadOnlyList<
-                ScorecardAsset<LibraryFamilyRoleScorecardAsset>> assets =
-                    LibraryFamilyRolePopulationScorecard.LoadAssets(
+                ScorecardAsset<LibraryArchitecturalFamilyScorecardAsset>> assets =
+                    LibraryArchitecturalFamilyPopulationScorecard.LoadAssets(
                         [
                             FixtureCatalog.ResearchNameFamilies
                                 .AssemblyPath(),
                         ]);
         ScorecardColumn<
-                LibraryFamilyRoleScorecardAsset,
-                LibraryFamilyRoleRow> oracle =
-                    LibraryFamilyRolePopulationScorecard
+                LibraryArchitecturalFamilyScorecardAsset,
+                LibraryArchitecturalFamilyRow> oracle =
+                    LibraryArchitecturalFamilyPopulationScorecard
                         .NLinqColumn(shape);
         ScorecardCheck check = Scorecard.Check(
                 assets,
                 oracle,
                 [
-                    LibraryFamilyRolePopulationScorecard
+                    LibraryArchitecturalFamilyPopulationScorecard
                         .LinqColumn(shape),
                     oracle,
-                    LibraryFamilyRolePopulationScorecard
+                    LibraryArchitecturalFamilyPopulationScorecard
                         .QuerySpaceColumn(shape),
                 ],
-                LibraryFamilyRolePopulationScorecard.RowText,
+                LibraryArchitecturalFamilyPopulationScorecard.RowText,
                 closings:
                 [
                     ScorecardClosing.Count,
@@ -440,7 +449,7 @@ public sealed class LibraryFamilyRoleQueryTests
                 contribution.Registration,
                 () => new MemoryStream(image, writable: false),
                 AssemblyResolutionProvenance.Local(
-                    "family-role-query-fixture"))
+                    "architectural-family-query-fixture"))
             ?? throw new InvalidOperationException(
                 "The fixture must contain managed metadata.");
         PdbContext context = PdbContext.OpenEmbeddedPdbOnly(assembly);
@@ -451,7 +460,7 @@ public sealed class LibraryFamilyRoleQueryTests
         return new(authority, assembly, context, session, provenance);
     }
 
-    private static LibraryFamilyRoleTypeRow TypeRow(
+    private static LibraryArchitecturalFamilyTypeRow TypeRow(
         int row,
         LibraryStructuralTypeRole role,
         LibraryStructuralTypePole pole)
@@ -483,7 +492,7 @@ public sealed class LibraryFamilyRoleQueryTests
             LibraryStructuralEvidenceDisposition.Complete);
     }
 
-    private static LibraryFamilyRoleRow FamilyRow(
+    private static LibraryArchitecturalFamilyRow FamilyRow(
         string word,
         int typeCount,
         int namespaces,

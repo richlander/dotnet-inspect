@@ -472,7 +472,9 @@ public sealed partial class CSharpPrinter
         LoadElement e => $"{Operand(e.Array)}[{ArrayIndexText(e.Index)}]",
         NewArray n => ArrayCreationText(n.ElementType, [n.Length]),
         SpanLiteral s => $"new {TypeText(s.ElementType)}[] {{ {string.Join(", ", s.Elements.Select(Expression))} }}",
-        ArrayLiteral a => $"new {TypeText(a.ElementType)}[] {{ {string.Join(", ", a.Elements.Select(Expression))} }}",
+        // Each element is the element store it was raised from: it routes
+        // through the same coercion as that store, at the literal's element type.
+        ArrayLiteral a => $"new {TypeText(a.ElementType)}[] {{ {string.Join(", ", a.Elements.Select(element => CoerceText(element, a.ElementType)))} }}",
         CollectionExpression c => $"[{string.Join(", ", c.Elements.Select(CollectionElementText))}]",
         CollectionSpreadElement s => $"..{Expression(s.Source)}",
         InlineArraySpanConversion c => $"({TypeText(c.SpanType)}){Deref(c.Place)}",

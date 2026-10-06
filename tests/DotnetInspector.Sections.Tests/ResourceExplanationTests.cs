@@ -279,8 +279,10 @@ public class ResourceExplanationTests
             [
                 "resource-explanation",
                 "schema-query",
+                "query-space",
                 "analysis-requests",
                 "findings",
+                "product-vocabulary",
             ],
             document.Schemas.Select(static schema =>
                 schema.Identity.Owner.Value));

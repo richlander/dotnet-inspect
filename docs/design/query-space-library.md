@@ -210,6 +210,10 @@ General explanation identities, declarations, values, observations, and
 detached resource snapshots, whose semantics
 [Resource Explanation](resource-explanation.md) owns, use
 `QuerySpace.Explanation`; they also live in `QuerySpace.Primitives`.
+The two namespaces share one value grammar: explanation vocabulary-term values
+name `QuerySpace.Vocabulary` term identities, and vocabulary maps carry
+`QuerySpace.Explanation` values under
+[Vocabulary Mappings' value grammar](vocabulary-mappings.md#value-grammar).
 
 The initial public center preserves established semantic type names rather than
 renaming them only for symmetry:

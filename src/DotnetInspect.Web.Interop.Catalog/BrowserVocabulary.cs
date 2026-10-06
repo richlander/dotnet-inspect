@@ -1,4 +1,5 @@
 using DotnetInspector.Sections;
+using QuerySpace.Explanation;
 using QuerySpace.Vocabulary;
 
 namespace DotnetInspect.Web.Interop.Catalog;
@@ -88,41 +89,42 @@ internal static class BrowserVocabulary
         };
 
     private static BrowserVocabularyMapValue ToBrowserValue(
-        VocabularyMapValue value) =>
+        ExplanationValue value) =>
         value switch
         {
-            VocabularyMapValue.Term term =>
+            ExplanationValue.VocabularyTerm term =>
                 new BrowserVocabularyTermMapValue(
                     ToBrowserIdentity(term.Identity)),
-            VocabularyMapValue.Scalar scalar =>
+            ExplanationValue.Scalar scalar =>
                 ToBrowserScalarValue(scalar.Value),
             _ => throw new InvalidOperationException(
                 "Unknown vocabulary map value."),
         };
 
     private static BrowserVocabularyMapValue ToBrowserScalarValue(
-        VocabularyScalarValue value) =>
+        ExplanationScalarValue value) =>
         value.Kind switch
         {
-            VocabularyScalarKind.Text =>
+            ExplanationScalarKind.Text =>
                 new BrowserVocabularyTextMapValue(value.Text!),
-            VocabularyScalarKind.Integer =>
-                new BrowserVocabularyIntegerMapValue(value.Integer),
-            VocabularyScalarKind.Boolean =>
-                new BrowserVocabularyBooleanMapValue(value.Boolean),
+            ExplanationScalarKind.Integer =>
+                new BrowserVocabularyIntegerMapValue(
+                    (long)value.Integer!.Value),
+            ExplanationScalarKind.Boolean =>
+                new BrowserVocabularyBooleanMapValue(value.Boolean!.Value),
             _ => throw new InvalidOperationException(
                 "Unknown vocabulary scalar kind."),
         };
 
     private static BrowserVocabularyScalarKind ToBrowserScalarKind(
-        VocabularyScalarKind kind) =>
+        ExplanationScalarKind kind) =>
         kind switch
         {
-            VocabularyScalarKind.Text =>
+            ExplanationScalarKind.Text =>
                 BrowserVocabularyScalarKind.Text,
-            VocabularyScalarKind.Integer =>
+            ExplanationScalarKind.Integer =>
                 BrowserVocabularyScalarKind.Integer,
-            VocabularyScalarKind.Boolean =>
+            ExplanationScalarKind.Boolean =>
                 BrowserVocabularyScalarKind.Boolean,
             _ => throw new InvalidOperationException(
                 "Unknown vocabulary scalar kind."),
