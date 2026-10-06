@@ -41,10 +41,18 @@ export function createDataBarFeedback() {
   };
 }
 
+export interface DataBarResult {
+  readonly title: string;
+  readonly context: string;
+  readonly facts: readonly { readonly value: number; readonly label: string }[];
+  readonly qualification?: string;
+}
+
 export interface DataBarModel {
   buildIdentity?: BrowserBuildIdentity | null;
   producer?: DataBarProducer | null;
   errors?: readonly DataBarError[];
+  result?: DataBarResult | null;
 }
 
 export function fmtBytes(bytes: number | null | undefined): string {
@@ -115,6 +123,16 @@ export function dataBarHtml(
     return `<footer class="data-bar data-bar-errors" aria-label="Inspection feedback">
       <span class="data-bar-item data-bar-error" role="status">${messages.join(" · ")}</span>
       ${retry}
+    </footer>`;
+  }
+  if (model.result) {
+    const { title, context, facts, qualification } = model.result;
+    const items = [title, context,
+      ...facts.map(fact => `${fact.value.toLocaleString()} ${fact.label}`),
+      ...(qualification ? [qualification] : []),
+    ];
+    return `<footer class="data-bar data-bar-result" aria-label="Inspection result">
+      <span class="data-bar-item" role="status">${items.map(escapeHtml).join(" · ")}</span>
     </footer>`;
   }
   const items = buildIdentityItems(model.buildIdentity, escapeHtml);

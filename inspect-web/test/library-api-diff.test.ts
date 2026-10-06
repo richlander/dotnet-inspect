@@ -11,6 +11,7 @@ import {
   bindLibraryApiDiffRows,
   createLibraryApiDiffCoordinator,
   libraryApiDiffPresence,
+  libraryApiDiffDataBarResult,
   libraryApiDiffMemberExploreContext,
   renderLibraryApiDiff,
   type LibraryApiDiffSelection,
@@ -1821,4 +1822,41 @@ test("malformed match provenance is rejected at the transport boundary", async (
     if (outcome.status === "failed") assert.match(outcome.error, message);
     coordinator.cancelCurrentRequest();
   }
+});
+
+
+test("data-bar pilot uses issued totals only for the matching complete Library comparison", () => {
+  const result = succeeded("1.0.0");
+  const state = readyState(result);
+  if (state.status !== "ready") throw new Error("Expected ready.");
+  const active = selection(state.input.packageModel);
+  const summary = libraryApiDiffDataBarResult(state, active);
+  assert.equal(summary?.context, "1.0.0 → 2.0.0");
+  assert.deepEqual(summary?.facts.map(fact => fact.value), [2, 1, 0, 3, 1, 2, 0]);
+  assert.equal(libraryApiDiffDataBarResult(state, null), null);
+  assert.equal(libraryApiDiffDataBarResult({ status: "idle" }, active), null);
+  assert.equal(libraryApiDiffDataBarResult({ status: "loading", input: state.input }, active), null);
+  const qualified = libraryApiDiffDataBarResult({
+    ...state,
+    result: { ...result, inspection: {
+      ...inspection(), diagnostics: [
+        { code: "warning", severity: 1, summary: metadataInertStringFixture("Qualified"), correspondence: null },
+        { code: "info", severity: 0, summary: metadataInertStringFixture("Informational"), correspondence: null },
+      ],
+    } },
+  }, active);
+  assert.equal(qualified?.qualification, "1 inspection notice");
+  for (const changed of [
+    { packageModel: {} }, { packageId: "Another.Package" },
+    { currentVersion: "3.0.0" }, { targetFramework: "net10.0" },
+    { compileAssetId: "another.dll" },
+    { target: { kind: "available" as const, version: "0.9.0" } },
+    { query: { surface: "Type" as const, analyses: ["api"], views: "Changes", typeNames: ["Example.Widget"], memberTargetIdentities: [] } },
+  ]) assert.equal(libraryApiDiffDataBarResult(state, { ...active, ...changed }), null);
+  assert.equal(libraryApiDiffDataBarResult({ ...state, result: { ...result, kind: "Failed", value: null } }, active), null);
+  assert.ok(result.value);
+  assert.equal(libraryApiDiffDataBarResult({ ...state, result: { ...result, value: { ...result.value, current: { ...result.value.current, isComplete: false } } } }, active), null);
+  const html = renderLibraryApiDiff(state, String, { resultSummaryInDataBar: true });
+  assert.match(html, /Example.Widget/);
+  assert.doesNotMatch(html, /library-api-diff-metrics|Comparison complete/);
 });
