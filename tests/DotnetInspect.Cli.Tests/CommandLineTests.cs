@@ -654,22 +654,29 @@ public class CommandLineTests
             command => command.Name == "body-shape");
     }
 
-    [Fact]
-    public void VocabularyCommand_AcceptsSectionSelection()
+    [Theory]
+    [InlineData("vocabulary")]
+    [InlineData("vocabulary", "-S", "C# Body Kinds", "--json")]
+    [InlineData("Vocabulary", "-D")]
+    public void RemovedVocabularyCommand_PointsToExplain(params string[] args)
     {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(
-            ["vocabulary", "-S", "Accessibility", "--json"]);
+        Assert.DoesNotContain(
+            CommandLineBuilder.CreateRootCommand().Subcommands,
+            command => command.Name == "vocabulary");
 
-        Assert.Empty(result.Errors);
+        bool rejected = CommandLineBuilder.TryGetRemovedCommandError(
+            args,
+            out string? error);
+
+        Assert.True(rejected);
+        Assert.Contains("'vocabulary' has been removed", error);
+        Assert.Contains("explain vocabularies", error);
     }
 
     [Fact]
-    public void VocabularyCommand_AcceptsPlainText()
+    public void RemovedVocabularyCommand_IsReservedForExplicitRouting()
     {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(
-            ["vocabulary", "-S", "Accessibility", "--plaintext"]);
-
-        Assert.Empty(result.Errors);
+        Assert.Contains("vocabulary", CommandLineBuilder.KnownCommands);
     }
 
     [Fact]

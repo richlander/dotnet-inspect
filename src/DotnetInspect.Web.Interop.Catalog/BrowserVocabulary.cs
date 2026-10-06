@@ -1,3 +1,4 @@
+using System.Text.Json;
 using DotnetInspector.Sections;
 using QuerySpace.Explanation;
 using QuerySpace.Vocabulary;
@@ -12,6 +13,52 @@ internal static class BrowserVocabulary
             ToBrowserSnapshot(inspection.Content),
             ToBrowserShare(inspection.Share),
             [.. inspection.Diagnostics.Select(ToBrowserDiagnostic)]);
+
+    internal static BrowserVocabularyExplanationResult ToBrowserExplanation(
+        VocabularyExplanationResult result) =>
+        result switch
+        {
+            VocabularyExplanationResult.Explained explained =>
+                new(
+                    BrowserVocabularyExplanationOutcome.Explained,
+                    new BrowserVocabularyExplanation(
+                        JsonSerializer.SerializeToElement(
+                            explained.Inspection.Content,
+                            ResourceExplanationJsonContext.Default
+                                .ResourceExplanationDocument),
+                        ToBrowserShare(explained.Inspection.Share),
+                        [
+                            .. explained.Inspection.Diagnostics.Select(
+                                ToBrowserDiagnostic),
+                        ]),
+                    null),
+            VocabularyExplanationResult.Rejected rejected =>
+                new(
+                    rejected.Reason switch
+                    {
+                        VocabularyExplanationRejection.InvalidPath =>
+                            BrowserVocabularyExplanationOutcome.InvalidPath,
+                        VocabularyExplanationRejection.OutsideVocabularies =>
+                            BrowserVocabularyExplanationOutcome
+                                .OutsideVocabularies,
+                        VocabularyExplanationRejection.Unknown =>
+                            BrowserVocabularyExplanationOutcome.Unknown,
+                        VocabularyExplanationRejection.InvalidDepth =>
+                            BrowserVocabularyExplanationOutcome.InvalidDepth,
+                        _ => throw new InvalidOperationException(
+                            "Unknown vocabulary explanation rejection."),
+                    },
+                    null,
+                    new BrowserVocabularyExplanationRejection(
+                        rejected.RequestedPath,
+                        rejected.Message,
+                        [
+                            .. rejected.Suggestions.Select(
+                                static suggestion => suggestion.Value),
+                        ])),
+            _ => throw new InvalidOperationException(
+                "Unknown vocabulary explanation result."),
+        };
 
     private static BrowserVocabularySnapshot ToBrowserSnapshot(
         VocabularySnapshot snapshot) =>

@@ -113,7 +113,8 @@ for (const activation of ["Enter", "Space"]) {
     await node.focus();
     await page.keyboard.press(activation);
     await expect(page.getByRole("dialog")).toHaveCount(0);
-    await expect(page.locator(".metadata-surface-footer")).toContainText("Example.Derived");
+    await expect(page.locator(".metadata-surface-footer")).toHaveCount(0);
+    expect((await page.evaluate(() => window.typeExploreProbe.counts())).navigations).toBe(1);
     await expect(page.getByRole("heading", { level: 1 })).toBeFocused();
   });
 }

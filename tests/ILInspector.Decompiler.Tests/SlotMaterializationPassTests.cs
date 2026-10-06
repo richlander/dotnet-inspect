@@ -227,8 +227,11 @@ public class SlotMaterializationPassTests
         function.CheckInvariant();
     }
 
+    // S_256 -> S_1 -> S_0 where S_0's loads conflict (int and char): values
+    // flow only into the undecided S_0, so S_256 and S_1 are source-closed and
+    // materialize, while S_0 stays a slot whose store reads the typed local.
     [Fact]
-    public void DefersWholeDirectCopyComponentWhenOneSlotIsUndecided()
+    public void MaterializesSourceClosedMembersOfAnIncompleteComponent()
     {
         var body = new BlockContainer();
         var block = new Block(0);
@@ -246,18 +249,82 @@ public class SlotMaterializationPassTests
         Assert.Contains(decisions, decision => decision.Slot == 0
             && decision.Vetoes.HasFlag(SlotMaterializationVeto.ConflictingTypeTestimony)
             && decision.Vetoes.HasFlag(SlotMaterializationVeto.IncompleteCopyComponent));
+        Assert.Contains(decisions, decision => decision.Slot == 1 && decision.WillMaterialize);
+        Assert.Contains(decisions, decision => decision.Slot == 256 && decision.WillMaterialize);
+        Assert.Contains(decisions, decision => decision.Slot == 5 && decision.WillMaterialize);
+
+        var invariant = SlotMaterializationInvariant.Capture(function);
+        new SlotMaterializationPass().Run(function, PassContext.None);
+        invariant.Check();
+
+        var residual = Assert.Single(function.Descendants.OfType<StoreStackSlot>());
+        Assert.Equal(0, residual.Slot);
+        Assert.Equal(Int32, Assert.IsType<LoadLocal>(residual.Value).Type);
+        Assert.Equal(2, function.Descendants.OfType<LoadStackSlot>().Count());
+        Assert.Equal(6, function.Locals.Length);
+        function.CheckInvariant();
+    }
+
+    // S_0 (conflicting loads) -> S_1 -> S_256: the undecided member is the
+    // source, so every member downstream of it depends on a value no
+    // decision covers and the whole chain stays on slots.
+    [Fact]
+    public void DefersMembersDownstreamOfAnUndecidedSlot()
+    {
+        var body = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(0, new LoadArgument(0, "x", Int32)));
+        block.Add(new StoreLocal(1, Char, new LoadStackSlot(0, Char)));
+        block.Add(new StoreStackSlot(1, new LoadStackSlot(0, Int32)));
+        block.Add(new StoreStackSlot(256, new LoadStackSlot(1, Int32)));
+        block.Add(new StoreLocal(0, Int32, new LoadStackSlot(256, Int32)));
+        body.Add(block);
+        var function = Function([Int32, Char], body);
+
+        var decisions = SlotMaterializationPass.Analyze(function);
+        Assert.Contains(decisions, decision => decision.Slot == 0
+            && decision.Vetoes.HasFlag(SlotMaterializationVeto.ConflictingTypeTestimony));
         Assert.Contains(decisions, decision => decision.Slot == 1
             && decision.Vetoes == SlotMaterializationVeto.IncompleteCopyComponent);
         Assert.Contains(decisions, decision => decision.Slot == 256
             && decision.Vetoes == SlotMaterializationVeto.IncompleteCopyComponent);
-        Assert.Contains(decisions, decision => decision.Slot == 5 && decision.WillMaterialize);
 
         new SlotMaterializationPass().Run(function, PassContext.None);
 
         Assert.Equal(3, function.Descendants.OfType<StoreStackSlot>().Count());
-        Assert.Equal(4, function.Descendants.OfType<LoadStackSlot>().Count());
-        Assert.Equal(4, function.Locals.Length);
-        Assert.Contains(function.Descendants.OfType<StoreLocal>(), store => store.Index == 3);
+        Assert.Equal(2, function.Locals.Length);
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void DefersSourceWhoseUndecidedPeerIsASinkAtAnotherType()
+    {
+        // S_0 is decided Char and copies into S_1, whose load testifies Int32
+        // but whose dead Int64 store leaves it undecided. Materializing S_0
+        // alone would expose its local load to S_1's Int32 slot-store
+        // coercion and change S_1's frozen residual decision.
+        var body = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(0, new LoadArgument(0, "c", Char)));
+        block.Add(new StoreStackSlot(1, new LoadStackSlot(0, Char)));
+        block.Add(new StoreLocal(0, Int32, new LoadStackSlot(1, Int32)));
+        block.Add(new StoreStackSlot(1, new Constant(5L, Int64)));
+        body.Add(block);
+        var function = Function([Int32], body);
+
+        var decisions = SlotMaterializationPass.Analyze(function);
+        Assert.Contains(decisions, decision => decision.Slot == 0
+            && decision.Vetoes == SlotMaterializationVeto.IncompleteCopyComponent);
+        Assert.Contains(decisions, decision => decision.Slot == 1
+            && decision.Vetoes.HasFlag(SlotMaterializationVeto.UnrenderableStoreType));
+
+        new SlotMaterializationPass().Run(function, PassContext.None);
+        new CoercionInsertionPass().Run(function, PassContext.None);
+
+        Assert.Equal(3, function.Descendants.OfType<StoreStackSlot>().Count());
+        Assert.DoesNotContain(function.Descendants.OfType<StoreStackSlot>(),
+            store => store.Slot == 1 && store.Value is Coerce);
+        Assert.Single(function.Locals);
         function.CheckInvariant();
     }
 

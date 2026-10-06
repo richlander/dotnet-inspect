@@ -87,6 +87,110 @@ public class ReturnToSenderTargetSelectionTests
     }
 
     [Fact]
+    public void RankFirstCapMatchesExactPlanAndStopsDeepEvaluation()
+    {
+        string assemblyPath =
+            FidelityCheckGeneratedFilterTests.CompileFixture("""
+                public static class RankedTargetFixture
+                {
+                    public static int Alpha(int value) => value + 1;
+                    public static int Beta(int value) => value + 2;
+                    public static int Gamma(int value) => value + 3;
+                    public static int Delta(int value) => value + 4;
+                    public static int Epsilon(int value) => value + 5;
+                    public static int Zeta(int value) => value + 6;
+                    public static int Eta(int value) => value + 7;
+                    public static int Theta(int value) => value + 8;
+                }
+                """, assemblyName: "RankedTargets");
+        try
+        {
+            FidelityCheck.ReturnToSenderTargetSelection exact =
+                FidelityCheck.SelectReturnToSenderTargetPlan(
+                    [assemblyPath],
+                    cap: 1);
+            FidelityCheck.CappedReturnToSenderTargetSelection ranked =
+                FidelityCheck.SelectReturnToSenderTargetsCapped(
+                    [assemblyPath],
+                    cap: 1);
+
+            Assert.Equal(
+                TargetSnapshot(exact),
+                TargetSnapshot(ranked.Targets));
+            Assert.Equal(1, ranked.EvaluatedBodyCount);
+            Assert.True(
+                ranked.RankedBodyCount
+                    > ranked.EvaluatedBodyCount);
+            Assert.Equal(
+                ranked.EvaluatedBodyCount,
+                ranked.DeclarationCandidateCount);
+            Assert.Equal(
+                0,
+                ranked.ExcludedDeclarationCandidateCount);
+        }
+        finally
+        {
+            FidelityCheckGeneratedFilterTests.DeleteFixture(
+                assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void RankFirstCapMatchesExactPlanAcrossAssemblies()
+    {
+        string firstAssembly =
+            FidelityCheckGeneratedFilterTests.CompileFixture("""
+                public interface IUnavailableContract
+                {
+                    int Transform(int value);
+                }
+
+                public readonly struct UnavailableFixture :
+                    IUnavailableContract
+                {
+                    int IUnavailableContract.Transform(int value) =>
+                        value;
+                }
+                """, assemblyName: "RankedUnavailable");
+        string secondAssembly =
+            FidelityCheckGeneratedFilterTests.CompileFixture("""
+                public static class RankedEligibleFixture
+                {
+                    public static int Alpha(int value) => value + 1;
+                    public static int Beta(int value) => value + 2;
+                }
+                """, assemblyName: "RankedEligible");
+        try
+        {
+            FidelityCheck.ReturnToSenderTargetSelection exact =
+                FidelityCheck.SelectReturnToSenderTargetPlan(
+                    [firstAssembly, secondAssembly],
+                    cap: 1);
+            FidelityCheck.CappedReturnToSenderTargetSelection ranked =
+                FidelityCheck.SelectReturnToSenderTargetsCapped(
+                    [firstAssembly, secondAssembly],
+                    cap: 1);
+
+            Assert.Equal(
+                TargetSnapshot(exact),
+                TargetSnapshot(ranked.Targets));
+            Assert.Single(ranked.Targets);
+            Assert.True(
+                ranked.ExcludedDeclarationCandidateCount > 0);
+            Assert.True(
+                ranked.EvaluatedBodyCount
+                    < exact.ScannedBodyCount);
+        }
+        finally
+        {
+            FidelityCheckGeneratedFilterTests.DeleteFixture(
+                firstAssembly);
+            FidelityCheckGeneratedFilterTests.DeleteFixture(
+                secondAssembly);
+        }
+    }
+
+    [Fact]
     public void AdoptsOrdinaryAndExplicitAccessorDeclarations()
     {
         string assemblyPath =
@@ -887,9 +991,44 @@ public class ReturnToSenderTargetSelectionTests
 
     static TargetSelectionSnapshot[] TargetSnapshot(
         FidelityCheck.ReturnToSenderTargetSelection selection)
+        => TargetSnapshot(selection.Targets);
+
+    static TargetSelectionSnapshot[] TargetSnapshot(
+        IReadOnlyList<ReturnToSenderTarget> targets)
         =>
         [
-            .. selection.Targets.Select(
+            .. targets.Select(
+                target => new TargetSelectionSnapshot(
+                    target.AssemblyPath,
+                    target.Type,
+                    target.Method,
+                    target.Overload,
+                    target.Signature,
+                    target.Address,
+                    target.Declaration switch
+                    {
+                        ReturnToSenderDeclarationSelection
+                            .OrdinaryMethod =>
+                            ReturnToSenderDeclarationProducer
+                                .OrdinaryTypeArtifact,
+                        ReturnToSenderDeclarationSelection
+                            .ExactMethod =>
+                            ReturnToSenderDeclarationProducer
+                                .ExactMethodDeclaration,
+                        ReturnToSenderDeclarationSelection
+                            .ExactAccessor =>
+                            ReturnToSenderDeclarationProducer
+                                .ExactAccessorDeclaration,
+                        _ => throw new InvalidOperationException(
+                            "Unknown RTS declaration selection."),
+                    })),
+        ];
+
+    static TargetSelectionSnapshot[] TargetSnapshot(
+        IReadOnlyList<FidelityCheck.CompileBackTarget> targets)
+        =>
+        [
+            .. targets.Select(
                 target => new TargetSelectionSnapshot(
                     target.AssemblyPath,
                     target.Type,

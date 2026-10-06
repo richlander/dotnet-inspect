@@ -273,6 +273,21 @@ public sealed class AssemblyAcquisitionRegistration
         }
     }
 
+    /// <summary>
+    /// Creates exact assembly acquisition identity from owner-attested
+    /// artifact and module-generation evidence.
+    /// </summary>
+    public static AssemblyAcquisitionRegistration ForArtifact(
+        ArtifactAcquisitionRegistration artifactRegistration,
+        Guid moduleVersionId)
+    {
+        ArgumentNullException.ThrowIfNull(artifactRegistration);
+        var registration =
+            new AssemblyAcquisitionRegistration(artifactRegistration);
+        registration.BindModuleVersionId(moduleVersionId);
+        return registration;
+    }
+
     internal void BindModuleVersionId(Guid moduleVersionId)
     {
         if (moduleVersionId == Guid.Empty)

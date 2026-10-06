@@ -134,6 +134,7 @@ type SourceOperationName =
 
 type CallGraphOperationName =
   | "queryMemberCallGraph"
+  | "queryDirectUseClusters"
   | "expandPlatformCallGraph";
 
 type CatalogOperationName =
@@ -155,6 +156,7 @@ type CatalogOperationName =
   | "describeWorkspacePackageSources"
   | "decodeWorkspaceShareState"
   | "encodeWorkspaceShareState"
+  | "explainVocabularies"
   | "observeRetainedWorkspaceSettlement"
   | "prepareEcosystemWorkspaceDefinition"
   | "preparePackageQueryWorkspaceDefinition"
@@ -1780,6 +1782,14 @@ export const engineWorkerOrdinaryOperations = {
         ...args: Parameters<CallGraphFacade["queryMemberCallGraph"]>
       ) => facades.callGraph.queryMemberCallGraph(...args),
     ),
+    queryDirectUseClusters: valueOperation(
+      "ordinary-call-graph-query-direct-use-clusters",
+      9,
+      (
+        facades,
+        ...args: Parameters<CallGraphFacade["queryDirectUseClusters"]>
+      ) => facades.callGraph.queryDirectUseClusters(...args),
+    ),
     expandPlatformCallGraph: valueOperation(
       "ordinary-call-graph-expand-platform",
       12,
@@ -1951,6 +1961,14 @@ export const engineWorkerOrdinaryOperations = {
           CatalogFacade["describeWorkspacePackageSources"]
         >
       ) => facades.catalog.describeWorkspacePackageSources(...args),
+    ),
+    explainVocabularies: valueOperation(
+      "ordinary-catalog-explain-vocabularies",
+      2,
+      (
+        facades,
+        ...args: Parameters<CatalogFacade["explainVocabularies"]>
+      ) => facades.catalog.explainVocabularies(...args),
     ),
     resolveHomeDemo: valueOperation(
       "ordinary-catalog-resolve-home-demo",
@@ -2487,6 +2505,9 @@ export function bindEngineWorkerOrdinaryClient(
       queryMemberCallGraph: bind(
         engineWorkerOrdinaryOperations.callGraph.queryMemberCallGraph,
       ),
+      queryDirectUseClusters: bind(
+        engineWorkerOrdinaryOperations.callGraph.queryDirectUseClusters,
+      ),
       expandPlatformCallGraph: bind(
         engineWorkerOrdinaryOperations.callGraph
           .expandPlatformCallGraph,
@@ -2556,6 +2577,9 @@ export function bindEngineWorkerOrdinaryClient(
       describeWorkspacePackageSources: bind(
         engineWorkerOrdinaryOperations.catalog
           .describeWorkspacePackageSources,
+      ),
+      explainVocabularies: bind(
+        engineWorkerOrdinaryOperations.catalog.explainVocabularies,
       ),
       resolveHomeDemo: bind(
         engineWorkerOrdinaryOperations.catalog.resolveHomeDemo,

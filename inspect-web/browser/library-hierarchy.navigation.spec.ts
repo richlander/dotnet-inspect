@@ -452,7 +452,9 @@ test("Workspace projection failure pushes a degraded package successor", async (
 for (const width of [1440, 800, 390]) {
   test(`production Package Overview fills its frame and opens Library at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
-    await installFacades(page);
+    await installFacades(page, { ...surface, documents: [{
+      kind: "readme", name: "README", path: "README.md", size: 1024,
+    }] });
     await page.goto(root);
     const overview = page.locator(".package-overview-surface");
     await expect(overview).toBeVisible();
@@ -463,33 +465,24 @@ for (const width of [1440, 800, 390]) {
     expect((await overview.locator(".overview-identity h1").boundingBox())!.width).toBeGreaterThan(100);
     await expect(overview.locator(".overview-identity [data-package-icon]")).toBeVisible();
     await expect(overview.locator("#package-version")).toHaveCount(0);
-    await expect(page.locator(".package-framework-nav #package-version"))
-      .toHaveCount(1);
-    if (width === 390) {
-      await expect(page.locator(".package-framework-nav #package-version"))
-        .toBeHidden();
-    } else {
-      await expect(page.locator(".package-framework-nav #package-version"))
-        .toBeVisible();
-    }
+    await expect(page.locator(".package-version-nav [data-package-version]")).not.toHaveCount(0);
     await expect(overview.locator("#framework")).toHaveCount(0);
     const packageIconSource = await overview.locator("[data-package-icon]").getAttribute("src");
     await expect(overview.locator(".overview-surface-head")).toHaveCount(0);
-    await expect(page.locator(".overview-surface-footer span")).toHaveText([
-      "Example.Package@1.0.0", "net10.0",
-    ]);
+    await expect(overview.locator("footer")).toHaveCount(0);
     await expect(overview.locator(".library-row, [data-lib-scope]")).toHaveCount(0);
-    await expect(overview.locator(".comparison-target-row")).toHaveCount(2);
-    const diffTarget = overview.locator("#package-diff-target");
-    await expect(diffTarget.locator("option:checked")).toHaveText("Automatic: 0.9.0");
-    await expect(overview.locator(".comparison-target-policy"))
-      .toHaveText("Session only. Choosing a target does not run a comparison or change shared links.");
+    const libraryList = await overview.locator(".package-children").boundingBox();
+    const documentLink = await overview.locator('[data-doc-path="README.md"]').boundingBox();
+    expect(libraryList).not.toBeNull();
+    expect(documentLink).not.toBeNull();
+    expect(documentLink!.y).toBeGreaterThan(libraryList!.y + libraryList!.height);
+    await expect(overview.locator(".comparison-target-row")).toHaveCount(0);
+    await expect(overview.locator(".overview-subject-label")).toHaveCount(0);
     await expect(overview.locator(
       ".package-info-section > .section-title h2"))
       .toHaveText("Package Info");
-    await expect(overview.locator(
-      ".package-overview-resources .section-title h2"))
-      .toHaveText("Comparison targets");
+    await expect(page.locator(".package-version-nav .package-frameworks h2"))
+      .toHaveText("Target frameworks");
     await expect(overview.locator(".package-info-rows dt")).toHaveText([
       "Package Size (compressed)",
       "Selected TFM",
@@ -498,45 +491,15 @@ for (const width of [1440, 800, 390]) {
       "Selected-TFM Size",
       "TFMs",
     ]);
-    if (width === 1440) {
-      const inventory = await overview.locator(".package-overview-summary").boundingBox();
-      const resources = await overview.locator(".package-overview-resources").boundingBox();
-      expect(inventory).not.toBeNull();
-      expect(resources).not.toBeNull();
-      expect(resources!.x).toBeGreaterThanOrEqual(inventory!.x + inventory!.width);
-      expect(resources!.y).toBeCloseTo(inventory!.y, 0);
-      expect((await diffTarget.boundingBox())!.width).toBeGreaterThan(250);
-      expect(await diffTarget.evaluate(select => {
-        if (!(select instanceof HTMLSelectElement)) return false;
-        const canvas = document.createElement("canvas");
-        const context = canvas.getContext("2d");
-        if (!context) return false;
-        context.font = getComputedStyle(select).font;
-        return context.measureText(select.selectedOptions[0]?.text ?? "").width + 48
-          <= select.clientWidth;
-      })).toBe(true);
-    } else {
-      const inventory = await overview.locator(".package-overview-summary").boundingBox();
-      const resources = await overview.locator(".package-overview-resources").boundingBox();
-      expect(inventory).not.toBeNull();
-      expect(resources).not.toBeNull();
-      expect(resources!.x).toBeCloseTo(inventory!.x, 0);
-      expect(resources!.y).toBeGreaterThanOrEqual(inventory!.y + inventory!.height);
-      const row = await overview.locator(".comparison-target-row").first().boundingBox();
-      const heading = await overview.locator(".comparison-target-heading").first().boundingBox();
-      const selection = await overview.locator(".comparison-target-selection").first().boundingBox();
-      expect(row).not.toBeNull();
-      expect(heading).not.toBeNull();
-      expect(selection).not.toBeNull();
-      expect(Math.abs(selection!.x - heading!.x)).toBeLessThan(1);
-      expect(selection!.y).toBeGreaterThan(heading!.y + heading!.height);
-    }
+    await expect(overview.locator(".package-overview-resources")).toHaveCount(0);
+    const inventory = await overview.locator(".package-overview-summary").boundingBox();
+    expect(inventory!.width).toBeGreaterThan((await overview.boundingBox())!.width - 40);
     expect(await overview.locator(".overview-scroll").evaluate(scroll =>
       scroll.scrollWidth - scroll.clientWidth)).toBe(0);
     expect(await page.evaluate(() =>
       document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
     if (width === 390) {
-      await page.getByRole("button", { name: "Frameworks", exact: true }).click();
+      await page.getByRole("button", { name: "Frameworks & versions", exact: true }).click();
       await expect(page.locator('[data-package-framework][aria-current="page"]'))
         .toBeFocused();
       await page.getByRole("button", { name: "Show details", exact: true }).click();
@@ -618,7 +581,7 @@ for (const width of [1440, 800, 390]) {
       .toContainText("No public types.");
     await expect(libraryOverview.locator(
       "[data-namespace-jump], [data-kind-jump]")).toHaveCount(0);
-    await expect(libraryOverview.locator(".overview-surface-footer")).toBeVisible();
+    await expect(libraryOverview.locator(".overview-surface-footer")).toHaveCount(0);
   });
 }
 
@@ -864,11 +827,15 @@ test("filtered non-public overload navigation retains its established detail rou
   const pickerRows = page.locator(".member-surface-list .overload-row");
   await expect(pickerRows).toHaveCount(2);
   await expect(pickerRows.nth(1)).toContainText("value3");
+  await expect(page.locator(".member-surface-head #member-back")).toBeVisible();
   await pickerRows.nth(1).click();
   await expect(page.locator('[data-nav-overload="2"]'))
     .toHaveAttribute("aria-selected", "true");
   await expect(page.locator(".member-surface"))
     .toContainText("void Example.Widget.Hidden(int value3)");
+  await page.locator("[data-nav-member]").filter({ hasText: "Hidden" }).click();
+  await page.locator(".member-surface-head #member-back").click();
+  await expect(subjectTab(page, "type")).toHaveAttribute("aria-selected", "true");
 });
 
 test("aggregate Library remains active through Spotlight Type and Member results", async ({ page }) => {
@@ -1019,7 +986,7 @@ for (const [selectedLibrary, activation] of [[core, "click"], [empty, "keyboard"
     await expect(page.locator(".package-overview-surface [data-lib-scope]"))
       .toHaveCount(0);
 
-    const frameworks = page.getByRole("button", { name: "Frameworks", exact: true });
+    const frameworks = page.getByRole("button", { name: "Frameworks & versions", exact: true });
     await frameworks.click();
     await expect(page.locator('[data-package-framework][aria-current="page"]'))
       .toBeFocused();
@@ -1820,3 +1787,26 @@ for (const [command, dialog] of [
     expect(page.url()).toBe(url);
   });
 }
+
+
+test("Compare keeps a single aligned heading row at desktop and narrow widths", async ({ page }) => {
+  await installFacades(page);
+  await page.goto(root);
+  await selectLibrary(page, core.id);
+  await chooseInspector(page, "data-library-lens", "compare", "Compare");
+  for (const width of [1440, 900, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    const heading = page.locator(".compare-head");
+    await expect(heading).toBeVisible();
+    const headingBox = await heading.boundingBox();
+    expect(headingBox!.height).toBe(40);
+    if (width > 760) {
+      const master = await page.locator(".browser-head").boundingBox();
+      expect(master!.height).toBe(headingBox!.height);
+      expect(master!.y).toBe(headingBox!.y);
+    }
+    await expect(page.locator("#compare-change-target")).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth
+      <= document.documentElement.clientWidth)).toBe(true);
+  }
+});

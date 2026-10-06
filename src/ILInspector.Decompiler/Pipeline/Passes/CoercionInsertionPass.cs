@@ -20,7 +20,13 @@ public static class CoercionSinks
     /// joins) — the checker counts their mismatches as residuals so the
     /// invariant's scope limit is visible, never vacuous (#2145).
     /// </summary>
-    public enum SinkScope { Wrappable, PrinterOwned }
+    /// <summary>
+    /// Who decides a sink: <see cref="Wrappable"/> sinks are wrapped here at
+    /// implicit-conversion rules, <see cref="Exact"/> sinks (a box operand) are
+    /// wrapped here whenever the operand's natural C# type differs from the
+    /// target, and <see cref="PrinterOwned"/> sinks stay with the printer.
+    /// </summary>
+    public enum SinkScope { Wrappable, PrinterOwned, Exact }
 
     public readonly record struct TypedSink(IrExpression Value, TypeRef Target, SinkScope Scope = SinkScope.Wrappable);
 
@@ -32,6 +38,18 @@ public static class CoercionSinks
     }
 
     public readonly record struct SlotTypeTestimony(TypeRef? Type, SlotTypeTestimonyStatus Status);
+
+    /// <summary>
+    /// Whether a slot store testified at <paramref name="slotType"/> whose value is
+    /// a non-slot load of <paramref name="valueType"/> requires a
+    /// <see cref="Coerce"/>: the slot-store sink scope from <c>Enumerate</c>
+    /// combined with <see cref="RequiresCoercion"/>. Slot materialization asks it
+    /// before replacing a copy store's slot load with a typed local load.
+    /// </summary>
+    public static bool RequiresSlotStoreCoercion(TypeRef valueType, TypeRef slotType, IrFunction function)
+        => CoercionRendering.CanSpellSlotCoercion(valueType, slotType, function.TypeShapes, function.EnumUnderlyingTypes)
+            && CoercionDomain.InDomain(slotType, function.TypeShapes)
+            && !valueType.Equals(slotType);
 
     /// <summary>
     /// One shared decision for pass and checker: an enumerated sink requires a
@@ -48,10 +66,10 @@ public static class CoercionSinks
         // own branches (TryConditionalTextForTarget and siblings), and wrapping
         // them re-routes statement-position spellings into the inline forms
         // (a multi-line switch expression collapsing to one line).
-        => sink.Scope == SinkScope.Wrappable
+        => sink.Scope is SinkScope.Wrappable or SinkScope.Exact
             && sink.Value is not (Coerce or LoadStackSlot or Conditional or Coalesce or SwitchExpression or UnionSwitchExpression or PatternSwitchExpression)
             && CoercionDomain.InDomain(sink.Target, shapes)
-            && !CoercionDomain.IsAtTarget(sink.Value, sink.Target);
+            && !IsAtSinkTarget(sink);
 
     /// <summary>
     /// A sink the invariant cannot assert but must not hide: in-domain,
@@ -62,7 +80,23 @@ public static class CoercionSinks
         => !RequiresCoercion(sink, shapes)
             && sink.Value is not Coerce
             && CoercionDomain.InDomain(sink.Target, shapes)
-            && !CoercionDomain.IsAtTarget(sink.Value, sink.Target);
+            && !IsAtSinkTarget(sink);
+
+    static bool IsAtSinkTarget(TypedSink sink)
+        => sink.Scope == SinkScope.Exact
+            ? CoercionDomain.IsAtNaturalType(sink.Value, sink.Target)
+            : CoercionDomain.IsAtTarget(sink.Value, sink.Target);
+
+    /// <summary>
+    /// The box types whose operand is an exact sink: the integer primitives.
+    /// C# spells an integer literal at its natural type (<c>int</c> for any
+    /// value that fits) and implicitly widens a narrower value, so the boxed
+    /// type is only right when the spelled operand already has it. Char, bool,
+    /// floating-point, and enum boxes spell their own literal or member and
+    /// stay outside this sink.
+    /// </summary>
+    public static bool IsExactBoxTarget(TypeRef type)
+        => TypeFamilies.IsIntegerLike(type) && type.Name != "Char";
 
     /// <summary>
     /// The one semantic target for an array-element store, shared by the
@@ -464,13 +498,15 @@ public static class CoercionSinks
                 case NullCoalescingPropertyAssignment { Value: { } value, PropertyType: { } type }:
                     yield return new(value, type);
                     break;
-                // Box is deliberately absent: the unbox-over-box spelling
-                // (`(T)(object)x`) renders the operand through ConvertText, not
-                // CoerceText, and a bare constant under `(object)` boxes the
-                // literal's own type regardless of the box token — the coercion
-                // needs the explicit type spelling there. Residual docket item;
-                // the plain-Box printer branch still coerces via its
-                // own CoerceText call.
+                // A box has no conversion target of its own: it boxes whatever
+                // C# type the spelled operand naturally has. An integer box is
+                // therefore an exact sink — `(short)1`, never a bare `1` that
+                // boxes an int (#9437). Every path that spells a box operand
+                // (plain boxing, unbox-over-box, boxed equality, an interface
+                // receiver) reads the decided operand.
+                case Box { Operand: { } boxed } box when IsExactBoxTarget(box.Type):
+                    yield return new(boxed, box.Type, SinkScope.Exact);
+                    break;
                 case StoreElement store when store.Value is { } value
                     && StoreElementTarget(store, function.TypeShapes) is { } elementType:
                     yield return new(value, elementType);
@@ -546,6 +582,32 @@ public static class CoercionDomain
 
     public static bool IsAtTarget(IrExpression value, TypeRef target)
         => value.ResultType is { } resultType && resultType.Equals(target);
+
+    /// <summary>
+    /// Whether <paramref name="value"/>, spelled as C#, already has exactly the
+    /// type <paramref name="target"/>. An integer constant spells as an
+    /// unsuffixed decimal literal whatever its IR type, so its natural type is
+    /// the C# literal rule's: <c>int</c> when the value fits, else <c>uint</c>,
+    /// else <c>long</c> (a negative literal is the negated magnitude, and
+    /// <c>-9223372036854775808</c> is a <c>long</c>). Any other value has the C#
+    /// type <see cref="CSharpExpressionType.Effective"/> reports (a sub-<c>int</c>
+    /// arithmetic result is <c>int</c>).
+    /// </summary>
+    public static bool IsAtNaturalType(IrExpression value, TypeRef target)
+        => value switch
+        {
+            Constant { Value: int } => IsCoreSystem(target, "Int32"),
+            Constant { Value: long literal } => IsCoreSystem(target, literal switch
+            {
+                >= int.MinValue and <= int.MaxValue => "Int32",
+                > int.MaxValue and <= uint.MaxValue => "UInt32",
+                _ => "Int64",
+            }),
+            _ => CSharpExpressionType.Effective(value) is { } natural && natural.Equals(target),
+        };
+
+    static bool IsCoreSystem(TypeRef type, string name)
+        => type is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System" } && type.Name == name;
 }
 
 /// <summary>
@@ -580,12 +642,15 @@ public sealed class CoercionInsertionPass : IIrPass
             .Where(s => CoercionSinks.RequiresCoercion(s, shapes))
             .OrderByDescending(s => Depth(s.Value))
             .ToList();
-        foreach (var (value, target, _) in sinks)
+        foreach (var (value, target, scope) in sinks)
         {
             context.Stepper.StepOver($"coerce sink value to {target.Name}", value);
             // Clone so the wrapper owns a detached copy before the in-place
             // replace swaps the original out of its slot.
-            var coercion = new Coerce(target, (IrExpression)value.Clone());
+            var coercion = new Coerce(
+                target,
+                (IrExpression)value.Clone(),
+                scope == CoercionSinks.SinkScope.Exact ? CoercionKind.Exact : CoercionKind.Value);
             coercion.InheritSourceOffset(value);
             value.ReplaceWith(coercion);
         }
