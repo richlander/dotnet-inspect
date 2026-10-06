@@ -348,13 +348,16 @@ Notes:
   focused slow class or area affected by the change rather than treating the
   entire slow suite as a per-PR entry gate.
 - **PR CI runs only the fast unit subset.** In parallel with the bounded
-  solution smoke, the path-gated `decompiler-gates` job runs
+  solution build and smoke, the path-gated `decompiler-gates` job builds its two
+  test projects and their declared fixtures, then runs
   `dotnet run --project tests/ILInspector.Decompiler.Tests -c Release
   --no-build -- --gate fast` and
   `dotnet run --project tests/DecompilerHarness.Tests -c Release --no-build`.
-  These gate command surface, pass logic,
-  printer, importer facts, identity, and classification regressions without the
-  broad integration and sweep costs.
+  These gate command surface, pass logic, printer, importer facts, identity,
+  and classification regressions without the broad integration and sweep costs.
+  The function-pointer scope and expression-tree spoof fixtures are build-only
+  test-project references because fast tests consume their compiled assemblies;
+  changes to either fixture therefore select the decompiler gate.
   The slow CLI integration, compile-back/recompile, corpus-sweep, bind,
   scorecard, fidelity, and broad differential tests are tagged
   `[Trait("Speed", "Slow")]` and run only in Deep Inspect / full local runs.
