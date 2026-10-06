@@ -144,7 +144,7 @@ theorem capped_receipt_prefix (k : Nat) (ranked : List α) :
 The plan either settles the cap or exhausts the population, and an exhausted
 run has selected every eligible body. A settled run may also have selected
 every eligible body, but its receipt cannot tell; see
-`capped_settled_ignores_unevaluated`.
+`published_settled_ignores_unevaluated`.
 -/
 theorem capped_settles_or_exhausts (k : Nat) (ranked : List α) :
     let r := capped eligible declaration k ranked
@@ -199,10 +199,16 @@ theorem capped_stops_at_cap (k : Nat) (ranked : List α) (hk : 0 < k)
             simp [capped, h, htake]
 
 /--
-A settled receipt is determined by the evaluated prefix alone: replacing the
-unevaluated ranked tail with any other bodies yields the same receipt. A
-settled, non-exhausted run therefore cannot publish an exact eligible Count or
-complete exclusions.
+The receipt published by `SelectCappedTargets`: the loop's receipt plus
+`RankedBodyCount`, the size of the ranked population.
+-/
+def published (k : Nat) (ranked : List α) : Receipt α × Nat :=
+  (capped eligible declaration k ranked, ranked.length)
+
+/--
+The loop's receipt after a settled run is determined by the evaluated prefix:
+replacing the unevaluated ranked tail with any other bodies leaves it
+unchanged.
 -/
 theorem capped_settled_ignores_unevaluated (k : Nat) (ranked rest : List α)
     (hsettled : (capped eligible declaration k ranked).selected.length = k) :
@@ -224,12 +230,35 @@ theorem capped_settled_ignores_unevaluated (k : Nat) (ranked rest : List α)
               simpa [capped, h] using hsettled
             simp [capped, h, ih (k + 1) hs]
 
-/-- Two populations that differ only after a settled run's evaluated prefix
-can have different eligible Counts and still produce the same receipt. -/
+/--
+After a settled run, the published receipt depends only on the evaluated
+prefix and the population size: every same-length replacement of the
+unevaluated tail publishes the same receipt. When the run did not exhaust the
+population, that tail is non-empty and its eligible bodies are invisible to the
+receipt.
+-/
+theorem published_settled_ignores_unevaluated (k : Nat) (ranked rest : List α)
+    (hsettled : (capped eligible declaration k ranked).selected.length = k)
+    (hlength : rest.length =
+      (ranked.drop (capped eligible declaration k ranked).evaluated).length) :
+    published eligible declaration k
+        (ranked.take (capped eligible declaration k ranked).evaluated ++ rest) =
+      published eligible declaration k ranked := by
+  have hle := capped_evaluated_le eligible declaration k ranked
+  unfold published
+  rw [capped_settled_ignores_unevaluated eligible declaration k ranked rest
+    hsettled]
+  simp only [List.length_append, List.length_take, List.length_drop,
+    Prod.mk.injEq, true_and] at hlength ⊢
+  omega
+
+/-- Two equal-size populations that differ only after a settled run's
+evaluated prefix can have different eligible Counts and still publish the
+same receipt. -/
 example :
     let e := fun n : Nat => n % 2 == 0
     let d := fun _ : Nat => false
-    capped e d 1 [0, 1] = capped e d 1 [0, 2] ∧
+    published e d 1 [0, 1] = published e d 1 [0, 2] ∧
       ([0, 1].filter e).length ≠ ([0, 2].filter e).length := by
   decide
 

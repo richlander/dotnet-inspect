@@ -28,13 +28,15 @@ population, eligibility decision, declaration-candidate decision, and cap.
 | The plan evaluates no more bodies than the population | `capped_evaluated_le` |
 | The plan stops at the cap-th eligible body | `capped_stops_at_cap` |
 | The plan settles the cap or exhausts; an exhausted run selected every eligible body | `capped_settles_or_exhausts` |
-| A settled receipt ignores every unevaluated body, so it cannot state an exact eligible Count | `capped_settled_ignores_unevaluated` |
+| A settled, non-exhausted published receipt, including `RankedBodyCount`, is unchanged by any same-size replacement of its unevaluated bodies, so it does not reveal their eligibility | `published_settled_ignores_unevaluated` |
 
 `capped` mirrors the loop in
 `ReturnToSenderTargetSourceSession.SelectCappedTargets`. It evaluates one
 ranked body, counts declaration candidates and excluded declaration
 candidates, adds eligible bodies, and breaks once the selected count equals
-the cap. A cap of zero returns no selection; C# rejects it.
+the cap. A cap of zero returns no selection; C# rejects it. `published` adds
+the receipt's `RankedBodyCount`, the ranked population size, so receipt
+theorems cover every field `ReturnToSenderCappedTargetSelection` publishes.
 
 Selected targets return in metadata order by sorting the selected list by
 metadata sequence. Because `rankFirst_eq_eager` proves the two selected lists
