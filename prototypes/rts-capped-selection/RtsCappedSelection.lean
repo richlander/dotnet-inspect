@@ -40,6 +40,7 @@ structure Receipt (α : Type) where
   evaluated : Nat
   declarationCandidates : Nat
   excludedDeclarationCandidates : Nat
+  deriving DecidableEq
 
 def Receipt.empty : Receipt α := ⟨[], 0, 0, 0⟩
 
@@ -140,9 +141,10 @@ theorem capped_receipt_prefix (k : Nat) (ranked : List α) :
               split <;> simp_all
 
 /--
-The plan either settles the cap or exhausts the population. Only an exhausted
-run has selected every eligible body, which is when an exact eligible Count
-is available.
+The plan either settles the cap or exhausts the population, and an exhausted
+run has selected every eligible body. A settled run may also have selected
+every eligible body, but its receipt cannot tell; see
+`capped_settled_ignores_unevaluated`.
 -/
 theorem capped_settles_or_exhausts (k : Nat) (ranked : List α) :
     let r := capped eligible declaration k ranked
@@ -195,6 +197,41 @@ theorem capped_stops_at_cap (k : Nat) (ranked : List α) (hk : 0 < k)
             obtain ⟨before, last, htake, hlast⟩ := ih (k + 1) hk hs
             refine ⟨x :: before, last, ?_, hlast⟩
             simp [capped, h, htake]
+
+/--
+A settled receipt is determined by the evaluated prefix alone: replacing the
+unevaluated ranked tail with any other bodies yields the same receipt. A
+settled, non-exhausted run therefore cannot publish an exact eligible Count or
+complete exclusions.
+-/
+theorem capped_settled_ignores_unevaluated (k : Nat) (ranked rest : List α)
+    (hsettled : (capped eligible declaration k ranked).selected.length = k) :
+    capped eligible declaration k
+        (ranked.take (capped eligible declaration k ranked).evaluated ++ rest) =
+      capped eligible declaration k ranked := by
+  induction ranked generalizing k with
+  | nil => cases k <;> simp_all [capped, Receipt.empty]
+  | cons x xs ih =>
+      cases k with
+      | zero => simp [capped]
+      | succ k =>
+          by_cases h : eligible x = true
+          · have hs : (capped eligible declaration k xs).selected.length = k := by
+              simpa [capped, h] using hsettled
+            simp [capped, h, ih k hs]
+          · have hs : (capped eligible declaration (k + 1) xs).selected.length
+                = k + 1 := by
+              simpa [capped, h] using hsettled
+            simp [capped, h, ih (k + 1) hs]
+
+/-- Two populations that differ only after a settled run's evaluated prefix
+can have different eligible Counts and still produce the same receipt. -/
+example :
+    let e := fun n : Nat => n % 2 == 0
+    let d := fun _ : Nat => false
+    capped e d 1 [0, 1] = capped e d 1 [0, 2] ∧
+      ([0, 1].filter e).length ≠ ([0, 2].filter e).length := by
+  decide
 
 /-! ## Equality with the complete pre-cap plan -/
 

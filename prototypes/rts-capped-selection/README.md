@@ -27,7 +27,8 @@ population, eligibility decision, declaration-candidate decision, and cap.
 | The receipt counts only the evaluated ranked prefix | `capped_receipt_prefix` |
 | The plan evaluates no more bodies than the population | `capped_evaluated_le` |
 | The plan stops at the cap-th eligible body | `capped_stops_at_cap` |
-| An exact eligible Count is available only after exhaustion | `capped_settles_or_exhausts` |
+| The plan settles the cap or exhausts; an exhausted run selected every eligible body | `capped_settles_or_exhausts` |
+| A settled receipt ignores every unevaluated body, so it cannot state an exact eligible Count | `capped_settled_ignores_unevaluated` |
 
 `capped` mirrors the loop in
 `ReturnToSenderTargetSourceSession.SelectCappedTargets`. It evaluates one
