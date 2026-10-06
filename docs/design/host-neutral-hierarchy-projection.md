@@ -7,7 +7,8 @@ projection**. The initial slice defines the shared synchronous request and sink
 contract plus the CLI Markout adapter. It is tracked by
 [#9458](https://github.com/richlander/dotnet-inspect/issues/9458).
 Type Overview is the first planned product adopter under
-[#8430](https://github.com/richlander/dotnet-inspect/issues/8430).
+[#8430](https://github.com/richlander/dotnet-inspect/issues/8430), whose
+counted adoption reaches both the CLI and Inspect Web.
 
 ## Owner and exact claim
 
@@ -138,20 +139,26 @@ thread affinity, retained reader, or host UI object.
 
 ## Adoption
 
+The counted production path has five steps:
+
 1. Define and test the host-neutral request and synchronous sink contract.
 2. Add a CLI Markout adapter that proves nested, sibling, leaf, and
    exception-unwind behavior without materializing `TreeNode`. Owner-specific
    node formatting retains text-containment responsibility.
 3. Have Type Overview select `InspectionHierarchyRequest` explicitly and push
-   its Type/category/Member-group node union from the owner. The CLI passes
-   `--tree` or the native Tree default through that request rather than
-   reconstructing hierarchy from returned rows.
-4. Keep Type Overview Rows and Count as distinct admitted requests. Row-window
-   adoption remains with its QuerySpace and Type document owners.
-5. Add Browser/Wasm adoption when a Browser surface requests the hierarchy;
-   the existing Type-panel Rows consumer does not become a Tree consumer merely
-   because the neutral capability exists.
+   its Type/category/Member-group node union from the owner while retaining
+   Rows and Count as distinct admitted requests. Row-window adoption remains
+   with its QuerySpace and Type document owners.
+4. Have the CLI pass `--tree` or the native Tree default through that request
+   and lower the pushed nodes through `MarkoutHierarchySink<TNode>` rather than
+   constructing `TreeNode`.
+5. Have the managed Inspect Web Type-document export execute the same Tree
+   request into a Browser sink that lowers the owner-issued nodes to the
+   serializable member-navigation transport consumed by
+   `inspect-web/src/type-panel.ts`. That adoption retires TypeScript grouping
+   of Type Overview rows; the Browser retains DOM interaction and rendering.
 
 The initial slice intentionally ends after step 2. Steps 3 and 4 belong to PR
 [#9360](https://github.com/richlander/dotnet-inspect/pull/9360) and its
-successor work; step 5 is tracked with the adopting Browser surface.
+successor work. Step 5 is the Inspect Web half of #8430's Type-document host
+adoption and must name its focused implementation PR before execution.
