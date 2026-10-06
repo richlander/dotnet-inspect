@@ -81,6 +81,14 @@ namespace ILInspector.ILDiff;
 /// <c>ForgedKeySegmentation_DoesNotFoldAcrossDeclaringTypes</c>.
 /// </para>
 /// <para>
+/// When the enclosing body comparison normalizes platform assembly scopes, generated
+/// member signatures use that same platform-scope equivalence while establishing
+/// correspondence. Otherwise a reconstructed unit compiled against a rolled-forward
+/// reference pack keeps raw platform versions in the key and withholds a valid fold.
+/// <c>LocalFunctionOrdinal_FoldsAcrossNormalizedPlatformSignatureScopes</c> pins the
+/// composition.
+/// </para>
+/// <para>
 /// Anonymous shapes (<c>&lt;&gt;c__DisplayClassN_K</c>, <c>&lt;&gt;9__N_K</c>) are excluded:
 /// they carry no containing-method name, so <c>N</c> is their only discriminator and an
 /// ordinal-free key would collide across unrelated closures. Note this is a statement
@@ -246,6 +254,17 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
     public static (CompilerGeneratedOrdinalCorrespondence Old, CompilerGeneratedOrdinalCorrespondence New) Build(
         MetadataReader oldReader,
         MetadataReader newReader)
+        => Build(
+            oldReader,
+            newReader,
+            IlBodyDiffNormalization.None);
+
+    // Generated-member signatures participate in correspondence, so their reference
+    // scopes must use the same platform equivalence as the final operand comparison.
+    internal static (CompilerGeneratedOrdinalCorrespondence Old, CompilerGeneratedOrdinalCorrespondence New) Build(
+        MetadataReader oldReader,
+        MetadataReader newReader,
+        IlBodyDiffNormalization normalization)
     {
         ArgumentNullException.ThrowIfNull(oldReader);
         ArgumentNullException.ThrowIfNull(newReader);
@@ -258,8 +277,8 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
             return (Empty, Empty);
         }
 
-        var oldIndex = SideIndex.For(oldReader);
-        var newIndex = SideIndex.For(newReader);
+        var oldIndex = SideIndex.For(oldReader, normalization);
+        var newIndex = SideIndex.For(newReader, normalization);
         if (oldIndex.IsEmpty || newIndex.IsEmpty)
             return (Empty, Empty);
 
@@ -665,13 +684,19 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
 
     /// <summary>
     /// One assembly's eligible compiler-generated members, indexed by ordinal-free key.
-    /// Cached per reader: the fidelity loop compares many methods against the same
-    /// original assembly, and re-enumerating its metadata for each one would make the
-    /// comparison quadratic in the assembly's member count.
+    /// Cached per reader and structural normalization: the fidelity loop compares many
+    /// methods against the same original assembly, and re-enumerating its metadata for
+    /// each one would make the comparison quadratic in the assembly's member count.
     /// </summary>
     sealed class SideIndex
     {
-        static readonly ConditionalWeakTable<MetadataReader, SideIndex> s_cache = new();
+        const IlBodyDiffNormalization StructuralNormalizations =
+            IlBodyDiffNormalization.NormalizePlatformAssemblyScope;
+        // A metadata string cannot contain NUL, so a raw reference scope cannot
+        // impersonate this normalized structural-key component.
+        const string NormalizedPlatformScope = "\0platform-assembly";
+
+        static readonly ConditionalWeakTable<MetadataReader, Cache> s_cache = new();
 
         public required Dictionary<StructuralTypeKey, MethodGroup> MethodGroups { get; init; }
         public required Dictionary<MethodDefinitionHandle, string> MethodNames { get; init; }
@@ -682,8 +707,33 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
 
         public bool IsEmpty => MethodGroups.Count == 0 && Types.Count == 0 && FieldSiblings.Count == 0;
 
-        public static SideIndex For(MetadataReader reader)
-            => s_cache.GetValue(reader, static r => Create(r));
+        public static SideIndex For(
+            MetadataReader reader,
+            IlBodyDiffNormalization normalization)
+            => s_cache.GetValue(reader, static _ => new Cache())
+                .Get(
+                    reader,
+                    normalization & StructuralNormalizations);
+
+        sealed class Cache
+        {
+            readonly Dictionary<IlBodyDiffNormalization, SideIndex> _indexes = [];
+
+            internal SideIndex Get(
+                MetadataReader reader,
+                IlBodyDiffNormalization normalization)
+            {
+                lock (_indexes)
+                {
+                    if (_indexes.TryGetValue(normalization, out var index))
+                        return index;
+
+                    index = Create(reader, normalization);
+                    _indexes.Add(normalization, index);
+                    return index;
+                }
+            }
+        }
 
         /// <summary>
         /// Builds the index, or yields an empty one when the metadata cannot be read.
@@ -699,11 +749,13 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
         /// Declining to fold restores the un-normalized comparison. Enforced by
         /// <c>MalformedUnrelatedMetadata_FailsClosedRatherThanThrowing</c>.
         /// </remarks>
-        static SideIndex Create(MetadataReader reader)
+        static SideIndex Create(
+            MetadataReader reader,
+            IlBodyDiffNormalization normalization)
         {
             try
             {
-                return CreateCore(reader);
+                return CreateCore(reader, normalization);
             }
             catch (BadImageFormatException)
             {
@@ -719,7 +771,9 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
             }
         }
 
-        static SideIndex CreateCore(MetadataReader reader)
+        static SideIndex CreateCore(
+            MetadataReader reader,
+            IlBodyDiffNormalization normalization)
         {
             var methodGroups = new Dictionary<StructuralTypeKey, MethodGroup>();
             var methodNames = new Dictionary<MethodDefinitionHandle, string>();
@@ -779,7 +833,9 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
                 new StructuralSignatureBuilder(
                     reader,
                     typeNames,
-                    workBudget);
+                    workBudget,
+                    referenceScope: (source, scope) =>
+                        ReferenceScope(source, scope, normalization));
             foreach (var typeHandle in reader.TypeDefinitions)
             {
                 var type = reader.GetTypeDefinition(typeHandle);
@@ -955,6 +1011,36 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
                 TypeNames = typeNames,
                 FieldSiblings = fieldSiblings,
             };
+        }
+
+        static string ReferenceScope(
+            MetadataReader reader,
+            EntityHandle scope,
+            IlBodyDiffNormalization normalization)
+        {
+            if (scope.Kind != HandleKind.AssemblyReference || !reader.IsAssembly)
+                return StructuralSignatureKey.ReferenceScope(reader, scope);
+
+            var reference = reader.GetAssemblyReference(
+                (AssemblyReferenceHandle)scope);
+            string referenceName = MetadataSafetyPolicy.ReadStructuralString(
+                reader,
+                reference.Name);
+            string currentName = MetadataSafetyPolicy.ReadStructuralString(
+                reader,
+                reader.GetAssemblyDefinition().Name);
+            if ((normalization
+                    & IlBodyDiffNormalization.NormalizePlatformAssemblyScope) != 0
+                && !string.Equals(
+                    referenceName,
+                    currentName,
+                    StringComparison.Ordinal)
+                && IlBodyDiff.IsPlatformAssemblyName(referenceName))
+            {
+                return NormalizedPlatformScope;
+            }
+
+            return StructuralSignatureKey.ReferenceScope(reader, scope);
         }
 
         static void Add<TKey, THandle>(

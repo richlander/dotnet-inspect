@@ -74,6 +74,13 @@ static partial class FidelityCheck
     /// fallback is no longer needed.
     /// </para>
     /// <para>
+    /// v4 composes platform-assembly scope normalization into generated-member
+    /// correspondence. The ordinal-free key includes the generated member's structural
+    /// signature; comparing that signature under raw platform reference versions withheld
+    /// correspondence when a reconstructed unit rolled forward to a newer reference pack,
+    /// even though the final operand comparison already normalized those scopes.
+    /// </para>
+    /// <para>
     /// The flag set is the trigger this version is <em>gated</em> on, but it is not the
     /// whole of what it protects: the equality rules also include how
     /// <c>IlBodyDiff</c> renders an operand, and a renderer change moves them without
@@ -94,7 +101,7 @@ static partial class FidelityCheck
     /// argument and must bump.
     /// </para>
     /// </remarks>
-    internal const int CurrentContractVersion = 3;
+    internal const int CurrentContractVersion = 4;
 
     internal const IlBodyDiffNormalization ContractBodyDiffNormalization =
         IlBodyDiffNormalization.NormalizeVariableLayout

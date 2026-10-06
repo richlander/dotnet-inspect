@@ -213,13 +213,17 @@ fidelity contract:
 IlBodyDiffNormalization.NormalizeVariableLayout
     | IlBodyDiffNormalization.NormalizeCurrentAssemblyScope
     | IlBodyDiffNormalization.NormalizePlatformAssemblyScope
+    | IlBodyDiffNormalization.NormalizeCompilerGeneratedOrdinals
 ```
 
-Fidelity V1 combines this operand-aware product result with its harness-owned
-opcode canonicalization. The product outcome supplies comparison evidence; it
-does not replace the versioned harness verdict. This keeps future fidelity
-contracts free to change policy without adding test-policy names to the product
-API.
+Fidelity V4 composes platform-scope equivalence into generated-member
+correspondence before normalizing compiler-generated ordinals. This permits a
+local function rebuilt against a rolled-forward platform reference pack to
+correspond without making non-platform references equivalent. The contract
+combines this operand-aware product result with its harness-owned opcode
+canonicalization. The product outcome supplies comparison evidence; it does not
+replace the versioned harness verdict. This keeps future fidelity contracts free
+to change policy without adding test-policy names to the product API.
 
 ## When to extend the boundary
 

@@ -388,21 +388,13 @@ public static partial class IlBodyDiff
                 return "<current>";
             if (normalizePlatform
                 && !name.Equals(currentAssembly, StringComparison.Ordinal)
-                && IsPlatformAssembly(name))
+                && IsPlatformAssemblyName(name))
             {
                 return "<platform>";
             }
 
             return identity;
         }
-
-        static bool IsPlatformAssembly(ReadOnlySpan<char> name)
-            => name.Equals("mscorlib", StringComparison.Ordinal)
-                || name.Equals("netstandard", StringComparison.Ordinal)
-                || name.Equals("System", StringComparison.Ordinal)
-                || name.StartsWith("System.", StringComparison.Ordinal)
-                || name.Equals("Microsoft.CSharp", StringComparison.Ordinal)
-                || name.StartsWith("Microsoft.VisualBasic", StringComparison.Ordinal);
 
     }
 

@@ -427,8 +427,8 @@ sealed class StructuralSignatureWorkBudget
 }
 
 /// <summary>
-/// Builds structural keys for one metadata module and one stable type-name
-/// substitution policy.
+/// Builds structural keys for one metadata module and stable type-name and
+/// reference-scope substitution policies.
 /// </summary>
 public sealed class StructuralSignatureBuilder
 {
@@ -436,6 +436,7 @@ public sealed class StructuralSignatureBuilder
     readonly IReadOnlyDictionary<TypeDefinitionHandle, string>? _typeNameOverrides;
     readonly StructuralSignatureWorkBudget _workBudget;
     readonly StructuralSignatureTypeProvider _provider;
+    readonly Func<MetadataReader, EntityHandle, string> _referenceScope;
     readonly Dictionary<TypeDefinitionHandle, StructuralTypeKey> _typeKeys = [];
     readonly Dictionary<TypeDefinitionHandle, string> _typeSegments = [];
     readonly Dictionary<BlobHandle, StructuralEncodedSignature> _methodSignatures = [];
@@ -453,6 +454,7 @@ public sealed class StructuralSignatureBuilder
             reader,
             typeNameOverrides,
             new StructuralSignatureWorkBudget(),
+            StructuralSignatureKey.ReferenceScope,
             requireUniqueLocalDefinitions: false)
     {
     }
@@ -464,6 +466,7 @@ public sealed class StructuralSignatureBuilder
             reader,
             typeNameOverrides: null,
             new StructuralSignatureWorkBudget(),
+            StructuralSignatureKey.ReferenceScope,
             requireUniqueLocalDefinitions)
     {
     }
@@ -472,6 +475,7 @@ public sealed class StructuralSignatureBuilder
         MetadataReader reader,
         IReadOnlyDictionary<TypeDefinitionHandle, string>? typeNameOverrides,
         StructuralSignatureWorkBudget workBudget,
+        Func<MetadataReader, EntityHandle, string>? referenceScope = null,
         bool requireUniqueLocalDefinitions = false)
     {
         ArgumentNullException.ThrowIfNull(reader);
@@ -479,8 +483,10 @@ public sealed class StructuralSignatureBuilder
         _reader = reader;
         _typeNameOverrides = typeNameOverrides;
         _workBudget = workBudget;
+        _referenceScope = referenceScope ?? StructuralSignatureKey.ReferenceScope;
         _provider = new StructuralSignatureTypeProvider(
             workBudget,
+            _referenceScope,
             requireUniqueLocalDefinitions);
     }
 
@@ -773,7 +779,8 @@ public sealed class StructuralSignatureBuilder
                     new EncodedStructuralSignatureType(
                         StructuralTypeName.OfReference(
                             _reader,
-                            (TypeReferenceHandle)handle))),
+                            (TypeReferenceHandle)handle,
+                            _referenceScope))),
             HandleKind.TypeSpecification =>
                 new PartPrefixStructuralSignatureType(
                     's',
@@ -1341,6 +1348,7 @@ sealed class StructuralSignatureTypeProvider
 {
     readonly StructuralSignatureWorkBudget _workBudget;
     readonly bool _requireUniqueLocalDefinitions;
+    readonly Func<MetadataReader, EntityHandle, string> _referenceScope;
     readonly Dictionary<EntityHandle, string> _constraintTypes = [];
     readonly Dictionary<BlobHandle, string> _constraintTypeSpecifications = [];
     readonly Dictionary<BlobHandle, StructuralSignatureType> _typeSpecifications = [];
@@ -1349,9 +1357,11 @@ sealed class StructuralSignatureTypeProvider
 
     internal StructuralSignatureTypeProvider(
         StructuralSignatureWorkBudget workBudget,
+        Func<MetadataReader, EntityHandle, string> referenceScope,
         bool requireUniqueLocalDefinitions = false)
     {
         _workBudget = workBudget;
+        _referenceScope = referenceScope;
         _requireUniqueLocalDefinitions = requireUniqueLocalDefinitions;
     }
 
@@ -1380,7 +1390,7 @@ sealed class StructuralSignatureTypeProvider
             reader,
             'r',
             rawTypeKind,
-            StructuralTypeName.OfReference(reader, handle));
+            StructuralTypeName.OfReference(reader, handle, _referenceScope));
 
     public StructuralSignatureType GetTypeFromSpecification(
         MetadataReader reader,
@@ -1437,7 +1447,8 @@ sealed class StructuralSignatureTypeProvider
                     NamedType(
                         StructuralTypeName.OfReference(
                             reader,
-                            (TypeReferenceHandle)handle))),
+                            (TypeReferenceHandle)handle,
+                            _referenceScope))),
             HandleKind.TypeSpecification =>
                 new PartPrefixStructuralSignatureType(
                     's',
@@ -1680,7 +1691,8 @@ static class StructuralTypeName
 
     internal static string OfReference(
         MetadataReader reader,
-        TypeReferenceHandle handle)
+        TypeReferenceHandle handle,
+        Func<MetadataReader, EntityHandle, string>? referenceScope = null)
     {
         Span<TypeReferenceHandle> chain =
             stackalloc TypeReferenceHandle[MetadataSafetyPolicy.MaxRelationshipNodes];
@@ -1700,7 +1712,9 @@ static class StructuralTypeName
         var builder = new StringBuilder("R");
         StructuralSignatureKey.AppendPart(
             builder,
-            StructuralSignatureKey.ReferenceScope(reader, terminal));
+            (referenceScope ?? StructuralSignatureKey.ReferenceScope)(
+                reader,
+                terminal));
         var outer = reader.GetTypeReference(chain[0]);
         StructuralSignatureKey.AppendPart(
             builder,

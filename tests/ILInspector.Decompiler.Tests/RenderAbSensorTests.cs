@@ -475,6 +475,107 @@ public class RenderAbSensorTests
     }
 
     [Fact]
+    public void RenderAbBaseline_PreservesExplicitStructuralUnavailability()
+    {
+        const string key = "fixture.dll!T::M()";
+        const string failure =
+            "product structural projection does not match the Render A/B body";
+        string path = Path.GetTempFileName();
+        var shellContext = ValidityCheck.MethodShellContext.Create(
+            SyntheticFunction(),
+            requiresUnsafeContext: false);
+        var document = StructuralDocument("return 2;");
+        var renders = new Dictionary<string, RenderAbSensor.RenderedMethod>(
+            StringComparer.Ordinal)
+        {
+            [key] = new(
+                "T",
+                "M",
+                "()",
+                typeof(RenderAbSensorTests).Assembly.Location,
+                "fixture.dll",
+                "return 1;",
+                shellContext,
+                SourceDocument: document,
+                SourceDocumentFailure: failure),
+        };
+
+        try
+        {
+            var artifact = RenderAbSensor.CreateBaseline(renders);
+            Assert.Equal(3, artifact.Version);
+            File.WriteAllText(
+                path,
+                System.Text.Json.JsonSerializer.Serialize(artifact));
+
+            var loaded = RenderAbSensor.LoadBaseline(path);
+
+            Assert.NotNull(loaded);
+            Assert.Equal(document, loaded.Methods[key].SourceDocument);
+            Assert.Equal(
+                failure,
+                loaded.Methods[key].SourceDocumentFailure);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void RenderAbChangedMethod_KeepsBaselineStructuralFailureVisible()
+    {
+        const string key = "fixture.dll!T::M()";
+        const string failure =
+            "product structural projection does not match the Render A/B body";
+        var function = SyntheticFunction();
+        var shellContext = ValidityCheck.MethodShellContext.Create(
+            function,
+            requiresUnsafeContext: false);
+        var baseline = new Dictionary<string, RenderAbSensor.BaselineMethod>(
+            StringComparer.Ordinal)
+        {
+            [key] = new(
+                "return 1;",
+                shellContext,
+                StructuralDocument("return 2;"),
+                SourceDocumentFailure: failure),
+        };
+        var current = new Dictionary<string, RenderAbSensor.RenderedMethod>(
+            StringComparer.Ordinal)
+        {
+            [key] = new(
+                "T",
+                "M",
+                "()",
+                typeof(RenderAbSensorTests).Assembly.Location,
+                "fixture.dll",
+                "return 2;",
+                shellContext,
+                new RenderAbSensor.SemanticContext(
+                    "T",
+                    "M",
+                    function,
+                    new Dictionary<string, Dictionary<string, string>>(
+                        StringComparer.Ordinal),
+                    ProductParameterList: null),
+                StructuralDocument("return 2;")),
+        };
+
+        string output = CaptureConsole(
+            () => RenderAbSensor.Compare(
+                baseline,
+                current,
+                maxExamples: 5),
+            expectedExitCode: 2);
+
+        Assert.Contains(
+            "Structural review: complete: 0, partial: 0, unavailable: 1",
+            output);
+        Assert.Contains($"Structural review unavailable: baseline: {failure}", output);
+    }
+
+    [Fact]
     public void RenderAbChangedMethod_EmitsReplayableProductStructuralDiff()
     {
         const string key = "fixture.dll!T::M()";
@@ -799,12 +900,61 @@ public class RenderAbSensorTests
     }
 
     [Fact]
-    public void RenderAbBaseline_RejectsVersionTwoMethodWithoutProductDocument()
+    public void RenderAbBaseline_RejectsVersionTwoArtifact()
     {
         const string key = "fixture.dll!T::M()";
         string path = Path.GetTempFileName();
         var artifact = new RenderAbSensor.BaselineArtifact(
             2,
+            new Dictionary<string, RenderAbSensor.BaselineMethod>(
+                StringComparer.Ordinal)
+            {
+                [key] = new(
+                    "return;",
+                    new ValidityCheck.MethodShellContext(
+                        RequiresAsyncContext: false,
+                        RequiresUnsafeContext: false,
+                        HasAwaitSyntax: false),
+                    StructuralDocument("return;")),
+            });
+
+        try
+        {
+            File.WriteAllText(
+                path,
+                System.Text.Json.JsonSerializer.Serialize(artifact));
+
+            lock (ConsoleGate)
+            {
+                var originalError = Console.Error;
+                using var writer = new StringWriter();
+                try
+                {
+                    Console.SetError(writer);
+                    Assert.Null(RenderAbSensor.LoadBaseline(path));
+                    Assert.Contains(
+                        "unsupported baseline version 2; expected 3",
+                        writer.ToString());
+                }
+                finally
+                {
+                    Console.SetError(originalError);
+                }
+            }
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void RenderAbBaseline_RejectsVersionThreeMethodWithoutProductDocument()
+    {
+        const string key = "fixture.dll!T::M()";
+        string path = Path.GetTempFileName();
+        var artifact = new RenderAbSensor.BaselineArtifact(
+            3,
             new Dictionary<string, RenderAbSensor.BaselineMethod>(
                 StringComparer.Ordinal)
             {

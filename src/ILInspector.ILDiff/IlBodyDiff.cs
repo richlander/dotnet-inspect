@@ -148,6 +148,14 @@ public static partial class IlBodyDiff
         | IlBodyDiffNormalization.NormalizePlatformAssemblyScope
         | IlBodyDiffNormalization.NormalizeCompilerGeneratedOrdinals;
 
+    internal static bool IsPlatformAssemblyName(ReadOnlySpan<char> name)
+        => name.Equals("mscorlib", StringComparison.Ordinal)
+            || name.Equals("netstandard", StringComparison.Ordinal)
+            || name.Equals("System", StringComparison.Ordinal)
+            || name.StartsWith("System.", StringComparison.Ordinal)
+            || name.Equals("Microsoft.CSharp", StringComparison.Ordinal)
+            || name.StartsWith("Microsoft.VisualBasic", StringComparison.Ordinal);
+
     public static IlBodyDiffResult Compare(MethodInstructions oldBody, MethodInstructions newBody)
         => Compare(oldBody, newBody, oldResolver: null, newResolver: null, IlBodyDiffNormalization.None);
 
@@ -178,7 +186,10 @@ public static partial class IlBodyDiff
 
         var (oldCorrespondence, newCorrespondence) =
             (normalization & IlBodyDiffNormalization.NormalizeCompilerGeneratedOrdinals) != 0
-                ? CompilerGeneratedOrdinalCorrespondence.Build(oldReader, newReader)
+                ? CompilerGeneratedOrdinalCorrespondence.Build(
+                    oldReader,
+                    newReader,
+                    normalization)
                 : (CompilerGeneratedOrdinalCorrespondence.Empty, CompilerGeneratedOrdinalCorrespondence.Empty);
 
         return Compare(

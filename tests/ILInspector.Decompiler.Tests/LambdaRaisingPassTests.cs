@@ -176,6 +176,56 @@ public class LambdaRaisingPassTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
+    public async Task PublishedSystemCommandLineResponseFile_ProductWholeMemberCompilesBackExactly()
+    {
+        string path = Path.Combine(
+            AppContext.BaseDirectory,
+            "RealAssets",
+            "NestedLambda",
+            "System.CommandLine.dll");
+        var result = Assert.Single(await ReturnToSender.CompileBackTargets(
+            path,
+            [new ReturnToSender.RequestedTarget(
+                "System.CommandLine.Parsing.StringExtensions",
+                "TryReadResponseFile",
+                Overload: 0)],
+            applyCompileBackFloor: false));
+
+        Assert.True(
+            result.Status == FidelityCheck.CompileBackStatus.Exact,
+            $"{result.Plan.TargetMethod.Method}: {result.Status}: {result.Detail}\n"
+            + $"Original: {result.OriginalOpcodes}\n"
+            + $"Recompiled: {result.RecompiledOpcodes}\n"
+            + string.Join('\n', result.IlDiffDiagnostic?.Rows.Select(row => row.Message) ?? []));
+    }
+
+    [Fact]
+    public void PublishedRoslynInterceptorsNamespaces_EscapesKeywordArgumentReceiver()
+    {
+        string path = typeof(CSharpCompilation).Assembly.Location;
+        using var metadata = CorpusMetadata.Create([path]);
+        using var source = MetadataSource.Open(path, context: metadata);
+        var function = IrImporter.Import(
+            source,
+            "Microsoft.CodeAnalysis.CSharp.CSharpParseOptions",
+            "get_InterceptorsNamespaces");
+        Assert.NotNull(function);
+
+        var result = CSharpPrinter.PrintRaised(
+            function!,
+            method => IrImporter.Import(source, method));
+
+        Assert.True(result.Succeeded, string.Join("\n", result.Diagnostics.Select(d => d.Message)));
+        Assert.Equal(DecompilationFidelity.Full, function!.Fidelity);
+        Assert.Contains("ReadOnlySpan<char> @namespace", result.Output);
+        Assert.Contains("@namespace.Length", result.Output);
+        Assert.DoesNotContain(
+            "namespace.Length",
+            result.Output!.Replace("@namespace.Length", "", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void PublishedRoslynNestedCapturingLambda_PreservesSharedHostLocalScope()
     {
         string path = Path.Combine(
