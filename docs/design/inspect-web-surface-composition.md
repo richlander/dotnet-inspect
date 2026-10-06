@@ -339,6 +339,11 @@ a transient full-bleed viewer reached from Source or exact Finding actions, not
 a persistent Member inspector. The Metadata Explorer retains its separately
 owned full-bleed composition.
 
+When present, the top content row has the shared 40-pixel heading height on
+both sides of the master-detail divide. It contains one line: long text elides
+and mode tabs scroll horizontally rather than wrapping. Additional controls
+and full diagnostics occupy separate content below that heading.
+
 Regular inspector content and navigation panes end directly at the data bar.
 They have no fixed bottom context, keyboard-hint, or provenance bar. The subject
 path and selected navigation rows provide context. The overload picker keeps
@@ -1036,7 +1041,6 @@ an inset reference-section heading. The subject path retains navigation context.
 References                                  direct reference count or state
 direct AssemblyRef graph
 reference names, versions, cultures, and public-key tokens
-Library asset and assembly identity              TFM · package@version
 ```
 
 One independently scrolling region begins with a bounded one-hop AssemblyRef
@@ -1096,21 +1100,19 @@ failure state of each source.
 
 Tabs use manual activation: Left/Right and Home/End move focus, Enter/Space
 select, and rerenders preserve focused-tab identity. The selected tab labels the
-shared results panel. Full labels remain available at narrow widths, where the
-tabs occupy a second header row rather than clipping or introducing page-level
+shared results panel. Full labels remain available at narrow widths through
+local horizontal tab scrolling; the heading stays one line without page-level
 horizontal scrolling.
 
 The shared frame uses a quiet count/state header, an optional platform Library
-selector, one full-area results scroller, and bottom assembly context. At wide
-widths the title, status, and tabs share one header row. At narrow widths the
-existing Types control occupies the title's place and the tabs use the second
-header row.
+selector, and one full-area results scroller. The title, status, and tabs share
+one fixed-height header row. At narrow widths the existing Types control
+occupies the title's place; status elides and tabs scroll locally.
 
 ```text
 Analysis  count/state   [Relationships]  Complexity  Performance  Integrations
 optional platform Library selector
 mode-owned content
-Library asset and assembly identity              TFM · package@version
 ```
 
 Performance retains product triage order, opportunity and loop counts, shape

@@ -126,19 +126,15 @@ async function expectCompactAnalysisHeader(page: Page) {
     "Integrations",
   ]) {
     const tab = tabs.getByRole("tab", { name, exact: true });
+    await tab.scrollIntoViewIfNeeded();
     await expect(tab).toBeInViewport({ ratio: 1 });
     expect(await tab.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
   }
   const headerBox = await header.boundingBox();
   const tabsBox = await tabs.boundingBox();
   const resultsBox = await frame.getByRole("tabpanel").boundingBox();
-  const narrow = (page.viewportSize()?.width ?? 0) <= 600;
-  expect(headerBox!.height).toBe(narrow ? 104 : 40);
-  if (narrow) {
-    expect(tabsBox!.y - headerBox!.y).toBeGreaterThanOrEqual(20);
-  } else {
-    expect(Math.abs(tabsBox!.y - headerBox!.y)).toBeLessThanOrEqual(1);
-  }
+  expect(headerBox!.height).toBe(40);
+  expect(Math.abs(tabsBox!.y - headerBox!.y)).toBeLessThanOrEqual(1);
   expect(tabsBox!.y + tabsBox!.height).toBeLessThanOrEqual(headerBox!.y + headerBox!.height);
   expect(headerBox!.x + headerBox!.width - tabsBox!.x - tabsBox!.width).toBeLessThanOrEqual(16);
   expect(Math.abs(resultsBox!.y - headerBox!.y - headerBox!.height)).toBeLessThanOrEqual(1);

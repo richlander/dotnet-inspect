@@ -39,7 +39,7 @@ export function renderCompareFrame(options: CompareFrameOptions): string {
   const tabs = modes.map(([value, label]) =>
     `<button type="button" role="tab" id="compare-mode-${value}" data-compare-mode="${value}" aria-selected="${value === mode}" aria-controls="compare-panel" tabindex="${value === mode ? 0 : -1}">${label}</button>`,
   ).join("");
-  return `<section class="compare-surface compare-surface-${options.subjectKind}" aria-labelledby="compare-title" data-compare-mode-active="${mode}">
+  return `<section class="compare-surface compare-surface-${options.subjectKind}${options.tools ? " has-compare-tools" : ""}" aria-labelledby="compare-title" data-compare-mode-active="${mode}">
     <header class="compare-head">
       <div class="compare-head-copy">
         <h1 id="compare-title">${escapeHtml(options.subjectLabel)}</h1>
@@ -51,9 +51,9 @@ export function renderCompareFrame(options: CompareFrameOptions): string {
           <button type="button" class="compare-change-target" id="compare-change-target">Change target</button>
         </div>
       </div>
-      ${options.tools ?? ""}
       <div class="compare-mode-tabs" role="tablist" aria-label="Compare modes">${tabs}</div>
     </header>
+    ${options.tools ?? ""}
     <div id="compare-panel" class="compare-panel" role="tabpanel" aria-labelledby="compare-mode-${mode}">${options.content}</div>
   </section>`;
 }

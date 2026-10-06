@@ -1233,8 +1233,10 @@ export function renderSourceResult(options: RenderSourceResultOptions): string {
     escapeHtml,
     highlightCSharp,
   } = options;
-  return `<section class="source-result" aria-label="Source">
-      <aside class="source-provenance" aria-label="Source provenance"><strong>${source.provider === "pdb" ? "PDB Source" : "Decompiled source"}</strong><span>${escapeHtml(source.provenance)}</span>${pdbSourceLimitationHtml(source)}</aside>
+  const limitation = pdbSourceLimitationHtml(source);
+  return `<section class="source-result${limitation ? " has-source-diagnostics" : ""}" aria-label="Source">
+      <aside class="source-provenance" aria-label="Source provenance"><strong>${source.provider === "pdb" ? "PDB Source" : "Decompiled source"}</strong><span title="${escapeHtml(source.provenance)}">${escapeHtml(source.provenance)}</span></aside>
+      ${limitation ? `<div class="source-diagnostics">${limitation}</div>` : ""}
       ${renderSourceCode(
         text,
         highlightCSharp,
@@ -1501,8 +1503,9 @@ export function renderTypeSource(options: RenderTypeSourceOptions): string {
         if (content.outcome !== "Available" || content.text === null) {
           return `<section class="document-section empty-document"><h2>API Declarations unavailable</h2>${diagnosticHtml}</section>`;
         }
-        return `<section class="source-result" aria-label="API Declarations">
-          <aside class="source-provenance" aria-label="Source provenance"><strong>API Declarations</strong><span>${content.scope === "All" ? "All declarations" : "Public and protected API"} · metadata, without implementation bodies</span>${diagnosticHtml}</aside>
+        return `<section class="source-result${diagnosticHtml ? " has-source-diagnostics" : ""}" aria-label="API Declarations">
+          <aside class="source-provenance" aria-label="Source provenance"><strong>API Declarations</strong><span>${content.scope === "All" ? "All declarations" : "Public and protected API"} · metadata, without implementation bodies</span></aside>
+          ${diagnosticHtml ? `<div class="source-diagnostics">${diagnosticHtml}</div>` : ""}
           ${renderSourceCode(content.text, highlightCSharp)}
         </section>`;
       }

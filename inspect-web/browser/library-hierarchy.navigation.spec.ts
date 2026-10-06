@@ -1787,3 +1787,26 @@ for (const [command, dialog] of [
     expect(page.url()).toBe(url);
   });
 }
+
+
+test("Compare keeps a single aligned heading row at desktop and narrow widths", async ({ page }) => {
+  await installFacades(page);
+  await page.goto(root);
+  await selectLibrary(page, core.id);
+  await chooseInspector(page, "data-library-lens", "compare", "Compare");
+  for (const width of [1440, 900, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    const heading = page.locator(".compare-head");
+    await expect(heading).toBeVisible();
+    const headingBox = await heading.boundingBox();
+    expect(headingBox!.height).toBe(40);
+    if (width > 760) {
+      const master = await page.locator(".browser-head").boundingBox();
+      expect(master!.height).toBe(headingBox!.height);
+      expect(master!.y).toBe(headingBox!.y);
+    }
+    await expect(page.locator("#compare-change-target")).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth
+      <= document.documentElement.clientWidth)).toBe(true);
+  }
+});

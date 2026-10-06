@@ -2162,6 +2162,12 @@ test("Source fills the detail area below working-surface actions and provenance"
     expect(framework.x + framework.width)
       .toBeLessThanOrEqual(path.x + path.width + 1);
     expect(provenance.y).toBeCloseTo(source.y, 0);
+    expect(provenance.height).toBe(40);
+    if (width > 760) {
+      const masterHeading = await box(page, ".browser-head");
+      expect(masterHeading.y).toBeCloseTo(provenance.y, 0);
+      expect(masterHeading.height).toBe(provenance.height);
+    }
     expect(provenance.y + provenance.height).toBeLessThanOrEqual(code.y + 1);
     expect(code.y + code.height).toBeCloseTo(source.y + source.height, 0);
     expect(await page.evaluate(() =>
@@ -2182,18 +2188,19 @@ test("Source fills the detail area below working-surface actions and provenance"
     await page.goto(
       "/browser/workspace-titlebar.html?member=1&source=1&limitation=1");
 
+    expect((await box(page, ".source-provenance")).height).toBe(40);
     const provenance = await box(
       page,
       ".source-provenance > span:first-of-type");
     const limitation = await box(
       page,
-      ".source-provenance > .graph-source-status");
+      ".source-diagnostics > .graph-source-status");
     expect(provenance.width).toBeGreaterThan(16);
     expect(limitation.width).toBeGreaterThan(16);
     expect(limitation.y).toBeGreaterThanOrEqual(
       provenance.y + provenance.height - 1);
     const limitationMetrics = await page.locator(
-      ".source-provenance > .graph-source-status",
+      ".source-diagnostics > .graph-source-status",
     ).evaluate(element => ({
       clientWidth: element.clientWidth,
       scrollWidth: element.scrollWidth,

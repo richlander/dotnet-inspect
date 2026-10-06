@@ -1437,7 +1437,7 @@ test("member API uses full-area overload and selected-member surfaces", () => {
     /\.detail-scroll\.api-working-surface,\s*\.detail-scroll\.metadata-working-surface,\s*\.detail-scroll\.member-working-surface \{[^}]*overflow: hidden;[^}]*padding: 0;/s);
   assert.match(
     stylesSource,
-    /\.member-surface \{[^}]*height: 100%;[^}]*grid-template-rows: 40px minmax\(0, 1fr\);/s);
+    /\.member-surface \{[^}]*height: 100%;[^}]*grid-template-rows: var\(--content-heading-height\) minmax\(0, 1fr\);/s);
   assert.match(
     stylesSource,
     /\.member-surface \.learn-overview \{ max-width: none; \}/);
@@ -1495,7 +1495,7 @@ test("type metadata uses a full-area working surface without the inset type head
     /\.detail-scroll\.api-working-surface,\s*\.detail-scroll\.metadata-working-surface,\s*\.detail-scroll\.member-working-surface \{[^}]*overflow: hidden;[^}]*padding: 0;/s);
   assert.match(
     stylesSource,
-    /\.metadata-surface \{[^}]*height: 100%;[^}]*grid-template-rows: 40px minmax\(0, 1fr\);/s);
+    /\.metadata-surface \{[^}]*height: 100%;[^}]*grid-template-rows: var\(--content-heading-height\) minmax\(0, 1fr\);/s);
   assert.match(
     stylesSource,
     /\.metadata-surface-scroll \{[^}]*overflow: auto;/s);
@@ -1589,7 +1589,7 @@ test("library metadata uses compact coordinates in a full-area working surface",
     /\.detail-scroll\.package-metadata-working-surface \{[^}]*overflow: hidden;[^}]*padding: 0;/s);
   assert.match(
     stylesSource,
-    /\.package-metadata-surface \{[^}]*height: 100%;[^}]*grid-template-rows: 40px auto minmax\(0, 1fr\);/s);
+    /\.package-metadata-surface \{[^}]*height: 100%;[^}]*grid-template-rows: var\(--content-heading-height\) auto minmax\(0, 1fr\);/s);
   assert.match(
     stylesSource,
     /\.package-metadata-scroll \{[^}]*overflow: auto;/s);
@@ -1640,7 +1640,7 @@ test("package dependencies use compact coordinates in a full-area working surfac
     /\.detail-scroll\.package-dependencies-working-surface,[\s\S]*?overflow: hidden;[^}]*padding: 0;/s);
   assert.match(
     stylesSource,
-    /\.package-dependencies-surface,[\s\S]*?grid-template-rows: 40px auto minmax\(0, 1fr\);/s);
+    /\.package-dependencies-surface,[\s\S]*?grid-template-rows: var\(--content-heading-height\) auto minmax\(0, 1fr\);/s);
   assert.match(
     stylesSource,
     /\.package-dependencies-scroll,[\s\S]*?overflow: auto;/s);
