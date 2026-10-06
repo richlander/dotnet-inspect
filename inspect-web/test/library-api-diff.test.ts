@@ -1831,6 +1831,7 @@ test("data-bar pilot uses issued totals only for the matching complete Library c
   if (state.status !== "ready") throw new Error("Expected ready.");
   const active = selection(state.input.packageModel);
   const summary = libraryApiDiffDataBarResult(state, active);
+  assert.equal(summary?.subject, "Example");
   assert.equal(summary?.context, "1.0.0 → 2.0.0");
   assert.deepEqual(summary?.facts.map(fact => fact.value), [2, 1, 0, 3, 1, 2, 0]);
   assert.equal(libraryApiDiffDataBarResult(state, null), null);

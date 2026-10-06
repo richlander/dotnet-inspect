@@ -42,6 +42,7 @@ export function createDataBarFeedback() {
 }
 
 export interface DataBarResult {
+  readonly subject: string;
   readonly title: string;
   readonly context: string;
   readonly facts: readonly { readonly value: number; readonly label: string }[];
@@ -126,8 +127,8 @@ export function dataBarHtml(
     </footer>`;
   }
   if (model.result) {
-    const { title, context, facts, qualification } = model.result;
-    const items = [title, context,
+    const { subject, title, context, facts, qualification } = model.result;
+    const items = [subject, title, context,
       ...facts.map(fact => `${fact.value.toLocaleString()} ${fact.label}`),
       ...(qualification ? [qualification] : []),
     ];

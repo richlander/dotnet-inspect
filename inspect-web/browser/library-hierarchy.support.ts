@@ -1372,7 +1372,7 @@ async function installFacades(
         return {
           schemaVersion: 3, request, kind: "Succeeded",
           value: {
-            libraryIdentifier: "Example", libraryDisplay: "Example",
+            libraryIdentifier: "Example.Core", libraryDisplay: "Example.Core",
             target: endpoint(request.targetVersion), current: endpoint(request.currentVersion),
             aggregate: { changedTypeCount: ${diagnostics.libraryApiDiffPilot === "empty" ? 0 : 1}, addedTypeCount: 0, removedTypeCount: 0, changedMemberCount: ${diagnostics.libraryApiDiffPilot === "empty" ? 0 : 3}, breakingCount: 0, additiveCount: ${diagnostics.libraryApiDiffPilot === "empty" ? 0 : 3}, potentiallyBreakingCount: 0 },
             types: ${JSON.stringify(diagnostics.libraryApiDiffPilot === "empty" ? [] : [{

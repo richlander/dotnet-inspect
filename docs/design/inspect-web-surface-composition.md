@@ -1505,7 +1505,7 @@ presentation does not clear retained evidence or automatically retry work.
 
 Home retains default product information. Library Compare's Public API Diff
 is the result-summary pilot. On a successful complete comparison it supplies
-the owner-issued version endpoints and totals for changed, added, and removed
+the owner-issued Library display, version endpoints, and totals for changed, added, and removed
 Types, changed Members, and breaking, additive, and potentially breaking changes.
 Inspection notices remain named. The completed summary moves from the working
 surface into the persistent bar; comparison targets, row-level evidence, and

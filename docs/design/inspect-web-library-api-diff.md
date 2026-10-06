@@ -270,7 +270,7 @@ Changed   Example.Widget             2 members  1 breaking
 Added     Example.WidgetOptions       3 additive
 Removed   Example.LegacyWidget        1 breaking
 
-Data bar: Public API comparison · 1.0.0 -> 2.0.0 · 3 changed Types · ...
+Data bar: Example.Library · Public API comparison · 1.0.0 -> 2.0.0 · 3 changed Types · ...
 ```
 
 The frame renders:

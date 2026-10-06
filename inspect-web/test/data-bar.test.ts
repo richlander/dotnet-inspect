@@ -133,10 +133,10 @@ test("feedback survives rerenders, clears on traversal, and rejects late results
 
 
 test("active result replaces defaults while feedback takes precedence", () => {
-  const result = { title: "API <comparison>", context: "1 → 2", facts: [{ value: 0, label: "breaking" }], qualification: "2 inspection notices" };
+  const result = { subject: "Example <Core>", title: "API <comparison>", context: "1 → 2", facts: [{ value: 0, label: "breaking" }], qualification: "2 inspection notices" };
   const html = dataBarHtml({ result }, escapeHtml);
   assert.match(html, /Inspection result/);
-  assert.match(html, /API &lt;comparison&gt; · 1 → 2 · 0 breaking · 2 inspection notices/);
+  assert.match(html, /Example &lt;Core&gt; · API &lt;comparison&gt; · 1 → 2 · 0 breaking · 2 inspection notices/);
   assert.doesNotMatch(html, /Product information|CLI tool/);
   const error = dataBarHtml({ result, errors: [{ message: "Qualified evidence" }] }, escapeHtml);
   assert.match(error, /Qualified evidence/);

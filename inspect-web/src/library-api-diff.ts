@@ -271,6 +271,7 @@ export function libraryApiDiffDataBarResult(
     diagnostic => diagnostic.severity > 0,
   ).length ?? 0;
   return {
+    subject: value.libraryDisplay,
     title: "Public API comparison",
     context: `${value.target.version} → ${value.current.version}`,
     facts: [
