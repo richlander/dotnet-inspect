@@ -3,6 +3,7 @@ export interface OverviewSurfaceOptions {
   subjectLabel: string;
   displayName: string;
   iconHtml: string;
+  showIdentity?: boolean;
   details?: readonly string[];
   /** Enabled Library enablements; Not enabled and Unavailable are never passed. */
   enablements?: readonly OverviewEnablement[];
@@ -68,7 +69,7 @@ export function renderOverviewSurface(
   options: OverviewSurfaceOptions,
 ): string {
   const {
-    subject, subjectLabel, displayName, iconHtml, details = [], enablements = [],
+    subject, subjectLabel, displayName, iconHtml, showIdentity = true, details = [], enablements = [],
     packageId, packageVersion, activeFramework, totalTypes, totalMembers,
     contentHtml, escapeHtml,
   } = options;
@@ -85,10 +86,10 @@ export function renderOverviewSurface(
       <span class="overview-surface-label">Overview</span>
       <p>${typeCount} &middot; ${memberCount}</p>
     </header>`;
-  return `<section class="overview-surface ${subject}-overview-surface" aria-labelledby="${subject}-overview-title">
+  return `<section class="overview-surface ${subject}-overview-surface" ${showIdentity ? `aria-labelledby="${subject}-overview-title"` : `aria-label="${escapeHtml(subjectLabel)}"`}>
     ${surfaceHeader}
     <div class="overview-scroll">
-      <header class="overview-identity">
+      ${showIdentity ? `<header class="overview-identity">
         ${iconHtml}
         <div class="overview-identity-text">
           ${subject === "package" ? "" : `<p class="overview-subject-label">${escapeHtml(subjectLabel)}</p>`}
@@ -96,7 +97,7 @@ export function renderOverviewSurface(
           ${details.map(detail => `<p class="overview-identity-detail">${escapeHtml(detail)}</p>`).join("")}
           ${renderOverviewEnablements(enablements, escapeHtml)}
         </div>
-      </header>
+      </header>` : ""}
       ${contentHtml}
     </div>
     <footer class="api-surface-footer overview-surface-footer">

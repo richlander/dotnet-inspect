@@ -53,8 +53,7 @@ export interface PackageNavOptions {
 export function renderPackageNav(options: PackageNavOptions): string {
   const { versions, activeVersion, statusHtml = "", escapeHtml } = options;
   return `<aside id="content-navigation-pane" class="type-browser package-version-nav" aria-label="Frameworks &amp; versions">
-    <div class="browser-head"><div><span class="pane-label">PACKAGE NAVIGATION</span></div>${renderContentNavigationCloseButton()}</div>
-    ${renderPackageFrameworks(options.frameworks, options.activeFramework, escapeHtml)}
+    ${renderPackageFrameworks(options.frameworks, options.activeFramework, escapeHtml, renderContentNavigationCloseButton())}
     <section class="package-navigation-controls" aria-label="Version filters">
       <div class="section-title"><h2>Versions</h2><span>${versions.length}</span></div>
       <label>Filter versions<input id="package-version-filter" type="search" placeholder="Find a version"></label>
@@ -71,8 +70,9 @@ export function renderPackageNav(options: PackageNavOptions): string {
 export function renderPackageFrameworks(
   frameworks: readonly string[], activeFramework: string,
   escapeHtml: (value: unknown) => string,
+  navigationCloseHtml = "",
 ): string {
-  return `<section class="document-section package-frameworks"><div class="section-title"><h2>Target frameworks</h2><span>${frameworks.length}</span></div>
+  return `<section class="document-section package-frameworks"><div class="section-title"><h2>Target frameworks</h2><div class="browser-head-actions"><span>${frameworks.length}</span>${navigationCloseHtml}</div></div>
     <div role="group" aria-label="Target frameworks" tabindex="-1" data-nav-scope="frameworks">${frameworks.map(framework => `<button type="button" class="type-row ${framework === activeFramework ? "selected" : ""}" data-package-framework="${escapeHtml(framework)}"${framework === activeFramework ? ' aria-current="page"' : ""}><span class="kind-icon">T</span><span class="type-name">${escapeHtml(framework)}</span></button>`).join("") || '<p class="empty-list">No target frameworks are available for this package version.</p>'}</div></section>`;
 }
 

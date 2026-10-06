@@ -816,7 +816,8 @@ package@version                                    active framework
 Package Overview starts directly with its identity and content rather than
 reserving a quiet `Overview` header row. The Package navigation pane lists target frameworks first, then
 versions in owner-issued release order, with the active version selected,
-text filtering, and a prerelease toggle.
+text filtering, and a prerelease toggle. The list headings identify the pane
+without an additional Package Navigation row.
 The active coordinate remains visible regardless of filters. Loading and
 failed inventory states retain that coordinate; failure offers explicit retry.
 Target framework selection uses the same navigation pane and updates the active
@@ -847,8 +848,9 @@ replacing the failure.
 Package Overview retains package facts, Libraries, and document links in its
 full-width content, with Documentation directly beneath Libraries. Frameworks
 and versions remain in the master pane for both Overview and Compare. The icon and package name identify the subject without an additional
-Package label. Package Compare uses the same full-width frame, identity alignment,
-and footer as Overview and owns the Comparison targets work area; Library,
+Package label. Package Compare uses the same full-width frame, content alignment,
+and footer as Overview, starts directly with Comparison targets without repeating
+the package icon or name, and owns that work area; Library,
 Type, and Member **Change target** actions return there. Choosing settings
 continues to configure the existing session-local comparison state.
 

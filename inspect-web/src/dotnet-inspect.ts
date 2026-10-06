@@ -10376,8 +10376,8 @@ function packageLensBody() {
   switch (state.packageLens) {
     case "overview": return renderPackageOverview();
     case "compare": return renderOverviewSurface({
-      subject: "package", subjectLabel: "Package", displayName: packageDisplayName(currentPackage()),
-      iconHtml: renderInspectedSubjectIcon(currentPackage()),
+      subject: "package", subjectLabel: "Compare", displayName: packageDisplayName(currentPackage()),
+      iconHtml: "", showIdentity: false,
       packageId: currentPackage().id, packageVersion: currentPackage().version,
       activeFramework: currentPackage().activeFramework, totalTypes: null, totalMembers: null,
       contentHtml: `<section id="package-comparison-targets" class="document-section">${packageComparisonControlsHtml(currentPackage())}</section>`,
