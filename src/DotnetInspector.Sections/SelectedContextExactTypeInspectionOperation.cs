@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text.Json.Serialization;
 
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
@@ -15,12 +16,15 @@ public sealed record SelectedContextExactTypeSource
     public SelectedContextExactTypeSource(
         TypeDeclarationLocatorSectionCoordinate library,
         ExactTypeDefinitionIdentity type,
+        WorkspaceDeclarationOccurrence occurrence,
         TypeDeclarationLocatorObservation observation)
     {
         Library = library
             ?? throw new ArgumentNullException(nameof(library));
         Type = type
             ?? throw new ArgumentNullException(nameof(type));
+        Occurrence = occurrence
+            ?? throw new ArgumentNullException(nameof(occurrence));
         Observation = observation
             ?? throw new ArgumentNullException(nameof(observation));
     }
@@ -29,12 +33,15 @@ public sealed record SelectedContextExactTypeSource
 
     public ExactTypeDefinitionIdentity Type { get; }
 
+    [JsonIgnore]
+    public WorkspaceDeclarationOccurrence Occurrence { get; }
+
     public TypeDeclarationLocatorObservation Observation { get; }
 }
 
 /// <summary>
-/// Live full Type inspection target valid while the paired Workspace
-/// realization operation remains admitted.
+/// Live full Type inspection target valid while the paired Workspace context
+/// remains admitted.
 /// </summary>
 public sealed record SelectedContextExactTypeLiveTarget(
     ApiSurface Surface,
@@ -153,6 +160,29 @@ public static class SelectedContextExactTypeInspectionOperation
             activation,
             request,
             facet,
+            scope,
+            liveTargetConsumer);
+    }
+
+    public static InspectionEnvelope<SelectedContextExactTypeInspectionResult>
+        ExecuteWithLiveTarget(
+            InspectionWorkspace workspace,
+            WorkspaceDeclarationContext context,
+            SelectedContextExactTypeInspectionRequest request,
+            Action<SelectedContextExactTypeLiveTarget> liveTargetConsumer,
+            ApiSurfaceScope scope =
+                ApiSurfaceScope.PublicWithNonPublicTypes)
+    {
+        ArgumentNullException.ThrowIfNull(workspace);
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(liveTargetConsumer);
+        return ExecuteCore(
+            workspace,
+            context,
+            request,
+            projectionLimits: null,
+            activation: null,
+            facet: null,
             scope,
             liveTargetConsumer);
     }
@@ -381,6 +411,7 @@ public static class SelectedContextExactTypeInspectionOperation
                     TypeDeclarationLocatorSectionCoordinate.FromSource(
                         source.Member.Coordinate!),
                     ExactTypeDefinitionIdentity.From(source.Type),
+                    source.Member.Occurrence,
                     TypeDeclarationLocatorSection.ProjectObservation(
                         source.Member,
                         references))),

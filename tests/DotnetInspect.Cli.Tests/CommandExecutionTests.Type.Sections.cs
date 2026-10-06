@@ -12,6 +12,263 @@ namespace DotnetInspect.Cli.Tests;
 public partial class CommandExecutionTests
 {
     [Fact]
+    public async Task
+        Type_HierarchySections_ComposeWithExactTypeAndBoundedRows()
+    {
+        string assembly =
+            typeof(IWorkspaceImplementationMarker).Assembly.Location;
+
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            typeof(IWorkspaceImplementationMarker).FullName!,
+            "--library",
+            assembly,
+            "--all",
+            "-S",
+            SectionNames.TypeInfo,
+            "-S",
+            SectionNames.Implementers,
+            "--rows",
+            "2",
+            "--markdown");
+
+        Assert.Equal(1, exit);
+        Assert.Contains("## Type Info", output);
+        Assert.Contains("## Implementers", output);
+        Assert.Contains(
+            typeof(WorkspaceImplementation).FullName!,
+            output);
+        Assert.Contains(
+            typeof(WorkspaceImplementationA).FullName!,
+            output);
+        Assert.DoesNotContain(
+            typeof(WorkspaceImplementationB).FullName!,
+            output);
+        Assert.Contains(
+            "Hierarchy relation output reached the CLI row bound",
+            error);
+    }
+
+    public abstract class HierarchyArityCollision;
+
+    public sealed class HierarchyArityCollision<T> :
+        HierarchyArityCollision;
+
+    [Fact]
+    public async Task Type_HierarchyCountOnlyReturnsExactProducerCount()
+    {
+        string assembly =
+            typeof(IWorkspaceImplementationMarker).Assembly.Location;
+
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            typeof(IWorkspaceImplementationMarker).FullName!,
+            "--library",
+            assembly,
+            "--all",
+            "-S",
+            SectionNames.Implementers,
+            "--count");
+
+        Assert.Equal(0, exit);
+        Assert.Equal("4", output.Trim());
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task Type_DerivedTypesUsesTheSameLocalPopulation()
+    {
+        string assembly = typeof(SampleBaseClass).Assembly.Location;
+
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            typeof(SampleBaseClass).FullName!,
+            "--library",
+            assembly,
+            "--all",
+            "-S",
+            SectionNames.DerivedTypes,
+            "--rows",
+            "10",
+            "--tsv");
+
+        Assert.Equal(0, exit);
+        Assert.Contains(typeof(SampleDerivedClass).FullName!, output);
+        Assert.Contains(typeof(AnotherDerivedClass).FullName!, output);
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task Type_RelationsCategoryDiscoversBothHierarchySections()
+    {
+        string assembly = typeof(SampleBaseClass).Assembly.Location;
+
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            typeof(SampleBaseClass).FullName!,
+            "--library",
+            assembly,
+            "-D",
+            SectionCategoryNames.Relations,
+            "--tsv");
+
+        Assert.Equal(0, exit);
+        Assert.Contains(SectionNames.Implementers, output);
+        Assert.Contains(SectionNames.DerivedTypes, output);
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task Type_HierarchyJsonlRetainsBoundedRowsAndProvenance()
+    {
+        string assembly =
+            typeof(IWorkspaceImplementationMarker).Assembly.Location;
+
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            typeof(IWorkspaceImplementationMarker).FullName!,
+            "--library",
+            assembly,
+            "--all",
+            "-S",
+            SectionNames.Implementers,
+            "--rows",
+            "2",
+            "--jsonl");
+
+        Assert.Equal(1, exit);
+        string[] lines =
+            output.Split(
+                Environment.NewLine,
+                StringSplitOptions.RemoveEmptyEntries);
+        Assert.Equal(2, lines.Length);
+        foreach (string line in lines)
+        {
+            using JsonDocument row = JsonDocument.Parse(line);
+            Assert.Equal(
+                "DotnetInspect.Cli.Tests",
+                row.RootElement.GetProperty("library").GetString());
+            Assert.Equal(
+                assembly,
+                row.RootElement.GetProperty("source").GetString());
+        }
+        Assert.Contains(
+            "Hierarchy relation output reached the CLI row bound",
+            error);
+    }
+
+    [Fact]
+    public async Task Type_HierarchyTailRowsAreRejectedExplicitly()
+    {
+        string assembly =
+            typeof(IWorkspaceImplementationMarker).Assembly.Location;
+
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            typeof(IWorkspaceImplementationMarker).FullName!,
+            "--library",
+            assembly,
+            "--all",
+            "-S",
+            SectionNames.Implementers,
+            "--rows",
+            "2",
+            "--tail");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "cannot select tail rows without materializing the complete "
+                + "relation population",
+            error);
+    }
+
+    [Fact]
+    public async Task
+        Type_ImplementersMatchesLegacyImplementsResultSetForLocalFixture()
+    {
+        string assembly =
+            typeof(IWorkspaceImplementationMarker).Assembly.Location;
+        string target =
+            typeof(IWorkspaceImplementationMarker).FullName!;
+
+        var legacy = await RunAppAsync(
+            "implements",
+            target,
+            "--library",
+            assembly,
+            "--all",
+            "--json");
+        var hierarchy = await RunAppAsync(
+            "type",
+            target,
+            "--library",
+            assembly,
+            "--all",
+            "-S",
+            SectionNames.Implementers,
+            "--rows",
+            "100",
+            "--jsonl");
+
+        Assert.Equal(0, legacy.Exit);
+        Assert.Equal(0, hierarchy.Exit);
+        Assert.Empty(legacy.Error);
+        Assert.Empty(hierarchy.Error);
+        using JsonDocument legacyDocument =
+            JsonDocument.Parse(legacy.Output);
+        string[] legacyTypes =
+        [
+            .. legacyDocument.RootElement
+                .EnumerateArray()
+                .Select(row => row.GetProperty("type").GetString()!),
+        ];
+        string[] hierarchyTypes =
+        [
+            .. hierarchy.Output
+                .Split(
+                    Environment.NewLine,
+                    StringSplitOptions.RemoveEmptyEntries)
+                .Select(line =>
+                {
+                    using JsonDocument row = JsonDocument.Parse(line);
+                    return row.RootElement
+                        .GetProperty("type")
+                        .GetString()!;
+                }),
+        ];
+
+        Assert.Equal(legacyTypes, hierarchyTypes);
+    }
+
+    [Fact]
+    public async Task
+        Type_HierarchyPrefersExactNonGenericFocusOverGenericShorthand()
+    {
+        string assembly = typeof(HierarchyArityCollision).Assembly.Location;
+
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            typeof(HierarchyArityCollision).FullName!,
+            "--library",
+            assembly,
+            "--all",
+            "-S",
+            SectionNames.DerivedTypes,
+            "--rows",
+            "10",
+            "--tsv");
+
+        Assert.Equal(0, exit);
+        Assert.Contains(
+            typeof(HierarchyArityCollision<>)
+                .FullName!
+                .Replace('+', '.'),
+            output);
+        Assert.Empty(error);
+    }
+
+    [Fact]
     public async Task Type_SingleType_SelectSection_RendersSectionNotShape()
     {
         var options = new TypeOptions
