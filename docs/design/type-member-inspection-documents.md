@@ -1402,17 +1402,19 @@ remain later step 9 adoption slices.
 
 The motivating production case is .NET 11 RC1 CoreLib
 `System.Text.StringBuilder`, whose previous exact direct-Library effective
-discovery extracted the complete assembly API surface. On
-`dotnet-inspect-perf-3`, every measured command ran through `perf-guard` over
-20 interleaved NativeAOT samples. Exact output remained byte-identical:
+discovery extracted the complete assembly API surface. On two approved D4as v6
+hosts, every measured command ran through `perf-guard` over 20 interleaved
+NativeAOT samples. Exact output remained byte-identical:
 
-| Request | Before median | Adopted median | Adopted p95 |
+| Request | Before median | Perf-2 median / p95 | Perf-3 median / p95 |
 | --- | ---: | ---: | ---: |
-| `-D "Type Info"` | 805.06 ms | 46.70 ms | 48.47 ms |
-| bare `-D` | 815.52 ms | 49.52 ms | 50.15 ms |
+| `-D "Type Info"` | 805.06 ms | 46.84 / 48.52 ms | 47.50 / 49.64 ms |
+| bare `-D` | 815.52 ms | 48.03 / 49.01 ms | 48.74 / 50.02 ms |
 
 The inspected CoreLib SHA-256 is
-`9573ebabb9af0671f76f4aa958223b8a0b50c299affcb1a2f75c9ee717305fc8`.
+`9573ebabb9af0671f76f4aa958223b8a0b50c299affcb1a2f75c9ee717305fc8`;
+the measured NativeAOT binary SHA-256 is
+`7beaaa2637f177ad3650ddfafa3e6ee9fd4edfaf6aadb2534aff3ac113c55fe6`.
 
 ## Required evidence
 
