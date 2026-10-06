@@ -3,8 +3,9 @@
 ## Status
 
 This document is the normative design for **Host-neutral hierarchy
-projection**. The initial slice defines the shared synchronous request and sink
-contract plus the CLI Markout adapter. It is tracked by
+projection**. The shared synchronous request and sink contract, CLI Markout
+adapter, and first Type Tree adoption are implemented as focused slices. The
+substrate is tracked by
 [#9458](https://github.com/richlander/dotnet-inspect/issues/9458).
 Type Overview is the first planned product adopter under
 [#8430](https://github.com/richlander/dotnet-inspect/issues/8430), whose
@@ -158,7 +159,12 @@ The counted production path has five steps:
    `inspect-web/src/type-panel.ts`. That adoption retires TypeScript grouping
    of Type Overview rows; the Browser retains DOM interaction and rendering.
 
-The initial slice intentionally ends after step 2. Steps 3 and 4 belong to PR
-[#9360](https://github.com/richlander/dotnet-inspect/pull/9360) and its
-successor work. Step 5 is the Inspect Web half of #8430's Type-document host
-adoption and must name its focused implementation PR before execution.
+The Type CLI adoption implements steps 3 and 4 for the native Tree default and
+explicit `--tree`: the plan carries `InspectionHierarchyRequest`, the Type
+owner pushes category and compact Member-group nodes, and
+`MarkoutHierarchySink<TNode>` prints them without a retained Markout
+`TreeNode` graph. The first adoption requires complete Rows with nested exact
+Member Counts; Count remains a distinct projection on its existing route.
+
+Step 5 is the Inspect Web half of #8430's Type-document host adoption and must
+name its focused implementation PR before execution.

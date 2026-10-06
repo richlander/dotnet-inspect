@@ -1088,8 +1088,7 @@ public partial class CommandExecutionTests
             "Properties",
             "Methods",
             "Operators",
-            "Explicit Interface Implementations",
-            "Extension Methods"
+            "Explicit Interface Implementations"
         ];
 
         var previous = -1;
@@ -1128,7 +1127,7 @@ public partial class CommandExecutionTests
     [Theory]
     [InlineData("Dictionary<TKey,TValue>")]
     [InlineData("Dictionary`2")]
-    public async Task Type_BareDictionaryGeneric_RendersCoreLibDictionary(string typeName)
+    public async Task Type_BareDictionaryGeneric_RendersCompactCoreLibDictionary(string typeName)
     {
         var (exit, output, error) = await RunAppAsync(
             "type", typeName, "--tree");
@@ -1136,7 +1135,8 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         Assert.Contains("System.Collections.Generic.Dictionary<TKey, TValue>", output);
-        Assert.Contains("void Add(TKey key, TValue value)", output);
+        Assert.Contains("─ Add", output);
+        Assert.DoesNotContain("void Add(TKey key, TValue value)", output);
     }
 
     [Fact]

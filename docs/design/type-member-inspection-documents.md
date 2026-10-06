@@ -13,7 +13,9 @@ without presenting the target contract as current behavior.
 The user approved defining these four documents together and integrating their
 resolved Member subjects with
 [Contextual Resource Explanation](contextual-resource-explanation.md). CLI and
-Browser rendering are explicitly outside this effort.
+Browser rendering are outside the object-model slices. Their independent host
+adoption composes these documents with
+[Host-neutral hierarchy projection](host-neutral-hierarchy-projection.md).
 
 ## Owner and exact claim
 
@@ -165,6 +167,29 @@ Count-only work constructs no exact-Member rows or signatures. Bounded rows do
 only the work required for the returned compact rows and their requested
 Counts.
 
+### Hierarchy projection
+
+Tree is an explicit host-neutral projection over complete compact Member-group
+Rows, not a host inference from its selected renderer. A Type overview plan
+that carries `InspectionHierarchyRequest` must also request Rows with an exact
+Member Count for every row.
+
+The Type document owner pushes a typed union of:
+
+- category nodes carrying the category, logical Member-group Count, and exact
+  Member Count; and
+- Member nodes carrying the owner-issued compact Member-group row.
+
+The owner defines category membership and order, Member order, nesting, Counts,
+and exact last-sibling facts. It rejects unavailable, partial, or uncounted
+Rows rather than emitting a successful shortened hierarchy. The host formats
+node text and renders or transports the push stream; it does not regroup or
+recount the returned rows.
+
+During transitional adoption, the existing public `TypeDocument` compact
+declaration population carries this projection. The eventual
+`TypeOverviewDocument` retains the same hierarchy semantics and correspondence.
+
 ## TypeDocument
 
 `TypeDocument` is the complete declaration document for one exact Type. It
@@ -300,7 +325,8 @@ production adoption as focused slices:
 8. Retire transitional document names and superseded host-local composition.
 
 Rendering work is not part of slices 1 through 6 and does not define the object
-model.
+model. CLI Tree adoption streams the owner-issued hierarchy through a host
+sink; Count and other projections retain their independently admitted routes.
 
 ## Required evidence
 

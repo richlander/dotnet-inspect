@@ -294,6 +294,154 @@ public sealed class TypeDocumentInspectionOperationTests
     }
 
     [Fact]
+    public void HierarchyRequest_RequiresRows()
+    {
+        ArgumentException exception =
+            Assert.Throws<ArgumentException>(
+                () => new TypeDocumentInspectionPlan(
+                    Name(
+                        "System.Text.Json",
+                        "JsonSerializer"),
+                    s_bounds,
+                    hierarchy:
+                        new InspectionHierarchyRequest()));
+
+        Assert.Equal("hierarchy", exception.ParamName);
+
+        var request =
+            new InspectionHierarchyRequest();
+        var declarations =
+            new TypeMemberGroupPopulationRequest(
+                count: null,
+                rows: new(maximumRows: 1));
+        var plan =
+            new TypeDocumentInspectionPlan(
+                Name(
+                    "System.Text.Json",
+                    "JsonSerializer"),
+                s_bounds,
+                declarations,
+                request);
+
+        Assert.Same(request, plan.Hierarchy);
+    }
+
+    [Fact]
+    public async Task HierarchyProjection_StreamsOwnerOrderAndCounts()
+    {
+        byte[] content =
+            await LibraryInspectionTestLibrary.RealSystemTextJsonAsync();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+        TypeDocument document =
+            Available(
+                Execute(
+                    library,
+                    rows: new(
+                        maximumRows: 4096,
+                        includeExactMemberCount: true)));
+        var sink =
+            new RecordingHierarchySink();
+
+        TypeDocumentHierarchyProjection.Write(
+            document,
+            new InspectionHierarchyRequest(),
+            sink);
+
+        TypeDocumentHierarchyNode.Category properties =
+            Assert.IsType<TypeDocumentHierarchyNode.Category>(
+                sink.Events[0].Node);
+        Assert.Equal(MemberGroupCategory.Property, properties.Value);
+        Assert.Equal(1, properties.LogicalCount);
+        Assert.Equal(1, properties.ExactMemberCount);
+        Assert.False(sink.Events[0].IsLastSibling);
+
+        TypeDocumentHierarchyNode.Member property =
+            Assert.IsType<TypeDocumentHierarchyNode.Member>(
+                sink.Events[1].Node);
+        Assert.Equal(
+            "IsReflectionEnabledByDefault",
+            property.Value.Binding.Name.ToString());
+        Assert.True(sink.Events[1].IsLastSibling);
+
+        TypeDocumentHierarchyNode.Category methods =
+            Assert.IsType<TypeDocumentHierarchyNode.Category>(
+                sink.Events[2].Node);
+        Assert.Equal(MemberGroupCategory.Method, methods.Value);
+        Assert.True(sink.Events[2].IsLastSibling);
+
+        TypeDocumentHierarchyNode.Member[] methodMembers =
+            [.. sink.Events
+                .Skip(3)
+                .Select(
+                    recorded =>
+                        Assert.IsType<
+                            TypeDocumentHierarchyNode.Member>(
+                            recorded.Node))];
+        Assert.Equal(
+            methods.LogicalCount,
+            methodMembers.Length);
+        Assert.Equal(
+            methods.ExactMemberCount,
+            methodMembers.Sum(
+                static member =>
+                    member.Value.ExactMemberCount!.Value));
+        Assert.Equal(
+            methodMembers
+                .Select(
+                    static member =>
+                        member.Value.Binding.Name.ToString())
+                .Order(StringComparer.Ordinal),
+            methodMembers.Select(
+                static member =>
+                    member.Value.Binding.Name.ToString()));
+
+        TypeDocumentHierarchyNode.Member firstMethod =
+            methodMembers[0];
+        Assert.Equal(
+            "Deserialize",
+            firstMethod.Value.Binding.Name.ToString());
+        Assert.False(sink.Events[3].IsLastSibling);
+
+        TypeDocumentHierarchyNode.Member lastMethod =
+            methodMembers[^1];
+        Assert.Equal(
+            "SerializeToUtf8Bytes",
+            lastMethod.Value.Binding.Name.ToString());
+        Assert.True(sink.Events[^1].IsLastSibling);
+
+        await library.RetireAsync();
+    }
+
+    [Fact]
+    public async Task HierarchyProjection_RejectsPartialRows()
+    {
+        byte[] content =
+            await LibraryInspectionTestLibrary.RealSystemTextJsonAsync();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+        TypeDocument document =
+            Available(
+                Execute(
+                    library,
+                    rows: new(maximumRows: 1)));
+
+        InvalidOperationException exception =
+            Assert.Throws<InvalidOperationException>(
+                () => TypeDocumentHierarchyProjection.Write(
+                    document,
+                    new InspectionHierarchyRequest(),
+                    new RecordingHierarchySink()));
+
+        Assert.Contains("complete member-group Rows", exception.Message);
+        await library.RetireAsync();
+    }
+
+    [Fact]
     public async Task MemberBound_PreservesAvailableSubject()
     {
         byte[] content =
@@ -590,4 +738,24 @@ public sealed class TypeDocumentInspectionOperationTests
                     @namespace,
                     [.. segments]))
             .Name;
+
+    private sealed class RecordingHierarchySink :
+        IInspectionHierarchySink<TypeDocumentHierarchyNode>
+    {
+        internal List<RecordedHierarchyNode> Events { get; } = [];
+
+        public void WriteNode(
+            TypeDocumentHierarchyNode node,
+            bool isLastSibling,
+            Action<IInspectionHierarchySink<TypeDocumentHierarchyNode>>?
+                writeChildren = null)
+        {
+            Events.Add(new(node, isLastSibling));
+            writeChildren?.Invoke(this);
+        }
+    }
+
+    private sealed record RecordedHierarchyNode(
+        TypeDocumentHierarchyNode Node,
+        bool IsLastSibling);
 }
