@@ -246,7 +246,8 @@ public sealed class SlotMaterializationPass : IIrPass
         MarkIncompleteCopyComponents(
             stores,
             candidates,
-            CoercionSinks.TestifiedSlotTypes(function.Body, function.Signature.ReturnType, function.TypeShapes));
+            CoercionSinks.TestifiedSlotTypes(function.Body, function.Signature.ReturnType, function.TypeShapes),
+            function);
         return new MaterializationPlan(
             candidates,
             [.. candidates.Select(static candidate => candidate.Decision), .. nestedDecisions]);
@@ -307,15 +308,15 @@ public sealed class SlotMaterializationPass : IIrPass
         // producers and loads alone. Values may flow out of the decided set
         // into an undecided peer, whose copy store then reads a typed local
         // instead of a slot. A slot load is exempt from slot-store coercion
-        // but a local load is not, so the peer must not carry a testified
-        // store-sink type other than the source's decided type; otherwise
-        // the source stays undecided and the peer's own frozen residual
-        // decision sees the same store as before. A component holding a
+        // but a local load is not, so a source whose local load the peer's
+        // store would coerce stays undecided; otherwise the peer's own frozen
+        // residual decision sees the same store as before. A component holding a
         // managed reference stays atomic (exact managed-reference storage).
         static void MarkIncompleteCopyComponents(
             IReadOnlyDictionary<int, List<StoreStackSlot>> stores,
             IReadOnlyList<MaterializationCandidate> candidates,
-            IReadOnlyDictionary<int, TypeRef> storeSinkTypes)
+            IReadOnlyDictionary<int, TypeRef> storeSinkTypes,
+            IrFunction function)
         {
             var bySlot = candidates.ToDictionary(static candidate => candidate.Slot);
             var graph = new Dictionary<int, HashSet<int>>();
@@ -382,14 +383,14 @@ public sealed class SlotMaterializationPass : IIrPass
                             // depends on a value no decision covers.
                             if (undecided.Contains(source) && undecided.Add(destination))
                                 grew = true;
-                            // Flow into an undecided peer whose store is a typed sink
-                            // at another type: materializing the source would expose
-                            // its local load to slot-store coercion and change the
-                            // peer's store type.
+                            // Flow into an undecided peer whose store would coerce the
+                            // source's local load: a slot load is exempt from that
+                            // coercion, so materializing would change the peer's store.
                             else if (!undecided.Contains(source)
                                 && undecided.Contains(destination)
                                 && storeSinkTypes.TryGetValue(destination, out var sinkType)
-                                && !sinkType.Equals(bySlot[source].Type)
+                                && bySlot[source].Type is { } sourceType
+                                && CoercionSinks.RequiresSlotStoreCoercion(sourceType, sinkType, function)
                                 && undecided.Add(source))
                                 grew = true;
                         }
