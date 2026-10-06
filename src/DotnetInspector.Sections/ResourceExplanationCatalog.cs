@@ -1006,47 +1006,35 @@ public sealed class ResourceExplanationCatalog
 
     /// <summary>
     /// Explains every product vocabulary a host composed into
-    /// <paramref name="snapshot"/>: the <c>vocabularies</c> collection and one
+    /// <paramref name="snapshot"/>: the <c>vocabularies</c> collection, one
     /// <c>vocabularies/&lt;id&gt;</c> resource per vocabulary in the sections
-    /// index, in index order.
+    /// index, in index order, and one
+    /// <c>vocabularies/&lt;id&gt;/values/&lt;segment&gt;</c> resource per value,
+    /// in owner order. It reads the snapshot generically and names no
+    /// individual vocabulary.
     /// </summary>
     public static ResourceExplanationCatalog CreateVocabularies(
         VocabularySnapshot snapshot)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
-        VocabularyDocument document =
-            ProductVocabularyProjection.ToDocument(snapshot);
-        var projected = document.Sections
-            .Where(static section =>
-                section.Id != ProductVocabularyComposition.SectionsId)
-            .ToDictionary(static section => section.Id, StringComparer.Ordinal);
         VocabularyDefinition index = snapshot.GetVocabulary(
             new VocabularyIdentity(
                 snapshot.Catalog,
                 ProductVocabularyComposition.SectionsId));
-        ImmutableArray<VocabularySection> sections =
+        VocabularyMapIdentity acceptedByMap = index.GetMap(
+            ProductVocabularyComposition.AcceptedByMapId).Identity;
+        ImmutableArray<VocabularyDefinition> vocabularies =
         [
             .. index.Terms.Select(term =>
-                projected.TryGetValue(
-                    term.Identity.Value,
-                    out VocabularySection? section)
-                    ? section
-                    : throw new InvalidOperationException(
-                        $"Indexed vocabulary '{term.Identity.Value}' has no "
-                        + "Product Vocabulary section to explain."))
+                snapshot.GetVocabulary(
+                    new VocabularyIdentity(
+                        snapshot.Catalog,
+                        term.Identity.Value))),
         ];
-        if (sections.Length != projected.Count)
-        {
-            throw new InvalidOperationException(
-                "The Product Vocabulary projection has a section the "
-                + "sections index does not list.");
-        }
-        var members = sections
-            .Select(static section => section.Id)
+        var members = vocabularies
+            .Select(static vocabulary => vocabulary.Identity.Value)
             .ToHashSet(StringComparer.Ordinal);
 
-        ExplanationResourceTypeIdentity type =
-            ResourceExplanationVocabulary.ValueVocabularyType;
         var collectionPath = new ResourcePath(VocabulariesCollectionSegment);
         ExplanationResourceKey collectionKey =
             ResourceExplanationVocabulary.Key(
@@ -1058,87 +1046,23 @@ public sealed class ResourceExplanationCatalog
                 collectionPath,
                 collectionKey,
                 "Vocabularies",
-                sections.Length,
+                vocabularies.Length,
                 new Dictionary<string, IEnumerable<ExplanationResourceKey>>
                 {
                     ["collection-vocabulary"] =
-                        sections.Select(static section =>
-                            VocabularyKey(section.Id)),
+                        vocabularies.Select(static vocabulary =>
+                            VocabularyKey(vocabulary.Identity.Value)),
                 }),
         };
 
-        foreach (VocabularySection section in sections)
+        for (int position = 0; position < vocabularies.Length; position++)
         {
-            VocabularyDefinition definition = snapshot.GetVocabulary(
-                new VocabularyIdentity(snapshot.Catalog, section.Id));
-            snapshots.Add(
-                Snapshot(
-                    VocabularyPath(section.Id),
-                    VocabularyKey(section.Id),
-                    [
-                        ResourceExplanationVocabulary.TextFact(
-                            type,
-                            "identity",
-                            section.Id),
-                        ResourceExplanationVocabulary.TextFact(
-                            type,
-                            "name",
-                            section.Name),
-                        ResourceExplanationVocabulary.TextFact(
-                            type,
-                            "summary",
-                            section.Summary),
-                        ResourceExplanationVocabulary.IntegerFact(
-                            type,
-                            "members",
-                            section.Values.Length),
-                        ResourceExplanationVocabulary.TextsFact(
-                            type,
-                            "accepted-by",
-                            section.AcceptedBy),
-                        ResourceExplanationVocabulary.TextsFact(
-                            type,
-                            "fields",
-                            section.Fields.Select(static field =>
-                                $"{field.Id} "
-                                + $"({VocabularyJson.Name(field.Kind)}): "
-                                + string.Join(
-                                    ", ",
-                                    field.Operators.Select(
-                                        VocabularyJson.Name)))),
-                        ResourceExplanationVocabulary.TextsFact(
-                            type,
-                            "defaults",
-                            section.Values
-                                .Where(static row =>
-                                    row.TryGetValue(
-                                        "default",
-                                        out VocabularyValue value)
-                                    && value is
-                                    {
-                                        Kind: VocabularyValueKind.Boolean,
-                                        Boolean: true,
-                                    })
-                                .Select(static row =>
-                                    row.GetRequired("id").Text!)),
-                        ResourceExplanationVocabulary.TextsFact(
-                            type,
-                            "examples",
-                            section.Values
-                                .Take(ResourceExplanationVocabulary
-                                    .ExampleCount)
-                                .Select(static row =>
-                                    row.GetRequired("id").Text!)),
-                    ],
-                    RelationshipObservations(
-                        type,
-                        new Dictionary<
-                            string,
-                            IEnumerable<ExplanationResourceKey>>
-                        {
-                            ["term-map-target"] =
-                                TermMapTargets(definition, members),
-                        })));
+            VocabularyDefinition vocabulary = vocabularies[position];
+            snapshots.Add(VocabularyResourceSnapshot(
+                vocabulary,
+                index.Terms[position].GetRequiredValues(acceptedByMap),
+                members));
+            snapshots.AddRange(ValueSnapshots(vocabulary));
         }
 
         return Create(ResourceExplanationVocabulary.Schemas, snapshots);
@@ -1146,9 +1070,290 @@ public sealed class ResourceExplanationCatalog
 
     public const string VocabulariesCollectionSegment = "vocabularies";
 
+    /// <summary>The segment under a vocabulary that holds its values.</summary>
+    public const string VocabularyValuesSegment = "values";
+
     public static ResourcePath VocabularyPath(string vocabularyIdentity) =>
         new ResourcePath(VocabulariesCollectionSegment)
             .Append(vocabularyIdentity);
+
+    public static ResourcePath VocabularyValuePath(
+        string vocabularyIdentity,
+        string valueIdentity) =>
+        VocabularyPath(vocabularyIdentity).Append(
+            VocabularyValuesSegment,
+            VocabularyValueSegment(valueIdentity));
+
+    /// <summary>
+    /// The path segment registered for one vocabulary value: its exact owner
+    /// identity in ASCII lower case with <c>:</c> replaced by <c>.</c>.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">
+    /// The derived segment falls outside the resource-path segment grammar.
+    /// </exception>
+    public static string VocabularyValueSegment(string valueIdentity)
+    {
+        ArgumentNullException.ThrowIfNull(valueIdentity);
+        string segment = string.Create(
+            valueIdentity.Length,
+            valueIdentity,
+            static (characters, identity) =>
+            {
+                for (int position = 0; position < identity.Length; position++)
+                {
+                    characters[position] = identity[position] switch
+                    {
+                        >= 'A' and <= 'Z' and char upper =>
+                            (char)(upper + ('a' - 'A')),
+                        ':' => '.',
+                        char other => other,
+                    };
+                }
+            });
+        return ResourcePath.IsCanonicalSegment(segment)
+            ? segment
+            : throw new InvalidOperationException(
+                $"Vocabulary value '{valueIdentity}' has no canonical "
+                + "resource-path segment.");
+    }
+
+    private static ExplanationResourceSnapshot VocabularyResourceSnapshot(
+        VocabularyDefinition vocabulary,
+        ImmutableArray<ExplanationValue> acceptedBy,
+        IReadOnlySet<string> members)
+    {
+        ExplanationResourceTypeIdentity type =
+            ResourceExplanationVocabulary.ValueVocabularyType;
+        string identity = vocabulary.Identity.Value;
+        VocabularyMapDefinition? defaultMap = vocabulary.Maps.FirstOrDefault(
+            static map => map is
+            {
+                Identity.Value: DefaultMapId,
+                Target: VocabularyMapTarget.Scalar
+                {
+                    Kind: ExplanationScalarKind.Boolean,
+                },
+            });
+        return Snapshot(
+            VocabularyPath(identity),
+            VocabularyKey(identity),
+            [
+                ResourceExplanationVocabulary.TextFact(
+                    type,
+                    "identity",
+                    identity),
+                ResourceExplanationVocabulary.TextFact(
+                    type,
+                    "name",
+                    vocabulary.DisplayLabel),
+                OptionalTextFact(type, "summary", vocabulary.Summary),
+                ResourceExplanationVocabulary.IntegerFact(
+                    type,
+                    "members",
+                    vocabulary.Terms.Length),
+                new(
+                    ResourceExplanationVocabulary.Fact(type, "accepted-by"),
+                    ExplanationObservationState.Available,
+                    acceptedBy),
+                new(
+                    ResourceExplanationVocabulary.Fact(type, "maps"),
+                    ExplanationObservationState.Available,
+                    vocabulary.Maps.Select(MapDeclarationValue)),
+                ResourceExplanationVocabulary.TextsFact(
+                    type,
+                    "defaults",
+                    defaultMap is null
+                        ? []
+                        : vocabulary.Terms
+                            .Where(term =>
+                                term.TryGetValues(
+                                    defaultMap.Identity,
+                                    out ImmutableArray<ExplanationValue> values)
+                                && values.Contains(
+                                    ExplanationValue.Boolean(true)))
+                            .Select(static term => term.Identity.Value)),
+            ],
+            RelationshipObservations(
+                type,
+                new Dictionary<string, IEnumerable<ExplanationResourceKey>>
+                {
+                    ["vocabulary-value"] = vocabulary.Terms.Select(term =>
+                        VocabularyValueKey(identity, term.Identity.Value)),
+                    ["term-map-target"] =
+                        TermMapTargets(vocabulary, members),
+                }));
+    }
+
+    private static IEnumerable<ExplanationResourceSnapshot> ValueSnapshots(
+        VocabularyDefinition vocabulary)
+    {
+        ExplanationResourceTypeIdentity type =
+            ResourceExplanationVocabulary.VocabularyValueType;
+        string vocabularyIdentity = vocabulary.Identity.Value;
+        var segments = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (VocabularyTerm term in vocabulary.Terms)
+        {
+            string identity = term.Identity.Value;
+            if (!segments.TryAdd(VocabularyValueSegment(identity), identity))
+            {
+                throw new InvalidOperationException(
+                    $"Vocabulary '{vocabularyIdentity}' values "
+                    + $"'{segments[VocabularyValueSegment(identity)]}' and "
+                    + $"'{identity}' share one resource-path segment.");
+            }
+        }
+
+        foreach (VocabularyTerm term in vocabulary.Terms)
+        {
+            string identity = term.Identity.Value;
+            var entries = new List<ExplanationValue>();
+            var targets = new List<ExplanationResourceKey>();
+            foreach (VocabularyMapDefinition map in vocabulary.Maps)
+            {
+                if (!term.TryGetValues(
+                        map.Identity,
+                        out ImmutableArray<ExplanationValue> values))
+                {
+                    continue;
+                }
+                foreach (ExplanationValue value in values)
+                {
+                    entries.Add(MapEntryValue(map, value));
+                    if (value is ExplanationValue.VocabularyTerm target)
+                    {
+                        ExplanationResourceKey key = VocabularyValueKey(
+                            target.Identity.Vocabulary.Value,
+                            target.Identity.Value);
+                        if (!targets.Contains(key))
+                            targets.Add(key);
+                    }
+                }
+            }
+
+            yield return Snapshot(
+                VocabularyValuePath(vocabularyIdentity, identity),
+                VocabularyValueKey(vocabularyIdentity, identity),
+                [
+                    ResourceExplanationVocabulary.TextFact(
+                        type,
+                        "identity",
+                        identity),
+                    ResourceExplanationVocabulary.TextFact(
+                        type,
+                        "name",
+                        term.DisplayLabel),
+                    OptionalTextFact(type, "summary", term.Summary),
+                    new(
+                        ResourceExplanationVocabulary.Fact(
+                            type,
+                            "map-entries"),
+                        ExplanationObservationState.Available,
+                        entries),
+                ],
+                RelationshipObservations(
+                    type,
+                    new Dictionary<
+                        string,
+                        IEnumerable<ExplanationResourceKey>>
+                    {
+                        ["term-map-value"] = targets,
+                    }));
+        }
+    }
+
+    private const string DefaultMapId = "default";
+
+    private static ExplanationFactObservation OptionalTextFact(
+        ExplanationResourceTypeIdentity type,
+        string identity,
+        string? value) =>
+        value is null
+            ? ResourceExplanationVocabulary.AbsentFact(type, identity)
+            : ResourceExplanationVocabulary.TextFact(type, identity, value);
+
+    private static ExplanationValue MapDeclarationValue(
+        VocabularyMapDefinition map) =>
+        RecordValue(
+            ResourceExplanationVocabulary.MapDeclarationShape,
+            ("identity", ExplanationValue.Text(map.Identity.Value)),
+            ("name", ExplanationValue.Text(map.DisplayLabel)),
+            ("summary", ExplanationValue.Text(map.Summary)),
+            ("value-kind", ExplanationValue.Text(map.Target switch
+            {
+                VocabularyMapTarget.Scalar scalar =>
+                    ScalarKindName(scalar.Kind),
+                _ => "term",
+            })),
+            ("target-vocabulary", map.Target is VocabularyMapTarget.Terms
+            {
+                Reference: VocabularyTermSetReference.Local local,
+            }
+                ? ExplanationValue.Text(local.Vocabulary.Value)
+                : null),
+            ("cardinality", ExplanationValue.Text(map.Cardinality switch
+            {
+                VocabularyMapCardinality.ExactlyOne => "exactly-one",
+                VocabularyMapCardinality.OptionalOne => "optional-one",
+                VocabularyMapCardinality.OneOrMore => "one-or-more",
+                VocabularyMapCardinality.ZeroOrMore => "zero-or-more",
+                _ => throw new InvalidOperationException(
+                    $"Map '{map.Identity}' has an unknown cardinality."),
+            })),
+            ("coverage", ExplanationValue.Text(map.Coverage switch
+            {
+                VocabularyMapCoverage.Complete => "complete",
+                VocabularyMapCoverage.Partial => "partial",
+                _ => throw new InvalidOperationException(
+                    $"Map '{map.Identity}' has an unknown coverage."),
+            })));
+
+    private static ExplanationValue MapEntryValue(
+        VocabularyMapDefinition map,
+        ExplanationValue value)
+    {
+        (string @case, ExplanationValue payload) = value switch
+        {
+            ExplanationValue.Scalar scalar =>
+                (ScalarKindName(scalar.Value.Kind), value),
+            ExplanationValue.VocabularyTerm term =>
+                ("term", ExplanationValue.Text(term.Identity.Value)),
+            _ => throw new InvalidOperationException(
+                $"Map '{map.Identity}' carries a value Product Vocabulary "
+                + "explanation does not admit."),
+        };
+        return RecordValue(
+            ResourceExplanationVocabulary.MapEntryShape,
+            ("map", ExplanationValue.Text(map.Identity.Value)),
+            ("value", new ExplanationValue.Choice(
+                new ExplanationChoiceCaseIdentity(
+                    ResourceExplanationVocabulary.MapValueShape,
+                    @case),
+                payload)));
+    }
+
+    private static string ScalarKindName(ExplanationScalarKind kind) =>
+        kind switch
+        {
+            ExplanationScalarKind.Text => "text",
+            ExplanationScalarKind.Integer => "integer",
+            ExplanationScalarKind.Boolean => "boolean",
+            _ => throw new InvalidOperationException(
+                $"Scalar kind '{kind}' is not a Product Vocabulary map "
+                + "value kind."),
+        };
+
+    private static ExplanationValue RecordValue(
+        ExplanationDataShapeIdentity shape,
+        params (string Field, ExplanationValue? Value)[] fields) =>
+        new ExplanationValue.Record(
+            fields.Select(field =>
+            {
+                ImmutableArray<ExplanationValue> values =
+                    field.Value is null ? [] : [field.Value];
+                return new ExplanationRecordFieldValue(
+                    new ExplanationFieldIdentity(shape, field.Field),
+                    values);
+            }));
 
     private static ImmutableArray<ExplanationResourceKey> TermMapTargets(
         VocabularyDefinition definition,
@@ -1173,6 +1378,13 @@ public sealed class ResourceExplanationCatalog
         ResourceExplanationVocabulary.Key(
             ResourceExplanationVocabulary.ValueVocabularyType,
             Pack(identity));
+
+    private static ExplanationResourceKey VocabularyValueKey(
+        string vocabularyIdentity,
+        string valueIdentity) =>
+        ResourceExplanationVocabulary.Key(
+            ResourceExplanationVocabulary.VocabularyValueType,
+            Pack(vocabularyIdentity, valueIdentity));
 
     public static ResourceExplanationCatalog Combine(
         params ResourceExplanationCatalog[] catalogs)
