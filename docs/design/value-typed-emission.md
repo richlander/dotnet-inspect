@@ -600,8 +600,9 @@ wraps it in `Coerce(boxType, operand, CoercionKind.Exact)` whenever the
 operand's natural C# type differs from the box type
 (`CoercionDomain.IsAtNaturalType`):
 
-- an `int`-valued constant spells at `int` whatever its IR type;
-- a `long`-valued constant is never taken as at its target;
+- an integer constant spells as an unsuffixed decimal literal whatever its
+  IR type, so its natural type follows the C# literal rule: `int` when the
+  value fits, else `uint`, else `long`;
 - any other value has its `CSharpExpressionType.Effective` type.
 
 The printer spells an exact coercion through the ordinary coercion rendering

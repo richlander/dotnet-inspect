@@ -573,20 +573,29 @@ public static class CoercionDomain
 
     /// <summary>
     /// Whether <paramref name="value"/>, spelled as C#, already has exactly the
-    /// type <paramref name="target"/>. An integer constant spells as a decimal
-    /// literal, whose natural type is <c>int</c> for an <c>int</c>-valued
-    /// constant whatever its IR type; a <c>long</c>-valued constant is never
-    /// taken as at its target, since its spelling depends on the sink. Any
-    /// other value has the C# type <see cref="CSharpExpressionType.Effective"/>
-    /// reports (a sub-<c>int</c> arithmetic result is <c>int</c>).
+    /// type <paramref name="target"/>. An integer constant spells as an
+    /// unsuffixed decimal literal whatever its IR type, so its natural type is
+    /// the C# literal rule's: <c>int</c> when the value fits, else <c>uint</c>,
+    /// else <c>long</c> (a negative literal is the negated magnitude, and
+    /// <c>-9223372036854775808</c> is a <c>long</c>). Any other value has the C#
+    /// type <see cref="CSharpExpressionType.Effective"/> reports (a sub-<c>int</c>
+    /// arithmetic result is <c>int</c>).
     /// </summary>
     public static bool IsAtNaturalType(IrExpression value, TypeRef target)
         => value switch
         {
-            Constant { Value: int } => target is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "Int32" },
-            Constant { Value: long } => false,
+            Constant { Value: int } => IsCoreSystem(target, "Int32"),
+            Constant { Value: long literal } => IsCoreSystem(target, literal switch
+            {
+                >= int.MinValue and <= int.MaxValue => "Int32",
+                > int.MaxValue and <= uint.MaxValue => "UInt32",
+                _ => "Int64",
+            }),
             _ => CSharpExpressionType.Effective(value) is { } natural && natural.Equals(target),
         };
+
+    static bool IsCoreSystem(TypeRef type, string name)
+        => type is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System" } && type.Name == name;
 }
 
 /// <summary>
