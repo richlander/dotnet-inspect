@@ -1214,32 +1214,48 @@ public partial class CommandExecutionTests
         Assert.StartsWith($"section\tlines\tcharacters\n{SectionNames.ApiDeclarations}\t", declarationsRow);
 
         // Every format the type route advertises for a Text executes there
-        // (round-2 finding: IL was advertised on the type route without a payload).
-        var (typeCatalogExit, typeCatalog, _) = await RunAppAsync(
+        // (round-2 finding: IL was advertised on the type route without a
+        // payload). Text sections are explicit-only, so discovery is asked for
+        // each by name; the walk must reach the two Texts the type route
+        // populates (round-3 observation: a catalog-level walk found none).
+        string[] typeTarget =
+        [
             "type", "DotnetInspect.Cli.Tests.CommandExecutionTests+ConstructorChainTarget",
-            "--library", TestAssemblyPath, "--all", "-D", "--details", "--json");
-        Assert.Equal(0, typeCatalogExit);
-        using JsonDocument typeCatalogDocument = JsonDocument.Parse(typeCatalog);
+            "--library", TestAssemblyPath, "--all",
+        ];
         var typeFailures = new List<string>();
-        foreach (JsonElement row in typeCatalogDocument.RootElement.EnumerateArray())
+        var rowFormatTexts = new List<string>();
+        foreach (string section in new[]
+                 {
+                     SectionNames.ApiDeclarations,
+                     SectionNames.DecompiledSource,
+                     SectionNames.Source,
+                     SectionNames.IL,
+                     SectionNames.PdbSource,
+                     SectionNames.SourceDiff,
+                 })
         {
-            if (row.GetProperty("kind").GetString() != "section"
-                || !row.TryGetProperty("shape", out JsonElement shape)
-                || shape.GetString() != "text")
-            {
+            var (discoverExit, discover, _) = await RunAppAsync(
+                [.. typeTarget, "-D", section, "--details", "--json"]);
+            if (discoverExit != 0)
                 continue;
-            }
-            string section = row.GetProperty("name").GetString()!;
-            foreach (JsonElement format in row.GetProperty("formats").EnumerateArray())
+            using JsonDocument discoverDocument = JsonDocument.Parse(discover);
+            JsonElement row = Assert.Single(discoverDocument.RootElement.EnumerateArray());
+            string[] formats =
+                [.. row.GetProperty("formats").EnumerateArray().Select(static f => f.GetString()!)];
+            if (formats.Contains("--tsv"))
+                rowFormatTexts.Add(section);
+            foreach (string format in formats)
             {
-                var (exit, output, error) = await RunAppAsync(
-                    "type", "DotnetInspect.Cli.Tests.CommandExecutionTests+ConstructorChainTarget",
-                    "--library", TestAssemblyPath, "--all", "-S", section, format.GetString()!);
+                var (exit, output, error) = await RunAppAsync([.. typeTarget, "-S", section, format]);
                 if (exit != 0 || output.Trim().Length == 0)
-                    typeFailures.Add($"{section} {format.GetString()}: exit {exit}: {error.Trim()}");
+                    typeFailures.Add($"{section} {format}: exit {exit}: {error.Trim()}");
             }
         }
         Assert.True(typeFailures.Count == 0, string.Join(Environment.NewLine, typeFailures));
+        Assert.Contains(SectionNames.ApiDeclarations, rowFormatTexts);
+        Assert.Contains(SectionNames.DecompiledSource, rowFormatTexts);
+        Assert.DoesNotContain(SectionNames.IL, rowFormatTexts);
 
         // A fact row is not an inventory: Count and --rows stay rejected.
         var (countExit, _, countError) = await RunAppAsync([.. member, "-S", SectionNames.DecompiledSource, "--count"]);
