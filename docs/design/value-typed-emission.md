@@ -1415,12 +1415,15 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    **source-closed**:
    - no copy chain reaches them from an undecided member, so their identity
      rests on their own producers and loads alone;
-   - every copy they make into an undecided peer already reads the decided
-     type.
+   - no undecided peer they copy into is a slot-store sink at another type.
+     A slot load is exempt from slot-store coercion but a local load is not,
+     so materializing a source that copies into a peer testified at another
+     type would add a coercion to the peer's store.
 
    The undecided peer then stays a slot whose copy store reads the typed
-   local. Its own frozen residual decision sees the same store type it saw
-   before. Members downstream of an undecided one stay printer-owned, and a
+   local, at the type its slot load carried and without a new coercion. Its
+   own frozen residual decision sees the same store it saw before. Members
+   downstream of an undecided one stay printer-owned, and a
    component holding a managed reference stays atomic. The Release
    `SlotMaterializationInvariant` re-derives this boundary from the trees: a
    materialized copy destination never reads an unmaterialized source.
@@ -1431,8 +1434,9 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    `ILOffsetSourceQuery.<ExecuteAsync>d__0.MoveNext`), and `??` joins across a
    spill (Microsoft.CodeAnalysis.CSharp `SourceMethodSymbol.GetInMethodSyntaxNode`).
    `MaterializesCompleteDirectCopyComponent`,
-   `MaterializesSourceClosedMembersOfAnIncompleteComponent`, and
-   `DefersMembersDownstreamOfAnUndecidedSlot` gate the boundary. `SlotMaterializationPass.Analyze` owns the overlapping veto
+   `MaterializesSourceClosedMembersOfAnIncompleteComponent`,
+   `DefersMembersDownstreamOfAnUndecidedSlot`, and
+   `DefersSourceWhoseUndecidedPeerIsASinkAtAnotherType` gate the boundary. `SlotMaterializationPass.Analyze` owns the overlapping veto
    attribution consumed by `--slot-residual-census`; each decision identifies
    its exact body scope and slot number, and the census fails unless those
    identities equal the materialization-entry and retained web sets. Raises
@@ -1548,10 +1552,8 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    `IntegerConditionKeepsItsNumericIdentity` gate the nearby decline and
    non-action boundaries. Direct-copy components follow the source-closed
    rule above: `MaterializesBooleanSinkIdentityAcrossDirectCopyComponent`
-   gates the decided case. A Boolean-recovered member keeps a peer it copies
-   into intact, because its integer-typed copy load does not read the decided
-   Boolean type, and a member downstream of an undecided Boolean carrier stays
-   on slots.
+   gates the decided case. A member downstream of an undecided Boolean
+   carrier, whose integer and Boolean testimony conflict, stays on slots.
    The C2 deletion and invariant extension are owned by
    [Residual storage binding](#residual-storage-binding); they no longer wait
    for the residual census to reach zero.

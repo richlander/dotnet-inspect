@@ -297,6 +297,38 @@ public class SlotMaterializationPassTests
     }
 
     [Fact]
+    public void DefersSourceWhoseUndecidedPeerIsASinkAtAnotherType()
+    {
+        // S_0 is decided Char and copies into S_1, whose load testifies Int32
+        // but whose dead Int64 store leaves it undecided. Materializing S_0
+        // alone would expose its local load to S_1's Int32 slot-store
+        // coercion and change S_1's frozen residual decision.
+        var body = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(0, new LoadArgument(0, "c", Char)));
+        block.Add(new StoreStackSlot(1, new LoadStackSlot(0, Char)));
+        block.Add(new StoreLocal(0, Int32, new LoadStackSlot(1, Int32)));
+        block.Add(new StoreStackSlot(1, new Constant(5L, Int64)));
+        body.Add(block);
+        var function = Function([Int32], body);
+
+        var decisions = SlotMaterializationPass.Analyze(function);
+        Assert.Contains(decisions, decision => decision.Slot == 0
+            && decision.Vetoes == SlotMaterializationVeto.IncompleteCopyComponent);
+        Assert.Contains(decisions, decision => decision.Slot == 1
+            && decision.Vetoes.HasFlag(SlotMaterializationVeto.UnrenderableStoreType));
+
+        new SlotMaterializationPass().Run(function, PassContext.None);
+        new CoercionInsertionPass().Run(function, PassContext.None);
+
+        Assert.Equal(3, function.Descendants.OfType<StoreStackSlot>().Count());
+        Assert.DoesNotContain(function.Descendants.OfType<StoreStackSlot>(),
+            store => store.Slot == 1 && store.Value is Coerce);
+        Assert.Single(function.Locals);
+        function.CheckInvariant();
+    }
+
+    [Fact]
     public void MaterializesOuterSlotWhoseNumberAppearsInNestedLambdaScope()
     {
         var lambdaBody = new BlockContainer();

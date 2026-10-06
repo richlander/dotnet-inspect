@@ -243,7 +243,10 @@ public sealed class SlotMaterializationPass : IIrPass
                 candidate.Vetoes |= SlotMaterializationVeto.ElementStoreIdentityRecovery;
         }
 
-        MarkIncompleteCopyComponents(stores, candidates);
+        MarkIncompleteCopyComponents(
+            stores,
+            candidates,
+            CoercionSinks.TestifiedSlotTypes(function.Body, function.Signature.ReturnType, function.TypeShapes));
         return new MaterializationPlan(
             candidates,
             [.. candidates.Select(static candidate => candidate.Decision), .. nestedDecisions]);
@@ -303,17 +306,20 @@ public sealed class SlotMaterializationPass : IIrPass
         // from an undecided member, so their identity rests on their own
         // producers and loads alone. Values may flow out of the decided set
         // into an undecided peer, whose copy store then reads a typed local
-        // instead of a slot; that read must already carry the decided type so
-        // the peer's own frozen residual decision sees the same store type.
-        // A component holding a managed reference stays atomic (exact
-        // managed-reference storage).
+        // instead of a slot. A slot load is exempt from slot-store coercion
+        // but a local load is not, so the peer must not carry a testified
+        // store-sink type other than the source's decided type; otherwise
+        // the source stays undecided and the peer's own frozen residual
+        // decision sees the same store as before. A component holding a
+        // managed reference stays atomic (exact managed-reference storage).
         static void MarkIncompleteCopyComponents(
             IReadOnlyDictionary<int, List<StoreStackSlot>> stores,
-            IReadOnlyList<MaterializationCandidate> candidates)
+            IReadOnlyList<MaterializationCandidate> candidates,
+            IReadOnlyDictionary<int, TypeRef> storeSinkTypes)
         {
             var bySlot = candidates.ToDictionary(static candidate => candidate.Slot);
             var graph = new Dictionary<int, HashSet<int>>();
-            var copies = new List<(int Source, int Destination, LoadStackSlot Load)>();
+            var copies = new List<(int Source, int Destination)>();
 
             HashSet<int> Neighbors(int slot)
                 => graph.TryGetValue(slot, out var neighbors)
@@ -328,7 +334,7 @@ public sealed class SlotMaterializationPass : IIrPass
                 {
                     Neighbors(destination).Add(source.Slot);
                     Neighbors(source.Slot).Add(destination);
-                    copies.Add((source.Slot, destination, source));
+                    copies.Add((source.Slot, destination));
                 }
             }
 
@@ -368,7 +374,7 @@ public sealed class SlotMaterializationPass : IIrPass
                     while (grew)
                     {
                         grew = false;
-                        foreach (var (source, destination, load) in copies)
+                        foreach (var (source, destination) in copies)
                         {
                             if (!component.Contains(destination))
                                 continue;
@@ -376,12 +382,14 @@ public sealed class SlotMaterializationPass : IIrPass
                             // depends on a value no decision covers.
                             if (undecided.Contains(source) && undecided.Add(destination))
                                 grew = true;
-                            // Flow into an undecided peer through a load that does not
-                            // already read the decided type: materializing would change
-                            // the peer's store type.
+                            // Flow into an undecided peer whose store is a typed sink
+                            // at another type: materializing the source would expose
+                            // its local load to slot-store coercion and change the
+                            // peer's store type.
                             else if (!undecided.Contains(source)
                                 && undecided.Contains(destination)
-                                && !Equals(load.Type, bySlot[source].Type)
+                                && storeSinkTypes.TryGetValue(destination, out var sinkType)
+                                && !sinkType.Equals(bySlot[source].Type)
                                 && undecided.Add(source))
                                 grew = true;
                         }
