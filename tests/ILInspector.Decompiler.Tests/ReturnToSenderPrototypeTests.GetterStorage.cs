@@ -171,9 +171,17 @@ public partial class ReturnToSenderPrototypeTests
         var range = Assert.IsType<CSharpSourceRange>(artifact.ReplaceableBodyRange);
 
         Assert.Equal("=> field ?? Array.Empty<T>();", artifact.Source.Substring(range.Start, range.Length));
-        string replacement = artifact.ReplaceBody("return field ?? new T[1];");
+        var replaced = artifact.ReplaceBody("return field ?? new T[1];");
+        string replacement = replaced.Source;
         Assert.StartsWith(artifact.Source[..range.Start], replacement);
         Assert.EndsWith(artifact.Source[range.End..], replacement);
+        // The expression body becomes a block of a different length; the product
+        // reports where that block sits in the replaced unit.
+        Assert.Equal(range.Start, replaced.BodyRange.Start);
+        Assert.Equal(
+            replacement.Length - (artifact.Source.Length - range.End),
+            replaced.BodyRange.End);
+        Assert.Contains("return field ?? new T[1];", replacement.Substring(replaced.BodyRange.Start, replaced.BodyRange.Length));
         var compilation = CSharpCompilation.Create(
             "compact-getter-replacement",
             [CSharpSyntaxTree.ParseText(replacement, attempt.ParseOptions,

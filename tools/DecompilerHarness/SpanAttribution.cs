@@ -1,7 +1,9 @@
 using System.Collections.Immutable;
+
+using ILInspector.CSharp;
+
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
-using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Text;
 
 namespace ILInspector.DecompilerHarness;
@@ -16,7 +18,7 @@ namespace ILInspector.DecompilerHarness;
 /// defect that co-occurs with a broken shell.
 ///
 /// This helper recovers the additional signal without a further compile: it
-/// locates the target member's body span in both the decompiled and the
+/// takes the target body's product-issued range in both the decompiled and the
 /// authored artifacts (which the isolation pass already compiled) and compares
 /// where each compiler error lands. The attribution is intentionally
 /// conservative so the resulting count stays a sound lower bound — it never
@@ -25,28 +27,12 @@ namespace ILInspector.DecompilerHarness;
 ///
 /// Attribution is a harness measurement concern; it reads compiler diagnostics
 /// (an independent oracle) and the source the pipeline already produced. It does
-/// not construct or rewrite the C# artifact: authored-body replacement is owned
-/// by the product's frozen source artifact. This helper only locates spans for
-/// independent diagnostic measurement.
+/// not construct or rewrite the C# artifact, and it does not rediscover the body:
+/// the decompiled body range and the authored replacement range are both issued
+/// by the product's frozen <see cref="CSharpSourceArtifact"/>.
 /// </summary>
 internal static class SpanAttribution
 {
-    internal enum TargetMemberKind
-    {
-        Method,
-        Constructor,
-        PropertyGet,
-        PropertySet,
-        EventAdd,
-        EventRemove,
-    }
-
-    internal readonly record struct TargetIdentity(
-        string FullType,
-        string MetadataMemberName,
-        int ParameterCount,
-        TargetMemberKind Kind);
-
     // Error codes that are provably intrinsic to the decompiled body itself and
     // cannot be induced by a broken or incomplete reconstructed shell: they
     // concern only the body's own local declarations, never a shell-provided
@@ -75,34 +61,12 @@ internal static class SpanAttribution
             "CS0128"); // duplicate local variable name (strictly body-internal)
 
     /// <summary>
-    /// Sound refinement of the substitution oracle for the case where the
-    /// authored body also failed to compile (shell broken). Returns true only
-    /// when <see cref="IsolatingBodyError"/> finds a provably shell-independent
-    /// in-body error attributable to the decompiler; it never fabricates a body
-    /// defect.
-    /// </summary>
-    internal static bool DecompiledBodyIsolatedUnderBrokenShell(
-        string decompiledSource,
-        ImmutableArray<Diagnostic> decompiledDiagnostics,
-        string authoredSource,
-        ImmutableArray<Diagnostic> authoredDiagnostics,
-        TargetIdentity identity,
-        CSharpParseOptions? parseOptions = null)
-        => IsolatingBodyError(
-            decompiledSource,
-            decompiledDiagnostics,
-            authoredSource,
-            authoredDiagnostics,
-            identity,
-            parseOptions) is not null;
-
-    /// <summary>
     /// Returns the decompiled in-body diagnostic that soundly attributes the
     /// recompile failure to the decompiler, or null when no sound attribution is
     /// possible (the caller then keeps <c>ShellOrClosureDefect</c>).
     ///
     /// Soundness rule (default-deny). The authored body must be error-free within
-    /// its own span (the substitution control), and the decompiled body must
+    /// its own range (the substitution control), and the decompiled body must
     /// carry at least one in-body error that is provably <em>shell-independent</em>:
     /// either a syntax/parser error — the decompiler emitted body text that does
     /// not parse, which no shell state can cause — or a body-intrinsic semantic
@@ -110,29 +74,27 @@ internal static class SpanAttribution
     /// <see cref="BodyIntrinsicSemanticErrorIds"/>). Context-dependent errors
     /// (unresolved names/types/members, conversions, overloads) are never credited
     /// because a broken shell reconstructor produces them identically to a real
-    /// body defect. If either body span cannot be uniquely located, returns null.
+    /// body defect.
     /// </summary>
     internal static Diagnostic? IsolatingBodyError(
         string decompiledSource,
+        CSharpSourceRange decompiledBody,
         ImmutableArray<Diagnostic> decompiledDiagnostics,
-        string authoredSource,
+        CSharpSourceRange authoredBody,
         ImmutableArray<Diagnostic> authoredDiagnostics,
-        TargetIdentity identity,
         CSharpParseOptions? parseOptions = null)
     {
-        if (TryLocateBodySpan(decompiledSource, identity, parseOptions) is not { } decompiledBody)
-            return null;
-        if (TryLocateBodySpan(authoredSource, identity, parseOptions) is not { } authoredBody)
-            return null;
+        var decompiledSpan = ToTextSpan(decompiledBody);
+        var authoredSpan = ToTextSpan(authoredBody);
 
         // Substitution control: the authored body must be clean within its own
-        // span. If a broken shell also breaks the authored body span we decline
+        // range. If a broken shell also breaks the authored body we decline
         // (a conservative false negative that keeps the count a lower bound).
-        if (CountErrorsInSpan(authoredDiagnostics, authoredBody) != 0)
+        if (CountErrorsInSpan(authoredDiagnostics, authoredSpan) != 0)
             return null;
 
         // Shell-independent syntax error: the decompiled body text does not parse.
-        if (FirstSyntaxErrorInSpan(decompiledSource, decompiledBody, parseOptions) is { } syntaxError)
+        if (FirstSyntaxErrorInSpan(decompiledSource, decompiledSpan, parseOptions) is { } syntaxError)
             return syntaxError;
 
         // Shell-independent body-intrinsic semantic error (locals/control flow).
@@ -145,12 +107,14 @@ internal static class SpanAttribution
             var location = diagnostic.Location;
             if (location.Kind != LocationKind.SourceFile)
                 continue;
-            if (decompiledBody.IntersectsWith(location.SourceSpan))
+            if (decompiledSpan.IntersectsWith(location.SourceSpan))
                 return diagnostic;
         }
 
         return null;
     }
+
+    static TextSpan ToTextSpan(CSharpSourceRange range) => new(range.Start, range.Length);
 
     /// <summary>
     /// Returns the first Error-severity <em>syntactic</em> diagnostic whose span
@@ -206,217 +170,5 @@ internal static class SpanAttribution
         }
 
         return count;
-    }
-
-    /// <summary>
-    /// Locates the target member's body span (block or expression body) within
-    /// <paramref name="source"/>, or null when the member cannot be uniquely
-    /// identified. Robust to reformatting because it walks the parse tree rather
-    /// than matching text.
-    /// </summary>
-    internal static TextSpan? TryLocateBodySpan(string source, TargetIdentity identity, CSharpParseOptions? parseOptions = null)
-    {
-        SyntaxNode root;
-        try
-        {
-            root = CSharpSyntaxTree.ParseText(source, parseOptions).GetRoot();
-        }
-        catch (Exception)
-        {
-            return null;
-        }
-
-        var type = LocateType(root, identity.FullType);
-        if (type is null)
-            return null;
-
-        var member = LocateMember(type, identity);
-        return member is null ? null : BodySpanOf(member);
-    }
-
-    static TypeDeclarationSyntax? LocateType(SyntaxNode root, string fullType)
-    {
-        var simpleName = SimpleTypeName(fullType);
-        var candidates = root.DescendantNodes()
-            .OfType<TypeDeclarationSyntax>()
-            .Where(declaration => declaration.Identifier.ValueText == simpleName)
-            .ToList();
-
-        if (candidates.Count == 1)
-            return candidates[0];
-        if (candidates.Count == 0)
-            return null;
-
-        // Disambiguate same-simple-name types by their full nested chain.
-        var chain = TypeNameChain(fullType);
-        TypeDeclarationSyntax? match = null;
-        foreach (var candidate in candidates)
-        {
-            if (!MatchesChain(candidate, chain))
-                continue;
-            if (match is not null)
-                return null; // still ambiguous
-            match = candidate;
-        }
-
-        return match;
-    }
-
-    static bool MatchesChain(TypeDeclarationSyntax candidate, IReadOnlyList<string> chain)
-    {
-        int index = chain.Count - 1;
-        SyntaxNode? node = candidate;
-        while (node is not null && index >= 0)
-        {
-            if (node is TypeDeclarationSyntax type)
-            {
-                if (type.Identifier.ValueText != chain[index])
-                    return false;
-                index--;
-            }
-
-            node = node.Parent;
-        }
-
-        return index < 0;
-    }
-
-    static SyntaxNode? LocateMember(TypeDeclarationSyntax type, TargetIdentity identity)
-    {
-        switch (identity.Kind)
-        {
-            case TargetMemberKind.Method:
-            {
-                var methods = type.Members
-                    .OfType<MethodDeclarationSyntax>()
-                    .Where(method => method.Identifier.ValueText == identity.MetadataMemberName
-                        && method.ParameterList.Parameters.Count == identity.ParameterCount)
-                    .ToList();
-                return methods.Count == 1 ? methods[0] : null;
-            }
-
-            case TargetMemberKind.Constructor:
-            {
-                var constructors = type.Members
-                    .OfType<ConstructorDeclarationSyntax>()
-                    .Where(constructor => constructor.ParameterList.Parameters.Count == identity.ParameterCount)
-                    .ToList();
-                return constructors.Count == 1 ? constructors[0] : null;
-            }
-
-            case TargetMemberKind.PropertyGet:
-            case TargetMemberKind.PropertySet:
-                return LocateAccessor(type, identity, isProperty: true);
-
-            case TargetMemberKind.EventAdd:
-            case TargetMemberKind.EventRemove:
-                return LocateAccessor(type, identity, isProperty: false);
-
-            default:
-                return null;
-        }
-    }
-
-    static AccessorDeclarationSyntax? LocateAccessor(TypeDeclarationSyntax type, TargetIdentity identity, bool isProperty)
-    {
-        string memberName = StripAccessorPrefix(identity.MetadataMemberName);
-        SyntaxKind accessorKind = identity.Kind switch
-        {
-            TargetMemberKind.PropertyGet => SyntaxKind.GetAccessorDeclaration,
-            TargetMemberKind.PropertySet => SyntaxKind.SetAccessorDeclaration,
-            TargetMemberKind.EventAdd => SyntaxKind.AddAccessorDeclaration,
-            TargetMemberKind.EventRemove => SyntaxKind.RemoveAccessorDeclaration,
-            _ => SyntaxKind.None,
-        };
-
-        var accessorLists = isProperty
-            ? type.Members.OfType<BasePropertyDeclarationSyntax>()
-                .Where(member => AccessorMemberName(member) == memberName)
-                .Select(member => member.AccessorList)
-                .ToList()
-            : type.Members.OfType<EventDeclarationSyntax>()
-                .Where(member => member.Identifier.ValueText == memberName)
-                .Select(member => member.AccessorList)
-                .ToList();
-
-        if (accessorLists.Count != 1 || accessorLists[0] is null)
-            return null;
-
-        // init accessors surface as set in metadata (set_X); accept either.
-        var accessors = accessorLists[0]!.Accessors
-            .Where(accessor => accessor.Kind() == accessorKind
-                || (accessorKind == SyntaxKind.SetAccessorDeclaration
-                    && accessor.Kind() == SyntaxKind.InitAccessorDeclaration))
-            .ToList();
-        return accessors.Count == 1 ? accessors[0] : null;
-    }
-
-    static string? AccessorMemberName(BasePropertyDeclarationSyntax member) => member switch
-    {
-        PropertyDeclarationSyntax property => property.Identifier.ValueText,
-        IndexerDeclarationSyntax => "Item",
-        _ => null,
-    };
-
-    static string StripAccessorPrefix(string metadataName)
-    {
-        foreach (var prefix in new[] { "get_", "set_", "add_", "remove_" })
-        {
-            if (metadataName.StartsWith(prefix, StringComparison.Ordinal))
-                return metadataName[prefix.Length..];
-        }
-
-        return metadataName;
-    }
-
-    static TextSpan? BodySpanOf(SyntaxNode member) => member switch
-    {
-        MethodDeclarationSyntax method => BlockOrArrow(method.Body, method.ExpressionBody),
-        ConstructorDeclarationSyntax constructor => BlockOrArrow(constructor.Body, constructor.ExpressionBody),
-        AccessorDeclarationSyntax accessor => BlockOrArrow(accessor.Body, accessor.ExpressionBody),
-        _ => null,
-    };
-
-    static TextSpan? BlockOrArrow(BlockSyntax? block, ArrowExpressionClauseSyntax? arrow)
-    {
-        if (block is not null)
-            return block.Span;
-        if (arrow is not null)
-            return arrow.Span;
-        return null;
-    }
-
-    static string SimpleTypeName(string fullType)
-    {
-        var chain = TypeNameChain(fullType);
-        return chain.Count == 0 ? fullType : chain[^1];
-    }
-
-    static IReadOnlyList<string> TypeNameChain(string fullType)
-    {
-        // Split namespace + nested-type separators, drop the namespace prefix,
-        // and strip metadata generic-arity backticks from each type segment.
-        var segments = fullType.Split('+', '/');
-        var chain = new List<string>();
-        for (int i = 0; i < segments.Length; i++)
-        {
-            string segment = segments[i];
-            if (i == 0)
-            {
-                int lastDot = segment.LastIndexOf('.');
-                if (lastDot >= 0)
-                    segment = segment[(lastDot + 1)..];
-            }
-
-            chain.Add(StripArity(segment));
-        }
-
-        return chain;
-    }
-
-    static string StripArity(string typeName)
-    {
-        int backtick = typeName.IndexOf('`');
-        return backtick >= 0 ? typeName[..backtick] : typeName;
     }
 }
