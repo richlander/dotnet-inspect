@@ -258,6 +258,100 @@ jobs:
           echo "This lane cannot certify oracle-backed results. See the 'Install ilasm/ildasm/mdv' step." >&2
           exit 1
 
+      # Build the shipped non-AOT fallback against its net10 LTS floor after
+      # every net11 test has consumed the solution build's outputs.
+      - name: Build tool for net10.0 fallback
+        run: dotnet build src/DotnetInspect.Cli -c Release -p:DefaultTargetFramework=net10.0 -p:PublishAot=false
+
+      - name: Pack pointer package
+        run: dotnet pack src/DotnetInspect.Cli -c Release -p:SelfContained=true -p:OfficialBuild=true -p:CreateRidSpecificToolPackages=false -p:DotnetInspectWebsiteUrl=https://dotnet-inspect.net
+
+      - name: Pack any (non-AOT) package
+        run: dotnet pack src/DotnetInspect.Cli -c Release -r any -p:PublishAot=false -p:OfficialBuild=true -p:DotnetInspectWebsiteUrl=https://dotnet-inspect.net
+
+      - name: Pack linux-x64 AOT package
+        run: dotnet pack src/DotnetInspect.Cli -c Release -r linux-x64 -p:OfficialAotBuild=true -p:DotnetInspectWebsiteUrl=https://dotnet-inspect.net
+
+      - name: Install tool from local packages
+        run: dotnet tool install --global dotnet-inspect --source ./artifacts/package/release --no-cache
+
+      - name: Smoke test - version
+        run: |
+          OUTPUT=$(dotnet-inspect --version)
+          echo "$OUTPUT"
+          echo "$OUTPUT" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+'
+
+      - name: Smoke test - help
+        run: |
+          OUTPUT=$(dotnet-inspect --help)
+          echo "$OUTPUT"
+          echo "$OUTPUT" | grep -q "dotnet-inspect"
+
+      - name: Smoke test - production share URL
+        run: |
+          PACKET=eyJmIjoxLCJ0IjpbWyI6UGxhdGZvcm0iLCIxMC4wLjEwIiwibmV0MTAuMCIsbnVsbF0sWyJTeXN0ZW0uVGV4dC5Kc29uIiwiMTAuMC4wIiwibmV0MTAuMCIsbnVsbF1dLCJnIjpbWzAsMV1dLCJhIjoxLCJ4IjowLCJ2IjoiYXBpIiwieSI6IlN5c3RlbS5UZXh0Lkpzb24uSnNvblNlcmlhbGl6ZXIiLCJsIjpbIlN5c3RlbS5UZXh0Lkpzb24iXX0
+          OUTPUT=$(dotnet-inspect workspace packet decode "$PACKET" | dotnet-inspect workspace packet encode - --url)
+          echo "$OUTPUT"
+          test "$OUTPUT" = "https://dotnet-inspect.net/?w=$PACKET"
+
+      - name: Smoke test - package quiet
+        run: |
+          dotnet-inspect package System.Text.Json@10.0.0 -v:q > smoke-package.txt
+          cat smoke-package.txt
+          grep -q "System.Text.Json" smoke-package.txt
+          grep -q "System.Text.Json.dll" smoke-package.txt
+
+      - name: Smoke test - package normal
+        run: |
+          dotnet-inspect package System.Text.Json@10.0.0 -v:n \
+            -S "Package Info,Signature" > smoke-package-normal.md
+          cat smoke-package-normal.md
+          grep -q "## Package Info" smoke-package-normal.md
+          grep -q "## Signature" smoke-package-normal.md
+          grep -q "Library" smoke-package-normal.md
+
+      - name: Smoke test - type command (table output)
+        run: |
+          dotnet-inspect type --package System.Text.Json@10.0.0 -t JsonSerializer --table > smoke-type.txt
+          cat smoke-type.txt
+          grep -q "JsonSerializer" smoke-type.txt
+
+      - name: Smoke test - member command (table output)
+        run: |
+          dotnet-inspect member JsonSerializer --package System.Text.Json@10.0.0 -m Serialize --table > smoke-member.txt
+          cat smoke-member.txt
+          grep -q "Serialize" smoke-member.txt
+
+      - name: Smoke test - type command (markdown)
+        run: |
+          dotnet-inspect type --package System.Text.Json@10.0.0 -v:m -t JsonSerializer > smoke-type.md
+          cat smoke-type.md
+          grep -q "JsonSerializer" smoke-type.md
+
+      - name: Smoke test - member command (markdown)
+        run: |
+          dotnet-inspect member JsonSerializer --package System.Text.Json@10.0.0 -v:m -m Serialize > smoke-member.md
+          cat smoke-member.md
+          grep -q "JsonSerializer" smoke-member.md
+          grep -q "Serialize" smoke-member.md
+
+      - name: Smoke test - platform library
+        run: |
+          dotnet-inspect library System.Private.CoreLib -v:q --json > smoke-platform.json
+          cat smoke-platform.json
+          jq -e '
+            .source == "Platform"
+            and .assembly_info.assembly_name == "System.Private.CoreLib"
+          ' smoke-platform.json > /dev/null
+
+      - name: Validate markdown output
+        run: |
+          npm install -g markdownlint-cli
+          markdownlint --config .markdownlint.yaml smoke-*.md
+
+      - name: Uninstall tool
+        run: dotnet tool uninstall --global dotnet-inspect
+
   platform-test:
     name: Platform test (${{ matrix.rid }})
     # Windows and macOS run the fast CLI population plus suites with real OS,
@@ -449,7 +543,7 @@ jobs:
   inspect-web:
     name: Inspect Web comprehensive
     # Complete facade, canary, browser, and published evidence runs daily and
-    # on demand. PR CI keeps focused platform, frontend, browser, and API tests.
+    # on demand. PR CI keeps focused platform and API tests.
     if: >-
       (github.event_name == 'schedule' && github.event.schedule == '0 13 * * *') ||
       inputs.lane == 'inspect-web' ||
@@ -478,7 +572,22 @@ jobs:
         working-directory: inspect-web
         run: |
           npm ci
-          npm run build
+          npm run facades
+          npm run analyze:generated
+          npm run build:generated
+
+      - name: Test browser frontend
+        working-directory: inspect-web
+        run: node --test
+
+      - name: Test annotated-source viewer
+        working-directory: prototypes/annotated-source-viewer
+        run: npm test
+
+      - name: Test browser engine
+        env:
+          MSBuildEnableWorkloadResolver: 'false'
+        run: dotnet run --project tests/DotnetInspect.Web.Tests -c Release
 
       - name: Check complete generated facade contract
         run: eng/generate-inspect-web-engine-facade.sh --check
@@ -498,7 +607,7 @@ jobs:
 
       - name: Test browser UI in Firefox
         working-directory: inspect-web
-        run: npm run test:browser
+        run: npm run test:browser:generated
 
       - name: Publish browser application
         run: >-

@@ -5,50 +5,6 @@ namespace CiChangeDetection;
 
 internal static partial class WorkflowContract
 {
-    private static readonly HashSet<string> CommonTestSteps =
-    [
-        "actions/checkout@v7",
-        "Setup .NET",
-        "Cache NuGet packages",
-        "Build",
-    ];
-
-    private static readonly Dictionary<string, (string Condition, string Shard)>
-        SpecialTestStepConditions = new(StringComparer.Ordinal)
-        {
-            ["Upload PR decompiler corpus artifact"] = (
-                "matrix.shard == 'host-analysis' && always()",
-                "host-analysis"),
-            ["Check PR decompiler corpus result"] = (
-                "matrix.shard == 'host-analysis' && " +
-                "steps.decompiler_pr_corpus.outcome == 'failure'",
-                "host-analysis"),
-            ["Restore vendored ILAssembler"] = (
-                "matrix.shard == 'host-analysis' && matrix.rid == 'linux-x64' && " +
-                "fromJSON(needs.changes.outputs.plan).validations.ilRoundTrip",
-                "host-analysis"),
-            ["Run IL round-trip tests (fast)"] = (
-                "matrix.shard == 'host-analysis' && matrix.rid == 'linux-x64' && " +
-                "fromJSON(needs.changes.outputs.plan).validations.ilRoundTrip",
-                "host-analysis"),
-            ["Check contract test ilasm/ildasm/mdv result"] = (
-                "matrix.shard == 'contracts' && " +
-                "steps.iltools_contracts.outcome == 'failure'",
-                "contracts"),
-            ["Check GitHub Packages fixture result"] = (
-                "matrix.shard == 'host-analysis' && " +
-                "steps.package_fixture.outcome == 'failure'",
-                "host-analysis"),
-            ["Run legacy source-identity guard"] = (
-                "matrix.shard == 'host-analysis' && " +
-                "fromJSON(needs.changes.outputs.plan).validations.repositoryGuards",
-                "host-analysis"),
-            ["Build tool for net10.0 fallback"] = (
-                "matrix.shard == 'host-analysis' && " +
-                "fromJSON(needs.changes.outputs.plan).validations.buildNet10",
-                "host-analysis"),
-        };
-
     private static void ValidateConsumerStepContracts(YamlMappingNode jobs)
     {
         string[] jobNames =
@@ -73,50 +29,50 @@ internal static partial class WorkflowContract
         }
 
         ValidateConsumerStepGuards(jobs, jobNames);
-        ValidateRequiredRunStep(
-            jobs,
-            "test",
-            "Run legacy source-identity guard",
-            "dotnet run --project tests/NuGetFetch.Tests -c Release -- " +
-                "--filter-method \"*LegacyPackageSourceIdentitySurfaceMatchesMigrationSet\" " +
-                "--minimum-expected-tests 1\n");
-        ValidateRequiredRunStep(
-            jobs,
-            "test",
-            "Build tool for net10.0 fallback",
-            "dotnet build src/DotnetInspect.Cli -c Release " +
-                "-p:DefaultTargetFramework=net10.0 -p:PublishAot=false");
         ValidateDependencyPolicyJob(jobs);
         ValidateRequiredRunStep(
             jobs,
             "test",
-            "Run IL diff tests",
-            "dotnet run --project tests/ILInspector.ILDiff.Tests -c Release");
+            "Build",
+            "dotnet build dotnet-inspect.slnx -c Release");
         ValidateRequiredRunStep(
             jobs,
             "test",
-            "Run NetworkAccess tests",
-            "dotnet run --project tests/NetworkAccess.Tests -c Release");
+            "Validate dependency policy",
+            "dotnet run --project eng/DependencyPolicy -c Release --no-build");
         ValidateRequiredRunStep(
             jobs,
             "test",
-            "Run BinaryFetch tests",
-            "dotnet run --project tests/BinaryFetch.Tests -c Release");
+            "Run CLI route smoke",
+            "dotnet run --project tests/DotnetInspect.Cli.Tests -c Release " +
+            "--no-build -- --filter-class 'DotnetInspect.Cli.Tests.WorkspacePacketCommandTests' " +
+            "--filter-class 'DotnetInspect.Cli.Tests.CliRowSelectionLoweringTests' " +
+            "--minimum-expected-tests 2");
         ValidateRequiredRunStep(
             jobs,
             "test",
-            "Run ZipFetch tests",
-            "dotnet run --project tests/ZipFetch.Tests -c Release");
+            "Run embedded skill tests",
+            "dotnet run --project tests/DotnetInspect.Cli.Tests -c Release " +
+            "--no-build -- --filter-class \"DotnetInspect.Cli.Tests.SkillCommandTests\"");
         ValidateRequiredRunStep(
             jobs,
             "test",
-            "Run UntrustedDocuments tests",
-            "dotnet run --project tests/UntrustedDocuments.Tests -c Release");
+            "Run inspection query smoke",
+            "dotnet run --project tests/DotnetInspector.Queries.Tests -c Release --no-build -- " +
+            "--filter-class 'DotnetInspector.Queries.Tests.InspectionDefinitionTests' " +
+            "--filter-class 'DotnetInspector.Queries.Tests.InspectionWorkspaceTests' " +
+            "--filter-class 'DotnetInspector.Queries.Tests.PackageAssemblyQueryPlanningTests' " +
+            "--filter-class 'DotnetInspector.Queries.Tests.PackageDependencyEvidenceQueryTests' " +
+            "--filter-class 'DotnetInspector.Queries.Tests.WorkspaceRealizationTests' " +
+            "--filter-class 'DotnetInspector.Queries.Tests.TypeFindPopulationSelectionTests' " +
+            "--filter-class 'DotnetInspector.Queries.Tests.IntegrationCensusTests' " +
+            "--filter-class 'DotnetInspector.Queries.Tests.ViewFacetRegistryTests' " +
+            "--filter-not-trait \"Speed=Slow\" --minimum-expected-tests 300");
         ValidateRequiredRunStep(
             jobs,
             "test",
-            "Run DotnetInspector.Networking tests",
-            "dotnet run --project tests/DotnetInspector.Networking.Tests -c Release");
+            "Run InertText tests",
+            "dotnet run --project tests/InertText.Tests -c Release --no-build");
         ValidateRequiredRunStep(
             jobs,
             "decompiler-gates",
@@ -128,30 +84,18 @@ internal static partial class WorkflowContract
             "decompiler-gates",
             "Run DecompilerHarness tests",
             "dotnet run --project tests/DecompilerHarness.Tests -c Release --no-build");
-        ValidateRequiredRunStep(
-            jobs,
-            "test",
-            "Run DotnetInspector.Cache tests",
-            "dotnet run --project tests/DotnetInspector.Cache.Tests -c Release");
-        ValidateRequiredRunStep(
-            jobs,
-            "test",
-            "Run DotnetInspector.Packages tests",
-            "dotnet run --project tests/DotnetInspector.Packages.Tests -c Release");
-        ValidateRequiredRunStep(
-            jobs,
-            "test",
-            "Run inspection query tests",
-            "dotnet run --project tests/DotnetInspector.Queries.Tests -c Release --no-build -- " +
-            "--filter-class 'DotnetInspector.Queries.Tests.InspectionDefinitionTests' " +
-            "--filter-class 'DotnetInspector.Queries.Tests.InspectionWorkspaceTests' " +
-            "--filter-class 'DotnetInspector.Queries.Tests.PackageAssemblyQueryPlanningTests' " +
-            "--filter-class 'DotnetInspector.Queries.Tests.PackageDependencyEvidenceQueryTests' " +
-            "--filter-class 'DotnetInspector.Queries.Tests.WorkspaceRealizationTests' " +
-            "--filter-class 'DotnetInspector.Queries.Tests.TypeFindPopulationSelectionTests' " +
-            "--filter-class 'DotnetInspector.Queries.Tests.IntegrationCensusTests' " +
-            "--filter-class 'DotnetInspector.Queries.Tests.ViewFacetRegistryTests' " +
-            "--filter-not-trait \"Speed=Slow\" --minimum-expected-tests 300");
+        YamlSequenceNode packSteps = GetRequiredSequence(
+            GetRequiredMapping(jobs, "pack", "jobs"),
+            "steps",
+            "jobs.pack");
+        if (packSteps.Children
+            .Select(node => RequireMapping(node, "jobs.pack step"))
+            .Any(step => GetOptionalScalar(step, "name") is
+                "Pack linux-x64 AOT package" or "Install tool from local packages"))
+        {
+            throw new InvalidOperationException(
+                "RID-specific AOT packaging and tool install belong in daily Deep Inspect.");
+        }
     }
 
     private static void RequireNamedRunStep(
@@ -368,18 +312,13 @@ internal static partial class WorkflowContract
         var allowedContinueOnError = new HashSet<string>(
             StringComparer.Ordinal)
         {
-            "test/Run GitHub Packages fixture test",
-            "test/Run PR decompiler corpus sensor",
-            "test/Install ilasm/ildasm/mdv for contract tests",
             "decompiler-gates/Install ilasm/ildasm for decompiler tests",
             "decompiler-gates/Run decompiler gates",
         };
         var allowedShell = new Dictionary<string, string>(
             StringComparer.Ordinal)
         {
-            ["test/Run GitHub Packages fixture test"] = "bash",
-            ["test/Run PR decompiler corpus sensor"] = "bash",
-            ["test/Install ilasm/ildasm/mdv for contract tests"] = "bash",
+            ["test/Run embedded skill tests"] = "bash",
             ["decompiler-gates/Install ilasm/ildasm for decompiler tests"] =
                 "bash",
             ["csharp-diff-smoke/Run C# Diff baseline smoke"] = "bash",
@@ -388,12 +327,6 @@ internal static partial class WorkflowContract
         var allowedId = new Dictionary<string, string>(
             StringComparer.Ordinal)
         {
-            ["test/Run GitHub Packages fixture test"] =
-                "package_fixture",
-            ["test/Run PR decompiler corpus sensor"] =
-                "decompiler_pr_corpus",
-            ["test/Install ilasm/ildasm/mdv for contract tests"] =
-                "iltools_contracts",
             ["decompiler-gates/Install ilasm/ildasm for decompiler tests"] =
                 "iltools_decompiler",
             ["decompiler-gates/Run decompiler gates"] = "gates",
@@ -410,7 +343,6 @@ internal static partial class WorkflowContract
         var seenId = new HashSet<string>(StringComparer.Ordinal);
         var seenTimeoutMinutes =
             new HashSet<string>(StringComparer.Ordinal);
-        var seenTestShards = new HashSet<string>(StringComparer.Ordinal);
 
         foreach (string jobName in jobNames)
         {
@@ -451,11 +383,7 @@ internal static partial class WorkflowContract
                 }
                 if (jobName == "test")
                 {
-                    ValidateTestStepGuard(
-                        step,
-                        identity,
-                        key,
-                        seenTestShards);
+                    ValidateTestStepGuard(step, identity, key);
                 }
                 else
                 {
@@ -527,10 +455,6 @@ internal static partial class WorkflowContract
             seenTimeoutMinutes,
             allowedTimeoutMinutes.Keys,
             "consumer step timeout minutes");
-        RequireSeenExactly(
-            seenTestShards,
-            TestShards,
-            "test shard step guards");
     }
 
     private static void RequireAbsentFromRunDefaults(
@@ -560,43 +484,18 @@ internal static partial class WorkflowContract
     private static void ValidateTestStepGuard(
         YamlMappingNode step,
         string identity,
-        string key,
-        ISet<string> seenShards)
+        string key)
     {
-        if (CommonTestSteps.Contains(identity))
+        if (identity == "Run embedded skill tests")
+        {
+            RequireScalarValue(step, "if",
+                "fromJSON(needs.changes.outputs.plan).validations.skillGate",
+                key);
+        }
+        else
         {
             RequireAbsent(step, "if", key);
-            return;
         }
-
-        string condition = GetOptionalScalar(step, "if")
-            ?? throw new InvalidOperationException(
-                $"{key} must select one test shard.");
-        if (SpecialTestStepConditions.TryGetValue(
-                identity,
-                out (string Condition, string Shard) special))
-        {
-            if (condition != special.Condition)
-            {
-                throw new InvalidOperationException(
-                    $"{key}.if is not the approved shard condition.");
-            }
-
-            seenShards.Add(special.Shard);
-            return;
-        }
-
-        foreach (string shard in TestShards)
-        {
-            if (condition == $"matrix.shard == '{shard}'")
-            {
-                seenShards.Add(shard);
-                return;
-            }
-        }
-
-        throw new InvalidOperationException(
-            $"{key}.if must select exactly one approved test shard.");
     }
 
     private static void ValidateOptionalStepValue(

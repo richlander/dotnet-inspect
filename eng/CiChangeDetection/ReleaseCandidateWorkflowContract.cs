@@ -298,6 +298,27 @@ internal static class ReleaseCandidateWorkflowContract
             "run",
             "dotnet run --project tests/DotnetInspector.Queries.Tests -c Release",
             "Deep Inspect query step");
+        foreach ((string name, string command) in new[]
+        {
+            ("Pack pointer package", "dotnet pack src/DotnetInspect.Cli -c Release -p:SelfContained=true -p:OfficialBuild=true -p:CreateRidSpecificToolPackages=false -p:DotnetInspectWebsiteUrl=https://dotnet-inspect.net"),
+            ("Pack any (non-AOT) package", "dotnet pack src/DotnetInspect.Cli -c Release -r any -p:PublishAot=false -p:OfficialBuild=true -p:DotnetInspectWebsiteUrl=https://dotnet-inspect.net"),
+            ("Pack linux-x64 AOT package", "dotnet pack src/DotnetInspect.Cli -c Release -r linux-x64 -p:OfficialAotBuild=true -p:DotnetInspectWebsiteUrl=https://dotnet-inspect.net"),
+            ("Install tool from local packages", "dotnet tool install --global dotnet-inspect --source ./artifacts/package/release --no-cache"),
+            ("Smoke test - version", "dotnet-inspect --version"),
+            ("Smoke test - platform library", "dotnet-inspect library System.Private.CoreLib"),
+        })
+        {
+            YamlMappingNode[] matches = testSteps.Children
+                .Select(node => RequireMapping(node, "Deep Inspect test step"))
+                .Where(step => GetOptionalScalar(step, "name") == name)
+                .ToArray();
+            if (matches.Length != 1 || !GetRequiredScalar(
+                    matches[0],
+                    "run",
+                    $"Deep Inspect {name}").Contains(command, StringComparison.Ordinal))
+                throw new InvalidOperationException(
+                    $"Daily Deep Inspect must run {name} once.");
+        }
         YamlMappingNode inspectWebJob =
             GetRequiredMapping(jobs, "inspect-web", "Deep Inspect jobs");
         RequireContains(
@@ -309,11 +330,15 @@ internal static class ReleaseCandidateWorkflowContract
             "Deep Inspect inspect-web lane");
         foreach ((string name, string command) in new[]
         {
+            ("Build browser frontend", "npm run build:generated"),
+            ("Test browser frontend", "node --test"),
+            ("Test annotated-source viewer", "npm test"),
+            ("Test browser engine", "dotnet run --project tests/DotnetInspect.Web.Tests -c Release"),
             ("Check complete generated facade contract", "eng/generate-inspect-web-engine-facade.sh --check"),
             ("Test complete shared-runtime multi-facade canary", "eng/test-inspect-web-multi-facade-canary.sh"),
             ("Test complete managed-operation bridge canary", "eng/test-inspect-web-managed-operation-bridge-canary.sh"),
             ("Typecheck generated ts-jsexport facade", "eng/test-ts-jsexport-typescript.sh"),
-            ("Test browser UI in Firefox", "npm run test:browser"),
+            ("Test browser UI in Firefox", "npm run test:browser:generated"),
             ("Publish browser application", "src/DotnetInspect.Web/DotnetInspect.Web.csproj"),
             ("Publish Inspect Web managed API", "src/MsdlProxy/MsdlProxy.csproj"),
             ("Verify published site artifact", "eng/verify-inspect-web-site-artifact.sh"),

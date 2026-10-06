@@ -74,39 +74,28 @@ public void SomeExpensiveTheory(string assemblyName)
 ## Existing consumers (no workflow changes needed to add a tag)
 
 The CI workflow has a ceiling of **16 runner jobs** for any event. Count matrix
-entries separately and include the always-run `changes` and `ci-required` jobs.
-The workflow contract counts even path-gated jobs to maintain a safe upper
-bound as routing changes. The current fully selected PR expands to 15 jobs;
-the remaining definition is the push-only dependency-policy job.
+entries separately and include the always-run `changes`, `provenance`, and
+`ci-required` jobs. The workflow contract counts even path-gated jobs to keep
+the bound safe as routing changes. The current workflow defines 13 jobs, with
+the dependency-policy job selected only for pushes to `main`.
 
-- `ci.yml`'s PR-blocking fast leg filters `Speed=Slow` from the CLI and
-  Analysis suites. Six CLI selections run across two matrix jobs: five
-  select non-overlapping class-name prefix ranges, and the sixth selects
-  their complement. The complement makes the partition exhaustive even when
-  a future test class uses an unexpected identifier.
-  `deep-inspect.yml` runs both suites fully unfiltered once on Linux, so a newly
-  tagged test automatically keeps running daily. Its Windows/macOS lane uses
-  the same fast CLI population as PR CI.
-- The CSharp text suite uses the same PR filter. The inspection-query suite
-  runs a nonempty set of planning, workspace, graph, and package contracts in
-  PR CI; the complete suite runs in the daily Linux Deep Inspect test lane.
-  Deep Inspect's Windows/macOS platform lane also runs the full
-  inspection-query suite because runtime layout and filesystem behavior reach
-  that owner.
-- The offline NuGet suite excludes both `Network=Live` and `Speed=Slow` in PR
-  CI. Deep Inspect's exhaustive Linux lane and Windows/macOS platform lane
-  retain the offline boundary but do not exclude `Speed=Slow`. The focused
-  repository guard selects the legacy source-identity method directly, so that
-  method remains a pre-merge gate for changed C# paths even though ordinary
-  Linux test runs exclude it.
-- The metadata suite uses the same MTP `--filter-not-trait "Speed=Slow"`
-  selection in PR CI and the optional Windows PR workflow. Deep Inspect runs
-  its full suite on the exhaustive Linux lane and the Windows/macOS platform
-  lane, including the pinned custom-attribute package gate, and retains that
-  gate's per-platform evidence report.
-- Inspect Web keeps platform, engine, frontend, browser, and managed API
-  checks in PR CI. Its daily Deep Inspect lane owns complete facade and
-  canary checks, browser coverage, and published-application validation.
+- `ci.yml` runs one Release solution build and a bounded smoke population for
+  CLI routes, inspection queries, InertText, dependency policy, and the
+  package-manifest verifier. Embedded skill tests run in that job when selected.
+  The daily Linux Deep Inspect test lane runs the complete CLI, CSharp text,
+  query, analysis, NuGet, metadata, and other host-neutral suites. Its
+  Windows/macOS lane retains tests with platform-sensitive behavior.
+- The daily test lane runs the slow legacy source-identity inventory over the
+  full C# tree. PR CI does not repeat that exhaustive scan.
+- Inspect Web keeps Browser/Wasm platform probes and managed API tests in PR
+  CI. Its daily Deep Inspect web lane runs frontend analysis and build, Node
+  tests, the browser engine, Firefox UI tests, complete facade and canary
+  checks, and published-application validation. The daily frontend build
+  generates its facades once before consuming them for analysis, build, and
+  browser tests.
+- Packaging PRs pack the pointer and `any` fallback packages. The daily Linux
+  test lane packs all three variants, installs the tool from local packages,
+  and runs the package command smokes.
 - The decompiler suite uses the same MTP trait options behind discoverable
   presets: `dotnet run --project tests/ILInspector.Decompiler.Tests -c Release
   -- --gate fast` expands to `--filter-not-trait "Speed=Slow"`, while `--gate
