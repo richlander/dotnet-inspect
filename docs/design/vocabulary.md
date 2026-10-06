@@ -115,15 +115,16 @@ identity on its facet descriptor, through the opaque value-vocabulary identity
 that [Query Space Composition](query-space-composition.md) already defines; no
 facet sets one today. The Body Shapes `Kind` predicate that accepts
 `csharp.body-kinds` is a CLI section query key, not a Query Space facet, so it
-has no descriptor to carry that identity. Each composed vocabulary is
-explainable at `vocabularies/<id>` under
+has no facet descriptor. Its CLI query-key descriptor carries the link
+instead: `SectionQueryKey.ValueVocabulary` names the vocabulary and its
+canonical explanation path, derived from the owner's identity constant and
+`ResourceExplanationCatalog.VocabularyPath`, and `-Q` presents
+`explain vocabularies/csharp.body-kinds` for the key. Each composed
+vocabulary is explainable at `vocabularies/<id>` under
 [Resource Explanation](resource-explanation.md#value-vocabulary-resources),
-which names its accepted query inputs. The reverse link, from the `Kind` query
-key to `vocabularies/csharp.body-kinds`, is a later slice of
-[#9250](https://github.com/richlander/dotnet-inspect/issues/9250) step 7,
-which chooses the carrier. The product vocabulary document, its sections,
-fields, operators, rows, and wire projection are declared section schemas
-owned by `DotnetInspector.Sections`.
+which names its accepted query inputs. The product vocabulary document, its
+sections, fields, operators, rows, and wire projection are declared section
+schemas owned by `DotnetInspector.Sections`.
 
 Each host composes the vocabularies it ships. The CLI and Inspect Web each
 pass their own list of owner declarations, with the product query inputs that

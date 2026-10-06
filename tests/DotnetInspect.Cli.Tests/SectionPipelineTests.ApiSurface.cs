@@ -1283,7 +1283,8 @@ public partial class SectionPipelineTests
         var declarations = ApiMemberSectionCardinality.Declarations;
 
         Assert.Equal(SectionCardinalityKind.Scalar, declarations[SectionNames.TypeInfo].Kind);
-        Assert.Equal(SectionCardinalityKind.Scalar, declarations[SectionNames.Signature].Kind);
+        // Signature is a one-row Table of the resolved member: Count = 1 is a real answer.
+        Assert.Equal(SectionCardinalityKind.Inventory, declarations[SectionNames.Signature].Kind);
         Assert.Equal(SectionCardinalityKind.Scalar, declarations[SectionNames.DecompiledSource].Kind);
         Assert.Equal(SectionCardinalityKind.Scalar, declarations[SectionNames.Source].Kind);
         Assert.Equal(SectionCardinalityKind.Inventory, declarations[SectionNames.Methods].Kind);

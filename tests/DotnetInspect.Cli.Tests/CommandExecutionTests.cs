@@ -1994,7 +1994,8 @@ public partial class CommandExecutionTests
         {
             PlatformAssembly = assembly,
             TypeName = typeName,
-            Select = [SectionNames.TypeInfo]
+            Select = [SectionNames.TypeInfo],
+            FormatExplicitlySet = true,
         };
 
         var (exit, output, _) = await ConsoleCapture.RunAsync(

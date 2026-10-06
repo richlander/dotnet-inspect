@@ -216,7 +216,7 @@ public partial class CommandExecutionTests
     public async Task Type_SingleType_SourceFilesSection_RendersTypeSourceUrls()
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", "System.Text.Json.JsonSerializer", "-S", "Source Files", "-n", "28", "--lines");
+            "type", "System.Text.Json.JsonSerializer", "-S", "Source Files", "--markdown", "-n", "28", "--lines");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);

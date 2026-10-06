@@ -15,7 +15,10 @@ internal static partial class WorkflowContract
             root =>
             {
                 YamlMappingNode jobs = GetRequiredMapping(root, "jobs", "workflow");
-                AddNode(jobs, "extra-job", new YamlMappingNode(), "jobs");
+                for (int index = 0; index < 4; index++)
+                {
+                    AddNode(jobs, $"extra-job-{index}", new YamlMappingNode(), "jobs");
+                }
             },
             "16-runner-job budget",
             "additional job exceeds runner budget");
@@ -71,7 +74,7 @@ internal static partial class WorkflowContract
             repository,
             workflowText,
             root => AddTestStepWorkingDirectory(root, "tests"),
-            "test/Run NetworkAccess tests",
+            "test/Run InertText tests",
             "non-root step override");
 
     }
@@ -214,12 +217,12 @@ internal static partial class WorkflowContract
                 "jobs.test step"))
             .Single(candidate =>
                 GetOptionalScalar(candidate, "name")
-                == "Run NetworkAccess tests");
+                == "Run InertText tests");
         AddNode(
             step,
             "working-directory",
             new YamlScalarNode(workingDirectory),
-            "jobs.test Run NetworkAccess tests");
+            "jobs.test Run InertText tests");
     }
 
     private static YamlMappingNode RunDefaults(
