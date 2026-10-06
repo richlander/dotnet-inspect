@@ -10,16 +10,14 @@ There is no separate vocabulary command, document, or wire format.
 [#9250](https://github.com/richlander/dotnet-inspect/issues/9250) step 8.
 In the CLI today, `explain vocabularies`, `explain vocabularies/<id>`, and
 `explain vocabularies/<id>/values/<value>` explain every vocabulary and value
-by reading the composed snapshot generically. The step's remaining slices, in
-order, are:
+by reading the composed snapshot generically, and Inspect Web requests the
+same explanation through `CatalogExports.ExplainVocabularies`. The step's
+remaining slice is the [retirement](#retirement) of the `vocabulary` command.
+Until it lands, the command still runs, and its document projection and CLI
+section descriptors still name each vocabulary, so adding a vocabulary also
+takes a projection section and a CLI section descriptor.
 
-1. The Inspect Web export.
-2. The [retirement](#retirement) of the `vocabulary` command. Until it lands,
-   the command still runs, and its document projection and CLI section
-   descriptors still name each vocabulary, so adding a vocabulary also takes a
-   projection section and a CLI section descriptor.
-
-Statements below about the export and retired parts describe that target.
+Statements below about retired parts describe that target.
 
 ## Product surface
 
@@ -53,14 +51,16 @@ The path segment is the only path spelling. The exact identity, which queries
 accept, is the value's identity fact, so the vocabulary's depth-1 Document
 carries both; JSON output and each value's own explanation present it.
 
-Inspect Web requests the same explanation. A catalog-facade export resolves a
-`vocabularies` path against the Browser-composed snapshot and returns the same
+Inspect Web requests the same explanation. The catalog-facade export
+`CatalogExports.ExplainVocabularies(path, depth)` resolves a `vocabularies`
+path against the Browser-composed snapshot and returns the same
 `ResourceExplanationDocument` Content the CLI produces for the same path and
-depth. Both hosts use one host-neutral set of traversal limits, so equal
-snapshots yield equal Content. An unknown path, a path outside `vocabularies`,
-or an invalid path or depth is a typed non-success result, never an empty Document.
-Inspect Web's existing snapshot export for the Settings style picker is
-unchanged.
+depth. Both hosts use `ResourceExplanationRequest.ForHost`, so equal snapshots
+yield equal Content, and `ProductVocabularyPin.ExplanationContent` pins that
+Content for both suites. A non-canonical path, a path outside
+`vocabularies`, an unknown path, or a negative depth is a typed rejection,
+never an empty Document. Inspect Web's existing snapshot export for the
+Settings style picker is unchanged.
 
 A CLI query key whose values come from one vocabulary links to that
 vocabulary's resource. `-Q` presents the link, for example
