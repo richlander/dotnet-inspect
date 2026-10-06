@@ -342,6 +342,7 @@ import {
 import { renderPackageInfo } from "./package-info.ts";
 import { renderPackageVulnerabilities } from "./package-vulnerabilities.ts";
 import {
+  createWorkspaceLibraryReferenceCandidates,
   renderLibraryReferencesSurface,
   resolveLibraryReferenceDestinations,
 } from "./library-references.ts";
@@ -10685,14 +10686,10 @@ function renderLibraryReferences() {
       ? state.packageDependencies.assemblyReferences.references
       : [];
   const candidates = state.packages.flatMap(candidatePackage =>
-    packageLibrariesForModel(candidatePackage).map(candidateLibrary => ({
-      packageKey: packageIdentityKey(candidatePackage),
-      libraryId: candidateLibrary.id,
-      name: candidateLibrary.name.replace(/\.dll$/i, ""),
-      version: candidateLibrary.version,
-      culture: candidateLibrary.culture,
-      publicKeyToken: candidateLibrary.publicKeyToken,
-    })));
+    createWorkspaceLibraryReferenceCandidates(
+      packageIdentityKey(candidatePackage),
+      packageLibrariesForModel(candidatePackage),
+      candidatePackage.assemblies));
   return renderLibraryReferencesSurface({
     assemblyIdentity: library ? libraryIdentity(library) : "No library selected",
     assetPath: library?.asset ?? "",

@@ -14,6 +14,15 @@ export interface WorkspaceLibraryReferenceCandidate
   readonly libraryId: string;
 }
 
+export interface AdmittedLibraryReferenceSubject {
+  readonly id: string;
+}
+
+export interface AssemblyReferenceDescriptor
+  extends AssemblyReferenceIdentity {
+  readonly id: string;
+}
+
 export interface LibraryReferenceDestination {
   readonly packageKey: string;
   readonly libraryId: string;
@@ -52,6 +61,24 @@ function assemblyReferenceIdentityKey(
     normalizeCulture(identity.culture),
     normalizePublicKeyToken(identity.publicKeyToken),
   ].join("\u0000");
+}
+
+export function createWorkspaceLibraryReferenceCandidates(
+  packageKey: string,
+  admittedLibraries: readonly AdmittedLibraryReferenceSubject[],
+  descriptors: readonly AssemblyReferenceDescriptor[],
+): WorkspaceLibraryReferenceCandidate[] {
+  const admittedIds = new Set(admittedLibraries.map(library => library.id));
+  return descriptors
+    .filter(descriptor => admittedIds.has(descriptor.id))
+    .map(descriptor => ({
+      packageKey,
+      libraryId: descriptor.id,
+      name: descriptor.name,
+      version: descriptor.version,
+      culture: descriptor.culture,
+      publicKeyToken: descriptor.publicKeyToken,
+    }));
 }
 
 export function resolveLibraryReferenceDestinations(

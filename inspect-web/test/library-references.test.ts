@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  createWorkspaceLibraryReferenceCandidates,
   renderLibraryReferencesSurface,
   resolveLibraryReferenceDestinations,
   type LibraryReferencesOptions,
@@ -87,6 +88,45 @@ test("absent and ambiguous identities remain inert", () => {
       },
     ]),
     [null, null]);
+});
+
+test("reference matching uses the metadata assembly name, not the asset filename", () => {
+  const admittedLibraries = [{
+    id: "asset:renamed",
+    name: "File.Name.dll",
+  }];
+  const resolvedCandidates = createWorkspaceLibraryReferenceCandidates(
+    "renamed.package|1.0.0|net10.0",
+    admittedLibraries,
+    [{
+      id: "asset:renamed",
+      name: "Manifest.Name",
+      version: "1.0.0.0",
+      culture: null,
+      publicKeyToken: null,
+    }]);
+  assert.deepEqual(
+    resolveLibraryReferenceDestinations([
+      {
+        name: "File.Name",
+        version: "1.0.0.0",
+        culture: null,
+        publicKeyToken: null,
+      },
+      {
+        name: "Manifest.Name",
+        version: "1.0.0.0",
+        culture: null,
+        publicKeyToken: null,
+      },
+    ], resolvedCandidates),
+    [
+      null,
+      {
+        packageKey: "renamed.package|1.0.0|net10.0",
+        libraryId: "asset:renamed",
+      },
+    ]);
 });
 
 test("References uses a compact heading, graph followed by list, and complete bottom context", () => {
