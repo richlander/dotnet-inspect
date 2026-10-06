@@ -298,6 +298,12 @@ clear `schedule`, keep the unresolved predicates, publish the report, set
 `rec=stop`, and end. This is an informational stop: it ends observation only
 and neither closes nor abandons the PR.
 
+These transitions are binding contributor guidance, not mechanically enforced
+by an executable repository gate. Fixed-head adversarial review, public
+reconciliation, and the required visible status and round reports are the
+current compliance evidence; they do not prove that every future agent run
+follows the policy.
+
 ### Status budget report
 
 Emit this report as visible session output, never inside an approval prompt:
