@@ -13,6 +13,7 @@ import {
   openProductDestination,
   openInstalledPlatform,
   openPlatform,
+  showTypeNavigation,
 } from "./library-hierarchy.support.ts";
 
 test.use({ viewport: { width: 900, height: 900 } });
@@ -768,6 +769,7 @@ test("Platform Library parent, history and refresh retain the exact target witho
   await expect(page.locator("html")).toHaveAttribute("data-platform-library-request",
     JSON.stringify(["net11.0", platformVersion, "System.Facade.dll", "netcore.app", "System.Facade.dll"]));
   await expect(page.locator("[data-type-nav-back]")).toHaveAttribute("title", "Back to platform");
+  await showTypeNavigation(page);
   await page.locator(".type-browser .nav-back-row").click();
   await expect(subjectTab(page, "platform")).toHaveAttribute("aria-selected", "true");
   await expect(page.locator(".platform-library-list")).toBeFocused();
@@ -790,6 +792,7 @@ test("history-restored cached Platform Libraries remain usable through Spotlight
   await page.getByRole("button", { name: /System.Text.Json Implementation/ }).click();
   await expect.poll(() => page.url()).not.toBe(platformLocation);
   const libraryLocation = page.url();
+  await showTypeNavigation(page);
   await page.locator(".type-browser .nav-back-row").click();
   await expect(subjectTab(page, "platform")).toHaveAttribute("aria-selected", "true");
   await page.getByLabel("Platform version", { exact: true }).selectOption(alternatePlatformVersion);
@@ -876,6 +879,7 @@ test("pending Platform catalog cannot overwrite a loaded Type selected through C
     .toHaveAttribute("aria-selected", "true");
   await page.getByRole("button", { name: /System.Text.Json Implementation/ }).click();
   await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
+  await showTypeNavigation(page);
   await page.locator(".type-browser .nav-back-row").click();
   await expect(subjectTab(page, "platform")).toHaveAttribute("aria-selected", "true");
   await page.getByLabel("Platform version", { exact: true })
@@ -964,6 +968,7 @@ test("Sequential same-named Platform Libraries replace the prior family and reta
   await expect(page.locator("html")).toHaveAttribute("data-platform-library-request",
     JSON.stringify(["net11.0", platformVersion, "System.Text.Json.dll", "netcore.app", "System.Text.Json.dll"]));
   const netCoreLibraryLocation = page.url();
+  await showTypeNavigation(page);
   await page.locator(".type-browser .nav-back-row").click();
   await expect(subjectTab(page, "platform")).toHaveAttribute("aria-selected", "true");
   const platformLocation = page.url();
@@ -1048,6 +1053,7 @@ test("an unrelated Platform history entry does not parent a Spotlight Library", 
   await openInstalledPlatform(page, true);
   await page.getByRole("button", { name: /System.Text.Json Implementation/ }).click();
   await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
+  await showTypeNavigation(page);
   await page.locator("[data-type-nav-back]").click();
   await expect(subjectTab(page, "platform")).toHaveAttribute("aria-selected", "true");
   await openProductDestination(page, "workspace");
@@ -1072,6 +1078,7 @@ test("an unrelated Platform history entry does not parent Spotlight Types or Mem
   await openInstalledPlatform(page, true);
   await page.getByRole("button", { name: /System.Text.Json Implementation/ }).click();
   await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
+  await showTypeNavigation(page);
   await page.locator("[data-type-nav-back]").click();
   await expect(subjectTab(page, "platform")).toHaveAttribute("aria-selected", "true");
   await openProductDestination(page, "workspace");
@@ -1134,6 +1141,7 @@ test("duplicate runtime Type discovery preserves one pending Space activation", 
     "aria-selected",
     "true",
   );
+  await showTypeNavigation(page);
   await page.locator("[data-type-nav-back]").click();
   await expect(subjectTab(page, "platform")).toHaveAttribute(
     "aria-selected",
@@ -1257,7 +1265,7 @@ test("catalog-only Platform retains its Workspace identity and canonical URL acr
   await expect(page).toHaveURL(platformLocation);
 });
 
-test("Platform descendant history and retained switching preserve the real parent", async ({ page }) => {
+test("Platform descendant history preserves the real parent before Workspace replacement", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.addInitScript(() => localStorage.setItem(
     "inspect-recent-packages",
@@ -1294,11 +1302,8 @@ test("Platform descendant history and retained switching preserve the real paren
   await page.locator('[data-sl-pkg-recent="Second.Package"]').click();
   await expect(page.locator(".inspected-target")).toContainText("Second.Package");
   await openProductDestination(page, "workspace");
-  await page.locator("[data-workspace-switch]").click();
-
-  await expect(subjectTab(page, "member")).toHaveAttribute("aria-selected", "true");
-  await expect(page.locator("#inspector-panel h1")).toContainText("Run");
-  await expect(subjectTab(page, "platform")).toHaveAttribute("aria-selected", "false");
+  await expect(page.locator("[data-workspace-switch]")).toHaveCount(0);
+  await expect(page.locator("#inspector-panel")).toContainText("Second.Package");
 });
 
 test("a fresh Spotlight Library preserves the predecessor Platform parent", async ({ page }) => {

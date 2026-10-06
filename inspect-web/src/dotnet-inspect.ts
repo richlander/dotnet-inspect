@@ -8753,11 +8753,16 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
     focusedElement?.id === "package-content-loading";
   const packageFrameworkHadFocus =
     focusedElement?.dataset.packageFramework !== undefined;
+  const packageNavigationToggleHadFocus =
+    state.rootKind === "package"
+    && focusedElement?.id === "content-navigation-toggle";
   const packageLoadingControl = packageLoadingHadFocus
     ? focusedElement?.dataset.packageLoadingControl
     : packageFrameworkHadFocus
       ? "package-framework"
-      : focusedElement?.id;
+      : packageNavigationToggleHadFocus
+        ? "package-framework"
+        : focusedElement?.id;
   const packageLoadingFramework = packageLoadingHadFocus
     ? focusedElement?.dataset.packageLoadingFramework
     : focusedElement?.dataset.packageFramework;

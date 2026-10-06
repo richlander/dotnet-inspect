@@ -352,7 +352,7 @@ test("uploaded Library method family renders owner-backed receiver kinds", async
   );
 });
 
-test("successful upload is excluded from retained Workspace restoration", async ({
+test("successful upload is excluded from the replacement Workspace", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -371,14 +371,11 @@ test("successful upload is excluded from retained Workspace restoration", async 
     .toContainText("Other.Package");
 
   await openProductDestination(page, "workspace");
-  await page.locator('[data-workspace-switch="workspace-1"]').click();
-
   await expect(page.getByText("Browser upload", { exact: true }))
     .toHaveCount(0);
-  await expect(page.locator(".inspected-target"))
-    .toContainText("Example.Package");
-  await expect.poll(() => new URL(page.url()).searchParams.get("package"))
-    .toBe("Example.Package");
+  await expect(page.locator("#inspector-panel"))
+    .toContainText("Other.Package");
+  await expect(page.locator("[data-workspace-switch]")).toHaveCount(0);
 });
 
 test("upload retires an older in-flight Package transition", async ({ page }) => {

@@ -4,6 +4,7 @@ import {
   installFacades,
   openInstalledPlatform,
   releaseFacade,
+  showTypeNavigation,
   surface,
 } from "./library-hierarchy.support.ts";
 
@@ -29,6 +30,7 @@ async function openXml(
   await expect(page.locator("#library-overview-title")).toHaveText("System.Xml");
   await expect(page.locator(".overview-identity-detail").filter({ hasText: "Facade assembly" }))
     .toBeVisible();
+  await showTypeNavigation(page);
   const row = page.locator('[data-type="System.Xml:System.Xml.XmlReader"]');
   await expect(row).toContainText("Forwarded");
   await row.click();
@@ -169,6 +171,7 @@ test("an exact one-bucket Accessibility selection survives vocabulary growth", a
   }).click();
   await expect(page.locator("#library-overview-title"))
     .toHaveText("System.Text.Json");
+  await showTypeNavigation(page);
   await page.locator("[data-type-filter-disclosure] > summary").click();
   const accessibility =
     page.getByRole("combobox", { name: "Type accessibility" });
@@ -181,6 +184,7 @@ test("an exact one-bucket Accessibility selection survives vocabulary growth", a
   }).click();
 
   await expect(page.locator("#library-overview-title")).toHaveText("System.Xml");
+  await showTypeNavigation(page);
   await expect(accessibility).toHaveValue("public");
   await expect(page.locator(
     '[data-type="System.Xml:Hidden.InternalType"]',
@@ -228,6 +232,7 @@ test("Library scope controls and keyboard selection retain a forwarded Type", as
   await chooseSubject(page, "type", "Type");
   await expect(page.locator("#forwarded-type-title")).toHaveText("System.Xml.XmlReader");
   await chooseSubject(page, "library", "Library");
+  await showTypeNavigation(page);
   await page.locator("#type-list").press("ArrowDown");
   await page.locator("#type-list").press("Enter");
   await expect(page.locator("#forwarded-type-title")).toHaveText("System.Xml.XmlReader");
@@ -244,6 +249,7 @@ test("leaving a pending forwarder cannot replace the newer Library subject", asy
   await expect(page.locator("[data-platform-forwarder]")).toHaveCount(0);
   await expect.poll(() => page.locator("html").getAttribute("data-forwarder-view"))
     .not.toBe(retired);
+  await showTypeNavigation(page);
   await page.locator('[data-type="System.Xml:System.Xml.XmlReader"]').click();
   await expect(page.locator("[data-platform-forwarder]")).toBeEnabled();
   await page.locator("[data-platform-forwarder]").click();

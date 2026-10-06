@@ -102,6 +102,17 @@ async function showLibraryNavigation(page: Page) {
   await expect(list).toBeVisible();
 }
 
+async function showTypeNavigation(page: Page) {
+  const list = page.locator(".type-browser");
+  const navigationToggle = page.getByRole(
+    "button",
+    { name: "Types", exact: true });
+  await expect.poll(async () =>
+    await list.isVisible() || await navigationToggle.isVisible()).toBe(true);
+  if (!await list.isVisible()) await navigationToggle.click();
+  await expect(list).toBeVisible();
+}
+
 async function expectCurrentSubjectVisible(
   page: Page,
   subject: string,
@@ -3866,6 +3877,7 @@ export {
   chooseSubject,
   selectLibrary,
   showLibraryNavigation,
+  showTypeNavigation,
   expectCurrentSubjectVisible,
   library,
   run,

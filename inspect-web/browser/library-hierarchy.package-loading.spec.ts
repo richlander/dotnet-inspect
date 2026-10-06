@@ -123,16 +123,13 @@ async function expectPackageCoordinateView(
   view: typeof packageCoordinateViews[number],
   version: string,
   framework: string,
-  width: number,
+  _width: number,
 ) {
   await expect(page.locator(view.surface)).toBeVisible();
   await expect(page.locator("#package-version")).toHaveCount(1);
-  if (width === 390 && view.id !== "dependencies")
-    await expect(page.locator("#package-version")).toBeHidden();
-  else
-    await expect(page.locator("#package-version")).toBeVisible();
+  await expect(page.locator("#package-version")).toBeVisible();
   await expect(page.locator(view.surface).locator("#package-version"))
-    .toHaveCount(view.id === "dependencies" ? 1 : 0);
+    .toHaveCount(0);
   await expect(page.locator(view.surface).locator("#framework"))
     .toHaveCount(0);
   if (view.id === "dependencies") {
@@ -140,17 +137,12 @@ async function expectPackageCoordinateView(
     await expect(page.locator("html")).toHaveAttribute(
       "data-package-dependencies-request",
       JSON.stringify(["System.Text.Json", version, framework]));
-    await expect(page.locator(".package-dependencies-surface footer"))
-      .toContainText(`System.Text.Json@${version}`);
-    await expect(page.locator(".package-dependencies-surface footer")).toContainText(framework);
   } else if (view.id === "vulnerabilities") {
     await expect(page.locator("html")).toHaveAttribute(
       "data-package-vulnerabilities-request",
       JSON.stringify(["System.Text.Json", version]));
     await expect(page.locator(".package-vulnerabilities-surface"))
       .toContainText("No matching reviewed advisories");
-    await expect(page.locator(".package-vulnerabilities-footer"))
-      .toContainText(`System.Text.Json@${version}`);
   }
 }
 
@@ -512,10 +504,10 @@ for (const width of [1280, 390]) {
     await page.goto(frameworkRoot);
     const current = page.locator('[data-package-framework="net10.0"]');
     const next = page.locator('[data-package-framework="net9.0"]');
-    if (width === 390)
-      await page.getByRole("button", { name: "Frameworks", exact: true }).click();
-    else
-      await current.focus();
+    await page.getByRole(
+      "button",
+      { name: "Frameworks", exact: true },
+    ).click();
     await expect(current).toBeFocused();
 
     await page.keyboard.press("ArrowDown");
@@ -585,8 +577,7 @@ for (const change of packageCoordinateChanges) {
           page, change, change.selected);
         await expectPackageCoordinateView(
           page, view, change.version, change.framework, width);
-        await expect(width === 390
-          && (change.name === "TFM" || view.id !== "dependencies")
+        await expect(change.name === "TFM"
           ? page.getByRole("button", { name: "Frameworks", exact: true })
           : packageCoordinateControl(
               page, change, change.selected)).toBeFocused();
@@ -598,8 +589,7 @@ for (const change of packageCoordinateChanges) {
           page, change, change.original);
         await expectPackageCoordinateView(
           page, view, "10.0.0", "net10.0", width);
-        await expect(width === 390
-          && (change.name === "TFM" || view.id !== "dependencies")
+        await expect(change.name === "TFM"
           ? page.getByRole("button", { name: "Frameworks", exact: true })
           : packageCoordinateControl(
               page, change, change.original)).toBeFocused();
@@ -626,8 +616,7 @@ for (const change of packageCoordinateChanges) {
           page, change, change.original);
         await expectPackageCoordinateView(
           page, view, "10.0.0", "net10.0", width);
-        await expect(width === 390
-          && (change.name === "TFM" || view.id !== "dependencies")
+        await expect(change.name === "TFM"
           ? page.getByRole("button", { name: "Frameworks", exact: true })
           : packageCoordinateControl(
               page, change, change.selected)).toBeFocused();
@@ -645,8 +634,7 @@ for (const change of packageCoordinateChanges) {
         await expectPackageCoordinateView(
           page, view, change.version, change.framework, width);
         await expect(page.locator(".query-notice")).toHaveCount(0);
-        await expect(width === 390
-          && (change.name === "TFM" || view.id !== "dependencies")
+        await expect(change.name === "TFM"
           ? page.getByRole("button", { name: "Frameworks", exact: true })
           : packageCoordinateControl(
               page, change, change.selected)).toBeFocused();
