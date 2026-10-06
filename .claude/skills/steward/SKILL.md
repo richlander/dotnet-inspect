@@ -80,9 +80,11 @@ Then apply the matching transition.
 
 ## Waiting and merge
 
-- CI that gates review, readiness, or a boundary uses the 60-minute bounded
+- CI that gates review, readiness, or a boundary uses the 30-minute bounded
   status wait in Round orchestration: one schedule, one snapshot per wake, and
-  an explicit expiry report.
+  an explicit expiry report. At expiry, probe the live base and read CI once
+  more: a conflict enters recovery, an observed CI failure takes its gate
+  transition, and only still-unresolved status stops observation.
 - Waiting on people uses the separate safety-net cadence: first check near 50
   minutes and later checks near four hours. New activity resets the quiet
   count. Stop after three quiet checks, merge or close, a user stop, or when
