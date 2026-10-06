@@ -2016,7 +2016,10 @@ public partial class CommandExecutionTests
 
         Assert.Equal(direct, routed);
         Assert.Equal(1, routed.Exit);
-        Assert.Contains("Unrecognized option '--mermaid'", routed.Error);
+        Assert.Contains(
+            "--mermaid is a standalone Type hierarchy format",
+            routed.Error,
+            StringComparison.Ordinal);
     }
 
     [Theory]

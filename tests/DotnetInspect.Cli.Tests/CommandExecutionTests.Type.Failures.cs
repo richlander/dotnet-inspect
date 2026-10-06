@@ -27,6 +27,7 @@ public partial class CommandExecutionTests
                         AssemblyPath = path,
                         TypeName = "N.Holder<T>",
                         Verbosity = Verbosity.Normal,
+                        SelectDefault = true,
                     }));
             var selectedMember = await ConsoleCapture.RunAsync(
                 () => MemberCommand.ExecuteAsync(
@@ -190,7 +191,9 @@ public partial class CommandExecutionTests
                 "type",
                 "N.Healthy",
                 "--library",
-                path);
+                path,
+                "-S",
+                "Type Info");
             var selectedMember = await RunAppAsync(
                 "member",
                 "N.Healthy",

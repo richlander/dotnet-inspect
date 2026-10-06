@@ -1525,7 +1525,8 @@ default; `--tree` selects that format explicitly. `--mermaid` lowers the same
 Type, category, MemberGroup, and nested exact-Member Count plan as standalone
 Mermaid, so it preserves the same membership, ordering, names, and overload
 counts without host-side regrouping. Mermaid is a standalone Type hierarchy
-format and cannot be combined with another output format.
+format and cannot be combined with another output format. Verbosity does not
+change this compact semantic plan.
 
 ```bash
 dotnet-inspect type string --tree

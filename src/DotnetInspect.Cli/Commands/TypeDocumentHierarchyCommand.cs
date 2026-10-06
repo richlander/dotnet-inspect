@@ -36,6 +36,26 @@ internal static class TypeDocumentHierarchyCommand
             return 1;
         }
 
+        AssemblyDescriptorSelectionResult selection;
+        try
+        {
+            selection = ResolvedAssemblyReference.SelectFromPath(
+                apiDllPath,
+                AssemblyResolutionProvenance.Local(
+                    "Type document hierarchy"));
+        }
+        catch (Exception failure)
+            when (failure is IOException
+                or UnauthorizedAccessException)
+        {
+            return null;
+        }
+        if (selection
+            is not AssemblyDescriptorSelectionResult.Ready ready)
+        {
+            return null;
+        }
+
         TypeDocumentHierarchyPresentationFormat format =
             options.Format is OutputFormat.Mermaid
                 ? TypeDocumentHierarchyPresentationFormat.Mermaid
@@ -46,8 +66,7 @@ internal static class TypeDocumentHierarchyCommand
                 options.IncludeAll);
         TypeHierarchyInspectionResult? result =
             await ExactLibraryInspectionExecutor.ExecuteAsync(
-                    apiDllPath,
-                    "Type document hierarchy",
+                    ready.Reference,
                     session => Inspect(
                         session,
                         options.TypeName!,
