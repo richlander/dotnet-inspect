@@ -67,18 +67,23 @@ every `ProducerCapabilityPlanRejectionReason` by whether soundness needs it.
 | `ResourceMismatch` on requirements and coverages | Required | They fix one resource and keep every covering edge on it. |
 | `ResourceMismatch` on provision declarations | Narrowable | `accepted_provision_resource`: implied for every satisfaction-path provision. Still needed for dependency-only provisions, so it can be narrowed from every declaration to selected provisions. |
 | `UnknownAssociation` | Diagnostic | `assemble_ignores_unknown`: extra satisfactions never reach the plan. It reports a producer planning bug. |
-| `InsufficientCompletion` and exact edge-source completion | Loosenable | `atLeast_sound` and `walkExact_le_walkAtLeast`: "at least" is a strict loosening and is sound when the owner certifies a monotone completion order ([#9486](https://github.com/richlander/dotnet-inspect/issues/9486)). Without monotonicity it is unsound. |
-| `DuplicateDeclaration`, `DuplicateAssociation` | Required, or structural | Duplicate identities make the validator's and executor's lookups disagree. A keyed-map input type would make them unrepresentable. |
-| `UnknownProvision`, `MissingDependency`, `DependencyOrder`, `UnsatisfiedRequirement` | Required | Each starts, orders, or completes an executable path. |
+| `DuplicateAssociation` on satisfactions | Diagnostic | `assemble_ignores_duplicates`: C# rejects a second satisfaction before recording it, and lookup keeps the first. |
+| `UnknownProvision` on selected provisions | Diagnostic | Selection drops an undeclared identity. Any use of it already fails `MissingDependency` or satisfaction-site `UnknownProvision`. This is argued from the code, not proven. |
+| `DuplicateDeclaration` | Diagnostic, given plan-object executors | Validation keeps the first declaration, and adopters execute `accepted.Plan` objects. Only an executor that re-resolves identities outside the plan could disagree; the module's example shows how. A keyed-map input type would make it unrepresentable. |
+| `InsufficientCompletion` and exact edge-source completion | Loosenable | `atLeast_sound` and `walkExact_le_walkAtLeast`: "at least" accepts every path exact matching accepts. It is sound when the owner certifies a monotone completion order ([#9486](https://github.com/richlander/dotnet-inspect/issues/9486)), and unsound without one. The proof uses the conjunctive exactness rule that fixes [#9483](https://github.com/richlander/dotnet-inspect/issues/9483), not the shipped last-edge rule. |
+| `DuplicateAssociation` on requirements | Required, or structural | Plan requirements and satisfactions correspond by index, so dropping a duplicate requirement would misalign them. A keyed-map input type would make it unrepresentable. |
+| `UnknownProvision` on satisfactions, `MissingDependency`, `DependencyOrder`, `UnsatisfiedRequirement` | Required | Each starts, orders, or completes an executable path. |
 | `InvalidCoveringPath`, `IncompatibleScope`, `CapabilityMismatch`, `OutcomeContractMismatch`, `RequiredPropertiesMissing` | Required | Premises of `Coverage.lastEdge_sound_absolute` and `Coverage.conjunctive_sound_preserving`. |
 | `DuplicateProvision` | Policy | Not needed for result soundness. It enforces the design's "shared construction once". |
 | `EmptyRequirementSet`, `UnknownStrategy` | Policy or diagnostic | An empty plan is trivially sound, and the strategy is only recorded. |
 | `MissingValue`, `NoAdmittedStrategy` | Structural | These check null inputs. Non-nullable required members would remove `MissingValue`; `NoAdmittedStrategy` is the producer's typed "no plan" outcome. |
 
-"Redundant", "Narrowable", "Diagnostic", and "Loosenable" rows are proven.
-"Required" rows are premises of the soundness theorems. Apart from the
-`DuplicateDeclaration` example, their necessity is argued from the identities
-they distinguish, not proven by a counterexample for each check.
+Rows that cite a theorem are proven. Selection-site `UnknownProvision` and
+`DuplicateDeclaration` are argued from the exact C# and its adopters. "Required"
+rows are premises of the soundness theorems, and their necessity is argued from
+the identities they distinguish, not proven by a counterexample for each check.
+Where a reason is required at one call site and diagnostic at another, its rows
+are split by call site.
 
 Validation runs once per plan, not per row, so pruning saves code rather than
 runtime. The performance lever is the completion loosening, which lets one

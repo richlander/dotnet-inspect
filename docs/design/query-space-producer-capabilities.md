@@ -503,8 +503,8 @@ findings are
 [validator check classification](../../prototypes/producer-capability-demand/README.md#validator-check-classification)
 proves that `MissingDependency` and `DependencyOrder` exclude every dependency
 cycle, and that the satisfaction checks imply `UnknownCapability`. It also
-proves that an "at least" completion check is sound under an owner-certified
-monotone completion order. It does not replace the Release gates in
+proves that an "at least" completion check, combined with the conjunctive
+exactness rule, is sound under an owner-certified monotone completion order. It does not replace the Release gates in
 [Required evidence](#required-evidence).
 
 Execution settlement, early stopping, and shared failure routing remain owned

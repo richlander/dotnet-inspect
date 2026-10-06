@@ -214,15 +214,43 @@ theorem assemble_ignores_unknown (requirements : List A)
         exact hextra c hc (hc' ▸ ha)
       simp [this]
 
+/--
+A second satisfaction for an association that already has one never reaches
+the plan either: `ValidateSatisfactions` rejects it with `DuplicateAssociation`
+before recording anything, and lookup keeps the first. At this call site the
+check is a diagnostic for a producer planning bug.
+-/
+theorem assemble_ignores_duplicates (requirements : List A)
+    (candidates extra : List (A × S))
+    (hextra : ∀ c ∈ extra, ∃ c' ∈ candidates, c'.1 = c.1) :
+    assemble requirements (candidates ++ extra) =
+      assemble requirements candidates := by
+  unfold assemble
+  apply List.map_congr_left
+  intro a _
+  rw [List.find?_append]
+  cases hfind : candidates.find? (·.1 = a) with
+  | some c => rfl
+  | none =>
+      have : extra.find? (·.1 = a) = none := by
+        rw [List.find?_eq_none]
+        intro c hc hca
+        obtain ⟨c', hc', heq⟩ := hextra c hc
+        have hca' : c.1 = a := by simpa using hca
+        rw [List.find?_eq_none] at hfind
+        exact hfind c' hc' (by simp [heq, hca'])
+      simp [this]
+
 end Associations
 
-/-! ## `DuplicateDeclaration` is required -/
+/-! ## `DuplicateDeclaration` matters only outside the plan -/
 
 /--
 With duplicate provision identities, a validator that keeps the first
-declaration and an executor that keeps the last disagree about what the plan
-produces. The check is required unless the input type makes duplicate
-identities unrepresentable, for example a keyed map.
+declaration and an executor that resolves identities itself and keeps the
+last disagree. Executors that consume the accepted plan's declaration objects,
+as current adopters do, never see the duplicate, so the check is diagnostic
+under that assumption. A keyed-map input type would make it unrepresentable.
 -/
 example :
     let declarations : List (Nat × String) := [(1, "Names"), (1, "Signature")]
@@ -357,7 +385,11 @@ theorem atLeast_sound (hmono : CompletionMonotone S)
     | inr h => exact hfin.2 h
   · cases hacc
 
-/-- "At least" only loosens the check: every exact walk is an at-least walk. -/
+/--
+"At least" only loosens the check: every exact walk is an at-least walk. This
+covers edge-source matching; the final requirement check loosens the same way
+by reflexivity of `atLeast`.
+-/
 theorem walkExact_le_walkAtLeast
     (hrefl : ∀ c, S.atLeast c c = true) :
     ∀ (path : List (Edge K C)) (o : Offer K C),
