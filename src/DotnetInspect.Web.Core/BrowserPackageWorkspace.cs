@@ -8,7 +8,10 @@ using System.Security.Cryptography;
 using System.Text;
 using DotnetInspector.Packages;
 using DotnetInspector.PackageQueries;
+using DotnetInspector.PlatformHouse.Packages;
+using DotnetInspector.Platforms.Packages;
 using DotnetInspector.Queries;
+using DotnetInspector.ResearchQueries;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.SourceHouse;
@@ -1263,14 +1266,14 @@ internal static class BrowserPackageWorkspace
                     new AuthorizedPackageDependencyCandidateSource(
                         authorization,
                         sourceLease);
-                TimeSpan operationTimeout =
+                TimeSpan sourceOperationTimeout =
                     SourceSettlementOperationTimeout(
                         deadline.Remaining);
                 PackageHouseOperation operation =
                     PackageHouseOperation.Create(
                         PackageHouseOperationProfile.Realize,
-                        requestTimeout: operationTimeout,
-                        operationTimeout: operationTimeout);
+                        requestTimeout: sourceOperationTimeout,
+                        operationTimeout: sourceOperationTimeout);
                 BrowserSessionPackageStore store =
                     StoreFor(source);
                 var house = new PackageHouse(
@@ -1287,6 +1290,72 @@ internal static class BrowserPackageWorkspace
                         new BrowserPackageOperationTransferPolicy(
                             store,
                             deadline)));
+                var inspectionSource =
+                    new PackageDependencyMemberCallGraphInspectionSource(
+                        new PackageDependencyTraversalCandidateAdapter(
+                            candidateSource),
+                        new AuthorizedPackageDependencyManifestSource(
+                            candidateSource),
+                        house,
+                        (requestedOperation, token) =>
+                            sourceLease.IssueOperationLease(
+                                token,
+                                requestedOperation.RequestTimeout,
+                                requestedOperation.OperationTimeout));
+                var platform = new PackagePlatformHouseAdapter(
+                    new PackagePlatformSource(
+                        authorization,
+                        new PackagePayloadAcquisitionPlan(
+                            (authority, _) =>
+                                ReferenceEquals(
+                                    authority.Association,
+                                    source.Source.Association)
+                                    ? store
+                                    : throw new InvalidOperationException(
+                                        "The dependency call graph requested another configured Platform package source."),
+                            PayloadLimits,
+                            new BrowserPackageOperationTransferPolicy(
+                                store,
+                                deadline),
+                            access: PackagePayloadAccess.Ranged,
+                            rangedSizeCut: 0)),
+                    "browser-call-graph-platform-package");
+                var continuationSource =
+                    new BrowserPackageDependencyMemberCallGraphContinuationSource(
+                        inspectionSource,
+                        operation,
+                        platform,
+                        (request, _) =>
+                        {
+                            TimeSpan sourceTimeout =
+                                SourceSettlementOperationTimeout(
+                                    deadline.Remaining);
+                            return sourceLease.IssueOperationLease(
+                                request.CancellationToken,
+                                sourceTimeout,
+                                sourceTimeout);
+                        },
+                        sourceOperationTimeout);
+                var continuation =
+                    new PackageDependencyMemberCallGraphContinuation(
+                        continuationSource,
+                        new AssemblyReferenceResolutionWorkBudget(
+                            maxPackageRouteOccurrences: 4_096,
+                            maxPackageCandidateOperations: 4_096,
+                            maxSourceOperations: 64,
+                            maxAcquisitions: 32,
+                            maxRealizedAssemblies:
+                                BrowserInspectionScope
+                                    .MaxAssembliesPerRole,
+                            maxTransferBytes:
+                                MaxCachedPackageBytes,
+                            maxRetainedAssemblyBytes:
+                                BrowserInspectionScope
+                                    .MaxRetainedImageBytes,
+                            maxWorkspaceReplacements: 16,
+                            deadline:
+                                DateTimeOffset.UtcNow
+                                    .Add(deadline.Remaining)));
                 return await PackageDependencyMemberCallGraphInspection
                     .ExecuteAsync(
                         new PackageDependencyMemberCallGraphInspectionRequest(
@@ -1313,17 +1382,8 @@ internal static class BrowserPackageWorkspace
                                 supplyChainBaseline,
                             workspacePlan:
                                 workspacePlan),
-                        new PackageDependencyMemberCallGraphInspectionSource(
-                            new PackageDependencyTraversalCandidateAdapter(
-                                candidateSource),
-                            new AuthorizedPackageDependencyManifestSource(
-                                candidateSource),
-                            house,
-                            (requestedOperation, token) =>
-                                sourceLease.IssueOperationLease(
-                                    token,
-                                    requestedOperation.RequestTimeout,
-                                    requestedOperation.OperationTimeout)),
+                        inspectionSource,
+                        continuation,
                         deadline.Token)
                     .ConfigureAwait(false);
             },
