@@ -323,10 +323,11 @@ first slice adopts the complete Library structural domain from its
 `DiscoveryDocument`. The first query adoption adds the complete effective
 Package Query operation-facet domain from its `QuerySpaceBinding`, together
 with its document, route, required-context relation, and selected host
-bindings. Product Vocabulary remains staged. Within each adopted domain, an
-adapter cannot silently omit a newly added resource or owner-issued
-relationship. Later owner adoptions add their complete declared domains rather
-than cherry-picking resources by name.
+bindings. Product Vocabulary adopts its complete composed domain under
+[Value-vocabulary resources](#value-vocabulary-resources). Within each
+adopted domain, an adapter cannot silently omit a newly added resource or
+owner-issued relationship. Later owner adoptions add their complete declared
+domains rather than cherry-picking resources by name.
 
 ### Canonical path grammar
 
@@ -988,14 +989,29 @@ owner publishes the required schema and key projection.
 
 ### Value-vocabulary resources
 
-`VocabularyDocument` is the complete value-vocabulary input. Explanation
-preserves:
+Each product vocabulary a host composes under
+[Product Vocabulary ownership](vocabulary.md#ownership) is an installed
+explainable resource with a Value Vocabulary resource type issued by the
+Product Vocabulary owner. The host's composed snapshot and its
+`VocabularyDocument` projection are the complete input:
 
-- stable vocabulary identity;
-- summary and accepted query-input identities;
-- field schema and legal operators;
-- value count, ordering, and defaults; and
-- owner-issued bounded examples.
+- **Path.** Its canonical path is `vocabularies/<vocabulary-id>`. The
+  vocabulary identity already satisfies the segment grammar and is reused
+  unchanged. The collection `vocabularies` lists every vocabulary in the
+  composed sections index, in index order. The index vocabulary itself is not
+  a member; the collection is its explanation. Construction fails visibly
+  when the index and the Product Vocabulary projection list different
+  vocabularies.
+- **Facts.** Identity, display name, summary, value count, accepted
+  query-input identities, each field with its value kind and legal operators,
+  the values marked as defaults, and the first five values in owner order as
+  bounded examples. Accepted query inputs are opaque external identities until
+  their owners publish explanation resources.
+- **Relationships.** A term map whose target is another explained vocabulary
+  is a typed relationship to that vocabulary's resource. Construction fails
+  visibly for any other target rather than inventing one. A term map into
+  another snapshot already fails when the host composes its product snapshot,
+  because hosts supply no external snapshots.
 
 The explanation of a vocabulary is not its full value listing. It points to
 the ordinary `vocabulary` command for bulk rows. The initial query adapter
@@ -1244,7 +1260,11 @@ The original installed-resource slices remain:
 6. **In progress:** Package Query adopts operation query-resource variants,
    canonical paths, required-context links, and its current-host production
    binding. Remaining Query Space owners and row-query resources stay staged.
-7. Let Product Vocabulary adopt resource schemas, snapshots, and typed links.
+7. **In progress:** Product Vocabulary adopts resource schemas, snapshots, and
+   typed term-map links under
+   [Value-vocabulary resources](#value-vocabulary-resources), CLI first. The
+   query-input link from a CLI query key to its value vocabulary remains
+   staged.
 8. Register the stable explanation result contract; then let the focused
    envelope-contract catalog adopt explanation paths and machine-readable
    schemas.

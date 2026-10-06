@@ -115,8 +115,11 @@ identity on its facet descriptor, through the opaque value-vocabulary identity
 that [Query Space Composition](query-space-composition.md) already defines; no
 facet sets one today. The Body Shapes `Kind` predicate that accepts
 `csharp.body-kinds` is a CLI section query key, not a Query Space facet, so it
-has no descriptor to carry that identity. Its typed link lands with the
-explanation adoption in
+has no descriptor to carry that identity. Each composed vocabulary is
+explainable at `vocabularies/<id>` under
+[Resource Explanation](resource-explanation.md#value-vocabulary-resources),
+which names its accepted query inputs. The reverse link, from the `Kind` query
+key to `vocabularies/csharp.body-kinds`, is a later slice of
 [#9250](https://github.com/richlander/dotnet-inspect/issues/9250) step 7,
 which chooses the carrier. The product vocabulary document, its sections,
 fields, operators, rows, and wire projection are declared section schemas

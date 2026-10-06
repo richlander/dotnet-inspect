@@ -65,6 +65,9 @@ public static class ResourceExplanationCommand
                 "package-files" => CreatePackageFilesExplanation(),
                 ResourceExplanationCatalog.AnalysesCollectionSegment =>
                     CreateAnalysisExplanation(),
+                ResourceExplanationCatalog.VocabulariesCollectionSegment =>
+                    ResourceExplanationCatalog.CreateVocabularies(
+                        CliVocabularyComposition.Snapshot),
                 _ => null,
             };
             if (exactCatalog is not null)
@@ -245,6 +248,8 @@ public static class ResourceExplanationCommand
                 .. structuralCatalogs,
                 capabilities,
                 analyses,
+                ResourceExplanationCatalog.CreateVocabularies(
+                    CliVocabularyComposition.Snapshot),
             ]);
     }
 
