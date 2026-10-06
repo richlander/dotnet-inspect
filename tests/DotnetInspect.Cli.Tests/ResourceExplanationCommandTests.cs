@@ -1,6 +1,10 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Net;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
+using DotnetInspect.ProductVocabularyTesting;
 using DotnetInspect.Cli.Commands;
 using DotnetInspector.Networking;
 using DotnetInspector.Sections;
@@ -723,6 +727,30 @@ public sealed class ResourceExplanationCommandTests : IDisposable
         Assert.Contains("var-spelling-style:var-elsewhere", human.Output);
         Assert.Contains("oracle_endorsed = ", human.Output);
         Assert.Contains("vocabularies/csharp.style-tiers/values/", human.Output);
+    }
+
+    [Fact]
+    public async Task VocabularyExplanation_MatchesThePinnedCrossHostContent()
+    {
+        foreach (ExplanationContentPin pin in ProductVocabularyPin.ExplanationContent)
+        {
+            var result = await RunAsync(
+                "explain",
+                pin.Path,
+                "--depth",
+                pin.Depth.ToString(CultureInfo.InvariantCulture),
+                "--json");
+
+            Assert.Equal(0, result.ExitCode);
+            Assert.Empty(result.Error);
+            string content = result.Output
+                .Replace("\r\n", "\n", StringComparison.Ordinal)
+                .TrimEnd('\n');
+            Assert.Equal(
+                pin.Digest,
+                "sha256:" + Convert.ToHexStringLower(
+                    SHA256.HashData(Encoding.UTF8.GetBytes(content))));
+        }
     }
 
     [Fact]
