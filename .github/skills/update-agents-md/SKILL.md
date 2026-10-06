@@ -1,6 +1,6 @@
 ---
 name: update-agents-md
-description: Use before editing AGENTS.md — enforces its 120-line launch-contract boundary, protected operator templates, and focused-document ownership.
+description: Use before editing AGENTS.md — enforces the 120-line launch and Steward boundaries, protected operator templates, and focused-document ownership.
 ---
 
 # Updating AGENTS.md
@@ -11,8 +11,11 @@ Use this skill before every `AGENTS.md` edit.
 
 - **120-line cap.** Run `wc -l AGENTS.md` before and after every edit. Never
   land growth above 120 or defer extraction.
-- **240-line Steward cap.** When routing or PR-lifecycle ownership changes,
-  keep `.claude/skills/steward/SKILL.md` at or below 240 lines.
+- **120-line Steward cap.** When routing or PR-lifecycle ownership changes,
+  keep `.claude/skills/steward/SKILL.md` at or below 120 lines.
+- **Caps are ceilings.** Do not add prose merely to consume available lines.
+  Acquire guidance progressively: launch rules in `AGENTS.md`, PR decisions in
+  Steward, and mechanics in focused documents.
 - **Launch contract only.** Keep the repository mission, immediate routing,
   universal non-negotiables, and protected operator templates. Detailed
   mechanics, rationale, examples, edge cases, command inventories, and
@@ -66,7 +69,7 @@ or shaving wording solely to save lines.
 
 ```bash
 wc -l AGENTS.md   # must be <= 120
-wc -l .claude/skills/steward/SKILL.md   # must be <= 240
+wc -l .claude/skills/steward/SKILL.md   # must be <= 120
 wc -l README.md   # must be <= 120
 npx markdownlint-cli AGENTS.md <other-changed-markdown>
 ```
