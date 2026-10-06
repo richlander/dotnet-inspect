@@ -17,40 +17,44 @@ internal static partial class WorkflowContract
         SpecialTestStepConditions = new(StringComparer.Ordinal)
         {
             ["Upload PR decompiler corpus artifact"] = (
-                "matrix.shard == 'host-policy' && always()",
-                "host-policy"),
+                "matrix.shard == 'host-analysis' && always()",
+                "host-analysis"),
             ["Check PR decompiler corpus result"] = (
-                "matrix.shard == 'host-policy' && " +
+                "matrix.shard == 'host-analysis' && " +
                 "steps.decompiler_pr_corpus.outcome == 'failure'",
-                "host-policy"),
+                "host-analysis"),
             ["Restore vendored ILAssembler"] = (
-                "matrix.shard == 'analysis' && matrix.rid == 'linux-x64' && " +
+                "matrix.shard == 'host-analysis' && matrix.rid == 'linux-x64' && " +
                 "fromJSON(needs.changes.outputs.plan).validations.ilRoundTrip",
-                "analysis"),
+                "host-analysis"),
             ["Run IL round-trip tests (fast)"] = (
-                "matrix.shard == 'analysis' && matrix.rid == 'linux-x64' && " +
+                "matrix.shard == 'host-analysis' && matrix.rid == 'linux-x64' && " +
                 "fromJSON(needs.changes.outputs.plan).validations.ilRoundTrip",
-                "analysis"),
+                "host-analysis"),
             ["Check contract test ilasm/ildasm/mdv result"] = (
                 "matrix.shard == 'contracts' && " +
                 "steps.iltools_contracts.outcome == 'failure'",
                 "contracts"),
             ["Check GitHub Packages fixture result"] = (
-                "matrix.shard == 'host-policy' && " +
+                "matrix.shard == 'host-analysis' && " +
                 "steps.package_fixture.outcome == 'failure'",
-                "host-policy"),
+                "host-analysis"),
+            ["Run legacy source-identity guard"] = (
+                "matrix.shard == 'host-analysis' && " +
+                "fromJSON(needs.changes.outputs.plan).validations.repositoryGuards",
+                "host-analysis"),
+            ["Build tool for net10.0 fallback"] = (
+                "matrix.shard == 'host-analysis' && " +
+                "fromJSON(needs.changes.outputs.plan).validations.buildNet10",
+                "host-analysis"),
         };
 
     private static void ValidateConsumerStepContracts(YamlMappingNode jobs)
     {
         string[] jobNames =
         [
-            "markdownlint",
-            "skill-gate",
-            "repository-guards",
             "test",
             "dependency-policy",
-            "build-net10",
             "decompiler-gates",
             "csharp-diff-smoke",
             "il-diff-smoke",
@@ -69,7 +73,19 @@ internal static partial class WorkflowContract
         }
 
         ValidateConsumerStepGuards(jobs, jobNames);
-        ValidateRepositoryGuardsJob(jobs);
+        ValidateRequiredRunStep(
+            jobs,
+            "test",
+            "Run legacy source-identity guard",
+            "dotnet run --project tests/NuGetFetch.Tests -c Release -- " +
+                "--filter-method \"*LegacyPackageSourceIdentitySurfaceMatchesMigrationSet\" " +
+                "--minimum-expected-tests 1\n");
+        ValidateRequiredRunStep(
+            jobs,
+            "test",
+            "Build tool for net10.0 fallback",
+            "dotnet build src/DotnetInspect.Cli -c Release " +
+                "-p:DefaultTargetFramework=net10.0 -p:PublishAot=false");
         ValidateDependencyPolicyJob(jobs);
         ValidateRequiredRunStep(
             jobs,
@@ -136,131 +152,6 @@ internal static partial class WorkflowContract
             "--filter-class 'DotnetInspector.Queries.Tests.IntegrationCensusTests' " +
             "--filter-class 'DotnetInspector.Queries.Tests.ViewFacetRegistryTests' " +
             "--filter-not-trait \"Speed=Slow\" --minimum-expected-tests 300");
-    }
-
-    private static void ValidateRepositoryGuardsJob(YamlMappingNode jobs)
-    {
-        YamlMappingNode job = GetRequiredMapping(
-            jobs,
-            "repository-guards",
-            "jobs");
-        RequireExactKeys(
-            job,
-            ["needs", "if", "runs-on", "timeout-minutes", "steps"],
-            "jobs.repository-guards");
-        RequireScalarValue(
-            job,
-            "needs",
-            "changes",
-            "jobs.repository-guards");
-        RequireScalarValue(
-            job,
-            "if",
-            "fromJSON(needs.changes.outputs.plan).validations.repositoryGuards",
-            "jobs.repository-guards");
-        RequireScalarValue(
-            job,
-            "runs-on",
-            "ubuntu-24.04",
-            "jobs.repository-guards");
-        RequireScalarValue(
-            job,
-            "timeout-minutes",
-            "15",
-            "jobs.repository-guards");
-
-        YamlSequenceNode steps = GetRequiredSequence(
-            job,
-            "steps",
-            "jobs.repository-guards");
-        if (steps.Children.Count != 4)
-        {
-            throw new InvalidOperationException(
-                "jobs.repository-guards must contain exactly four steps.");
-        }
-
-        YamlMappingNode checkout = RequireMapping(
-            steps.Children[0],
-            "jobs.repository-guards checkout step");
-        RequireExactKeys(
-            checkout,
-            ["uses"],
-            "jobs.repository-guards checkout step");
-        RequireScalarValue(
-            checkout,
-            "uses",
-            "actions/checkout@v7",
-            "jobs.repository-guards checkout step");
-
-        YamlMappingNode setup = RequireMapping(
-            steps.Children[1],
-            "jobs.repository-guards setup step");
-        RequireExactKeys(
-            setup,
-            ["name", "uses", "with"],
-            "jobs.repository-guards setup step");
-        RequireScalarValue(
-            setup,
-            "name",
-            "Setup .NET",
-            "jobs.repository-guards setup step");
-        RequireScalarValue(
-            setup,
-            "uses",
-            "actions/setup-dotnet@v6",
-            "jobs.repository-guards setup step");
-        RequireExactScalarValues(
-            GetRequiredMapping(
-                setup,
-                "with",
-                "jobs.repository-guards setup step"),
-            new Dictionary<string, string>(StringComparer.Ordinal)
-            {
-                ["dotnet-version"] = "11.0.100-rc.1.26425.128",
-            },
-            "jobs.repository-guards setup step.with");
-
-        YamlMappingNode cache = RequireMapping(
-            steps.Children[2],
-            "jobs.repository-guards cache step");
-        RequireExactKeys(
-            cache,
-            ["name", "uses", "with"],
-            "jobs.repository-guards cache step");
-        RequireScalarValue(
-            cache,
-            "name",
-            "Cache NuGet packages",
-            "jobs.repository-guards cache step");
-        RequireScalarValue(
-            cache,
-            "uses",
-            "actions/cache@v6",
-            "jobs.repository-guards cache step");
-        RequireExactScalarValues(
-            GetRequiredMapping(
-                cache,
-                "with",
-                "jobs.repository-guards cache step"),
-            new Dictionary<string, string>(StringComparer.Ordinal)
-            {
-                ["path"] = "~/.nuget/packages",
-                ["key"] =
-                    "nuget-${{ runner.os }}-${{ runner.arch }}-" +
-                    "${{ hashFiles('**/*.csproj', '**/*.props', " +
-                    "'**/*.targets', '**/*.slnx') }}",
-                ["restore-keys"] =
-                    "nuget-${{ runner.os }}-${{ runner.arch }}-\n",
-            },
-            "jobs.repository-guards cache step.with");
-
-        RequireNamedRunStep(
-            steps.Children[3],
-            "Run legacy source-identity guard",
-            "dotnet run --project tests/NuGetFetch.Tests -c Release -- " +
-                "--filter-method \"*LegacyPackageSourceIdentitySurfaceMatchesMigrationSet\" " +
-                "--minimum-expected-tests 1\n",
-            "jobs.repository-guards source-identity step");
     }
 
     private static void RequireNamedRunStep(
@@ -493,7 +384,6 @@ internal static partial class WorkflowContract
                 "bash",
             ["csharp-diff-smoke/Run C# Diff baseline smoke"] = "bash",
             ["il-diff-smoke/Run IL Diff baseline smoke"] = "bash",
-            ["skill-gate/Run embedded skill tests"] = "bash",
         };
         var allowedId = new Dictionary<string, string>(
             StringComparer.Ordinal)
