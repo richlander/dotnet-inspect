@@ -34,7 +34,16 @@ interface SpotlightType {
   kind: string;
 }
 
+export interface SpotlightEcosystemAnnotation {
+  id: string;
+  title: string;
+  isPruned: boolean | null;
+  traversalTfm: string;
+  platformVersion: string | null;
+}
+
 interface PackageLoadedResult {
+  ecosystem?: SpotlightEcosystemAnnotation;
   kind: "pkg-loaded";
   pkg: SpotlightPackage;
   ranges: readonly HighlightRange[];
@@ -47,12 +56,14 @@ export interface SpotlightPackageHit {
 }
 
 interface PackageNugetResult {
+  ecosystem?: SpotlightEcosystemAnnotation;
   kind: "pkg-nuget";
   hit: SpotlightPackageHit;
   ranges: readonly HighlightRange[];
 }
 
 interface PackageRecentResult {
+  ecosystem?: SpotlightEcosystemAnnotation;
   kind: "pkg-recent";
   entry: { id: string; version?: string; framework?: string };
   ranges: readonly HighlightRange[];
@@ -167,6 +178,7 @@ interface SpotlightOptions {
   resetTypeSearch?: () => void;
   packageSearchLoading: () => boolean;
   packageSearchError?: () => string;
+  ecosystemError?: () => string;
   typeSearchLoading?: () => boolean;
   typeSearchError?: () => string;
   typeSearchNotice?: () => string;
@@ -211,7 +223,7 @@ const GROUP_LABELS: Readonly<Record<SpotlightResult["kind"], string>> = {
   type: "Types",
   "managed-type": "Types",
   member: "Members",
-  "framework-lib": "Libraries",
+  "framework-lib": "Ecosystem",
 };
 
 export function nextSpotlightSelection(
@@ -353,6 +365,12 @@ function capabilityKindLabel(
   }
 }
 
+function isEcosystemResult(result: SpotlightResult): boolean {
+  return result.kind === "framework-lib"
+    || ((result.kind === "pkg-loaded" || result.kind === "pkg-nuget" || result.kind === "pkg-recent")
+      && result.ecosystem !== undefined);
+}
+
 function sentenceCase(value: string): string {
   return value.length === 0
     ? value
@@ -396,9 +414,15 @@ export function createSpotlight(options: SpotlightOptions) {
       dismissedPackageIds.clear();
       dismissalQuery = state.spotlightQuery;
     }
-    return searchResults.filter(result =>
+    const visible = searchResults.filter(result =>
       result.kind !== "pkg-nuget"
       || !dismissedPackageIds.has(result.hit.id.toLowerCase()));
+    if (state.spotlightScope !== "all") return visible;
+    // Stable partition: separate Package and Library subjects retain their identities.
+    return [
+      ...visible.filter(isEcosystemResult),
+      ...visible.filter(result => !isEcosystemResult(result)),
+    ];
   }
 
   function removable(result: SpotlightResult): result is RemovableSpotlightResult {
@@ -418,6 +442,15 @@ export function createSpotlight(options: SpotlightOptions) {
       : `Remove ${result.pkg.id} ${result.pkg.version} ${result.pkg.activeFramework ?? ""} from Workspace`;
     return `<div class="package-search-row" role="presentation">${row}${packageRemoveButton(
       "data-sl-remove", identity, label, escapeHtml)}</div>`;
+  }
+
+  function ecosystemMetadata(result: SpotlightPackageResult): string {
+    const annotation = result.ecosystem;
+    if (!annotation) return "";
+    const badge = annotation.isPruned === true
+      ? `<span class="spotlight-pruned" role="img" aria-label="Pruned for ${escapeHtml(annotation.traversalTfm)}" title="${escapeHtml(`Supplied by ${annotation.traversalTfm}${annotation.platformVersion ? ` @ ${annotation.platformVersion}` : ""}; eligible for package pruning`)}">✂</span> `
+      : "";
+    return `${badge}${escapeHtml(annotation.title)} · Package · `;
   }
 
   function rowHtml(result: SpotlightResult, index: number): string {
@@ -440,7 +473,7 @@ export function createSpotlight(options: SpotlightOptions) {
       return withRemoveButton(result, `<button ${base} data-sl-pkg-open="${escapeHtml(result.pkg.id)}">
         <span class="kind-icon sl-pkg">▣</span>
         <span class="spotlight-item-name">${options.highlightRanges(result.pkg.id, result.ranges)}</span>
-        <span class="spotlight-item-ns">${escapeHtml(result.pkg.version)} · ${packageAddition ? "already in Workspace" : "open"}</span>
+        <span class="spotlight-item-ns">${ecosystemMetadata(result)}${escapeHtml(result.pkg.version)} · ${packageAddition ? "already in Workspace" : "open"}</span>
       </button>`);
     }
     if (result.kind === "pkg-nuget") {
@@ -450,7 +483,7 @@ export function createSpotlight(options: SpotlightOptions) {
       return `<button ${base} data-sl-pkg-load="${escapeHtml(result.hit.id)}" data-sl-pkg-version="${escapeHtml(result.hit.version || "")}">
         <span class="kind-icon sl-pkg-new">↓</span>
         <span class="spotlight-item-name">${options.highlightRanges(result.hit.id, result.ranges)}</span>
-        <span class="spotlight-item-ns">${escapeHtml(result.hit.version || "")} · ${source}</span>
+        <span class="spotlight-item-ns">${ecosystemMetadata(result)}${escapeHtml(result.hit.version || "")} · ${source}</span>
       </button>`;
     }
     if (result.kind === "pkg-recent") {
@@ -460,7 +493,7 @@ export function createSpotlight(options: SpotlightOptions) {
       return withRemoveButton(result, `<button ${base} data-sl-pkg-recent="${escapeHtml(result.entry.id)}">
         <span class="kind-icon sl-pkg">▣</span>
         <span class="spotlight-item-name">${options.highlightRanges(result.entry.id, result.ranges)}</span>
-        <span class="spotlight-item-ns">${version ? `${escapeHtml(version)} · ` : ""}recent</span>
+        <span class="spotlight-item-ns">${ecosystemMetadata(result)}${version ? `${escapeHtml(version)} · ` : ""}recent</span>
       </button>`);
     }
     if (result.kind === "package-query") {
@@ -551,7 +584,7 @@ export function createSpotlight(options: SpotlightOptions) {
     const capabilityMessage = state.spotlightScope === "all"
       ? options.capabilitySearchMessage?.()
       : "";
-    const errorHtml = [packageError, typeError, capabilityMessage]
+    const errorHtml = [packageError, typeError, capabilityMessage, packageSearch ? options.ecosystemError?.() : ""]
       .filter(message => Boolean(message))
       .map(message =>
         `<div class="spotlight-hint" role="status">${escapeHtml(message)}</div>`)
@@ -589,7 +622,7 @@ export function createSpotlight(options: SpotlightOptions) {
     let lastGroup = "";
     items.forEach((result, index) => {
       if (grouped) {
-        const group = GROUP_LABELS[result.kind];
+        const group = isEcosystemResult(result) ? "Ecosystem" : GROUP_LABELS[result.kind];
         if (group && group !== lastGroup) {
           html += `<div class="spotlight-group">${group}</div>`;
           lastGroup = group;

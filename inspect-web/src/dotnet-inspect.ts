@@ -1,3 +1,4 @@
+import { createSpotlightEcosystemClassification } from "./spotlight-ecosystem.ts";
 import {
   accessibilityFilterIncludingType,
   activeSourceOperationKind,
@@ -851,6 +852,7 @@ let inspectLoadRuntimePack: EngineClient["package"]["loadRuntimePack"];
 let inspectLoadRuntimePackAssembly:
   EngineClient["package"]["loadRuntimePackAssembly"];
 let inspectPlatformVersions: EngineClient["package"]["getPlatformVersions"];
+let classifyEcosystemPackages: EngineClient["package"]["classifyEcosystemPackages"];
 let inspectPlatformCatalog: EngineClient["package"]["getPlatformCatalog"];
 let inspectPrefetchPlatformPacks:
   EngineClient["package"]["prefetchPlatformPacks"];
@@ -1072,6 +1074,7 @@ async function loadEngineModule() {
       loadRuntimePack: inspectLoadRuntimePack,
       loadRuntimePackAssembly: inspectLoadRuntimePackAssembly,
       getPlatformVersions: inspectPlatformVersions,
+      classifyEcosystemPackages,
       getPlatformCatalog: inspectPlatformCatalog,
       prefetchPlatformPacks: inspectPrefetchPlatformPacks,
       packageCacheStats: inspectPackageCacheStats,
@@ -5039,6 +5042,7 @@ const spotlight = createSpotlight({
   highlightRanges,
   kindIcon,
   searchResults: spotlightResults,
+  ecosystemError: () => spotlightEcosystemClassification.error(),
   pickResult: pickSpotlightResult,
   removeResult: removeSpotlightPackage,
   executeCommand,
@@ -15060,6 +15064,19 @@ function frameworkLibrarySpotlightResults(query: string): SpotlightResult[] {
   return results;
 }
 
+const spotlightEcosystemClassification = createSpotlightEcosystemClassification({
+  classify: (tfm, candidates, inventory) => classifyEcosystemPackages(tfm, candidates, inventory),
+  updateResults: () => spotlight.updateResults(),
+});
+
+function annotateSpotlightEcosystems(results: SpotlightResult[]): SpotlightResult[] {
+  if (!state.engineReady) return results;
+  const target = selectedPlatformTarget();
+  const traversalTfm = state.platformSelection?.tfm ?? state.platformIndex?.defaultFramework;
+  if (!traversalTfm) return results;
+  return spotlightEcosystemClassification.project(results, traversalTfm, target);
+}
+
 function spotlightResults(): SpotlightResult[] {
   const query = state.spotlightQuery.trim();
   const spotlightScope = state.spotlightScope;
@@ -15112,7 +15129,7 @@ function spotlightResults(): SpotlightResult[] {
           ranges: [[0, parsedPackageQuery.packageId.length]],
         });
       }
-      return results;
+      return annotateSpotlightEcosystems(results);
     }
     const loaded = spotlightLoadedPackageMatches(query).slice(0, all ? 3 : 20);
     for (const match of loaded) results.push({ kind: "pkg-loaded", pkg: match.pkg, ranges: match.ranges });
@@ -15188,7 +15205,7 @@ function spotlightResults(): SpotlightResult[] {
   if (all) {
     results.push(...frameworkLibrarySpotlightResults(query).slice(0, 5));
   }
-  return results;
+  return annotateSpotlightEcosystems(results);
 }
 
 interface NugetSearchResult {
@@ -27066,7 +27083,7 @@ window.__platformIndex = loadPlatformIndex();
 observeAsync(
   window.__platformIndex.then(index => {
     if (index) state.platformIndex = index;
-    if (state.spotlightOpen) spotlight.refresh();
+    if (state.spotlightOpen || state.home) spotlight.refresh();
     return undefined;
   }),
   "Loading the platform index");

@@ -99,6 +99,7 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
     closePlatformForwarderView: () => unexpected("closePlatformForwarderView"),
     classifyPackageGraphIdentities: () =>
       unexpected("classifyPackageGraphIdentities"),
+    classifyEcosystemPackages: () => unexpected("classifyEcosystemPackages"),
     getPlatformCatalog: () => unexpected("getPlatformCatalog"),
     getPlatformVersions: () => unexpected("getPlatformVersions"),
     matchPackageDependencyCoordinate: () =>
@@ -2300,6 +2301,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     package: [
       "activatePlatformForwarder",
       "activateWorkspacePackageOccurrence",
+      "classifyEcosystemPackages",
       "classifyPackageGraphIdentities",
       "clearWorkspacePackageOccurrences",
       "closePlatformForwarderView",
@@ -2435,7 +2437,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 113);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 115);
 
   const state = fixture();
   const groups = [

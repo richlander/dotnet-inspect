@@ -4203,3 +4203,56 @@ test.describe("bounded network-backed Worker smoke", () => {
     expect(surface.types.length).toBeGreaterThan(0);
   });
 });
+
+test.describe("Spotlight ecosystem annotations over real Wasm", () => {
+  test("cold catalog does not block results or acquire packs, then joins Package and Library", async ({ page, context }) => {
+    const catalog: unknown = JSON.parse(readFileSync(resolve("assets/platform-index.json"), "utf8"));
+    if (!catalog || typeof catalog !== "object" || !("defaultFramework" in catalog))
+      throw new Error("Invalid test platform catalog.");
+    catalog.defaultFramework = "net10.0";
+    let releaseCatalog!: () => void;
+    const catalogGate = new Promise<void>(complete => { releaseCatalog = complete; });
+    const packs: string[] = [];
+    await context.route("**/assets/platform-index.json", async route => {
+      await catalogGate;
+      await route.fulfill({ contentType: "application/json", body: JSON.stringify(catalog) });
+    });
+    await context.route("https://azuresearch-usnc.nuget.org/**", route => {
+      const query = new URL(route.request().url()).searchParams.get("q");
+      return route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({ data: [query === "System.Text.Json"
+          ? { id: "System.Text.Json", version: "9.0.0" }
+          : { id: "System.Linq", version: "4.3.0" }] }),
+      });
+    });
+    await context.route(/https:\/\/.*\/(?:microsoft\.netcore\.app|microsoft\.aspnetcore\.app)[^/]*\/.*\.nupkg(?:\?.*)?$/i, route => {
+      packs.push(route.request().url());
+      return route.abort();
+    });
+    await page.goto("/");
+    const search = page.locator("#spotlight-input");
+    await expect(search).toBeEditable({ timeout: 120_000 });
+    await search.fill("System.Linq");
+    const packageHit = page.locator('[data-sl-pkg-load="System.Linq"]');
+    await expect(packageHit).toBeVisible();
+    await expect(packageHit.locator(".spotlight-pruned")).toHaveCount(0);
+    const originalControl = await packageHit.elementHandle();
+    expect(packs).toEqual([]);
+    releaseCatalog();
+    await expect(packageHit.locator('[aria-label="Pruned for net10.0"]')).toBeVisible();
+    await expect(page.locator('[data-sl-framework-lib="System.Linq"]')).toBeVisible();
+    await expect(page.locator(".spotlight-group").filter({ hasText: /^Ecosystem$/ })).toHaveCount(1);
+    await expect(packageHit).toContainText("Package");
+    await expect(page.locator('[data-sl-framework-lib="System.Linq"]')).toContainText(".NET library");
+    expect(packs).toEqual([]);
+    await expect(search).toBeFocused();
+    expect(await packageHit.evaluate((element, original) => element === original, originalControl)).toBe(true);
+    await search.fill("System.Text.Json");
+    const jsonPackage = page.locator('[data-sl-pkg-load="System.Text.Json"]');
+    await expect(jsonPackage.locator('[aria-label="Pruned for net10.0"]')).toBeVisible();
+    await expect(page.locator('[data-sl-framework-lib="System.Text.Json"]')).toBeVisible();
+    await expect(page.locator(".spotlight-group").filter({ hasText: /^Ecosystem$/ })).toHaveCount(1);
+    expect(packs).toEqual([]);
+  });
+});
