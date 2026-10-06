@@ -298,7 +298,7 @@ test("the content frame clamps wide inventory and pushes at constrained widths",
   const wideDetail = await box(page, ".detail-pane");
   expect(wideInventory.width).toBeGreaterThanOrEqual(304);
   expect(wideInventory.width).toBeLessThanOrEqual(360);
-  expect(wideDetail.x + wideDetail.width).toBeCloseTo(wideInventory.x, 0);
+  expect(wideInventory.x + wideInventory.width).toBeCloseTo(wideDetail.x, 0);
 
   await page.setViewportSize({ width: 900, height: 700 });
   const intermediateInventory = await box(page, "#content-navigation-pane");

@@ -346,11 +346,12 @@ package-tab placement stays superseded.
 
 ### Type and Member API
 
-Type API and Member API use the primary area to the left of a bounded trailing
-Type or Member inventory. Detail therefore leads in document, keyboard, and
-visual order. They do not retain a centered document column, a large subject
-hero, or repeated package, library, namespace, and target-framework context.
-The persistent subject path remains the owner of that hierarchy.
+Type API and Member API retain a bounded leading Type or Member inventory with
+the primary detail area to its right. Navigation therefore leads in document,
+keyboard, and visual order. They do not retain a centered document column, a
+large subject hero, or repeated package, library, namespace, and
+target-framework context. The persistent subject path remains the owner of
+that hierarchy.
 
 The Type API surface contains:
 
@@ -869,7 +870,7 @@ summary.
 The persistent inspected-target row preserves the exact subject context, so
 Overview does not add a bottom coordinate row. The Frameworks (Package) or
 Libraries (Library) action remains in the target bar at every width. Type and
-Member retain their responsive inventory action there when the trailing split
+Member retain their responsive inventory action there when the leading split
 cannot fit. Local subject names wrap rather than disappearing.
 Long identifiers, asset paths, and document names remain contained without
 page-level horizontal overflow. Many rows scroll inside Overview while its
@@ -1405,8 +1406,8 @@ One information hierarchy adapts across viewport sizes:
 - Package and Library always lead with one full-width working surface.
   `Frameworks` or `Libraries` in the target-bar page-action region swaps that
   surface with its full-width inventory without changing subject or history;
-- wide layouts retain Type or Member navigation as a trailing column beside a
-  leading full working surface, using a bounded inventory width rather than a
+- wide layouts retain Type or Member navigation as a leading column beside a
+  full working surface, using a bounded inventory width rather than a
   percentage split; the inventory stays within its readable minimum and
   maximum while detail receives all remaining width, and no draggable divider
   is introduced;
@@ -1635,7 +1636,7 @@ with the absence of a synthesized `Default feed` control.
 ### Type and Member API working surfaces
 
 1. Open a Type API surface with no member filters and confirm that the quiet
-   inventory summary row and member list exactly fill the trailing inventory
+   inventory summary row and member list exactly fill the leading inventory
    without page overflow.
 2. Apply member text and selector filters and confirm that the same row reports
    the live visible/total member count and restrictions, and no preceding

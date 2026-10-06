@@ -261,7 +261,7 @@ underline on hover plus an explicit keyboard focus outline.
 
 ### API, Source, Metadata, and Package Dependencies lenses
 
-Type API exposes an accessible `Members` heading while its visible trailing
+Type API exposes an accessible `Members` heading while its visible leading
 inventory summary owns `Members`, the live visible/total count of actual
 members, active restrictions, and `Filters`. Exact declarations count, so each
 overload counts; the visible count totals the visible rows' overload counts and

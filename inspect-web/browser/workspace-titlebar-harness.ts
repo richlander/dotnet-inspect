@@ -957,7 +957,9 @@ const detailPaneHtml = `
   </section>`;
 const subjectPanelHtml = workspaceMode
   ? `${navigationHtml}${detailPaneHtml}`
-  : `${detailPaneHtml}${navigationHtml}`;
+  : contentFrameFullWidth
+    ? `${detailPaneHtml}${navigationHtml}`
+    : `${navigationHtml}${detailPaneHtml}`;
 app.innerHTML = `
   <div class="workbench">
     ${workbenchShellHtml({

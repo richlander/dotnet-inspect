@@ -1068,7 +1068,7 @@ body:has(:not([hidden]) > [role="dialog"][aria-modal="true"])
   grid-template-rows: minmax(0, 1fr);
 }
 .workspace.content-frame {
-  grid-template-columns: minmax(0, 1fr) clamp(304px, 24vw, 360px);
+  grid-template-columns: clamp(304px, 24vw, 360px) minmax(0, 1fr);
 }
 .workspace.content-frame-full {
   display: block;
@@ -1105,8 +1105,8 @@ body:has(:not([hidden]) > [role="dialog"][aria-modal="true"])
   min-height: 0;
   display: flex;
   flex-direction: column;
-  border-right: 0;
-  border-left: 1px solid var(--line);
+  border-right: 1px solid var(--line);
+  border-left: 0;
 }
 .content-frame-split > .type-browser > .type-list {
   flex: 1 1 auto;
