@@ -251,6 +251,86 @@ public sealed class VocabularyExplanationTests
     }
 
     [Fact]
+    public void TermMapsSharingATargetYieldOneEntryEachAndDistinctOrderedLinks()
+    {
+        VocabularyCatalogIdentity catalog = ProductVocabularyComposition.Catalog;
+        var letters = new VocabularyIdentity(catalog, "test.letters");
+        var words = new VocabularyIdentity(catalog, "test.words");
+        VocabularyMapDefinition first = LetterMap("first");
+        VocabularyMapDefinition rest = LetterMap("rest");
+        VocabularySnapshot snapshot = ProductVocabularyComposition.Compose(
+            [
+                new(
+                    new VocabularyDefinition(
+                        letters,
+                        "Letters",
+                        "Test letters.",
+                        maps: [],
+                        [
+                            new(new(letters, "a"), "A", null),
+                            new(new(letters, "b"), "B", null),
+                        ]),
+                    "test.spell"),
+                new(
+                    new VocabularyDefinition(
+                        words,
+                        "Words",
+                        "Test words.",
+                        [first, rest],
+                        [
+                            new(
+                                new(words, "bab"),
+                                "Bab",
+                                null,
+                                [
+                                    new(first, Letter("b")),
+                                    new(rest, Letter("a"), Letter("b")),
+                                ]),
+                        ]),
+                    "test.spell"),
+            ]);
+
+        ResourceExplanationDocument document = Explain(
+            ResourceExplanationCatalog.CreateVocabularies(snapshot),
+            "vocabularies/test.words/values/bab",
+            depth: 0);
+
+        ResourceExplanationResource value = document.Resources[0];
+        ExplanationValue.Record[] entries = Records(value, "map-entries");
+        Assert.Equal(
+            ["first", "rest", "rest"],
+            entries.Select(entry => Field(entry, "map")));
+        Assert.Equal(
+            ["b", "a", "b"],
+            entries.Select(entry =>
+                Assert.IsType<ExplanationValue.Scalar>(MapValue(entry).Value)
+                    .Value.Text));
+        Assert.Equal(
+            ["vocabularies/test.letters/values/b", "vocabularies/test.letters/values/a"],
+            Assert.Single(
+                    document.Relationships,
+                    relationship => relationship.Relationship.Value
+                        == "term-map-value")
+                .Targets
+                .Select(target => Assert.IsType<ExplanationValue.Scalar>(
+                        Assert.Single(target.Addresses).Value)
+                    .Value.Text));
+
+        ExplanationValue Letter(string identity) =>
+            new ExplanationValue.VocabularyTerm(new(letters, identity));
+
+        VocabularyMapDefinition LetterMap(string identity) =>
+            new(
+                new(words, identity),
+                identity,
+                "Test letters.",
+                new VocabularyMapTarget.Terms(
+                    new VocabularyTermSetReference.Local(letters)),
+                VocabularyMapCardinality.OneOrMore,
+                VocabularyMapCoverage.Complete);
+    }
+
+    [Fact]
     public void ValueSegmentIsTheLowerCasedIdentityWithDotsForColons()
     {
         Assert.Equal(
