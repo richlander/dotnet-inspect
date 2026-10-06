@@ -1,3 +1,4 @@
+import { bindPackageSelections } from "../src/package-controls.ts";
 import {
   bindScopeBar,
   captureScopeBarFocus,
@@ -55,7 +56,7 @@ import {
   renderOverviewSurface,
   renderPackageOverviewContent,
 } from "../src/overview-surface.ts";
-import { renderPackageNav, renderPackageFrameworks } from "../src/package-view.ts";
+import { renderPackageNav } from "../src/package-view.ts";
 import { renderLibrarySubjectNav } from "../src/library-subject-nav.ts";
 import { renderPackageDocuments } from "../src/doc-viewer.ts";
 import { allocationFactsFixture, analysisDiagnosticsFixture, callFactsFixture, exceptionRegionsFixture, memberFactsFixture, performanceOpportunitiesFixture, safetyFactsFixture } from "../test/member-facts-fixture.ts";
@@ -795,8 +796,7 @@ function detailHtml() {
       <footer class="api-surface-footer"><span>Select a row to inspect its API</span></footer>
     </section>`;
   }
-  return `<h1>${subjectPath.at(-1)?.label}</h1>
-    ${renderPackageFrameworks(["net10.0"], "net10.0", escapeHtml)}`;
+  return `<h1>${subjectPath.at(-1)?.label}</h1>`;
 }
 const harnessKeybindings = new KeybindingRegistry();
 harnessKeybindings.register({
@@ -1268,6 +1268,7 @@ function bindHarnessWorkspace() {
 
 bindHarnessScopeBar();
 bindHarnessWorkspace();
+bindPackageSelections(document, { onFrameworkSelect: () => {}, onVersionSelect: () => {} });
 bindContentFrame(document, {
   onShowDetail: () => {
     contentFramePane = "detail";

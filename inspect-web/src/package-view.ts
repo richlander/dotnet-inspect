@@ -64,7 +64,7 @@ export function renderPackageNav(options: PackageNavOptions): string {
     <div id="package-version-list" class="type-list" role="group" aria-label="Package version navigation" tabindex="-1" data-nav-scope="versions" data-nav-selection="version:${escapeHtml(activeVersion)}">
       ${versions.map(version => `<button type="button" class="type-row ${version.toLowerCase() === activeVersion.toLowerCase() ? "selected" : ""}" data-package-version="${escapeHtml(version)}"${version.toLowerCase() === activeVersion.toLowerCase() ? ' aria-current="page"' : ""} title="Use ${escapeHtml(version)}"><span class="kind-icon">V</span><span class="type-name">${escapeHtml(version)}</span></button>`).join("")}
     </div>
-    <footer class="pane-footer"><span>choose a version</span><span>↵ load</span></footer>
+    <footer class="pane-footer"><span>choose a framework or version</span><span>↵ load</span></footer>
   </aside>`;
 }
 

@@ -715,7 +715,7 @@ for (const [subject, width] of [
           .toBeLessThanOrEqual(header.y + header.height);
       }
       await page.getByRole("button", { name: subject === "package" ? "Frameworks & versions" : "Libraries", exact: true }).click();
-      await expect(page.locator(subject === "package" ? "#package-version-list" : ".type-list")).toBeFocused();
+      await expect(page.locator(subject === "package" ? '[data-package-framework][aria-current="page"]' : ".type-list")).toBeFocused();
       await expect(page.locator(".detail-pane")).toBeHidden();
     }
   });
