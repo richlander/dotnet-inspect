@@ -191,55 +191,77 @@ def assemble (requirements : List A) (candidates : List (A × S)) :
   requirements.map fun a => (candidates.find? (·.1 = a)).map (·.2)
 
 /--
-Satisfactions for associations outside the requirement set never reach the
-plan, so `UnknownAssociation` is a diagnostic for a producer planning bug, not
-a soundness check.
+Inserting a candidate anywhere among the recorded candidates leaves the plan
+unchanged when its association is outside the requirement set or an earlier
+candidate already holds it. `ValidateSatisfactions` keeps the first recorded
+candidate per association, so the lemma is stated over recorded candidates.
 -/
-theorem assemble_ignores_unknown (requirements : List A)
-    (candidates extra : List (A × S))
-    (hextra : ∀ c ∈ extra, c.1 ∉ requirements) :
-    assemble requirements (candidates ++ extra) =
-      assemble requirements candidates := by
+theorem assemble_ignores_at (requirements : List A)
+    (before after : List (A × S)) (c : A × S)
+    (hc : c.1 ∉ requirements ∨ ∃ c' ∈ before, c'.1 = c.1) :
+    assemble requirements (before ++ c :: after) =
+      assemble requirements (before ++ after) := by
   unfold assemble
   apply List.map_congr_left
   intro a ha
-  rw [List.find?_append]
-  cases hfind : candidates.find? (·.1 = a) with
-  | some c => rfl
+  rw [List.find?_append, List.find?_append]
+  cases hfind : before.find? (·.1 = a) with
+  | some _ => rfl
   | none =>
-      have : extra.find? (·.1 = a) = none := by
-        rw [List.find?_eq_none]
-        intro c hc hca
-        have hc' : c.1 = a := by simpa using hca
-        exact hextra c hc (hc' ▸ ha)
-      simp [this]
+      have hca : ¬ c.1 = a := by
+        intro heq
+        rcases hc with hnot | ⟨c', hc', hsame⟩
+        · exact hnot (heq ▸ ha)
+        · rw [List.find?_eq_none] at hfind
+          exact hfind c' hc' (by simp [hsame, heq])
+      simp [hca]
 
 /--
-A second satisfaction for an association that already has one never reaches
-the plan either: `ValidateSatisfactions` rejects it with `DuplicateAssociation`
-before recording anything, and lookup keeps the first. At this call site the
-check is a diagnostic for a producer planning bug.
+Satisfactions for associations outside the requirement set never reach the
+plan, at any position, so `UnknownAssociation` is a diagnostic for a producer
+planning bug.
+-/
+theorem assemble_ignores_unknown (requirements : List A)
+    (before after : List (A × S)) (c : A × S)
+    (hc : c.1 ∉ requirements) :
+    assemble requirements (before ++ c :: after) =
+      assemble requirements (before ++ after) :=
+  assemble_ignores_at requirements before after c (.inl hc)
+
+/--
+A later satisfaction for an already recorded association never reaches the
+plan, at any position, so satisfaction-site `DuplicateAssociation` is a
+diagnostic.
 -/
 theorem assemble_ignores_duplicates (requirements : List A)
-    (candidates extra : List (A × S))
-    (hextra : ∀ c ∈ extra, ∃ c' ∈ candidates, c'.1 = c.1) :
-    assemble requirements (candidates ++ extra) =
-      assemble requirements candidates := by
-  unfold assemble
-  apply List.map_congr_left
-  intro a _
-  rw [List.find?_append]
-  cases hfind : candidates.find? (·.1 = a) with
-  | some c => rfl
-  | none =>
-      have : extra.find? (·.1 = a) = none := by
-        rw [List.find?_eq_none]
-        intro c hc hca
-        obtain ⟨c', hc', heq⟩ := hextra c hc
-        have hca' : c.1 = a := by simpa using hca
-        rw [List.find?_eq_none] at hfind
-        exact hfind c' hc' (by simp [heq, hca'])
-      simp [this]
+    (before after : List (A × S)) (c : A × S)
+    (hc : ∃ c' ∈ before, c'.1 = c.1) :
+    assemble requirements (before ++ c :: after) =
+      assemble requirements (before ++ after) :=
+  assemble_ignores_at requirements before after c (.inr hc)
+
+/--
+`ValidateSatisfactions` records a candidate only after it names a selected
+provision and its covering path walks (`valid`). Every satisfaction in a plan
+assembled from recorded candidates is therefore valid, and an association
+left without one stays `none`, which `UnsatisfiedRequirement` rejects. The
+satisfaction-site `UnknownProvision` and `InvalidCoveringPath` rejections are
+therefore diagnostics; the skip is what soundness needs.
+-/
+theorem assemble_recorded_valid (requirements : List A)
+    (candidates : List (A × S)) (valid : A × S → Bool) :
+    ∀ x ∈ assemble requirements (candidates.filter valid), ∀ s, x = some s →
+      ∃ c ∈ candidates, valid c = true ∧ c.2 = s := by
+  intro x hx s hs
+  unfold assemble at hx
+  obtain ⟨a, _, rfl⟩ := List.mem_map.mp hx
+  cases hfind : (candidates.filter valid).find? (·.1 = a) with
+  | none => simp [hfind] at hs
+  | some c =>
+      simp only [hfind, Option.map_some, Option.some.injEq] at hs
+      have hmem := List.mem_of_find?_eq_some hfind
+      obtain ⟨hc, hv⟩ := List.mem_filter.mp hmem
+      exact ⟨c, hc, hv, hs⟩
 
 end Associations
 
@@ -248,9 +270,9 @@ end Associations
 /--
 With duplicate provision identities, a validator that keeps the first
 declaration and an executor that resolves identities itself and keeps the
-last disagree. Executors that consume the accepted plan's declaration objects,
-as current adopters do, never see the duplicate, so the check is diagnostic
-under that assumption. A keyed-map input type would make it unrepresentable.
+last disagree. Current adopters do not re-resolve declaration identities after
+validation, so they never see the duplicate and the check is diagnostic under
+that assumption. A keyed-map input type would make it unrepresentable.
 -/
 example :
     let declarations : List (Nat × String) := [(1, "Names"), (1, "Signature")]
