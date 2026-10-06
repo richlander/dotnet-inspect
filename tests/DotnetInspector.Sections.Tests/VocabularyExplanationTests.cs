@@ -36,10 +36,10 @@ public sealed class VocabularyExplanationTests
             catalog.Resources
                 .Where(resource =>
                     resource.ResourceType.Value == "value-vocabulary")
-                .Select(resource => resource.Path!.Value));
+                .Select(CanonicalPath));
         Assert.DoesNotContain(
             catalog.Resources,
-            resource => resource.Path!.Value.Contains(
+            resource => CanonicalPath(resource).Contains(
                 ProductVocabularyComposition.SectionsId,
                 StringComparison.Ordinal));
 
@@ -172,7 +172,7 @@ public sealed class VocabularyExplanationTests
                 .. document.Resources.Where(resource =>
                     resource.ResourceType.Value == "vocabulary-value"),
             ];
-            Assert.Equal(paths, expanded.Select(resource => resource.Path!.Value));
+            Assert.Equal(paths, expanded.Select(CanonicalPath));
             Assert.Equal(
                 vocabulary.Terms.Select(term => term.Identity.Value),
                 expanded.Select(resource => Texts(resource, "identity").Single()));
@@ -245,7 +245,7 @@ public sealed class VocabularyExplanationTests
         Assert.Contains(
             document.Resources,
             resource => resource.Key == target.Resource
-                && resource.Path!.Value
+                && CanonicalPath(resource)
                     == $"vocabularies/{StyleOptionVocabularies.StyleTiersId}/"
                         + $"values/{tier.Identity.Value.ToLowerInvariant()}");
     }
@@ -390,7 +390,7 @@ public sealed class VocabularyExplanationTests
         Assert.Equal(StyleOptionVocabularies.StyleTiersId, KeyIdentity(target.Resource));
         Assert.Contains(
             choices.Resources,
-            resource => resource.Path!.Value
+            resource => CanonicalPath(resource)
                 == $"vocabularies/{StyleOptionVocabularies.StyleTiersId}");
 
         ResourceExplanationDocument tiers = Explain(
@@ -520,6 +520,13 @@ public sealed class VocabularyExplanationTests
         string packed = Assert.IsType<ExplanationValue.Scalar>(key.IdentityValue)
             .Value.Text!;
         return packed[(packed.IndexOf(':', StringComparison.Ordinal) + 1)..];
+    }
+
+    private static string CanonicalPath(ResourceExplanationResource resource)
+    {
+        ResourcePath? path = resource.Path;
+        Assert.NotNull(path);
+        return path.Value;
     }
 
     private static string[] Texts(
