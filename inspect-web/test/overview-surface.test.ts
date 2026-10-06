@@ -41,7 +41,7 @@ test("Package Overview starts with identity and content without a redundant head
     /overview-scroll[\s\S]*<h2>Package info<\/h2>[\s\S]*overview-surface-footer/);
   assert.doesNotMatch(
     html,
-    /overview-surface-head|overview-surface-label|>Overview<|package-version/);
+    /overview-surface-head|overview-surface-label|overview-subject-label|>Overview<|package-version/);
   assert.match(html, /title="Example.Package@10.0.0">Example.Package@10.0.0<\/span>/);
   assert.match(html, /title="net10.0">net10.0<\/span>/);
   assert.doesNotMatch(html, /type-heading|package-coordinate-editor/);
@@ -52,7 +52,6 @@ test("Package Overview composes Package info with its owner-issued children", ()
     packageInfoHtml: "<section><h2>Package info</h2></section>",
     packageChildrenHtml:
       '<section><h2>Libraries</h2><button data-package-child-library="lib/net10.0/Example.dll">Example</button></section>',
-    comparisonHtml: "<section><h2>Comparison</h2></section>",
     documentsHtml: "<section><h2>Documents</h2></section>",
   });
 
@@ -60,7 +59,7 @@ test("Package Overview composes Package info with its owner-issued children", ()
   assert.match(
     html,
     /Package info[\s\S]*<h2>Libraries<\/h2>[\s\S]*data-package-child-library/);
-  assert.match(html, /package-overview-resources[\s\S]*Comparison[\s\S]*Documents/);
+  assert.match(html, /Libraries[\s\S]*Documents/);
   assert.doesNotMatch(html, /data-lib-scope/);
 });
 

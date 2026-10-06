@@ -150,6 +150,7 @@ for (const incomingPackage of [surface.package, "Second.Package"]) {
 test("Package comparison targets survive Library, Type, and Member navigation", async ({ page }) => {
   await installFacades(page);
   await page.goto(root);
+  await inspectorTab(page, "data-package-lens", "compare").click();
   await expect(page.locator("#package-diff-target-status"))
     .toHaveText("Previous listed release");
   await expect(page.locator("#package-diff-target option:checked"))
@@ -178,6 +179,7 @@ test("Package comparison targets consume an omitted predecessor", async ({ page 
     "ready", "ready", undefined, {}, { versions: [] },
   );
   await page.goto(root);
+  await inspectorTab(page, "data-package-lens", "compare").click();
   await expect(page.locator("#package-diff-target-status"))
     .toHaveText("No earlier listed version is available.");
   await expect(page.locator("#package-diff-target option:checked"))
@@ -292,3 +294,41 @@ test("active subject continuity preserves focus without making a manual window",
   await page.keyboard.press("Enter");
   await expect(packageTab).toHaveAttribute("aria-selected", "true");
 });
+
+for (const width of [1440, 390]) {
+  test(`Package Compare owns target setup and version filtering at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await installFacades(page, surface, [], "ready", "ready", undefined,
+      "ready", "ready", undefined, {}, {
+        versions: ["1.1.0-preview.1", "1.0.0+build-stable", "1.0.0", "0.9.0"],
+      });
+    await page.goto(root);
+    await expect(page.locator("#package-comparison-targets")).toHaveCount(0);
+    const overviewContent = await page.locator(".package-overview-content").boundingBox();
+    const overviewFooter = await page.locator(".overview-surface-footer").boundingBox();
+    await chooseInspector(page, "data-package-lens", "compare", "Compare");
+    await expect(page.locator(".overview-identity")).toHaveCount(0);
+    const compareContent = await page.locator("#package-comparison-targets").boundingBox();
+    const compareFooter = await page.locator(".overview-surface-footer").boundingBox();
+    expect(compareContent?.x).toBe(overviewContent?.x);
+    expect(compareFooter?.x).toBe(overviewFooter?.x);
+    expect(compareFooter?.width).toBe(overviewFooter?.width);
+    await expect(page.locator(".comparison-target-row")).toHaveCount(2);
+    const target = page.locator("#package-diff-target");
+    await target.focus();
+    await target.selectOption("exact:0.9.0");
+    await expect(target).toBeFocused();
+    if (width === 390) await page.getByRole("button", { name: "Frameworks & versions", exact: true }).click();
+    await expect(page.locator("[data-package-version]")).toHaveCount(4);
+    await page.locator("#package-version-prerelease").uncheck();
+    await expect(page.locator('[data-package-version="1.1.0-preview.1"]')).toBeHidden();
+    await expect(page.locator('[data-package-version="1.0.0+build-stable"]')).toBeVisible();
+    await page.locator("#package-version-filter").fill("0.9");
+    await expect(page.locator('[data-package-version="0.9.0"]')).toBeVisible();
+    await expect(page.locator('[data-package-version="1.0.0"]')).toBeVisible();
+    if (width === 390) await page.getByRole("button", { name: "Show details", exact: true }).click();
+    await chooseInspector(page, "data-package-lens", "overview", "Overview");
+    await expect(page.locator("#package-comparison-targets")).toHaveCount(0);
+    await expect(page.locator(".package-version-nav .package-frameworks")).toHaveCount(1);
+  });
+}

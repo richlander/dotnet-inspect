@@ -1526,7 +1526,7 @@ test("Package and Library Overview share the named identity frame", () => {
     /renderOverviewSurface\(\{[\s\S]*subject: "package",[\s\S]*displayName: packageDisplayName\(pkg\),[\s\S]*iconHtml: renderInspectedSubjectIcon\(pkg\),[\s\S]*contentHtml,/);
   assert.doesNotMatch(renderOverview, /coordinateFieldsHtml:/);
   assert.match(appSource,
-    /renderPackageNav\(\{[\s\S]*versionFieldHtml: state\.packageLens === "overview"[\s\S]*packageVersionField\(\)/);
+    /renderPackageNav\(\{[\s\S]*versions,[\s\S]*activeVersion: pkg\.version/);
   const renderLibraryOverview =
     appSource.match(/function renderLibraryOverview\([\s\S]*?\n}\n\nfunction renderGraphMemberPendingHtml/)?.[0]
     ?? "";
@@ -1628,7 +1628,7 @@ test("package dependencies use compact coordinates in a full-area working surfac
     /return packageLensBody\(\);/);
   assert.match(
     appSource,
-    /function renderPackageDependenciesSurface\([\s\S]*?package-dependencies-surface[\s\S]*?packageVersionField\(\)[\s\S]*?package-dependencies-scroll[\s\S]*?package-dependencies-surface-footer/);
+    /function renderPackageDependenciesSurface\([\s\S]*?package-dependencies-surface[\s\S]*?package-dependencies-scroll[\s\S]*?package-dependencies-surface-footer/);
   assert.equal(
     renderDependencies.match(/renderPackageDependenciesSurface\(/g)?.length,
     5);
