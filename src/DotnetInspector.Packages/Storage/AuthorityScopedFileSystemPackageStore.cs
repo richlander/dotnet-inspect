@@ -217,64 +217,63 @@ public sealed class AuthorityScopedFileSystemPackageStore :
     bool IPackageEntryStore.KeepsEntries =>
         _authority.PersistentCacheKey is not null;
 
-    bool IPackageEntryStore.TryReadDirectory(
+    ValueTask<PackageEntryDirectory?> IPackageEntryStore.ReadDirectoryAsync(
         string packageId,
-        string version,
-        out ReadOnlyMemory<byte> region,
-        out long archiveLength)
+        string version)
     {
-        region = default;
-        archiveLength = 0;
         if (EntryRoot(packageId, version) is not { } root
             || !TryReadAll(Path.Combine(root, "directory"), out byte[] bytes)
             || bytes.Length < sizeof(long))
         {
-            return false;
+            return ValueTask.FromResult<PackageEntryDirectory?>(null);
         }
 
-        archiveLength = BitConverter.ToInt64(bytes, 0);
-        region = bytes.AsMemory(sizeof(long));
-        return true;
+        return ValueTask.FromResult<PackageEntryDirectory?>(
+            new(
+                bytes.AsMemory(sizeof(long)),
+                BitConverter.ToInt64(bytes, 0)));
     }
 
-    void IPackageEntryStore.PublishDirectory(
+    ValueTask IPackageEntryStore.PublishDirectoryAsync(
         string packageId,
         string version,
         ReadOnlyMemory<byte> region,
         long archiveLength)
     {
         if (EntryRoot(packageId, version) is not { } root)
-            return;
+            return ValueTask.CompletedTask;
         var bytes = new byte[sizeof(long) + region.Length];
         BitConverter.TryWriteBytes(bytes, archiveLength);
         region.Span.CopyTo(bytes.AsSpan(sizeof(long)));
         PublishImmutable(Path.Combine(root, "directory"), bytes);
+        return ValueTask.CompletedTask;
     }
 
-    bool IPackageEntryStore.TryReadEntry(
+    ValueTask<byte[]?> IPackageEntryStore.ReadEntryAsync(
         string packageId,
         string version,
-        string entryPath,
-        out byte[] content)
+        string entryPath)
     {
-        content = [];
-        return EntryRoot(packageId, version) is { } root
+        byte[] content = [];
+        bool found = EntryRoot(packageId, version) is { } root
             && TryReadAll(
                 Path.Combine(root, "entries", PackageEntryStoreNames.EntryFileName(entryPath)),
                 out content);
+        return ValueTask.FromResult<byte[]?>(found ? content : null);
     }
 
-    void IPackageEntryStore.PublishEntry(
+    ValueTask IPackageEntryStore.PublishEntryAsync(
         string packageId,
         string version,
         string entryPath,
         ReadOnlyMemory<byte> content)
     {
         if (EntryRoot(packageId, version) is not { } root)
-            return;
+            return ValueTask.CompletedTask;
         PublishImmutable(
             Path.Combine(root, "entries", PackageEntryStoreNames.EntryFileName(entryPath)),
             content);
+        return ValueTask.CompletedTask;
     }
 
     private string? EntryRoot(string packageId, string version)

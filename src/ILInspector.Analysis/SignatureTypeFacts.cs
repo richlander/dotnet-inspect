@@ -4,6 +4,67 @@ namespace ILInspector.Analysis;
 
 internal static class SignatureTypeFacts
 {
+    internal static bool HasCompleteIdentity(TypeRef type)
+    {
+        var pending = new Stack<TypeRef>();
+        var visited = new HashSet<TypeRef>(
+            ReferenceEqualityComparer.Instance);
+        pending.Push(type);
+        while (pending.TryPop(out TypeRef? candidate))
+        {
+            if (!visited.Add(candidate))
+                continue;
+
+            if (candidate.Kind == TypeRefKind.Unsupported)
+            {
+                if (candidate.UnmodifiedType is { } unmodified)
+                {
+                    if (candidate.ModifierType is not { } modifier
+                        || candidate.FunctionPointerSignature is not null)
+                    {
+                        return false;
+                    }
+                    pending.Push(unmodified);
+                    pending.Push(modifier);
+                    continue;
+                }
+
+                if (candidate.ModifierType is not null
+                    || candidate.FunctionPointerSignature
+                        is not { } function
+                    || function.ParameterTypes.IsDefault
+                    || function.GenericParameterCount < 0
+                    || function.RequiredParameterCount < 0
+                    || function.RequiredParameterCount
+                        > function.ParameterTypes.Length)
+                {
+                    return false;
+                }
+
+                pending.Push(function.ReturnType);
+                foreach (TypeRef parameter
+                    in function.ParameterTypes)
+                {
+                    pending.Push(parameter);
+                }
+                continue;
+            }
+
+            if (candidate.ModifierType is not null
+                || candidate.UnmodifiedType is not null
+                || candidate.FunctionPointerSignature is not null)
+            {
+                return false;
+            }
+            if (candidate.ElementType is { } element)
+                pending.Push(element);
+            foreach (TypeRef argument in candidate.TypeArguments)
+                pending.Push(argument);
+        }
+
+        return true;
+    }
+
     internal static bool IsMalformed(
         TypeRef type,
         int typeParameterCount,

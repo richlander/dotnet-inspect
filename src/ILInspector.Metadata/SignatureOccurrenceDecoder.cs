@@ -122,7 +122,7 @@ public static class SignatureOccurrenceDecoder
         MetadataReader reader, PropertyDefinition property, SignatureOccurrenceProvider provider)
     {
         if (!SignatureBlobGuard.IsSafeAndCompleteToDecode(
-            reader, property.Signature, SignatureBlobGuard.Kind.Method, out var measurements))
+            reader, property.Signature, SignatureBlobGuard.Kind.Property, out var measurements))
         {
             provider.ObserveGuard(measurements);
             throw new SignatureOccurrenceRejectedException(SignatureOccurrenceRejectionReason.UnsafeSignature);

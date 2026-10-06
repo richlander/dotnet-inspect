@@ -27,9 +27,10 @@ rejections, and retained validated plan are implemented in
 [Verification](#verification) are enforced by the named gates in
 `tests/DotnetInspector.Queries.Tests/AnalysisRequestTests.cs`.
 
-[Operation participation](#operation-participation) is designed, not
-implemented. Diff is its first adopter; its properties are **unverified** until
-the gates listed under [Verification](#verification) exist.
+[Operation participation](#operation-participation) is implemented with Diff
+as its first adopter in `AnalysisParticipation.cs`,
+`DiffAnalysisCatalog.cs`, and Inspection capability composition. The gates
+listed under [Verification](#verification) enforce its structural properties.
 
 The word *analysis* is generic here: it means a producer-backed inspection
 question such as Integrations, calls, metadata, API shape, or body analysis.
@@ -353,7 +354,7 @@ kind enters the closed participation vocabulary only with its first adopter.
 
 | Operation kind | Declared binding | Admission rule |
 | --- | --- | --- |
-| Compare | Per supported report-surface kind, the ordered Finding descriptors the analysis issues for each endpoint and the one producer route whose keyed comparison the operation dispatches for that surface | Every declared descriptor has `FindingKey` correspondence under [Finding coordinates](finding-coordinates.md), so the comparison needs no analysis-specific matching |
+| Compare | Per supported report-surface kind, the ordered Finding descriptors the analysis issues for each endpoint, the supported result projections, and the one producer route whose keyed comparison the operation dispatches for that surface | Every declared descriptor has `FindingKey` correspondence under [Finding coordinates](finding-coordinates.md), so the comparison needs no analysis-specific matching |
 
 Participation is declared per report surface because comparability depends on
 the report surface. For example, member-body allocation Findings are compared
@@ -370,7 +371,24 @@ matching; [Analysis diff](analysis-diff.md) and
 [Finding coordinates](finding-coordinates.md) keep those. An analysis whose
 observations lack `FindingKey` correspondence cannot declare Compare. It
 becomes comparable by becoming a keyed Finding producer, not through a
-Compare-specific adapter.
+Compare-specific adapter. The rule is structural: a Compare participation
+binds a producer whose result is typed as the owner-issued keyed Finding
+comparison, so an analysis without keyed correspondence cannot be registered
+for Compare.
+
+The producer route is the producer, not its delivery. When one producer is
+delivered through more than one host path, as with the single-Library API
+envelope and the multi-Library section, that is still one participation
+route.
+
+Projection support is also surface-local. An analysis can truthfully support a
+projection at one surface without silently granting it at another. Generic
+Diff therefore admits Library Transitions only when at least one selected
+Library participation declares that projection. `string-literals` is the
+first adopter: it declares `analysis.string-literal-use` and
+`analysis.compare.string-literals` at Library. Existing `api` Library
+participation does not declare Library Transitions, and Member-only analyses
+remain rejected at Library before acquisition.
 
 Taking part in an operation means using that operation's shared structure. An
 analysis contributes typed values into the structure the operation already
@@ -383,6 +401,11 @@ adapter written for one analysis.
 Cost remains the descriptor's existing cost declaration. A participation
 declaration does not grant cost authorization, and it does not place the
 analysis in any operation's default set.
+
+`string-literals` is an explicit-only moderated Compare analysis. It consumes
+one owner-resolved `Literal` predicate with ordinal `contains` or
+`starts-with` semantics. The predicate reaches the Analysis scan; Compare does
+not build an unfiltered literal census and then filter it.
 
 ### Analysis sets
 
@@ -407,10 +430,13 @@ provenance for each selected analysis remain host preflight under
 ### Discovery
 
 Participation declarations are part of structural capability. They are
-registered through Inspection Capability Composition producer registration, so
-`explain`, `-D`, and capability search list the analyses an operation can
-select from the same registrations the operation dispatches on. No second
-analysis inventory exists.
+registered through Inspection Capability Composition
+[analysis participation registration](inspection-capability-composition.md#analysis-participation-registration),
+and Resource Explanation exposes each registered analysis as an
+[analysis resource](resource-explanation.md#analysis-resources). So `explain`,
+`-D`, and capability search list the analyses an operation can select from the
+same registrations the operation dispatches on. No second analysis inventory
+exists.
 
 ## Outcome boundary
 
@@ -562,7 +588,7 @@ Operation participation adds these gates with its first adoption:
 - `AnalysisIdentity_ConformsToGrammarAndIsUniquePerBuild`, over descriptors
   that declare an operation participation; `analysis.integrations` enters it
   when Graph adopts the grammar
-- `AnalysisParticipation_CompareRequiresKeyedFindingDescriptors`
+- `AnalysisParticipation_CompareBindsKeyedFindingComparisonProducer`
 - `AnalysisSet_RejectsUnknownNonParticipatingAndDuplicateEntriesBeforeProducerExecution`
 - `AnalysisSet_RejectionReportsEveryOffendingEntryWithoutNarrowing`
 - `AnalysisSet_OmissionSelectsOperationDefaultNotEmptySet`

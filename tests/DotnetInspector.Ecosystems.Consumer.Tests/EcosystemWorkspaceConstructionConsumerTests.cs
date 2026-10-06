@@ -11,10 +11,10 @@ public sealed class EcosystemWorkspaceConstructionConsumerTests
     {
         WorkspacePlan plan = Create(platformOnly);
         EcosystemPackId[] expected = platformOnly
-            ? [EcosystemPackIds.Runtime, EcosystemPackIds.AspNetCore, EcosystemPackIds.MicrosoftExtensions]
-            : [EcosystemPackIds.Runtime, EcosystemPackIds.AspNetCore,
-                EcosystemPackIds.MicrosoftExtensions, EcosystemPackIds.Aspire,
-                EcosystemPackIds.AI, EcosystemPackIds.Azure,
+            ? [EcosystemPackIds.Runtime, EcosystemPackIds.MicrosoftExtensions, EcosystemPackIds.AspNetCore]
+            : [EcosystemPackIds.Runtime, EcosystemPackIds.MicrosoftExtensions,
+                EcosystemPackIds.AspNetCore, EcosystemPackIds.Aspire,
+                EcosystemPackIds.AI,
                 EcosystemPackIds.Blazor, EcosystemPackIds.Maui];
 
         WorkspaceEcosystemRegistrationDeclaration[] declarations =
@@ -49,35 +49,27 @@ public sealed class EcosystemWorkspaceConstructionConsumerTests
     }
 
     [Fact]
-    public void AllKnownAzureRegistrationSeparatesConcreteRootsFromDiscoveryPrefixes()
+    public void AllKnownAIRegistrationSeparatesConcreteRootsFromDiscoveryPrefixes()
     {
-        WorkspaceEcosystemRegistrationDeclaration azure =
+        WorkspaceEcosystemRegistrationDeclaration ai =
             EcosystemPackCatalog.CreateWorkspacePlan().Registrations
                 .Select(item => Assert.IsType<WorkspaceRegistration.Ecosystem>(item).Declaration)
-                .Single(declaration => declaration.Id.Value == EcosystemPackIds.Azure.Value);
+                .Single(declaration => declaration.Id.Value == EcosystemPackIds.AI.Value);
 
         Assert.Equal(
             [
-                "Microsoft.Extensions.Azure",
-                "Azure.AI.OpenAI",
-                "Microsoft.Azure.SignalR",
-                "Aspire.Azure.AI.OpenAI",
-                "Aspire.Hosting.Azure.SignalR",
-                "Azure.Identity",
-                "Azure.Security.KeyVault.Secrets",
-                "Azure.Storage.Blobs",
-                "Azure.Messaging.ServiceBus",
+                "Microsoft.Extensions.AI",
+                "Microsoft.Extensions.AI.Abstractions",
+                "OpenAI",
+                "Anthropic",
+                "Google.GenAI",
+                "ModelContextProtocol",
+                "Microsoft.Agents.AI",
             ],
-            azure.CorePackages.Select(package => package.PackageId));
+            ai.CorePackages.Select(package => package.PackageId));
         Assert.Equal(
-            [
-                "Azure.",
-                "Microsoft.Azure.",
-                "Microsoft.Extensions.Azure",
-                "Aspire.Azure.",
-                "Aspire.Hosting.Azure.",
-            ],
-            azure.Populations.Select(population =>
+            ["Microsoft.Extensions.AI"],
+            ai.Populations.Select(population =>
                 Assert.IsType<
                     WorkspaceEcosystemPopulationDeclaration.PackagePrefix>(
                         population).Prefix.Prefix));

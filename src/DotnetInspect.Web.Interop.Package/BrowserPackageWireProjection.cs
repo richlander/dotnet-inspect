@@ -84,12 +84,14 @@ internal static class BrowserPackageWireProjection
                     result.Asset.TargetFramework,
                     result.Asset.Kind switch
                     {
-                        PackageCompileAssetKind.Reference =>
+                        ExactLibraryApiAssetKind.Reference =>
                             BrowserExactLibraryApiAssetKind.Reference,
-                        PackageCompileAssetKind.Library =>
+                        ExactLibraryApiAssetKind.Library =>
                             BrowserExactLibraryApiAssetKind.Library,
+                        ExactLibraryApiAssetKind.Tool =>
+                            BrowserExactLibraryApiAssetKind.Tool,
                         _ => throw new InvalidOperationException(
-                            "Unknown package compile-asset kind."),
+                            "Unknown exact Library asset kind."),
                     }),
             result.Assembly is null
                 ? null
@@ -105,6 +107,16 @@ internal static class BrowserPackageWireProjection
                     result.Inventory.PublicPropertyCount,
                     [
                         .. result.Inventory.TypeKinds.Select(facet =>
+                            new BrowserExactLibraryApiFacet(
+                                facet.Id,
+                                facet.SingularLabel,
+                                facet.PluralLabel,
+                                facet.Weight,
+                                facet.Count,
+                                facet.IsDefault)),
+                    ],
+                    [
+                        .. result.Inventory.TypeTraits.Select(facet =>
                             new BrowserExactLibraryApiFacet(
                                 facet.Id,
                                 facet.SingularLabel,
@@ -229,6 +241,8 @@ internal static class BrowserPackageWireProjection
             Project(surface.CompileLibrary),
             [.. surface.Assemblies.Select(Project)],
             [.. surface.Types.Select(Project)],
+            [.. surface.TypeKinds.Select(Project)],
+            [.. surface.TypeTraits.Select(Project)],
             [.. surface.Accessibility.Select(Project)],
             surface.TotalMembers,
             Project(surface.Documents),
@@ -275,6 +289,40 @@ internal static class BrowserPackageWireProjection
                 content.Detail?.ToString(),
                 content.UnavailableReason?.ToString(),
                 content.HasSelectedSlice),
+            Project(inspection.Share),
+            [.. inspection.Diagnostics.Select(Project)]);
+    }
+
+    internal static BrowserPackageChildrenInspection Project(
+        InspectionEnvelope<PackageChildrenDocument> inspection)
+    {
+        ArgumentNullException.ThrowIfNull(inspection);
+        PackageChildrenDocument content = inspection.Content;
+        return new(
+            new(
+                content.Kind.ToString(),
+                content.Status.ToString(),
+                content.Subject.PackageId.ToString(),
+                content.Subject.PackageVersion.ToString(),
+                content.Subject.TargetFramework?.ToString(),
+                [
+                    .. content.Libraries.Select(
+                        static library =>
+                            new BrowserPackageLibraryChild(
+                                library.AssetId.ToString(),
+                                library.AssetPath.ToString(),
+                                library.AssemblyName.ToString(),
+                                library.Role.ToString())),
+                ],
+                [
+                    .. content.RuntimeIdentifierPackages.Select(
+                        static package =>
+                            new BrowserPackageRuntimeIdentifierChild(
+                                package.RuntimeIdentifier.ToString(),
+                                package.PackageId.ToString())),
+                ],
+                content.Detail?.ToString(),
+                content.IsComplete),
             Project(inspection.Share),
             [.. inspection.Diagnostics.Select(Project)]);
     }
@@ -382,6 +430,16 @@ internal static class BrowserPackageWireProjection
             accessibility.IsDefault,
             accessibility.Count);
 
+    internal static BrowserApiFacetDescriptor Project(
+        BrowserApiFacetInfo facet) =>
+        new(
+            facet.Id,
+            facet.SingularLabel,
+            facet.PluralLabel,
+            facet.Weight,
+            facet.Count,
+            facet.IsDefault);
+
     internal static BrowserTypeSurface Project(BrowserTypeSurfaceInfo type) =>
         new(
             type.Id,
@@ -392,6 +450,8 @@ internal static class BrowserPackageWireProjection
             type.DisplayName,
             type.Namespace,
             type.Kind,
+            type.KindFacetId,
+            type.TraitFacetIds,
             type.Accessibility,
             type.AccessibilityId,
             type.Assembly,
@@ -440,6 +500,7 @@ internal static class BrowserPackageWireProjection
             member.AnchorDigest,
             member.CanonicalSignature,
             member.AnchorTypeFullName,
+            member.DeclaringTypeDefinitionId,
             member.GraphSelectorKey,
             [
                 .. member.BodySelectors.Select(selector => new BrowserMemberBodySelector(
@@ -460,7 +521,11 @@ internal static class BrowserPackageWireProjection
             snapshot.MaxWorkspaceAssembliesPerRole,
             snapshot.ResidentBytes,
             snapshot.MaxResidentBytes,
-            snapshot.MaxWorkspaceRetainedImageBytes);
+            snapshot.MaxWorkspaceRetainedImageBytes,
+            snapshot.EntryStoreDurability,
+            snapshot.EntryStoreHits,
+            snapshot.EntryStoreWrites,
+            snapshot.EntryStoreError);
     }
 
     internal static BrowserPackageDocument Project(BrowserPackageDocumentEntry document)

@@ -169,6 +169,25 @@ public static class PackageOptionsParser
         || GetExactLibrary(result, args) is not null;
 
     /// <summary>
+    /// Returns the coordinate validator's reason when <paramref name="packageArg"/>
+    /// cannot be a package reference (a local file or directory, a .nupkg path,
+    /// or ID[@version-or-range]), or <see langword="null"/> when it can.
+    /// </summary>
+    private static string? InvalidPackageReferenceReason(string packageArg)
+    {
+        if (packageArg.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase)
+            || File.Exists(packageArg)
+            || Directory.Exists(packageArg))
+        {
+            return null;
+        }
+
+        (string name, _) = PackageExtractor.ParsePackageReference(packageArg);
+        return PackageCoordinateResolver.Validate(new PackageCoordinate(name))
+            ?.Message;
+    }
+
+    /// <summary>
     /// Parses package command options.
     /// </summary>
     public static PackageParseResult Parse(
@@ -190,6 +209,21 @@ public static class PackageOptionsParser
         var badOption = GetUnrecognizedOption(parseResult, args);
         if (badOption != null)
             return new UnrecognizedOption(badOption);
+
+        // Every positional is a package reference: a local file or directory,
+        // a .nupkg path, or ID[@version-or-range]. A token that cannot be one
+        // (for example a section name) fails here with the real reason instead
+        // of flowing into multi-package or feed selection.
+        foreach (string packageArg in packageArgs)
+        {
+            if (InvalidPackageReferenceReason(packageArg) is { } reason)
+            {
+                return new InvalidArguments(
+                    $"'{packageArg}' is not a valid package ID. {reason} "
+                        + "Correct the package command input and retry. "
+                        + $"To select a section, use -S \"{packageArg}\".");
+            }
+        }
 
         string? explicitVersion =
             parseResult.GetValue(args.VersionOption);
@@ -320,6 +354,19 @@ public static class PackageOptionsParser
                 parseResult,
                 opts,
                 args);
+        bool selectsDependencyQuery =
+            IsDependencyQueryRowSelection(
+                parseResult,
+                opts,
+                args);
+        bool selectsSemanticRowPopulation =
+            selectsVersionPopulation
+            || selectsSourceLinkFiles
+            || selectsPackageFiles
+            || selectsPackageLayout
+            || selectsPackageTfms
+            || selectsEcosystemDependencies
+            || selectsCloneCandidateRows;
         RowSelectionIntent<string>? versionRowSelection = null;
         if (selectsVersionPopulation
             && !CliRowSelectionCommandRegistry.TryGetPreparedSemanticIntent(
@@ -405,27 +452,27 @@ public static class PackageOptionsParser
         }
 
         RowSelectionIntent<string>? packageSectionRowSelection = null;
-        if (!selectsVersionPopulation
-            && !selectsSourceLinkFiles
-            && !selectsPackageFiles
-            && !selectsPackageLayout
-            && !selectsPackageTfms
-            && !selectsCloneCandidateRows
-            && !CliRowSelectionCommandRegistry.TryGetPreparedSemanticIntent(
-                parseResult,
-                "Package section",
-                out packageSectionRowSelection,
-                out string? packageSectionRowSelectionError))
+        int? legacyHierarchyWindowStageIndex = null;
+        if (!selectsSemanticRowPopulation || selectsDependencyQuery)
         {
-            return new InvalidArguments(
-                packageSectionRowSelectionError!);
+            if (!CliRowSelectionCommandRegistry
+                    .TryGetPreparedSemanticIntent(
+                        parseResult,
+                        "Package section",
+                        out packageSectionRowSelection,
+                        out string? packageSectionRowSelectionError))
+            {
+                return new InvalidArguments(
+                    packageSectionRowSelectionError!);
+            }
+
+            packageSectionRowSelection =
+                DependencyQueryOptions.AppendLegacyRows(
+                    parseResult,
+                    opts,
+                    packageSectionRowSelection,
+                    out legacyHierarchyWindowStageIndex);
         }
-        packageSectionRowSelection =
-            DependencyQueryOptions.AppendLegacyRows(
-                parseResult,
-                opts,
-                packageSectionRowSelection,
-                out int? legacyHierarchyWindowStageIndex);
         int? dependencyDepth =
             int.TryParse(
                 parseResult.GetValue(args.DepthOption),
@@ -561,13 +608,7 @@ public static class PackageOptionsParser
             Schema = opts.ParseSchema(parseResult),
             Count = parseResult.GetValue(opts.Count),
             EnvelopeOutput = parseResult.GetValue(opts.Envelope),
-            Rows = selectsVersionPopulation
-                || selectsSourceLinkFiles
-                || selectsPackageFiles
-                || selectsPackageLayout
-                || selectsPackageTfms
-                || selectsEcosystemDependencies
-                || selectsCloneCandidateRows
+            Rows = selectsSemanticRowPopulation
                 ? null
                 : opts.ParseRows(parseResult),
             SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
@@ -584,9 +625,8 @@ public static class PackageOptionsParser
         if (!string.IsNullOrWhiteSpace(typeFilter))
             options = options with { Select = [.. options.Select ?? [], Views.PackageSections.SourceLinkFiles] };
 
-        var tipLevel = options.FormatExplicitlySet || options.IsRawOutput || verbosity != Verbosity.Minimal || options.Select != null || options.SelectDefault || options.Discover != null || ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null
-            ? TipLevel.Quiet : opts.ParseTipLevel(parseResult);
-        options = options with { TipLevel = tipLevel };
+        var companionOutput = opts.ParseCompanionOutput(parseResult);
+        options = options with { CompanionOutput = companionOutput };
 
         return new Success(options, verbosity);
     }
@@ -624,6 +664,10 @@ public static class PackageOptionsParser
         }
 
         if (result.GetValue(opts.Count)
+            && result.GetResult(opts.Select)
+                is not { Implicit: false }
+            && string.IsNullOrWhiteSpace(
+                result.GetValue(args.TypeFilterOption))
             && packageArgs is [var packageReference]
             && PackageVersionRange.TryParse(
                 packageReference,
@@ -695,6 +739,10 @@ public static class PackageOptionsParser
         }
 
         if (result.GetValue(opts.Count)
+            && result.GetResult(opts.Select)
+                is not { Implicit: false }
+            && result.GetResult(args.PathOption)
+                is not { Implicit: false }
             && packageArgs is [var packageReference]
             && PackageVersionRange.TryParse(
                 packageReference,
@@ -802,6 +850,61 @@ public static class PackageOptionsParser
             && selected.Contains(
                 Views.PackageSections.EcosystemDependencies);
     }
+
+    internal static bool IsDependencyQueryRowSelection(
+        ParseResult parseResult,
+        SharedOptions opts,
+        PackageCommandArgs args) =>
+        IsDependencyQueryRowSelection(
+            parseResult.CommandResult,
+            opts,
+            args);
+
+    internal static bool IsDependencyQueryRowSelection(
+        CommandResult result,
+        SharedOptions opts,
+        PackageCommandArgs args)
+    {
+        if (!IsOrdinaryPackageInspection(result, opts, args))
+            return false;
+
+        string[]? selectors =
+            ParseSelectors(result.GetValue(opts.Select));
+        if (selectors is not { Length: > 0 })
+            return false;
+
+        var catalog = PackageSectionDescriptors.CreateCatalog();
+        var sections = catalog.Sections;
+        var resolved =
+            SelectResolver.ResolveSelectAsSections(
+                selectors,
+                sections.SelectableSectionNames,
+                sections.InfoSectionNames,
+                sections.SelectionCategoryMap,
+                selectDefault: false);
+        return !resolved.HasError
+            && resolved.Sections is { Count: > 0 } selected
+            && selected.Overlaps(
+                [
+                    Views.PackageSections.Dependencies,
+                    Views.PackageSections.DependencyHierarchy,
+                ]);
+    }
+
+    internal static bool IsGenericPackageSectionRowSelection(
+        ParseResult parseResult,
+        SharedOptions opts,
+        PackageCommandArgs args) =>
+        IsOrdinaryPackageInspection(
+            parseResult.CommandResult,
+            opts,
+            args)
+        && parseResult.GetResult(opts.Select)
+            is { Implicit: false }
+        && !IsDependencyQueryRowSelection(
+            parseResult,
+            opts,
+            args);
 
     private static bool IsOrdinaryPackageInspection(
         CommandResult result,

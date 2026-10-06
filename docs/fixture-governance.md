@@ -51,10 +51,9 @@ projects and fixtures moved for other reasons use the same layout.
 
 The permanent repository gate is intentionally partial.
 `DotnetInspector.FixtureInfrastructure.Tests` requires every cataloged fixture
-project path to use `fixtures/<owner>/` and requires projects in role-named
-solution folders to use the matching repository root. It does not infer the
-role of every project outside the solution or classify test-local inputs;
-those distinctions remain governed here and in review.
+project path to use `fixtures/<owner>/`. It does not infer the role of projects
+from solution-folder placement or classify test-local inputs; those
+distinctions remain governed here and in review.
 
 ## Project-boundary rule
 

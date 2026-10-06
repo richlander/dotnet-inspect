@@ -17,6 +17,10 @@ internal sealed partial class LibraryBodyAnalysisBuilder
                 (analysis.ResourceOccurrences?.Methods ?? [])
                     .ToDictionary(
                         static result => result.Method.MetadataToken);
+        IReadOnlyDictionary<int, ImmutableArray<DirectCall>>
+            directCallsByEvidenceMethod =
+                DirectCallIncidence.ByEvidenceMethod(
+                    analysis.Methods.DirectCalls);
         var summaries =
             ImmutableArray.CreateBuilder<ResourceOwnershipMethodSummary>();
         foreach (MethodBodyAnalysisContext context in methodResults
@@ -47,11 +51,14 @@ internal sealed partial class LibraryBodyAnalysisBuilder
                     []);
             }
 
+            directCallsByEvidenceMethod.TryGetValue(
+                context.Method.MetadataToken,
+                out ImmutableArray<DirectCall> directCalls);
             summaries.Add(
                 ResourceOwnershipSummaryAnalysis.Analyze(
                     context,
                     occurrences,
-                    analysis.Methods.DirectCalls));
+                    directCalls.IsDefault ? [] : directCalls));
         }
 
         return analysis with

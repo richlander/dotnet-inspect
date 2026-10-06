@@ -4,7 +4,7 @@ using QuerySpace.Rows;
 
 namespace DotnetInspector.PortableQueries.Tests;
 
-public sealed class QueryOperationInfrastructureGateTests
+public sealed partial class QueryOperationInfrastructureGateTests
 {
     private const string PopulationRole = "population";
     private const string SelectedSubjectRole = "selected-subject";
@@ -242,6 +242,46 @@ public sealed class QueryOperationInfrastructureGateTests
                             "mode",
                             ["fast"],
                             "Select a mode."),
+                        []),
+                ],
+                [],
+                [
+                    new(
+                        "default",
+                        ["term.mode"],
+                        []),
+                ]));
+
+        Assert.Contains("operator 'NotEqual'", failure.Message);
+        Assert.Equal(0, vocabulary.PlansCreated);
+    }
+
+    [Fact]
+    public void AdvertisedExamplesMustBindForEveryOperator()
+    {
+        var vocabulary = new TestVocabulary();
+        QueryOperationApplicability applicability =
+            PackageApplicability();
+
+        ArgumentException failure = Assert.Throws<ArgumentException>(
+            () => QueryOperationDefinition<TestPredicate, TestPlan>.Create(
+                "test.operation",
+                vocabulary,
+                [PopulationRole],
+                [PackageGrain],
+                [ResultsRowSet],
+                [
+                    new(
+                        "term.mode",
+                        TestVocabulary.ModeKey,
+                        QueryOperationTermRole.SubjectQualification,
+                        applicability,
+                        new(
+                            "Mode",
+                            "mode",
+                            [],
+                            "Select a mode.",
+                            ["fast"]),
                         []),
                 ],
                 [],

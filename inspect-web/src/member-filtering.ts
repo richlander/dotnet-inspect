@@ -1,14 +1,19 @@
 import type { MemberSection, TypeLens } from "./data.ts";
-import type { MemberGroup, MemberOverloadSummary } from "./type-panel.ts";
+import {
+  memberGroupUsesFamilySurface,
+  type MemberGroup,
+  type MemberOverloadSummary,
+} from "./type-panel.ts";
+
+export { memberGroupUsesFamilySurface } from "./type-panel.ts";
 
 export const MEMBER_TRAITS = [
-  ["isStatic", "static"],
-  ["isUnsafe", "unsafe"],
-  ["isVirtual", "virtual"],
-  ["isAbstract", "abstract"],
-  ["isOverride", "override"],
-  ["isExtension", "extension"],
-  ["isObsolete", "obsolete"],
+  ["", "all"],
+  ["static", "static"],
+  ["instance", "instance"],
+  ["virtual", "virtual"],
+  ["interface", "interface"],
+  ["extensions", "extensions"],
 ] as const;
 
 export interface MemberGroupFilters {
@@ -22,17 +27,20 @@ export interface MemberGroupFilters {
 interface FilterableMemberOverload extends MemberOverloadSummary {
   accessibility?: string;
   isStatic?: boolean;
-  isUnsafe?: boolean;
   isVirtual?: boolean;
-  isAbstract?: boolean;
-  isOverride?: boolean;
   isExtension?: boolean;
-  isObsolete?: boolean;
+  isExplicitInterfaceImplementation?: boolean;
 }
 
 export interface FilterableMemberGroup extends MemberGroup {
   overloads: readonly FilterableMemberOverload[];
 }
+
+type FilteredMemberGroup<TGroup extends FilterableMemberGroup> =
+  Omit<TGroup, "overloads"> & {
+    overloads: Array<TGroup["overloads"][number]>;
+    sourceOverloadCount: number;
+  };
 
 export function memberGroupMatches(
   group: FilterableMemberGroup,
@@ -43,28 +51,142 @@ export function memberGroupMatches(
     return false;
   }
 
-  return group.overloads.some(overload => {
-    if (filters.accessibility
-        && filters.accessibility !== "all"
-        && overload.accessibility !== filters.accessibility) {
+  const overloads = group.overloads.filter(
+    overload => memberMatchesTrait(overload, filters.trait ?? ""));
+  return overloads.length > 0 && (
+    !query
+    || group.name.toLowerCase().includes(query)
+    || overloads.some(
+      overload => overload.signature.toLowerCase().includes(query))
+  );
+}
+
+export function memberMatchesTrait(
+  member: FilterableMemberOverload,
+  trait: string,
+): boolean {
+  switch (trait) {
+    case "":
+      return true;
+    case "static":
+      return member.isStatic === true && member.isExtension !== true;
+    case "instance":
+      return member.isStatic !== true && member.isExtension !== true;
+    case "virtual":
+      return member.isVirtual === true;
+    case "interface":
+      return member.isExplicitInterfaceImplementation === true;
+    case "extensions":
+      return member.isExtension === true;
+    default:
       return false;
+  }
+}
+
+export function filterMemberGroups<TGroup extends FilterableMemberGroup>(
+  groups: readonly TGroup[],
+  filters: MemberGroupFilters,
+): FilteredMemberGroup<TGroup>[] {
+  const query = (filters.query ?? "").trim().toLowerCase();
+  return groups.flatMap(group => {
+    if (filters.kind
+      && filters.kind !== "all"
+      && group.kind !== filters.kind) {
+      return [];
     }
-    if (filters.trait
-        && !MEMBER_TRAITS.some(
-          ([property]) => property === filters.trait && overload[property])) {
-      return false;
+
+    const overloads = group.overloads.filter(
+      overload => memberMatchesTrait(overload, filters.trait ?? ""));
+    if (overloads.length === 0 || (
+      query
+      && !group.name.toLowerCase().includes(query)
+      && !overloads.some(
+        overload => overload.signature.toLowerCase().includes(query))
+    )) {
+      return [];
     }
-    return !query
-      || group.name.toLowerCase().includes(query)
-      || overload.signature.toLowerCase().includes(query);
+
+    return [{
+      ...group,
+      overloads,
+      sourceOverloadCount:
+        group.sourceOverloadCount ?? group.overloads.length,
+    }];
   });
 }
 
-export function filterMemberGroups(
+interface StableMemberOverload {
+  readonly stableSelector?: string | null;
+}
+
+interface StableMemberGroup {
+  readonly key: string;
+  readonly overloads: readonly StableMemberOverload[];
+}
+
+export function memberOverloadSourceIndex(
+  sourceGroups: readonly StableMemberGroup[],
+  group: StableMemberGroup,
+  index: number,
+): number {
+  const overload = group.overloads[index];
+  const sourceGroup = sourceGroups.find(candidate =>
+    candidate.key === group.key);
+  if (!overload || !sourceGroup || sourceGroup === group) return index;
+  const sourceIndex = sourceGroup.overloads.findIndex(candidate =>
+    candidate === overload
+    || (Boolean(overload.stableSelector)
+      && candidate.stableSelector === overload.stableSelector));
+  if (sourceIndex < 0) {
+    throw new Error(
+      `Filtered member '${group.key}' has no exact source overload.`);
+  }
+  return sourceIndex;
+}
+
+export function memberOverloadVisibleIndex(
+  sourceGroups: readonly StableMemberGroup[],
+  group: StableMemberGroup,
+  sourceIndex: number,
+): number {
+  const sourceGroup = sourceGroups.find(candidate =>
+    candidate.key === group.key) ?? group;
+  const sourceOverload = sourceGroup.overloads[sourceIndex];
+  if (!sourceOverload) {
+    throw new Error(
+      `Member '${group.key}' has no source overload ${sourceIndex}.`);
+  }
+  const visibleIndex = group.overloads.findIndex(candidate =>
+    candidate === sourceOverload
+    || (Boolean(sourceOverload.stableSelector)
+      && candidate.stableSelector === sourceOverload.stableSelector));
+  if (visibleIndex < 0) {
+    throw new Error(
+      `Source overload ${sourceIndex} for member '${group.key}' is not visible.`);
+  }
+  return visibleIndex;
+}
+
+export function selectMemberFamilyParent(
+  state: { selectedOverloadIndex: number | null },
+  group: {
+    readonly overloads: readonly unknown[];
+    readonly sourceOverloadCount?: number;
+  },
+): boolean {
+  if (!memberGroupUsesFamilySurface(group)) return false;
+  state.selectedOverloadIndex = null;
+  return true;
+}
+
+export function memberKindCount(
   groups: readonly FilterableMemberGroup[],
-  filters: MemberGroupFilters,
-): FilterableMemberGroup[] {
-  return groups.filter(group => memberGroupMatches(group, filters));
+  kind: string,
+): number {
+  return groups.reduce(
+    (count, group) =>
+      count + (group.kind === kind ? group.overloads.length : 0),
+    0);
 }
 
 export interface MemberScopeState {
@@ -104,6 +226,29 @@ export function selectedConcreteOverload<T>(
 ): T | undefined {
   if (overloads.length > 1 && selectedIndex == null) return undefined;
   return overloads[selectedIndex ?? 0];
+}
+
+export function selectedSourceOverload<T extends StableMemberOverload>(
+  sourceGroups: readonly {
+    readonly key: string;
+    readonly overloads: readonly T[];
+  }[],
+  group: {
+    readonly key: string;
+    readonly overloads: readonly T[];
+  },
+  selectedIndex: number | null | undefined,
+): T | undefined {
+  const sourceGroup = sourceGroups.find(candidate =>
+    candidate.key === group.key) ?? group;
+  if (group.overloads.length === 1) {
+    const sourceIndex = memberOverloadSourceIndex(
+      sourceGroups,
+      group,
+      0);
+    return sourceGroup.overloads[sourceIndex] ?? group.overloads[0];
+  }
+  return selectedConcreteOverload(sourceGroup.overloads, selectedIndex);
 }
 
 export interface MemberCallGraphWorkState {
@@ -318,7 +463,7 @@ export function restoreMemberHistoryState(
     memberBrowseTypeId: restoreMemberScope ? type!.id : "",
     memberKindFilter: type ? (view.memberKindFilter ?? "all") : "all",
     memberAccessibilityFilter:
-      type ? (view.memberAccessibilityFilter ?? "all") : "all",
+      type ? (view.memberAccessibilityFilter ?? "public") : "public",
     memberTraitFilter: type ? (view.memberTraitFilter ?? "") : "",
     memberTextFilter: type ? (view.memberTextFilter ?? "") : "",
     selectedOverloadIndex: restoreMemberScope ? overloadIndex : null,

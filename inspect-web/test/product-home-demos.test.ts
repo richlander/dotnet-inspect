@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { stripTypeScriptTypes } from "node:module";
 import { runInNewContext } from "node:vm";
 import { parseSync } from "oxc-parser";
+import { defaultAnalysisMode } from "../src/analysis-inspector.ts";
 import { memberRequestKey } from "../src/data.ts";
 import type {
   MemberCallGraphRequest,
@@ -91,6 +92,8 @@ function surface(
       displayName: "Type",
       namespace: assembly,
       kind: "class",
+      kindFacetId: "api.type-kind.class",
+      traitFacetIds: ["api.type-trait.object"],
       accessibility: "public",
       accessibilityId: "public",
       assembly,
@@ -100,6 +103,36 @@ function surface(
       signature: `public class ${assembly}.Type`,
       api: [],
       platformPack,
+    }],
+    typeKinds: [{
+      id: "api.type-kind.class",
+      singularLabel: "class",
+      pluralLabel: "classes",
+      weight: 100,
+      count: 1,
+      isDefault: true,
+    }],
+    typeTraits: [{
+      id: "api.type-trait.abstract",
+      singularLabel: "abstract",
+      pluralLabel: "abstract",
+      weight: 100,
+      count: 0,
+      isDefault: false,
+    }, {
+      id: "api.type-trait.static",
+      singularLabel: "static",
+      pluralLabel: "static",
+      weight: 200,
+      count: 0,
+      isDefault: false,
+    }, {
+      id: "api.type-trait.object",
+      singularLabel: "object",
+      pluralLabel: "objects",
+      weight: 300,
+      count: 1,
+      isDefault: false,
     }],
     accessibility: [{
       id: "public",
@@ -244,7 +277,8 @@ test("actual app activation, member reload, drill and workspace reset preserve c
   assert.deepEqual(parsed.errors, []);
   const names = new Set([
     "installPlatformHomeDemoSource", "clearWorkspacePackages",
-    "memberRequestSignature", "loadSelectedMemberCallGraph", "drillPlatformNode",
+    "memberRequestSignature", "platformDemoContextIdFor",
+    "loadSelectedMemberCallGraph", "drillPlatformNode",
   ]);
   const declarations = parsed.program.body.filter(node =>
     node.type === "FunctionDeclaration" && names.has(node.id?.name ?? ""));
@@ -261,7 +295,6 @@ test("actual app activation, member reload, drill and workspace reset preserve c
   const state = {
     package: pkg,
     packages: [pkg],
-    platformDemoContextId: null as string | null,
     callGraphTraversalFramework: "net12.0",
     selectedOverloadIndex: 0,
     selectedBodyTarget: null,
@@ -270,6 +303,7 @@ test("actual app activation, member reload, drill and workspace reset preserve c
   const drills: PlatformDrillRequest[] = [];
   const context = {
     state,
+    defaultAnalysisMode,
     prepared,
     activation: demo.activation,
     drillTarget: {
@@ -286,8 +320,8 @@ test("actual app activation, member reload, drill and workspace reset preserve c
     openPlatformLibrary: async () => { state.package = pkg; return pkg; },
     selectedType: () => type,
     selectedMember: () => ({ overloads: [overload] }),
-    selectedConcreteOverload: () => overload,
-    currentPackage: () => pkg,
+    selectedMemberOverload: () => overload,
+    currentPackage: () => state.package,
     assemblyDescriptorForType: () => pkg.assemblies[0],
     platformPackForAssembly: () => "netcore.app",
     callGraphInspection: {
@@ -310,7 +344,7 @@ test("actual app activation, member reload, drill and workspace reset preserve c
     runInNewContext("loadSelectedMemberCallGraph()", context));
   await Promise.resolve<unknown>(runInNewContext(
     'installPlatformHomeDemoSource(prepared, activation, "demo", 1)', context));
-  assert.equal(state.platformDemoContextId, prepared.contextId);
+  assert.equal(pkg.platformContextId, prepared.contextId);
   await load();
   overload.name = "Deserialize";
   overload.signature = "Deserialize()";
@@ -325,17 +359,27 @@ test("actual app activation, member reload, drill and workspace reset preserve c
     ["net12.0", "net12.0", "net12.0"]);
   assert.equal(drills[0]!.contextId, "demo-context");
   assert.equal(loads[0]!.signature, loads[2]!.signature);
-  const retained = { ...state };
-  runInNewContext("clearWorkspacePackages()", context);
-  assert.equal(state.platformDemoContextId, null);
-  state.package = pkg;
+  const retainedPackage = structuredClone(pkg);
+  state.package = {
+    ...pkg,
+    version: "11.0.0",
+    activeFramework: "net11.0",
+    platformContextId: null,
+  };
   await load();
   assert.equal(loads[3]!.platformContextId, null);
   assert.notEqual(loads[0]!.signature, loads[3]!.signature);
-  Object.assign(state, retained);
+  state.package = pkg;
+  runInNewContext("clearWorkspacePackages()", context);
+  assert.equal(pkg.platformContextId, null);
+  state.package = pkg;
   await load();
-  assert.equal(loads[4]!.platformContextId, "demo-context");
-  assert.equal(loads[4]!.signature, loads[0]!.signature);
+  assert.equal(loads[4]!.platformContextId, null);
+  state.package = retainedPackage;
+  state.packages = [retainedPackage];
+  await load();
+  assert.equal(loads[5]!.platformContextId, "demo-context");
+  assert.equal(loads[5]!.signature, loads[0]!.signature);
 });
 
 test("Platform activation rejects mixed exact targets before model installation", () => {

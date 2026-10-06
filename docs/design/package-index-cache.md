@@ -402,10 +402,10 @@ equal, so the persistent result remains reusable across processes.
 - Git-style content addressing demonstrates that derived data can name immutable
   bytes rather than a mutable location. This owner additionally retains
   authority because digest equality does not grant package access.
-- The repository's library effective-catalog cache includes a content hash, and
-  `AnalysisIndexCache` records why a path coordinate alone cannot establish
-  derived-result identity. Package inspection follows the same principle using
-  the acquisition owner's digest instead of reopening a path.
+- The repository's library effective-catalog cache includes a content hash,
+  while operation-local Analysis deliberately does not infer reusable
+  derived-result identity from a path. Package inspection uses the acquisition
+  owner's digest instead of reopening a path.
 
 The deliberate divergence from NuGet's ordinary exact-coordinate reuse is the
 required content digest. NuGet.org's immutable-coordinate policy is an external

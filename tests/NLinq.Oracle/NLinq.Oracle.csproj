@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    A verbatim copy of NLinq (https://github.com/agocke/NLinq) at 229e243, the
+    standing performance oracle for QuerySpace enablement. Test infrastructure
+    only: nothing under src/ may reference it. Provenance and license are in
+    PROVENANCE.md; the files under NLinq/ are unmodified, and additions belong
+    in DotnetInspector.PerformanceOracles.
+  -->
+  <PropertyGroup>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <LangVersion>preview</LangVersion>
+    <RootNamespace>NLinq</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+</Project>

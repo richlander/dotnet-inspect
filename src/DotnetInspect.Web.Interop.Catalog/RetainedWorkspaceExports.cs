@@ -1,11 +1,14 @@
 using System.Runtime.InteropServices.JavaScript;
 using System.Runtime.Versioning;
 using System.Text.Json;
+using DotnetInspector.Ecosystems;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
 using DotnetInspector.SourceSelection;
+using NuGetFetch;
 using PackageAdmission = DotnetInspect.Web.BrowserRetainedWorkspaceAdmissionResult<DotnetInspect.Web.BrowserRetainedWorkspacePackagePresentation>;
 using PlatformAdmission = DotnetInspect.Web.BrowserRetainedWorkspaceAdmissionResult<DotnetInspect.Web.BrowserRetainedWorkspacePlatformPresentation>;
+using EcosystemPackageAdmission = DotnetInspect.Web.BrowserEcosystemPackageAdmissionResult;
 
 namespace DotnetInspect.Web.Interop.Catalog;
 
@@ -25,6 +28,50 @@ public static partial class CatalogExports
                     label,
                     canonicalLocation,
                     canonicalPacket)
+                .ConfigureAwait(false);
+        return JsonSerializer.Serialize(
+            result,
+            BrowserCatalogJsonContext.Default
+                .BrowserRetainedWorkspacePreparationResult);
+    }
+
+    [JSExport]
+    public static async Task<string> PreparePackageQueryWorkspaceDefinition(
+        string retainedDefinitionId,
+        string label,
+        string canonicalLocation,
+        string packageId,
+        string version)
+    {
+        BrowserRetainedWorkspacePreparationResult result =
+            await BrowserRetainedWorkspaceActivationService
+                .PreparePackageQueryAsync(
+                    retainedDefinitionId,
+                    label,
+                    canonicalLocation,
+                    packageId,
+                    version)
+                .ConfigureAwait(false);
+        return JsonSerializer.Serialize(
+            result,
+            BrowserCatalogJsonContext.Default
+                .BrowserRetainedWorkspacePreparationResult);
+    }
+
+    [JSExport]
+    public static async Task<string> PrepareEcosystemWorkspaceDefinition(
+        string retainedDefinitionId,
+        string label,
+        string canonicalLocation,
+        string ecosystemId)
+    {
+        BrowserRetainedWorkspacePreparationResult result =
+            await BrowserRetainedWorkspaceActivationService
+                .PrepareEcosystemAsync(
+                    retainedDefinitionId,
+                    label,
+                    canonicalLocation,
+                    ecosystemId)
                 .ConfigureAwait(false);
         return JsonSerializer.Serialize(
             result,
@@ -170,6 +217,96 @@ public static partial class CatalogExports
         return JsonSerializer.Serialize(
             result,
             BrowserCatalogJsonContext.Default.BrowserRetainedWorkspacePlatformAdmissionResult);
+    }
+
+    [JSExport]
+    public static async Task<string> AdmitEcosystemPackageToWorkspace(
+        string retainedDefinitionId,
+        string realizationId,
+        string packageId,
+        string version,
+        string ecosystemId,
+        string basis,
+        string registration)
+    {
+        BrowserEcosystemPackageWorkspaceAdmissionResult result =
+            await BrowserRetainedWorkspaceActivationService
+                .AdmitEcosystemPackageAsync(
+                    retainedDefinitionId,
+                    realizationId,
+                    packageId,
+                    version,
+                    ecosystemId,
+                    basis,
+                    registration)
+                .ConfigureAwait(false);
+        return JsonSerializer.Serialize(
+            result,
+            BrowserCatalogJsonContext.Default
+                .BrowserEcosystemPackageWorkspaceAdmissionResult);
+    }
+
+    [JSExport]
+    public static async Task<string> ActivateSpotlightDestination(
+        string action)
+    {
+        BrowserTypeFindActivationResult result =
+            await BrowserRetainedWorkspaceActivationRegistry.Owner
+                .ActivateTypeFindActionAsync(action)
+                .ConfigureAwait(false);
+        BrowserSpotlightActionResult wire = result switch
+        {
+            BrowserTypeFindActivationResult.Navigation navigation =>
+                new(
+                    "navigation",
+                    BrowserCatalogWireProjection.Project(
+                        navigation.Result.Consumer),
+                    Surface: null,
+                    SelectedType: null,
+                    new BrowserSpotlightTypeSelection(
+                        navigation.Selection.DefinitionId,
+                        navigation.Selection.AssemblyName),
+                    ActivationStatus: null,
+                    Reason: null),
+            BrowserTypeFindActivationResult.Framework
+            {
+                Effect: BrowserFrameworkDeclarationEffect.Type type,
+            } =>
+                new(
+                    "frameworkType",
+                    Navigation: null,
+                    BrowserCatalogWireProjection.Project(type.Surface),
+                    BrowserCatalogWireProjection.Project(type.SelectedType),
+                    Selection: null,
+                    ActivationStatus: null,
+                    Reason: null),
+            BrowserTypeFindActivationResult.Framework
+            {
+                Effect: BrowserFrameworkDeclarationEffect.Library library,
+            } =>
+                new(
+                    "frameworkLibrary",
+                    Navigation: null,
+                    BrowserCatalogWireProjection.Project(library.Surface),
+                    SelectedType: null,
+                    Selection: null,
+                    ActivationStatus: null,
+                    Reason: null),
+            BrowserTypeFindActivationResult.Blocked blocked =>
+                new(
+                    "blocked",
+                    Navigation: null,
+                    Surface: null,
+                    SelectedType: null,
+                    Selection: null,
+                    blocked.Status.ToString(),
+                    blocked.Reason),
+            _ => throw new InvalidOperationException(
+                "Spotlight activation returned an unsupported result."),
+        };
+        return JsonSerializer.Serialize(
+            wire,
+            BrowserCatalogJsonContext.Default.BrowserSpotlightActionResult);
     }
 
     [JSExport]
@@ -386,6 +523,13 @@ internal static class BrowserRetainedWorkspaceActivationService
         "Workspace credential bindings must be one JSON object of "
         + "source endpoints to username/PAT objects.";
 
+    static readonly ViewFacetId EcosystemDefaultFacet =
+        InspectionViewFacetCatalog.Registry
+            .GetRequiredDescriptor(
+                StructuralSubjectKind.Ecosystem,
+                ViewFacetRole.EcosystemOverview)
+            .Id;
+
     static readonly object Gate = new();
     static readonly Dictionary<
         string,
@@ -445,6 +589,80 @@ internal static class BrowserRetainedWorkspaceActivationService
         };
     }
 
+    internal static async Task<BrowserEcosystemPackageWorkspaceAdmissionResult>
+        AdmitEcosystemPackageAsync(
+            string retainedDefinitionId,
+            string realizationId,
+            string packageId,
+            string version,
+            string ecosystemId,
+            string basis,
+            string registration)
+    {
+        if (!WorkspaceEcosystemRegistrationId.TryCreate(
+                ecosystemId,
+                out WorkspaceEcosystemRegistrationId? ecosystem))
+        {
+            return new(
+                "failed",
+                null,
+                null,
+                $"'{ecosystemId}' is not a canonical Ecosystem identity.");
+        }
+        if (!Enum.TryParse(
+                basis,
+                ignoreCase: false,
+                out PackageQueryEcosystemMembershipBasis membershipBasis)
+            || !Enum.IsDefined(membershipBasis))
+        {
+            return new(
+                "failed",
+                null,
+                null,
+                $"'{basis}' is not a Package Query Ecosystem membership basis.");
+        }
+
+        EcosystemPackageAdmission result =
+            await Owner.AdmitEcosystemPackageAsync(
+                retainedDefinitionId,
+                realizationId,
+                packageId,
+                version,
+                new(ecosystem, membershipBasis, registration))
+                .ConfigureAwait(false);
+        return result switch
+        {
+            EcosystemPackageAdmission.Admitted admitted =>
+                new(
+                    "admitted",
+                    Posting(admitted.Posting),
+                    BrowserCatalogWireProjection.Project(
+                        admitted.Navigation.Consumer),
+                    null),
+            EcosystemPackageAdmission.NoEffect noEffect =>
+                new(
+                    "noEffect",
+                    Posting(noEffect.Posting),
+                    null,
+                    null),
+            EcosystemPackageAdmission.Failed failed =>
+                new(
+                    "failed",
+                    failed.Posting is null
+                        ? null
+                        : Posting(failed.Posting),
+                    failed.Navigation is null
+                        ? null
+                        : BrowserCatalogWireProjection.Project(
+                            failed.Navigation.Consumer),
+                    failed.Message),
+            EcosystemPackageAdmission.Superseded =>
+                new("superseded", null, null, null),
+            _ => throw new InvalidOperationException(
+                "Ecosystem Package admission returned an unsupported result."),
+        };
+    }
+
     internal static async Task<BrowserRetainedWorkspacePreparationResult>
         PrepareAsync(
         string retainedDefinitionId,
@@ -460,6 +678,101 @@ internal static class BrowserRetainedWorkspaceActivationService
                 string,
                 BrowserRetainedWorkspacePackageSourceCredential>(
                     StringComparer.Ordinal)).ConfigureAwait(false);
+
+    internal static async Task<BrowserRetainedWorkspacePreparationResult>
+        PreparePackageQueryAsync(
+        string retainedDefinitionId,
+        string label,
+        string canonicalLocation,
+        string packageId,
+        string version)
+    {
+        BrowserRetainedWorkspaceActivationRequest request;
+        try
+        {
+            request = BrowserExternalPackageWorkspaceRequestFactory.Create(
+                retainedDefinitionId,
+                label,
+                canonicalLocation,
+                PackageSourceCoordinate.Create(packageId, version),
+                BrowserPackageWorkspace.ProductWorkspacePlan);
+        }
+        catch (ArgumentException ex)
+        {
+            return new(
+                "failed",
+                null,
+                null,
+                null,
+                new("InvalidRequest", ex.Message));
+        }
+
+        return await PrepareAsync(request).ConfigureAwait(false);
+    }
+
+    internal static async Task<BrowserRetainedWorkspacePreparationResult>
+        PrepareEcosystemAsync(
+        string retainedDefinitionId,
+        string label,
+        string canonicalLocation,
+        string ecosystemId)
+    {
+        if (!EcosystemPackId.TryCreate(
+                ecosystemId,
+                out EcosystemPackId? id))
+        {
+            return FailedPreparation(
+                "InvalidRequest",
+                $"'{ecosystemId}' is not a valid Ecosystem identity.");
+        }
+
+        EcosystemWorkspaceRegistrationSelectionResult selection =
+            EcosystemPackCatalog.SelectWorkspaceRegistration(id);
+        if (selection is EcosystemWorkspaceRegistrationSelectionResult.Unknown)
+        {
+            return FailedPreparation(
+                "UnknownEcosystem",
+                $"Ecosystem '{id}' is not in the product catalog.");
+        }
+        if (selection
+            is EcosystemWorkspaceRegistrationSelectionResult.Unavailable)
+        {
+            return FailedPreparation(
+                "UnavailableEcosystem",
+                $"Ecosystem '{id}' has no Workspace registration.");
+        }
+
+        WorkspaceEcosystemRegistrationDeclaration declaration =
+            ((EcosystemWorkspaceRegistrationSelectionResult.Known)selection)
+                .Declaration;
+        WorkspacePlan plan = EcosystemPackCatalog.CreateWorkspacePlan([id]);
+        WorkspaceRegistration.Ecosystem registration =
+            plan.Registrations
+                .OfType<WorkspaceRegistration.Ecosystem>()
+                .Single(candidate =>
+                    ReferenceEquals(
+                        candidate.Declaration,
+                        declaration));
+        BrowserRetainedWorkspaceActivationRequest request;
+        try
+        {
+            request = new(
+                retainedDefinitionId,
+                label,
+                canonicalLocation,
+                new CompleteRestorationRequestBasis
+                    .RegistrationOnlyEcosystemInput(
+                        plan,
+                        registration.Declaration.Id,
+                        EcosystemDefaultFacet));
+        }
+        catch (ArgumentException ex)
+        {
+            return FailedPreparation("InvalidRequest", ex.Message);
+        }
+
+        return await PrepareAsync(request).ConfigureAwait(false);
+    }
 
     internal static async Task<BrowserRetainedWorkspacePreparationResult>
         PrepareAsync(
@@ -492,6 +805,12 @@ internal static class BrowserRetainedWorkspaceActivationService
                 new("InvalidRequest", ex.Message));
         }
 
+        return await PrepareAsync(request).ConfigureAwait(false);
+    }
+
+    static async Task<BrowserRetainedWorkspacePreparationResult> PrepareAsync(
+        BrowserRetainedWorkspaceActivationRequest request)
+    {
         BrowserRetainedWorkspaceActivationSession session =
             Owner.BeginActivation(request);
         lock (Gate)
@@ -727,6 +1046,38 @@ internal static class BrowserRetainedWorkspaceActivationService
         {
             WorkspaceSharePacket packet =
                 WorkspaceSharePacketCodec.Decode(canonicalPacket);
+            if (!CompleteRestorationPreparation.SupportsPacketFormat(
+                    packet.FormatVersion))
+            {
+                return new(
+                    false,
+                    [],
+                    new(
+                        "UnsupportedVersion",
+                        "packet",
+                        $"Complete Workspace restoration does not support packet format {packet.FormatVersion}."));
+            }
+            if (packet.Tabs.Count == 0)
+            {
+                return new(
+                    false,
+                    [],
+                    new(
+                        "UnsupportedDefinition",
+                        "packet.tabs",
+                        "Complete Workspace link activation requires at least one Package or Platform target."));
+            }
+            if (packet.PackageSources.Count == 0
+                && !SupportsSourceFreePublication(packet))
+            {
+                return new(
+                    false,
+                    [],
+                    new(
+                        "UnsupportedDefinition",
+                        "packet.view.active",
+                        "Source-free complete Workspace link activation currently supports only Workspace or Package Overview selections."));
+            }
             return new(
                 true,
                 [
@@ -756,6 +1107,48 @@ internal static class BrowserRetainedWorkspaceActivationService
                 new(ex.Kind.ToString(), "packet", ex.Message));
         }
     }
+
+    private static bool SupportsSourceFreePublication(
+        WorkspaceSharePacket packet)
+    {
+        if (!IsWorkspaceOverview(packet.ViewStates[0]))
+            return false;
+
+        for (int index = 0; index < packet.Tabs.Count; index++)
+        {
+            WorkspaceShareViewState state = packet.ViewStates[index + 1];
+            if (packet.Tabs[index].SourceKind
+                    == WorkspaceShareSourceKind.Package
+                ? !IsPackageOverview(state)
+                : !IsDormantGroup(state))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static bool IsWorkspaceOverview(WorkspaceShareViewState state) =>
+        IsUnscoped(state)
+        && state.Subject is PortableSubjectRequest.Workspace
+        && state.Context is null
+        && state.Facet is null or "workspace.overview";
+
+    private static bool IsPackageOverview(WorkspaceShareViewState state) =>
+        IsUnscoped(state)
+        && state.Subject is PortableSubjectRequest.Package
+        && state.Context is PortableRetainedSubjectContext.Package
+        && state.Facet is null or "package.overview";
+
+    private static bool IsDormantGroup(WorkspaceShareViewState state) =>
+        IsUnscoped(state)
+        && state.Subject is null
+        && state.Context is null
+        && state.Facet is null;
+
+    private static bool IsUnscoped(WorkspaceShareViewState state) =>
+        state.QueryIndexes.Count == 0 && state.Libraries.Count == 0;
 
     internal static BrowserRetainedWorkspacePreparationResult
         InvalidCredentialPreparation(
@@ -1081,13 +1474,14 @@ internal static class BrowserRetainedWorkspaceActivationService
     static BrowserRetainedWorkspacePreparedPosting PreparedPosting(
         BrowserRetainedWorkspacePostingDraft posting)
     {
-        string canonicalPacket = CanonicalPacket(posting.Projection);
+        string? canonicalPacket = CanonicalPacket(posting.Projection);
         return new(
             posting.RetainedDefinitionId,
             posting.Label,
             posting.CanonicalLocation,
             canonicalPacket,
             Definition(
+                posting.RestorationRequest,
                 canonicalPacket,
                 posting.Definition),
             BrowserCatalogWireProjection.Project(
@@ -1119,15 +1513,12 @@ internal static class BrowserRetainedWorkspaceActivationService
             posting.RetainedDefinitionId,
             posting.Label,
             posting.CanonicalLocation,
-            posting.CanonicalPacket
-                ?? throw new InvalidOperationException(
-                    "The packet activation export cannot project a non-packet retained definition."),
+            posting.CanonicalPacket,
             posting.RealizationId,
             posting.PublicationOrdinal,
             Definition(
-                posting.CanonicalPacket
-                    ?? throw new InvalidOperationException(
-                        "The packet activation export requires a canonical packet."),
+                posting.RestorationRequest,
+                posting.CanonicalPacket,
                 posting.Definition),
             BrowserCatalogWireProjection.Project(posting.Navigation),
             [
@@ -1207,19 +1598,29 @@ internal static class BrowserRetainedWorkspaceActivationService
             surface.Documents.Count,
             surface.InspectionErrors.Length > 0 || surface.InspectionError is not null);
 
-    static string CanonicalPacket(
+    static string? CanonicalPacket(
         CompleteRestorationProjection projection) =>
         projection is CompleteRestorationProjection.Projectable projectable
             ? projectable.CanonicalPacket
-            : throw new InvalidOperationException(
-                "The packet activation export cannot project a non-packet retained definition.");
+            : null;
 
     static BrowserRetainedWorkspaceDefinitionState Definition(
-        string canonicalPacket,
-        CommittedScenarioDefinitionSet definition)
+        CompleteRestorationRequestBasis restorationRequest,
+        string? canonicalPacket,
+        CommittedScenarioDefinitionSet? definition)
     {
-        WorkspaceSharePacket packet = WorkspaceSharePacketCodec.Decode(
-            canonicalPacket);
+        if (restorationRequest
+            is CompleteRestorationRequestBasis.RegistrationOnlyEcosystemInput
+                ecosystem)
+        {
+            return RegistrationOnlyEcosystemDefinition(ecosystem);
+        }
+
+        if (definition is null)
+        {
+            throw new InvalidOperationException(
+                "A retained Workspace definition is required.");
+        }
         CommittedNavigationDefinition navigation =
             definition.Navigation
             ?? throw new InvalidOperationException(
@@ -1228,6 +1629,16 @@ internal static class BrowserRetainedWorkspaceActivationService
             definition.Workspace
             ?? throw new InvalidOperationException(
                 "A restored Workspace requires its Workspace definition.");
+        if (canonicalPacket is null)
+        {
+            return ExternalPackageDefinition(
+                definition,
+                navigation,
+                workspace);
+        }
+
+        WorkspaceSharePacket packet = WorkspaceSharePacketCodec.Decode(
+            canonicalPacket);
         return new(
             [
                 .. packet.Tabs.Select((tab, index) => new BrowserWorkspaceShareTab(
@@ -1251,6 +1662,75 @@ internal static class BrowserRetainedWorkspaceActivationService
             [.. workspace.Registrations.Select(Registration)],
             navigation.Focus,
             definition.Scenario.Context);
+    }
+
+    static BrowserRetainedWorkspaceDefinitionState
+        RegistrationOnlyEcosystemDefinition(
+            CompleteRestorationRequestBasis.RegistrationOnlyEcosystemInput
+                request)
+    {
+        _ = request.Plan.Registrations
+            .OfType<WorkspaceRegistration.Ecosystem>()
+            .Single(registration =>
+                registration.Declaration.Id == request.Ecosystem);
+        return new(
+            [],
+            [],
+            [.. request.Plan.Registrations.Select(Registration)],
+            ActiveTabId: null,
+            SelectedContextId: null);
+    }
+
+    static BrowserRetainedWorkspaceDefinitionState ExternalPackageDefinition(
+        CommittedScenarioDefinitionSet definition,
+        CommittedNavigationDefinition navigation,
+        WorkspaceDefinition workspace)
+    {
+        NavigationTabDefinition tab = AssertSingle(
+            navigation.Tabs,
+            "A nonprojectable external Package definition requires one Navigation tab.");
+        WorkspaceContextDefinition context = AssertSingle(
+            workspace.Contexts,
+            "A nonprojectable external Package definition requires one Workspace context.");
+        DefinitionMemberCoordinate.PackageCoordinate package =
+            tab.Coordinate
+                as DefinitionMemberCoordinate.PackageCoordinate
+                ?? throw new InvalidOperationException(
+                    "A nonprojectable external Package definition requires a Package tab.");
+        DefinitionMemberCoordinate member = AssertSingle(
+            context.Members,
+            "A nonprojectable external Package definition requires one Package member.");
+        if (!Equals(member, package))
+        {
+            throw new InvalidOperationException(
+                "The external Package Navigation tab must match its Workspace member.");
+        }
+
+        return new(
+            [
+                new BrowserWorkspaceShareTab(
+                    tab.Id,
+                    package.Kind,
+                    package.Id,
+                    package.Version,
+                    package.Framework,
+                    package.RuntimeIdentifier),
+            ],
+            [new BrowserWorkspaceShareContext(context.Name, [tab.Id])],
+            [.. workspace.Registrations.Select(Registration)],
+            navigation.Focus,
+            definition.Scenario.Context);
+    }
+
+    static T AssertSingle<T>(
+        IReadOnlyList<T> values,
+        string message)
+    {
+        if (values.Count != 1)
+        {
+            throw new InvalidOperationException(message);
+        }
+        return values[0];
     }
 
     static BrowserRetainedWorkspaceRegistration Registration(
@@ -1319,6 +1799,16 @@ internal static class BrowserRetainedWorkspaceActivationService
             settlement.Succeeded,
             settlement.Reason.ToString(),
             settlement.Failure?.Message);
+
+    static BrowserRetainedWorkspacePreparationResult FailedPreparation(
+        string kind,
+        string message) =>
+        new(
+            "failed",
+            null,
+            null,
+            null,
+            new(kind, message));
 
     static string AuthorityResult(NavigationAuthorityResult result) =>
         result switch

@@ -63,6 +63,15 @@ public class PropertyAccessorSignatureConsistencyTests
                 type => type.Namespace == "Samples").Members,
             member => member.Kind == "property");
 
+        if (mismatch is AccessorMismatch.PropertyGenericHeader
+            or AccessorMismatch.PropertyReservedHeader)
+        {
+            Assert.Equal(
+                SignatureDecodeStatus.Degraded,
+                property.SignatureDecodeStatus);
+            return;
+        }
+
         Assert.Null(property.SignatureDecodeStatus);
         Assert.All(
             property.SignatureModel!.Accessors,
@@ -105,7 +114,9 @@ public class PropertyAccessorSignatureConsistencyTests
         }
         if (mismatch == AccessorMismatch.IncomparableAccessibility)
         {
-            Assert.Equal("protected", property.Accessibility);
+            // An internal getter and a protected setter join to protected
+            // internal (docs/design/api-population-scope.md#spelling-within-api-visibility-scope).
+            Assert.Equal("protected internal", property.Accessibility);
             Assert.Equal(
                 "internal",
                 property.SignatureModel.Accessors

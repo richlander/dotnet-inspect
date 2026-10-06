@@ -90,7 +90,7 @@ internal static class MemberResolver
 
     static MemberKind KindFor(string name) => name is ".ctor" or ".cctor" ? MemberKind.Constructor : MemberKind.Method;
 
-    static TypeRef ResolveParentType(MetadataReader reader, EntityHandle parent, GenericScope callerScope) => parent.Kind switch
+    internal static TypeRef ResolveParentType(MetadataReader reader, EntityHandle parent, GenericScope callerScope) => parent.Kind switch
     {
         HandleKind.TypeDefinition => TypeRefDecoder.Instance.GetTypeFromDefinition(reader, (TypeDefinitionHandle)parent, 0),
         HandleKind.TypeReference => TypeRefDecoder.Instance.GetTypeFromReference(reader, (TypeReferenceHandle)parent, 0),
@@ -127,7 +127,7 @@ internal static class MemberResolver
         return operandToken;
     }
 
-    static ImmutableArray<string> GenericParameterNames(MetadataReader reader, GenericParameterHandleCollection handles)
+    internal static ImmutableArray<string> GenericParameterNames(MetadataReader reader, GenericParameterHandleCollection handles)
     {
         if (handles.Count == 0)
             return [];
@@ -237,4 +237,14 @@ internal static class MemberResolver
         }
         return directions.MoveToImmutable();
     }
+}
+
+/// <summary>A method operand's declaring type and generic arity.</summary>
+internal readonly record struct MethodOwner(
+    TypeRef DeclaringType,
+    int GenericArity,
+    bool Supported)
+{
+    internal static MethodOwner Unsupported(string reason) =>
+        new(TypeRef.Unsupported(reason), 0, Supported: false);
 }

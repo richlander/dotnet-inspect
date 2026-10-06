@@ -30,6 +30,14 @@ available through browser Back; only **Open demo** constructs a new Workspace.
 Package navigation retains the canonical `w` packet, so the exact coordinates
 and Package view survive refresh just as Library and Workspace views do.
 
+Ecosystems has its own `/ecosystems` page in product navigation and the shared
+data bar. The page projects the product-ordered `EcosystemPackCatalog` as inert
+descriptor metadata: identity, title, summary, and bounded capability
+counts/flags. Visiting the catalog preserves the active Workspace and does not
+activate an Ecosystem subject, acquire packages, or run package-prefix
+discovery. Those interactions remain future slices. No dedicated absence gate
+covers that boundary; by operator choice it is unverified beyond design review.
+
 The previous browser host was a single 4,103-line `Program.cs` that re-derived
 package acquisition, target-framework ranking, symbol acquisition, and member
 identity for itself, and opened assemblies wherever it needed one. It was not
@@ -46,22 +54,50 @@ generated serializer context. `EngineCoreProject_HasOneWayOwnerReference`,
 `EngineCoreAssembly_OwnsSharedWorkspaceState`, and
 `EngineCoreAssembly_HasNoFacadeContracts` gate that boundary.
 
-The rule is enforced by the compiler, not by a convention.
-`src/DotnetInspect.Web/BannedSymbols.txt` bans `AssemblyInspectionSession`, `MetadataSource`,
-`LibraryBodyIndex`, `AssemblyImageSnapshot`, raw metadata readers, descriptor
-factories, and the group's image and retained-descriptor accessors in this
-project, and `Directory.Build.targets` already escalates `RS0030` to an error
-for every project.
-`BrowserEngineLayeringTests` in `DotnetInspect.Web.Tests` pins that wiring and
-resolves every complete banned documentation id, including generic arity and
-parameter types — a renamed or malformed entry bans nothing and fails the gate.
-It also bans opening a retained descriptor, minting one, or invoking
-`AssemblyReader` in the host; descriptors may carry typed identity into a
-product query, but package selection, identity decoding, descriptor creation,
-and image content remain product-owned. A selected malformed entry receives an
-artifact-neutral, role-unique identity only as a rejection carrier, so the
-workspace returns its typed failure instead of silently shortening the
-selected assembly set.
+This boundary is enforced by the compiler, not by a convention.
+The `inspect-web-executable-stays-at-host-boundary` dependency-policy rule
+allows `DotnetInspect.Web` to reference only the .NET platform,
+`TsJsExport.Contracts`, Web Core, and the eight capability facades in both the
+evaluated project and compiled assembly graphs. This catches low-level product
+use even when SDK transitivity makes its assembly available to compile.
+`src/DotnetInspect.Web/PlatformHazards/BannedSymbols.txt` closes the part that
+project layering cannot express: raw platform PE/metadata decoding and runtime
+assembly loading or activation. `Directory.Build.targets` escalates `RS0030`
+to an error.
+
+The `inspect-web-call-graph-facade-stays-at-capability-boundary` rule similarly
+limits `DotnetInspect.Web.Interop.CallGraph` to the .NET platform, Web Core,
+Queries, and Sections in both graphs. Its project references declare that same
+set rather than relying on transitive access or retaining unused low-level
+projects, and it shares the narrow platform-hazard analyzer input.
+
+The separate `inspect-web-library-facade-*-dependencies-stay-within-capability-ratchet`
+rules preserve the Library facade's smaller evaluated-project boundary and its
+larger compiled-assembly boundary. The facade currently adapts the shared
+Library document and embedded-Library inspection while directly projecting
+Metadata-owned identity and API-surface values. It therefore keeps the broad
+semantic analyzer input until focused #8779 successors retire those low-level
+edges; the positive rules prevent either graph from expanding meanwhile.
+
+The separate `inspect-web-catalog-facade-*-dependencies-stay-within-capability-ratchet`
+rules preserve the Catalog facade's evaluated-project and compiled-assembly
+boundaries. Home-demo call graphs use Web Core's shared lowering of the
+host-neutral call-graph projection, so neither graph admits
+`ILInspector.Analysis`.
+
+Web Core and the capability facades other than CallGraph still use the broader
+`src/DotnetInspect.Web/BannedSymbols.txt` while their positive component
+boundaries migrate under #8779. `BrowserEngineLayeringTests` pins both
+evaluated analyzer inputs and resolves every complete banned documentation ID,
+including generic arity and parameter types, so a renamed or malformed entry
+cannot silently become vacuous. The broad list continues to ban opening or
+minting a retained descriptor and invoking low-level inspection APIs in those
+projects.
+Descriptors may carry typed identity into a product operation, but package
+selection, identity decoding, descriptor creation, and image content remain
+product-owned. A selected malformed entry receives an artifact-neutral,
+role-unique identity only as a rejection carrier, so the workspace returns its
+typed failure instead of silently shortening the selected assembly set.
 
 The boundary is based on what the Browser host can bind and invoke, not on
 parameter names across referenced product assemblies. Desktop-only APIs and
@@ -653,10 +689,11 @@ and `AddHttpClient` signals. The same network-backed case opens
 `System.Text.Json@10.0.0/net10.0` through the ordinary Worker transport as its
 large-package baseline and `Aspire.Hosting@13.5.4/net8.0` as the pathological
 package that crosses both former transport bounds. These coordinates use the
-live Gallery CDN; the lifecycle and malformed-implementation cases use
-deterministic local archive responses. Run the gate after building the frontend
-and publishing `DotnetInspect.Web.csproj` in Release to
-`artifacts/inspect-web-publish`.
+live Gallery CDN. The retained Workspace two-host journey, lifecycle cases, and
+malformed-implementation cases use deterministic local archive responses; the
+packaged CLI smoke gate independently exercises live NuGet acquisition. Run the
+gate after building the frontend and publishing `DotnetInspect.Web.csproj` in
+Release to `artifacts/inspect-web-publish`.
 
 ## Supported
 
@@ -973,24 +1010,19 @@ default icon immediately and retain it when version resolution, range access,
 or icon admission is unavailable. Navigation matching completes before icon
 requests begin.
 
-`QueryPackagePruning` is a separate explicit operation on Package Dependencies.
-It evaluates only the normalized active group against one exact platform target
-and selected runtime or ASP.NET Core supply family. JavaScript transports the
-validated platform-index inventory; managed candidate resolution and
-`PackageHouseDependencyPruningQuery` own version selection and policy. Opening
-Dependencies does not start candidate discovery. Selecting **Evaluate** may
-query nuget.org for non-exact ranges, but it does not acquire dependency
-payloads, mutate the dependency graph, or load PlatformHouse content. Each
-explicit evaluation starts a new request after the prior request settles, and
-the result keeps the evaluated normalized group plus the exact platform
-framework, family, and version visible.
+`QueryPackageVulnerabilities` is a separate operation used by the Package
+Vulnerabilities lens for exact nuget.org package coordinates. It delegates
+advisory acquisition and range evaluation to `GitHubNuGetAdvisoryService`, then
+projects the current matching reviewed advisories, observation time, and typed
+availability and failure states into the Browser contract. Opening the lens
+starts this explicit network work; the result is cached for the active package
+coordinate.
 
-The result keeps the selected candidate and platform-supplied version in
-separate fields. `PlatformDelegation` means the platform supplies that candidate
-or a newer version; an older supplied version leaves the candidate retained.
-Candidate failure and non-evaluation remain visible rows, and operation-level
-inventory or manifest failures remain visible failures rather than
-success-shaped empty results.
+A complete result with no matches states only that no GitHub-reviewed NuGet
+advisory matched that exact package version. Partial and unavailable results
+retain their failures and never become a safe or secure conclusion. Advisory
+identity, severity, dates, and GitHub destination remain separate fields in the
+rendered result.
 
 For open-package navigation, JavaScript supplies the loaded coordinates and
 their typed package-versus-platform provenance to
@@ -1266,7 +1298,7 @@ the main thread.
 That entry also exposes `createEngineWorkerStartupClient(origin, options)` for
 the Worker-only adoption host. Its facade-grouped `client` provides Promise
 results for build identity, vocabulary, home demos, Package Query facets, and
-the product-issued Package Activity package-set catalog.
+the product-issued Package Activity Ecosystem catalog.
 Concurrent reads share one bootstrap without replacing one
 another, and disposal rejects outstanding reads. Generated JSON-shaped results
 use a bounded transport string (1,048,576 UTF-16 code units per result) and
@@ -1474,9 +1506,10 @@ outside this gesture.
 
 The routed `/activity` surface is the Browser's Package Activity entry beside
 `/query`; neither route renders the retired Packages/Activity peer selector.
-Package Activity discovers product-owned package sets from the managed startup
-catalog, submits the default 42-day interval or one validated paired UTC
-interval, and streams the existing `package-changes` Worker operation. That
+Package Activity discovers product Ecosystems and their recorded package
+prefixes from the managed startup catalog, submits the selected Ecosystem with
+the default 42-day interval or one validated paired UTC interval, and streams
+the existing `package-changes` Worker operation. That
 operation name, the same-origin bridge path, and the
 `BrowserPackageChanges*` wire records remain stable internal identifiers. Its
 bounded row window renders typed current-advisory, fixed-version, receipt,
@@ -2781,11 +2814,13 @@ fingerprinted `dotnet.js`, and that the import map precedes the Vite module
 entry. That configuration serves `/` and `/index.html` with `Cache-Control:
 no-cache, no-store, must-revalidate`, so an Azure edge cannot retain an old
 browser boot graph after its fingerprinted Wasm assets rotate.
-`BrowserStaticWebAppConfigTests.RootDocumentsAreNotCachedAndConfigIsPublished`
-gates the header contract and publish wiring. The staging publish step embeds
-the CLI's authoritative `VersionPrefix`, exact source SHA, and UTC build
-timestamp. The shared Home and workbench data bar shows that version, links the
-short commit to GitHub, and discloses the concise UTC build date.
+`entry-routes.test.ts` gates the entry-route and no-cache configuration
+contract. The publish and deployment workflows verify the generated site
+artifact, including `staticwebapp.config.json`, and
+`verify-site-artifact.ts` checks the transformed site. The staging publish
+step embeds the CLI's authoritative `VersionPrefix`, exact source SHA, and UTC
+build timestamp. The shared Home and workbench data bar shows that version,
+links the short commit to GitHub, and discloses the concise UTC build date.
 `BuildIdentity_UsesVersionedRepositoryProvenance` and
 `data bar shows versioned linked build provenance` gate the engine and UI
 halves.

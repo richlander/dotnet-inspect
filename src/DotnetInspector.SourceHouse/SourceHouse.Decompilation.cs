@@ -231,14 +231,34 @@ public static partial class SourceHouse
         }
 
         ApiSurface surface;
+        (
+            ApiType Type,
+            ApiMember? Member,
+            bool RequiresAccessorProjection)? target;
         try
         {
             using AssemblyInspectionSession session =
                 AssemblyInspectionSession.Open(descriptor);
+            using var catalog = new TypeResolutionCatalog();
+            ApiSurfaceExtractionResult ExtractTargetSurface(
+                bool includeCompilerGenerated = false) =>
+                request.Product
+                    == SourceHouseDecompilationProduct.StructuredTypeDocument
+                    ? session.BoundedCompatibilityApiSurface(
+                        descriptor,
+                        catalog,
+                        request.Plan.BindingPolicy,
+                        ApiSurfaceExtractionScope.IncludeAll,
+                        request.Plan.Limits.TargetBounds,
+                        includeCompilerGenerated)
+                    : session.BoundedCompatibilityApiSurface(
+                        ApiSurfaceExtractionScope.IncludeAll,
+                        request.Plan.Limits.TargetBounds,
+                        includeCompilerGenerated:
+                            includeCompilerGenerated);
+
             ApiSurfaceExtractionResult extraction =
-                session.BoundedApiSurface(
-                    ApiSurfaceExtractionScope.IncludeAll,
-                    request.Plan.Limits.TargetBounds);
+                ExtractTargetSurface();
             if (extraction is ApiSurfaceExtractionResult.Exceeded)
             {
                 return Incomplete(
@@ -249,12 +269,15 @@ public static partial class SourceHouse
             surface =
                 ((ApiSurfaceExtractionResult.Extracted)extraction)
                     .Surface;
-            if (!TargetExists(surface, request.Target)
+            target =
+                ResolveDecompilationTarget(
+                    session,
+                    surface,
+                    request.Target);
+            if (target is null
                 && RequiresCompilerGeneratedSurface(request.Target))
             {
-                extraction = session.BoundedApiSurface(
-                    ApiSurfaceExtractionScope.IncludeAll,
-                    request.Plan.Limits.TargetBounds,
+                extraction = ExtractTargetSurface(
                     includeCompilerGenerated: true);
                 if (extraction is ApiSurfaceExtractionResult.Exceeded)
                 {
@@ -266,6 +289,11 @@ public static partial class SourceHouse
                 surface =
                     ((ApiSurfaceExtractionResult.Extracted)extraction)
                         .Surface;
+                target =
+                    ResolveDecompilationTarget(
+                        session,
+                        surface,
+                        request.Target);
             }
         }
         catch (Exception exception) when (IsInspectionFailure(exception))
@@ -279,11 +307,6 @@ public static partial class SourceHouse
                 detail);
         }
 
-        (
-            ApiType Type,
-            ApiMember? Member,
-            bool RequiresAccessorProjection)? target =
-            ResolveDecompilationTarget(surface, request.Target);
         if (target is null)
         {
             if (CreateTargetInspectionFailure(
@@ -518,13 +541,17 @@ public static partial class SourceHouse
         ApiMember? Member,
         bool RequiresAccessorProjection)?
         ResolveDecompilationTarget(
+            AssemblyInspectionSession session,
             ApiSurface surface,
             SourceHouseTarget target)
     {
         if (target is SourceHouseTarget.MemberTarget member)
         {
             (ApiType Type, ApiMember Member, bool RequiresAccessorProjection)?
-                resolved = ResolveMemberTarget(surface, member);
+                resolved = ResolveMemberTarget(
+                    session,
+                    surface,
+                    member);
             return resolved is { } exact
                 ? (exact.Type, exact.Member, exact.RequiresAccessorProjection)
                 : null;

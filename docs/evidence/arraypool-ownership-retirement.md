@@ -7,7 +7,11 @@
 - Fully legacy product: `0.25.0+473d56a` (`473d56a68e26338fc27aca9808c1e98dbf30b259`).
 - Shipped continuity product: `0.26.0+d236a7a` (`d236a7ad79bf4d76c63f0530cedfab0ede3cf3dd`).
 - Generic comparison head: `d2ac4f244409aff7316c716afd5460f2a442ab6d`.
-- The in-tree `LeakTriage`, `ArrayPoolOwnershipFlow`, and `ArrayPoolOwnershipPathFindings` oracle files are byte-for-byte unchanged from the v0.26.0 source tag; the producer refuses to run if that condition is false.
+- At the comparison head, the in-tree `LeakTriage`,
+  `ArrayPoolOwnershipFlow`, and `ArrayPoolOwnershipPathFindings` oracle files
+  were byte-for-byte unchanged from the v0.26.0 source tag. The producer
+  refused to run if that condition was false. Those oracle implementations
+  were retired after this comparison reached zero classified defects.
 
 ## Method
 
@@ -75,22 +79,12 @@ The ledger contains 1556 rows: 815 `Parity`, 728 `IntentionalImprovement`, 13 `A
 
 `IntentionalImprovement` is limited to owner-specified generic behavior: additional typed Resource Occurrence roots and root-local lifecycle outcomes, typed resource-aware Finding identity, and path-local and operation-level completeness. An omitted legacy acquisition or assessment, changed shared coordinate or sink, or other unowned difference is a `Defect`.
 
-## Reproduction
+## Historical provenance
 
-```bash
-dotnet run eng/prepare-resource-triage-corpus.cs -- \
-  artifacts/resource-triage-corpus.txt \
-  artifacts/resource-triage-corpus-manifest.jsonl
-dotnet build src/DotnetInspect.Cli/DotnetInspect.Cli.csproj \
-  -c Release
-dotnet build fixtures/analysis/ILInspector.Analysis.OwnershipFlowFixtures/ILInspector.Analysis.OwnershipFlowFixtures.csproj -c Release
-dotnet build fixtures/analysis/ILInspector.Analysis.LookalikeFixtures/ILInspector.Analysis.LookalikeFixtures.csproj -c Release
-dotnet run eng/produce-arraypool-ownership-retirement-report.cs -- \
-  --corpus artifacts/resource-triage-corpus.txt \
-  --manifest artifacts/resource-triage-corpus-manifest.jsonl \
-  --current-cli artifacts/bin/dotnet-inspect/release/dotnet-inspect.dll \
-  --fixture fixture:ownership-flow=artifacts/bin/ILInspector.Analysis.OwnershipFlowFixtures/release/ILInspector.Analysis.OwnershipFlowFixtures.dll \
-  --fixture fixture:arraypool-lookalikes=artifacts/bin/ILInspector.Analysis.LookalikeFixtures/release/ILInspector.Analysis.LookalikeFixtures.dll \
-  --jsonl docs/evidence/arraypool-ownership-retirement.jsonl \
-  --markdown docs/evidence/arraypool-ownership-retirement.md
-```
+The report and adjacent JSONL ledger were generated at comparison head
+`d2ac4f244409aff7316c716afd5460f2a442ab6d` with the package, framework,
+fixture, and tool hashes recorded above. The comparison producer and both
+ArrayPool-specific semantic implementations were then removed as the final
+retirement step. The ledger remains the durable review artifact; reproducing
+the retired head-to-head requires checking out that exact historical commit
+and using its pinned corpus preparation and producer sources.

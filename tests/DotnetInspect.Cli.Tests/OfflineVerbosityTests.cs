@@ -96,7 +96,7 @@ public class OfflineVerbosityTests : IDisposable
     public async Task SingleType_QualifiedTypeTypo_Offline_SuggestsPlatformType()
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", "System.Text.Json.JsonSerializizer", "-v:q", "--offline", "--tips", "q");
+            "type", "System.Text.Json.JsonSerializizer", "-v:q", "--offline");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -134,7 +134,7 @@ public class OfflineVerbosityTests : IDisposable
     public async Task Member_QualifiedTypeTypo_Offline_SuggestsPlatformType()
     {
         var (exit, output, error) = await RunAppAsync(
-            "member", "System.Text.Json.JsonSerializizer", "-v:q", "--offline", "--tips", "q");
+            "member", "System.Text.Json.JsonSerializizer", "-v:q", "--offline");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -170,7 +170,7 @@ public class OfflineVerbosityTests : IDisposable
     public async Task Router_QualifiedMember_Minimal_Offline_Succeeds()
     {
         var (exit, output, error) = await RunAppAsync(
-            "System.Text.Json.JsonSerializer.SerializeToNode", "-v:m", "--offline", "--tips", "q");
+            "System.Text.Json.JsonSerializer.SerializeToNode", "-v:m", "--offline");
 
         Assert.Equal(0, exit);
         Assert.Contains("SerializeToNode", output);
@@ -181,7 +181,7 @@ public class OfflineVerbosityTests : IDisposable
     public async Task Router_QualifiedTypeTypo_Offline_SuggestsPlatformType()
     {
         var (exit, output, error) = await RunAppAsync(
-            "System.Text.Json.JsonSerializizer", "-v:q", "--offline", "--tips", "q");
+            "System.Text.Json.JsonSerializizer", "-v:q", "--offline");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);

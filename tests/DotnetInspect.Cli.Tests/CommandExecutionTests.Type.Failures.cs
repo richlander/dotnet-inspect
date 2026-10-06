@@ -12,21 +12,14 @@ namespace DotnetInspect.Cli.Tests;
 public partial class CommandExecutionTests
 {
     [Fact]
-    public async Task ConstraintResolutionFailure_IsVisibleAndNonfatalAcrossTypeCommands()
+    public async Task ConstraintResolutionFailure_IsVisibleAndNonfatalForSelectedTypeCommands()
     {
         string path = Path.Combine(
             Path.GetTempPath(),
             $"constraint-diagnostic-{Guid.NewGuid():N}.dll");
-        WriteModuleConstraintAssembly(path);
+        WriteUnresolvedConstraintAssembly(path);
         try
         {
-            var listing = await ConsoleCapture.RunAsync(
-                () => TypeCommand.ExecuteAsync(
-                    new TypeOptions
-                    {
-                        AssemblyPath = path,
-                        Verbosity = Verbosity.Normal,
-                    }));
             var selectedType = await ConsoleCapture.RunAsync(
                 () => TypeCommand.ExecuteAsync(
                     new TypeOptions
@@ -44,14 +37,6 @@ public partial class CommandExecutionTests
                         Verbosity = Verbosity.Normal,
                     }));
 
-            Assert.Equal(0, listing.ExitCode);
-            Assert.Contains(
-                "Generic-constraint classification",
-                listing.Error);
-            Assert.DoesNotContain(
-                "rejected",
-                listing.Error,
-                StringComparison.OrdinalIgnoreCase);
             Assert.Equal(0, selectedType.ExitCode);
             Assert.Contains(
                 "Generic-constraint classification",
@@ -81,7 +66,7 @@ public partial class CommandExecutionTests
                 [],
                 ["--json"],
                 ["--table"],
-                ["-S", "Type Info", "--count"],
+                ["-S", "Methods", "--count"],
             ];
             string[][] memberOutputOptions =
             [
@@ -98,9 +83,9 @@ public partial class CommandExecutionTests
                         "N.Good",
                         "--library",
                         path,
-                        "--tips",
-                        "q",
                         .. typeOutputOptions[i],
+                        "-E",
+                        ".tips",
                     ]);
                 var selectedMember = await RunAppAsync(
                     [
@@ -108,9 +93,9 @@ public partial class CommandExecutionTests
                         "N.Good",
                         "--library",
                         path,
-                        "--tips",
-                        "q",
                         .. memberOutputOptions[i],
+                        "-E",
+                        ".tips",
                     ]);
 
                 Assert.Equal(1, selectedType.Exit);
@@ -118,11 +103,19 @@ public partial class CommandExecutionTests
                     "rejected 1 metadata row",
                     selectedType.Error,
                     StringComparison.OrdinalIgnoreCase);
+                Assert.DoesNotContain(
+                    "Tips:",
+                    selectedType.Error,
+                    StringComparison.Ordinal);
                 Assert.Equal(1, selectedMember.Exit);
                 Assert.Contains(
                     "rejected 1 metadata row",
                     selectedMember.Error,
                     StringComparison.OrdinalIgnoreCase);
+                Assert.DoesNotContain(
+                    "Tips:",
+                    selectedMember.Error,
+                    StringComparison.Ordinal);
             }
         }
         finally
@@ -150,12 +143,16 @@ public partial class CommandExecutionTests
                 path,
                 "-t",
                 "N.*",
-                "--tips",
-                "q");
+                "-E",
+                ".tips");
 
             Assert.True(
                 result.Exit == 1,
                 $"Exit={result.Exit}; output={result.Output}; error={result.Error}");
+            Assert.DoesNotContain(
+                "Tips:",
+                result.Error,
+                StringComparison.Ordinal);
             Assert.Contains(
                 "N.Good",
                 result.Output,
@@ -193,16 +190,12 @@ public partial class CommandExecutionTests
                 "type",
                 "N.Healthy",
                 "--library",
-                path,
-                "--tips",
-                "q");
+                path);
             var selectedMember = await RunAppAsync(
                 "member",
                 "N.Healthy",
                 "--library",
-                path,
-                "--tips",
-                "q");
+                path);
 
             Assert.Equal(1, selectedType.Exit);
             Assert.Contains("N.Healthy", selectedType.Output);
@@ -239,9 +232,7 @@ public partial class CommandExecutionTests
                 "type",
                 "--library",
                 path,
-                "-v:d",
-                "--tips",
-                "q");
+                "-v:d");
 
             Assert.Equal(1, result.Exit);
             Assert.Empty(result.Error);
@@ -279,9 +270,7 @@ public partial class CommandExecutionTests
                 "type",
                 "--library",
                 path,
-                $"-v:{verbosity}",
-                "--tips",
-                "q");
+                $"-v:{verbosity}");
 
             Assert.Equal(0, result.Exit);
             Assert.DoesNotContain(
@@ -313,8 +302,7 @@ public partial class CommandExecutionTests
                 path,
                 "-S",
                 "Inspection Failures",
-                "--tips",
-                "q");
+                "--markdown");
 
             Assert.Equal(1, result.Exit);
             Assert.Empty(result.Error);
@@ -354,9 +342,7 @@ public partial class CommandExecutionTests
                 path,
                 "-S",
                 "Inspection Failures",
-                format,
-                "--tips",
-                "q");
+                format);
 
             Assert.Equal(1, result.Exit);
             Assert.Empty(result.Error);
@@ -382,7 +368,7 @@ public partial class CommandExecutionTests
         string path = Path.Combine(
             Path.GetTempPath(),
             $"constraint-tabular-{Guid.NewGuid():N}.dll");
-        WriteModuleConstraintAssembly(path);
+        WriteUnresolvedConstraintAssembly(path);
         try
         {
             var result = await RunAppAsync(
@@ -391,9 +377,7 @@ public partial class CommandExecutionTests
                 path,
                 "-S",
                 "Inspection Failures",
-                "--jsonl",
-                "--tips",
-                "q");
+                "--jsonl");
 
             Assert.Equal(0, result.Exit);
             Assert.Empty(result.Error);

@@ -798,6 +798,32 @@ function change(
   };
 }
 
+function validateMappedChanges(
+  changes: readonly BrowserSourceDiffChange[],
+  beforeLines: number,
+  afterLines: number,
+  path: string,
+): void {
+  let beforeCursor = 0;
+  let afterCursor = 0;
+  for (const [index, item] of changes.entries()) {
+    if (item.before.start < beforeCursor || item.after.start < afterCursor) {
+      throw new SourceDiffPayloadError(
+        `${path}.changes[${index}] overlaps or reorders a prior change.`);
+    }
+    if (item.before.start - beforeCursor !== item.after.start - afterCursor) {
+      throw new SourceDiffPayloadError(
+        `${path}.changes[${index}] has unequal unchanged gaps.`);
+    }
+    beforeCursor = item.before.start + item.before.count;
+    afterCursor = item.after.start + item.after.count;
+  }
+  if (beforeLines - beforeCursor !== afterLines - afterCursor) {
+    throw new SourceDiffPayloadError(
+      `${path}.changes has unequal trailing unchanged ranges.`);
+  }
+}
+
 function diff(value: unknown, path: string): BrowserSourceDiff {
   const item = record(value, [
     "version", "before", "after", "relations", "statistics", "changes",
@@ -812,6 +838,20 @@ function diff(value: unknown, path: string): BrowserSourceDiff {
     annotations: 0,
     annotationTextBytes: 0,
   };
+  const changes = array(item.changes, maximumChanges, `${path}.changes`)
+    .map((candidate, index) => change(
+      candidate,
+      before.lines,
+      after.lines,
+      budget,
+      `${path}.changes[${index}]`,
+    ));
+  validateMappedChanges(
+    changes,
+    before.lines.length,
+    after.lines.length,
+    path,
+  );
   return {
     version: 1,
     before,
@@ -825,14 +865,7 @@ function diff(value: unknown, path: string): BrowserSourceDiff {
         `${path}.relations[${index}]`,
       )),
     statistics: statistics(item.statistics, `${path}.statistics`),
-    changes: array(item.changes, maximumChanges, `${path}.changes`)
-      .map((candidate, index) => change(
-        candidate,
-        before.lines,
-        after.lines,
-        budget,
-        `${path}.changes[${index}]`,
-      )),
+    changes,
   };
 }
 

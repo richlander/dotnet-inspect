@@ -1365,6 +1365,11 @@ public sealed class WorkspaceSharePacketTransposerTests
             "7a7f0afab9",
             "System.Text.Json.Utf8JsonWriter",
             "WriteStringValue");
+        ViewFacetId defaultFacet =
+            facet
+            ?? InspectionViewFacetCatalog.Registry.GetRequiredDescriptor(
+                StructuralSubjectKind.Member,
+                ViewFacetRole.MemberOverview).Id;
         var basis = new ResolvedMemberInspectionBasis(
             new ResolvedInspectionSource(
                 omission == SharePlanOmission.NonPackageSource
@@ -1397,6 +1402,7 @@ public sealed class WorkspaceSharePacketTransposerTests
                     ? null
                     : metadataType,
                 member),
+            defaultFacet,
             new InspectionCatalogReference("test-catalog", version: 1),
             new InspectionSemanticDemand(
                 ImmutableArray<string>.Empty,
@@ -1406,12 +1412,7 @@ public sealed class WorkspaceSharePacketTransposerTests
                 ImmutableArray<string>.Empty,
                 InspectionDiscoveryRequest.None));
 
-        return new ShareProjectionPlan(
-            basis,
-            facet
-                ?? InspectionViewFacetCatalog.Registry.GetRequiredDescriptor(
-                    StructuralSubjectKind.Member,
-                    ViewFacetRole.MemberOverview).Id);
+        return new ShareProjectionPlan(basis);
     }
 
     private static WorkspaceSharePacketDefinitionSet Transpose(

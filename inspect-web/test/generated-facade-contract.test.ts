@@ -24,15 +24,42 @@ for (const [rowKind, resultType] of [
   });
 }
 
+test("catalog facade exposes the typed vocabulary snapshot envelope", () => {
+  assert.ok(catalogDeclarations.includes(
+    "export interface BrowserVocabularyInspection {"));
+  assert.ok(catalogDeclarations.includes(
+    "export type BrowserVocabularyMapValue = "
+    + "BrowserVocabularyTextMapValue | BrowserVocabularyIntegerMapValue "
+    + "| BrowserVocabularyBooleanMapValue | BrowserVocabularyTermMapValue;"));
+  assert.ok(catalogDeclarations.includes(
+    "export type BrowserVocabularyScalarKind = "
+    + "\"Text\" | \"Integer\" | \"Boolean\" | number;"));
+  assert.ok(catalogDeclarations.includes(
+    "readonly identity: BrowserVocabularyDefinitionIdentity;"));
+  assert.ok(catalogDeclarations.includes(
+    "readonly identity: BrowserVocabularyTermDefinitionIdentity;"));
+  assert.ok(catalogDeclarations.includes(
+    "readonly map: BrowserVocabularyMapDefinitionIdentity;"));
+  assert.ok(!catalogDeclarations.includes("BrowserVocabularyMapIdentity"));
+  assert.ok(catalogDeclarations.includes(
+    "inspectVocabulary(): BrowserVocabularyInspection;"));
+  assert.ok(!catalogDeclarations.includes("BrowserVocabularyDocument"));
+  assert.ok(!catalogDeclarations.includes("listVocabulary()"));
+});
+
 test("source facade separates member parts from flat source", () => {
   assert.ok(sourceDeclarations.includes(
     "export interface BrowserMemberSource {",
   ));
   assert.ok(sourceDeclarations.includes(
+    "export type BrowserMemberSourcePartKind = \"Declaration\" | \"Member\"",
+  ));
+  assert.ok(sourceDeclarations.includes(
     "queryMemberSource(packageId: string, version: string, targetFramework: string, "
     + "assemblyName: string, typeIdentity: string, memberName: string, "
-    + "selectorKey: string, metadataToken: number, styleOptionsJson: string): "
-    + "Promise<BrowserMemberSource>;",
+    + "selectorKey: string, metadataToken: number, documentBaselineOrdinal: number, "
+    + "styleOptionsJson: string, view: string): "
+    + "Promise<BrowserMemberSourceResult>;",
   ));
   assert.ok(sourceDeclarations.includes(
     "queryTypeMemberSource(packageId: string, version: string, "

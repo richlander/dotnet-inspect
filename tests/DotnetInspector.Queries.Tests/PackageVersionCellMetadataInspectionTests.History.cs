@@ -1799,7 +1799,7 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
         HistoryCountPotentiallyCoveringFailuresRemainSourceInsufficient()
     {
         byte[] image =
-            AssemblyContextStructuralCloneRetrievalQueryTests
+            StructuralCloneMalformedMetadataFixtures
                 .BuildMalformedTypeNameAssembly(
                     malformedTypes: 1);
         ImmutableArray<CellFixture> population =

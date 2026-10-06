@@ -128,7 +128,7 @@ Show me just 3 types from System.Text.Json.
 ```
 
 ```bash
-dotnet-inspect type System.Text.Json -t 3 --tips q
+dotnet-inspect type System.Text.Json -t 3
 ```
 
 ```expect
@@ -154,7 +154,7 @@ grep -c '^| `'
 ### 4a. Using `type -t pattern`
 
 ```bash
-dotnet-inspect type System.Text.Json -t "Json*" --tips q
+dotnet-inspect type System.Text.Json -t "Json*"
 ```
 
 ```expect
@@ -170,6 +170,13 @@ Tips:
 ## 5. Limit find results
 
 > Goal: Return only the first N matches from a find search.
+
+The same count is Find's execution budget across its Type or Member patterns:
+once N hits are found, later pattern groups and sources are not entered.
+Type candidates are classified in discovery order, so Prefix, Substring, and
+similarity matches can all spend the same budget without a whole-population
+sort. The reverse-locator package route still completes its retained census
+before applying the budget.
 
 ### 5a. Using `find -n N`
 
@@ -202,7 +209,7 @@ grep '^|' | tail -n +3 | wc -l | tr -d ' '
 
 ```bash
 dotnet-inspect member System.Text.Json JsonSerializer \
-  --table --no-headers -n 3 --tips q
+  --table --no-headers -n 3
 ```
 
 ```expect
@@ -222,7 +229,7 @@ Tips:
 ### 7a. Using positional member name
 
 ```bash
-dotnet-inspect member System.Text.Json JsonSerializer Deserialize --tips q
+dotnet-inspect member System.Text.Json JsonSerializer Deserialize
 ```
 
 ```expect

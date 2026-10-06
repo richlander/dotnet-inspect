@@ -117,6 +117,213 @@ public class InstructionDecoderTests
     }
 
     [Fact]
+    public void Sequence_cursor_stops_before_an_unrequested_malformed_suffix()
+    {
+        byte[] il =
+            new byte[] { 0x7A, 0x28, 0x01 };
+        var sequence = new InstructionSequence(il);
+        InstructionCursor cursor = sequence.GetCursor();
+
+        Assert.True(cursor.MoveNext());
+        Assert.Equal(ILOpCode.Throw, cursor.Current.OpCode);
+        Assert.False(sequence.IsComplete);
+        Assert.Throws<BadImageFormatException>(
+            () => sequence.TryGet(1, out _));
+    }
+
+    [Fact]
+    public void Sequence_indexing_decodes_only_through_the_requested_instruction()
+    {
+        byte[] il =
+            new byte[] { 0x17, 0x18, 0x58, 0x2A };
+        var sequence = new InstructionSequence(il);
+
+        InstructionEntry add = sequence[2];
+
+        Assert.Equal(ILOpCode.Add, add.OpCode);
+        Assert.False(sequence.IsComplete);
+        Assert.True(sequence.TryGet(0, out InstructionEntry first));
+        Assert.Equal(first.Offset, sequence[0].Offset);
+    }
+
+    [Fact]
+    public void Sequence_offset_lookup_advances_only_until_the_offset_is_covered()
+    {
+        byte[] il =
+        [
+            0x28, 0x01, 0x00, 0x00, 0x06,
+            0x00,
+            0x2A,
+        ];
+        var sequence = new InstructionSequence(il);
+
+        Assert.False(
+            sequence.TryGetAtOffset(
+                2,
+                out int followingIndex,
+                out _));
+        Assert.Equal(1, followingIndex);
+        Assert.Equal(ILOpCode.Nop, sequence[followingIndex].OpCode);
+        Assert.True(
+            sequence.TryGetAtOffset(
+                0,
+                out int callIndex,
+                out InstructionEntry call));
+        Assert.Equal(0, callIndex);
+        Assert.Equal(ILOpCode.Call, call.OpCode);
+        Assert.False(sequence.IsComplete);
+
+        Assert.Equal(3, sequence.IndexAtOrAfter(100));
+        Assert.True(sequence.IsComplete);
+        Assert.False(
+            sequence.TryGetAtOffset(
+                100,
+                out int endIndex,
+                out _));
+        Assert.Equal(3, endIndex);
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => sequence.IndexAtOrAfter(-1));
+    }
+
+    [Fact]
+    public void Sequence_cursors_share_the_prefix_and_keep_independent_positions()
+    {
+        byte[] il =
+            new byte[] { 0x17, 0x18, 0x58, 0x2A };
+        var sequence = new InstructionSequence(il);
+        InstructionCursor first = sequence.GetCursor();
+        InstructionCursor second = sequence.GetCursor();
+
+        Assert.True(first.MoveNext());
+        InstructionEntry firstInstruction = first.Current;
+        Assert.True(first.MoveNext());
+        InstructionEntry secondInstruction = first.Current;
+
+        Assert.True(second.MoveNext());
+        Assert.Equal(firstInstruction.Offset, second.Current.Offset);
+        Assert.True(second.MoveNext());
+        Assert.Equal(secondInstruction.Offset, second.Current.Offset);
+    }
+
+    [Fact]
+    public void Sequence_reaches_eof_only_when_a_request_advances_to_it()
+    {
+        var sequence =
+            new InstructionSequence(
+                new byte[] { 0x17, 0x2A });
+        InstructionCursor cursor = sequence.GetCursor();
+
+        Assert.True(cursor.MoveNext());
+        Assert.True(cursor.MoveNext());
+        Assert.False(sequence.IsComplete);
+        Assert.False(cursor.MoveNext());
+        Assert.True(sequence.IsComplete);
+        Assert.Throws<InvalidOperationException>(
+            () => _ = cursor.Current);
+    }
+
+    [Fact]
+    public void Sequence_rethrows_a_reached_decode_failure()
+    {
+        var sequence =
+            new InstructionSequence(
+                new byte[] { 0x00, 0x28, 0x01 });
+        InstructionCursor cursor = sequence.GetCursor();
+
+        Assert.True(cursor.MoveNext());
+        Assert.Throws<BadImageFormatException>(
+            () => cursor.MoveNext());
+        Assert.Throws<BadImageFormatException>(
+            () => sequence.TryGet(1, out _));
+    }
+
+    [Fact]
+    public void Sequence_retains_prefix_access_after_a_later_decode_failure()
+    {
+        var sequence =
+            new InstructionSequence(
+                new byte[] { 0x00, 0x28, 0x01 });
+        InstructionCursor leading = sequence.GetCursor();
+        InstructionCursor lagging = sequence.GetCursor();
+
+        Assert.True(leading.MoveNext());
+        Assert.Throws<BadImageFormatException>(
+            () => leading.MoveNext());
+
+        Assert.True(lagging.MoveNext());
+        Assert.Equal(ILOpCode.Nop, lagging.Current.OpCode);
+        Assert.Equal(ILOpCode.Nop, sequence[0].OpCode);
+        Assert.Throws<BadImageFormatException>(
+            () => lagging.MoveNext());
+    }
+
+    [Fact]
+    public void Sequence_rejects_a_dangling_prefix_when_requested()
+    {
+        var sequence =
+            new InstructionSequence(
+                new byte[] { 0xFE, 0x14 });
+
+        Assert.Throws<BadImageFormatException>(
+            () => sequence.TryGet(0, out _));
+    }
+
+    [Fact]
+    public void Sequence_resolves_full_detail_only_for_the_requested_entry()
+    {
+        byte[] il = [0x2B, 0x01, 0x00, 0x2A];
+        var sequence = new InstructionSequence(il);
+
+        InstructionEntry branch = sequence[0];
+        DecodedInstruction resolved = sequence.Resolve(0);
+
+        Assert.Equal(ILOpCode.Br_s, branch.OpCode);
+        Assert.Equal([3], resolved.BranchTargets);
+        Assert.Same(resolved, sequence.Resolve(0));
+        Assert.False(sequence.IsComplete);
+    }
+
+    [Fact]
+    public void Sequence_owns_a_snapshot_of_mutable_input()
+    {
+        byte[] il = [0x00, 0x2A];
+        var sequence = new InstructionSequence(il);
+
+        il[0] = 0x7A;
+
+        Assert.Equal(ILOpCode.Nop, sequence[0].OpCode);
+        Assert.Equal(ILOpCode.Nop, sequence.Resolve(0).OpCode);
+    }
+
+    [Fact]
+    public void Sequence_resolved_entries_match_complete_decode()
+    {
+        byte[] il =
+        [
+            0x28, 0x01, 0x00, 0x00, 0x06,
+            0x2B, 0x00,
+            0x45, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0xFE, 0x19, 0x01,
+            0x02,
+            0x2A,
+        ];
+        ImmutableArray<DecodedInstruction> expected =
+            InstructionDecoder.Decode(il);
+        var sequence = new InstructionSequence(il);
+
+        for (int i = 0; i < expected.Length; i++)
+        {
+            InstructionEntry shallow = sequence[i];
+            DecodedInstruction actual = sequence.Resolve(i);
+
+            Assert.Equal(expected[i].Offset, shallow.Offset);
+            Assert.Equal(expected[i].OpCode, shallow.OpCode);
+            Assert.Equal(expected[i].NextOffset, shallow.NextOffset);
+            AssertDecodedEquivalent(expected[i], actual);
+        }
+    }
+
+    [Fact]
     public void Decodes_branch_targets_relative_to_next_offset()
     {
         // IL_0000 br.s IL_0003 ; IL_0002 nop ; IL_0003 ret
@@ -196,6 +403,17 @@ public class InstructionDecoderTests
                 (ILOpCode.Ret, 0, 1),
             ],
             visited);
+
+        var spanVisited = new List<(ILOpCode, int, int)>();
+        Assert.True(
+            InstructionDecoder.Visit(
+                il.AsSpan(),
+                (opcode, token, length) =>
+                {
+                    spanVisited.Add((opcode, token, length));
+                    return true;
+                }));
+        Assert.Equal(visited, spanVisited);
     }
 
     [Fact]
@@ -231,6 +449,37 @@ public class InstructionDecoderTests
     static bool Visit(
         byte[] il,
         Func<ILOpCode, int, int, bool> visitor)
+        => WithMethodBody(
+            il,
+            body => InstructionDecoder.Visit(body, visitor));
+
+    [Fact]
+    public void Borrowed_sequence_checks_owner_before_extending_the_prefix()
+    {
+        WithMethodBody(
+            [0x00, 0x2A],
+            body =>
+            {
+                bool ownerAlive = true;
+                var sequence = InstructionSequence.Borrow(
+                    body,
+                    () => ObjectDisposedException.ThrowIf(
+                        !ownerAlive,
+                        body));
+
+                Assert.Equal(ILOpCode.Nop, sequence[0].OpCode);
+                ownerAlive = false;
+
+                Assert.Equal(ILOpCode.Nop, sequence[0].OpCode);
+                Assert.Throws<ObjectDisposedException>(
+                    () => sequence.TryGet(1, out _));
+                return 0;
+            });
+    }
+
+    static T WithMethodBody<T>(
+        byte[] il,
+        Func<MethodBodyBlock, T> action)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -299,7 +548,27 @@ public class InstructionDecoderTests
             reader.GetMethodBody(
                 method.RelativeVirtualAddress);
 
-        return InstructionDecoder.Visit(body, visitor);
+        return action(body);
+    }
+
+    static void AssertDecodedEquivalent(
+        DecodedInstruction expected,
+        DecodedInstruction actual)
+    {
+        Assert.Equal(expected.Offset, actual.Offset);
+        Assert.Equal(expected.OpCode, actual.OpCode);
+        Assert.Equal(expected.OperandOffset, actual.OperandOffset);
+        Assert.Equal(expected.NextOffset, actual.NextOffset);
+        Assert.Equal(expected.Operand, actual.Operand);
+        Assert.Equal(expected.OperandValue, actual.OperandValue);
+        Assert.Equal(expected.BranchTargets, actual.BranchTargets);
+        Assert.Equal(expected.Branches, actual.Branches);
+        Assert.Equal(
+            expected.IsUnconditionalBranch,
+            actual.IsUnconditionalBranch);
+        Assert.Equal(expected.Exits, actual.Exits);
+        Assert.Equal(expected.FallsThrough, actual.FallsThrough);
+        Assert.Equal(expected.LeavesRegion, actual.LeavesRegion);
     }
 }
 
@@ -552,7 +821,7 @@ public class StackTypeInterpreterTests
         // The substrate exposes a single malformed-IL exception: BadImageFormatException. The
         // runtime-ported ILReader uses InvalidProgramException internally for truncated
         // opcode/branch/switch reads, so InstructionDecoder.Decode must normalize it at the
-        // boundary — otherwise consumers (ReachingDefinitions, LibraryBodyIndex) leak the wrong
+        // boundary — otherwise consumers (ReachingDefinitions, Analysis) leak the wrong
         // exception type past their recovery gate.
         Assert.Throws<BadImageFormatException>(() => InstructionDecoder.Decode(il));
     }

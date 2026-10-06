@@ -64,7 +64,7 @@ public class SharedOptions
     public Option<bool> Urls { get; } = new("--urls") { Description = "Project URL-bearing selected section rows to a URL list or JSONL rows" };
     public Option<bool> Paths { get; } = new("--paths") { Description = "Project path-bearing selected section rows to a path list or JSONL rows" };
     public Option<bool> JsonArray { get; } = new("--json-array") { Description = "With a shape projection, emit projected rows as one JSON array" };
-    public Option<string?> Tips { get; }
+    public Option<string?> Companion { get; }
 
     // Discovery option
     public Option<string?> Discover { get; }
@@ -77,6 +77,10 @@ public class SharedOptions
     public Option<bool> Schema { get; } = new("--schema")
     {
         Description = "With -D: show syntax-selected static schema or labeled alternatives without resolving/loading source (offline)"
+    };
+    public Option<bool> Details { get; } = new("--details")
+    {
+        Description = "With -D: add structurally supported output formats, shape, and cardinality (offline)"
     };
     public Option<bool> Tree { get; } = new("--tree") { Description = "Show hierarchical output when supported" };
     public Option<bool> Effective { get; } = new("--effective")
@@ -137,12 +141,7 @@ public class SharedOptions
             Description = "Select items: semantic rows when declared, otherwise rendered lines; pair with --tail to take from the end"
         };
 
-        Tips = new Option<string?>("--tips")
-        {
-            Description = "Tip verbosity: q(uiet), m(inimal), d(etailed)",
-            Arity = ArgumentArity.ZeroOrOne
-        };
-        Tips.Aliases.Add("-T");
+        Companion = CreateCompanionOption();
 
         Discover = new Option<string?>("-D")
         {
@@ -312,11 +311,12 @@ public class SharedOptions
     public void AddOutputOptionsTo(
         Command command,
         bool supportsRowWindows = true,
-        Func<CommandResult, bool>? validateLegacyRowWindow = null)
+        Func<CommandResult, bool>? validateLegacyRowWindow = null,
+        Option<string?>? companion = null)
     {
         command.Options.Add(Verbose);
         command.Options.Add(Verbosity);
-        command.Options.Add(Tips);
+        command.Options.Add(companion ?? Companion);
         command.Options.Add(Rows);
         AddLineSelectionOptionsTo(command);
 
@@ -772,10 +772,113 @@ public class SharedOptions
         => OptionParsers.ParseVerbosity(parseResult.GetValue(Verbosity));
 
     /// <summary>
-    /// Parses tip level from parse result.
+    /// Creates the CLI companion-output option.
     /// </summary>
-    public TipLevel ParseTipLevel(ParseResult parseResult)
-        => OptionParsers.ParseTipLevel(parseResult.GetValue(Tips), parseResult.GetResult(Tips) != null);
+    public static Option<string?> CreateCompanionOption(
+        bool allowBareExplanation = false)
+    {
+        var option = new Option<string?>("-E")
+        {
+            Description =
+                allowBareExplanation
+                    ? "Write companion output to stderr "
+                        + "(bare explanation or .tips)"
+                    : "Write companion output to stderr (.tips is available; "
+                        + "bare explanation and .references are reserved)",
+            Arity = ArgumentArity.ZeroOrOne,
+        };
+        AddExplanationProjectionValidator(
+            option,
+            "-E",
+            allowBareExplanation);
+        return option;
+    }
+
+    public static Option<string?> CreateExplanationOption()
+    {
+        var option = new Option<string?>("--explain")
+        {
+            Description =
+                "Explain the Member command or one exact resolved Member; "
+                    + "use '.tips' to select only contextual tips",
+            Arity = ArgumentArity.ZeroOrOne,
+        };
+        AddExplanationProjectionValidator(
+            option,
+            "--explain",
+            allowBareExplanation: true);
+        return option;
+    }
+
+    private static void AddExplanationProjectionValidator(
+        Option<string?> option,
+        string optionName,
+        bool allowBareExplanation)
+    {
+        option.Validators.Add(result =>
+        {
+            if (result.Tokens.Count == 0)
+            {
+                if (!allowBareExplanation)
+                {
+                    result.AddError(
+                        $"Bare '{optionName}' is reserved for complete "
+                            + "contextual explanation, which is not available "
+                            + $"yet. Use '{optionName} .tips' for contextual "
+                            + "tips.");
+                }
+                return;
+            }
+
+            string value = result.Tokens[^1].Value;
+            if (value == ".tips")
+                return;
+
+            result.AddError(
+                value == ".references"
+                    ? $"'{optionName} .references' is reserved for reusable "
+                        + "references, which are not available yet."
+                    : $"Unknown "
+                        + (optionName == "-E"
+                            ? "companion"
+                            : "explanation")
+                        + $" projection '{value}'. "
+                        + "Known projections are '.tips' and '.references'.");
+        });
+    }
+
+    public static ExplanationProjection? ParseExplanationProjection(
+        ParseResult parseResult,
+        Option<string?> option)
+    {
+        OptionResult? result = parseResult.GetResult(option);
+        if (result is null)
+            return null;
+        if (result.Tokens.Count == 0)
+            return ExplanationProjection.Complete;
+        return parseResult.GetValue(option) switch
+        {
+            ".tips" => ExplanationProjection.Tips,
+            ".references" => ExplanationProjection.References,
+            _ => null,
+        };
+    }
+
+    /// <summary>
+    /// Resolves the requested companion projection.
+    /// </summary>
+    public CompanionOutput ParseCompanionOutput(
+        ParseResult parseResult,
+        Option<string?>? companion = null)
+    {
+        companion ??= Companion;
+        return ParseExplanationProjection(parseResult, companion) switch
+        {
+            ExplanationProjection.Complete => CompanionOutput.Explanation,
+            ExplanationProjection.Tips => CompanionOutput.Tips,
+            _ => CompanionOutput.None,
+        };
+    }
 
     /// <summary>
     /// Resolves the output format from parse result.
@@ -954,6 +1057,14 @@ public class SharedOptions
     /// </summary>
     public bool ParseSchema(ParseResult parseResult)
         => parseResult.GetValue(Schema);
+
+    /// <summary>
+    /// <c>-D --details</c>: structural discovery with formats, shape, and cardinality. False when the
+    /// command does not offer the option.
+    /// </summary>
+    public bool ParseDiscoverDetails(ParseResult parseResult)
+        => parseResult.GetResult(Details) is { Implicit: false }
+            && parseResult.GetValue(Details);
 
     private static string[]? ParseProjectionList(ParseResult parseResult, Option<string?> option)
     {

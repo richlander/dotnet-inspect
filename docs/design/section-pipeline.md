@@ -14,8 +14,10 @@ user gesture
   -> rendering
 ```
 
-The command owns the gesture and budget. `SectionPipeline<TModel>` owns section
-and category planning. `InspectionQueryRegistry` authors typed query
+The host owns the gesture, capability authorization, and presentation budget.
+It lowers automatic disclosure to `SectionViewLevel`.
+`SectionPipeline<TModel>` owns section and category planning.
+`InspectionQueryRegistry` authors typed query
 declarations; its immutable `InspectionQueryCatalog` owns query cost,
 prerequisites, optional composition, planning, and execution.
 
@@ -68,10 +70,12 @@ The library catalog calls `WithoutComputedPoles`; it does not expose computed
 Content-shaped producers register an `InspectionQuery<T>` definition.
 Sections bind to that definition by object identity, and the host projects its
 typed result into the compatibility model.
-`ClassifiedMethodsQuery` is shared by `Library Info`, P/Invoke Methods, Async
-Methods, and Signals; one demand set executes it once against the command-owned
-`AssemblyInspectionSession`. `Signals` also binds `AuditMetadataQuery` and
-`AssemblyReferencesQuery`; the host applies all three typed results before
+`Library Info`, P/Invoke Methods, Async Methods, and Signals each bind their
+own method classification demand, which names only the counts or rows the
+section shows; the requested demands run as one `MethodClassificationQuery`
+request against the command-owned `AssemblyInspectionSession`. `Signals` also
+binds `AuditMetadataQuery` and `AssemblyReferencesQuery`; the host applies all
+three typed results before
 CLI-owned signal composition, then recomposes only model-derived rows after
 later source evidence lands. `Unsafe Members` binds the unbounded
 `UnsafeEvidenceQuery`, which consumes the command's shared Analysis body index
@@ -161,7 +165,11 @@ planning allocate no memory after static initialization;
 `LibraryQueryCatalog_RepeatedAcquisitionAndPlanningAllocateNothing` gates that
 property.
 
-`SectionPipeline<TModel>` remains the mutable section-authoring API.
+`DotnetInspector.Sections` owns `SectionPipeline<TModel>` as the mutable
+section-authoring API and `SectionCatalog<TModel>` as its immutable compiled
+form. The CLI maps `Verbosity` to `SectionViewLevel` and projects neutral
+section and host query demand into `InspectionTrace`; neither CLI type enters
+the L2 contract.
 `Compile()` freezes it and returns an immutable `SectionCatalog<TModel>` that
 snapshots stable section and category enumeration. Compilation also preserves
 the frozen pipeline for candidate, effectiveness, and rendering APIs rather
@@ -229,7 +237,8 @@ without allowing later registrations to mutate that snapshot.
 
 ## Compiled inspection domain composition
 
-**Compiled Inspection Domain Composition** owns the L1/L2 binding between one
+**Compiled Inspection Domain Composition** in `DotnetInspector.Sections` owns
+the L1/L2 binding between one
 immutable typed-query domain and one or more immutable section lenses. It is a
 focused composition owner: Queries continues to own producer registration,
 dependency closure, cost, planning, and execution, while the Section Pipeline
@@ -283,7 +292,8 @@ The Diff catalog is the first production canary and now exposes one
 `CompiledInspectionDomain<DiffQueryContext>` and one compiled section lens.
 `DiffCommand` obtains and runs its query plan through that lens. Its request-owned
 `DiffQueryContext`, multiple independently selectable producers, a queryless
-Finding Transitions selection that lowers to the empty plan, and pre-existing
+analysis-set view selection (`Summary`, `Transitions`) that lowers to the
+empty plan, and pre-existing
 allocation gates exercise the seam without introducing
 assembly or workspace lifetime. API, Type, and Member migration remains
 follow-up work.
@@ -431,7 +441,7 @@ The curated verbosity contract is:
 | --- | --- |
 | Quiet | Headless compact summary only |
 | Minimal | High-value info section, excluding unbounded work |
-| Normal | Terse and informative, network-free base sections |
+| Normal | Terse and informative base sections |
 | Detailed | All bounded base sections |
 
 Compact identity fields are reserved for quiet verbosity. Minimal does not

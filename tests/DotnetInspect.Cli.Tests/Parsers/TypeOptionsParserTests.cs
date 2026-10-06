@@ -58,6 +58,7 @@ public class TypeOptionsParserTests
         typeCommand.Options.Add(memberOption);
         typeCommand.Options.Add(kindOption);
         opts.AddSectionOptionsTo(typeCommand);
+        typeCommand.Options.Add(opts.Details);
         typeCommand.Options.Add(opts.Markdown);
         typeCommand.Options.Add(opts.PlainText);
         typeCommand.Options.Add(opts.Envelope);
@@ -87,6 +88,30 @@ public class TypeOptionsParserTests
             "--repo", @"C:\clone-b");
 
         Assert.Equal([@"C:\clone-a", @"C:\clone-b"], options.SourceRepositories);
+    }
+
+    [Fact]
+    public async Task DetailsOption_MakesDiscoveryStructural()
+    {
+        // -D --details is a structural, offline view of the catalog with
+        // formats, shape, and cardinality, so it opts out of effective
+        // discovery exactly as --schema does.
+        var options = await ParseSuccessAsync(
+            "type", "Some.Type",
+            "--library", "x.dll",
+            "-D", "--details");
+
+        Assert.NotNull(options.Discover);
+        Assert.True(options.DiscoverDetails);
+        Assert.False(options.EffectiveDiscovery);
+
+        var bare = await ParseSuccessAsync(
+            "type", "Some.Type",
+            "--library", "x.dll",
+            "-D");
+
+        Assert.False(bare.DiscoverDetails);
+        Assert.True(bare.EffectiveDiscovery);
     }
 
     [Fact]
@@ -165,13 +190,8 @@ public class TypeOptionsParserTests
         }
     }
 
-    [Theory]
-    [InlineData("q", TipLevel.Quiet)]
-    [InlineData("m", TipLevel.Minimal)]
-    [InlineData("d", TipLevel.Detailed)]
-    public async Task Envelope_PreservesExplicitTipLevel(
-        string value,
-        TipLevel expected)
+    [Fact]
+    public async Task Envelope_PreservesExplicitTipsRequest()
     {
         var options = await ParseSuccessAsync(
             "type",
@@ -181,10 +201,10 @@ public class TypeOptionsParserTests
             "--tfm",
             "net10.0",
             "--envelope",
-            "--tips",
-            value);
+            "-E",
+            ".tips");
 
-        Assert.Equal(expected, options.TipLevel);
+        Assert.Equal(CompanionOutput.Tips, options.CompanionOutput);
     }
 
     [Fact]

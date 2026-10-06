@@ -12,14 +12,6 @@ internal sealed record BrowserSpotlightExternalPackageWorkspaceRequest(
 
 internal static class BrowserSpotlightExternalPackageWorkspaceRequestFactory
 {
-    const int SchemaVersion = InspectionDefinitionSchema.Version3;
-    const string WorkspaceId = "spotlight-workspace";
-    const string ContextId = "spotlight-package";
-    const string NavigationId = "spotlight-navigation";
-    const string PackageNavigationId = "spotlight-package";
-    const string ViewId = "spotlight-view";
-    const string ScenarioId = "spotlight-scenario";
-
     internal static BrowserSpotlightExternalPackageWorkspaceRequest Create(
         string retainedDefinitionId,
         string label,
@@ -29,80 +21,15 @@ internal static class BrowserSpotlightExternalPackageWorkspaceRequestFactory
     {
         ArgumentNullException.ThrowIfNull(package);
         ArgumentNullException.ThrowIfNull(curatedPlan);
-        if (!curatedPlan.Contexts.IsEmpty)
-        {
-            throw new ArgumentException(
-                "The Spotlight curated plan must contain registrations only.",
-                nameof(curatedPlan));
-        }
-        if (!ReferenceEquals(
-                curatedPlan.TraversalTargetPolicy,
-                TraversalTargetFrameworkPolicy.ProductDefault))
-        {
-            throw new ArgumentException(
-                "The Spotlight curated plan must retain the product-default traversal target policy.",
-                nameof(curatedPlan));
-        }
-
-        string framework =
-            curatedPlan.TraversalTargetPolicy.TargetFramework;
-        var coordinate = new DefinitionMemberCoordinate.PackageCoordinate(
-            package.PackageId,
-            package.Version,
-            framework);
-        InspectionDefinitionRecord[] records =
-        [
-            new WorkspaceDefinition(
-                SchemaVersion,
-                WorkspaceId,
-                [
-                    new WorkspaceContextDefinition(
-                        ContextId,
-                        framework,
-                        members: [coordinate]),
-                ],
-                title: label,
-                registrations: curatedPlan.Registrations),
-            new CommittedNavigationDefinition(
-                SchemaVersion,
-                NavigationId,
-                [
-                    new NavigationTabDefinition(
-                        PackageNavigationId,
-                        coordinate: coordinate),
-                ],
-                focus: PackageNavigationId),
-            new CommittedViewDefinition(
-                SchemaVersion,
-                ViewId,
-                [
-                    new CommittedViewStateDefinition(
-                        navigation: null,
-                        new PortableSubjectRequest.Workspace()),
-                    new CommittedViewStateDefinition(
-                        PackageNavigationId,
-                        new PortableSubjectRequest.Package(),
-                        new PortableRetainedSubjectContext.Package()),
-                ]),
-            new ScenarioDefinition(
-                SchemaVersion,
-                ScenarioId,
-                workspace: WorkspaceId,
-                context: ContextId,
-                view: ViewId,
-                navigation: NavigationId),
-        ];
-        var restoration = new CompleteRestorationRequestBasis.DefinitionInput(
-            ScenarioId,
-            records);
         return new(
             package,
             curatedPlan,
-            new BrowserRetainedWorkspaceActivationRequest(
+            BrowserExternalPackageWorkspaceRequestFactory.Create(
                 retainedDefinitionId,
                 label,
                 canonicalLocation,
-                restoration));
+                package,
+                curatedPlan));
     }
 }
 

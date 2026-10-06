@@ -1,8 +1,8 @@
 # Development practices
 
 This document owns the repository's development-practice model: how convention,
-design, evidence, implementation, demos, and review work together. `AGENTS.md`
-states the binding summary. Focused documents such as
+design, evidence, implementation, demos, and review work together.
+[`AGENTS.md`](../AGENTS.md) routes agents here at launch. Focused documents such as
 [Design scope and composition](design-scope.md),
 [Evidence and validation](evidence-and-validation.md), and
 [Round orchestration](round-orchestration.md) own their specialized contracts
@@ -225,6 +225,17 @@ share one result. Preserve that intent through planning, implementation,
 testing, and review. Treat a performance result that scales with work the
 modern path was intended to avoid as an architectural failure, not as a
 benchmark footnote.
+
+Choose the work-reduction and code-sharing boundary together. The target is
+terminal-optimal work: acquire, decode, and materialize only the information
+needed to answer the terminal and present its data, while sharing mechanisms
+whose inputs, invariants, and outputs genuinely align. Optimal does not mean
+one bespoke metadata decoder per query, which duplicates correctness-sensitive
+logic and carrying cost. Nor does sharing justify one monolithic decoder that
+computes every possible fact for every query, defeating pushdown. State which
+stages and facts are shared, which are specialized, the alternatives rejected,
+and why the boundary is the pragmatic middle ground for current terminals,
+measured costs, and expected consumers.
 
 Every modernization or legacy-path replacement must perform and report an
 exact base-versus-head NativeAOT comparison for every terminal the adopted

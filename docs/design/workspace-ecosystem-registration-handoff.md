@@ -37,8 +37,9 @@ approved in #6763, supplies the platform and all-known construction intents
 adopted here. #7001 adds selected-set construction from an explicit ordered
 ecosystem identity sequence. The platform composition keeps its narrower
 meaning; all-known construction adds every shipped ecosystem, including Aspire,
-AI, Azure, Blazor, and .NET MAUI; selected-set construction adds exactly the requested
-registrations in caller order. These application-owned choices add no product
+AI, Blazor, and .NET MAUI; selected-set construction adds the requested
+registrations in caller order, each preceded by its ancestors as defined by
+[Ecosystem hierarchy](ecosystem-hierarchy.md#workspace-plan-construction). These application-owned choices add no product
 policy to Workspace.
 
 ## Authority and exact claim
@@ -392,23 +393,23 @@ The application catalog owns two separate authored sequences:
 ```text
 PlatformProductWorkspace
   ecosystem.runtime
-  ecosystem.aspnetcore
   ecosystem.microsoft-extensions
+  ecosystem.aspnetcore
 
 AllKnownProductWorkspace
   ecosystem.runtime
-  ecosystem.aspnetcore
   ecosystem.microsoft-extensions
+  ecosystem.aspnetcore
   ecosystem.aspire
   ecosystem.ai
-  ecosystem.azure
   ecosystem.blazor
+  ecosystem.maui
 ```
 
-This order is product policy. It is not derived from pack discovery order,
-alphabetical order, package-set order, or namespace roots. The current pack
-discovery order places Microsoft.Extensions before ASP.NET Core, so filtering
-the ordinary pack manifest would produce the wrong curated order.
+This order is product policy. It is not derived from alphabetical order,
+package-set order, or namespace roots. Each manifest places every pack after
+its [ecosystem hierarchy](ecosystem-hierarchy.md) parent; the platform manifest
+is the lineage of ASP.NET Core.
 
 Complete validation of either manifest requires:
 
@@ -434,11 +435,10 @@ The current target contributions are:
 | Curated registration | Registered package roots | Additional populations |
 | --- | --- | --- |
 | .NET Runtime | none | `Platform(DotNetRuntime)`, `System.` |
-| ASP.NET Core | `Microsoft.AspNetCore.OpenApi`, `Microsoft.AspNetCore.Authentication.JwtBearer` | `Platform(AspNetCore)`, `Microsoft.AspNetCore.` |
-| Microsoft.Extensions | DI, configuration, and logging abstractions | `Microsoft.Extensions.` |
-| Aspire (all-known only) | `Aspire.Hosting` | `Aspire.` |
-| AI (all-known only) | Five concrete AI packages | Four focused discovery prefixes |
-| Azure (all-known only) | Nine concrete Azure connector and client packages | `Azure.`, `Microsoft.Azure.`, `Microsoft.Extensions.Azure`, `Aspire.Azure.`, `Aspire.Hosting.Azure.` |
+| ASP.NET Core | none | `Platform(AspNetCore)`, `Microsoft.AspNetCore.` |
+| Microsoft.Extensions | none | `Microsoft.Extensions.` |
+| Aspire (all-known only) | `Aspire.Hosting`, `Aspire.Hosting.Testing` | `Aspire.` |
+| AI (all-known only) | Seven concrete AI packages | `Microsoft.Extensions.AI` |
 | Blazor (all-known only) | Four concrete Blazor and integration packages | `Microsoft.AspNetCore.Components`, `Microsoft.Authentication.WebAssembly` |
 
 Namespace roots cannot satisfy this requirement. Core packages can because
@@ -446,7 +446,7 @@ they are the finite concrete roots a later selecting operation may resolve;
 construction itself remains inert.
 
 Aspire is absent from platform curation and present in all-known construction.
-Its `Aspire.Hosting` registered root and exact Integration-owned scanner binding
+Its `Aspire.Hosting` and `Aspire.Hosting.Testing` registered roots and exact Integration-owned scanner binding
 are retained alongside the prefix. This supports the real
 `Aspire.Hosting.Redis` scenario without resolving that package or invoking the
 scanner. .NET Runtime retains its runtime declaration and inert `System.`
@@ -454,22 +454,15 @@ discovery prefix for scenarios such as `System.Text.Json`, without inventing a
 package coordinate for the framework library.
 
 AI is also absent from platform curation and present in all-known construction.
-Its five concrete registered packages supply finite traversal roots. Its four
-literal package prefixes retain discovery scope for the root packages and
-child package families for Microsoft.Extensions.AI, VectorData, Agent
-Framework, and MCP.
-The first two deliberately overlap the broader `Microsoft.Extensions.` prefix;
+Its seven concrete registered packages supply finite traversal roots. Its
+single literal `Microsoft.Extensions.AI` package prefix retains discovery scope
+for the Microsoft.Extensions.AI root packages and child package family.
+That prefix deliberately overlaps the broader `Microsoft.Extensions.` prefix;
 the handoff preserves both authored registrations and neither infers exclusive
 ownership, package equivalence, or traversal authorization.
 
-Azure is absent from platform curation and present in all-known construction.
-Its nine concrete registered packages supply finite traversal roots chosen for
-application relevance and cross-ecosystem joins. Its `Azure.`,
-`Microsoft.Azure.`, `Microsoft.Extensions.Azure`, `Aspire.Azure.`, and
-`Aspire.Hosting.Azure.` prefixes retain overlapping discovery scope. The
-Microsoft.Extensions and Aspire values deliberately overlap those ecosystems;
-the handoff preserves every authored contribution without inferring exclusive
-ownership, package equivalence, migration, or traversal from prefix matches.
+The former Azure registration was removed by the
+[package set retirement map](package-set-retirement.md).
 
 Blazor is absent from platform curation and present in all-known construction.
 Its four concrete registered packages supply traversal roots for browser-hosted
@@ -697,8 +690,7 @@ SelectWorkspaceRegistration(ecosystem.aspnetcore)
 Known
   Id               ecosystem.aspnetcore
   NamespaceRoots   Microsoft.AspNetCore
-  CorePackages     Microsoft.AspNetCore.OpenApi
-                   Microsoft.AspNetCore.Authentication.JwtBearer
+  CorePackages     (none)
   Populations      Platform(aspnetcore)
                    PackagePrefix(Microsoft.AspNetCore.)
   Scanner          absent
@@ -713,26 +705,27 @@ CreatePlatformWorkspacePlan()
   -> WorkspacePlan
      Registrations
        1. ecosystem.runtime
-       2. ecosystem.aspnetcore
-       3. ecosystem.microsoft-extensions
+       2. ecosystem.microsoft-extensions
+       3. ecosystem.aspnetcore
 
 CreateWorkspacePlan()
   -> WorkspacePlan
      Registrations
        1. ecosystem.runtime
-       2. ecosystem.aspnetcore
-       3. ecosystem.microsoft-extensions
+       2. ecosystem.microsoft-extensions
+       3. ecosystem.aspnetcore
        4. ecosystem.aspire
        5. ecosystem.ai
-       6. ecosystem.azure
-       7. ecosystem.blazor
-       8. ecosystem.maui
+       6. ecosystem.blazor
+       7. ecosystem.maui
 
 CreateWorkspacePlan([ecosystem.aspire, ecosystem.runtime])
   -> WorkspacePlan
      Registrations
-       1. ecosystem.aspire
-       2. ecosystem.runtime
+       1. ecosystem.runtime
+       2. ecosystem.microsoft-extensions
+       3. ecosystem.aspnetcore
+       4. ecosystem.aspire
 
 ```
 
@@ -740,7 +733,7 @@ Direct `new WorkspacePlan()` instead returns an empty registration set.
 Restoring an explicitly empty registration sequence constructs raw and remains
 empty; neither host calls curated construction during restoration.
 
-The neighboring Aspire, AI, Azure, Blazor, and .NET MAUI packs have selectable lower
+The neighboring Aspire, AI, Blazor, and .NET MAUI packs have selectable lower
 declarations and appear only in the all-known sequence. Plans create no live Package
 membership; explicit live construction from any plan starts with empty acquired
 membership.
@@ -753,9 +746,9 @@ membership.
 | Explicit correspondence | Equal text without a retained pair cannot project or select a loader; mismatched paired spellings and duplicate lower IDs reject complete catalog construction. |
 | Projection fidelity | Known selection returns the exact retained declaration; known unavailable and unknown identities remain distinct. |
 | Resource-free projection | Discovery and selection invoke no prefix query, platform source, package-set lookup, scanner, acquisition, or Workspace mutation. |
-| Curated product Workspace | The current .NET Runtime, ASP.NET Core, Microsoft.Extensions order and required registered-package or population contributions are enforced without filtering ordinary pack discovery. |
-| All-known product Workspace | The separate current eight-row order includes Aspire, AI, Azure, Blazor, and .NET MAUI and every known pack; missing or unavailable projections cannot be silently omitted. |
-| Selected product Workspace | A nonempty unique selected identity sequence produces exactly those retained registrations in caller order; null, duplicate, unknown, unavailable, and hints-only entries fail without a partial plan. |
+| Curated product Workspace | The current .NET Runtime, Microsoft.Extensions, ASP.NET Core order and required registered-package or population contributions are enforced without filtering ordinary pack discovery. |
+| All-known product Workspace | The separate current seven-row order includes Aspire, AI, Blazor, and .NET MAUI and every known pack, each after its parent; missing or unavailable projections cannot be silently omitted. |
+| Selected product Workspace | A nonempty unique selected identity sequence produces the union of the selected lineages, root first, in the order defined by [Ecosystem hierarchy](ecosystem-hierarchy.md#workspace-plan-construction); null, duplicate, unknown, unavailable, and hints-only entries fail without a partial plan. |
 | Independent construction | One curated plan can seed distinct live Workspace identities; edits and close preserve the original plan and other owners. |
 | Lifetime preservation | Plans require no disposal; explicit live construction consumes the single Workspace awaited lifetime without an Ecosystems-owned variant. |
 | Empty lower-layer default | Direct Workspace construction without explicit registrations is empty and has no path that consults Ecosystems or requests curation. |

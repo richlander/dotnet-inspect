@@ -4,27 +4,27 @@ using DotnetInspect.Web;
 namespace DotnetInspect.Web.Interop.Package;
 
 public sealed record BrowserPackageChangesRequest(
-    string PackageSetId,
+    string EcosystemId,
     string? FromExclusive,
     string? ThroughInclusive,
     bool SecurityOnly,
     int MaximumRows);
 
-public sealed record BrowserPackageChangesPackageSetDescriptor(
+public sealed record BrowserPackageChangesEcosystemDescriptor(
     string Id,
     string Title,
     string Summary,
-    int Order);
+    int Order,
+    string[] Prefixes);
 
-public sealed record BrowserPackageChangesPackageSetCatalog(
+public sealed record BrowserPackageChangesEcosystemCatalog(
     int Version,
-    BrowserPackageChangesPackageSetDescriptor[] PackageSets);
+    BrowserPackageChangesEcosystemDescriptor[] Ecosystems);
 
 public sealed record BrowserPackageChangesPackageScope(
     string Kind,
     string? SelectionId,
-    string? Prefix,
-    string[] PackageIds);
+    string[] Prefixes);
 
 public sealed record BrowserPackageChangesResolvedRequest(
     DateTimeOffset ReferenceTime,
@@ -287,7 +287,7 @@ public sealed record BrowserPackageChangesCancellation(
 }
 
 [JsonSerializable(typeof(BrowserPackageChangesRequest))]
-[JsonSerializable(typeof(BrowserPackageChangesPackageSetCatalog))]
+[JsonSerializable(typeof(BrowserPackageChangesEcosystemCatalog))]
 [JsonSerializable(typeof(BrowserPackageChangesEvent))]
 [JsonSerializable(typeof(BrowserPackageChangesResult))]
 [JsonSerializable(typeof(BrowserPackageChangesCancellation))]

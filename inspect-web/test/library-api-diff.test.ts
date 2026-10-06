@@ -10,6 +10,7 @@ import type {
 import {
   bindLibraryApiDiffRows,
   createLibraryApiDiffCoordinator,
+  libraryApiDiffPresence,
   libraryApiDiffMemberExploreContext,
   renderLibraryApiDiff,
   type LibraryApiDiffSelection,
@@ -62,14 +63,20 @@ function succeeded(
   compileAssetId = "lib/net11.0/Example.dll",
 ): BrowserLibraryApiDiffResult {
   return {
-    schemaVersion: 1,
+    schemaVersion: 3,
     request: {
-      schemaVersion: 1,
+      schemaVersion: 3,
       packageId: "Example.Package",
       currentVersion,
       targetVersion,
       targetFramework: "net11.0",
       compileAssetId,
+      surface: "Library",
+      analyses: ["api"],
+      views: "Changes",
+      typeNames: [],
+      memberTargetIdentities: [],
+      predicate: null,
     },
     kind: "Succeeded",
     value: {
@@ -144,6 +151,23 @@ function succeeded(
 
 function inspection(
   content: unknown = { outcome: "available", document: {} },
+  analysis: {
+    readonly surface?: "Library" | "Type" | "Member";
+    readonly views?: string;
+    readonly analyses?: readonly string[];
+    readonly predicate?: {
+      readonly key: string;
+      readonly operator: string;
+      readonly value: string;
+    };
+    readonly outcomes?: readonly {
+      readonly analysis: string;
+      readonly kind: "Compared" | "Unavailable" | "Failed";
+      readonly findings: readonly string[];
+      readonly detail?: string | null;
+    }[];
+    readonly transitions?: readonly unknown[];
+  } = {},
 ): NonNullable<BrowserLibraryApiDiffResult["inspection"]> {
   const share: InspectionShare = {
     kind: "nonProjectable",
@@ -154,7 +178,35 @@ function inspection(
     packet: null,
   };
   return {
-    content,
+    content: {
+      comparison: {
+        name: "Example.Package",
+        beforeVersion: "1.0.0",
+        afterVersion: "2.0.0",
+        surface: analysis.surface ?? "Library",
+        views: analysis.views ?? "Changes",
+        analyses: analysis.analyses ?? ["api"],
+        predicates: analysis.predicate === undefined
+          ? []
+          : [{
+              key: analysis.predicate.key,
+              operator: analysis.predicate.operator === "Contains"
+                ? "contains"
+                : "starts-with",
+              value: analysis.predicate.value,
+            }],
+      },
+      outcomes: analysis.outcomes ?? [{
+        analysis: "api",
+        kind: "Compared",
+        findings: ["metadata.type", "metadata.member"],
+        detail: null,
+      }],
+      transitions: analysis.transitions ?? null,
+      apiInspectionFailures: [],
+      changes: { types: [] },
+      libraryApi: content,
+    },
     share,
     diagnostics: [],
   };
@@ -191,6 +243,7 @@ test("unresolved Package targets remain distinct without starting managed work",
     reportOperationDiagnostic: () => undefined,
     render: () => undefined,
   });
+
   coordinator.reconcile({
     ...selection({}),
     target: { kind: "loading", message: "Reading available versions..." },
@@ -204,6 +257,136 @@ test("unresolved Package targets remain distinct without starting managed work",
   });
   assert.equal(state.libraryApiDiff.status, "target-unavailable");
   assert.equal(queries, 0);
+});
+
+test("subject-scoped selections drive the generic Diff request", async () => {
+  const packageModel = {};
+  const state: LibraryApiDiffStateHost = {
+    libraryApiDiff: { status: "idle" },
+  };
+  let observed: BrowserLibraryApiDiffRequest | null = null;
+  const coordinator = createLibraryApiDiffCoordinator({
+    state,
+    operationAuthority: createOperationAuthorityPage(),
+    query: (_operationId, request) => {
+      observed = request;
+      const result = withMembers();
+      return Promise.resolve({
+        ...result,
+        request,
+        inspection: inspection(
+          { outcome: "available", document: {} },
+          {
+            surface: "Member",
+            views: "Changes, Summary, Transitions",
+            analyses: request.analyses,
+          },
+        ),
+      });
+    },
+    cancel: () => undefined,
+    describeError: error => error instanceof Error ? error.message : String(error),
+    reportOperationDiagnostic: () => undefined,
+    render: () => undefined,
+  });
+
+  coordinator.reconcile({
+    ...selection(packageModel),
+    query: {
+      surface: "Member",
+      analyses: ["api", "allocation", "csharp"],
+      views: "Changes, Summary, Transitions",
+      typeNames: ["Example.Widget"],
+      memberTargetIdentities: ["digest-run"],
+    },
+  });
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.deepEqual(observed, {
+    schemaVersion: 3,
+    packageId: "Example.Package",
+    currentVersion: "2.0.0",
+    targetVersion: "1.0.0",
+    targetFramework: "net11.0",
+    compileAssetId: "lib/net11.0/Example.dll",
+    surface: "Member",
+    analyses: ["api", "allocation", "csharp"],
+    views: "Changes, Summary, Transitions",
+    typeNames: ["Example.Widget"],
+    memberTargetIdentities: ["digest-run"],
+    predicate: null,
+  });
+  assert.equal(state.libraryApiDiff.status, "ready");
+});
+
+test("literal selections retain the exact predicate in request identity", async () => {
+  const packageModel = {};
+  const state: LibraryApiDiffStateHost = {
+    libraryApiDiff: { status: "idle" },
+  };
+  const requests: BrowserLibraryApiDiffRequest[] = [];
+  const coordinator = createLibraryApiDiffCoordinator({
+    state,
+    operationAuthority: createOperationAuthorityPage(),
+    query: (_operationId, request) => {
+      requests.push(request);
+      return Promise.resolve({
+        ...succeeded("1.0.0"),
+        request,
+        inspection: inspection(
+          { outcome: "available", document: {} },
+          {
+            surface: "Library",
+            views: "Transitions",
+            analyses: ["string-literals"],
+            predicate: {
+              key: "Literal",
+              operator: "Contains",
+              value: "https://",
+            },
+            outcomes: [{
+              analysis: "string-literals",
+              kind: "Compared",
+              findings: ["analysis.string-literal-use"],
+            }],
+            transitions: [],
+          },
+        ),
+      });
+    },
+    cancel: () => undefined,
+    describeError: String,
+    reportOperationDiagnostic: () => undefined,
+    render: () => undefined,
+  });
+  const literalSelection: LibraryApiDiffSelection = {
+    ...selection(packageModel),
+    query: {
+      surface: "Library",
+      analyses: ["string-literals"],
+      views: "Transitions",
+      typeNames: [],
+      memberTargetIdentities: [],
+      predicate: {
+        key: "Literal",
+        operator: "Contains",
+        value: "https://",
+      },
+    },
+  };
+
+  coordinator.reconcile(literalSelection);
+  await Promise.resolve();
+  coordinator.reconcile(literalSelection);
+
+  assert.equal(requests.length, 1);
+  assert.deepEqual(requests[0]?.predicate, {
+    key: "Literal",
+    operator: "Contains",
+    value: "https://",
+  });
+  assert.equal(state.libraryApiDiff.status, "ready");
 });
 
 test("replacement Package contexts cancel old work and suppress late publication", async () => {
@@ -240,20 +423,32 @@ test("replacement Package contexts cancel old work and suppress late publication
   assert.deepEqual(cancellations, ["one"]);
   assert.deepEqual(requests, [
     {
-      schemaVersion: 1,
+      schemaVersion: 3,
       packageId: "Example.Package",
       currentVersion: "2.0.0",
       targetVersion: "1.0.0",
       targetFramework: "net11.0",
       compileAssetId: "lib/net11.0/Example.dll",
+      surface: "Library",
+      analyses: ["api"],
+      views: "Changes",
+      typeNames: [],
+      memberTargetIdentities: [],
+      predicate: null,
     },
     {
-      schemaVersion: 1,
+      schemaVersion: 3,
       packageId: "Example.Package",
       currentVersion: "2.0.0",
       targetVersion: "1.5.0",
       targetFramework: "net11.0",
       compileAssetId: "lib/net11.0/Example.dll",
+      surface: "Library",
+      analyses: ["api"],
+      views: "Changes",
+      typeNames: [],
+      memberTargetIdentities: [],
+      predicate: null,
     },
   ]);
   pending.get("one")?.resolve(succeeded("1.0.0"));
@@ -342,6 +537,13 @@ test("missing or contradictory baselines cannot publish a successful comparison"
       inspection: inspection({
         outcome: "unavailable", kind: 0, before: {}, after: {},
       }),
+    },
+    {
+      ...result,
+      inspection: inspection(
+        { outcome: "available", document: {} },
+        { surface: "Type" },
+      ),
     },
     { ...result, inspection: { ...inspection(), diagnostics: null } },
     { ...result, inspection: { ...inspection(), share: null } },
@@ -489,6 +691,36 @@ test("application admission closes on every non-Compare route", () => {
   }
 });
 
+test("application generic Diff selection uses producer-owned identities", () => {
+  assert.match(
+    appSource,
+    /function typeQueryIdentifierOf\(type: AppTypeSurface\): string \{\s*return type\.queryId \?\? type\.id;\s*}/,
+  );
+  const selectionSource = appSource.match(
+    /function currentLibraryApiDiffSelection\(\)[\s\S]*?\n}\n\nfunction cloneScopePackages/,
+  )?.[0] ?? "";
+  assert.match(
+    selectionSource,
+    /case "type":[\s\S]*?typeNames: \[typeQueryIdentifierOf\(subject\.type\)\]/,
+  );
+  assert.match(
+    selectionSource,
+    /case "member":[\s\S]*?typeNames: \[overload\.anchorTypeFullName\],[\s\S]*?memberTargetIdentities: \[overload\.stableSelector\]/,
+  );
+  assert.doesNotMatch(
+    selectionSource,
+    /memberTargetIdentities: \[[^\]]*anchorDigest/,
+  );
+  assert.match(
+    selectionSource,
+    /analyses: \["string-literals"\],[\s\S]*?views: "Transitions"[\s\S]*?key: "Literal"[\s\S]*?operator: content\.operator === "contains"[\s\S]*?"Contains"[\s\S]*?"StartsWith"/,
+  );
+  assert.match(
+    appSource,
+    /<option value="string-literals"[\s\S]*?>String literals<\/option>/,
+  );
+});
+
 test("successful rendering preserves producer order and exact nullable Type identities", () => {
   const html = renderLibraryApiDiff({
     status: "ready",
@@ -601,9 +833,18 @@ test("unavailable rendering discloses retained endpoint failure evidence", () =>
   const result: BrowserLibraryApiDiffResult = {
     ...succeeded("1.0.0"),
     kind: "Unavailable",
-    inspection: inspection({
-      outcome: "unavailable", kind: 0, before: {}, after: {},
-    }),
+    inspection: inspection(
+      { outcome: "unavailable", kind: 0, before: {}, after: {} },
+      {
+        analyses: ["api"],
+        outcomes: [{
+          analysis: "api",
+          kind: "Unavailable",
+          findings: ["metadata.type", "metadata.member"],
+          detail: "The target API surface is incomplete.",
+        }],
+      },
+    ),
     value: null,
     unavailable: {
       kind: "TargetIncomplete",
@@ -649,6 +890,8 @@ test("unavailable rendering discloses retained endpoint failure evidence", () =>
     result,
   }, String);
 
+  assert.match(html, /data-diff-analysis="api"[\s\S]*API unavailable/);
+  assert.match(html, /The target API surface is incomplete\./);
   assert.match(html, /Target endpoint evidence/);
   assert.match(html, /generic-constraint at 0x02000001/);
   assert.match(html, /MalformedSignature/);
@@ -820,12 +1063,27 @@ function withMembers(): BrowserLibraryApiDiffResult {
   };
 }
 
+test("Diff presence indexes only exact current-side Type and Member identities", () => {
+  const ready = libraryApiDiffPresence(readyState(withMembers()));
+  assert.deepEqual([...ready.typeIdentifiers], ["after-widget"]);
+  assert.deepEqual(
+    [...ready.memberFingerprints],
+    ["digest-run", "digest-new"],
+  );
+  assert.equal(ready.typeIdentifiers.has("before-options"), false);
+  assert.equal(ready.memberFingerprints.has("digest-gone"), false);
+
+  const idle = libraryApiDiffPresence({ status: "idle" });
+  assert.equal(idle.typeIdentifiers.size, 0);
+  assert.equal(idle.memberFingerprints.size, 0);
+});
+
 test("Type Diff lists Type-level changes first and classifies each Member row from producer changes", () => {
   const html = renderLibraryApiDiff(readyState(withMembers()), String, {
     subject: { kind: "type", typeIdentifier: "after-widget" },
     activatableMembers: new Set(["digest-run", "digest-new"]),
   });
-  assert.match(html, /<ol class="library-api-diff-changes" aria-label="Type-level changes">[\s\S]*?<strong>sealed added<\/strong>\s*<span>Type became sealed\.<\/span>[\s\S]*?<code>—<\/code> → <code>sealed<\/code>/);
+  assert.match(html, /<ol class="library-api-diff-changes" aria-label="Type-level changes">[\s\S]*?<span class="library-api-diff-change-message">Type became sealed\.<\/span>[\s\S]*?<code>—<\/code> → <code>sealed<\/code>/);
   assert.ok(html.indexOf('aria-label="Type-level changes"') < html.indexOf('aria-label="Changed Members"'));
   assert.match(html, /library-api-diff-change-chip library-api-diff-change-breaking">Breaking · member signature changed</);
   assert.match(html, /library-api-diff-change-chip library-api-diff-change-potentiallybreaking">Potentially breaking · member attribute added</);
@@ -835,7 +1093,7 @@ test("Type Diff lists Type-level changes first and classifies each Member row fr
   assert.doesNotMatch(removedRow, /library-api-diff-change-chip/);
 });
 
-test("Member Diff renders the producer's change rows with message, values, and category", () => {
+test("Member Diff renders each producer change once with its useful values", () => {
   const html = renderLibraryApiDiff(readyState(withMembers()), String, {
     subject: {
       kind: "member",
@@ -843,12 +1101,13 @@ test("Member Diff renders the producer's change rows with message, values, and c
       memberFingerprint: "digest-run",
     },
   });
+
   assert.match(html, /<h2 id="library-api-diff-changes-title">What changed<\/h2>/);
   const rows = [...html.matchAll(/<li class="library-api-diff-change">/g)];
   assert.equal(rows.length, 2);
-  assert.match(html, /<strong>member signature changed<\/strong>\s*<span>Parameter type changed from int to long\.<\/span>\s*<span class="library-api-diff-change-values"><code>void Run\(int\)<\/code> → <code>void Run\(long\)<\/code><\/span>\s*<span class="library-api-diff-change-category">Signature<\/span>/);
-  assert.match(html, /<strong>member attribute added<\/strong>[\s\S]*?<code>—<\/code> → <code>Obsolete<\/code>[\s\S]*?Attribute<\/span>/);
-  assert.match(html, /<span>Breaking · member signature changed<\/span>/);
+  assert.match(html, /<span class="library-api-diff-change-message">Parameter type changed from int to long\.<\/span>\s*<span class="library-api-diff-change-values"><code>void Run\(int\)<\/code> → <code>void Run\(long\)<\/code><\/span>/);
+  assert.match(html, /<span class="library-api-diff-change-message">\[Obsolete\] was added\.<\/span>[\s\S]*?<code>—<\/code> → <code>Obsolete<\/code>/);
+  assert.doesNotMatch(html, /member signature changed|member attribute added|library-api-diff-change-category|library-api-diff-member-summary/);
 
   // A Member inside a removed Type has no change of its own; say so instead of
   // showing an empty table.
@@ -861,6 +1120,255 @@ test("Member Diff renders the producer's change rows with message, values, and c
   });
   assert.match(carried, /No classified compatibility change is recorded for this Member\./);
   assert.doesNotMatch(carried, /<li class="library-api-diff-change">/);
+});
+
+test("Member Diff contains only the API and Source comparison documents", () => {
+  const html = renderLibraryApiDiff(readyState(withMembers()), String, {
+    subject: {
+      kind: "member",
+      typeIdentifier: "after-widget",
+      memberFingerprint: "digest-run",
+    },
+    memberDiffSection: '<section id="authored-source">Authored Source diff</section>',
+  });
+
+  const changes = html.indexOf("What changed");
+  const source = html.indexOf("Authored Source diff");
+  assert.ok(changes >= 0 && source > changes);
+  assert.doesNotMatch(html, /Member evidence|library-api-diff-endpoint|stable selector|digest/i);
+});
+
+test("Member Diff leads with specialized content and omits host availability status", () => {
+  const result = {
+    ...withMembers(),
+    inspection: inspection(
+      { outcome: "available", document: {} },
+      {
+        surface: "Member",
+        views: "Changes, Summary, Transitions",
+        analyses: ["api", "allocation", "csharp"],
+        outcomes: [
+          {
+            analysis: "api",
+            kind: "Compared",
+            findings: ["metadata.member"],
+          },
+          {
+            analysis: "allocation",
+            kind: "Unavailable",
+            findings: ["analysis.allocation"],
+            detail: "Browser/Wasm does not construct method-body comparison inputs.",
+          },
+          {
+            analysis: "csharp",
+            kind: "Failed",
+            findings: ["csharp.line"],
+            detail: "Decompiler comparison failed.",
+          },
+        ],
+      },
+    ),
+  };
+  const html = renderLibraryApiDiff(readyState(result), String, {
+    subject: {
+      kind: "member",
+      typeIdentifier: "after-widget",
+      memberFingerprint: "digest-run",
+    },
+  });
+
+  const specialized = html.indexOf("What changed");
+  const failure = html.indexOf("C# failed");
+  assert.ok(specialized >= 0 && failure > specialized);
+  assert.doesNotMatch(html, /Diff analyses/);
+  assert.doesNotMatch(html, /data-diff-analysis="api"/);
+  assert.doesNotMatch(html, /data-diff-analysis="allocation"/);
+  assert.doesNotMatch(html, /Browser\/Wasm does not construct method-body comparison inputs/);
+  assert.match(html, /data-diff-analysis="csharp"[\s\S]*C# failed[\s\S]*Decompiler comparison failed/);
+  assert.doesNotMatch(html, /Selected Diff views|Transitions/);
+});
+
+test("string literal Transitions render complete literals as full-width rows", () => {
+  const result = {
+    ...succeeded("1.0.0"),
+    inspection: inspection(
+      { outcome: "available", document: {} },
+      {
+        surface: "Library",
+        views: "Transitions",
+        analyses: ["string-literals"],
+        predicate: {
+          key: "Literal",
+          operator: "Contains",
+          value: "https://",
+        },
+        outcomes: [{
+          analysis: "string-literals",
+          kind: "Compared",
+          findings: ["analysis.string-literal-use"],
+        }],
+        transitions: [
+          {
+            transition: "PairFinding.Removed",
+            finding: "analysis.string-literal-use",
+            target: "Example",
+            from: "1.0.0",
+            to: "2.0.0",
+            old: "https://old.example and https://shared.example",
+            new: "absent",
+            detail: null,
+          },
+          {
+            transition: "PairFinding.Added",
+            finding: "analysis.string-literal-use",
+            target: "Example",
+            from: "1.0.0",
+            to: "2.0.0",
+            old: "absent",
+            new: "https://new.example",
+            detail: null,
+          },
+          {
+            transition: "PairFinding.Present",
+            finding: "analysis.string-literal-use",
+            target: "Example",
+            from: "1.0.0",
+            to: "2.0.0",
+            old: "prefix https://embedded.example",
+            new: "prefix https://embedded.example",
+            detail: null,
+          },
+        ],
+      },
+    ),
+  };
+
+  const html = renderLibraryApiDiff(readyState(result), String);
+
+  assert.match(html, /3 matching literals/);
+  assert.match(
+    html,
+    /<code>https:\/\/old\.example and https:\/\/shared\.example<\/code>/,
+  );
+  assert.match(html, /<code>https:\/\/new\.example<\/code>/);
+  assert.match(
+    html,
+    /<code>prefix https:\/\/embedded\.example<\/code>/,
+  );
+  assert.equal(
+    html.match(/prefix https:\/\/embedded\.example/g)?.length,
+    1,
+  );
+  assert.doesNotMatch(html, /<code>absent<\/code>/);
+  assert.match(html, /data-transition="Removed"[\s\S]*>Removed<\/span>/);
+  assert.match(html, /data-transition="Added"[\s\S]*>Added<\/span>/);
+  assert.doesNotMatch(html, /changed Types/);
+});
+
+test("failed string literal inspection remains visible and incomplete", () => {
+  const result = {
+    ...succeeded("1.0.0"),
+    inspection: inspection(
+      { outcome: "available", document: {} },
+      {
+        surface: "Library",
+        views: "Transitions",
+        analyses: ["string-literals"],
+        predicate: {
+          key: "Literal",
+          operator: "Contains",
+          value: "https://",
+        },
+        outcomes: [{
+          analysis: "string-literals",
+          kind: "Compared",
+          findings: ["analysis.string-literal-use"],
+        }],
+        transitions: [
+          {
+            transition: "FindingComparison.Failed",
+            finding: "analysis.string-literal-use",
+            target: "Example",
+            from: "1.0.0",
+            to: "2.0.0",
+            old: "failed",
+            new: "complete",
+            detail: "String literal scan exceeded its work limit.",
+          },
+          {
+            transition: "PairFinding.Present",
+            finding: "analysis.string-literal-use",
+            target: "Example",
+            from: "1.0.0",
+            to: "2.0.0",
+            old: "https://example.test",
+            new: "https://example.test",
+            detail: null,
+          },
+        ],
+      },
+    ),
+  };
+
+  const html = renderLibraryApiDiff(readyState(result), String);
+
+  assert.match(
+    html,
+    /Comparison incomplete\. 1 matching literal; 1 literal inspection failure\./,
+  );
+  assert.match(html, /String literal inspection incomplete/);
+  assert.match(html, /String literal scan exceeded its work limit\./);
+  assert.match(html, /<code>https:\/\/example\.test<\/code>/);
+  assert.doesNotMatch(html, /Comparison complete/);
+  assert.doesNotMatch(html, /<code>failed<\/code>|<code>complete<\/code>/);
+});
+
+test("string literal presentation survives an unavailable API projection", () => {
+  const baseline = succeeded("1.0.0");
+  const result: BrowserLibraryApiDiffResult = {
+    ...baseline,
+    kind: "Unavailable",
+    value: null,
+    unavailable: {
+      kind: "TargetIncomplete",
+      target: endpoint("1.0.0"),
+      current: endpoint("2.0.0"),
+    },
+    inspection: inspection(
+      { outcome: "unavailable", document: null },
+      {
+        surface: "Library",
+        views: "Transitions",
+        analyses: ["string-literals"],
+        predicate: {
+          key: "Literal",
+          operator: "StartsWith",
+          value: "https://",
+        },
+        outcomes: [{
+          analysis: "string-literals",
+          kind: "Compared",
+          findings: ["analysis.string-literal-use"],
+        }],
+        transitions: [{
+          transition: "PairFinding.Present",
+          finding: "analysis.string-literal-use",
+          target: "Example",
+          from: "1.0.0",
+          to: "2.0.0",
+          old: "https://example.test",
+          new: "https://example.test",
+          detail: null,
+        }],
+      },
+    ),
+  };
+
+  const html = renderLibraryApiDiff(readyState(result), String);
+
+  assert.match(html, /https:\/\/example\.test/);
+  assert.match(html, /1 matching literal/);
+  assert.doesNotMatch(html, /Comparison unavailable/);
 });
 
 test("malformed change rows are rejected at the transport boundary", async () => {
@@ -1014,7 +1522,7 @@ test("Type Diff on an unchanged Type is a successful empty result inside the sam
   assert.match(html, /data-compare-mode="clone"/);
 });
 
-test("Member Diff presents exact evidence without embedding its Explore action", () => {
+test("Member Diff presents the comparison document without transport evidence", () => {
   const html = renderLibraryApiDiff(readyState(withMembers()), String, {
     subject: {
       kind: "member",
@@ -1025,12 +1533,12 @@ test("Member Diff presents exact evidence without embedding its Explore action",
   });
   assert.match(html, /compare-surface-member/);
   assert.match(html, /Comparison complete\. Member changed\./);
-  assert.match(html, /<h2>Before<\/h2>\s*<p><code>Run\(int\)<\/code>/);
-  assert.match(html, /<h2>After<\/h2>\s*<p><code>Run\(long\)<\/code>/);
-  assert.match(html, /<dt>Digest<\/dt><dd><code>digest-run<\/code>/);
-  // The relation's document identifier is transport and envelope data, not
-  // Member-page content.
-  assert.doesNotMatch(html, /relation-changed|Correspondence identifier/);
+  assert.match(html, /Parameter type changed from int to long\./);
+  assert.match(html, /<code>void Run\(int\)<\/code> → <code>void Run\(long\)<\/code>/);
+  assert.doesNotMatch(
+    html,
+    /<h2>Before<\/h2>|<h2>After<\/h2>|Digest|Stable selector|Canonical signature|relation-changed|Correspondence identifier/,
+  );
   assert.doesNotMatch(html, /Explore/);
 
   const removed = renderLibraryApiDiff(readyState(withMembers()), String, {
@@ -1041,7 +1549,7 @@ test("Member Diff presents exact evidence without embedding its Explore action",
     },
   });
   assert.match(removed, /Member removed\./);
-  assert.match(removed, /<h2>After<\/h2>\s*<p class="library-api-diff-absent">Not present on this side\./);
+  assert.doesNotMatch(removed, /library-api-diff-endpoint|Member evidence/);
 });
 
 test("Member Diff exposes only its exact owner-issued Explore destination", () => {
@@ -1250,7 +1758,7 @@ test("a moved Member shows its counterpart placement from exact declaring-Type i
     /Moved from|Now declared on/);
 });
 
-test("Member Diff states the correspondence and the move when the producer issued them", () => {
+test("Member Diff states only the user-relevant move correspondence", () => {
   const html = renderLibraryApiDiff(readyState(withMovedMember()), String, {
     subject: {
       kind: "member",
@@ -1258,7 +1766,8 @@ test("Member Diff states the correspondence and the move when the producer issue
       memberFingerprint: "digest-transform",
     },
   });
-  assert.match(html, /<p class="library-api-diff-note library-api-diff-correspondence">Matched by signature at 80% confidence · Moved from Example\.Options to Example\.Widget<\/p>/);
+  assert.match(html, /<p class="library-api-diff-note library-api-diff-correspondence">Moved from Example\.Options to Example\.Widget<\/p>/);
+  assert.doesNotMatch(html, /Matched by signature|confidence/);
   const plain = renderLibraryApiDiff(readyState(withMovedMember()), String, {
     subject: {
       kind: "member",

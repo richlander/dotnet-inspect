@@ -37,15 +37,15 @@ public partial class MatchDiscoveryTests
     [Fact]
     public void Disclosure_ForAPackageSourcedRun_NamesThePackageRatherThanTheExtractionPath()
     {
-        var request = new MatchDiscoveryRequest(
-            "A.Type.Member",
-            "A.Type",
-            "lib/net10.0/Target.dll",
-            new ILInspector.Analysis.StructuralCloneRetrievalLimits(1, 1),
+        var request = new MatchDiscoveryReplayRequest(
+            CandidateAssembly: "lib/net10.0/Target.dll",
             CandidatePackage: "Fixture@1.0.0",
-            CandidateTfm: "net10.0");
+            CandidateTfm: "net10.0",
+            ReplayLibrary: null,
+            ReplaySources: null,
+            IncludeAll: false);
 
-        string disclosure = MatchDiscoveryFormatter.DisclosureFor(request);
+        string disclosure = MatchDiscoveryReplay.DisclosureFor(request);
 
         Assert.Contains(
             "`--package 'Fixture@1.0.0' --library 'lib/net10.0/Target.dll' --tfm 'net10.0'`",

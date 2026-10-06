@@ -217,7 +217,7 @@ internal static class PlatformTypeLocatorRouting
                             .. completed.Population.Value.Members
                                 .Select(
                                     static member =>
-                                        member.Library.ApiAssembly
+                                        member.PlatformLibrary.Library.ApiAssembly
                                             .AssemblyIdentity)
                                 .OfType<
                                     ManagedMetadataIdentity.Assembly>()
@@ -880,7 +880,8 @@ internal static class PlatformTypeLocatorRouting
         int MemberOrder)
     {
         internal ImmutableArray<PlatformNamespaceDiscoveryDeclaration>.Builder
-            Declarations { get; } =
+            Declarations
+        { get; } =
                 ImmutableArray.CreateBuilder<
                     PlatformNamespaceDiscoveryDeclaration>();
 

@@ -18,7 +18,8 @@ public partial class CommandExecutionTests
         {
             PlatformAssembly = "System.Text.Json",
             TypeName = "JsonSerializer",
-            Select = ["Properties"]
+            Select = ["Properties"],
+            FormatExplicitlySet = true,
         };
 
         var (exit, output, _) = await ConsoleCapture.RunAsync(
@@ -41,7 +42,8 @@ public partial class CommandExecutionTests
         {
             PlatformAssembly = "System.Text.Json",
             TypeName = "JsonSerializer",
-            Select = [SectionNames.TypeInfo]
+            Select = [SectionNames.TypeInfo],
+            FormatExplicitlySet = true,
         };
 
         var (exit, output, _) = await ConsoleCapture.RunAsync(
@@ -144,7 +146,7 @@ public partial class CommandExecutionTests
         params string[] extraArgs)
     {
         string[] discoverArgs = ["type", typeName, .. extraArgs, "-D", SectionNames.TypeInfo];
-        string[] renderArgs = ["type", typeName, .. extraArgs, "-S", SectionNames.TypeInfo];
+        string[] renderArgs = ["type", typeName, .. extraArgs, "-S", SectionNames.TypeInfo, "--markdown"];
 
         var (discoverExit, discoverOutput, _) = await RunAppAsync(discoverArgs);
         var (renderExit, renderOutput, _) = await RunAppAsync(renderArgs);
@@ -171,6 +173,33 @@ public partial class CommandExecutionTests
             advertised.OrderBy(f => f, StringComparer.Ordinal));
     }
 
+    [Fact]
+    public async Task Type_TypeInfoDiscovery_DoesNotRunUnrequestedUnsafeProbe()
+    {
+        var (assemblyPath, fixtureDir) =
+            CreateIncompleteUnsafeDiscoveryAssembly();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "type",
+                "DiscoveryFixtures.IncompleteUnsafeDiscovery",
+                "--library",
+                assemblyPath,
+                "-D",
+                SectionNames.TypeInfo);
+
+            Assert.Equal(0, exit);
+            Assert.NotEmpty(output);
+            Assert.Empty(error);
+        }
+        finally
+        {
+            Directory.Delete(
+                fixtureDir,
+                recursive: true);
+        }
+    }
+
     /// <summary>
     /// Type parameters are an identity fact, so an open generic must report them. The summary used
     /// to be computed only at quiet verbosity for the inline header, which left the section's
@@ -180,7 +209,7 @@ public partial class CommandExecutionTests
     public async Task Type_TypeInfoSection_ReportsTypeParametersForOpenGenerics()
     {
         var (exit, output, _) = await RunAppAsync(
-            "type", "System.Collections.Generic.List`1", "-S", SectionNames.TypeInfo);
+            "type", "System.Collections.Generic.List`1", "-S", SectionNames.TypeInfo, "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Contains("| Type Parameters | T |", output);
@@ -201,9 +230,7 @@ public partial class CommandExecutionTests
             SectionNames.TypeInfo,
             "--fields",
             "Type Parameters",
-            format,
-            "--tips",
-            "q");
+            format);
 
         Assert.Equal(0, exit);
         Assert.Empty(output.Trim());
@@ -231,9 +258,7 @@ public partial class CommandExecutionTests
             "Signature",
             "--rows",
             "1",
-            format,
-            "--tips",
-            "q");
+            format);
 
         Assert.Equal(0, exit);
         Assert.Contains("Methods", output);
@@ -256,9 +281,7 @@ public partial class CommandExecutionTests
             "System.Private.CoreLib",
             "--fields",
             "NoSuchField",
-            format,
-            "--tips",
-            "q");
+            format);
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -273,7 +296,7 @@ public partial class CommandExecutionTests
     [Fact]
     public async Task Type_ExplicitSelect_StillReachesGrowingSections()
     {
-        var (exit, output, _) = await RunAppAsync("type", "System.String", "-S", "Fields", "--tips", "q");
+        var (exit, output, _) = await RunAppAsync("type", "System.String", "-S", "Fields", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Equal(["Fields"], SectionHeadings(output));
@@ -292,7 +315,7 @@ public partial class CommandExecutionTests
     public async Task Type_PrefixBrowse_ListingSectionName_IsSelectable(string section)
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", "Command", "--library", TestAssemblyPath, "-S", section, "--tips", "q");
+            "type", "Command", "--library", TestAssemblyPath, "-S", section, "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Contains("best-effort prefix matches", error, StringComparison.Ordinal);
@@ -312,7 +335,7 @@ public partial class CommandExecutionTests
     {
         var (exit, _, error) = await RunAppAsync(
             "type", "DotnetInspect.Cli.Tests.CommandExecutionTests", "--library", TestAssemblyPath,
-            "-S", "Classes", "--tips", "q");
+            "-S", "Classes");
 
         Assert.Equal(1, exit);
         Assert.Contains("Select value 'Classes' not found", error, StringComparison.Ordinal);
@@ -331,7 +354,7 @@ public partial class CommandExecutionTests
     public async Task Type_UnresolvedTypeWithoutPrefixMatches_StillReportsTheDeferredSelect()
     {
         var (exit, _, error) = await RunAppAsync(
-            "type", "Zqqxnomatch", "--library", TestAssemblyPath, "-S", "Classes", "--tips", "q");
+            "type", "Zqqxnomatch", "--library", TestAssemblyPath, "-S", "Classes");
 
         Assert.Equal(1, exit);
         Assert.Contains("Select value 'Classes' not found", error, StringComparison.Ordinal);
@@ -356,7 +379,7 @@ public partial class CommandExecutionTests
     public async Task Type_SelectValidForNeitherPipeline_FailsRegardlessOfWhatTheNameResolvesTo(string target)
     {
         var (exit, _, error) = await RunAppAsync(
-            "type", target, "--library", TestAssemblyPath, "-S", "Zzznosuchsection", "--tips", "q");
+            "type", target, "--library", TestAssemblyPath, "-S", "Zzznosuchsection");
 
         Assert.Equal(1, exit);
         Assert.Contains("Select value 'Zzznosuchsection' not found", error, StringComparison.Ordinal);
@@ -374,20 +397,20 @@ public partial class CommandExecutionTests
     public async Task Type_PrefixBrowse_ListingSectionName_ReachesCountAndDiscovery()
     {
         var (countExit, countOutput, _) = await RunAppAsync(
-            "type", "Command", "--library", TestAssemblyPath, "-S", "Classes", "--count", "--tips", "q");
+            "type", "Command", "--library", TestAssemblyPath, "-S", "Classes", "--count");
 
         Assert.Equal(0, countExit);
 
         // Agrees with the rows the same selection renders, so this cannot pass by counting a
         // different section or an unfiltered surface.
         var (rowsExit, rowsOutput, _) = await RunAppAsync(
-            "type", "Command", "--library", TestAssemblyPath, "-S", "Classes", "--tsv", "--tips", "q");
+            "type", "Command", "--library", TestAssemblyPath, "-S", "Classes", "--tsv");
         Assert.Equal(0, rowsExit);
         var rowCount = rowsOutput.Split('\n').Count(l => l.Trim().Length > 0) - 1;
         Assert.Equal(rowCount, int.Parse(countOutput.Trim()));
 
         var (discoverExit, discoverOutput, _) = await RunAppAsync(
-            "type", "Command", "--library", TestAssemblyPath, "-S", "Classes", "-D", "--tips", "q");
+            "type", "Command", "--library", TestAssemblyPath, "-S", "Classes", "-D");
 
         Assert.Equal(0, discoverExit);
         Assert.Contains("Classes", discoverOutput, StringComparison.Ordinal);
@@ -399,10 +422,10 @@ public partial class CommandExecutionTests
     {
         var (countExit, countOutput, countError) = await RunAppAsync(
             "type", "Command", "--library", TestAssemblyPath,
-            "--count", "--tips", "q");
+            "--count");
         var (rowsExit, rowsOutput, rowsError) = await RunAppAsync(
             "type", "Command", "--library", TestAssemblyPath,
-            "--tsv", "--tips", "q");
+            "--tsv");
 
         Assert.Equal(0, countExit);
         Assert.Equal(0, rowsExit);
@@ -436,9 +459,7 @@ public partial class CommandExecutionTests
             TestAssemblyPath,
             "-D",
             "Classes",
-            "--table",
-            "--tips",
-            "q");
+            "--table");
 
         Assert.Equal(0, exit);
         Assert.Contains("Kind", output, StringComparison.Ordinal);
@@ -459,9 +480,7 @@ public partial class CommandExecutionTests
             TestAssemblyPath,
             "-D",
             "Classes",
-            "--table",
-            "--tips",
-            "q");
+            "--table");
 
         Assert.Equal(1, exit);
         Assert.Contains(
@@ -484,9 +503,7 @@ public partial class CommandExecutionTests
             TestAssemblyPath,
             "-D",
             "Classes",
-            "--table",
-            "--tips",
-            "q");
+            "--table");
 
         Assert.Equal(1, exit);
         Assert.Contains(
@@ -505,9 +522,7 @@ public partial class CommandExecutionTests
             "System.Private.CoreLib",
             "-D",
             "Classes",
-            "--table",
-            "--tips",
-            "q");
+            "--table");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -527,9 +542,7 @@ public partial class CommandExecutionTests
             "System.Private.CoreLib",
             "-D",
             "Interfaces",
-            "--table",
-            "--tips",
-            "q");
+            "--table");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -548,7 +561,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "type", "Command", "--library", TestAssemblyPath, "-S", "Classes,Enums",
-            "--count", "--json", "--tips", "q");
+            "--count", "--json");
 
         Assert.Equal(0, exit);
         Assert.DoesNotContain("Error:", error, StringComparison.Ordinal);
@@ -563,7 +576,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "type", "DotnetInspect.Cli.Tests.CommandExecutionTests", "--library", TestAssemblyPath,
-            "-S", "Type Info,Methods", "--count", "--json", "--tips", "q");
+            "-S", "Type Info,Methods", "--count", "--json");
 
         Assert.Equal(0, exit);
         Assert.DoesNotContain("Error:", error, StringComparison.Ordinal);
@@ -588,7 +601,7 @@ public partial class CommandExecutionTests
     public async Task Type_PrefixBrowse_MultiSectionSelect_FailsTabularArityLikeTheDirectListing(string format)
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", "Command", "--library", TestAssemblyPath, "-S", "Classes,API Info", format, "--tips", "q");
+            "type", "Command", "--library", TestAssemblyPath, "-S", "Classes,API Info", format);
 
         Assert.Equal(1, exit);
         Assert.Contains("Selection matches 2 sections", error, StringComparison.Ordinal);
@@ -603,7 +616,7 @@ public partial class CommandExecutionTests
     public async Task Type_PrefixBrowse_SingleSectionSelect_StillRendersTabular()
     {
         var (exit, output, _) = await RunAppAsync(
-            "type", "Command", "--library", TestAssemblyPath, "-S", "Classes", "--tsv", "--tips", "q");
+            "type", "Command", "--library", TestAssemblyPath, "-S", "Classes", "--tsv");
 
         Assert.Equal(0, exit);
         Assert.Contains("kind\ttype", output, StringComparison.Ordinal);
@@ -623,7 +636,7 @@ public partial class CommandExecutionTests
     public async Task Type_PrefixBrowse_PayloadProjection_ReportsTheListingReasonNotArity(string flag)
     {
         var (exit, _, error) = await RunAppAsync(
-            "type", "Command", "--library", TestAssemblyPath, "-S", "Classes", flag, "--tips", "q");
+            "type", "Command", "--library", TestAssemblyPath, "-S", "Classes", flag);
 
         Assert.Equal(1, exit);
         Assert.Contains("is not supported when listing types", error, StringComparison.Ordinal);
@@ -641,7 +654,7 @@ public partial class CommandExecutionTests
     public async Task Type_PrefixBrowse_DeferredSelect_NarrowsAMultiKindListing(string flag)
     {
         var (exit, output, _) = await RunAppAsync(
-            "type", "Json", "--platform", "System.Text.Json", "-S", "Classes", flag, "--tips", "q");
+            "type", "Json", "--platform", "System.Text.Json", "-S", "Classes", "--markdown", flag);
 
         Assert.Equal(0, exit);
 
@@ -659,7 +672,7 @@ public partial class CommandExecutionTests
     public async Task Type_PlatformPrefixBrowse_ListingSectionName_IsSelectable()
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", "System.Collections.Immutabl", "-S", "Classes", "--tips", "q");
+            "type", "System.Collections.Immutabl", "-S", "Classes", "--markdown");
 
         Assert.Equal(0, exit);
 
@@ -670,8 +683,174 @@ public partial class CommandExecutionTests
 
         // A name valid for neither pipeline still fails on this route.
         var (bogusExit, _, bogusError) = await RunAppAsync(
-            "type", "System.Collections.Immutabl", "-S", "Zzznosuchsection", "--tips", "q");
+            "type", "System.Collections.Immutabl", "-S", "Zzznosuchsection");
         Assert.Equal(1, bogusExit);
         Assert.Contains("Select value 'Zzznosuchsection' not found", bogusError, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Type_DiscoverDetails_ReportsDeclaredShapeAndCardinality()
+    {
+        // Type adopts Section shapes: -D --details is a structural view that
+        // carries each section's declared shape beside its cardinality, for
+        // the type listing (type/...) and the single-type catalog (member/...).
+        var (listingExit, listing, listingError) = await RunAppAsync(
+            "type", "--library", TestAssemblyPath, "-D", "--details");
+
+        Assert.Equal(0, listingExit);
+        Assert.Empty(listingError);
+        Assert.Contains(
+            "| Name | Kind | Path | Formats | Shape | Cardinality | Terminals |",
+            listing);
+        Assert.Contains(
+            "| Classes | section | type/sections/classes "
+            + "| --markdown, --plaintext, --json, --table, --tsv, --jsonl "
+            + "| table | inventory | rows, count |",
+            listing);
+        Assert.Contains(
+            "| API Info | section | type/sections/api-info "
+            + "| --markdown, --plaintext, --json, --table, --tsv, --jsonl "
+            + "| table | scalar |  |",
+            listing);
+
+        var (typeExit, type, typeError) = await RunAppAsync(
+            "type", "Command", "--library", TestAssemblyPath, "-D", "--details");
+
+        Assert.Equal(0, typeExit);
+        Assert.Empty(typeError);
+        Assert.Contains(
+            "| Type Info | section | member/sections/type-info "
+            + "| --markdown, --plaintext, --json, --table, --tsv, --jsonl "
+            + "| table | scalar |  |",
+            type);
+        Assert.Contains(
+            "| Methods | section | member/sections/methods "
+            + "| --markdown, --plaintext, --json, --table, --tsv, --jsonl "
+            + "| table | inventory | rows, count |",
+            type);
+
+        // --details is structural: it does not probe the type, so it lists
+        // the catalog rather than the sections with data, and JSON rows carry
+        // the same declared facts.
+        var (jsonExit, json, jsonError) = await RunAppAsync(
+            "type", "Command", "--library", TestAssemblyPath,
+            "-D", SectionNames.DecompiledSource, "--details", "--json");
+
+        Assert.Equal(0, jsonExit);
+        Assert.Empty(jsonError);
+        using JsonDocument document = JsonDocument.Parse(json);
+        JsonElement row = Assert.Single(document.RootElement.EnumerateArray());
+        Assert.Equal("text", row.GetProperty("shape").GetString());
+        Assert.Equal("scalar", row.GetProperty("cardinality").GetString());
+        Assert.Equal("member/sections/decompiled-source", row.GetProperty("path").GetString());
+
+        // Target-free: --details is structural, so it needs no type or source
+        // and reports the type listing catalog with the same declared facts
+        // (round-2 finding: this path used to fall back to the Name/Kind view).
+        var (freeExit, free, freeError) = await RunAppAsync(
+            "type", "-D", "--details", "--json");
+
+        Assert.Equal(0, freeExit);
+        Assert.Empty(freeError);
+        using JsonDocument freeDocument = JsonDocument.Parse(free);
+        JsonElement classes = freeDocument.RootElement.EnumerateArray()
+            .Single(static r => r.GetProperty("name").GetString() == "Classes");
+        Assert.Equal("type/sections/classes", classes.GetProperty("path").GetString());
+        Assert.Equal("table", classes.GetProperty("shape").GetString());
+        Assert.Equal("inventory", classes.GetProperty("cardinality").GetString());
+
+        var (bareExit, bare, bareError) = await RunAppAsync("type", "-D", "--json");
+
+        Assert.Equal(0, bareExit);
+        Assert.Empty(bareError);
+        Assert.DoesNotContain("\"shape\"", bare);
+
+        // Source-less qualified type: --details follows the same target
+        // resolution as bare -D (the platform type's member catalog), not the
+        // parser-level --schema ambiguity rule (round-3 finding).
+        var (platformExit, platform, platformError) = await RunAppAsync(
+            "type", "System.String", "-D", SectionNames.Methods, "--details", "--json");
+
+        Assert.Equal(0, platformExit);
+        Assert.Empty(platformError);
+        using JsonDocument platformDocument = JsonDocument.Parse(platform);
+        JsonElement platformRow = Assert.Single(platformDocument.RootElement.EnumerateArray());
+        Assert.Equal("member/sections/methods", platformRow.GetProperty("path").GetString());
+        Assert.Equal("table", platformRow.GetProperty("shape").GetString());
+    }
+
+    [Fact]
+    public async Task Type_LoneTableSection_StreamsTsvUnlessAFormatIsNamed()
+    {
+        // Section shapes, type adoption slice 2: a lone explicitly selected
+        // Table renders its native TSV rows when no format is named; an
+        // explicit --markdown keeps the composed document, and --json is
+        // untouched. A bare -n on the TSV stream is the rendered-line window.
+        var (exit, output, error) = await RunAppAsync(
+            "type", "DotnetInspect.Cli.Tests.CommandExecutionTests+ConstructorChainTarget",
+            "--library", TestAssemblyPath, "--all", "-S", SectionNames.Constructors);
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        string[] lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        Assert.StartsWith("name\t", lines[0]);
+        Assert.DoesNotContain("## Constructors", output);
+        Assert.DoesNotContain("# DotnetInspect.Cli.Tests", output);
+
+        var (markdownExit, markdown, markdownError) = await RunAppAsync(
+            "type", "DotnetInspect.Cli.Tests.CommandExecutionTests+ConstructorChainTarget",
+            "--library", TestAssemblyPath, "--all", "-S", SectionNames.Constructors, "--markdown");
+
+        Assert.Equal(0, markdownExit);
+        Assert.Empty(markdownError);
+        Assert.Contains("## Constructors", markdown);
+
+        // The type listing's lone Table streams TSV too, through the deferred
+        // listing path.
+        var (listingExit, listing, listingError) = await RunAppAsync(
+            "type", "--library", TestAssemblyPath, "-S", SectionNames.Classes);
+
+        Assert.Equal(0, listingExit);
+        Assert.Empty(listingError);
+        Assert.StartsWith("kind\ttype\t", listing);
+    }
+
+    [Fact]
+    public async Task Type_LoneScalarSection_RejectsRowTerminalsBeforeAcquisition()
+    {
+        // Type Info and API Info are scalar records: --count and --rows fail
+        // with the shape-aware diagnostic before the type is inspected, while
+        // the record itself streams as a field/value TSV.
+        var (countExit, countOutput, countError) = await RunAppAsync(
+            "type", "DotnetInspect.Cli.Tests.CommandExecutionTests+ConstructorChainTarget",
+            "--library", TestAssemblyPath, "--all", "-S", SectionNames.TypeInfo, "--count");
+
+        Assert.Equal(1, countExit);
+        Assert.Empty(countOutput);
+        Assert.Contains("Section 'Type Info' is scalar and does not support --count", countError);
+
+        var (rowsExit, _, rowsError) = await RunAppAsync(
+            "type", "--library", TestAssemblyPath, "-S", SectionNames.ApiInfo, "--rows", "1");
+
+        Assert.Equal(1, rowsExit);
+        Assert.Contains("Section 'API Info' is scalar and does not support --rows", rowsError);
+
+        var (recordExit, record, recordError) = await RunAppAsync(
+            "type", "DotnetInspect.Cli.Tests.CommandExecutionTests+ConstructorChainTarget",
+            "--library", TestAssemblyPath, "--all", "-S", SectionNames.TypeInfo);
+
+        Assert.Equal(0, recordExit);
+        Assert.Empty(recordError);
+        Assert.StartsWith("field\tvalue", record);
+
+        // A count map over several sections keeps its per-section meaning.
+        var (mapExit, map, mapError) = await RunAppAsync(
+            "type", "DotnetInspect.Cli.Tests.CommandExecutionTests+ConstructorChainTarget",
+            "--library", TestAssemblyPath, "--all",
+            "-S", $"{SectionNames.TypeInfo},{SectionNames.Constructors}", "--count", "--json");
+
+        Assert.Equal(0, mapExit);
+        Assert.Empty(mapError);
+        Assert.Contains("\"section\"", map);
     }
 }

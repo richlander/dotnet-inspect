@@ -164,13 +164,13 @@ public sealed partial class BrowserEngineBoundaryTests
         PackageIcon icon = Assert.IsType<PackageIconResult.Available>(
             Assert.IsType<PackageIconRangeResult.Completed>(result).Icon).Value;
         Assert.Equal(PackageIconPng, icon.Bytes.ToArray());
-        Assert.True(handler.RangeRequests >= 3);
-        Assert.Equal(0, handler.NonRangePackageRequests);
+        Assert.True(handler.RangedPackageResponses >= 3);
+        Assert.Equal(0, handler.OrdinaryPackageResponses);
         Assert.True(handler.PackageBytesServed < archive.Length);
     }
 
     [Fact]
-    public async Task PackageDocument_ReadmeAndSkillPullThroughHouseAcquisition()
+    public async Task PackageDocument_ReadmePackageAndSkillUseExactFileAcquisition()
     {
         string packageId = $"gallery.documents.{Guid.NewGuid():N}";
         const string version = "1.2.3";
@@ -178,6 +178,8 @@ public sealed partial class BrowserEngineBoundaryTests
             "\uFEFF"
             + new string('r', 64 * 1024)
             + " Browser/Wasm \U0001F310";
+        const string packageText =
+            "# Package guidance\n\nComplete acquisition.";
         const string skillText =
             "# Inspect package\n\nRead progressively.";
         var handler = new GalleryPackageHandler(
@@ -187,34 +189,41 @@ public sealed partial class BrowserEngineBoundaryTests
                 packageId,
                 version,
                 readmeText,
-                skillText));
+                packageText,
+                skillText,
+                paddingBytes: 2 * 1024 * 1024));
         using IPackageSourceClient source = Gallery(handler);
+        var persistence = new MemoryPackageEntryPersistence();
+        var store = new BrowserPackageWorkspace.BrowserSessionPackageStore(
+            source,
+            persistence);
+
+        Task<BrowserPackageDocumentPayload> Read(
+            string path,
+            BrowserPackageWorkspace.BrowserSessionPackageStore packageStore) =>
+            BrowserPackageWorkspace.ReadDocumentAsync(
+                packageId,
+                version,
+                path,
+                source,
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken,
+                packageStore);
 
         BrowserPackageDocumentPayload readme =
-            await BrowserPackageWorkspace.ReadDocumentAsync(
-                packageId,
-                version,
-                "README.md",
-                source,
-                TimeSpan.FromSeconds(5),
-                TestContext.Current.CancellationToken);
+            await Read("README.md", store);
         BrowserPackageDocumentPayload skill =
-            await BrowserPackageWorkspace.ReadDocumentAsync(
-                packageId,
-                version,
-                "skills/demo/SKILL.md",
+            await Read("skills/demo/SKILL.md", store);
+        int requestsAfterSkill = handler.Requested.Count;
+        var recreatedStore =
+            new BrowserPackageWorkspace.BrowserSessionPackageStore(
                 source,
-                TimeSpan.FromSeconds(5),
-                TestContext.Current.CancellationToken);
+                persistence);
+        BrowserPackageDocumentPayload repeatedSkill =
+            await Read("skills/demo/SKILL.md", recreatedStore);
         InvalidOperationException unavailable =
             await Assert.ThrowsAsync<InvalidOperationException>(
-                () => BrowserPackageWorkspace.ReadDocumentAsync(
-                    packageId,
-                    version,
-                    "content/notes.txt",
-                    source,
-                    TimeSpan.FromSeconds(5),
-                    TestContext.Current.CancellationToken));
+                () => Read("skills/missing/SKILL.md", recreatedStore));
 
         Assert.Equal(
             new BrowserPackageDocumentPayload(
@@ -230,13 +239,99 @@ public sealed partial class BrowserEngineBoundaryTests
                 "skills/demo/SKILL.md",
                 skillText),
             skill);
+        Assert.Equal(skill, repeatedSkill);
         Assert.Contains(
             "is not a browsable document",
             unavailable.Message,
             StringComparison.Ordinal);
+        Assert.Equal(requestsAfterSkill, handler.Requested.Count);
+        Assert.Equal(1, handler.OrdinaryPackageResponses);
+        Assert.True(handler.RangedPackageResponses > 0);
+        Assert.True(
+            handler.PackageBytesServed < 512 * 1024,
+            $"served {handler.PackageBytesServed} package bytes by range");
+
+        BrowserPackageDocumentPayload package =
+            await Read("PACKAGE.md", store);
+        int requestsAfterPackage = handler.Requested.Count;
+        BrowserPackageDocumentPayload repeatedReadme =
+            await Read("README.md", store);
+
         Assert.Equal(
-            [$"https://globalcdn.nuget.org/packages/{packageId}.{version}.nupkg"],
-            handler.Requested);
+            new BrowserPackageDocumentPayload(
+                "package",
+                "PACKAGE.md",
+                "PACKAGE.md",
+                packageText),
+            package);
+        Assert.Equal(readme, repeatedReadme);
+        Assert.Equal(requestsAfterPackage, handler.Requested.Count);
+        Assert.Equal(1, handler.OrdinaryPackageResponses);
+        Assert.True(handler.RangedPackageResponses > 0);
+        Assert.True(
+            handler.PackageBytesServed < 512 * 1024,
+            $"served {handler.PackageBytesServed} package bytes by range");
+    }
+
+    [Fact]
+    public async Task PackageDocument_RealNewtonsoftReadmeUsesRangeAndWarmEntryCache()
+    {
+        const string PackageId = "Newtonsoft.Json";
+        const string Version = "13.0.4";
+        byte[] archive = await File.ReadAllBytesAsync(
+            Path.Combine(
+                AppContext.BaseDirectory,
+                "RealAssets",
+                "FileDemand",
+                "newtonsoft.json.13.0.4.nupkg"),
+            TestContext.Current.CancellationToken);
+        Assert.Equal(
+            "f09081d457405baf35a973fa0c50d6bf272ed683f2568c5a620a49da952f6529",
+            Convert.ToHexStringLower(
+                System.Security.Cryptography.SHA256.HashData(archive)));
+        string expected = ReadPackageText(archive, "README.md");
+        var handler = new GalleryPackageHandler(
+            PackageId,
+            Version,
+            archive);
+        using IPackageSourceClient source = Gallery(handler);
+        var persistence = new MemoryPackageEntryPersistence();
+        var store = new BrowserPackageWorkspace.BrowserSessionPackageStore(
+            source,
+            persistence);
+
+        BrowserPackageDocumentPayload first =
+            await BrowserPackageWorkspace.ReadDocumentAsync(
+                PackageId,
+                Version,
+                "README.md",
+                source,
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken,
+                store);
+        int requests = handler.Requested.Count;
+        var recreatedStore =
+            new BrowserPackageWorkspace.BrowserSessionPackageStore(
+                source,
+                persistence);
+        BrowserPackageDocumentPayload second =
+            await BrowserPackageWorkspace.ReadDocumentAsync(
+                PackageId,
+                Version,
+                "README.md",
+                source,
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken,
+                recreatedStore);
+
+        Assert.Equal(expected, first.Text);
+        Assert.Equal(first, second);
+        Assert.Equal(requests, handler.Requested.Count);
+        Assert.Equal(1, handler.OrdinaryPackageResponses);
+        Assert.True(handler.RangedPackageResponses > 0);
+        Assert.True(
+            handler.PackageBytesServed < 256 * 1024,
+            $"served {handler.PackageBytesServed} of {archive.Length} package bytes");
     }
 
     [Fact]

@@ -585,20 +585,20 @@ dotnet-inspect diff --history --package Foo@1.0.0..2.0.0 \
 ```
 
 This locates candidate unsafe-operation boundaries without replacing the final
-adjacent `diff --finding analysis.unsafety` introduction proof.
+adjacent `diff --analysis unsafety` introduction proof.
 
 Stable endpoints exclude prereleases by default. A prerelease endpoint or
 `--preview` on `package --versions` includes prereleases within the range.
 Existing `diff --package Name@A..B` remains the two-endpoint projection of the
 same familiar range syntax. After caller-directed probes locate a candidate
-boundary, `diff -S "Finding Transitions"` confirms a focused type or member as
+boundary, `diff -S Transitions` confirms a focused type or member as
 the native `PairFinding.Added`, `Present`, `Removed`, or `Changed` transition:
 
 ```bash
 dotnet-inspect diff \
   --package System.Text.Json@8.0.6..9.0.0 \
   --type System.Text.Json.Schema.JsonSchemaExporter \
-  -S "Finding Transitions"
+  -S Transitions
 ```
 
 The same final-pair contract applies to member-scoped allocation onset. Select
@@ -608,7 +608,7 @@ endpoints and reports each native allocation occurrence pair:
 ```bash
 dotnet-inspect diff --package Foo@1.4.0..1.5.0 \
   --type Foo.Parser --member Parse \
-  --finding analysis.allocation
+  --analysis allocation
 ```
 
 `PairFinding.Added` is the confirmed allocation introduction. `Present`,
@@ -621,7 +621,7 @@ can test whether a new direct call explains it:
 ```bash
 dotnet-inspect diff --package Foo@1.4.0..1.5.0 \
   --type Foo.Parser --member Parse \
-  --finding analysis.call-site
+  --analysis call-site
 ```
 
 Here `PairFinding.Added` confirms a new call-site occurrence in `Parse`.
@@ -634,7 +634,7 @@ To confirm a definite unsafe-operation boundary in the same method:
 ```bash
 dotnet-inspect diff --package Foo@1.4.0..1.5.0 \
   --type Foo.Parser --member Parse \
-  --finding analysis.unsafety
+  --analysis unsafety
 ```
 
 `PairFinding.Added` confirms that an unsafe operation was introduced;

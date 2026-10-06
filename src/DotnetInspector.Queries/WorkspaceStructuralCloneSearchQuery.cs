@@ -401,6 +401,70 @@ public abstract record StructuralCloneSearchSeed
         public MetadataTypeDefinitionName Definition { get; }
         public MemberAnchor MemberIdentity { get; }
     }
+
+    /// <summary>
+    /// One exact MethodDef in the containing library, selected by metadata
+    /// token.
+    /// </summary>
+    public sealed record MethodDefinitionToken : StructuralCloneSearchSeed
+    {
+        public MethodDefinitionToken(int metadataToken)
+        {
+            EntityHandle handle = MetadataTokens.EntityHandle(metadataToken);
+            if (handle.Kind != HandleKind.MethodDefinition
+                || MetadataTokens.GetRowNumber(handle) == 0)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(metadataToken),
+                    "Structural-clone seeds require a non-nil MethodDef token.");
+            }
+
+            MetadataToken = metadataToken;
+        }
+
+        public int MetadataToken { get; }
+    }
+}
+
+/// <summary>
+/// The candidate methods selected inside each breadth-admitted participant.
+/// </summary>
+public abstract record StructuralCloneCandidatePopulation
+{
+    private protected StructuralCloneCandidatePopulation()
+    {
+    }
+
+    /// <summary>Every MethodDef in each breadth-admitted participant.</summary>
+    public sealed record All : StructuralCloneCandidatePopulation;
+
+    /// <summary>
+    /// Every MethodDef declared by one exact type in the containing library.
+    /// This point scope is valid only with
+    /// <see cref="StructuralCloneCandidateBreadth.Self"/>.
+    /// </summary>
+    public sealed record ContainingLibraryType
+        : StructuralCloneCandidatePopulation
+    {
+        public ContainingLibraryType(
+            MetadataTypeDefinitionName definition)
+        {
+            Definition =
+                definition
+                ?? throw new ArgumentNullException(nameof(definition));
+        }
+
+        public MetadataTypeDefinitionName Definition { get; }
+    }
+}
+
+/// <summary>
+/// Additional evidence retained from the shared Analysis retrieval path.
+/// </summary>
+public enum StructuralCloneSearchEvidence
+{
+    Summary,
+    DetailedRetrievals,
 }
 
 /// <summary>
@@ -536,7 +600,10 @@ public sealed record WorkspaceStructuralCloneSearchInput
             StructuralCloneCandidateBreadth.Everything,
         StructuralCloneCandidateDiscovery discovery =
             StructuralCloneCandidateDiscovery.SimilarNames,
-        WorkspaceStructuralCloneSearchLimits? limits = null)
+        WorkspaceStructuralCloneSearchLimits? limits = null,
+        StructuralCloneCandidatePopulation? candidatePopulation = null,
+        StructuralCloneSearchEvidence evidence =
+            StructuralCloneSearchEvidence.Summary)
     {
         Participants =
             participants
@@ -552,11 +619,30 @@ public sealed record WorkspaceStructuralCloneSearchInput
         {
             throw new ArgumentOutOfRangeException(nameof(discovery));
         }
+        if (!Enum.IsDefined(evidence))
+        {
+            throw new ArgumentOutOfRangeException(nameof(evidence));
+        }
+
+        candidatePopulation ??=
+            new StructuralCloneCandidatePopulation.All();
+        if (candidatePopulation
+                is StructuralCloneCandidatePopulation
+                    .ContainingLibraryType
+            && breadth != StructuralCloneCandidateBreadth.Self)
+        {
+            throw new ArgumentException(
+                "A containing-library Type candidate population requires "
+                    + "Self breadth.",
+                nameof(candidatePopulation));
+        }
 
         limits?.Validate();
         Breadth = breadth;
         Discovery = discovery;
         Limits = limits;
+        CandidatePopulation = candidatePopulation;
+        Evidence = evidence;
     }
 
     public StructuralCloneParticipantSnapshot Participants { get; }
@@ -564,6 +650,8 @@ public sealed record WorkspaceStructuralCloneSearchInput
     public StructuralCloneCandidateBreadth Breadth { get; }
     public StructuralCloneCandidateDiscovery Discovery { get; }
     public WorkspaceStructuralCloneSearchLimits? Limits { get; }
+    public StructuralCloneCandidatePopulation CandidatePopulation { get; }
+    public StructuralCloneSearchEvidence Evidence { get; }
 }
 
 /// <summary>
@@ -635,6 +723,7 @@ public sealed record StructuralCloneSearchPair(
 /// <summary>Typed clone-search coverage and target failures.</summary>
 public enum StructuralCloneSearchFailureKind
 {
+    SeedMethodNotFound,
     SeedTypeNotFound,
     SeedTypeAmbiguous,
     SeedMemberNotFound,
@@ -647,6 +736,8 @@ public enum StructuralCloneSearchFailureKind
     /// </summary>
     SeedMemberHasNoMethodBody,
     SeedPopulationLimitReached,
+    CandidateTypeNotFound,
+    CandidateTypeAmbiguous,
     CandidatePopulationLimitReached,
     ParticipantPopulationLimitReached,
     RetrievalWorkLimitReached,
@@ -676,6 +767,15 @@ public sealed record StructuralCloneSearchFailure(
     AssemblyContextSubject? Subject,
     string Detail);
 
+/// <summary>
+/// One unmodified Analysis retrieval retained for a caller that presents
+/// candidate-method evidence.
+/// </summary>
+public sealed record StructuralCloneSearchRetrievalEvidence(
+    StructuralCloneParticipantIdentity Participant,
+    AssemblyContextSubject Subject,
+    StructuralCloneRetrievalResult Retrieval);
+
 /// <summary>Per-seed coverage for one clone search.</summary>
 public sealed record StructuralCloneSearchSeedCoverage(
     StructuralCloneSearchEndpoint Seed,
@@ -685,6 +785,12 @@ public sealed record StructuralCloneSearchSeedCoverage(
     ImmutableArray<StructuralCloneRetrievalBlocker> Blockers,
     ImmutableArray<StructuralCloneSearchFailure> Failures)
 {
+    public ImmutableArray<StructuralCloneSearchRetrievalEvidence> Retrievals
+    {
+        get;
+        init;
+    } = [];
+
     /// <summary>
     /// Every admitted candidate of this seed was evaluated. Row limits are a
     /// separate, intentional result bound.
@@ -707,6 +813,11 @@ public sealed record StructuralCloneSearchSeedCoverage(
 /// The seed-candidate pairs this participant charged against the search's
 /// aggregate retrieval budget.
 /// </param>
+/// <param name="SeedMethodsInCandidatePopulation">
+/// The exact seed MethodDefs also present in this participant's candidate
+/// population when detailed retrieval evidence was requested. Summary-only
+/// searches do not retain this Match-specific accounting fact.
+/// </param>
 /// <param name="AnalysisBlockers">
 /// The distinct Analysis-issued blockers that omitted candidate methods of
 /// this participant, aggregated over every seed and every retrieval chunk run
@@ -720,6 +831,7 @@ public sealed record StructuralCloneSearchLibraryCoverage(
     bool Admitted,
     int CandidateMethods,
     int DiscoveredMethods,
+    int? SeedMethodsInCandidatePopulation,
     long RetrievalPairs,
     long NameComparisonWork,
     ImmutableArray<StructuralCloneSearchFailure> Failures,
@@ -785,6 +897,7 @@ public abstract record WorkspaceStructuralCloneSearchResult
     public sealed record Available(
         AssemblyContextSubject SeedSubject,
         StructuralCloneSearchSeed Seed,
+        StructuralCloneCandidatePopulation CandidatePopulation,
         StructuralCloneCandidateBreadth Breadth,
         StructuralCloneCandidateDiscovery Discovery,
         double NameSimilarityThreshold,
@@ -825,9 +938,9 @@ public abstract record WorkspaceStructuralCloneSearchResult
 }
 
 /// <summary>
-/// Runs one Library, Type, or Member structural-clone search over an exact
-/// caller-supplied participant snapshot, returning one globally ranked bounded
-/// result.
+/// Runs one Library, Type, Member, or exact MethodDef structural-clone search
+/// over an exact caller-supplied participant snapshot, returning one globally
+/// ranked bounded result.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -1151,6 +1264,7 @@ public static class WorkspaceStructuralCloneSearchQuery
                 Admitted: true,
                 CandidateMethods: 0,
                 DiscoveredMethods: 0,
+                SeedMethodsInCandidatePopulation: null,
                 RetrievalPairs: 0,
                 NameComparisonWork: 0,
                 [
@@ -1165,6 +1279,13 @@ public static class WorkspaceStructuralCloneSearchQuery
 
         ImmutableArray<StructuralCloneSearchFailure> failures =
             population.Failures;
+        int? seedMethodsInCandidatePopulation =
+            search.RetainsDetailedRetrievals
+                ? sameImage
+                    ? population.Methods.Count(
+                        search.Seeds.Handles.Contains)
+                    : 0
+                : null;
         if (!population.OverRetrievalBudget
             && population.Methods.Length
                 > search.Limits.MaximumCandidateMethods)
@@ -1176,6 +1297,7 @@ public static class WorkspaceStructuralCloneSearchQuery
                 Admitted: true,
                 population.InspectedMethods,
                 population.Methods.Length,
+                seedMethodsInCandidatePopulation,
                 RetrievalPairs: 0,
                 population.NameComparisonWork,
                 failures.Add(
@@ -1200,6 +1322,7 @@ public static class WorkspaceStructuralCloneSearchQuery
                 Admitted: false,
                 population.InspectedMethods,
                 population.Methods.Length,
+                seedMethodsInCandidatePopulation,
                 RetrievalPairs: 0,
                 population.NameComparisonWork,
                 failures.Add(
@@ -1219,7 +1342,7 @@ public static class WorkspaceStructuralCloneSearchQuery
         }
 
         var analysisBlockers = new LibraryAnalysisBlockers();
-        if (pairs > 0)
+        if (pairs > 0 || search.RetainsDetailedRetrievals)
         {
             foreach (SeedMethod seed in search.Seeds.Methods)
             {
@@ -1227,6 +1350,20 @@ public static class WorkspaceStructuralCloneSearchQuery
                 CandidateGroup group = population.GroupFor(seed);
                 if (group.Methods.IsEmpty)
                 {
+                    if (search.RetainsDetailedRetrievals)
+                    {
+                        SearchChunk(
+                            search,
+                            seed,
+                            identity,
+                            entry,
+                            group,
+                            seedImage,
+                            candidateImage,
+                            sameImage,
+                            [],
+                            analysisBlockers);
+                    }
                     continue;
                 }
 
@@ -1248,32 +1385,16 @@ public static class WorkspaceStructuralCloneSearchQuery
                             group.Methods.Length - start);
                     ImmutableArray<MethodDefinitionHandle> chunk =
                         group.Methods.Slice(start, length);
-                    var retrievalLimits =
-                        new StructuralCloneRetrievalLimits(
-                            MaximumMethods: search.Limits
-                                .MaximumCandidateMethods,
-                            MaximumResults: length,
-                            ComparisonLimits: search.Limits
-                                .ComparisonLimits);
-                    StructuralCloneRetrievalResult retrieval =
-                        sameImage
-                            ? StructuralCloneAnalysis.RetrieveSimilar(
-                                seedImage,
-                                seed.Handle,
-                                chunk,
-                                retrievalLimits)
-                            : StructuralCloneAnalysis.RetrieveSimilar(
-                                seedImage,
-                                seed.Handle,
-                                candidateImage,
-                                chunk,
-                                retrievalLimits);
-                    search.Merge(
+                    SearchChunk(
+                        search,
                         seed,
                         identity,
                         entry,
                         group,
-                        retrieval,
+                        seedImage,
+                        candidateImage,
+                        sameImage,
+                        chunk,
                         analysisBlockers);
                 }
             }
@@ -1286,10 +1407,50 @@ public static class WorkspaceStructuralCloneSearchQuery
             Admitted: true,
             population.InspectedMethods,
             population.Methods.Length,
+            seedMethodsInCandidatePopulation,
             pairs,
             population.NameComparisonWork,
             failures,
             analysisBlockers.Build());
+    }
+
+    static void SearchChunk(
+        SearchState search,
+        SeedMethod seed,
+        StructuralCloneParticipantIdentity identity,
+        StructuralCloneParticipantEntry entry,
+        CandidateGroup group,
+        PEReader seedImage,
+        PEReader candidateImage,
+        bool sameImage,
+        ImmutableArray<MethodDefinitionHandle> methods,
+        LibraryAnalysisBlockers analysisBlockers)
+    {
+        var retrievalLimits =
+            new StructuralCloneRetrievalLimits(
+                MaximumMethods: search.Limits.MaximumCandidateMethods,
+                MaximumResults: Math.Max(1, methods.Length),
+                ComparisonLimits: search.Limits.ComparisonLimits);
+        StructuralCloneRetrievalResult retrieval =
+            sameImage
+                ? StructuralCloneAnalysis.RetrieveSimilar(
+                    seedImage,
+                    seed.Handle,
+                    methods,
+                    retrievalLimits)
+                : StructuralCloneAnalysis.RetrieveSimilar(
+                    seedImage,
+                    seed.Handle,
+                    candidateImage,
+                    methods,
+                    retrievalLimits);
+        search.Merge(
+            seed,
+            identity,
+            entry,
+            group,
+            retrieval,
+            analysisBlockers);
     }
 
     /// <summary>
@@ -1357,6 +1518,7 @@ public static class WorkspaceStructuralCloneSearchQuery
             Admitted: true,
             CandidateMethods: 0,
             DiscoveredMethods: 0,
+            SeedMethodsInCandidatePopulation: null,
             RetrievalPairs: 0,
             NameComparisonWork: 0,
             [
@@ -1379,6 +1541,7 @@ public static class WorkspaceStructuralCloneSearchQuery
             Admitted: true,
             CandidateMethods: 0,
             DiscoveredMethods: 0,
+            SeedMethodsInCandidatePopulation: null,
             RetrievalPairs: 0,
             NameComparisonWork: 0,
             [
@@ -1441,6 +1604,34 @@ public static class WorkspaceStructuralCloneSearchQuery
                 }
 
                 exact = resolved.Methods.ToFrozenSet();
+                scope =
+                    reader.GetMethodDefinition(
+                            resolved.Methods[0])
+                        .GetDeclaringType();
+                break;
+            }
+            case StructuralCloneSearchSeed.MethodDefinitionToken token:
+            {
+                EntityHandle entity =
+                    MetadataTokens.EntityHandle(token.MetadataToken);
+                int row = MetadataTokens.GetRowNumber(entity);
+                if (row > reader.GetTableRowCount(TableIndex.MethodDef))
+                {
+                    return SeedPopulation.Failed(
+                        new StructuralCloneSearchFailure(
+                            StructuralCloneSearchFailureKind
+                                .SeedMethodNotFound,
+                            null,
+                            $"MethodDef 0x{token.MetadataToken:X8} does not "
+                                + "exist."));
+                }
+
+                MethodDefinitionHandle method =
+                    (MethodDefinitionHandle)entity;
+                exact = new[] { method }.ToFrozenSet();
+                scope =
+                    reader.GetMethodDefinition(method)
+                        .GetDeclaringType();
                 break;
             }
             default:
@@ -1457,11 +1648,8 @@ public static class WorkspaceStructuralCloneSearchQuery
         {
             TypeDefinition definition =
                 reader.GetTypeDefinition(typeHandle);
-            bool wholeType =
-                input.Seed is StructuralCloneSearchSeed.Library
-                || typeHandle == scope;
-            if (!wholeType
-                && input.Seed is not StructuralCloneSearchSeed.Member)
+            if (input.Seed is not StructuralCloneSearchSeed.Library
+                && typeHandle != scope)
             {
                 continue;
             }
@@ -1471,7 +1659,7 @@ public static class WorkspaceStructuralCloneSearchQuery
             foreach (MethodDefinitionHandle methodHandle
                 in definition.GetMethods())
             {
-                if (!wholeType && !exact.Contains(methodHandle))
+                if (exact.Count > 0 && !exact.Contains(methodHandle))
                 {
                     continue;
                 }
@@ -1588,6 +1776,24 @@ public static class WorkspaceStructuralCloneSearchQuery
                 StructuralCloneSearchFailureKind.SeedMemberAmbiguous,
                 null,
                 "The exact seed member identifies more than one member."),
+        };
+
+    static StructuralCloneSearchFailure? CandidateTypeFailure(
+        StructuralCloneTypeResolution resolution,
+        MetadataTypeDefinitionName name,
+        AssemblyContextSubject subject)
+        => resolution.Status switch
+        {
+            StructuralCloneTypeResolutionStatus.Resolved => null,
+            StructuralCloneTypeResolutionStatus.NotFound =>
+                new StructuralCloneSearchFailure(
+                    StructuralCloneSearchFailureKind.CandidateTypeNotFound,
+                    subject,
+                    $"Type '{name.ToEscapedFullName()}' does not exist."),
+            _ => new StructuralCloneSearchFailure(
+                StructuralCloneSearchFailureKind.CandidateTypeAmbiguous,
+                subject,
+                $"Type '{name.ToEscapedFullName()}' is ambiguous."),
         };
 
     /// <summary>
@@ -1846,6 +2052,11 @@ public static class WorkspaceStructuralCloneSearchQuery
                 : CandidateGroup.Empty;
     }
 
+    sealed record CandidateScope(
+        ImmutableArray<TypeDefinitionHandle> Types,
+        ImmutableArray<MethodDefinitionHandle> Methods,
+        StructuralCloneSearchFailure? Failure);
+
     /// <summary>
     /// Charges normalized-similarity work so a hostile name population cannot
     /// buy quadratic edit-distance work under a bounded request.
@@ -1962,6 +2173,9 @@ public static class WorkspaceStructuralCloneSearchQuery
 
         internal WorkspaceStructuralCloneSearchLimits Limits => limits;
         internal SeedPopulation Seeds => seeds;
+        internal bool RetainsDetailedRetrievals =>
+            input.Evidence
+                == StructuralCloneSearchEvidence.DetailedRetrievals;
 
         static int[] SeedsPerGroup(
             WorkspaceStructuralCloneSearchInput input,
@@ -2003,6 +2217,7 @@ public static class WorkspaceStructuralCloneSearchQuery
                     Admitted: false,
                     CandidateMethods: 0,
                     DiscoveredMethods: 0,
+                    SeedMethodsInCandidatePopulation: null,
                     RetrievalPairs: 0,
                     NameComparisonWork: 0,
                     [],
@@ -2029,6 +2244,7 @@ public static class WorkspaceStructuralCloneSearchQuery
                     Admitted: false,
                     CandidateMethods: 0,
                     DiscoveredMethods: 0,
+                    SeedMethodsInCandidatePopulation: null,
                     RetrievalPairs: 0,
                     NameComparisonWork: 0,
                     [
@@ -2089,10 +2305,26 @@ public static class WorkspaceStructuralCloneSearchQuery
             StructuralCloneValidatedImage image =
                 StructuralCloneValidatedImage.Create(candidateImage);
             MetadataReader reader = image.Reader;
+            CandidateScope scope =
+                ResolveCandidateScope(reader, subject);
+            if (scope.Failure is { } scopeFailure)
+            {
+                return new CandidatePopulation(
+                    [],
+                    input.Discovery
+                        == StructuralCloneCandidateDiscovery.All
+                            ? [CandidateGroup.Empty]
+                            : [],
+                    InspectedMethods: 0,
+                    RetrievalPairs: 0,
+                    OverRetrievalBudget: false,
+                    NameComparisonWork: 0,
+                    [scopeFailure]);
+            }
+
             if (input.Discovery == StructuralCloneCandidateDiscovery.All)
             {
-                ImmutableArray<MethodDefinitionHandle> all =
-                    reader.MethodDefinitions.ToImmutableArray();
+                ImmutableArray<MethodDefinitionHandle> all = scope.Methods;
                 long allPairs = (long)all.Length * _seedsPerGroup[0];
                 return new CandidatePopulation(
                     all,
@@ -2132,8 +2364,7 @@ public static class WorkspaceStructuralCloneSearchQuery
             // quadratic admitted-pair structure before the bound is checked.
             long pairs = 0;
             bool overBudget = false;
-            foreach (TypeDefinitionHandle typeHandle
-                in reader.TypeDefinitions)
+            foreach (TypeDefinitionHandle typeHandle in scope.Types)
             {
                 if (overBudget)
                 {
@@ -2250,6 +2481,45 @@ public static class WorkspaceStructuralCloneSearchQuery
                 overBudget,
                 _nameWork.Charged - chargedBefore,
                 failures.ToImmutable());
+        }
+
+        CandidateScope ResolveCandidateScope(
+            MetadataReader reader,
+            AssemblyContextSubject subject)
+        {
+            if (input.CandidatePopulation
+                is StructuralCloneCandidatePopulation.All)
+            {
+                return new CandidateScope(
+                    reader.TypeDefinitions.ToImmutableArray(),
+                    reader.MethodDefinitions.ToImmutableArray(),
+                    null);
+            }
+
+            var type =
+                (StructuralCloneCandidatePopulation
+                    .ContainingLibraryType)input.CandidatePopulation;
+            StructuralCloneTypeResolution resolved =
+                StructuralCloneMetadataResolution.ResolveType(
+                    reader,
+                    type.Definition);
+            StructuralCloneSearchFailure? failure =
+                CandidateTypeFailure(
+                    resolved,
+                    type.Definition,
+                    subject);
+            if (failure is not null)
+            {
+                return new CandidateScope([], [], failure);
+            }
+
+            TypeDefinitionHandle handle = resolved.Handle;
+            return new CandidateScope(
+                [handle],
+                reader.GetTypeDefinition(handle)
+                    .GetMethods()
+                    .ToImmutableArray(),
+                null);
         }
 
         /// <summary>
@@ -2407,7 +2677,12 @@ public static class WorkspaceStructuralCloneSearchQuery
         {
             _retrievalCalls++;
             SeedCoverageState coverage = SeedCoverage(seed);
-            coverage.Observe(retrieval);
+            coverage.Observe(
+                candidateIdentity,
+                candidateEntry,
+                retrieval,
+                input.Evidence
+                    == StructuralCloneSearchEvidence.DetailedRetrievals);
 
             // The same retrieval is evidence for two owners: the seed it ran
             // for, and the participant whose candidate methods it produced.
@@ -2528,6 +2803,7 @@ public static class WorkspaceStructuralCloneSearchQuery
             return new WorkspaceStructuralCloneSearchResult.Available(
                 seedSubject,
                 input.Seed,
+                input.CandidatePopulation,
                 input.Breadth,
                 input.Discovery,
                 NameSimilarityThreshold,
@@ -2587,6 +2863,10 @@ public static class WorkspaceStructuralCloneSearchQuery
                 ImmutableArray.CreateBuilder<
                     StructuralCloneRetrievalBlocker>();
         readonly HashSet<StructuralCloneRetrievalBlocker> _seenBlockers = [];
+        readonly ImmutableArray<
+            StructuralCloneSearchRetrievalEvidence>.Builder _retrievals =
+                ImmutableArray.CreateBuilder<
+                    StructuralCloneSearchRetrievalEvidence>();
         StructuralCloneRetrievalDisposition _disposition =
             StructuralCloneRetrievalDisposition.Completed;
         int _ranked;
@@ -2606,8 +2886,21 @@ public static class WorkspaceStructuralCloneSearchQuery
         /// and participant counts. The most severe disposition still wins, so
         /// no failure becomes success-shaped.
         /// </remarks>
-        internal void Observe(StructuralCloneRetrievalResult retrieval)
+        internal void Observe(
+            StructuralCloneParticipantIdentity participant,
+            StructuralCloneParticipantEntry entry,
+            StructuralCloneRetrievalResult retrieval,
+            bool retainRetrieval)
         {
+            if (retainRetrieval)
+            {
+                _retrievals.Add(
+                    new StructuralCloneSearchRetrievalEvidence(
+                        participant,
+                        entry.Subject,
+                        retrieval));
+            }
+
             if (Severity(retrieval.Disposition) > Severity(_disposition))
             {
                 _disposition = retrieval.Disposition;
@@ -2634,7 +2927,10 @@ public static class WorkspaceStructuralCloneSearchQuery
                 _ranked,
                 _suppressed,
                 _blockers.ToImmutable(),
-                failures);
+                failures)
+            {
+                Retrievals = _retrievals.ToImmutable(),
+            };
 
         static int Severity(StructuralCloneRetrievalDisposition disposition)
             => disposition switch

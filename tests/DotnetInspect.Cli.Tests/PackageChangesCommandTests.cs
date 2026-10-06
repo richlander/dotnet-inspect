@@ -181,7 +181,7 @@ public sealed class PackageChangesCommandTests
     }
 
     [Fact]
-    public async Task JsonUsesDefaultIntervalAndExactEcosystemPackageSet()
+    public async Task JsonUsesDefaultIntervalAndEcosystemPrefixes()
     {
         using INuGetCatalogPackageSourceClient source =
             CreateSource(
@@ -212,7 +212,7 @@ public sealed class PackageChangesCommandTests
         Assert.Empty(result.Error);
         using JsonDocument document = JsonDocument.Parse(result.Output);
         JsonElement root = document.RootElement;
-        Assert.Equal(1, root.GetProperty("schema_version").GetInt32());
+        Assert.Equal(2, root.GetProperty("schema_version").GetInt32());
         JsonElement request = root.GetProperty("request");
         Assert.True(request.GetProperty("used_default_interval").GetBoolean());
         Assert.Equal(
@@ -224,11 +224,15 @@ public sealed class PackageChangesCommandTests
         Assert.Equal(7, request.GetProperty("maximum_rows").GetInt32());
         JsonElement packageScope = request.GetProperty("package_scope");
         Assert.Equal(
-            "package-set.aspire",
+            "PackagePrefix",
+            packageScope.GetProperty("kind").GetString());
+        Assert.Equal(
+            "ecosystem.aspire",
             packageScope.GetProperty("selection_id").GetString());
-        Assert.Contains(
-            packageScope.GetProperty("package_ids").EnumerateArray(),
-            package => package.GetString() == "Aspire.Hosting");
+        Assert.Equal(
+            ["Aspire."],
+            packageScope.GetProperty("prefixes").EnumerateArray()
+                .Select(static prefix => prefix.GetString()));
         JsonElement row = Assert.Single(
             root.GetProperty("rows").EnumerateArray());
         Assert.Equal(
@@ -284,7 +288,7 @@ public sealed class PackageChangesCommandTests
         using JsonDocument envelopeDocument =
             JsonDocument.Parse(envelope.Output);
         JsonElement root = envelopeDocument.RootElement;
-        Assert.Equal(1, root.GetProperty("schema_version").GetInt32());
+        Assert.Equal(2, root.GetProperty("schema_version").GetInt32());
         Assert.Equal(
             "ecosystem-change-report",
             root.GetProperty("result_kind").GetString());
@@ -335,7 +339,11 @@ public sealed class PackageChangesCommandTests
             result.Output,
             StringComparison.Ordinal);
         Assert.Contains(
-            "package-set.aspire",
+            "ecosystem.aspire",
+            result.Output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Literal prefix",
             result.Output,
             StringComparison.Ordinal);
     }
@@ -481,7 +489,7 @@ public sealed class PackageChangesCommandTests
         Assert.Equal(0, result.ExitCode);
         using JsonDocument document = JsonDocument.Parse(result.Output);
         Assert.Equal(
-            1,
+            2,
             document.RootElement.GetProperty("schema_version").GetInt32());
         Assert.Contains(
             "Catalog: scanning",
@@ -702,7 +710,7 @@ public sealed class PackageChangesCommandTests
     }
 
     [Fact]
-    public async Task EcosystemWithoutPackageSetFailsBeforeAcquisition()
+    public async Task UnknownEcosystemFailsBeforeAcquisition()
     {
         using INuGetCatalogPackageSourceClient source =
             CreateSource(new ThrowingHandler());
@@ -712,7 +720,7 @@ public sealed class PackageChangesCommandTests
             () => PackageChangesCommand.ExecuteAsync(
                 Options(OutputFormat.Json) with
                 {
-                    Ecosystem = "runtime",
+                    Ecosystem = "package-set.aspire",
                 },
                 source,
                 new GitHubNuGetAdvisoryService(advisoryClient),
@@ -722,7 +730,7 @@ public sealed class PackageChangesCommandTests
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);
         Assert.Contains(
-            "does not define an exact package set",
+            "Unknown ecosystem",
             result.Error,
             StringComparison.Ordinal);
     }

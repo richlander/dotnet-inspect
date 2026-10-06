@@ -240,6 +240,13 @@ generated TypeScript facade owns `JSON.stringify()` and presents
 `BrowserLibraryInspectionRequest` directly while the private JS/.NET ABI
 remains string-valued.
 
+The first Browser adoption selects an exact package or Platform Library the
+Browser already realizes and lowers a plan term for the Enablements fact
+group. The package selector uses the implementation-preferred participant, so
+the Library carries its implementation when the package has one. Uploaded
+Libraries, Workspace selectors, and the remaining plan terms are adopted by
+later slices; until then the Browser plan exposes only the terms it lowers.
+
 The core request and CLI operation remain independent of Browser adoption.
 Browser adoption uses the generated input binding rather than adding a
 handwritten TypeScript request shape, flattened interim export, or duplicate
@@ -304,16 +311,27 @@ reference-pack and runtime-pack assemblies in those roles, so its Enablements
 come from the runtime pack. A Library realized only from a reference assembly
 receives that owner's `ReferenceAssembly` Unavailable outcome.
 
+Architecture is absent when the PE machine value is one the vocabulary does
+not name, as in OS-specific ReadyToRun images. An unreadable debug directory
+makes reproducibility unavailable rather than false.
+
 A requested group appears in the document; an unrequested group is absent. A
 fact the image does not carry, such as a missing `Company` attribute, is
 absent from its requested group rather than empty text. A fact whose evidence
 cannot be decoded is reported unavailable with a reason and does not fail the
 document or another group.
 
+Identity, Image, and Description are read from the same `ApiAssembly`
+content, so a failure to open that content fails the document even when a Type
+population was read first. Enablements may read separate implementation
+content; a failure to open it fails only the Enablements group.
+
 These related values are deliberately not Library facts:
 
-- **Source kind and coordinate** already belong to the `LibraryReference`
-  bound to the envelope. Hosts render them from that reference.
+- **Source kind and coordinate** belong to the `LibraryReference` bound to
+  the envelope, or to the host's own source resolution when the host
+  materializes a directly adapted image that does not carry them. Hosts render
+  them from that source.
 - **Deterministic** combines the reproducible flag with PDB path
   normalization, so it depends on companion or acquired symbol content. It
   stays with the SourceLink and PDB owner until that owner adopts a document
@@ -356,9 +374,9 @@ The initial path is:
 LibraryDocument / Types
 ```
 
-Type kind, accessibility, and namespace are initial facets. Other facets may
-be adopted only after their query semantics, cost, and producer evidence are
-owned.
+Type kind, accessibility, namespace, and Type trait are initial facets. Other
+facets may be adopted only after their query semantics, cost, and producer
+evidence are owned.
 
 A declaration-kind facet distinguishes local definitions from forwarders and
 supports definitions-only, forwarders-only, or combined membership. Type kind
@@ -394,6 +412,25 @@ declared namespace without target resolution. The facet does not infer which
 Library owns a namespace; Router, Spotlight, and `find` resolve source
 candidates before invoking one exact Library operation.
 
+The initial Type-trait vocabulary is `abstract`, `static`, and `object`.
+`abstract` selects abstract classes but not interfaces or static classes.
+`static` selects declarations carrying the product's static-Type fact.
+`object` selects instantiable declarations: concrete classes, structs, enums,
+and delegates. Interfaces and forwarders have none of these traits. Trait
+values are alternatives within one selection; an absent trait selector means
+all declarations.
+
+Interactive Type selector Counts use the Member selector's axis-specific
+scope. Accessibility Counts cover every bucket in the active Library
+population regardless of the selected bucket. Namespace, Type-kind, and
+Type-trait Counts use the selected accessibility population but do not narrow
+one another: each option is the Count of that accessibility plus the option's
+own facet value, and `all` is the Count of the selected accessibility
+population. Forwarders participate only when that accessibility selection
+admits the public surface. Each option Count and the Rows selected by that
+option therefore use the same membership predicate without making selector
+Counts recursively depend on every other active option.
+
 A facet selects a population before terminal execution. A homogeneous
 `Accessibility = Private` population does not require every rendered row to
 repeat `Private`. Multiple selected facet values remain a request-level set or
@@ -418,7 +455,8 @@ LibraryTypePopulationResult
 
 Count and Rows execute the same membership predicate. They cannot disagree
 about declaration kind, public-surface or accessibility selection, Type kind,
-hidden/compiler-generated admission, Library snapshot, or completion.
+Type trait, hidden/compiler-generated admission, Library snapshot, or
+completion.
 
 Count is exact or visibly non-successful. It never reports retained Rows,
 current page length, a prefix, or zero after failure.
@@ -686,9 +724,10 @@ Adoption is staged through focused slices:
    their replacement. The first adoption is the Image, Description, and
    Enablements fact groups: produce them in the operation, expose them to
    Inspect Web through the Browser request, and render CLI `Library Info` from
-   the envelope plus `LibraryReference` provenance. Library Info counts whose
-   populations are not yet adopted stay on their legacy path until their own
-   slice.
+   the envelope plus source provenance, field by field as
+   [Library Info composition](library-info-composition.md) maps them. Library
+   Info counts whose populations are not yet adopted stay on their legacy path
+   until their own slice.
 
 The exact-Library API and package-wide Browser surface remain independent
 operations until a focused adoption proves which facts or populations the new
@@ -789,7 +828,7 @@ shape:
 ```text
 Classes
   Type                                     Members
-  System.Text.Json.JsonDocument            16
+  System.Text.Json.JsonDocument            11
   System.Text.Json.JsonException           9
 ```
 

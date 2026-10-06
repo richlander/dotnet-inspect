@@ -77,10 +77,11 @@ public class ByteArraySlotMaterializationTests
     [InlineData(true)]
     public void EveryProducerMustAlreadyBeTheExactArrayType(bool signedArray)
     {
+        var producer = signedArray ? SByteArray : Object;
         var function = Function(ByteArray,
             new StoreStackSlot(0, new NewArray(Byte, new Constant(1, Int32))),
             Observe(new LoadStackSlot(0, ByteArray), ByteArray),
-            new StoreStackSlot(0, new Constant(null, signedArray ? SByteArray : Object)),
+            new StoreStackSlot(0, new CastClass(producer, new Constant(null, Object))),
             new Return(new LoadStackSlot(0, ByteArray)));
 
         Assert.True(Assert.Single(SlotMaterializationPass.Analyze(function))

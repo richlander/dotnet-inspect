@@ -124,6 +124,8 @@ ecosystem:
 - `Inspector.Artifacts` owns source-neutral artifact identity, acquisition,
   authorization, and lifetime contracts.
 - `Inspector.Findings` owns the domain-neutral Finding algebra.
+- Target `Inspector.Graph` owns domain-neutral graph structure and
+  graph-local validity over caller-owned typed payloads.
 - `Inspector.Resources` owns host-neutral resource lifecycle declarations and
   synchronous borrowing contracts.
 - `Inspector.Text` owns generic text Findings and deterministic text
@@ -152,7 +154,11 @@ both inspection families and the shorter name is established by the subject:
   that contract; `NuGetFetch` consumes both, and their contracts are owned by
   [Package archive range access](package-archive-range-access.md).
 - `QuerySpace` owns the portable, host-neutral query language and
-  execution substrate without owning any inspected product subject.
+  execution substrate without owning any inspected product subject. It ships
+  as two assemblies: `QuerySpace.Primitives`, a dependency-free declaration
+  floor on the `ILInspector.MetadataPrimitives` pattern, and `QuerySpace`,
+  which plans and executes; see the
+  [QuerySpace library boundary](query-space-library.md#two-assemblies-and-two-participation-tiers).
 - `UntrustedDocuments` owns hardened JSON and XML parsing entry points.
 
 An independent root is not an escape from ownership. It must name a focused
@@ -284,7 +290,7 @@ implementation belongs to separately tracked owner-scoped work.
 | IL program inspection and action | `ILInspector.Metadata`, `ILInspector.SourceLink`, `ILInspector.Instructions`, `ILInspector.Analysis`, `ILInspector.Decompiler`, `ILInspector.ILDiff`, `ILInspector.Research` |
 | Ecosystem and reusable product composition | `DotnetInspector.Cache`, `DotnetInspector.DependencyManifests`, `DotnetInspector.Packages`, `DotnetInspector.Networking`, `DotnetInspector.Queries`, `DotnetInspector.PackageQueries`, `DotnetInspector.SourceSelection`, `DotnetInspector.Sections`, `DotnetInspector.Presentation`, `DotnetInspector.MetadataRendering` |
 | Subject-neutral inspection substrate | `Inspector.Artifacts`, `Inspector.Artifacts.Local`, `Inspector.Artifacts.Workspaces`, `Inspector.Findings`, `Inspector.Text` |
-| Independent domain roots | `NuGetFetch`, `BinaryFetch`, `ZipFetch`, `NetworkAccess`, `UntrustedDocuments`, `CSharpText`, `InertText`, `QuerySpace`; target `SourceFetch` |
+| Independent domain roots | `NuGetFetch`, `BinaryFetch`, `ZipFetch`, `NetworkAccess`, `UntrustedDocuments`, `CSharpText`, `InertText`, `QuerySpace` and `QuerySpace.Primitives`; target `SourceFetch` |
 | Product hosts and host boundary | `DotnetInspect.Cli`, `DotnetInspect.Web`; child `DotnetInspect.Web.Interop` |
 
 The following dispositions close the existing ambiguous names:

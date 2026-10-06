@@ -57,6 +57,15 @@ The pattern has five obligations. An adopting command meets all of them:
    are the Library declaration-kind facet (`Definition` or `Forwarder`) and
    the Member `receiver` facet (`static`, `this`, or `extension`), each defined
    by its population owner.
+
+   A summary row may carry owner-issued identity, role, and other facts about
+   that child itself. It does not carry facts computed from the child's own
+   child population. Producing a parent's summary therefore does not open a
+   child solely to decorate its row. An adoption may name a narrower exception
+   only when the added fact is exceptionally valuable and the owning design
+   states the work it authorizes; identifying a tool Package's entry-point
+   Library is the Package adoption's exception. Package tool settings normally
+   provide that correspondence without opening the Library binary.
 3. **Info is opt-in.** Facts about the subject are one explicitly named
    subject-facts section, selected with `-S <section>`. It answers "what is
    this subject?" and does not re-render the children population. Whether
@@ -221,16 +230,18 @@ adopts it, in that owner's document, with its own gates.
   Browser/Wasm adoption gates. The host-neutral operation and its forwarder
   semantics remain after that presentation context retires.
 
-### Package (owners: Progressive disclosure and Package library scope)
+### Package (owners: Progressive disclosure and Package asset selection)
 
 - **Target:** the package children view is a package-local selection
   consumer, like Package Info. Without `--tfm` it uses the Selection default,
   PackageHouse's `HighestAvailable`, not the Traversal default; `--tfm`
   requests an explicit target. See
   [Traversal and selection are different policies](traversal-target-framework-policy.md#traversal-and-selection-are-different-policies).
-- **Children:** the selected compile population in aggregate scope, one row
-  per Library with its public-surface Type declaration Count. Each count reads
-  only the compile asset that compile selection chose.
+- **Children:** the selected compile population, one identity row per Library.
+  A row carries the compile asset ID, path, display name, role, exact selector,
+  and population ordinal. It carries no Type Count or other fact from the
+  Library's child population, and ordinary Package summary production does not
+  open the Library binary.
 - **Identity line:** source and selected target, then two groups. The first
   lists the peer asset directories present (`ref`, `lib`, `runtimes`). The
   second adds detail for `runtimes`: its child RID directories, capped to a
@@ -274,13 +285,10 @@ A tool package's header names its tool settings format as it appears in
   no selected target and no Libraries. It shows its RID and states that it
   has no managed Libraries; it never renders an empty inventory.
 
-Rows use the same public-surface Type declaration Count as other packages, so
-a count means the same thing everywhere; `--all` widens it.
-
 ```text
 dotnet-ef 10.0.12 (NuGet, DotNetCliTool v1, net8.0; tools; command: dotnet-ef)
-├─ dotnet-ef (entry point) (n)
-└─ ef (n)
+├─ dotnet-ef (entry point)
+└─ ef
 
 dotnet-inspect 0.26.0 (NuGet, DotNetCliTool v2; command: dotnet-inspect)
 └─ RID packages (6)
@@ -330,7 +338,7 @@ Observed with production dotnet-inspect 0.26.0 on 2026-09-23, unless noted:
 | System.Text.Json 11.0.0-rc.1.26425.128 (platform) | Default is Library Info. Legacy definition-only public count is 91; the Library Type Count adoption reports 97 public-surface declarations | Threshold uses declaration Count, not definitions |
 | System.Private.CoreLib | Legacy definition-only public count 1,358; the Library Type Count adoption reports 1,447 declarations | A large library collapses under any reasonable threshold |
 | Newtonsoft.Json | 130 public definitions | Collapses at the proposed threshold |
-| Microsoft.Data.SqlClient 7.1.0 | `ref`, `lib`, and `runtimes/{unix,win}/lib` copies; the `lib/net9.0` asset is a 93 KB stub next to 1.67 MB runtime copies | Package children count from the compile asset alone |
+| Microsoft.Data.SqlClient 7.1.0 | `ref`, `lib`, and `runtimes/{unix,win}/lib` copies; the `lib/net9.0` asset is a 93 KB stub next to 1.67 MB runtime copies | Package children identify the selected compile asset without opening it |
 | SkiaSharp.NativeAssets.Linux | 13 `runtimes/*/native` RIDs, no managed Libraries | Empty compile population must be stated |
 | `library System.Text.Json.Nodes` | Fails trying to acquire a NuGet package with that name | Namespace input needs Library-scoped resolution |
 | dotnet-ef 10.0.12 | `DotnetTool`; `DotNetCliTool Version="1"`; `tools/net8.0/any/` with 2 Libraries and `shims/win-*` launchers | Payload package rows come from the tool Library population |
@@ -374,6 +382,15 @@ presentation.
    tool packages, with Library rows addressed through the step 3 Library
    selector and tool pointer rows through `package <id>`.
 
+Package step 5 is adopted. The host-neutral Package children document covers
+compile, tool payload, RID pointer, and native tool shapes. Bare CLI output and
+explicit bare `--tree` use its native Tree; JSON, envelope, row formats, row
+windows, projections, and scalar Count use its complete child population.
+Every emitted child row carries the exact gesture that reaches the same
+Library occurrence or RID Package. Inspect Web transports the same document,
+uses its declaration Counts, and retains exact compile asset IDs for Library
+navigation. Explicit sections remain the opt-in sectioned Package views.
+
 ## Gates
 
 This document's obligations are gated through each adoption, in Release,
@@ -400,3 +417,8 @@ against that adoption's motivating assets:
   rows in `dotnet-inspect.any`.
 
 Until an adoption lands, every obligation is `unverified` for that command.
+For Package, `PackageChildrenInspectionTests`,
+`CommandExecutionTests.Package`, `BrowserMemberDeclarationTests`, and
+`package-acquisition.test.ts` gate the adopted native population, complete
+formats, failure states, exact duplicate-name child navigation, and shared
+Browser Counts described above.

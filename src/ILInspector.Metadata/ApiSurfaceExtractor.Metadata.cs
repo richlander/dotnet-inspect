@@ -71,6 +71,7 @@ public static partial class ApiSurfaceExtractor
             var surface = new ApiSurface();
             CountSummaryMembers(
                 reader,
+                handle,
                 reader.GetTypeDefinition(handle),
                 apiType: null,
                 surface,
@@ -89,231 +90,157 @@ public static partial class ApiSurfaceExtractor
         if (selected.Count == 0)
             return counts;
 
-        foreach (TypeDefinitionHandle handle in reader.TypeDefinitions)
-        {
-            TypeDefinition definition =
-                reader.GetTypeDefinition(handle);
-            if (!definition.IsPublic
-                || TypeFilters.IsCompilerGenerated(
-                    reader.GetString(definition.Name))
-                || AttributeReader.HasHiddenAttribute(
-                    reader,
-                    definition.GetCustomAttributes()))
-            {
-                continue;
-            }
-            TypeAttributes attributes = definition.Attributes;
-            bool isExtensionClass =
-                (attributes
-                    & (TypeAttributes.Sealed
-                        | TypeAttributes.Abstract))
-                == (TypeAttributes.Sealed
-                    | TypeAttributes.Abstract)
-                && AttributeReader.HasExtensionAttribute(
-                    reader,
-                    definition.GetCustomAttributes());
-            if (!isExtensionClass)
-                continue;
-
-            MetadataTypeDefinitionName declaringName =
-                MetadataTypeDefinitionNameReader.Read(reader, handle)
-                    is MetadataTypeDefinitionNameReadResult.Read read
-                        ? read.Name
-                        : throw new BadImageFormatException(
-                            "An extension declaration has no structured Type identity.");
-            var ignored = new ApiSurface();
-            CountSummaryMembers(
-                reader,
-                definition,
-                apiType: null,
-                ignored,
-                isExtensionClass: true,
-                extensionReceiverDefinitions: null,
-                receiver =>
-                {
-                    if (receiver != declaringName
-                        && selected.TryGetValue(
-                            receiver,
-                            out TypeDefinitionToken target))
-                    {
-                        counts[target] =
-                            checked(counts[target] + 1);
-                    }
-                });
-        }
+        var attached = new SummaryAttachedExtensionSink(selected, counts);
+        ClassifyAttachedExtensions(reader, publicOnly: true, ref attached);
 
         return counts;
     }
 
     private static void CountSummaryMembers(
         MetadataReader reader,
+        TypeDefinitionHandle typeHandle,
         TypeDefinition typeDef,
         ApiType? apiType,
         ApiSurface surface,
         bool isExtensionClass,
         Dictionary<ApiMember, MetadataTypeDefinitionName>?
-            extensionReceiverDefinitions,
-        Action<MetadataTypeDefinitionName>? observeExtensionReceiver =
-            null)
+            extensionReceiverDefinitions)
     {
-        var explicitImplementationBodies = GetExplicitImplementationBodies(reader, typeDef);
-        var accessorMethods = GetSemanticAccessorMethods(reader, typeDef);
-        bool isEnum = IsEnum(reader, typeDef);
+        var sink = new SummaryMemberSink(
+            reader,
+            typeDef,
+            apiType,
+            surface,
+            isExtensionClass,
+            extensionReceiverDefinitions);
+        ClassifyDeclaredMembers(
+            reader,
+            typeHandle,
+            typeDef,
+            MetadataMemberSpelling.CSharp,
+            publicOnly: true,
+            extensionContainer: isExtensionClass,
+            classifyLogicalMethodKinds: false,
+            ref sink);
+    }
 
-        foreach (var methodHandle in typeDef.GetMethods())
+    /// <summary>
+    /// Counts, and for a summary surface lists, the public declarations that
+    /// are not hidden.
+    /// </summary>
+    readonly struct SummaryMemberSink(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        ApiType? apiType,
+        ApiSurface surface,
+        bool isExtensionClass,
+        Dictionary<ApiMember, MetadataTypeDefinitionName>? extensionReceiverDefinitions)
+        : IClassifiedMemberSink
+    {
+        public void Add(in ClassifiedMember member)
         {
-            var method = reader.GetMethodDefinition(methodHandle);
-            var methodAccess = method.Attributes & MethodAttributes.MemberAccessMask;
-            bool isExplicitImplementation = explicitImplementationBodies.Contains(methodHandle);
-            if (methodAccess != MethodAttributes.Public && !isExplicitImplementation)
-                continue;
+            if (member.IsHidden)
+                return;
 
+            switch (member.Kind)
+            {
+                case ClassifiedMemberKind.Method:
+                    AddMethod((MethodDefinitionHandle)member.Handle, member.Receiver);
+                    surface.PublicMethodCount++;
+                    break;
+                case ClassifiedMemberKind.Property:
+                    apiType?.Members.Add(new ApiMember
+                    {
+                        Name = reader.GetString(
+                            reader.GetPropertyDefinition((PropertyDefinitionHandle)member.Handle).Name),
+                        Kind = "property",
+                    });
+                    surface.PublicPropertyCount++;
+                    break;
+                case ClassifiedMemberKind.Field:
+                    apiType?.Members.Add(new ApiMember
+                    {
+                        Name = reader.GetString(
+                            reader.GetFieldDefinition((FieldDefinitionHandle)member.Handle).Name),
+                        Kind = "field",
+                    });
+                    surface.PublicFieldCount++;
+                    break;
+                case ClassifiedMemberKind.Event:
+                    apiType?.Members.Add(new ApiMember
+                    {
+                        Name = reader.GetString(
+                            reader.GetEventDefinition((EventDefinitionHandle)member.Handle).Name),
+                        Kind = "event",
+                    });
+                    surface.PublicEventCount++;
+                    break;
+            }
+        }
+
+        void AddMethod(MethodDefinitionHandle methodHandle, MetadataMethodReceiver receiver)
+        {
+            if (apiType is null)
+                return;
+
+            MethodDefinition method = reader.GetMethodDefinition(methodHandle);
             string methodName = reader.GetString(method.Name);
-            if ((accessorMethods.TryGetValue(
-                        methodHandle,
-                        out ApiMethodSemanticsKind methodSemantics)
-                    && IsCSharpAccessor(methodSemantics)
-                    && !(isExplicitImplementation
-                        && methodAccess == MethodAttributes.Private))
-                || methodName.StartsWith('<'))
+            if (isExtensionClass && receiver == MetadataMethodReceiver.Extension)
             {
-                continue;
-            }
-
-            if (!isExplicitImplementation
-                && AttributeReader.HasEditorBrowsableNeverAttribute(reader, method.GetCustomAttributes()))
-            {
-                continue;
-            }
-
-            bool isStatic =
-                (method.Attributes & MethodAttributes.Static) != 0;
-            if (isExtensionClass
-                && isStatic
-                && AttributeReader.HasExtensionAttribute(
-                    reader,
-                    method.GetCustomAttributes()))
-            {
-                MetadataTypeDefinitionName? receiverDefinition =
-                    GetFirstParameterDefinitionName(
-                        reader,
-                        typeDef,
-                        method);
-                if (receiverDefinition is not null)
-                    observeExtensionReceiver?.Invoke(receiverDefinition);
-                if (apiType is not null)
-                {
-                    int token = MetadataTokens.GetToken(methodHandle);
-                    string? extendedType =
-                        GetFirstParameterType(reader, typeDef, method);
-                    var member = new ApiMember
-                    {
-                        Name = methodName,
-                        Kind = "method",
-                        IsStatic = true,
-                        IsExtension = true,
-                        ExtendedType = extendedType,
-                        DeclaringType = apiType.FullName,
-                        MetadataToken = token,
-                        Signature = token.ToString(
-                            "X8",
-                            CultureInfo.InvariantCulture),
-                    };
-                    apiType.Members.Add(member);
-                    if (receiverDefinition is not null)
-                    {
-                        extensionReceiverDefinitions!.Add(
-                            member,
-                            receiverDefinition);
-                    }
-                }
-            }
-            else if (apiType is not null)
-            {
-                apiType.Members.Add(new ApiMember
+                int token = MetadataTokens.GetToken(methodHandle);
+                var member = new ApiMember
                 {
                     Name = methodName,
                     Kind = "method",
-                    IsStatic = isStatic,
-                });
-            }
-            surface.PublicMethodCount++;
-        }
-
-        foreach (var propertyHandle in typeDef.GetProperties())
-        {
-            var property = reader.GetPropertyDefinition(propertyHandle);
-            var accessors = property.GetAccessors();
-            MethodAttributes bestAccess = 0;
-            if (!accessors.Getter.IsNil)
-            {
-                bestAccess = reader.GetMethodDefinition(accessors.Getter).Attributes
-                    & MethodAttributes.MemberAccessMask;
-            }
-            if (!accessors.Setter.IsNil)
-            {
-                var setterAccess = reader.GetMethodDefinition(accessors.Setter).Attributes
-                    & MethodAttributes.MemberAccessMask;
-                if (setterAccess > bestAccess)
-                    bestAccess = setterAccess;
+                    IsStatic = true,
+                    IsExtension = true,
+                    ExtendedType = GetFirstParameterType(reader, typeDef, method),
+                    DeclaringType = apiType.FullName,
+                    MetadataToken = token,
+                    Signature = token.ToString("X8", CultureInfo.InvariantCulture),
+                };
+                apiType.Members.Add(member);
+                if (GetFirstParameterDefinitionName(reader, typeDef, method)
+                    is { } receiverDefinition)
+                {
+                    extensionReceiverDefinitions!.Add(member, receiverDefinition);
+                }
+                return;
             }
 
-            if (bestAccess != MethodAttributes.Public
-                || AttributeReader.HasEditorBrowsableNeverAttribute(reader, property.GetCustomAttributes()))
+            apiType.Members.Add(new ApiMember
             {
-                continue;
-            }
-
-            apiType?.Members.Add(new ApiMember
-            {
-                Name = reader.GetString(property.Name),
-                Kind = "property"
+                Name = methodName,
+                Kind = "method",
+                IsStatic = receiver != MetadataMethodReceiver.This,
             });
-            surface.PublicPropertyCount++;
         }
+    }
 
-        foreach (var fieldHandle in typeDef.GetFields())
+    /// <summary>
+    /// Adds each public, unhidden attached extension to its selected receiver
+    /// Type's Member Count.
+    /// </summary>
+    struct SummaryAttachedExtensionSink(
+        Dictionary<MetadataTypeDefinitionName, TypeDefinitionToken> selected,
+        Dictionary<TypeDefinitionToken, int> counts)
+        : IAttachedExtensionSink
+    {
+        TypeDefinitionToken _target;
+
+        public bool Wants(
+            in ExtensionReceiver receiver,
+            TypeDefinitionHandle declaringType)
+            => receiver.ReadName() is { } name
+                && selected.TryGetValue(name, out _target)
+                && _target.Value != MetadataTokens.GetToken(declaringType);
+
+        public readonly void Add(in ExtensionReceiver receiver, in ClassifiedMember member)
         {
-            var field = reader.GetFieldDefinition(fieldHandle);
-            if ((field.Attributes & FieldAttributes.FieldAccessMask) != FieldAttributes.Public)
-                continue;
+            if (member.IsHidden)
+                return;
 
-            string fieldName = reader.GetString(field.Name);
-            if ((isEnum && fieldName == "value__")
-                || !IsSurfaceableFieldName(fieldName, includeCompilerGenerated: false)
-                || AttributeReader.HasEditorBrowsableNeverAttribute(reader, field.GetCustomAttributes()))
-            {
-                continue;
-            }
-
-            apiType?.Members.Add(new ApiMember
-            {
-                Name = fieldName,
-                Kind = "field",
-            });
-            surface.PublicFieldCount++;
-        }
-
-        foreach (var eventHandle in typeDef.GetEvents())
-        {
-            var evt = reader.GetEventDefinition(eventHandle);
-            var accessors = evt.GetAccessors();
-            if (accessors.Adder.IsNil)
-                continue;
-
-            var adder = reader.GetMethodDefinition(accessors.Adder);
-            if ((adder.Attributes & MethodAttributes.MemberAccessMask) != MethodAttributes.Public
-                || AttributeReader.HasEditorBrowsableNeverAttribute(reader, evt.GetCustomAttributes()))
-            {
-                continue;
-            }
-
-            apiType?.Members.Add(new ApiMember
-            {
-                Name = reader.GetString(evt.Name),
-                Kind = "event"
-            });
-            surface.PublicEventCount++;
+            counts[_target] = checked(counts[_target] + 1);
         }
     }
 
@@ -948,10 +875,7 @@ public static partial class ApiSurfaceExtractor
         MethodDefinition method,
         Action<int>? beforeDecodeWork = null)
     {
-        if (!string.Equals(
-                DecodeString(reader, method.Name, beforeDecodeWork),
-                "Finalize",
-                StringComparison.Ordinal))
+        if (!reader.StringComparer.Equals(method.Name, "Finalize"))
             return false;
 
         var attributes = method.Attributes;
@@ -1004,8 +928,7 @@ public static partial class ApiSurfaceExtractor
                     var baseType = reader.GetTypeDefinition(baseTypeHandle);
                     if (DeclaresNewVirtualFinalize(
                             reader,
-                            baseType,
-                            beforeDecodeWork))
+                            baseType))
                         return false; // custom Finalize slot introduced below object — not a destructor
                     currentType = baseType;
                     continue;
@@ -1028,16 +951,12 @@ public static partial class ApiSurfaceExtractor
     /// </summary>
     private static bool DeclaresNewVirtualFinalize(
         MetadataReader reader,
-        TypeDefinition type,
-        Action<int>? beforeDecodeWork = null)
+        TypeDefinition type)
     {
         foreach (var methodHandle in type.GetMethods())
         {
             var method = reader.GetMethodDefinition(methodHandle);
-            if (!string.Equals(
-                    DecodeString(reader, method.Name, beforeDecodeWork),
-                    "Finalize",
-                    StringComparison.Ordinal))
+            if (!reader.StringComparer.Equals(method.Name, "Finalize"))
                 continue;
             var attributes = method.Attributes;
             if ((attributes & MethodAttributes.Virtual) != 0
@@ -1126,20 +1045,18 @@ public static partial class ApiSurfaceExtractor
         {
             case HandleKind.MemberReference:
                 var memberRef = reader.GetMemberReference((MemberReferenceHandle)methodDeclaration);
-                return string.Equals(
-                        DecodeString(reader, memberRef.Name, beforeDecodeWork),
-                        "Finalize",
-                        StringComparison.Ordinal)
+                return reader.StringComparer.Equals(
+                        memberRef.Name,
+                        "Finalize")
                     && IsSystemObjectType(
                         reader,
                         memberRef.Parent,
                         beforeDecodeWork);
             case HandleKind.MethodDefinition:
                 var methodDef = reader.GetMethodDefinition((MethodDefinitionHandle)methodDeclaration);
-                return string.Equals(
-                        DecodeString(reader, methodDef.Name, beforeDecodeWork),
-                        "Finalize",
-                        StringComparison.Ordinal)
+                return reader.StringComparer.Equals(
+                        methodDef.Name,
+                        "Finalize")
                     && IsSystemObjectType(
                         reader,
                         methodDef.GetDeclaringType(),
@@ -1167,14 +1084,12 @@ public static partial class ApiSurfaceExtractor
                 // its strong-name public-key token — so that an adversarial
                 // `System.Object` defined in an arbitrary or name-impersonating
                 // assembly is rejected.
-                return string.Equals(
-                        DecodeString(reader, typeRef.Namespace, beforeDecodeWork),
-                        "System",
-                        StringComparison.Ordinal)
-                    && string.Equals(
-                        DecodeString(reader, typeRef.Name, beforeDecodeWork),
-                        "Object",
-                        StringComparison.Ordinal)
+                return reader.StringComparer.Equals(
+                        typeRef.Namespace,
+                        "System")
+                    && reader.StringComparer.Equals(
+                        typeRef.Name,
+                        "Object")
                     && ResolvesThroughCoreLibrary(
                         reader,
                         typeRef.ResolutionScope,

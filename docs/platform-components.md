@@ -25,6 +25,11 @@ version that is not available locally may require acquisition. See
 [version resolution](design/version-resolution.md) for the selection and cache
 rules.
 
+For NativeAOT hosts, installed discovery requires a valid `DOTNET_ROOT`.
+NativeAOT cannot derive a CoreCLR runtime root, and dotnet-inspect intentionally
+does not search `PATH` for an SDK. Without `DOTNET_ROOT`, platform resolution
+uses its package-backed fallback.
+
 ## Using `find` to Discover Types
 
 Explicit search scopes compose. To search the platform and one package:
@@ -39,9 +44,9 @@ names agree. For example, the `Source` column identifies a package coordinate
 such as `System.Text.Json@10.0.0` separately from a `runtime@...` version.
 The platform version depends on the selected installation/framework.
 
-Without an explicit source, `find` uses its implicit platform scope. An
-explicit package suppresses that default; add bare `--platform` when both
-sources should participate.
+Without an explicit source, `find` realizes the Runtime and ASP.NET Core
+populations from the platform Workspace. An explicit package suppresses that
+default; add bare `--platform` when both sources should participate.
 
 ## Package vs Platform Access
 
@@ -165,7 +170,8 @@ Search commands support these source groups:
 
 | Flag | What it searches |
 | ---- | ---------------- |
-| *(no source flags)* | Implicit platform scope: runtime, aspnetcore, netstandard |
+| *(no source flags), `find`* | Platform Workspace: Runtime and ASP.NET Core |
+| *(no source flags), other API search commands* | Implicit platform scope: runtime, aspnetcore, netstandard |
 | bare `--platform` | Explicit platform scope, including when packages are also selected |
 | `--extensions` | Current Microsoft.Extensions package set |
 | `--aspnetcore` | Current ASP.NET Core package set |

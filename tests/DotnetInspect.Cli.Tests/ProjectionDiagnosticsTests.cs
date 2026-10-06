@@ -110,6 +110,40 @@ public class ProjectionDiagnosticsTests
     }
 
     [Fact]
+    public async Task DiagnoseProjected_MachineKeyUsesSchemaIdentity()
+    {
+        var schema = new DocumentSchema()
+            .Add("Signature", "column", "Canonical Signature");
+        var formatter = new RenderManifestFormatter(schema);
+        formatter.BeginDocument(MarkoutWriterOptions.Default);
+        formatter.FormatHeading(
+            TextWriter.Null,
+            2,
+            "Signature",
+            context: null);
+        formatter.FormatTable(
+            TextWriter.Null,
+            ["Canonical Signature"],
+            [["M:Example.Type.Method()"]],
+            0,
+            MarkoutWriterOptions.Default);
+
+        var (_, _, error) = await ConsoleCapture.RunAsync(() =>
+        {
+            ProjectionDiagnostics.DiagnoseProjected(
+                ["canonical_signature"],
+                formatter.Manifest,
+                schema,
+                "column",
+                ["Signature"],
+                fieldSectionsAsColumns: false);
+            return Task.FromResult(0);
+        });
+
+        Assert.Empty(error);
+    }
+
+    [Fact]
     public async Task DiagnoseProjected_DoesNotUseAnotherSectionsEvidence()
     {
         var schema = new DocumentSchema()

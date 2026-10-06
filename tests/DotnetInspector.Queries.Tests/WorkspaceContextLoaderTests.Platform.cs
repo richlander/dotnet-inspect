@@ -19,6 +19,29 @@ namespace DotnetInspector.Queries.Tests;
 public sealed partial class WorkspaceContextLoaderTests
 {
     [Fact]
+    public async Task PlatformVersionDiscovery_SelectsFrameworkLineWithoutPayload()
+    {
+        using var client = new HttpClient(
+            new PlatformListingHandler(
+                "9.0.9",
+                "10.0.0",
+                RuntimePackVersion,
+                "11.0.0"));
+
+        WorkspacePlatformVersionDiscoveryOutcome outcome =
+            await WorkspaceContextLoader.DiscoverPlatformVersionAsync(
+                "runtime",
+                Framework,
+                Options(client, new InMemoryPackageStore()),
+                TestContext.Current.CancellationToken);
+
+        var resolved =
+            Assert.IsType<WorkspacePlatformVersionDiscoveryOutcome.Resolved>(
+                outcome);
+        Assert.Equal(RuntimePackVersion, resolved.Version);
+    }
+
+    [Fact]
     public async Task PlatformMember_ResolvesFrameworkMatchedVersionAndRealizesContentParticipants()
     {
         await using var workspace = new InspectionWorkspace();
@@ -842,6 +865,62 @@ public sealed partial class WorkspaceContextLoaderTests
         // Each selected entry is opened once to establish its descriptor and
         // once to seal the immutable image published with the group.
         Assert.Equal(4, store.EntryOpens);
+    }
+
+    [Fact]
+    public async Task AdmittedExactPlatformAssemblies_CreateGroupWithoutAcquisition()
+    {
+        await using var workspace = new InspectionWorkspace();
+        ResolvedAssemblyReference assembly =
+            ResolvedAssemblyReference.CreateFromPath(
+                CallerPath,
+                AssemblyResolutionProvenance.Platform(
+                    "runtime",
+                    RuntimePackVersion,
+                    "package-backed implementation"));
+        var coordinate = new RealizedMemberCoordinate.Platform(
+            "runtime",
+            RuntimePackVersion,
+            Producer(NuGetOrg),
+            Framework,
+            assembly.Identity.Name);
+
+        var loaded = Loaded(
+            WorkspaceContextLoader.AdmitPlatformAssemblies(
+                workspace,
+                [new WorkspacePlatformAssemblyAdmission(coordinate, assembly)],
+                Framework,
+                WorkspaceContextLoader.RepresentativeRuntimeIdentifier,
+                maxRetainedImageBytes: 4 * 1024 * 1024,
+                TestContext.Current.CancellationToken));
+
+        WorkspaceContextMember member = Assert.Single(loaded.Members);
+        Assert.Equal(coordinate, member.Realized);
+        Assert.Equal(assembly.Identity, member.Participant.Assembly.Identity);
+        Assert.Equal(
+            coordinate,
+            Assert.Single(loaded.AvailablePlatformAssemblies));
+    }
+
+    [Fact]
+    public void ExactPlatformAssemblyAbsence_IsTypedWithoutAcquisition()
+    {
+        var failed = Failed(
+            WorkspaceContextLoader.PlatformAssemblyUnavailable(
+                "runtime",
+                "Missing.Platform.Assembly",
+                RuntimePackVersion,
+                Framework));
+
+        WorkspaceContextLoadFailure failure =
+            Assert.Single(failed.Failures);
+        Assert.Equal(
+            WorkspaceContextLoadFailureKind.PlatformAssemblyUnavailable,
+            failure.Kind);
+        Assert.Equal(
+            "Missing.Platform.Assembly",
+            Assert.IsType<WorkspaceMemberCoordinate.PlatformMember>(
+                failure.Member).Assembly);
     }
 
     [Fact]

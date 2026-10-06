@@ -34,18 +34,18 @@ public partial class LibraryBodyIndexTests
     public void MethodEvidence_OmitsCallValueFlowUntilJsonWireContractFlowIsRequested()
     {
         string path = typeof(CallSiteFixtures).Assembly.Location;
-        LibraryBodyIndex plain = LibraryBodyIndex.Open(
+        LibraryBodyAnalysisExecution plain = BodyAnalysisTestExecution.Open(
             path,
             LibraryBodyAnalysisFeatures.MethodEvidence);
-        LibraryBodyIndex jsonWire = LibraryBodyIndex.Open(
+        LibraryBodyAnalysisExecution jsonWire = BodyAnalysisTestExecution.Open(
             path,
             LibraryBodyAnalysisFeatures.MethodEvidence
                 | LibraryBodyAnalysisFeatures.JsonWireContractFlow);
 
-        Assert.NotEmpty(plain.DirectCalls);
-        Assert.Empty(plain.ResultSinks);
+        Assert.NotEmpty(plain.CallGraph.DirectCalls);
+        Assert.Empty(plain.JsonWireContracts.ResultSinks);
         Assert.All(
-            plain.DirectCalls,
+            plain.CallGraph.DirectCalls,
             call =>
             {
                 Assert.Empty(call.ArgumentSources);
@@ -53,12 +53,12 @@ public partial class LibraryBodyIndexTests
                 Assert.Equal(DirectCallResultUse.Unknown, call.ResultUse);
             });
 
-        Assert.NotEmpty(jsonWire.ResultSinks);
+        Assert.NotEmpty(jsonWire.JsonWireContracts.ResultSinks);
         Assert.Contains(
-            jsonWire.DirectCalls,
+            jsonWire.CallGraph.DirectCalls,
             call => call.ArgumentSources.Count > 0);
         Assert.Contains(
-            jsonWire.DirectCalls,
+            jsonWire.CallGraph.DirectCalls,
             call => call.ReceiverSource is not null);
     }
 
@@ -73,14 +73,14 @@ public partial class LibraryBodyIndexTests
         string methodName,
         CallKind kind)
     {
-        LibraryBodyIndex index = LibraryBodyIndex.Open(
+        LibraryBodyAnalysisExecution index = BodyAnalysisTestExecution.Open(
             typeof(OptimizationOpportunityFixtures).Assembly.Location,
             LibraryBodyAnalysisFeatures.MethodEvidence
                 | LibraryBodyAnalysisFeatures.JsonWireContractFlow
                 | LibraryBodyAnalysisFeatures.OptimizationOpportunities);
 
         DirectCall functionLoad = Assert.Single(
-            index.DirectCalls,
+            index.CallGraph.DirectCalls,
             call => call.Caller.Name == methodName
                 && call.Kind == kind);
 
@@ -90,15 +90,15 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void FieldIdentity_CanonicalizesLocalMemberRefAliasBySignature()
     {
-        LibraryBodyIndex index =
-            LibraryBodyIndex.OpenFromPrefetchedImage(
+        LibraryBodyAnalysisExecution index =
+            BodyAnalysisTestExecution.OpenFromPrefetchedImage(
                 "FieldAlias.dll",
                 ImmutableArray.Create(EmitFieldAliasAssembly()),
                 LibraryBodyAnalysisFeatures.MethodEvidence
                     | LibraryBodyAnalysisFeatures.JsonWireContractFlow);
         FieldStoreFact[] stores =
         [
-            .. index.FieldStores.OrderBy(store => store.ILOffset),
+            .. index.JsonWireContracts.FieldStores.OrderBy(store => store.ILOffset),
         ];
 
         Assert.Equal(9, stores.Length);
@@ -139,15 +139,15 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void FieldIdentity_LocalAliases_HashConsistentlyWithEquality()
     {
-        LibraryBodyIndex index =
-            LibraryBodyIndex.OpenFromPrefetchedImage(
+        LibraryBodyAnalysisExecution index =
+            BodyAnalysisTestExecution.OpenFromPrefetchedImage(
                 "FieldAlias.dll",
                 ImmutableArray.Create(EmitFieldAliasAssembly()),
                 LibraryBodyAnalysisFeatures.MethodEvidence
                     | LibraryBodyAnalysisFeatures.JsonWireContractFlow);
         FieldIdentity[] local =
         [
-            .. index.FieldStores
+            .. index.JsonWireContracts.FieldStores
                 .OrderBy(store => store.ILOffset)
                 .Select(store => store.Identity)
                 .OfType<FieldIdentity>()
@@ -185,15 +185,15 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void FieldIdentity_DistinguishesUnprovenForeignFields()
     {
-        LibraryBodyIndex index =
-            LibraryBodyIndex.OpenFromPrefetchedImage(
+        LibraryBodyAnalysisExecution index =
+            BodyAnalysisTestExecution.OpenFromPrefetchedImage(
                 "FieldAlias.dll",
                 ImmutableArray.Create(EmitFieldAliasAssembly()),
                 LibraryBodyAnalysisFeatures.MethodEvidence
                     | LibraryBodyAnalysisFeatures.JsonWireContractFlow);
         FieldStoreFact[] stores =
         [
-            .. index.FieldStores.OrderBy(store => store.ILOffset),
+            .. index.JsonWireContracts.FieldStores.OrderBy(store => store.ILOffset),
         ];
         FieldIdentity canonical = Assert.IsType<FieldIdentity>(
             stores[0].Identity);
@@ -219,14 +219,14 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void DirectCalls_ClassifyCallsiteMultiplicity()
     {
-        var index = LibraryBodyIndex.Open(typeof(CallSiteFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(CallSiteFixtures).Assembly.Location);
 
-        var straight = Assert.Single(index.DirectCalls.Where(call =>
+        var straight = Assert.Single(index.CallGraph.DirectCalls.Where(call =>
             call.Caller.Name == nameof(CallSiteFixtures.CallsExactAllocationLeaf)
             && call.Callee.Name == nameof(CallSiteFixtures.ExactAllocationLeaf)));
         Assert.Equal(AllocationMultiplicity.Once, straight.Multiplicity);
 
-        var conditional = Assert.Single(index.DirectCalls.Where(call =>
+        var conditional = Assert.Single(index.CallGraph.DirectCalls.Where(call =>
             call.Caller.Name == nameof(CallSiteFixtures.ConditionallyCallsExactAllocationLeaf)
             && call.Callee.Name == nameof(CallSiteFixtures.ExactAllocationLeaf)));
         Assert.Equal(AllocationMultiplicity.Conditional, conditional.Multiplicity);
@@ -235,9 +235,9 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void DirectCalls_MarksCallsInsideLoopRegions()
     {
-        var index = LibraryBodyIndex.Open(typeof(CallSiteFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(CallSiteFixtures).Assembly.Location);
 
-        var call = Assert.Single(index.DirectCalls.Where(c =>
+        var call = Assert.Single(index.CallGraph.DirectCalls.Where(c =>
             c.Caller.Name == nameof(CallSiteFixtures.CallsConsoleWriteLineInLoop)
             && c.Callee.Name == nameof(CallSiteFixtures.CallsConsoleWriteLine)));
 
@@ -247,9 +247,9 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void DirectCalls_MarksLoopCall_WhenForwardBranchPrecedesLoop()
     {
-        var index = LibraryBodyIndex.Open(typeof(CallSiteFixtures).Assembly.Location);
+        var index = BodyAnalysisTestExecution.Open(typeof(CallSiteFixtures).Assembly.Location);
 
-        var call = Assert.Single(index.DirectCalls.Where(c =>
+        var call = Assert.Single(index.CallGraph.DirectCalls.Where(c =>
             c.Caller.Name == nameof(CallSiteFixtures.GuardThenCallsInLoop)
             && c.Callee.Name == nameof(CallSiteFixtures.CallsConsoleWriteLine)));
 

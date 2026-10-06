@@ -301,7 +301,7 @@ internal static class ResourceOwnershipSummaryAnalysis
     internal static ResourceOwnershipMethodSummary Analyze(
         MethodBodyAnalysisContext context,
         ResourceOccurrenceAnalysisResult occurrences,
-        ImmutableArray<DirectCall> directCalls)
+        ImmutableArray<DirectCall> methodDirectCalls)
     {
         MethodIdentity method = context.Method;
         MemberRef member = CallTreeMember.FromDefinition(method);
@@ -327,15 +327,9 @@ internal static class ResourceOwnershipSummaryAnalysis
         }
 
         IReadOnlyDictionary<int, DirectCall> calls =
-            directCalls
-                .Where(call =>
-                    call.EvidenceMethod == method
-                    && IsDirectInvocation(call))
+            methodDirectCalls
+                .Where(IsDirectInvocation)
                 .ToDictionary(static call => call.ILOffset);
-        IReadOnlyDictionary<int, MemberRef> members =
-            calls.ToDictionary(
-                static pair => pair.Key,
-                static pair => pair.Value.Callee);
 
         ImmutableArray<ResourceOwnershipAcquisitionFlow> acquisitions =
         [
@@ -348,7 +342,6 @@ internal static class ResourceOwnershipSummaryAnalysis
                         context,
                         reaching,
                         calls,
-                        members,
                         occurrences)),
         ];
 
@@ -387,7 +380,6 @@ internal static class ResourceOwnershipSummaryAnalysis
                         context,
                         reaching,
                         calls,
-                        members,
                         occurrences,
                         out bool complete),
                     complete));
@@ -438,7 +430,6 @@ internal static class ResourceOwnershipSummaryAnalysis
         MethodBodyAnalysisContext context,
         ReachingDefinitionsResult reaching,
         IReadOnlyDictionary<int, DirectCall> calls,
-        IReadOnlyDictionary<int, MemberRef> members,
         ResourceOccurrenceAnalysisResult occurrences)
     {
         if (!OwnershipValueFlowInstructions.TryFindNextNonNop(
@@ -469,7 +460,6 @@ internal static class ResourceOwnershipSummaryAnalysis
                 context,
                 reaching,
                 calls,
-                members,
                 occurrences,
                 out bool complete);
         return new(root, uses, complete);
@@ -483,7 +473,6 @@ internal static class ResourceOwnershipSummaryAnalysis
         MethodBodyAnalysisContext context,
         ReachingDefinitionsResult reaching,
         IReadOnlyDictionary<int, DirectCall> calls,
-        IReadOnlyDictionary<int, MemberRef> members,
         ResourceOccurrenceAnalysisResult occurrences,
         out bool complete)
     {
@@ -504,7 +493,7 @@ internal static class ResourceOwnershipSummaryAnalysis
 
             ValueUse classification = ClassifyUse(
                 context.Instructions.Instructions,
-                members,
+                calls,
                 use.Offset,
                 slot,
                 isArgument);
@@ -708,7 +697,7 @@ internal static class ResourceOwnershipSummaryAnalysis
 
     static ValueUse ClassifyUse(
         ImmutableArray<DecodedInstruction> instructions,
-        IReadOnlyDictionary<int, MemberRef> calls,
+        IReadOnlyDictionary<int, DirectCall> calls,
         int loadOffset,
         int slot,
         bool isArgument)
@@ -759,8 +748,11 @@ internal static class ResourceOwnershipSummaryAnalysis
                     ? ValueUse.ReturnAt(instruction.Offset)
                     : ValueUse.Unknown;
             }
-            if (calls.TryGetValue(instruction.Offset, out MemberRef? callee))
+            if (calls.TryGetValue(
+                    instruction.Offset,
+                    out DirectCall? call))
             {
+                MemberRef callee = call.Callee;
                 int parameterIndex =
                     callee.ParameterTypes.Length - extra - 1;
                 int consumedArguments =

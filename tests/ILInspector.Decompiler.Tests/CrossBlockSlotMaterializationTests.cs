@@ -56,7 +56,9 @@ public class CrossBlockSlotMaterializationTests
         var expectedType = variant == "integer" ? Int32 : Boolean;
         Assert.True(decision.WillMaterialize);
         Assert.Equal(expectedType, decision.Type);
-        Assert.Contains($"{(variant == "integer" ? "int" : "bool")} S_0", CSharpPrinter.Print(function).Output);
+        var bound = (IrFunction)function.Clone();
+        new ResidualSlotBindingPass().Run(bound, PassContext.None);
+        Assert.Contains($"{(variant == "integer" ? "int" : "bool")} S_0", DecidedPrint.Print(bound).Output);
         var invariant = SlotMaterializationInvariant.Capture(function);
         new SlotMaterializationPass().Run(function, PassContext.None);
         invariant.Check();
@@ -72,6 +74,38 @@ public class CrossBlockSlotMaterializationTests
         using var source = MetadataSource.Open(typeof(CSharpCompilation).Assembly.Location);
         AssertBooleanBoxesMaterialize(source,
             "Microsoft.CodeAnalysis.CSharp.Binder", "FoldNeverOverflowBinaryOperators");
+    }
+
+    [Fact]
+    public void RealRoslynReusedBooleanCarrierSplitsBeforeMaterialization()
+    {
+        using var source = MetadataSource.Open(typeof(Microsoft.CodeAnalysis.SyntaxTree).Assembly.Location);
+        var function = RaiseToMaterialization(
+            source,
+            "Microsoft.CodeAnalysis.FlowAnalysis.ControlFlowGraphBuilder",
+            "VisitConditionalAccess");
+
+        var decision = Assert.Single(SlotMaterializationPass.Analyze(function),
+            decision => decision.Slot == 1);
+        Assert.True(decision.WillMaterialize, decision.Vetoes.ToString());
+        Assert.Equal(Boolean, decision.Type);
+
+        var stores = CoercionSinks.ScopeNodes(function.Body)
+            .OfType<StoreStackSlot>()
+            .Where(store => store.Slot == decision.Slot)
+            .ToArray();
+        Assert.Equal(3, stores.Length);
+        Assert.All(stores, store => Assert.Equal(Boolean, store.Value.ResultType));
+        Assert.Equal(2, stores.Count(store =>
+            store.Value is Constant { Value: bool }));
+
+        new SlotMaterializationPass().Run(function, PassContext.None);
+
+        Assert.DoesNotContain(CoercionSinks.ScopeNodes(function.Body),
+            node => node is StoreStackSlot store && store.Slot == decision.Slot
+                || node is LoadStackSlot load && load.Slot == decision.Slot);
+        Assert.Contains(Boolean, function.Locals);
+        function.CheckInvariant();
     }
 
     [Theory]
@@ -264,7 +298,7 @@ public class CrossBlockSlotMaterializationTests
             Assert.Contains(box, function.Descendants);
             Assert.Equal(Boolean, Assert.IsType<LoadLocal>(box.Operand).Type);
         });
-        Assert.Contains($"bool S_{slot}", CSharpPrinter.Print(function).Output);
+        Assert.Contains($"bool S_{slot}", DecidedPrint.Print(function).Output);
         Assert.Empty(CoercionInvariant.Check(function));
         function.CheckInvariant(includeSemantics: true);
     }

@@ -3,6 +3,17 @@ using System.Text.Json.Serialization;
 
 using DotnetInspector.Queries;
 
+using InspectionGraphCharacteristic = Inspector.Graph.GraphCharacteristic<DotnetInspector.Queries.InspectionGraphCharacteristicPayload>;
+using InspectionGraphCharacteristicDerivation = Inspector.Graph.GraphCharacteristicDerivation;
+using InspectionGraphEdge = Inspector.Graph.GraphEdge<DotnetInspector.Queries.InspectionGraphRelationshipDescriptor>;
+using InspectionGraphFailure = Inspector.Graph.GraphFailure<DotnetInspector.Queries.InspectionGraphFailurePayload>;
+using InspectionGraphGroup = Inspector.Graph.GraphGroup<DotnetInspector.Queries.InspectionGraphSubject>;
+using InspectionGraphLimit = Inspector.Graph.GraphLimit<DotnetInspector.Queries.InspectionGraphLimitPayload>;
+using InspectionGraphNode = Inspector.Graph.GraphNode<DotnetInspector.Queries.InspectionGraphSubject>;
+using InspectionGraphOccurrence = Inspector.Graph.GraphOccurrence<DotnetInspector.Queries.InspectionGraphSubject, DotnetInspector.Queries.InspectionGraphRelationshipDescriptor, DotnetInspector.Queries.IInspectionGraphOccurrenceEvidence>;
+using InspectionGraphSeed = Inspector.Graph.GraphSeed<DotnetInspector.Queries.InspectionGraphSubject>;
+using InspectionGraphTarget = Inspector.Graph.GraphTarget;
+
 using ILInspector.Analysis;
 using ILInspector.Metadata;
 
@@ -187,9 +198,9 @@ internal sealed record CallGraphJsonCharacteristic(
         InspectionGraphCharacteristic characteristic) =>
         new(
             CallGraphJsonCharacteristicDescriptor.From(
-                characteristic.Descriptor),
+                characteristic.Payload.Descriptor),
             CallGraphJsonTarget.From(characteristic.Target),
-            CallGraphJsonValue.From(characteristic.Value),
+            CallGraphJsonValue.From(characteristic.Payload.Value),
             CallGraphJsonDerivation.From(
                 characteristic.Derivation));
 }
@@ -214,13 +225,13 @@ internal sealed record CallGraphJsonLimit(
     internal static CallGraphJsonLimit From(InspectionGraphLimit limit) =>
         new(
             CallGraphJsonDiagnosticDescriptor.From(
-                limit.Descriptor.Id,
-                limit.Descriptor.Owner,
-                limit.Descriptor.Evidence),
+                limit.Payload.Descriptor.Id,
+                limit.Payload.Descriptor.Owner,
+                limit.Payload.Descriptor.Evidence),
             limit.Target is { } target
                 ? CallGraphJsonTarget.From(target)
                 : null,
-            limit.Evidence is { } evidence
+            limit.Payload.Evidence is { } evidence
                 ? CallGraphJsonEvidence.From(evidence)
                 : null);
 }
@@ -234,13 +245,13 @@ internal sealed record CallGraphJsonFailure(
         InspectionGraphFailure failure) =>
         new(
             CallGraphJsonDiagnosticDescriptor.From(
-                failure.Descriptor.Id,
-                failure.Descriptor.Owner,
-                failure.Descriptor.Evidence),
+                failure.Payload.Descriptor.Id,
+                failure.Payload.Descriptor.Owner,
+                failure.Payload.Descriptor.Evidence),
             failure.Target is { } target
                 ? CallGraphJsonTarget.From(target)
                 : null,
-            failure.Evidence is { } evidence
+            failure.Payload.Evidence is { } evidence
                 ? CallGraphJsonEvidence.From(evidence)
                 : null);
 }

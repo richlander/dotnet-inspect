@@ -7,9 +7,10 @@ import {
 } from "./data.ts";
 import type {
   BrowserPackageDependencies,
-  BrowserPackagePruningResult,
+  BrowserPackageVulnerabilityResult,
 } from "./facades/inspect-web-package.d.ts";
 import type {
+  BrowserLibraryDependencyStructure,
   BrowserPackageIntegrations,
   BrowserLibraryMetrics,
   BrowserPackageOpportunities,
@@ -25,9 +26,14 @@ import type {
   AppPackage,
   AppTypeSurface,
 } from "./package-acquisition.ts";
+import type {
+  LibraryMetricsRelationshipState,
+} from "./library-metrics.ts";
 
 export type PackagePerformance = BrowserPackagePerformance;
 export type PackageLibraryMetrics = BrowserLibraryMetrics;
+export type PackageLibraryDependencyStructure =
+  BrowserLibraryDependencyStructure;
 
 export interface ResolvedPackagePerformanceMember {
   type: AppTypeSurface;
@@ -79,11 +85,10 @@ export interface PackageInspectionState {
   packageDependenciesLoading: boolean;
   packageDependenciesError: string;
   packageDependenciesKey: string;
-  packagePruning: BrowserPackagePruningResult | null;
-  packagePruningLoading: boolean;
-  packagePruningError: string;
-  packagePruningKey: string;
-  packagePruningFamily: string;
+  packageVulnerabilities: BrowserPackageVulnerabilityResult | null;
+  packageVulnerabilitiesLoading: boolean;
+  packageVulnerabilitiesError: string;
+  packageVulnerabilitiesKey: string;
   workspaceDependencies: Record<string, DependencyGroupData>;
   workspaceDependencyErrors: Record<string, string>;
   workspaceDependencyLoads: Set<string>;
@@ -103,6 +108,13 @@ export interface PackageInspectionState {
   packageLibraryMetricsLoading: boolean;
   packageLibraryMetricsError: string;
   packageLibraryMetricsKey: string;
+  packageLibraryMetricsRelationshipState:
+    LibraryMetricsRelationshipState | null;
+  packageLibraryDependencyStructure:
+    PackageLibraryDependencyStructure | null;
+  packageLibraryDependencyStructureLoading: boolean;
+  packageLibraryDependencyStructureError: string;
+  packageLibraryDependencyStructureKey: string;
   packageMetadata: PackageMetadata | null;
   packageMetadataLoading: boolean;
   packageMetadataError: string;
@@ -116,10 +128,9 @@ export interface PackageInspectionDependencies {
     packageModel: PackageIdentity
       & Pick<AppPackage, "assemblyId" | "selectedCompileAssetId">,
   ): Promise<BrowserPackageDependencies>;
-  queryPruning(
+  queryVulnerabilities(
     packageModel: AppPackage,
-    family: string,
-  ): Promise<BrowserPackagePruningResult>;
+  ): Promise<BrowserPackageVulnerabilityResult>;
   queryPackageIntegrations(
     packageModel: AppPackage,
     library: string,
@@ -148,6 +159,10 @@ export interface PackageInspectionDependencies {
     packageModel: AppPackage,
     library: string,
   ): Promise<PackageLibraryMetrics>;
+  queryPackageLibraryDependencyStructure(
+    packageModel: AppPackage,
+    library: string,
+  ): Promise<PackageLibraryDependencyStructure>;
   queryPlatformPerformance(
     framework: string,
     platformVersion: string,
@@ -160,6 +175,12 @@ export interface PackageInspectionDependencies {
     assemblyFileName: string,
     pack: string,
   ): Promise<PackageLibraryMetrics>;
+  queryPlatformLibraryDependencyStructure(
+    framework: string,
+    platformVersion: string,
+    assemblyFileName: string,
+    pack: string,
+  ): Promise<PackageLibraryDependencyStructure>;
   queryPackageMetadata(
     packageModel: AppPackage,
     library: string,
@@ -186,10 +207,9 @@ export interface PackageInspectionCoordinator {
     packageModel: AppPackage,
     signature: string,
   ): Promise<void>;
-  loadPruning(
+  loadVulnerabilities(
     packageModel: AppPackage,
     signature: string,
-    family: string,
   ): Promise<void>;
   ensureWorkspaceDependencies(): Promise<void>;
   loadIntegrations(
@@ -208,6 +228,11 @@ export interface PackageInspectionCoordinator {
     scopedLibrary: string | null,
   ): Promise<void>;
   loadLibraryMetrics(
+    packageModel: AppPackage,
+    signature: string,
+    scopedLibrary: string | null,
+  ): Promise<void>;
+  loadLibraryDependencyStructure(
     packageModel: AppPackage,
     signature: string,
     scopedLibrary: string | null,
@@ -240,8 +265,8 @@ export function createPackageInspectionCoordinator(
 ): PackageInspectionCoordinator {
   const { state } = dependencies;
   let packageResultGeneration = 0;
-  let pruningRequestSequence = 0;
   let metadataRequestSequence = 0;
+  let vulnerabilityRequestSequence = 0;
 
   const platformCoordinates = (
     packageModel: AppPackage,
@@ -317,10 +342,10 @@ export function createPackageInspectionCoordinator(
       state.packageDependenciesLoading = false;
       state.packageDependenciesError = "";
       state.packageDependenciesKey = "";
-      state.packagePruning = null;
-      state.packagePruningLoading = false;
-      state.packagePruningError = "";
-      state.packagePruningKey = "";
+      state.packageVulnerabilities = null;
+      state.packageVulnerabilitiesLoading = false;
+      state.packageVulnerabilitiesError = "";
+      state.packageVulnerabilitiesKey = "";
       state.packageIntegrations = null;
       state.packageIntegrationsLoading = false;
       state.packageIntegrationsError = "";
@@ -337,6 +362,11 @@ export function createPackageInspectionCoordinator(
       state.packageLibraryMetricsLoading = false;
       state.packageLibraryMetricsError = "";
       state.packageLibraryMetricsKey = "";
+      state.packageLibraryMetricsRelationshipState = null;
+      state.packageLibraryDependencyStructure = null;
+      state.packageLibraryDependencyStructureLoading = false;
+      state.packageLibraryDependencyStructureError = "";
+      state.packageLibraryDependencyStructureKey = "";
       state.packageMetadata = null;
       state.packageMetadataLoading = false;
       state.packageMetadataError = "";
@@ -406,35 +436,37 @@ export function createPackageInspectionCoordinator(
       }
     },
 
-    async loadPruning(packageModel, signature, family) {
-      if (state.packagePruningKey === signature
-        && state.packagePruningLoading) {
+    async loadVulnerabilities(packageModel, signature) {
+      if (state.packageVulnerabilitiesKey === signature
+        && (state.packageVulnerabilities
+          || state.packageVulnerabilitiesError)) {
         dependencies.render();
         return;
       }
-      const requestSequence = ++pruningRequestSequence;
+      const requestSequence = ++vulnerabilityRequestSequence;
       const generation = packageResultGeneration;
       const ownsRequest = () =>
-        state.packagePruningKey === signature
-        && pruningRequestSequence === requestSequence
+        state.packageVulnerabilitiesKey === signature
+        && vulnerabilityRequestSequence === requestSequence
         && generation === packageResultGeneration;
-      state.packagePruningKey = signature;
-      state.packagePruning = null;
-      state.packagePruningError = "";
-      state.packagePruningLoading = true;
+      state.packageVulnerabilitiesKey = signature;
+      state.packageVulnerabilities = null;
+      state.packageVulnerabilitiesError = "";
+      state.packageVulnerabilitiesLoading = true;
       dependencies.render();
       try {
-        const result = await dependencies.queryPruning(packageModel, family);
+        const result = await dependencies.queryVulnerabilities(packageModel);
         if (ownsRequest()) {
-          state.packagePruning = result;
+          state.packageVulnerabilities = result;
         }
       } catch (error) {
         if (ownsRequest()) {
-          state.packagePruningError = dependencies.describeError(error);
+          state.packageVulnerabilitiesError =
+            dependencies.describeError(error);
         }
       } finally {
         if (ownsRequest()) {
-          state.packagePruningLoading = false;
+          state.packageVulnerabilitiesLoading = false;
           dependencies.render();
         }
       }
@@ -595,6 +627,7 @@ export function createPackageInspectionCoordinator(
       state.packageLibraryMetrics = null;
       state.packageLibraryMetricsError = "";
       state.packageLibraryMetricsLoading = true;
+      state.packageLibraryMetricsRelationshipState = null;
       dependencies.render();
       try {
         const coordinates = packageModel.isRuntimePack
@@ -619,6 +652,58 @@ export function createPackageInspectionCoordinator(
       } finally {
         if (ownsRequest()) {
           state.packageLibraryMetricsLoading = false;
+        }
+        if (generation === packageResultGeneration) {
+          dependencies.render();
+        }
+      }
+    },
+
+    async loadLibraryDependencyStructure(
+      packageModel,
+      signature,
+      scopedLibrary,
+    ) {
+      if (packageModel.isRuntimePack && !scopedLibrary) return;
+      if (state.packageLibraryDependencyStructureKey === signature
+        && (state.packageLibraryDependencyStructure
+          || state.packageLibraryDependencyStructureLoading)) {
+        dependencies.render();
+        return;
+      }
+      const generation = packageResultGeneration;
+      const ownsRequest = () =>
+        state.packageLibraryDependencyStructureKey === signature
+        && generation === packageResultGeneration;
+      state.packageLibraryDependencyStructureKey = signature;
+      state.packageLibraryDependencyStructure = null;
+      state.packageLibraryDependencyStructureError = "";
+      state.packageLibraryDependencyStructureLoading = true;
+      dependencies.render();
+      try {
+        const coordinates = packageModel.isRuntimePack
+          ? platformCoordinates(packageModel, scopedLibrary ?? "")
+          : null;
+        const result = coordinates
+          ? await dependencies.queryPlatformLibraryDependencyStructure(
+              coordinates.framework,
+              coordinates.platformVersion,
+              coordinates.assemblyFileName,
+              coordinates.pack)
+          : await dependencies.queryPackageLibraryDependencyStructure(
+              packageModel,
+              scopedLibrary ?? "");
+        if (ownsRequest()) {
+          state.packageLibraryDependencyStructure = result;
+        }
+      } catch (error) {
+        if (ownsRequest()) {
+          state.packageLibraryDependencyStructureError =
+            dependencies.describeError(error);
+        }
+      } finally {
+        if (ownsRequest()) {
+          state.packageLibraryDependencyStructureLoading = false;
         }
         if (generation === packageResultGeneration) {
           dependencies.render();

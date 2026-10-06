@@ -1,3 +1,5 @@
+using System.Reflection;
+
 namespace ILInspector.Metadata;
 
 /// <summary>
@@ -106,10 +108,35 @@ public static class ApiMemberAccessors
                 });
         }
 
+        string? physicalAccessibility = accessorKind switch
+        {
+            "get" => owner.GetterAccessibility,
+            "set" or "init" => owner.SetterAccessibility,
+            "add" => owner.AdderAccessibility,
+            "remove" => owner.RemoverAccessibility,
+            _ => null,
+        };
+        MethodAttributes? physicalMethodAccess = accessorKind switch
+        {
+            "get" => owner.GetterPhysicalMethodAccess,
+            "set" or "init" => owner.SetterPhysicalMethodAccess,
+            "add" => owner.AdderPhysicalMethodAccess,
+            "remove" => owner.RemoverPhysicalMethodAccess,
+            _ => null,
+        };
         string? accessibility =
-            string.IsNullOrEmpty(accessorEntry?.Accessibility)
+            physicalAccessibility
+            ?? (string.IsNullOrEmpty(accessorEntry?.Accessibility)
                 ? owner.Accessibility
-                : accessorEntry.Accessibility;
+                : accessorEntry.Accessibility);
+        bool isHidden = accessorKind switch
+        {
+            "get" => owner.GetterIsHidden,
+            "set" or "init" => owner.SetterIsHidden,
+            "add" => owner.AdderIsHidden,
+            "remove" => owner.RemoverIsHidden,
+            _ => false,
+        };
         string renderedParameters = string.Join(
             ", ",
             parameters.Select(
@@ -139,6 +166,8 @@ public static class ApiMemberAccessors
             Kind = isExplicitImplementation
                 ? "explicit-interface-implementation"
                 : "method",
+            IsExplicitInterfaceImplementation = isExplicitImplementation,
+            IsHidden = isHidden,
             MethodSemantics = accessorKind switch
             {
                 "get" => ApiMethodSemanticsKind.PropertyGetter,
@@ -171,6 +200,7 @@ public static class ApiMemberAccessors
             MethodImplementation = implementation,
             HasMethodBody = accessorHasBody,
             Accessibility = accessibility,
+            PhysicalMethodAccess = physicalMethodAccess,
             Documentation = owner.Documentation,
         };
     }

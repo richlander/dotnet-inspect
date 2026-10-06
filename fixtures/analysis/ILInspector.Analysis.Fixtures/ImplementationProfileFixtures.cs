@@ -50,6 +50,13 @@ public static class ImplementationProfileSample
     public static int Other(int value)
         => value + 1;
 
+    public static int CallHiddenTwice(int value)
+        => Hidden(value) + Hidden(value);
+
+    public static int CallUnsafe(int value)
+        => System.Runtime.CompilerServices.Unsafe.As<int, int>(
+            ref value);
+
     private static int Hidden(int value)
         => value * 2;
 
@@ -104,9 +111,9 @@ public static class ImplementationProfileHiddenImplementationSample
         => Describe((int)value.TotalSeconds);
 }
 
-// Member-list heat eligibility: a family attached from an extension class,
-// and a name shared by an ordinary method and an attached extension, are both
-// ineligible on the extended Type.
+// Member-list heat eligibility: a family attached from one extension class is
+// eligible, while a name shared by an ordinary method and an attached extension
+// remains ineligible on the extended Type.
 public sealed class ImplementationHeatWidget
 {
     public int Run(string value)
@@ -129,6 +136,17 @@ public static class ImplementationHeatWidgetExtensions
 
     public static int Spin(this ImplementationHeatWidget widget, string turns)
         => turns.Length;
+
+    public static int Shift(this ImplementationHeatWidget widget, int amount)
+        => amount;
+}
+
+public static class OtherImplementationHeatWidgetExtensions
+{
+    public static int Shift(
+        this ImplementationHeatWidget widget,
+        string amount)
+        => amount.Length;
 }
 
 // A trivial logical body whose attributed lambda carries the code: the trivial

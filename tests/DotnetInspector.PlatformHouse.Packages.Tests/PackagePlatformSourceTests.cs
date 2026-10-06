@@ -523,6 +523,68 @@ public sealed class PackagePlatformSourceTests
     }
 
     [Fact]
+    public async Task
+        AssemblyReferenceBindingReadsOnlyNamesakeAndValidatesDecodedName()
+    {
+        byte[] requested = PackagePlatformTestData.Assembly(
+            "System.Runtime",
+            new Version(11, 0, 0, 0));
+        AssemblyReferenceIdentity targetIdentity =
+            PackagePlatformTestData.Identity(requested);
+        AssemblyReferenceIdentity sourceIdentity =
+            targetIdentity with { Version = new Version(8, 0, 0, 0) };
+        var binding = await CachedContentAsync(
+            [
+                PackagePlatformTestData.Entry(
+                    "ref/net11.0/System.Console.dll",
+                    [0, 1, 2, 3]),
+                PackagePlatformTestData.Entry(
+                    "ref/net11.0/System.Runtime.dll",
+                    requested),
+            ],
+            new PackageReferencePopulationDemand
+                .AssemblyReferenceBinding(sourceIdentity),
+            throwOnOpen: ["ref/net11.0/System.Console.dll"]);
+        PackageReferenceLibrary library = Assert.Single(
+            Assert.IsType<
+                PackagePlatformSourceOutcome<
+                    PackageReferenceRealization>.Succeeded>(
+                        binding.Outcome)
+                .Value.Libraries);
+
+        Assert.Equal(
+            ["ref/net11.0/System.Runtime.dll"],
+            binding.Content.OpenedEntries);
+        Assert.Equal(targetIdentity, library.Identity);
+        await binding.Environment.AssertSettledAsync();
+        await binding.Environment.DisposeAsync();
+
+        var nameMismatch = await CachedContentAsync(
+            [
+                PackagePlatformTestData.Entry(
+                    "ref/net11.0/Requested.dll",
+                    requested),
+            ],
+            new PackageReferencePopulationDemand
+                .AssemblyReferenceBinding(
+                    new AssemblyReferenceIdentity(
+                        "Requested",
+                        new Version(1, 0, 0, 0),
+                        Culture: null,
+                        PublicKeyToken: null)));
+        var rejected = Assert.IsType<
+            PackagePlatformSourceOutcome<
+                PackageReferenceRealization>.Rejected>(
+                    nameMismatch.Outcome);
+
+        Assert.Equal(
+            PackagePlatformSourceDiagnosticKind.AssemblyIdentityMismatch,
+            rejected.Diagnostic.Kind);
+        await nameMismatch.Environment.AssertSettledAsync();
+        await nameMismatch.Environment.DisposeAsync();
+    }
+
+    [Fact]
     public async Task MalformedNetmoduleWinMdAndDuplicateIdentityRejectAtomically()
     {
         (byte[] Image, PackagePlatformSourceDiagnosticKind Kind)[] invalid =
@@ -949,6 +1011,8 @@ public sealed class PackagePlatformSourceTests
         var outcome = await environment.CreateSource()
             .RealizeImplementationAsync(
                 coordinate,
+                new PackageImplementationPopulationDemand
+                    .CompletePopulation(),
                 work,
                 environment.IssueOperation(
                     TestContext.Current.CancellationToken));

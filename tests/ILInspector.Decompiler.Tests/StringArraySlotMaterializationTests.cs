@@ -82,7 +82,7 @@ public class StringArraySlotMaterializationTests
         var function = Function(target,
             new StoreStackSlot(0, new Constant(null, target)),
             Observe(new LoadStackSlot(0, target), target),
-            new StoreStackSlot(0, new Constant(null, producer)),
+            new StoreStackSlot(0, new CastClass(producer, new Constant(null, Object))),
             new Return(new LoadStackSlot(0, target)));
 
         Assert.True(Assert.Single(SlotMaterializationPass.Analyze(function))

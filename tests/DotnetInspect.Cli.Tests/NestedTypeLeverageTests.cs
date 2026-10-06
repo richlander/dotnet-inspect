@@ -17,7 +17,7 @@ public class NestedTypeLeverageTests
             TypeName = nested.FullName!.Replace('+', '.'),
             AssemblyPath = nested.Assembly.Location,
             IncludeSections = [SectionNames.TopLeverage],
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
             Verbosity = Verbosity.Minimal,
             MarkdownExplicitlySet = true,
             FormatExplicitlySet = true,

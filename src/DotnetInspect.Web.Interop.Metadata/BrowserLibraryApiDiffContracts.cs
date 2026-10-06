@@ -4,13 +4,54 @@ using DotnetInspector.Sections;
 
 namespace DotnetInspect.Web.Interop.Metadata;
 
+internal static class BrowserLibraryApiDiffSchema
+{
+    internal const int Version = 3;
+}
+
 public sealed record BrowserLibraryApiDiffRequest(
     int SchemaVersion,
     string PackageId,
     string CurrentVersion,
     string TargetVersion,
     string TargetFramework,
-    string CompileAssetId);
+    string CompileAssetId,
+    BrowserDiffAnalysisSurface Surface,
+    string[] Analyses,
+    BrowserDiffAnalysisViews Views,
+    string[] TypeNames,
+    string[] MemberTargetIdentities,
+    BrowserDiffAnalysisPredicate? Predicate = null);
+
+public sealed record BrowserDiffAnalysisPredicate(
+    string Key,
+    BrowserDiffAnalysisPredicateOperator Operator,
+    string Value);
+
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserDiffAnalysisPredicateOperator>))]
+public enum BrowserDiffAnalysisPredicateOperator
+{
+    Contains,
+    StartsWith,
+}
+
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserDiffAnalysisSurface>))]
+public enum BrowserDiffAnalysisSurface
+{
+    Member,
+    Type,
+    Library,
+}
+
+[Flags]
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserDiffAnalysisViews>))]
+public enum BrowserDiffAnalysisViews
+{
+    None = 0,
+    Changes = 1,
+    Summary = 2,
+    Transitions = 4,
+}
 
 public sealed record BrowserLibraryApiDiffResult(
     int SchemaVersion,

@@ -6,6 +6,8 @@ import {
 } from "./data.ts";
 import type {
   BrowserMemberSource,
+  BrowserMemberSourceDiagnostic,
+  BrowserMemberSourceResult,
   BrowserSource,
   BrowserTypeCodeView,
   BrowserTypeSourceResult,
@@ -21,31 +23,68 @@ import type {
   OperationSession,
 } from "./operation-authority.ts";
 
-interface SourceCoordinates {
+interface PackageSourceCoordinates {
   packageId: string;
   version: string;
   framework: string;
   assembly: string;
-  type: string;
 }
 
-export interface MemberSourceQuery extends SourceCoordinates {
+interface MemberSourceSelection {
+  type: string;
   member: string;
   selectorKey: string;
   metadataToken: number;
+  documentBaselineOrdinal: number;
   taste: string;
+  view: MemberSourceView;
 }
 
-export interface TypeSourceQuery extends SourceCoordinates {
+export type MemberSourceQuery =
+  | ({
+      kind: "package";
+    } & PackageSourceCoordinates & MemberSourceSelection)
+  | ({
+      kind: "platform";
+      framework: string;
+      version: string;
+      assembly: string;
+      pack: string;
+      contextId: string | null;
+    } & MemberSourceSelection);
+
+interface TypeSourceSelection {
+  type: string;
   taste: string;
   view: TypeSourceView;
 }
+
+export type TypeSourceQuery =
+  | ({
+      kind?: "package";
+    } & PackageSourceCoordinates & TypeSourceSelection)
+  | ({
+      kind: "platform";
+      framework: string;
+      version: string;
+      assembly: string;
+      pack: string;
+      contextId: string | null;
+    } & TypeSourceSelection);
 
 export type TypeSourceView =
   | "source"
   | "decompiler-source"
   | "api-declarations"
   | "all-declarations";
+
+export type MemberSourceView = "source" | "decompiler-source";
+
+export function memberSourceView(value: string): MemberSourceView | null {
+  return value === "source" || value === "decompiler-source"
+    ? value
+    : null;
+}
 
 export function typeSourceView(value: string): TypeSourceView | null {
   return value === "source"
@@ -56,7 +95,8 @@ export function typeSourceView(value: string): TypeSourceView | null {
     : null;
 }
 
-export interface GraphSourceRequest extends SourceCoordinates {
+export interface GraphSourceRequest extends PackageSourceCoordinates {
+  type: string;
   member: string;
   selectorKey: string;
   metadataToken: number;
@@ -121,15 +161,15 @@ export function graphSourceAutoLoadRequest(
   }
 }
 
-export interface MemberSourceLoadRequest extends MemberSourceQuery {
+export type MemberSourceLoadRequest = MemberSourceQuery & {
   signature: string;
   isCurrent(): boolean;
-}
+};
 
-export interface TypeSourceLoadRequest extends TypeSourceQuery {
+export type TypeSourceLoadRequest = TypeSourceQuery & {
   signature: string;
   isVisible(): boolean;
-}
+};
 
 export type SourceResultState<TSource = BrowserSource> =
   | { readonly status: "idle" }
@@ -181,7 +221,7 @@ export interface SourceInspectionState
 export interface SourceInspectionDependencies {
   state: SourceInspectionState;
   operationAuthority: OperationAuthorityPage;
-  queryMemberSource(request: MemberSourceQuery): Promise<BrowserMemberSource>;
+  queryMemberSource(request: MemberSourceQuery): Promise<BrowserMemberSourceResult>;
   queryTypeSource(
     operationId: OperationId,
     request: TypeSourceQuery,
@@ -198,6 +238,9 @@ export interface SourceInspectionDependencies {
   ): void;
   readonly reportOperationDiagnostic: (
     diagnostic: OperationDiagnostic,
+  ) => undefined;
+  readonly reportMemberSourceDiagnostic: (
+    diagnostic: BrowserMemberSourceDiagnostic,
   ) => undefined;
   describeError(error: unknown): string;
   render(): void;
@@ -497,10 +540,23 @@ export function createSourceInspectionCoordinator(
           state.memberSource = { status: "idle" };
           return;
         }
+        for (const diagnostic of result.diagnostics)
+          dependencies.reportMemberSourceDiagnostic(diagnostic);
+        if (result.value === null) {
+          if (result.error === null)
+            throw new Error("Member source result has no source or failure.");
+          state.memberSource = {
+            status: "failed",
+            signature: request.signature,
+            error: result.error,
+          };
+          dependencies.renderPreservingMemberFocus(preservedFocus);
+          return;
+        }
         state.memberSource = {
           status: "ready",
           signature: request.signature,
-          source: result,
+          source: result.value,
         };
         dependencies.renderPreservingMemberFocus(preservedFocus);
       } catch (error) {

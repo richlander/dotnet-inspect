@@ -11,8 +11,298 @@ namespace DotnetInspect.Cli.Tests;
 
 public partial class CommandExecutionTests
 {
+    [Fact]
+    public async Task Find_EcosystemAspireStopsBeforePlatformLayers()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "find", ".Add*", "--ecosystem", "aspire", "-n", "20",
+            "--json", "--compact", "--verbose");
+
+        Assert.Equal(0, exit);
+        using JsonDocument document = JsonDocument.Parse(output);
+        JsonElement[] rows = [.. document.RootElement.EnumerateArray()];
+        Assert.Equal(20, rows.Length);
+        Assert.All(rows, row => Assert.Equal(
+            "ecosystem.aspire", row.GetProperty("ecosystem").GetString()));
+        Assert.Contains(rows, row => row.GetProperty("member").GetString()
+            is "AddContainer" or "AddProject");
+        Assert.Contains("not searched: ecosystem.aspnetcore", error);
+        Assert.DoesNotContain("Searching ecosystem.aspnetcore", error);
+        Assert.DoesNotContain("Searching ecosystem.runtime", error);
+    }
+
+    [Fact]
+    public async Task Find_EcosystemRuntimeMemberUsesSemanticProjection()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "find", ".WriteLine", "--ecosystem", "runtime",
+            "--type", "System.Console",
+            "-n", "3", "--json", "--compact");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using JsonDocument document = JsonDocument.Parse(output);
+        JsonElement[] rows =
+            [.. document.RootElement.EnumerateArray()];
+        Assert.Equal(3, rows.Length);
+        Assert.All(
+            rows,
+            row =>
+            {
+                Assert.Equal(
+                    "WriteLine",
+                    row.GetProperty("member").GetString());
+                Assert.Equal(
+                    "System.Console",
+                    row.GetProperty("declaring_type").GetString());
+                Assert.Equal(
+                    "runtime",
+                    row.GetProperty("source").GetString());
+            });
+    }
+
+    [Fact]
+    public async Task Find_EcosystemAspNetCoreSearchesRuntimeWithoutWindow()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "find", "JsonSerializer", "--ecosystem", "aspnetcore",
+            "--json", "--compact");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using JsonDocument document = JsonDocument.Parse(output);
+        JsonElement[] rows = [.. document.RootElement.EnumerateArray()];
+        Assert.Contains(rows, row =>
+            row.GetProperty("full_name").GetString()
+                == "System.Text.Json.JsonSerializer"
+            && row.GetProperty("ecosystem").GetString()
+                == "ecosystem.runtime");
+        int firstRuntime = Array.FindIndex(rows, row =>
+            row.GetProperty("ecosystem").GetString()
+                == "ecosystem.runtime");
+        Assert.All(rows.Take(firstRuntime), row => Assert.Equal(
+            "ecosystem.aspnetcore",
+            row.GetProperty("ecosystem").GetString()));
+    }
+
+    [Fact]
+    public async Task Find_EcosystemCorePackageLayerDoesNotSearchDefaultPlatform()
+    {
+        var (exit, output, _) = await RunAppAsync(
+            "find", "JsonSerializer", "--ecosystem", "aspire", "-n", "3",
+            "--json", "--compact");
+
+        Assert.Equal(0, exit);
+        using JsonDocument document = JsonDocument.Parse(output);
+        JsonElement[] rows =
+            [.. document.RootElement.EnumerateArray()];
+        Assert.NotEmpty(rows);
+        Assert.All(rows, row => Assert.Equal(
+            "ecosystem.aspnetcore",
+            row.GetProperty("ecosystem").GetString()));
+    }
+
+    [Fact]
+    public async Task Find_EcosystemJsonWindowDoesNotCountOmittedMembers()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "find", "JsonSerializer,AddProject", "--ecosystem", "aspire",
+            "-n", "12", "--json", "--compact");
+
+        Assert.Equal(0, exit);
+        using JsonDocument document = JsonDocument.Parse(output);
+        JsonElement[] rows = [.. document.RootElement.EnumerateArray()];
+        Assert.NotEmpty(rows);
+        Assert.Contains(rows, row =>
+            row.GetProperty("ecosystem").GetString()
+                is "ecosystem.aspnetcore" or "ecosystem.runtime");
+        Assert.DoesNotContain(rows, row =>
+            row.GetProperty("ecosystem").GetString() == "ecosystem.aspire");
+        Assert.DoesNotContain(
+            "not searched: ecosystem.aspnetcore",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Find_EcosystemNamespacePrefixDoesNotReportFalseMiss()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "find", "System.Text", "--ecosystem", "runtime", "-n", "3",
+            "--json", "--compact");
+
+        Assert.Equal(0, exit);
+        using JsonDocument document = JsonDocument.Parse(output);
+        Assert.Equal(3, document.RootElement.GetArrayLength());
+        Assert.DoesNotContain("matched no types", error);
+    }
+
+    [Fact]
+    public async Task Find_DefaultOutputDoesNotAddEcosystemColumn()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "find", "JsonSerializer", "-n", "2",
+            "--table");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.DoesNotContain("Ecosystem", output);
+        Assert.Contains("Source", output);
+    }
+
     private const string MissingPackageLikeApiSymbol =
         "Definitely.NoSuch.Package.ForFindDiscovery";
+
+    [Fact]
+    public async Task
+        Find_ImplicitPlatformWorkspace_SearchesRuntimeAndAspNetCoreWithoutNetStandard()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "find",
+            "System.Text.Json.JsonSerializer,"
+                + "Microsoft.AspNetCore.Builder.WebApplication,"
+                + "System.Collections.Generic.Dictionary*",
+            "--json",
+            "--compact");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        JsonElement[] rows =
+            document.RootElement.EnumerateArray().ToArray();
+        Assert.Contains(
+            rows,
+            row =>
+                row.GetProperty("full_name").GetString()
+                    == "System.Text.Json.JsonSerializer"
+                && row.GetProperty("source").GetString()
+                    == "runtime");
+        Assert.All(rows, row =>
+            Assert.False(row.TryGetProperty("ecosystem", out _)));
+        Assert.Contains(
+            rows,
+            row =>
+                row.GetProperty("full_name").GetString()
+                    == "Microsoft.AspNetCore.Builder.WebApplication"
+                && row.GetProperty("source").GetString()
+                    == "aspnetcore");
+        Assert.DoesNotContain(
+            rows,
+            row =>
+                row.GetProperty("source").GetString()
+                    == "netstandard");
+        Assert.All(
+            rows.Where(row =>
+                row.GetProperty("full_name").GetString()
+                    ?.StartsWith(
+                        "System.Collections.Generic.Dictionary",
+                        StringComparison.Ordinal) is true),
+            row => Assert.Equal(
+                "runtime",
+                row.GetProperty("source").GetString()));
+    }
+
+    [Fact]
+    public async Task
+        Find_ImplicitPlatformWorkspace_SearchesAspNetCoreMembers()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "find",
+            ".MapGet",
+            "--json",
+            "--compact");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        JsonElement[] rows =
+            document.RootElement.EnumerateArray().ToArray();
+        Assert.NotEmpty(rows);
+        Assert.All(
+            rows,
+            row => Assert.Equal(
+                "aspnetcore",
+                row.GetProperty("source").GetString()));
+        Assert.Contains(
+            rows,
+            row =>
+                row.GetProperty("member").GetString()
+                    == "MapGet"
+                && row.GetProperty("library").GetString()
+                    == "Microsoft.AspNetCore.Routing");
+    }
+
+    [Fact]
+    public async Task
+        Find_ImplicitPlatformWorkspace_SemanticHeadLimitsTypeExecution()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "find",
+            "JsonSerializer",
+            "-n",
+            "1",
+            "--json",
+            "--compact");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using JsonDocument document = JsonDocument.Parse(output);
+        JsonElement row =
+            Assert.Single(document.RootElement.EnumerateArray());
+        Assert.Equal(
+            "System.Runtime.Intrinsics.X86.X86Serialize",
+            row.GetProperty("full_name").GetString());
+        Assert.Equal(
+            "runtime",
+            row.GetProperty("source").GetString());
+    }
+
+    [Fact]
+    public async Task
+        Find_ImplicitPlatformWorkspace_SemanticHeadLimitsMemberExecution()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "find",
+            ".MapGet",
+            "-n",
+            "1",
+            "--json",
+            "--compact");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using JsonDocument document = JsonDocument.Parse(output);
+        JsonElement row =
+            Assert.Single(document.RootElement.EnumerateArray());
+        Assert.Equal(
+            "MapGet",
+            row.GetProperty("member").GetString());
+        Assert.Equal(
+            "aspnetcore",
+            row.GetProperty("source").GetString());
+    }
+
+    [Fact]
+    public async Task
+        Find_ImplicitPlatformWorkspace_BroadensToAspNetCoreMembers()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "find",
+            "MapGet",
+            "--markdown",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## Members", output);
+        Assert.Contains(
+            "Microsoft.AspNetCore.Routing",
+            output);
+        Assert.Contains(
+            "aspnetcore@",
+            output);
+    }
 
     [Fact]
     public async Task Find_SimpleGlob_FindsDotSpelledNestedPlatformTypes()
@@ -21,9 +311,7 @@ public partial class CommandExecutionTests
             "find",
             "Enumerator*",
             "--platform",
-            "System.Collections",
-            "--tips",
-            "q");
+            "System.Collections");
 
         Assert.Equal(0, exit);
         Assert.Contains("LinkedList", output);
@@ -32,35 +320,43 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Find_ZeroImplicitTypeResults_SuggestsPackageQueryOnStderr()
+    public async Task Find_ZeroDefaultTsvResults_KeepStdoutMachineReadable()
     {
         var (exit, output, error) = await RunAppAsync(
             "find",
             MissingPackageLikeApiSymbol,
-            "--tips",
-            "m");
+            "-E",
+            ".tips");
 
         Assert.Equal(0, exit);
         Assert.DoesNotContain("package query", output);
-        Assert.Contains(
-            $"package query {MissingPackageLikeApiSymbol}",
-            error);
-        Assert.Contains("find searches API symbols", error);
+        Assert.Empty(output);
+        Assert.Contains("No types found", error);
+        Assert.DoesNotContain("package query", error);
     }
 
     [Fact]
-    public async Task Find_ZeroStructuredResults_DoNotEmitHumanGuidance()
+    public async Task Find_ZeroStructuredResults_PreserveJsonAndEmitTipsOnStderr()
     {
-        var (exit, output, error) = await RunAppAsync(
+        var withoutTips = await RunAppAsync(
+            "find",
+            MissingPackageLikeApiSymbol,
+            "--json");
+        var withTips = await RunAppAsync(
             "find",
             MissingPackageLikeApiSymbol,
             "--json",
-            "--tips",
-            "d");
+            "-E",
+            ".tips");
 
-        Assert.Equal(0, exit);
-        Assert.Empty(error);
-        using var document = JsonDocument.Parse(output);
+        Assert.Equal(0, withoutTips.Exit);
+        Assert.Equal(0, withTips.Exit);
+        Assert.Empty(withoutTips.Error);
+        Assert.Equal(withoutTips.Output, withTips.Output);
+        Assert.Contains(
+            $"package query {MissingPackageLikeApiSymbol}",
+            withTips.Error);
+        using var document = JsonDocument.Parse(withTips.Output);
         Assert.Equal(JsonValueKind.Array, document.RootElement.ValueKind);
         Assert.Empty(document.RootElement.EnumerateArray().ToArray());
     }
@@ -73,6 +369,7 @@ public partial class CommandExecutionTests
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Contains("Search pattern required.", error);
+        Assert.Contains("Tips:", error);
         Assert.Contains(
             "package query 'Newtonsoft.*'",
             error);
@@ -80,17 +377,16 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Find_NamespaceExactMiss_RetriesAsPrefix()
+    public async Task Find_NamespacePatternIncludesBroaderMatches()
     {
         var (exit, output, error) = await RunAppAsync(
-            "find", "System.Text", "--platform", "--table", "--tips", "q");
+            "find", "System.Text", "--platform", "--table");
 
         Assert.Equal(0, exit);
-        Assert.Contains("No exact matches for 'System.Text'", error);
-        Assert.Contains("System.Text*", error);
+        Assert.Empty(error);
         Assert.Contains("StringBuilder", output);
         Assert.Contains("System.Text.Json", output);
-        Assert.DoesNotContain("TextInfo", output);
+        Assert.Contains("TextInfo", output);
     }
 
     [Fact]
@@ -142,15 +438,20 @@ public partial class CommandExecutionTests
         // pretty-printed JSON document violates. Prefix, closed, and single-row ranges therefore
         // select the same identities in each format.
         var (tsvExit, tsvOutput, _) = await RunAppAsync(
-            "find", "*", "--library", TestAssemblyPath, "--columns", "Type", "--tsv", "--rows", window);
+            "find", "*", "--library", TestAssemblyPath, "--columns", "Type", "--jsonl", "--rows", window);
         var (jsonExit, jsonOutput, _) = await RunAppAsync(
             "find", "*", "--library", TestAssemblyPath, "--columns", "Type", "--json", "--rows", window);
 
         Assert.Equal(0, tsvExit);
         Assert.Equal(0, jsonExit);
 
-        // Skip the TSV header; what remains is one data row per line.
-        var expected = tsvOutput.ReplaceLineEndings("\n").Trim('\n').Split('\n').Skip(1).ToArray();
+        // JSONL retains the legacy result schema; unified TSV now has its own vocabulary.
+        var expected = tsvOutput.ReplaceLineEndings("\n").Trim('\n').Split('\n')
+            .Select(line =>
+            {
+                using var row = JsonDocument.Parse(line);
+                return row.RootElement.GetProperty("type").GetString();
+            }).ToArray();
 
         using var document = JsonDocument.Parse(jsonOutput);
         var actual = document.RootElement.GetProperty("results")
@@ -239,14 +540,19 @@ public partial class CommandExecutionTests
         // The member search reaches the lowered view through a separate call site; a fix applied to
         // only one of the two would leave --rows silently dropped on the other.
         var (tsvExit, tsvOutput, _) = await RunAppAsync(
-            "find", "Dispose", "--members", "--library", TestAssemblyPath, "--columns", "Member", "--tsv", "--rows", "1..2");
+            "find", "Dispose", "--members", "--library", TestAssemblyPath, "--columns", "Member", "--jsonl", "--rows", "1..2");
         var (jsonExit, jsonOutput, _) = await RunAppAsync(
             "find", "Dispose", "--members", "--library", TestAssemblyPath, "--columns", "Member", "--json", "--rows", "1..2");
 
         Assert.Equal(0, tsvExit);
         Assert.Equal(0, jsonExit);
 
-        var expected = tsvOutput.ReplaceLineEndings("\n").Trim('\n').Split('\n').Skip(1).ToArray();
+        var expected = tsvOutput.ReplaceLineEndings("\n").Trim('\n').Split('\n')
+            .Select(line =>
+            {
+                using var row = JsonDocument.Parse(line);
+                return row.RootElement.GetProperty("member").GetString();
+            }).ToArray();
 
         using var document = JsonDocument.Parse(jsonOutput);
         var actual = document.RootElement.GetProperty("members")
@@ -268,7 +574,7 @@ public partial class CommandExecutionTests
         var (jsonExit, jsonOutput, jsonError) = await RunAppAsync(
             "find", "CommandExecution", "--library", TestAssemblyPath, "--fields", "Type", "--json");
         var (tsvExit, tsvOutput, _) = await RunAppAsync(
-            "find", "CommandExecution", "--library", TestAssemblyPath, "--fields", "Type", "--tsv");
+            "find", "CommandExecution", "--library", TestAssemblyPath, "--fields", "Type", "--jsonl");
 
         Assert.Equal(0, jsonExit);
         Assert.Equal(0, tsvExit);
@@ -277,7 +583,9 @@ public partial class CommandExecutionTests
         using var document = JsonDocument.Parse(jsonOutput);
         var keys = document.RootElement.GetProperty("results")[0]
             .EnumerateObject().Select(property => property.Name).ToArray();
-        var tsvColumns = tsvOutput.TrimStart().Split('\n')[0].TrimEnd('\r').Split('\t');
+        using var jsonlRow = JsonDocument.Parse(tsvOutput.TrimStart().Split('\n')[0]);
+        var tsvColumns = jsonlRow.RootElement.EnumerateObject()
+            .Select(property => property.Name).ToArray();
 
         // Compare the key names, not just how many there are: a count alone passes even when the
         // two formats disagree about casing, which is exactly the defect adversarial review found.
@@ -332,7 +640,7 @@ public partial class CommandExecutionTests
     [InlineData("Type,*", "*", "--table")]
     [InlineData("T*,*e", "Type,Namespace,Source", "--json")]
     [InlineData("T*,*e", "Type,Namespace,Source", "--jsonl")]
-    [InlineData("T*,*e", "Type,Namespace,Source", "--tsv")]
+    [InlineData("C*,*e", "Coordinate,Source,Signature", "--tsv")]
     [InlineData("T*,*e", "Type,Namespace,Source", "--table")]
     public async Task Find_OverlappingColumnPatterns_AreDeduplicatedInEveryFormat(
         string columns,
@@ -534,10 +842,10 @@ public partial class CommandExecutionTests
         // breaking a valid request.
         var (exit, output, _) = await RunAppAsync(
             "find", "CommandExecution", "--library", TestAssemblyPath,
-            "--columns", "Type", "--columns", "Kind", "--tsv");
+            "--columns", "Coordinate", "--columns", "Kind", "--tsv");
 
         Assert.Equal(0, exit);
-        Assert.StartsWith("type\tkind", output.TrimStart(), StringComparison.Ordinal);
+        Assert.StartsWith("coordinate\tkind", output.TrimStart(), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -594,6 +902,307 @@ public partial class CommandExecutionTests
                 Assert.False(result.TryGetProperty("location", out _));
                 Assert.False(result.TryGetProperty("navigation", out _));
             });
+    }
+
+    [Fact]
+    public async Task Find_BroadenedMemberFallbackReusesExplicitWorkspace()
+    {
+        string missing = Path.Combine(
+            Path.GetTempPath(),
+            $"DefinitelyAbsentReview8977-{Guid.NewGuid():N}.dll");
+
+        var (exit, output, error) = await RunAppAsync(
+            "find",
+            "DefinitelyAbsentReview8977",
+            "--library",
+            missing,
+            "--json");
+
+        Assert.Equal(0, exit);
+        Assert.Equal("[]", output.Trim());
+        string diagnostic =
+            $"Library not found '{missing}', skipping.";
+        Assert.Contains(diagnostic, error, StringComparison.Ordinal);
+        Assert.Equal(
+            error.IndexOf(diagnostic, StringComparison.Ordinal),
+            error.LastIndexOf(diagnostic, StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("--json")]
+    [InlineData("--jsonl")]
+    [InlineData("--tsv")]
+    [InlineData("--table")]
+    public async Task Find_SemanticHeadStopsBeforeLaterTypeSource(
+        string? format)
+    {
+        string missing = Path.Combine(
+            Path.GetTempPath(),
+            $"DefinitelyAbsentFindHead-{Guid.NewGuid():N}");
+        var args = new List<string>
+        {
+            "find",
+            nameof(CommandExecutionTests),
+            "--library",
+            TestAssemblyPath,
+            "--bin",
+            missing,
+            "-n",
+            "1",
+        };
+        if (format is not null)
+            args.Add(format);
+
+        var (exit, output, error) = await RunAppAsync([.. args]);
+
+        Assert.Equal(0, exit);
+        Assert.False(string.IsNullOrWhiteSpace(output));
+        Assert.DoesNotContain("Directory not found", error);
+    }
+
+    [Fact]
+    public async Task Find_NamespaceHeadStopsBeforeLaterTypeSource()
+    {
+        string missing = Path.Combine(
+            Path.GetTempPath(),
+            $"DefinitelyAbsentFindNamespaceHead-{Guid.NewGuid():N}");
+
+        var (exit, output, error) = await RunAppAsync(
+            "find",
+            "System.Text.Json.*",
+            "--library",
+            typeof(JsonSerializer).Assembly.Location,
+            "--bin",
+            missing,
+            "-n",
+            "1",
+            "--count");
+
+        Assert.Equal(0, exit);
+        Assert.Equal("1", output.Trim());
+        Assert.DoesNotContain("Directory not found", error);
+    }
+
+    [Fact]
+    public async Task Find_FiniteTypeWindowStopsBeforeLaterTypeSource()
+    {
+        string missing = Path.Combine(
+            Path.GetTempPath(),
+            $"DefinitelyAbsentFindTypeWindow-{Guid.NewGuid():N}");
+
+        var (exit, output, error) = await RunAppAsync(
+            "find",
+            "*",
+            "--library",
+            TestAssemblyPath,
+            "--bin",
+            missing,
+            "--rows",
+            "2..3",
+            "--count");
+
+        Assert.Equal(0, exit);
+        Assert.Equal("2", output.Trim());
+        Assert.DoesNotContain("Directory not found", error);
+    }
+
+    [Fact]
+    public async Task Find_FiniteTypeWindowKeepsIncompleteSourceVisible()
+    {
+        string missing = Path.Combine(
+            Path.GetTempPath(),
+            $"DefinitelyAbsentFindIncompleteWindow-{Guid.NewGuid():N}");
+
+        var (exit, output, error) = await RunAppAsync(
+            "find",
+            "*",
+            "--library",
+            TestAssemblyPath,
+            "--bin",
+            missing,
+            "--rows",
+            "1..100000",
+            "--json",
+            "--compact");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Directory not found", error);
+        Assert.Contains(
+            "requires type row 100000",
+            error);
+    }
+
+    [Fact]
+    public async Task Find_SemanticHeadStopsBeforeLaterMemberSource()
+    {
+        string missing = Path.Combine(
+            Path.GetTempPath(),
+            $"DefinitelyAbsentFindMemberHead-{Guid.NewGuid():N}");
+
+        var (exit, output, error) = await RunAppAsync(
+            "find",
+            $".{nameof(Find_BroadenedMemberFallbackReusesExplicitWorkspace)}",
+            "--library",
+            TestAssemblyPath,
+            "--bin",
+            missing,
+            "-n",
+            "1",
+            "--json");
+
+        Assert.Equal(0, exit);
+        Assert.Contains(
+            nameof(Find_BroadenedMemberFallbackReusesExplicitWorkspace),
+            output);
+        Assert.DoesNotContain("Directory not found", error);
+    }
+
+    [Fact]
+    public async Task Find_FiniteMemberWindowStopsBeforeLaterMemberSource()
+    {
+        string missing = Path.Combine(
+            Path.GetTempPath(),
+            $"DefinitelyAbsentFindMemberWindow-{Guid.NewGuid():N}");
+
+        var (exit, output, error) = await RunAppAsync(
+            "find",
+            "*",
+            "--members",
+            "--library",
+            TestAssemblyPath,
+            "--bin",
+            missing,
+            "--rows",
+            "2..3",
+            "--count");
+
+        Assert.Equal(0, exit);
+        Assert.Equal("2", output.Trim());
+        Assert.DoesNotContain("Directory not found", error);
+    }
+
+    [Fact]
+    public async Task
+        Find_FilteredFiniteMemberWindowStopsBeforeLaterMemberSource()
+    {
+        string missing = Path.Combine(
+            Path.GetTempPath(),
+            $"DefinitelyAbsentFindFilteredMemberWindow-{Guid.NewGuid():N}");
+
+        var (exit, output, error) = await RunAppAsync(
+            "find",
+            "*",
+            "--members",
+            "--type",
+            typeof(CommandExecutionTests).FullName!,
+            "--library",
+            TestAssemblyPath,
+            "--bin",
+            missing,
+            "--rows",
+            "2..3",
+            "--count");
+
+        Assert.Equal(0, exit);
+        Assert.Equal("2", output.Trim());
+        Assert.DoesNotContain("Directory not found", error);
+    }
+
+    [Fact]
+    public async Task
+        Find_FiniteWindowWithPossibleMemberFallbackRemainsExhaustive()
+    {
+        string missing = Path.Combine(
+            Path.GetTempPath(),
+            $"DefinitelyAbsentFindComposedWindow-{Guid.NewGuid():N}");
+
+        var (exit, output, error) = await RunAppAsync(
+            "find",
+            nameof(CommandExecutionTests),
+            "--library",
+            TestAssemblyPath,
+            "--bin",
+            missing,
+            "--rows",
+            "1..2",
+            "--json",
+            "--compact");
+
+        Assert.Equal(0, exit);
+        Assert.False(string.IsNullOrWhiteSpace(output));
+        Assert.Contains("Directory not found", error);
+    }
+
+    [Fact]
+    public async Task Find_MultiPatternHeadStopsAfterFirstPatternGroup()
+    {
+        string missing = Path.Combine(
+            Path.GetTempPath(),
+            $"DefinitelyAbsentFindMultiHead-{Guid.NewGuid():N}");
+
+        var (exit, output, error) = await RunAppAsync(
+            "find",
+            "CommandExecutionTests,DefinitelyAbsentFindMultiPattern",
+            "--library",
+            TestAssemblyPath,
+            "--bin",
+            missing,
+            "-n",
+            "1",
+            "--json");
+
+        Assert.Equal(0, exit);
+        Assert.Contains(nameof(CommandExecutionTests), output);
+        Assert.DoesNotContain("Directory not found", error);
+    }
+
+    [Fact]
+    public async Task Find_TailSelectionRemainsExhaustive()
+    {
+        string missing = Path.Combine(
+            Path.GetTempPath(),
+            $"DefinitelyAbsentFindTail-{Guid.NewGuid():N}");
+
+        var (exit, output, error) = await RunAppAsync(
+            "find",
+            nameof(CommandExecutionTests),
+            "--library",
+            TestAssemblyPath,
+            "--bin",
+            missing,
+            "-n",
+            "1",
+            "--tail",
+            "--json");
+
+        Assert.Equal(0, exit);
+        Assert.Contains(nameof(CommandExecutionTests), output);
+        Assert.Contains("Directory not found", error);
+    }
+
+    [Fact]
+    public async Task Find_SemanticHeadCountStopsAtSelectedCardinality()
+    {
+        string missing = Path.Combine(
+            Path.GetTempPath(),
+            $"DefinitelyAbsentFindCountHead-{Guid.NewGuid():N}");
+
+        var (exit, output, error) = await RunAppAsync(
+            "find",
+            nameof(CommandExecutionTests),
+            "--library",
+            TestAssemblyPath,
+            "--bin",
+            missing,
+            "-n",
+            "1",
+            "--count");
+
+        Assert.Equal(0, exit);
+        Assert.Equal("1", output.Trim());
+        Assert.DoesNotContain("Directory not found", error);
     }
 
     [Fact]
@@ -654,7 +1263,13 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Equal("1", output.Trim());
+        Assert.True(
+            int.TryParse(
+                output.Trim(),
+                CultureInfo.InvariantCulture,
+                out int count),
+            output);
+        Assert.True(count > 1, output);
     }
 
     [Fact]
@@ -665,7 +1280,13 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Equal("1", output.Trim());
+        Assert.True(
+            int.TryParse(
+                output.Trim(),
+                CultureInfo.InvariantCulture,
+                out int count),
+            output);
+        Assert.True(count > 1, output);
     }
 
     [Fact]
@@ -676,7 +1297,13 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Equal("1", output.Trim());
+        Assert.True(
+            int.TryParse(
+                output.Trim(),
+                CultureInfo.InvariantCulture,
+                out int count),
+            output);
+        Assert.True(count > 1, output);
     }
 
     [Fact]
@@ -687,7 +1314,13 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Equal("1", output.Trim());
+        Assert.True(
+            int.TryParse(
+                output.Trim(),
+                CultureInfo.InvariantCulture,
+                out int count),
+            output);
+        Assert.True(count > 1, output);
     }
 
     [Fact]
@@ -698,7 +1331,13 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Equal("1", output.Trim());
+        Assert.True(
+            int.TryParse(
+                output.Trim(),
+                CultureInfo.InvariantCulture,
+                out int count),
+            output);
+        Assert.True(count > 1, output);
     }
 
     [Fact]
@@ -709,7 +1348,13 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Equal("1", output.Trim());
+        Assert.True(
+            int.TryParse(
+                output.Trim(),
+                CultureInfo.InvariantCulture,
+                out int count),
+            output);
+        Assert.True(count > 1, output);
     }
 
     // ── find command ─────────────────────────────────────────────────
@@ -740,15 +1385,9 @@ public partial class CommandExecutionTests
             "System.Text.Json@10.0.0",
             "--platform",
             "System.Text.Json",
-            "--ecosystem",
-            "ecosystem.aspire",
-            "--ecosystem",
-            "ecosystem.ai",
             "--tfm",
             "net10.0",
-            "--json",
-            "--tips",
-            "q");
+            "--json");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -758,20 +1397,26 @@ public partial class CommandExecutionTests
         [
             .. document.RootElement.EnumerateArray(),
         ];
-        Assert.Equal(2, rows.Length);
+        JsonElement[] exact =
+        [
+            .. rows.Where(
+                static row =>
+                    row.GetProperty("match").GetString() == "Exact"),
+        ];
+        Assert.Equal(2, exact.Length);
         Assert.All(
-            rows,
+            exact,
             static row =>
                 Assert.Equal(
                     "class",
                     row.GetProperty("kind").GetString()));
         Assert.Contains(
-            rows,
+            exact,
             static row =>
                 row.GetProperty("source").GetString()
                     == "System.Text.Json");
         Assert.Contains(
-            rows,
+            exact,
             static row =>
                 row.GetProperty("source").GetString()
                     == "runtime");
@@ -819,8 +1464,6 @@ public partial class CommandExecutionTests
                 "--tfm",
                 "net10.0",
                 "--json",
-                "--tips",
-                "q",
             };
             if (includeAll)
                 arguments.Add("--all");
@@ -884,9 +1527,7 @@ public partial class CommandExecutionTests
             "System.Text.Json@10.0.0",
             "--tfm",
             "net10.0",
-            "--json",
-            "--tips",
-            "q");
+            "--json");
 
         Assert.Equal(0, exit);
         Assert.Contains(
@@ -896,14 +1537,17 @@ public partial class CommandExecutionTests
         using JsonDocument document = JsonDocument.Parse(output);
         Assert.Equal(
             "System.Text.Json.JsonSerializer",
-            Assert.Single(document.RootElement.EnumerateArray())
+            Assert.Single(
+                document.RootElement.EnumerateArray(),
+                static row =>
+                    row.GetProperty("match").GetString() == "Exact")
                 .GetProperty("full_name")
                 .GetString());
     }
 
     [Fact]
     [Trait("Speed", "Slow")]
-    public async Task Find_LocatorSimilarityCutoffPreservesInventoryOrder()
+    public async Task Find_LocatorSimilarityPreservesDiscoveryOrder()
     {
         var (exit, output, error) = await RunAppAsync(
             "find",
@@ -913,9 +1557,7 @@ public partial class CommandExecutionTests
             "--tfm",
             "net10.0",
             "--all",
-            "--json",
-            "--tips",
-            "q");
+            "--json");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -927,6 +1569,7 @@ public partial class CommandExecutionTests
                 "System.Text.Json.Schema.JsonSchema",
                 "System.Text.Json.Nodes.JsonNode",
                 "System.Text.Json.Nodes.JsonNodeOptions",
+                "System.Text.Json.Nodes.JsonObject",
             ],
             document.RootElement
                 .EnumerateArray()
@@ -947,9 +1590,7 @@ public partial class CommandExecutionTests
             "System.Text.Json@10.0.0",
             "--tfm",
             "net10.0",
-            "--json",
-            "--tips",
-            "q");
+            "--json");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -985,9 +1626,7 @@ public partial class CommandExecutionTests
             "System.Text.Json@10.0.0",
             "--tfm",
             "net10.0",
-            "--json",
-            "--tips",
-            "q");
+            "--json");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1036,24 +1675,29 @@ public partial class CommandExecutionTests
             "System.Text.Json@10.0.0",
             "--tfm",
             "net10.0",
-            "--json",
-            "--tips",
-            "q");
+            "--json");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
         using JsonDocument document = JsonDocument.Parse(output);
         JsonElement[] rows =
             [.. document.RootElement.EnumerateArray()];
-        Assert.Equal(6, rows.Length);
         Assert.All(
             rows,
             static row =>
                 Assert.Equal(
                     "System.Text.Json",
                     row.GetProperty("source").GetString()));
+        JsonElement[] namespaceRows =
+        [
+            .. rows.Where(
+                static row =>
+                    row.GetProperty("pattern").GetString()
+                        == NamespacePattern),
+        ];
+        Assert.Equal(5, namespaceRows.Length);
         Assert.All(
-            rows[..5],
+            namespaceRows,
             static row =>
             {
                 Assert.Equal(
@@ -1063,20 +1707,29 @@ public partial class CommandExecutionTests
                     "Namespace",
                     row.GetProperty("match").GetString());
             });
+        Assert.All(
+            rows[namespaceRows.Length..],
+            static row =>
+                Assert.StartsWith(
+                    DirectPattern,
+                    row.GetProperty("pattern").GetString()));
+        JsonElement directRow =
+            Assert.Single(
+                rows,
+                static row =>
+                    row.GetProperty("full_name").GetString()
+                        == DirectPattern
+                    && row.GetProperty("match").GetString()
+                        == "Exact");
         Assert.Equal(
-            DirectPattern,
-            rows[^1].GetProperty("pattern").GetString());
-        Assert.Equal(
-            DirectPattern,
-            rows[^1].GetProperty("full_name").GetString());
-        Assert.Equal(
-            "Direct",
-            rows[^1].GetProperty("match").GetString());
+            "Exact",
+            directRow.GetProperty("match").GetString());
     }
 
     [Fact]
     [Trait("Speed", "Slow")]
-    public async Task Find_LocatorMixedPatternsPreservePatternOrderBeforeLimit()
+    public async Task
+        Find_LocatorMixedPatternsPreservePatternAndDiscoveryOrderBeforeLimit()
     {
         var (exit, output, error) = await RunAppAsync(
             "find",
@@ -1086,8 +1739,6 @@ public partial class CommandExecutionTests
             "--tfm",
             "net10.0",
             "--json",
-            "--tips",
-            "q",
             "-n",
             "1");
 
@@ -1097,11 +1748,46 @@ public partial class CommandExecutionTests
         JsonElement row =
             Assert.Single(document.RootElement.EnumerateArray());
         Assert.Equal(
-            "System.Text.Json.Serialization.JsonAttribute",
+            "System.Text.Json.JsonSerializerOptions",
             row.GetProperty("full_name").GetString());
         Assert.Equal(
-            "Namespace",
+            "Partial",
             row.GetProperty("match").GetString());
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public async Task Find_CompatibilityPackageHeadPreservesProvenance()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "find",
+            "JsonSerializer",
+            "--package",
+            "System.Text.Json@10.0.0",
+            "-n",
+            "3",
+            "--json");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using JsonDocument document = JsonDocument.Parse(output);
+        JsonElement[] rows =
+            [.. document.RootElement.EnumerateArray()];
+        Assert.Equal(3, rows.Length);
+        Assert.All(
+            rows,
+            static row =>
+            {
+                Assert.Equal(
+                    "System.Text.Json",
+                    row.GetProperty("library").GetString());
+                Assert.Equal(
+                    "System.Text.Json",
+                    row.GetProperty("source").GetString());
+                Assert.Equal(
+                    "10.0.0",
+                    row.GetProperty("source_version").GetString());
+            });
     }
 
     [Fact]
@@ -1117,8 +1803,6 @@ public partial class CommandExecutionTests
             "--tfm",
             "net10.0",
             "--json",
-            "--tips",
-            "q",
             "-n",
             "8");
 
@@ -1171,42 +1855,59 @@ public partial class CommandExecutionTests
     [Fact]
     [Trait("Speed", "Slow")]
     public async Task
-        Find_DefaultExactNamespacePreservesPackageAndPlatformObservations()
+        Find_DefaultExactNamespaceKeepsNaturalBroaderCandidates()
     {
         var (exit, output, error) = await RunAppAsync(
             "find",
             "System.Text.Json.Nodes",
-            "--json",
-            "--tips",
-            "q");
+            "--json");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
         using JsonDocument document = JsonDocument.Parse(output);
         JsonElement[] rows =
             [.. document.RootElement.EnumerateArray()];
-        Assert.Equal(10, rows.Length);
         Assert.Equal(
-            5,
-            rows.Count(static row =>
-                row.GetProperty("source").GetString()
-                    == "System.Text.Json"));
+            [
+                "System.Reflection.Emit.OpCodes",
+                "System.Text.Json.Nodes.JsonArray",
+                "System.Text.Json.Nodes.JsonNode",
+                "System.Text.Json.Nodes.JsonNodeOptions",
+                "System.Text.Json.Nodes.JsonObject",
+                "System.Text.Json.Nodes.JsonValue",
+                "System.Xml.Linq.XNode",
+            ],
+            rows.Select(
+                static row =>
+                    row.GetProperty("full_name").GetString()));
         Assert.Equal(
-            5,
-            rows.Count(static row =>
-                row.GetProperty("source").GetString()
-                    == "runtime"));
+            [
+                "Partial",
+                "Namespace",
+                "Namespace",
+                "Namespace",
+                "Namespace",
+                "Namespace",
+                "Partial",
+            ],
+            rows.Select(
+                static row =>
+                    row.GetProperty("match").GetString()));
         Assert.All(
             rows,
             static row =>
-            {
                 Assert.Equal(
-                    "Namespace",
-                    row.GetProperty("match").GetString());
+                    "runtime",
+                    row.GetProperty("source").GetString()));
+        Assert.All(
+            rows.Where(
+                static row =>
+                    row.GetProperty("match").GetString()
+                        == "Namespace"),
+            static row =>
                 Assert.Equal(
                     "System.Text.Json.Nodes",
-                    row.GetProperty("namespace").GetString());
-            });
+                    row.GetProperty("namespace").GetString()));
         Assert.DoesNotContain(
             rows,
             static row =>
@@ -1217,14 +1918,12 @@ public partial class CommandExecutionTests
     [Fact]
     [Trait("Speed", "Slow")]
     public async Task
-        Find_DefaultNamespaceDescendantsPreservePackageAndPlatformObservations()
+        Find_DefaultNamespaceDescendantsUsePlatformWorkspace()
     {
         var (exit, output, error) = await RunAppAsync(
             "find",
             "System.Text.Json.Serialization.*",
-            "--json",
-            "--tips",
-            "q");
+            "--json");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1232,18 +1931,13 @@ public partial class CommandExecutionTests
         JsonElement[] rows =
             [.. document.RootElement.EnumerateArray()];
         Assert.NotEmpty(rows);
-        Assert.Equal(
-            ["System.Text.Json", "runtime"],
-            rows
-                .Select(
-                    static row =>
-                        row.GetProperty("source").GetString()!)
-                .Distinct(StringComparer.Ordinal)
-                .ToArray());
         Assert.All(
             rows,
             static row =>
             {
+                Assert.Equal(
+                    "runtime",
+                    row.GetProperty("source").GetString());
                 Assert.Equal(
                     "System.Text.Json.Serialization.*",
                     row.GetProperty("pattern").GetString());
@@ -1251,31 +1945,22 @@ public partial class CommandExecutionTests
                     "Namespace",
                     row.GetProperty("match").GetString());
             });
-        foreach (string source in new[] { "System.Text.Json", "runtime" })
-        {
-            JsonElement[] sourceRows =
-            [
-                .. rows.Where(
-                    row =>
-                        row.GetProperty("source").GetString() == source),
-            ];
-            Assert.Contains(
-                sourceRows,
-                static row =>
-                    row.GetProperty("namespace").GetString()
-                        == "System.Text.Json.Serialization");
-            Assert.Contains(
-                sourceRows,
-                static row =>
-                    row.GetProperty("namespace").GetString()
-                        == "System.Text.Json.Serialization.Metadata");
-        }
+        Assert.Contains(
+            rows,
+            static row =>
+                row.GetProperty("namespace").GetString()
+                    == "System.Text.Json.Serialization");
+        Assert.Contains(
+            rows,
+            static row =>
+                row.GetProperty("namespace").GetString()
+                    == "System.Text.Json.Serialization.Metadata");
     }
 
     [Fact]
     [Trait("Speed", "Slow")]
     public async Task
-        Find_DefaultMultiPatternNamespaceDescendantsPreserveAllSources()
+        Find_DefaultMultiPatternNamespaceDescendantsPreservePatternOrder()
     {
         const string NamespacePattern = "System.Text.Json.Nodes.*";
         const string DirectPattern =
@@ -1283,9 +1968,7 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             "find",
             $"{NamespacePattern},{DirectPattern}",
-            "--json",
-            "--tips",
-            "q");
+            "--json");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1299,68 +1982,72 @@ public partial class CommandExecutionTests
                     row.GetProperty("pattern").GetString()
                         == NamespacePattern),
         ];
-        Assert.Equal(10, namespaceRows.Length);
-        Assert.Equal(
-            5,
-            namespaceRows.Count(
-                static row =>
-                    row.GetProperty("source").GetString()
-                        == "System.Text.Json"));
-        Assert.Equal(
-            5,
-            namespaceRows.Count(
-                static row =>
-                    row.GetProperty("source").GetString()
-                        == "runtime"));
+        Assert.Equal(5, namespaceRows.Length);
         Assert.All(
             namespaceRows,
             static row =>
+            {
+                Assert.Equal(
+                    "runtime",
+                    row.GetProperty("source").GetString());
                 Assert.Equal(
                     "Namespace",
-                    row.GetProperty("match").GetString()));
+                    row.GetProperty("match").GetString());
+            });
 
         JsonElement directRow =
             Assert.Single(
                 rows,
                 static row =>
-                    row.GetProperty("pattern").GetString()
-                        == DirectPattern);
+                    row.GetProperty("full_name").GetString()
+                        == DirectPattern
+                    && row.GetProperty("match").GetString()
+                        == "Exact");
         Assert.Equal(
             DirectPattern,
             directRow.GetProperty("full_name").GetString());
         Assert.Equal(
-            "Direct",
+            "Exact",
             directRow.GetProperty("match").GetString());
         Assert.Equal(
             NamespacePattern,
             rows[0].GetProperty("pattern").GetString());
-        Assert.Equal(
-            DirectPattern,
-            rows[^1].GetProperty("pattern").GetString());
+        Assert.All(
+            rows[namespaceRows.Length..],
+            static row =>
+                Assert.StartsWith(
+                    DirectPattern,
+                    row.GetProperty("pattern").GetString()));
     }
 
     [Fact]
     [Trait("Speed", "Slow")]
-    public async Task Find_DefaultDirectTypePrecedesNamespaceDiscovery()
+    public async Task
+        Find_DefaultExactDoesNotSuppressEarlierSimilarCandidates()
     {
         var (exit, output, error) = await RunAppAsync(
             "find",
             "System.Text.Json.JsonSerializer",
-            "--json",
-            "--tips",
-            "q");
+            "--json");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
         using JsonDocument document = JsonDocument.Parse(output);
-        JsonElement row =
-            Assert.Single(document.RootElement.EnumerateArray());
+        JsonElement[] rows =
+            document.RootElement.EnumerateArray().ToArray();
+        Assert.True(rows.Length > 1);
         Assert.Equal(
-            "System.Text.Json.JsonSerializer",
-            row.GetProperty("full_name").GetString());
+            "System.Runtime.Intrinsics.X86.X86Serialize",
+            rows[0].GetProperty("full_name").GetString());
         Assert.Equal(
-            "Direct",
-            row.GetProperty("match").GetString());
+            "Partial",
+            rows[0].GetProperty("match").GetString());
+        JsonElement row = Assert.Single(
+            rows,
+            static candidate =>
+                candidate.GetProperty("full_name").GetString()
+                    == "System.Text.Json.JsonSerializer");
+        Assert.Equal("Exact", row.GetProperty("match").GetString());
         Assert.Equal(
             "runtime",
             row.GetProperty("source").GetString());
@@ -1377,9 +2064,7 @@ public partial class CommandExecutionTests
             "System.Text.Json",
             "--tfm",
             "net11.0",
-            "--json",
-            "--tips",
-            "q");
+            "--json");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1402,14 +2087,12 @@ public partial class CommandExecutionTests
 
     [Fact]
     [Trait("Speed", "Slow")]
-    public async Task Find_DefaultNamespaceAppliesSemanticRowSelection()
+    public async Task Find_DefaultNamespaceHeadSelectsDiscoveryPrefix()
     {
         var (exit, output, error) = await RunAppAsync(
             "find",
             "System.Text.Json.Nodes",
             "--json",
-            "--tips",
-            "q",
             "-n",
             "3");
 
@@ -1418,9 +2101,9 @@ public partial class CommandExecutionTests
         using JsonDocument document = JsonDocument.Parse(output);
         Assert.Equal(
             [
+                "System.Reflection.Emit.OpCodes",
                 "System.Text.Json.Nodes.JsonArray",
                 "System.Text.Json.Nodes.JsonNode",
-                "System.Text.Json.Nodes.JsonNodeOptions",
             ],
             document.RootElement
                 .EnumerateArray()
@@ -1428,31 +2111,49 @@ public partial class CommandExecutionTests
                     static row =>
                         row.GetProperty("full_name").GetString()!)
                 .ToArray());
+        Assert.Equal(
+            ["Partial", "Namespace", "Namespace"],
+            document.RootElement
+                .EnumerateArray()
+                .Select(
+                    static row =>
+                        row.GetProperty("match").GetString())
+                .ToArray());
     }
 
     [Fact]
-    public async Task Find_ExactNamespaceExcludesDescendantsAndNearNames()
+    public async Task Find_ExactNamespaceKeepsBroaderCandidateSeparate()
     {
         var (exit, output, error) = await RunAppAsync(
             "find",
             "World.Blue.Nodes",
             "--library",
             typeof(World.Blue.Nodes.Foo).Assembly.Location,
-            "--json",
-            "--tips",
-            "q");
+            "--json");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
         using JsonDocument document = JsonDocument.Parse(output);
-        JsonElement row =
-            Assert.Single(document.RootElement.EnumerateArray());
+        JsonElement[] rows =
+            [.. document.RootElement.EnumerateArray()];
         Assert.Equal(
-            "World.Blue.Nodes.Foo",
-            row.GetProperty("full_name").GetString());
+            [
+                "World.Blue.Nodes.Foo",
+                "World.Blue.Nodes.More.Descendant",
+            ],
+            rows.Select(
+                static row =>
+                    row.GetProperty("full_name").GetString()));
         Assert.Equal(
-            "Namespace",
-            row.GetProperty("match").GetString());
+            ["Namespace", "Prefix"],
+            rows.Select(
+                static row =>
+                    row.GetProperty("match").GetString()));
+        Assert.Equal(
+            ["World.Blue.Nodes", "World.Blue.Nodes*"],
+            rows.Select(
+                static row =>
+                    row.GetProperty("pattern").GetString()));
     }
 
     [Fact]
@@ -1464,9 +2165,7 @@ public partial class CommandExecutionTests
             "World.Blue.Nodes.*",
             "--library",
             typeof(World.Blue.Nodes.Foo).Assembly.Location,
-            "--json",
-            "--tips",
-            "q");
+            "--json");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1502,14 +2201,13 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             "find",
             "System.Object",
+            "--markdown",
             "--package",
             "System.Runtime@4.3.1",
             "--platform",
             "System.Private.CoreLib",
             "--tfm",
-            "net10.0",
-            "--tips",
-            "q");
+            "net10.0");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Results", output);
@@ -1526,7 +2224,7 @@ public partial class CommandExecutionTests
     public async Task Find_Members_ExplicitFlag_RendersMembersSection()
     {
         var (exit, output, error) = await RunAppAsync(
-            "find", "Serialize", "--members", "--platform", "System.Text.Json");
+            "find", "Serialize", "--members", "--platform", "System.Text.Json", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Members", output);

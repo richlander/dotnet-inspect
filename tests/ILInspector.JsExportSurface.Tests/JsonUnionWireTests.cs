@@ -10,8 +10,8 @@ namespace ILInspector.JsExportSurface.Tests;
 
 public sealed class JsonUnionWireTests
 {
-    static readonly Lazy<LibraryBodyIndex> Bodies = new(() =>
-        LibraryBodyIndex.Open(
+    static readonly Lazy<LibraryJsonWireContractAnalysisResult> Bodies = new(() =>
+        WireContractTestAnalysis.Open(
             FixtureCatalog.AssemblyPath(FixtureIds.JsExportUnions),
             LibraryBodyAnalysisFeatures.MethodEvidence
                 | LibraryBodyAnalysisFeatures.JsonWireContractFlow));

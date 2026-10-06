@@ -92,14 +92,16 @@ public static class WorkspacePlatformPopulationDeclarationAdmission
             WorkspaceLibraryOccurrence occurrence =
                 admission.Occurrences[index];
             if (!ReferenceEquals(member, populationReceipt.RealizedMembers[index])
-                || !ReferenceEquals(member.Library, occurrence.Library))
+                || !ReferenceEquals(
+                    member.PlatformLibrary.Library,
+                    occurrence.Library))
             {
                 return Rejected(
                     WorkspacePlatformPopulationDeclarationAdmissionRejection
                         .PopulationMismatch,
                     index);
             }
-            if (member.Library.SourceCoordinate
+            if (member.PlatformLibrary.Library.SourceCoordinate
                 is not ExactLibrarySourceCoordinate.Platform coordinate
                 || coordinate.Population.Family != member.Target.Family)
             {
@@ -109,7 +111,7 @@ public static class WorkspacePlatformPopulationDeclarationAdmission
                     index);
             }
             ManagedMetadataIdentity.Assembly? assembly =
-                member.Library.ApiAssembly.AssemblyIdentity;
+                member.PlatformLibrary.Library.ApiAssembly.AssemblyIdentity;
             if (assembly is null)
             {
                 return Rejected(
@@ -117,7 +119,7 @@ public static class WorkspacePlatformPopulationDeclarationAdmission
                         .AssemblyIdentityUnavailable,
                     index);
             }
-            if (member.Library.ApiAssembly.Provenance
+            if (member.PlatformLibrary.Library.ApiAssembly.Provenance
                 is not PlatformLibraryArtifactProvenance provenance
                 || !ReferenceEquals(
                     provenance.Contribution.Target,
@@ -159,7 +161,8 @@ public static class WorkspacePlatformPopulationDeclarationAdmission
                                 "Unknown Platform family."),
                         },
                         member.Target.Version.Value,
-                        provenance.Contribution.Capability.Name)));
+                        provenance.Contribution.Capability.Name),
+                    packageRequest: null));
         }
 
         return WorkspaceLibraryDeclarationContextAdmission.Admit(

@@ -244,7 +244,7 @@ public sealed class OverloadFamilyCallGraphStructuralQueryTests
         Assert.Contains(
             document.Graph.Limits,
             limit => ReferenceEquals(
-                limit.Descriptor,
+                limit.Payload.Descriptor,
                 CallGraphInspectionGraphCatalog.TraversalIncomplete));
     }
 

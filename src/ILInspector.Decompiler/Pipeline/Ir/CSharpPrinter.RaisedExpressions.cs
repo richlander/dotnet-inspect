@@ -332,13 +332,13 @@ public sealed partial class CSharpPrinter
             };
             function.RestoreMaterializedStackSlotLocals(
                 lambda.MaterializedStackSlotLocals);
+            function.RestoreResidualSlotBindings(lambda.ResidualSlotBindings);
+            function.ZeroInitializedLocals = lambda.ZeroInitializedLocals;
             function.CopyTypeFactsFrom(_function);
             var printer = new CSharpPrinter(
                 function,
                 _options,
                 CurrentScopeNames(),
-                _stackSlotTelemetry,
-                stackSlotTelemetryScope: lambda,
                 decisions: _decisions,
                 decisionKeys: _decisionKeys,
                 fullyQualifyTypeNames: _fullyQualifyTypeNames)

@@ -83,7 +83,7 @@ export function initialPackageChangesState(): PackageChangesState {
 }
 
 export function createPackageChangesRequest(
-  packageSetId: string,
+  ecosystemId: string,
   options: {
     readonly fromExclusive?: string | null;
     readonly throughInclusive?: string | null;
@@ -92,7 +92,7 @@ export function createPackageChangesRequest(
   } = {},
 ): BrowserPackageChangesRequest {
   return {
-    packageSetId,
+    ecosystemId,
     fromExclusive: options.fromExclusive ?? null,
     throughInclusive: options.throughInclusive ?? null,
     securityOnly: options.securityOnly ?? false,

@@ -58,7 +58,8 @@ public static class DiffSections
     public static IReadOnlySet<string> ExactOnlySections { get; } =
         new HashSet<string>(
             [
-                FindingTransitions.Name,
+                Summary.Name,
+                Transitions.Name,
                 ComplexityContext.Name,
                 StructuralContext.Name,
             ],
@@ -106,7 +107,8 @@ public static class DiffSections
             .Add<ImplementationDiff>(ImplementationComparisonQuery.Definition)
             .Add<ComplexityContext>(ImplementationComparisonQuery.Definition)
             .Add<StructuralContext>(ImplementationComparisonQuery.Definition)
-            .Add<FindingTransitions>()
+            .Add<Summary>()
+            .Add<Transitions>()
             .AddBaseCategory(
                 SectionCategoryNames.Diff,
                 Changes.Name,
@@ -182,7 +184,8 @@ public static class DiffSections
                 "Population Size",
                 "Cohort Size",
                 "Kind")
-            .Add(FindingTransitions.Name, "section", "Transition", "Finding", "Target", "From", "To", "Old", "New", "Detail");
+            .Add(Summary.Name, "section", "Analysis", "Outcome", "Added", "Removed", "Changed", "Present", "Detail")
+            .Add(Transitions.Name, "section", "Transition", "Finding", "Target", "From", "To", "Old", "New", "Detail");
     }
 
     public sealed class Changes : ISectionDescriptor<DiffDiscoveryModel>
@@ -193,13 +196,38 @@ public static class DiffSections
         public static bool CanRender(DiffDiscoveryModel model) => true;
     }
 
-    public sealed class FindingTransitions : ISectionDescriptor<DiffDiscoveryModel>
+    /// <summary>
+    /// A view of the analysis-set result: one row per selected analysis with
+    /// its outcome and transition counts.
+    /// </summary>
+    public sealed class Summary : ISectionDescriptor<DiffDiscoveryModel>
     {
-        public static string Name => "Finding Transitions";
-        public static bool IsExpensive => true;
+        public static string Name => "Summary";
+        public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static bool CanRender(DiffDiscoveryModel model) => true;
     }
+
+    /// <summary>
+    /// A view of the analysis-set result: each selected analysis's
+    /// per-Finding transitions, in selection and descriptor order.
+    /// </summary>
+    public sealed class Transitions : ISectionDescriptor<DiffDiscoveryModel>
+    {
+        public static string Name => "Transitions";
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static bool CanRender(DiffDiscoveryModel model) => true;
+    }
+
+    /// <summary>The views projected from an analysis-set result.</summary>
+    public static IReadOnlySet<string> AnalysisViews { get; } =
+        new HashSet<string>(
+            [Summary.Name, Changes.Name, Transitions.Name],
+            StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The retired command-owned route name, rejected with guidance.</summary>
+    public const string RetiredFindingTransitionsName = "Finding Transitions";
 
     public sealed class AnalysisDiff : ISectionDescriptor<DiffDiscoveryModel>
     {

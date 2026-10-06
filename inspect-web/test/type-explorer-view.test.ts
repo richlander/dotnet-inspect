@@ -87,6 +87,12 @@ test("Type Explorer renders owner-issued declarations and selection", () => {
 
   assert.match(html, /Type Explorer: JsonNamingPolicy/u);
   assert.match(html, /data-type-explorer-declaration="7"/u);
+  assert.match(
+    html,
+    /data-rendered-interaction-key="type-explorer:outline:[a-f0-9]{64}:7"/u);
+  assert.match(
+    html,
+    /data-rendered-interaction-key="type-explorer:source:[a-f0-9]{64}:7"/u);
   assert.match(html, /aria-current="true"/u);
   assert.match(html, /type-explorer-source-declaration selected/u);
   assert.match(
@@ -537,14 +543,15 @@ test("Type Explorer reports the pane that initiated member selection", () => {
   class FakeTarget {
     readonly dataset = { typeExplorerDeclaration: "7" };
     private readonly pane: "outline" | "source";
-    private click: (() => void) | null = null;
+    onclick: (() => void) | null = null;
+    onkeydown: ((event: KeyboardEvent) => void) | null = null;
 
     constructor(pane: "outline" | "source") {
       this.pane = pane;
     }
 
     addEventListener(name: string, listener: () => void) {
-      if (name === "click") this.click = listener;
+      if (name === "click") this.onclick = listener;
     }
 
     closest() {
@@ -552,7 +559,7 @@ test("Type Explorer reports the pane that initiated member selection", () => {
     }
 
     activate() {
-      this.click?.();
+      this.onclick?.();
     }
   }
 
@@ -585,6 +592,7 @@ test("Type Explorer reports the pane that initiated member selection", () => {
     },
   };
 
+  bindTypeExplorerView(root, { status: "ready", inspection }, actions);
   bindTypeExplorerView(root, { status: "ready", inspection }, actions);
   outline.activate();
   source.activate();

@@ -3,6 +3,7 @@ using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using ILInspector.CallGraph;
 using ILInspector.Metadata;
+using NuGetFetch;
 using Analysis = ILInspector.Analysis;
 
 namespace DotnetInspect.Web;
@@ -75,6 +76,43 @@ internal static class BrowserPlatformCallGraph
                 client,
                 sourceAuthorization,
                 operationTimeout),
+            cancellationToken);
+
+    internal static Task<BrowserCallGraphInfo> QueryAsync(
+        string targetFramework,
+        string platformVersion,
+        string assembly,
+        string pack,
+        string assemblyVersion,
+        string? assemblyCulture,
+        string? assemblyPublicKeyToken,
+        string typeFullName,
+        string memberName,
+        string selectorKey,
+        int metadataToken,
+        HttpClient client,
+        IPackageSourceClient packageClient,
+        IPackageSourceAuthorization sourceAuthorization,
+        TimeSpan operationTimeout,
+        CancellationToken cancellationToken = default) =>
+        QueryAsync(
+            targetFramework,
+            platformVersion,
+            assembly,
+            pack,
+            assemblyVersion,
+            assemblyCulture,
+            assemblyPublicKeyToken,
+            typeFullName,
+            memberName,
+            selectorKey,
+            metadataToken,
+            initial: null,
+            acquisition: new AcquisitionHost(
+                client,
+                sourceAuthorization,
+                operationTimeout,
+                packageClient),
             cancellationToken);
 
     internal static Task<BrowserCallGraphInfo> QueryAsync(
@@ -232,14 +270,20 @@ internal static class BrowserPlatformCallGraph
                 nameof(assemblyVersion));
         }
 
-        string assemblyFileName = BrowserPlatformIdentity.AssemblyFileName(assembly);
+        string assemblyFileName =
+            BrowserPlatformIdentity.AssemblyFileName(assembly);
+        var expectedIdentity = new AssemblyReferenceIdentity(
+            assemblyFileName[..^4],
+            expectedVersion,
+            assemblyCulture,
+            assemblyPublicKeyToken);
         bool exactContext = initial is not null;
         await using var owner = new PlatformScopeOwner(
             initial is null
                 ? await OpenAssemblyAsync(
                     targetFramework,
                     platformVersion,
-                    assemblyFileName,
+                    expectedIdentity,
                     pack,
                     acquisition,
                     cancellationToken)
@@ -252,11 +296,6 @@ internal static class BrowserPlatformCallGraph
         string rootFamily = owner.Current.Coordinate.Family;
         string rootAssembly =
             owner.Current.Participant.Participant.Assembly.Identity.Name;
-        var expectedIdentity = new AssemblyReferenceIdentity(
-            assemblyFileName[..^4],
-            expectedVersion,
-            assemblyCulture,
-            assemblyPublicKeyToken);
         AssemblyReferenceIdentity rootIdentity =
             owner.Current.Participant.Participant.Assembly.Identity;
         if (!expectedIdentity.IsEquivalentTo(rootIdentity))
@@ -311,35 +350,39 @@ internal static class BrowserPlatformCallGraph
                     projection);
             }
 
-            BrowserPlatformAssemblyRequest[] requests =
-            [
-                .. required.Select(identity =>
+            foreach (AssemblyReferenceIdentity identity in required)
+            {
+                current = owner.Current;
+                string? targetPack =
+                    current.Scope.PlatformPackForAssembly(identity.Name);
+                if (exactContext && targetPack is null)
                 {
-                    string targetPack =
-                    current.Scope.PlatformPackForAssembly(
-                        identity.Name)
-                    ?? throw new InvalidOperationException(
+                    throw new InvalidOperationException(
                         $"Platform assembly '{identity.Name}' is required to "
-                        + "resolve a call-graph target, but no authorized "
-                        + "platform pack supplies it.");
-                    return new BrowserPlatformAssemblyRequest(
-                        $"{identity.Name}.dll",
-                        targetPack);
-                }),
-            ];
-            await owner.ReplaceAsync(
-                exactContext
-                    ? await ExpandContextAsync(
-                        owner.Current,
-                        requests,
-                        acquisition,
-                        cancellationToken)
-                    : await OpenAssembliesAsync(
-                        targetFramework,
-                        platformVersion,
-                        requests,
-                        acquisition,
-                        cancellationToken));
+                        + "resolve a retained-context call-graph target, but no "
+                        + "authorized platform pack supplies it.");
+                }
+
+                await owner.ReplaceAsync(
+                    exactContext
+                        ? await ExpandContextAsync(
+                            owner.Current,
+                            [
+                                new BrowserPlatformAssemblyRequest(
+                                    $"{identity.Name}.dll",
+                                    targetPack!,
+                                    identity),
+                            ],
+                            acquisition,
+                            cancellationToken)
+                        : await OpenAssemblyAsync(
+                            targetFramework,
+                            platformVersion,
+                            identity,
+                            targetPack ?? "",
+                            acquisition,
+                            cancellationToken));
+            }
         }
 
         throw new InvalidOperationException(
@@ -487,12 +530,15 @@ internal static class BrowserPlatformCallGraph
             }
             ThrowIfIdentityConflict(target, sameName);
 
-            string targetPack =
-                current.Scope.PlatformPackForAssembly(target.Name)
-                ?? throw new InvalidOperationException(
+            string? targetPack =
+                current.Scope.PlatformPackForAssembly(target.Name);
+            if (exactContext && targetPack is null)
+            {
+                throw new InvalidOperationException(
                     $"Platform assembly '{target.Name}' is required to "
-                    + $"resolve '{typeFullName}', but no authorized "
-                    + "platform pack supplies it.");
+                    + $"resolve '{typeFullName}' in a retained context, but "
+                    + "no authorized platform pack supplies it.");
+            }
             await owner.ReplaceAsync(
                 exactContext
                     ? await ExpandContextAsync(
@@ -500,15 +546,16 @@ internal static class BrowserPlatformCallGraph
                         [
                             new BrowserPlatformAssemblyRequest(
                                 $"{target.Name}.dll",
-                                targetPack),
+                                targetPack!,
+                                target),
                         ],
                         acquisition,
                         cancellationToken)
                     : await OpenAssemblyAsync(
                         targetFramework,
                         platformVersion,
-                        $"{target.Name}.dll",
-                        targetPack,
+                        target,
+                        targetPack ?? "",
                         acquisition,
                         cancellationToken));
         }
@@ -579,8 +626,8 @@ internal static class BrowserPlatformCallGraph
                 continue;
             }
             ThrowIfIdentityConflict(identity, sameName);
-            if (scope.PlatformPackForAssembly(identity.Name)
-                    is null
+            if ((!scope.ExactPackageRealization
+                    && scope.PlatformPackForAssembly(identity.Name) is null)
                 || required.Any(candidate =>
                     candidate.IsEquivalentTo(identity)))
             {
@@ -640,7 +687,7 @@ internal static class BrowserPlatformCallGraph
     static Task<BrowserPlatformScopeResolution> OpenAssemblyAsync(
         string targetFramework,
         string platformVersion,
-        string assemblyFileName,
+        AssemblyReferenceIdentity assemblyIdentity,
         string pack,
         AcquisitionHost? acquisition,
         CancellationToken cancellationToken) =>
@@ -648,13 +695,24 @@ internal static class BrowserPlatformCallGraph
             ? BrowserPlatformWorkspace.OpenAssemblyAsync(
                 targetFramework,
                 platformVersion,
-                assemblyFileName,
+                assemblyIdentity,
                 pack,
+                cancellationToken)
+            : acquisition.PackageClient is { } packageClient
+            ? BrowserPlatformWorkspace.OpenAssemblyAsync(
+                targetFramework,
+                platformVersion,
+                assemblyIdentity,
+                pack,
+                acquisition.Client,
+                packageClient,
+                acquisition.SourceAuthorization,
+                acquisition.OperationTimeout,
                 cancellationToken)
             : BrowserPlatformWorkspace.OpenAssemblyAsync(
                 targetFramework,
                 platformVersion,
-                assemblyFileName,
+                $"{assemblyIdentity.Name}.dll",
                 pack,
                 acquisition.Client,
                 acquisition.SourceAuthorization,
@@ -707,7 +765,8 @@ internal static class BrowserPlatformCallGraph
     sealed record AcquisitionHost(
         HttpClient Client,
         IPackageSourceAuthorization SourceAuthorization,
-        TimeSpan OperationTimeout);
+        TimeSpan OperationTimeout,
+        IPackageSourceClient? PackageClient = null);
 
     sealed class PlatformScopeOwner(
         BrowserPlatformScopeResolution current) : IAsyncDisposable

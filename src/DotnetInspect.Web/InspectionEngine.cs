@@ -69,8 +69,27 @@ public static partial class InspectionEngine
     /// application work.
     /// </summary>
     [JSExport]
-    public static void ConfigureHost(string origin)
+    public static async Task ConfigureHost(string origin)
     {
+        try
+        {
+            BrowserPackageEntryCachePersistence persistence =
+                await BrowserPackageEntryCachePersistence.CreateAsync();
+            BrowserPackageWorkspace.ConfigurePackageEntryPersistence(
+                persistence);
+            if (persistence.DurabilityFailure is { } failure)
+            {
+                BrowserPackageWorkspace.ReportEntryStoreFailure(
+                    "durability query",
+                    failure);
+            }
+        }
+        catch (BrowserPackageEntryPersistenceException exception)
+        {
+            BrowserPackageWorkspace.ReportEntryStoreFailure(
+                "initialization",
+                exception);
+        }
         BrowserPackageWorkspace.ConfigureHostProxies(origin);
         BrowserProductWorkspacePlans.ConfigurePlatform();
     }

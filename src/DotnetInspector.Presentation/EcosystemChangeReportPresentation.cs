@@ -10,7 +10,6 @@ namespace DotnetInspector.Presentation;
 /// <summary>The portable kind of package selection used by an ecosystem report.</summary>
 public enum EcosystemChangePackageScopeKind
 {
-    PackageSet,
     PackagePrefix,
 }
 
@@ -18,8 +17,7 @@ public enum EcosystemChangePackageScopeKind
 public sealed record EcosystemChangePackageScopePresentation(
     EcosystemChangePackageScopeKind Kind,
     string? SelectionId,
-    string? Prefix,
-    ImmutableArray<string> PackageIds);
+    ImmutableArray<string> Prefixes);
 
 /// <summary>Portable resolved request metadata for one ecosystem report.</summary>
 public sealed record EcosystemChangeReportRequestPresentation(
@@ -179,7 +177,7 @@ public sealed record EcosystemChangeReportDocument(
     ImmutableArray<EcosystemChangeReportFailurePresentation> Failures,
     EcosystemChangeReportSummaryPresentation Summary)
 {
-    public const int CurrentSchemaVersion = 1;
+    public const int CurrentSchemaVersion = 2;
 }
 
 /// <summary>Collects and projects a closed ecosystem-report event stream.</summary>
@@ -354,18 +352,13 @@ public static class EcosystemChangeReportPresentation
         EcosystemChangePackageSelection selection) =>
         selection switch
         {
-            EcosystemChangePackageSelection.PackageSet value =>
-                new(
-                    EcosystemChangePackageScopeKind.PackageSet,
-                    Inert(value.SelectionId),
-                    Prefix: null,
-                    [.. value.PackageIds.Select(Inert)]),
             EcosystemChangePackageSelection.PackagePrefix value =>
                 new(
                     EcosystemChangePackageScopeKind.PackagePrefix,
-                    SelectionId: null,
-                    Inert(value.Prefix.Prefix),
-                    PackageIds: []),
+                    value.SelectionId is { } selectionId
+                        ? Inert(selectionId)
+                        : null,
+                    [.. value.Prefixes.Select(prefix => Inert(prefix.Prefix))]),
             _ => throw new InvalidOperationException(
                 "Unknown ecosystem package-selection kind."),
         };

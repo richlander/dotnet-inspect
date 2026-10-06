@@ -182,6 +182,14 @@ public sealed class ILOffsetAllocationContext
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? EscapeKind { get; init; }
 
+    [JsonPropertyName("lifetime_uses")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? LifetimeUses { get; init; }
+
+    [JsonPropertyName("lifetime_limitations")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? LifetimeLimitations { get; init; }
+
     [JsonPropertyName("est_size")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public int? EstimatedSizeBytes { get; init; }

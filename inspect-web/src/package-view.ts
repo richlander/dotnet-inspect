@@ -16,9 +16,12 @@ export interface PackagePerformanceTarget {
 
 export interface PackageViewBindingActions
   extends PackageDependencyBindingActions {
+  onPackageChildLibrarySelect: (assetId: string) => void;
+  onRuntimeIdentifierPackageLoad: (
+    packageId: string,
+    packageVersion: string,
+  ) => void;
   onDependencyGroupSelect: (index: number) => void;
-  onPruningEvaluate: () => void;
-  onPruningFamilySelect: (family: string) => void;
   onGraphTypeSelect: (typeId: string) => void;
   onKindJump: (kind: string) => void;
   onLibraryScopeSelect: (
@@ -32,13 +35,19 @@ export interface PackageViewBindingActions
 export interface PackageNavOptions {
   frameworks: readonly string[];
   activeFramework: string;
+  versionFieldHtml?: string;
   escapeHtml: (value: unknown) => string;
 }
 
 export function renderPackageNav(options: PackageNavOptions): string {
-  const { frameworks, activeFramework, escapeHtml } = options;
+  const {
+    frameworks,
+    activeFramework,
+    versionFieldHtml = "",
+    escapeHtml,
+  } = options;
   return `
-    <aside id="content-navigation-pane" class="type-browser package-framework-nav" aria-label="Frameworks">
+    <aside id="content-navigation-pane" class="type-browser package-framework-nav${versionFieldHtml ? " has-version-control" : ""}" aria-label="Frameworks">
       <div class="browser-head">
         <div>
           <span class="pane-label">TARGET FRAMEWORKS</span>
@@ -46,6 +55,11 @@ export function renderPackageNav(options: PackageNavOptions): string {
         </div>
         ${renderContentNavigationCloseButton()}
       </div>
+      ${versionFieldHtml
+        ? `<section class="package-navigation-controls" aria-label="Package version">
+          ${versionFieldHtml}
+        </section>`
+        : ""}
       <div class="type-list package-framework-list" role="group" aria-label="Target framework navigation" tabindex="-1" data-nav-scope="frameworks" data-nav-selection="${activeFramework ? `framework:${escapeHtml(activeFramework)}` : ""}">
         ${frameworks.map(framework => {
           const selected = framework === activeFramework;
@@ -86,12 +100,17 @@ export function bindPackageView(
     button.addEventListener(
       "click",
       () => actions.onDependencyGroupSelect(Number(button.dataset.depGroup))));
-  root.querySelectorAll<HTMLSelectElement>("[data-pruning-family]").forEach(select =>
-    select.addEventListener(
-      "change",
-      () => actions.onPruningFamilySelect(select.value)));
-  root.querySelectorAll<HTMLElement>("[data-pruning-evaluate]").forEach(button =>
-    button.addEventListener("click", actions.onPruningEvaluate));
+  root.querySelectorAll<HTMLElement>("[data-package-child-library]").forEach(
+    button => button.addEventListener(
+      "click",
+      () => actions.onPackageChildLibrarySelect(
+        button.dataset.packageChildLibrary ?? "")));
+  root.querySelectorAll<HTMLElement>("[data-package-child-package]").forEach(
+    button => button.addEventListener(
+      "click",
+      () => actions.onRuntimeIdentifierPackageLoad(
+        button.dataset.packageChildPackage ?? "",
+        button.dataset.packageChildVersion ?? "")));
   bindPackageDependencyList(root, actions);
   root.querySelectorAll<HTMLElement>("[data-kind-jump]").forEach(button =>
     button.addEventListener(

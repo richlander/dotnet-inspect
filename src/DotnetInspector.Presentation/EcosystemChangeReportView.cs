@@ -78,15 +78,10 @@ public sealed class EcosystemChangeReportView
         ArgumentNullException.ThrowIfNull(document);
         EcosystemChangeReportRequestPresentation request = document.Request;
         EcosystemChangeReportSummaryPresentation summary = document.Summary;
-        string selection = request.PackageScope.Kind switch
-        {
-            EcosystemChangePackageScopeKind.PackageSet =>
-                request.PackageScope.SelectionId!,
-            EcosystemChangePackageScopeKind.PackagePrefix =>
-                request.PackageScope.Prefix + "*",
-            _ => throw new InvalidOperationException(
-                "Unknown package-scope kind."),
-        };
+        string selection = request.PackageScope.SelectionId
+            ?? string.Join(
+                ", ",
+                request.PackageScope.Prefixes.Select(prefix => prefix + "*"));
 
         return new EcosystemChangeReportView
         {
@@ -122,13 +117,10 @@ public sealed class EcosystemChangeReportView
         EcosystemChangePackageScopePresentation scope) =>
         scope.Kind switch
         {
-            EcosystemChangePackageScopeKind.PackageSet =>
-                [.. scope.PackageIds.Select(package =>
-                    new EcosystemChangePackageScopeRowView(
-                        "Exact package", package))],
             EcosystemChangePackageScopeKind.PackagePrefix =>
-                [new EcosystemChangePackageScopeRowView(
-                    "Literal prefix", scope.Prefix!)],
+                [.. scope.Prefixes.Select(prefix =>
+                    new EcosystemChangePackageScopeRowView(
+                        "Literal prefix", prefix))],
             _ => throw new InvalidOperationException(
                 "Unknown package-scope kind."),
         };

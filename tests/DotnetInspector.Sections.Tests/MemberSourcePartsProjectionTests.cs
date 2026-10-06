@@ -23,19 +23,29 @@ public class MemberSourcePartsProjectionTests
         var parts = Assert.IsType<MemberTextParts>(index.GetMemberTextParts(declaration));
         var catalog = MemberSourcePartsProjection.CreateCatalog(parts);
 
-        Assert.Equal(["member", "xml-docs", "attributes", "signature", "body"],
+        Assert.Equal(
+            ["declaration", "member", "xml-docs", "attributes", "signature", "body"],
             catalog.Select(part => MemberSourcePartsProjection.Name(part.Kind)));
-        Assert.Equal(parts.XmlDocumentation, catalog[1].Spans);
-        Assert.Equal(2, catalog[1].Spans.Length);
-        Assert.Equal(parts.Attributes, catalog[2].Spans);
+        Assert.Equal(parts.Declaration, Assert.Single(catalog[0].Spans));
+        Assert.Equal(parts.Member, Assert.Single(catalog[1].Spans));
+        Assert.Equal(parts.XmlDocumentation, catalog[2].Spans);
         Assert.Equal(2, catalog[2].Spans.Length);
-        Assert.Equal(parts.Member, Assert.Single(catalog[0].Spans));
+        Assert.Equal(parts.Attributes, catalog[3].Spans);
+        Assert.Equal(2, catalog[3].Spans.Length);
+        Assert.DoesNotContain(
+            "/// <summary>Increment.</summary>",
+            MemberSourcePartsProjection.GetDisplayText(text, catalog[0]),
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "[First][Second]",
+            MemberSourcePartsProjection.GetDisplayText(text, catalog[0]),
+            StringComparison.Ordinal);
         Assert.Equal(
             "    /// <summary>Increment.</summary>\n    /** <remarks>Original text.</remarks> */",
-            MemberSourcePartsProjection.GetDisplayText(text, catalog[1]));
+            MemberSourcePartsProjection.GetDisplayText(text, catalog[2]));
         Assert.Equal(
             "    [First]\n    [Second]",
-            MemberSourcePartsProjection.GetDisplayText(text, catalog[2]));
+            MemberSourcePartsProjection.GetDisplayText(text, catalog[3]));
     }
 
     [Fact]
@@ -81,10 +91,10 @@ public class MemberSourcePartsProjectionTests
 
         Assert.Equal(
             string.Join(newline, lines[2..5]),
-            MemberSourcePartsProjection.GetDisplayText(text, catalog[1]));
+            MemberSourcePartsProjection.GetDisplayText(text, catalog[2]));
         Assert.Equal(
             string.Join(newline, lines[2..6]),
-            MemberSourcePartsProjection.GetDisplayText(text, catalog[0]));
+            MemberSourcePartsProjection.GetDisplayText(text, catalog[1]));
         Assert.StartsWith("///", text.Substring(parts.XmlDocumentation[0].Start,
             parts.XmlDocumentation[0].Length));
         Assert.Equal(

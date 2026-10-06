@@ -243,6 +243,9 @@ public sealed class TypeApiDeclarationInspectionTests
             Assert.IsType<string>(envelope.Content.Text));
     }
 
+    // An explicit property implementation is one C# declaration spelled
+    // through its interface, with its accessors composed into it. It is not
+    // API-visible (docs/design/type-api-declarations.md#selection-and-scope).
     [Theory]
     [InlineData(TypeApiDeclarationScope.ApiVisible, false)]
     [InlineData(TypeApiDeclarationScope.All, true)]
@@ -260,8 +263,14 @@ public sealed class TypeApiDeclarationInspectionTests
         Assert.Equal(
             expected,
             text.Contains(
-                "System.Collections.IList.get_IsFixedSize",
+                "    bool System.Collections.IList.IsFixedSize { get; }",
                 StringComparison.Ordinal));
+        Assert.Equal(
+            expected,
+            text.Contains(
+                "    object? System.Collections.IList.this[int index] { get; set; }",
+                StringComparison.Ordinal));
+        Assert.DoesNotContain("get_IsFixedSize", text, StringComparison.Ordinal);
     }
 
     [Fact]

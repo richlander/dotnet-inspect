@@ -23,27 +23,26 @@ const lenses = [
   ["source", "Source"]
 ] as const;
 
-export type TypeLens = (typeof lenses)[number][0];
+export type TypeLens = (typeof lenses)[number][0] | "overview";
 
 export function isTypeLens(
   value: string | null | undefined,
 ): value is TypeLens {
   return typeof value === "string"
-    && lenses.some(([id]) => id === value);
+    && (value === "overview" || lenses.some(([id]) => id === value));
 }
 
 export const packageLenses = [
   ["overview", "Overview"],
-  ["dependencies", "Dependencies"]
+  ["dependencies", "Dependencies"],
+  ["vulnerabilities", "Vulnerabilities"],
 ] as const;
 
 export const libraryLenses = [
   ["overview", "Overview"],
-  ["compare", "Compare"],
   ["references", "References"],
-  ["integrations", "Integrations"],
+  ["compare", "Compare"],
   ["analysis", "Analysis"],
-  ["metrics", "Metrics"],
   ["metadata", "Metadata"]
 ] as const;
 
@@ -67,11 +66,9 @@ export function isLibraryLens(
 
 export const memberSectionDefinitions = [
   ["overview", "Overview"],
-  ["implementation-profiles", "Implementation profiles"],
   ["call-graph", "Call graph"],
   ["facts", "Facts"],
   ["source", "Source"],
-  ["annotated", "Annotated source"],
   ["compare", "Compare"],
 ] as const;
 
@@ -160,7 +157,8 @@ export function accessibilityFilterIncludingType(
   type: { accessibilityId?: string } | null | undefined,
 ): Set<string> {
   const next = new Set(filter ?? []);
-  if (type?.accessibilityId) next.add(type.accessibilityId);
+  if (type?.accessibilityId && !next.has(type.accessibilityId))
+    return new Set([type.accessibilityId]);
   return next;
 }
 
@@ -1631,8 +1629,7 @@ export function sourceReloadKind(
   }
   if (state.lens === "api"
     && state.selectedMemberKey
-    && (state.memberSection === "annotated"
-      || state.memberSection === "facts")
+    && state.memberSection === "facts"
     && memberSourceHasConcreteOverload) {
     return "annotated";
   }
@@ -1661,7 +1658,7 @@ const allMemberSections: readonly MemberSection[] =
   memberSectionDefinitions.map(([id]) => id);
 
 const packageOnlyMemberSections: ReadonlySet<MemberSection> =
-  new Set<MemberSection>(["facts", "source", "annotated", "compare"]);
+  new Set<MemberSection>(["facts", "compare"]);
 
 export function memberSectionIdsFor(
   member: SectionableMember | null | undefined,
@@ -1677,20 +1674,21 @@ export function memberSectionIdsFor(
   const sections = isRuntimePack
     ? allMemberSections.filter(section => !packageOnlyMemberSections.has(section))
     : [...allMemberSections];
-  const eligibleSections = member?.kind === "method"
-    && (member.overloads?.length ?? 0) > 1
-    ? sections
-    : sections.filter(id => id !== "implementation-profiles");
   return hasSelectedBody
     && ["property", "event"].includes(member?.kind ?? "")
-    ? eligibleSections.filter(id => id !== "source")
-    : eligibleSections;
+    ? sections.filter(id => id !== "source")
+    : sections;
 }
 
 export function typeLensesFor(
   pkg: { isRuntimePack?: boolean; source?: { kind: string } } | null | undefined,
+  forwarded = false,
 ): readonly (readonly [TypeLens, string])[] {
-  if (pkg?.isRuntimePack) return lenses.filter(([id]) => id === "api");
+  if (forwarded) return [["overview", "Overview"]];
+  if (pkg?.source?.kind === "file")
+    return lenses.filter(([id]) => id === "api");
+  if (pkg?.isRuntimePack)
+    return lenses.filter(([id]) => id === "api" || id === "source");
   // Compare follows the Library rule: its Package-owned Diff baseline exists
   // only for Gallery packages.
   return pkg?.source !== undefined && pkg.source.kind !== "nuget.org"

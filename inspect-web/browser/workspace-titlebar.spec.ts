@@ -44,6 +44,8 @@ async function renderSpotlightFooter(
       schedulePackageFetch: () => {},
       resetPackageSearch: () => {},
       packageSearchLoading: () => false,
+      scheduleCapabilitySearch: () => {},
+      resetCapabilitySearch: () => {},
       packageCount: () => 1,
       render: () => {},
     });
@@ -87,7 +89,14 @@ test("the top shell row separates product navigation from inspection subjects", 
   await expect(page.locator("[data-product-destination='home']"))
     .toBeFocused();
   await expect(page.locator("[data-product-destination]"))
-    .toHaveText(["Home", "Query", "Workspace", "Activity", "Demos"]);
+    .toHaveText([
+      "Home",
+      "Query",
+      "Workspace",
+      "Ecosystems",
+      "Activity",
+      "Demos",
+    ]);
   await expect(page.locator("[data-product-action='open-library']"))
     .toHaveText("Open Library…");
   await expect(page.locator(".product-navigation-menu [role='separator']"))
@@ -205,6 +214,20 @@ test("product navigation preserves its focused action across maintenance replace
     .toHaveAttribute("data-product-destination", "activity");
 });
 
+test("product navigation preserves closed-trigger focus across maintenance replacement", async ({
+  page,
+}) => {
+  await page.goto("/browser/workspace-titlebar.html?workspace=1");
+  const button = page.locator("[data-product-navigation-button]");
+  await button.focus();
+  await expect(button).toBeFocused();
+
+  await page.evaluate(() => window.rerenderProductNavigationProbe());
+
+  await expect(button).toBeFocused();
+  await expect(page.locator(".product-navigation-menu")).toBeHidden();
+});
+
 test("the data bar occupies its fixed row when the notice stack is empty", async ({
   page,
 }) => {
@@ -219,7 +242,7 @@ test("the data bar occupies its fixed row when the notice stack is empty", async
   await expect(page.locator(".notice-stack")).toBeHidden();
   await expect(page.locator(".data-bar")).toContainText(
     "dotnet-inspect v0.35.2 · abc1234 · Aug 27, 2026 UTC · "
-      + "Package source: NuGet.org · CLI tool · Agent skill · Demos · Diagnostics · Credits");
+      + "Package source: NuGet.org · CLI tool · Agent skill · Demos · Ecosystems · Diagnostics · Credits");
   await expect(page.locator(
     ".data-bar button, .data-bar [aria-expanded], "
       + ".data-bar [data-status-bar-toggle]",
@@ -608,7 +631,12 @@ for (const [subject, width] of [
     await expect(page.locator("#inspector-panel h1")).toHaveText(name);
     expect((await box(page, ".overview-identity h1")).width).toBeGreaterThan(100);
     expect((await box(page, ".overview-identity .subject-icon")).width).toBe(40);
-    await expect(page.locator(".overview-surface-head p")).toHaveText("32 types · 1,234 members");
+    if (subject === "package") {
+      await expect(page.locator(".overview-surface-head")).toHaveCount(0);
+    } else {
+      await expect(page.locator(".overview-surface-head p"))
+        .toHaveText("32 types · 1,234 members");
+    }
     await expect(page.locator(".overview-surface-footer span")).toHaveText([
       "System.Text.Json@10.0.0", "net10.0",
     ]);
@@ -630,11 +658,21 @@ for (const [subject, width] of [
         "Documentation");
       await expect(page.locator(
         ".package-overview-resources .section-title h2")).toHaveText([
-          "Documentation",
           "Comparison targets",
+          "Documentation",
         ]);
+      if (width === 390) {
+        await page.getByRole(
+          "button",
+          { name: "Frameworks", exact: true }).click();
+      }
       await page.getByRole("combobox", { name: "Version", exact: true }).selectOption("9.0.0");
       await expect(page.locator("#package-version")).toHaveValue("9.0.0");
+      if (width === 390) {
+        await page.getByRole(
+          "button",
+          { name: "Show details", exact: true }).click();
+      }
       await expect(page.getByRole("combobox", { name: "Framework", exact: true }))
         .toHaveCount(0);
       await expect(page.locator('[data-package-framework="net10.0"]'))
@@ -663,8 +701,9 @@ for (const [subject, width] of [
       }
     }
 
-    const header = await box(page, ".overview-surface-head");
-    const controls = subject === "package" ? await box(page, ".overview-controls") : null;
+    const header = subject === "library"
+      ? await box(page, ".overview-surface-head")
+      : null;
     const footer = await box(page, ".overview-surface-footer");
     expect(await page.locator(".overview-scroll").evaluate(element =>
       element.scrollHeight > element.clientHeight)).toBe(true);
@@ -676,8 +715,9 @@ for (const [subject, width] of [
     } else {
       await expect(page.locator("[data-namespace-jump]").last()).toBeVisible();
     }
-    expect((await box(page, ".overview-surface-head")).y).toBe(header.y);
-    if (controls) expect((await box(page, ".overview-controls")).y).toBe(controls.y);
+    if (header) {
+      expect((await box(page, ".overview-surface-head")).y).toBe(header.y);
+    }
     expect((await box(page, ".overview-surface-footer")).y).toBe(footer.y);
     expect(await page.locator(".overview-scroll").evaluate(element =>
       element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(0);
@@ -686,8 +726,11 @@ for (const [subject, width] of [
 
     if (width === 390) {
       const toggle = await box(page, "#content-navigation-toggle");
-      expect(toggle.y).toBeGreaterThanOrEqual(header.y);
-      expect(toggle.y + toggle.height).toBeLessThanOrEqual(header.y + header.height);
+      if (header) {
+        expect(toggle.y).toBeGreaterThanOrEqual(header.y);
+        expect(toggle.y + toggle.height)
+          .toBeLessThanOrEqual(header.y + header.height);
+      }
       await page.getByRole("button", { name: subject === "package" ? "Frameworks" : "Libraries", exact: true }).click();
       await expect(page.locator(subject === "package" ? ".package-framework-list" : ".type-list")).toBeFocused();
       await expect(page.locator(".detail-pane")).toBeHidden();
@@ -698,7 +741,7 @@ for (const [subject, width] of [
 test("Package Overview keeps empty totals and available documents", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 700 });
   await page.goto("/browser/workspace-titlebar.html?package-overview=1&empty=1");
-  await expect(page.locator(".overview-surface-head p")).toHaveText("0 types · 0 members");
+  await expect(page.locator(".overview-surface-head")).toHaveCount(0);
   await expect(page.locator(".library-row")).toHaveCount(0);
   await expect(page.locator("[data-doc-path='README.md']")).toBeVisible();
   await expect(page.locator(".overview-surface-footer")).toBeVisible();
@@ -2105,28 +2148,6 @@ test("subject-only layout reserves the empty inspector context label", async ({
     "Filtered member list");
 });
 
-test("Annotated Source keeps its complete action group under shell pressure", async ({
-  page,
-}) => {
-  for (const width of [1120, 1050, 800, 600, 400]) {
-    await page.setViewportSize({ width, height: 900 });
-    await page.goto("/browser/workspace-titlebar.html?member=1&annotated=1");
-
-    const actions = await box(page, ".working-surface-actions");
-    const copy = await box(page, "#copy-annotated");
-    const explore = await box(page, "#explore-annotated");
-    await expect(page.locator("#copy-annotated")).toBeVisible();
-    await expect(page.locator("#explore-annotated")).toBeVisible();
-    expect(copy.x).toBeGreaterThanOrEqual(actions.x - 1);
-    expect(explore.x).toBeGreaterThanOrEqual(actions.x - 1);
-    expect(explore.x + explore.width)
-      .toBeLessThanOrEqual(actions.x + actions.width);
-    expect(await page.evaluate(() =>
-      document.documentElement.scrollWidth
-      - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
-  }
-});
-
 test("Source fills the detail area below working-surface actions and above provenance", async ({
   page,
 }) => {
@@ -2137,6 +2158,9 @@ test("Source fills the detail area below working-surface actions and above prove
     await expect(page.locator("#copy-source")).toBeVisible();
     await expect(page.locator(".shell-action-link")).toHaveText("Open");
     await expect(page.locator("#explore-source")).toHaveText("Explore");
+    await expect(
+      page.getByRole("group", { name: "Source origin" }),
+    ).toBeVisible();
     await expect(page.locator("#inspector-panel > h1")).toHaveCount(0);
     await expect(
       page.getByRole("group", { name: "Source actions" }),
@@ -2187,9 +2211,9 @@ test("Source fills the detail area below working-surface actions and above prove
   await page.setViewportSize({ width: 1120, height: 900 });
   await page.goto("/browser/workspace-titlebar.html?member=1&source=1");
   await page.locator("#explore-source").click();
-  await expect(page.locator("#settings-backdrop")).toBeVisible();
-  await expect(page.locator("#settings-decompiler-title")).toBeFocused();
-  await page.locator("#settings-close").click();
+  await expect(page.locator("#annotated-source-backdrop")).toBeVisible();
+  await expect(page.locator("#annotated-modal-title")).toBeFocused();
+  await page.locator("#annotated-modal-close").click();
   await expect(page.locator("#explore-source")).toBeFocused();
 
   for (const width of [1920, 1440, 1120, 600, 400]) {
@@ -2242,7 +2266,7 @@ test("the target row advertises the typed Package, Library, Type, and Member pat
     "Target framework net10.0. Change target framework for System.Text.Json");
   await expect(page.locator(".targetbar .subject-path")).toBeVisible();
   await expect(page.locator(".titlebar .scope-switch")).toBeVisible();
-  await expect(page.locator(".titlebar .lens")).toHaveCount(5);
+  await expect(page.locator(".titlebar .lens")).toHaveCount(4);
   await expect(page.locator(".subject-path-segment.current")).toHaveCSS(
     "color",
     "rgb(185, 170, 238)");
@@ -2350,7 +2374,14 @@ test("query header keeps product navigation collapsed and preserves navigation f
 
   await expect(page.locator(".product-navigation-menu")).toBeHidden();
   await expect(page.locator("[data-product-destination]"))
-    .toHaveText(["Home", "Query", "Workspace", "Activity", "Demos"]);
+    .toHaveText([
+      "Home",
+      "Query",
+      "Workspace",
+      "Ecosystems",
+      "Activity",
+      "Demos",
+    ]);
   await expect(page.locator("#package-query-back")).toBeVisible();
   await page.locator("#package-query-product").focus();
   const productResult = await page.evaluate(async () => {

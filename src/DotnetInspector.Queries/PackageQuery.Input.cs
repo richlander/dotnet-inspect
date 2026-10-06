@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using DotnetInspector.Packages;
 using QuerySpace;
@@ -12,7 +13,10 @@ namespace DotnetInspector.Queries;
 internal abstract record PackageQueryInputEvent
 {
     internal sealed record Acquired(int Count) : PackageQueryInputEvent;
-    internal sealed record Match(PackageQueryPackage Value) : PackageQueryInputEvent;
+    internal sealed record Match(
+        PackageQueryPackage Value,
+        PackageQueryEcosystemMembershipMatch? Admission = null)
+        : PackageQueryInputEvent;
     internal sealed record Failure(PackageQueryFailure Value) : PackageQueryInputEvent;
     internal sealed record Completed(int Candidates, PackageQueryCompletionKind Completion)
         : PackageQueryInputEvent;
@@ -61,6 +65,75 @@ public static partial class PackageQuery
             ecosystemMemberships);
     }
 
+    /// <summary>
+    /// Plans one Ecosystem population from a canonical (<c>ecosystem.aspire</c>)
+    /// or short (<c>aspire</c>) identity, bound against the application catalog.
+    /// </summary>
+    public static PackageQueryPlanResult PlanEcosystemInput(
+        string ecosystem,
+        PackageQueryEcosystemMembershipCatalog ecosystemMemberships,
+        IReadOnlyCollection<PortableQueryTerm>? terms = null,
+        int maximumCandidates = DefaultMaximumCandidates,
+        int? maximumMatches = DefaultMaximumMatches,
+        bool includePrerelease = false,
+        RowSelectionIntent<string>? rowSelection = null,
+        string? targetFramework = null)
+    {
+        ArgumentNullException.ThrowIfNull(ecosystem);
+        ArgumentNullException.ThrowIfNull(ecosystemMemberships);
+        if (!TryCanonicalizeEcosystemId(
+                ecosystem,
+                out WorkspaceEcosystemRegistrationId? id))
+        {
+            return Rejected(
+                PackageQueryRequestFailureReason.InvalidEcosystem,
+                [EcosystemTermKey]);
+        }
+
+        return PlanPopulation(
+            EcosystemTermKey,
+            id.Value,
+            terms,
+            maximumCandidates,
+            maximumMatches,
+            includePrerelease,
+            rowSelection,
+            targetFramework,
+            ecosystemMemberships);
+    }
+
+    /// <summary>
+    /// Canonicalizes an Ecosystem identity: ASCII case folds and a short name
+    /// gains the <c>ecosystem.</c> prefix.
+    /// </summary>
+    public static bool TryCanonicalizeEcosystemId(
+        string? text,
+        [NotNullWhen(true)] out WorkspaceEcosystemRegistrationId? id)
+    {
+        id = null;
+        if (text is null)
+            return false;
+
+        string spelling = string.Create(
+            text.AsSpan().Trim().Length,
+            text,
+            static (destination, source) =>
+            {
+                ReadOnlySpan<char> trimmed = source.AsSpan().Trim();
+                for (int index = 0; index < trimmed.Length; index++)
+                {
+                    char character = trimmed[index];
+                    destination[index] = char.IsAsciiLetterUpper(character)
+                        ? (char)(character | 0x20)
+                        : character;
+                }
+            });
+        const string canonicalPrefix = "ecosystem.";
+        if (!spelling.StartsWith(canonicalPrefix, StringComparison.Ordinal))
+            spelling = canonicalPrefix + spelling;
+        return WorkspaceEcosystemRegistrationId.TryCreate(spelling, out id);
+    }
+
     private static PackageQueryPlanResult PlanInputCore(
         string text,
         IReadOnlyCollection<PortableQueryTerm>? terms,
@@ -106,6 +179,29 @@ public static partial class PackageQuery
             populationValue = spelling;
         }
 
+        return PlanPopulation(
+            populationKey,
+            populationValue,
+            terms,
+            maximumCandidates,
+            maximumMatches,
+            includePrerelease,
+            rowSelection,
+            targetFramework,
+            ecosystemMemberships);
+    }
+
+    private static PackageQueryPlanResult PlanPopulation(
+        string populationKey,
+        string populationValue,
+        IReadOnlyCollection<PortableQueryTerm>? terms,
+        int maximumCandidates,
+        int? maximumMatches,
+        bool includePrerelease,
+        RowSelectionIntent<string>? rowSelection,
+        string? targetFramework,
+        PackageQueryEcosystemMembershipCatalog? ecosystemMemberships)
+    {
         if (maximumCandidates is <= 0 or > MaximumCandidates)
             return Rejected(PackageQueryRequestFailureReason.InvalidCandidateLimit);
         if (maximumMatches is <= 0 or > MaximumCandidates)
@@ -148,7 +244,20 @@ public static partial class PackageQuery
                 includePrerelease ? "include" : "stable"),
         };
         if (terms is not null)
-            intentTerms.AddRange(terms);
+        {
+            // An Ecosystem term canonicalizes before binding, so an explicit
+            // population conflict reports incompatibility, not a bad value.
+            intentTerms.AddRange(terms.Select(term =>
+                term.Key == EcosystemTermKey
+                && TryCanonicalizeEcosystemId(
+                    term.Value,
+                    out WorkspaceEcosystemRegistrationId? id)
+                        ? new PortableQueryTerm(
+                            term.Key,
+                            term.Operator,
+                            id.Value)
+                        : term));
+        }
         if (hasLibraryLiteral)
         {
             try
@@ -191,7 +300,26 @@ public static partial class PackageQuery
 
     static void AddScopeEvidence(
         PackageQueryPlan plan,
-        ImmutableArray<PackageQueryEvidence>.Builder evidence) =>
+        PackageQueryEcosystemMembershipMatch? admission,
+        ImmutableArray<PackageQueryEvidence>.Builder evidence)
+    {
+        if (plan.Ecosystem is { } ecosystem)
+        {
+            PackageQueryEcosystemMembershipMatch basis = admission
+                ?? throw new InvalidOperationException(
+                    "An ecosystem population match requires its admitting basis.");
+            evidence.Add(new PackageQueryEvidence(EcosystemEvidenceId)
+            {
+                Scope = PackageQueryEvidenceScope.Query,
+                Properties =
+                [
+                    Property("ecosystem", ecosystem.Value),
+                    Property("basis", DescribeMembershipBasis(basis)),
+                ],
+            });
+            return;
+        }
+
         evidence.Add(new PackageQueryEvidence(
             plan.PackageInput is SourceSelector.Package
                 ? ExactPackageEvidenceId
@@ -207,6 +335,7 @@ public static partial class PackageQuery
                     plan.Prefix.ToString()),
             ],
         });
+    }
 
     static PackageQueryEvidenceProperty Property(
         string name,
@@ -226,8 +355,21 @@ public static partial class PackageQuery
             yield break;
         }
 
-        if (plan.PackageInput is SourceSelector.PackagePrefix prefix
-            && !plan.RequiresManifest)
+        if (plan.EcosystemMembership is { } ecosystem)
+        {
+            await foreach (PackageQueryInputEvent item in AcquireEcosystemInputAsync(
+                source, plan, ecosystem, cancellationToken).ConfigureAwait(false))
+                yield return item;
+            yield break;
+        }
+
+        if (plan.PackageInput is not SourceSelector.PackagePrefix prefix)
+        {
+            throw new InvalidOperationException(
+                "Package Query input requires an exact package, prefix, or bound ecosystem population.");
+        }
+
+        if (!plan.RequiresManifest)
         {
             await foreach (PackageQueryInputEvent item in AcquirePrefixMetadataAsync(
                 source, prefix.Request, cancellationToken).ConfigureAwait(false))
@@ -460,5 +602,175 @@ public static partial class PackageQuery
         }
         cancellationToken.ThrowIfCancellationRequested();
         yield return new PackageQueryInputEvent.Completed(candidates, MapCompletion(truncation));
+    }
+
+    /// <summary>
+    /// Admits an Ecosystem population under one shared candidate limit: core
+    /// packages in authored order through exact input, then each recorded
+    /// prefix in recorded order, admitting each package ID once.
+    /// </summary>
+    static async IAsyncEnumerable<PackageQueryInputEvent> AcquireEcosystemInputAsync(
+        IPackageSourceClient source,
+        PackageQueryPlan plan,
+        PackageQueryEcosystemMembershipDeclaration ecosystem,
+        [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        var admitted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        int candidates = 0;
+        bool failed = false;
+        bool limitReached = false;
+        PackageQueryCompletionKind? pageLimit = null;
+        foreach (PackageCoordinate core in ecosystem.ExactPackages)
+        {
+            if (candidates >= plan.MaximumCandidates)
+            {
+                limitReached = true;
+                break;
+            }
+
+            admitted.Add(core.PackageId);
+            var admission = new PackageQueryEcosystemMembershipMatch(
+                PackageQueryEcosystemMembershipBasis.ExactPackage,
+                core.PackageId);
+            bool coreFailed = false;
+            await foreach (PackageQueryInputEvent item in AcquireExactInputAsync(
+                source,
+                plan,
+                new SourceSelector.Package(new PackageCoordinate(core.PackageId)),
+                cancellationToken).ConfigureAwait(false))
+            {
+                switch (item)
+                {
+                    case PackageQueryInputEvent.Match match:
+                        yield return match with { Admission = admission };
+                        break;
+                    case PackageQueryInputEvent.Failure failure:
+                        // A root that cannot be resolved fails as that one
+                        // candidate; the other roots and prefixes still answer.
+                        coreFailed = true;
+                        yield return new PackageQueryInputEvent.Failure(
+                            failure.Value with
+                            {
+                                PackageId = failure.Value.PackageId
+                                    ?? core.PackageId,
+                            });
+                        break;
+                    case PackageQueryInputEvent.Completed completed:
+                        candidates += Math.Max(
+                            completed.Candidates,
+                            coreFailed ? 1 : 0);
+                        break;
+                }
+            }
+        }
+
+        foreach (PackagePrefixDeclaration prefix in ecosystem.PackagePrefixes)
+        {
+            if (limitReached || candidates >= plan.MaximumCandidates)
+            {
+                limitReached = true;
+                break;
+            }
+
+            // Already-admitted IDs under this prefix return again from the
+            // source, so the request covers them beyond the remaining limit.
+            int overlap = admitted.Count(id => id.StartsWith(
+                prefix.Prefix,
+                StringComparison.OrdinalIgnoreCase));
+            int take = plan.MaximumCandidates - candidates + overlap;
+            var admission = new PackageQueryEcosystemMembershipMatch(
+                PackageQueryEcosystemMembershipBasis.PackagePrefix,
+                prefix.Prefix);
+            int returned = 0;
+            PackageSearchTruncationReason truncation =
+                PackageSearchTruncationReason.None;
+            await foreach (PackageSourceOperationResult<PackageSearchResult> operation
+                in source.SearchByPrefixPagesAsync(
+                    prefix.Prefix, take, plan.IncludePrerelease,
+                    cancellationToken).ConfigureAwait(false))
+            {
+                if (operation.Failure is { } failure)
+                {
+                    failed = true;
+                    yield return new PackageQueryInputEvent.Failure(new PackageQueryFailure(
+                        null, null, failure.Source, PackageQueryFailureKind.Search, failure.Message));
+                    break;
+                }
+
+                PackageSearchResult page = operation.Value
+                    ?? throw new InvalidOperationException("Prefix search returned no value or failure.");
+                if (page.Matches.Count > take - returned)
+                {
+                    failed = true;
+                    yield return new PackageQueryInputEvent.Failure(new PackageQueryFailure(
+                        null, null, source.Source, PackageQueryFailureKind.SearchContract,
+                        "The package source returned more matches than requested."));
+                    break;
+                }
+
+                truncation = page.TruncationReason;
+                foreach (PackageSearchMatch match in page.Matches)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    returned++;
+                    if (PackageProfileQuery.ValidateSearchCandidate(
+                        source, prefix.Prefix, match) is { } invalid)
+                    {
+                        candidates++;
+                        yield return new PackageQueryInputEvent.Failure(FromProfileFailure(invalid));
+                    }
+                    else if (admitted.Add(match.Metadata.Id))
+                    {
+                        candidates++;
+                        PackageManifestFacts? manifest = null;
+                        PackageProfileFailure? manifestFailure = null;
+                        if (plan.RequiresManifest)
+                        {
+                            (manifest, manifestFailure) = await PackageProfileQuery.AcquireManifestAsync(
+                                source, match.Candidate, match.Metadata.Id, match.Metadata.Version,
+                                cancellationToken).ConfigureAwait(false);
+                        }
+
+                        yield return manifestFailure is not null
+                            ? new PackageQueryInputEvent.Failure(FromProfileFailure(manifestFailure))
+                            : new PackageQueryInputEvent.Match(
+                                new PackageQueryPackage(
+                                    match.Metadata.Id, match.Metadata.Version,
+                                    [.. (match.Metadata.Owners ?? []).Where(owner => !string.IsNullOrWhiteSpace(owner))],
+                                    match.Metadata.TotalDownloads, match.Metadata.Verified,
+                                    match.Candidate.Source, manifest,
+                                    manifest?.Description?.ToString() ?? match.Metadata.Description),
+                                admission);
+                    }
+
+                    if (candidates >= plan.MaximumCandidates)
+                    {
+                        limitReached = true;
+                        break;
+                    }
+                }
+
+                if (limitReached
+                    || truncation != PackageSearchTruncationReason.None
+                    || returned == take)
+                    break;
+            }
+
+            if (truncation is PackageSearchTruncationReason.SourcePageLimit
+                or PackageSearchTruncationReason.ClientPageLimit)
+            {
+                pageLimit ??= MapCompletion(truncation);
+            }
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        yield return new PackageQueryInputEvent.Completed(
+            candidates,
+            failed
+                ? PackageQueryCompletionKind.Failed
+                : pageLimit
+                    ?? (limitReached
+                        ? PackageQueryCompletionKind.CandidateLimitReached
+                        : PackageQueryCompletionKind.Exhausted));
     }
 }

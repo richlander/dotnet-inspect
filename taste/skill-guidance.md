@@ -80,8 +80,8 @@ Why it is bad:
 ## User-facing vs. repo-local skills
 
 Keep user-facing product skills and repository-maintainer skills separate.
-[`AGENTS.md`](../AGENTS.md#task-specific-guidance) states the binding
-separation; this section owns the mechanics.
+[Repository workflow](../docs/repository-workflow.md#documentation-ownership)
+states the binding separation; this section owns the mechanics.
 
 - `skills/` contains user-facing guidance shipped in the dotnet-inspect binary.
   Use these skills when consuming the published tool or when a product change

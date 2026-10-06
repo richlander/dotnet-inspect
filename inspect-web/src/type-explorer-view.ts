@@ -290,12 +290,12 @@ export function bindTypeExplorerView(
             : "outline");
       }
     };
-    target.addEventListener("click", select);
-    target.addEventListener("keydown", event => {
+    target.onclick = select;
+    target.onkeydown = event => {
       if (event.key !== "Enter" && event.key !== " ") return;
       event.preventDefault();
       select();
-    });
+    };
   }
 }
 
@@ -547,6 +547,9 @@ function projectionHtml(
           return `<li>
             <button type="button"
               data-type-explorer-declaration="${declaration.declarationId}"
+              data-rendered-interaction-key="type-explorer:outline:${
+                escapeHtml(projection.revision)
+              }:${declaration.declarationId}"
               ${selected ? 'aria-current="true"' : ""}
               title="${escapeHtml(declaration.identity.canonicalSignature)}">
               <strong>${escapeHtml(declaration.identity.memberName)}</strong>
@@ -617,8 +620,10 @@ function renderSourceDeclarations(
       html += declarationSegmentHtml(
         projection.text.slice(declarationCursor, body.range.start),
         declaration,
+        projection.revision,
         selected,
         primarySegment,
+        escapeHtml,
         highlightCSharp);
       if (body.range.start > declarationCursor) primarySegment = false;
       html += inspectBodyHtml(body, bodyInspection, escapeHtml);
@@ -626,8 +631,10 @@ function renderSourceDeclarations(
       html += declarationSegmentHtml(
         projection.text.slice(body.range.start, bodyEnd),
         declaration,
+        projection.revision,
         selected,
         primarySegment,
+        escapeHtml,
         highlightCSharp);
       primarySegment = false;
       declarationCursor = bodyEnd;
@@ -635,8 +642,10 @@ function renderSourceDeclarations(
     html += declarationSegmentHtml(
       projection.text.slice(declarationCursor, end),
       declaration,
+      projection.revision,
       selected,
       primarySegment,
+      escapeHtml,
       highlightCSharp);
     cursor = end;
   }
@@ -646,8 +655,10 @@ function renderSourceDeclarations(
 function declarationSegmentHtml(
   source: string,
   declaration: TypeExplorerDeclaration,
+  revision: string,
   selected: boolean,
   primary: boolean,
+  escapeHtml: TypeExplorerViewOptions["escapeHtml"],
   highlightCSharp: TypeExplorerViewOptions["highlightCSharp"],
 ): string {
   if (source.length === 0) return "";
@@ -656,7 +667,9 @@ function declarationSegmentHtml(
   }"${primary
     ? ` role="button" tabindex="0"${selected
       ? ' aria-current="true"'
-      : ""}`
+      : ""} data-rendered-interaction-key="type-explorer:source:${
+        escapeHtml(revision)
+      }:${declaration.declarationId}"`
     : ""}
     data-type-explorer-declaration="${declaration.declarationId}">${
       highlightCSharp(source)

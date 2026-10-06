@@ -83,6 +83,14 @@ public sealed record CallTreeNode(
     public ImmutableArray<DirectCall> ParentEdgeCallSites { get; init; } = [];
 
     /// <summary>
+    /// Exact target correspondence evidence aligned one-for-one with
+    /// <see cref="ParentEdgeCallSites"/> when a catalog scope supplied the
+    /// physical calls.
+    /// </summary>
+    public ImmutableArray<GraphNodeEvidence> ParentEdgeCallSiteEvidence
+        { get; init; } = [];
+
+    /// <summary>
     /// Acquisition-aware definition storage for the caller that owns
     /// <see cref="ParentEdgeCallSites"/>, when a catalog scope supplied the
     /// edge.

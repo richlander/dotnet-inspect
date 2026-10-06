@@ -27,12 +27,14 @@ public sealed class ConfiguredPackageAuthority
 {
     private const string PersistentKeyNamespace = "authority-v1";
 
-    internal ConfiguredPackageAuthority(PackageSource source)
+    internal ConfiguredPackageAuthority(
+        PackageSource source,
+        PackageSourceAssociation? association = null)
     {
         ArgumentNullException.ThrowIfNull(source);
         Source = source;
         Key = ConfiguredPackageAuthorityKey.Create(source);
-        Association = PackageSourceAssociation.Create();
+        Association = association ?? PackageSourceAssociation.Create();
         PersistentCacheKey = CreatePersistentCacheKey(source, Key);
     }
 

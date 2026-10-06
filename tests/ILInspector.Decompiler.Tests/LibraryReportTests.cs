@@ -11,6 +11,47 @@ namespace ILInspector.Decompiler.Tests;
 public class LibraryReportTests
 {
     [Fact]
+    public void Evaluate_UsesQualifiedProductProjectionForAmbiguousTypeName()
+    {
+        string path = FidelityCheckGeneratedFilterTests.CompileFixture("""
+            namespace ProjectionCollision;
+
+            public sealed class Convert
+            {
+            }
+
+            public static class Fixture
+            {
+                public static Convert Unwrap(object value)
+                {
+                    Convert convert = value as Convert;
+                    return convert;
+                }
+            }
+            """);
+        try
+        {
+            LibraryPortfolioReport portfolio = LibraryReport.Evaluate(
+                [path],
+                compileCap: 20,
+                maxExamples: 5,
+                topPatterns: 20,
+                topLibraries: null,
+                methodCap: 20);
+
+            AssemblyReport report = Assert.Single(portfolio.Libraries);
+            Assert.True(report.SemanticChecked > 0);
+            Assert.DoesNotContain(
+                report.Patterns,
+                pattern => pattern.Name == "validity: CS0104");
+        }
+        finally
+        {
+            FidelityCheckGeneratedFilterTests.DeleteFixture(path);
+        }
+    }
+
+    [Fact]
     public void Evaluate_ReportsUnavailableModesWithoutRunningCompilerLanes()
     {
         string directory = Path.Combine(

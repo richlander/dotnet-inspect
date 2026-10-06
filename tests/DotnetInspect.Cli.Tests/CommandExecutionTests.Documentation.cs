@@ -43,9 +43,7 @@ public partial class CommandExecutionTests
             "Measure",
             "--library",
             FixtureCatalog.InspectWebDocumentation.AssemblyPath(),
-            "-v:d",
-            "--tips",
-            "q");
+            "-v:d");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -55,6 +53,83 @@ public partial class CommandExecutionTests
         Assert.Contains(
             "Measures a widget through its declaring extension member.",
             output);
+    }
+
+    [Fact]
+    public async Task
+        Member_DirectLibraryExactDocumentAttachesCompiledDocumentation()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            "InspectWeb.DocumentationFixtures.WidgetExtensions.Measure:1",
+            "--library",
+            FixtureCatalog.InspectWebDocumentation.AssemblyPath());
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## Signature", output);
+        Assert.Contains("## Documentation", output);
+        Assert.Contains(
+            "Measures a widget through its declaring extension member.",
+            output);
+    }
+
+    [Fact]
+    public async Task
+        Member_DirectLibraryGroupAttachesDocumentationOnlyToReturnedRows()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            "InspectWeb.DocumentationFixtures.WidgetExtensions",
+            "Measure",
+            "--library",
+            FixtureCatalog.InspectWebDocumentation.AssemblyPath(),
+            "-v:d");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains(
+            "| Signature | Description |",
+            output);
+        Assert.Contains(
+            "Measures a widget through its declaring extension member.",
+            output);
+    }
+
+    [Fact]
+    public async Task
+        Member_DirectLibraryWithoutCompanionKeepsUnavailableOutcomeVisible()
+    {
+        string directory =
+            Path.Combine(
+                Path.GetTempPath(),
+                $"cli-member-documentation-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string assemblyPath =
+            Path.Combine(
+                directory,
+                FixtureCatalog.InspectWebDocumentation.AssemblyFileName);
+        File.Copy(
+            FixtureCatalog.InspectWebDocumentation.AssemblyPath(),
+            assemblyPath);
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "member",
+                "InspectWeb.DocumentationFixtures.WidgetExtensions.Measure:1",
+                "--library",
+                assemblyPath);
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains(
+                "Compiled documentation is unavailable.",
+                output);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
     }
 
     [Fact]
@@ -71,9 +146,7 @@ public partial class CommandExecutionTests
             "Extension Methods",
             "--columns",
             "Signature;Description",
-            "--tsv",
-            "--tips",
-            "q");
+            "--tsv");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -93,9 +166,7 @@ public partial class CommandExecutionTests
             "--library",
             FixtureCatalog.InspectWebDocumentation.AssemblyPath(),
             "--all",
-            "-v:d",
-            "--tips",
-            "q");
+            "-v:d");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -130,9 +201,7 @@ public partial class CommandExecutionTests
                 "InspectWeb.DocumentationFixtures.Widget",
                 "--library",
                 assemblyPath,
-                "-v:d",
-                "--tips",
-                "q");
+                "-v:d");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -146,9 +215,7 @@ public partial class CommandExecutionTests
                 "--library",
                 assemblyPath,
                 "-v:d",
-                "--json",
-                "--tips",
-                "q");
+                "--json");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -192,9 +259,7 @@ public partial class CommandExecutionTests
                 "InspectWeb.DocumentationFixtures.Widget",
                 "--library",
                 assemblyPath,
-                "-v:d",
-                "--tips",
-                "q");
+                "-v:d");
 
             Assert.Equal(0, exit);
             Assert.Contains(

@@ -36,13 +36,23 @@ public sealed class WorkspaceDeclarationMember
         ExactLibrarySourceCoordinate? coordinate,
         AssemblyReferenceIdentity assemblyIdentity,
         WorkspaceDeclarationOrigin origin,
-        AssemblyResolutionProvenance selection)
+        AssemblyResolutionProvenance selection,
+        FindPackageSourceRequest? packageRequest)
     {
         Occurrence = occurrence;
         Coordinate = coordinate;
         AssemblyIdentity = assemblyIdentity;
         Origin = origin;
         Selection = selection;
+        if ((coordinate
+                is ExactLibrarySourceCoordinate.Package)
+            != (packageRequest is not null))
+        {
+            throw new ArgumentException(
+                "A package member requires package request identity, and other members cannot carry it.",
+                nameof(packageRequest));
+        }
+        PackageRequest = packageRequest;
     }
 
     public WorkspaceDeclarationOccurrence Occurrence { get; }
@@ -54,6 +64,7 @@ public sealed class WorkspaceDeclarationMember
     public AssemblyReferenceIdentity AssemblyIdentity { get; }
     public WorkspaceDeclarationOrigin Origin { get; }
     public AssemblyResolutionProvenance Selection { get; }
+    public FindPackageSourceRequest? PackageRequest { get; }
 }
 
 /// <summary>

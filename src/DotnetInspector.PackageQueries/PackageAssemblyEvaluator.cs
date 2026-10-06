@@ -292,7 +292,7 @@ public static class PackageAssemblyEvaluator
                 ArtifactAssemblyQueryOutcome<StringLiteralUsePatternResult> query =
                     realization.ExecuteAssemblyQuery(
                         (session, token) => StringLiteralUsePatternAnalysis.Inspect(
-                            session, context.Subject.Pattern.Operand, budget.SemanticBudget, token),
+                            session, context.Subject.Pattern.Predicate, budget.SemanticBudget, token),
                         cancellationToken);
                 return query switch
                 {

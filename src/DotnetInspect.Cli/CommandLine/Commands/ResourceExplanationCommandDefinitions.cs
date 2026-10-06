@@ -12,13 +12,14 @@ public static class ResourceExplanationCommandDefinitions
     {
         var command = new Command(
             ResourceExplanationCommand.Name,
-            "Explain an exact product resource");
-        var pathArgument = new Argument<string>("resource-path")
+            "Explain an exact product resource or search installed capabilities");
+        var operandArgument = new Argument<string>("resource-or-search")
         {
             Description =
                 "Exact product-resource path, such as "
                 + "library/sections/reference-hierarchy or "
-                + "package-query/query/facets/library-literal",
+                + "package-query/query/facets/library-literal; otherwise "
+                + "bounded capability-search text such as literal",
         };
         var depthOption = new Option<int>("--depth")
         {
@@ -34,19 +35,26 @@ public static class ResourceExplanationCommandDefinitions
                 result.AddError("--depth must be between 0 and 8.");
         });
 
-        command.Arguments.Add(pathArgument);
+        command.Arguments.Add(operandArgument);
         command.Options.Add(depthOption);
         command.Options.Add(opts.Json);
         command.Options.Add(opts.Markdown);
         command.Options.Add(opts.PlainText);
+        opts.AddTableOptionsTo(command);
+        opts.AddEnvelopeOptionTo(command);
+        command.Options.Add(opts.Limit);
         command.Options.Add(outputPathOption);
         SharedOptions.AddOutputPathValidator(command, outputPathOption);
 
         command.SetAction(parseResult =>
             ResourceExplanationCommand.Execute(
-                parseResult.GetValue(pathArgument)!,
+                parseResult.GetValue(operandArgument)!,
                 parseResult.GetValue(depthOption),
+                parseResult.GetResult(depthOption) is { Implicit: false },
+                parseResult.GetValue(opts.Limit),
                 opts.ResolveFormat(parseResult),
+                parseResult.GetValue(opts.Envelope),
+                parseResult.GetValue(opts.NoHeaders),
                 parseResult.GetValue(outputPathOption)));
         return command;
     }

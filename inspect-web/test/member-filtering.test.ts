@@ -8,12 +8,19 @@ import {
   filterMemberGroups,
   invalidateMemberCallGraphWork,
   invalidateSourceDestinationWork,
+  memberKindCount,
+  memberGroupUsesFamilySurface,
+  memberMatchesTrait,
   memberGroupMatches,
   memberNavTargetIndex,
+  memberOverloadSourceIndex,
+  memberOverloadVisibleIndex,
   memberScopeIsActive,
   restoreLibraryScope,
   restoreMemberHistoryState,
+  selectMemberFamilyParent,
   selectedConcreteOverload,
+  selectedSourceOverload,
 } from "../src/member-filtering.ts";
 
 test("body targets must identify the selected overload or one of its accessor bodies", () => {
@@ -74,7 +81,7 @@ test("history restores type filters independently of Member browse scope", () =>
     selectedMemberKey: "",
     memberKindFilter: "method",
     memberAccessibilityFilter: "protected",
-    memberTraitFilter: "isStatic",
+    memberTraitFilter: "static",
     memberTextFilter: "build",
   }, type, null);
 
@@ -82,8 +89,14 @@ test("history restores type filters independently of Member browse scope", () =>
   assert.equal(restored.selectedMemberKey, "");
   assert.equal(restored.memberKindFilter, "method");
   assert.equal(restored.memberAccessibilityFilter, "protected");
-  assert.equal(restored.memberTraitFilter, "isStatic");
+  assert.equal(restored.memberTraitFilter, "static");
   assert.equal(restored.memberTextFilter, "build");
+
+  const defaults = restoreMemberHistoryState({
+    memberBrowseTypeId: "",
+    selectedMemberKey: "",
+  }, type, null);
+  assert.equal(defaults.memberAccessibilityFilter, "public");
 });
 
 test("history rejects a missing member and stale overload body", () => {
@@ -166,22 +179,141 @@ const groups = [
   },
 ];
 
-test("member filters compose on one matching overload", () => {
+test("member Kind fallback counts loaded declarations", () => {
+  assert.equal(memberKindCount(groups, "method"), 2);
+  assert.equal(memberKindCount(groups, "property"), 1);
+  assert.equal(memberKindCount(groups, "field"), 0);
+});
+
+test("member filters compose locally after managed accessibility selection", () => {
   const methodGroup = groups[0];
   assert.ok(methodGroup);
   assert.equal(memberGroupMatches(methodGroup, {
     kind: "method",
     accessibility: "public",
-    trait: "isStatic",
+    trait: "static",
     query: "path",
   }), true);
 
   assert.equal(memberGroupMatches(methodGroup, {
     kind: "method",
     accessibility: "protected",
-    trait: "isStatic",
+    trait: "static",
     query: "",
+  }), true);
+
+  const staticGroups = filterMemberGroups(groups, {
+    kind: "method",
+    accessibility: "public",
+    trait: "static",
+    query: "",
+  });
+  assert.equal(staticGroups.length, 1);
+  const staticGroup = staticGroups[0];
+  assert.ok(staticGroup);
+  assert.equal(staticGroup.overloads.length, 1);
+  assert.equal(staticGroup.sourceOverloadCount, 2);
+  assert.match(staticGroup.overloads[0]?.signature ?? "", /static/);
+
+  const instanceGroups = filterMemberGroups(groups, {
+    kind: "method",
+    accessibility: "public",
+    trait: "instance",
+    query: "build",
+  });
+  assert.equal(instanceGroups.length, 1);
+  const instanceGroup = instanceGroups[0];
+  assert.ok(instanceGroup);
+  assert.equal(instanceGroup.overloads.length, 1);
+  assert.equal(instanceGroup.sourceOverloadCount, 2);
+  assert.doesNotMatch(instanceGroup.overloads[0]?.signature ?? "", /static/);
+});
+
+test("filtered member overloads retain their exact source index", () => {
+  const source = [{
+    key: "property:Item",
+    overloads: [
+      { stableSelector: "Item~0" },
+      { stableSelector: "Item~1" },
+      { stableSelector: "Item~2" },
+    ],
+  }];
+  const filtered = {
+    key: source[0]!.key,
+    overloads: [{ stableSelector: "Item~2" }],
+    sourceOverloadCount: 3,
+  };
+
+  assert.equal(memberOverloadSourceIndex(source, filtered, 0), 2);
+  assert.equal(memberOverloadVisibleIndex(source, filtered, 2), 0);
+  assert.equal(
+    selectedSourceOverload(source, filtered, 2),
+    source[0]?.overloads[2],
+  );
+  assert.equal(
+    selectedSourceOverload(source, filtered, null),
+    source[0]?.overloads[2],
+  );
+  assert.throws(
+    () => memberOverloadVisibleIndex(source, filtered, 1),
+    /Source overload 1 .* is not visible/);
+});
+
+test("only a visible multi-declaration family clears its exact child", () => {
+  const state = { selectedOverloadIndex: 1 };
+  assert.equal(selectMemberFamilyParent(state, {
+    overloads: [{ stableSelector: "Item~1" }],
+    sourceOverloadCount: 2,
   }), false);
+  assert.equal(state.selectedOverloadIndex, 1);
+
+  const single = { selectedOverloadIndex: 0 };
+  assert.equal(selectMemberFamilyParent(single, {
+    overloads: [{ stableSelector: "Count" }],
+    sourceOverloadCount: 1,
+  }), false);
+  assert.equal(single.selectedOverloadIndex, 0);
+
+  const family = { selectedOverloadIndex: 1 };
+  assert.equal(selectMemberFamilyParent(family, {
+    overloads: [
+      { stableSelector: "Item~0" },
+      { stableSelector: "Item~1" },
+    ],
+    sourceOverloadCount: 2,
+  }), true);
+  assert.equal(family.selectedOverloadIndex, null);
+});
+
+test("only multiple visible declarations use the MemberGroup surface", () => {
+  assert.equal(memberGroupUsesFamilySurface(null), false);
+  assert.equal(memberGroupUsesFamilySurface({ overloads: [{}] }), false);
+  assert.equal(memberGroupUsesFamilySurface({
+    overloads: [{}],
+    sourceOverloadCount: 3,
+  }), false);
+  assert.equal(memberGroupUsesFamilySurface({ overloads: [{}, {}] }), true);
+});
+
+test("member traits use the complete selector vocabulary", () => {
+  assert.equal(memberMatchesTrait(
+    { signature: "", isStatic: true },
+    "static"), true);
+  assert.equal(memberMatchesTrait(
+    { signature: "", isStatic: false },
+    "instance"), true);
+  assert.equal(memberMatchesTrait(
+    { signature: "", isVirtual: true },
+    "virtual"), true);
+  assert.equal(memberMatchesTrait(
+    { signature: "", isExplicitInterfaceImplementation: true },
+    "interface"), true);
+  assert.equal(memberMatchesTrait(
+    { signature: "", isStatic: true, isExtension: true },
+    "extensions"), true);
+  assert.equal(memberMatchesTrait(
+    { signature: "", isStatic: true, isExtension: true },
+    "static"), false);
 });
 
 test("member search covers names and signatures", () => {

@@ -17,16 +17,12 @@ public partial class CommandExecutionTests
             "type",
             "--platform",
             "System.Text.Json",
-            "--count",
-            "--tips",
-            "q");
+            "--count");
         var (rowsExit, rowsOutput, rowsError) =
             await RunAppAsync(
                 "type",
                 "--platform",
-                "System.Text.Json",
-                "--tips",
-                "q");
+                "System.Text.Json");
 
         Assert.Equal(0, exit);
         Assert.Equal(0, rowsExit);
@@ -54,9 +50,7 @@ public partial class CommandExecutionTests
             "System.Private.CoreLib",
             "-S",
             SectionNames.Classes,
-            "--count",
-            "--tips",
-            "q");
+            "--count");
         var (rowsExit, rowsOutput, rowsError) =
             await RunAppAsync(
                 "type",
@@ -64,8 +58,7 @@ public partial class CommandExecutionTests
                 "System.Private.CoreLib",
                 "-S",
                 SectionNames.Classes,
-                "--tips",
-                "q");
+                "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Equal(0, rowsExit);
@@ -91,18 +84,14 @@ public partial class CommandExecutionTests
             "type",
             "--platform",
             "System.Text.Json",
-            "-v:n",
-            "--tips",
-            "q");
+            "-v:n");
         var selected = await RunAppAsync(
             "type",
             "--platform",
             "System.Text.Json",
             "-v:n",
             "-S",
-            SectionNames.Classes,
-            "--tips",
-            "q");
+            SectionNames.Classes);
 
         Assert.Equal(0, normal.Exit);
         Assert.Empty(normal.Error);
@@ -145,7 +134,7 @@ public partial class CommandExecutionTests
         ];
 
         var (quietExit, quietOutput, _) = await RunAppAsync(
-            "type", "--platform", "System.Text.Json", "-v:q", "--tips", "q");
+            "type", "--platform", "System.Text.Json", "-v:q");
 
         Assert.Equal(0, quietExit);
 
@@ -157,7 +146,7 @@ public partial class CommandExecutionTests
             Assert.Contains(field + ":", line, StringComparison.Ordinal);
 
         var (jsonExit, jsonOutput, _) = await RunAppAsync(
-            "type", "--platform", "System.Text.Json", "--json", "--tips", "q");
+            "type", "--platform", "System.Text.Json", "--json");
         Assert.Equal(0, jsonExit);
         using var fullDocument = JsonDocument.Parse(jsonOutput);
         var root = fullDocument.RootElement;
@@ -168,7 +157,7 @@ public partial class CommandExecutionTests
         foreach (var args in withoutTheLine)
         {
             var (exit, output, _) = await RunAppAsync(
-                ["type", "--platform", "System.Text.Json", .. args, "--tips", "q"]);
+                ["type", "--platform", "System.Text.Json", .. args]);
 
             Assert.Equal(0, exit);
             Assert.DoesNotContain("Library: System.Text.Json.dll |", output, StringComparison.Ordinal);
@@ -179,7 +168,7 @@ public partial class CommandExecutionTests
         // drops the H1 too. Suppressing them unconditionally therefore cost the projection BOTH
         // its target and its title.
         var (fieldsExit, fieldsOutput, _) = await RunAppAsync(
-            "type", "--platform", "System.Text.Json", "--fields", "Types", "--tips", "q");
+            "type", "--platform", "System.Text.Json", "--fields", "Types");
 
         Assert.Equal(0, fieldsExit);
         Assert.Contains("# System.Text.Json", fieldsOutput, StringComparison.Ordinal);
@@ -192,7 +181,7 @@ public partial class CommandExecutionTests
         // --columns is the same surface and was the case the first fix missed: it does not filter
         // document fields at all, so the title vanished while the projected table rendered fine.
         var (columnsExit, columnsOutput, _) = await RunAppAsync(
-            "type", "--platform", "System.Text.Json", "--columns", "Type", "-n", "3", "--lines", "--tips", "q");
+            "type", "--platform", "System.Text.Json", "--columns", "Type", "-n", "3", "--lines");
 
         Assert.Equal(0, columnsExit);
         Assert.Contains("# System.Text.Json", columnsOutput, StringComparison.Ordinal);
@@ -200,7 +189,7 @@ public partial class CommandExecutionTests
 
         // ...but at quiet, -S still wins: there the section is already carrying the same facts.
         var (bothExit, bothOutput, _) = await RunAppAsync(
-            "type", "--platform", "System.Text.Json", "-v:q", "-S", SectionNames.ApiInfo, "--tips", "q");
+            "type", "--platform", "System.Text.Json", "-v:q", "-S", SectionNames.ApiInfo);
 
         Assert.Equal(0, bothExit);
         Assert.Contains("| Types | 91 |", bothOutput, StringComparison.Ordinal);
@@ -211,7 +200,7 @@ public partial class CommandExecutionTests
     public async Task Type_QuietPlatformForwarderCounts_MatchFullSurface()
     {
         var (quietExit, quietOutput, quietError) = await RunAppAsync(
-            "type", "System.Runtime", "-v:q", "--verbose", "--tips", "q");
+            "type", "System.Runtime", "-v:q", "--verbose");
         Assert.Equal(0, quietExit);
         Assert.Contains(
             "Extracting compact API summary from:",
@@ -221,7 +210,7 @@ public partial class CommandExecutionTests
             .Single(value => value.StartsWith("Library:", StringComparison.Ordinal));
 
         var (jsonExit, jsonOutput, _) = await RunAppAsync(
-            "type", "System.Runtime", "--json", "--tips", "q");
+            "type", "System.Runtime", "--json");
         Assert.Equal(0, jsonExit);
         using var fullDocument = JsonDocument.Parse(jsonOutput);
         var root = fullDocument.RootElement;
@@ -246,7 +235,7 @@ public partial class CommandExecutionTests
         ];
 
         var (quietExit, quietOutput, quietError) = await RunAppAsync(
-            ["type", .. source, "-v:q", "--verbose", "--tips", "q"]);
+            ["type", .. source, "-v:q", "--verbose"]);
         Assert.Equal(0, quietExit);
         Assert.Contains("Extracting API from:", quietError, StringComparison.Ordinal);
         Assert.DoesNotContain(
@@ -257,7 +246,7 @@ public partial class CommandExecutionTests
             .Single(value => value.StartsWith("Library:", StringComparison.Ordinal));
 
         var (jsonExit, jsonOutput, _) = await RunAppAsync(
-            ["type", .. source, "--json", "--tips", "q"]);
+            ["type", .. source, "--json"]);
         Assert.Equal(0, jsonExit);
         using var fullDocument = JsonDocument.Parse(jsonOutput);
         var root = fullDocument.RootElement;
@@ -278,13 +267,13 @@ public partial class CommandExecutionTests
             "--framework", "aspnetcore"
         ];
         var (quietExit, quietOutput, _) = await RunAppAsync(
-            ["type", .. source, "-v:q", "--tips", "q"]);
+            ["type", .. source, "-v:q"]);
         Assert.Equal(0, quietExit);
         var line = quietOutput.Split('\n')
             .Single(value => value.StartsWith("Library:", StringComparison.Ordinal));
 
         var (jsonExit, jsonOutput, _) = await RunAppAsync(
-            ["type", .. source, "--json", "--tips", "q"]);
+            ["type", .. source, "--json"]);
         Assert.Equal(0, jsonExit);
         using var fullDocument = JsonDocument.Parse(jsonOutput);
         var root = fullDocument.RootElement;
@@ -306,7 +295,7 @@ public partial class CommandExecutionTests
         foreach (var mode in modes)
         {
             var (exit, _, error) = await RunAppAsync(
-                ["type", "System.Text.Json", "-v:q", "--verbose", .. mode, "--tips", "q"]);
+                ["type", "System.Text.Json", "-v:q", "--verbose", .. mode]);
 
             Assert.Equal(0, exit);
             Assert.Contains("Extracting API from:", error, StringComparison.Ordinal);
@@ -331,7 +320,7 @@ public partial class CommandExecutionTests
     public async Task Type_Listing_UnmatchedProjection_FailsByNameRatherThanRenderingNothing()
     {
         var (exit, output, error) = await RunAppAsync(
-            ["type", "--platform", "System.Text.Json", "-S", "API Info", "--fields", "NoSuchField", "--tips", "q"]);
+            ["type", "--platform", "System.Text.Json", "-S", "API Info", "--fields", "NoSuchField"]);
 
         Assert.Equal(1, exit);
         Assert.Contains("NoSuchField", error, StringComparison.Ordinal);
@@ -345,10 +334,12 @@ public partial class CommandExecutionTests
         // --count consumed the same empty render and reported it as a genuine zero, which is a
         // success-shaped answer to a request that matched nothing.
         var (countExit, countOutput, countError) = await RunAppAsync(
-            ["type", "--platform", "System.Text.Json", "-S", "API Info", "--count", "--fields", "NoSuchField", "--tips", "q"]);
+            ["type", "--platform", "System.Text.Json", "-S", "API Info", "--count", "--fields", "NoSuchField"]);
 
+        // API Info is a scalar record: --count is rejected before the projection
+        // is validated, still a visible failure rather than a rendered zero.
         Assert.Equal(1, countExit);
-        Assert.Contains("NoSuchField", countError, StringComparison.Ordinal);
+        Assert.Contains("Section 'API Info' is scalar and does not support --count", countError, StringComparison.Ordinal);
         Assert.DoesNotContain("0", countOutput.Trim(), StringComparison.Ordinal);
 
         var (mixedCountExit, mixedCountOutput, mixedCountError) =
@@ -356,7 +347,7 @@ public partial class CommandExecutionTests
                 "type", "--platform", "System.Text.Json",
                 "-S", "API Info,Classes",
                 "--fields", "NoSuchField",
-                "--count", "--json", "--tips", "q");
+                "--count", "--json");
 
         Assert.Equal(1, mixedCountExit);
         Assert.Empty(mixedCountOutput);
@@ -366,8 +357,8 @@ public partial class CommandExecutionTests
             await RunAppAsync(
                 "type", "--platform", "System.Text.Json",
                 "-S", "API Info,Classes",
-                "--columns", "NoSuchColumn",
-                "--tips", "q");
+                "--columns", "NoSuchColumn"
+                );
 
         Assert.Equal(1, mixedColumnExit);
         Assert.Empty(mixedColumnOutput);
@@ -378,29 +369,32 @@ public partial class CommandExecutionTests
                 "type", "System.String", "--platform", "System.Private.CoreLib",
                 "-S", "Type Info",
                 "--fields", "NoSuchField",
-                "--count", "--tips", "q");
+                "--count");
 
+        // Type Info is a scalar record under Section shapes: --count is rejected
+        // before the projection is validated, for an unmatched and a matched field
+        // alike (a visible failure, never a rendered zero or a field tally).
         Assert.Equal(1, directCountExit);
         Assert.Empty(directCountOutput);
-        Assert.Contains("NoSuchField", directCountError, StringComparison.Ordinal);
+        Assert.Contains("Section 'Type Info' is scalar and does not support --count", directCountError, StringComparison.Ordinal);
 
         var (directOkExit, directOkOutput, directOkError) =
             await RunAppAsync(
                 "type", "System.String", "--platform", "System.Private.CoreLib",
                 "-S", "Type Info",
                 "--fields", "Kind",
-                "--count", "--tips", "q");
+                "--count");
 
-        Assert.Equal(0, directOkExit);
-        Assert.Equal("1", directOkOutput.Trim());
-        Assert.Empty(directOkError);
+        Assert.Equal(1, directOkExit);
+        Assert.Empty(directOkOutput);
+        Assert.Contains("Section 'Type Info' is scalar and does not support --count", directOkError, StringComparison.Ordinal);
 
         var (crossKindExit, crossKindOutput, crossKindError) =
             await RunAppAsync(
                 "type", "System.String", "--platform", "System.Private.CoreLib",
                 "-S", "Methods",
                 "--fields", "NoSuchField",
-                "--count", "--tips", "q");
+                "--count");
 
         Assert.Equal(1, crossKindExit);
         Assert.Empty(crossKindOutput);
@@ -411,7 +405,7 @@ public partial class CommandExecutionTests
                 "type", "System.String", "--platform", "System.Private.CoreLib",
                 "-S", "Methods",
                 "--columns", "Name",
-                "--count", "--tips", "q");
+                "--count");
 
         Assert.Equal(0, crossKindOkExit);
         Assert.True(int.Parse(crossKindOkOutput.Trim(), CultureInfo.InvariantCulture) > 0);
@@ -421,14 +415,14 @@ public partial class CommandExecutionTests
         // the same bypass shape as the fact-table routing in #3648: a path that skips the shared
         // check because it renders differently, not because it should behave differently.
         var (plainExit, plainOutput, plainError) = await RunAppAsync(
-            ["type", "--platform", "System.Text.Json", "-S", "API Info", "--plaintext", "--fields", "NoSuchField", "--tips", "q"]);
+            ["type", "--platform", "System.Text.Json", "-S", "API Info", "--plaintext", "--fields", "NoSuchField"]);
 
         Assert.Equal(1, plainExit);
         Assert.Contains("NoSuchField", plainError, StringComparison.Ordinal);
         Assert.Equal(string.Empty, plainOutput.Trim());
 
         var (plainOkExit, plainOkOutput, _) = await RunAppAsync(
-            ["type", "--platform", "System.Text.Json", "-S", "API Info", "--plaintext", "--fields", "Library", "--tips", "q"]);
+            ["type", "--platform", "System.Text.Json", "-S", "API Info", "--plaintext", "--fields", "Library"]);
 
         Assert.Equal(0, plainOkExit);
         Assert.NotEqual(string.Empty, plainOkOutput.Trim());
@@ -436,7 +430,7 @@ public partial class CommandExecutionTests
         // Non-vacuity: the same projection with a REAL name must still succeed, or this would
         // pass on a build that rejected every projection.
         var (okExit, okOutput, _) = await RunAppAsync(
-            ["type", "--platform", "System.Text.Json", "-S", "API Info", "--fields", "Types", "--tips", "q"]);
+            ["type", "--platform", "System.Text.Json", "-S", "API Info", "--fields", "Types"]);
 
         Assert.Equal(0, okExit);
         Assert.Contains("| Field | Value |", okOutput, StringComparison.Ordinal);
@@ -467,7 +461,7 @@ public partial class CommandExecutionTests
     public async Task Type_Listing_LegitimateProjections_SurviveTheEmptyRenderGate(string[] args, string expected)
     {
         var (exit, output, error) = await RunAppAsync(
-            ["type", "--platform", "System.Text.Json", .. args, "--tips", "q"]);
+            ["type", "--platform", "System.Text.Json", .. args]);
 
         Assert.Equal(0, exit);
         Assert.Contains(expected, output, StringComparison.Ordinal);
@@ -492,14 +486,15 @@ public partial class CommandExecutionTests
     [InlineData("--tsv")]
     [InlineData("--jsonl")]
     [InlineData("--plaintext")]
-    [InlineData("--count")]
+    // --count is not a case here: API Info is a scalar record under Section shapes
+    // and rejects --count before the projection is validated.
     public async Task Type_Listing_ProjectionMatchingTheWrongKind_FailsLikeAnUnknownName(string format)
     {
         // System.Net.Http rather than the test assembly: the point is that `Type` resolves as a
         // Classes COLUMN, so the target must have classes for the mismatch to be the only reason
         // the name fails.
         var (exit, output, error) = await RunAppAsync(
-            ["type", "--platform", "System.Net.Http", "-S", "API Info", "--fields", "Type", format, "--tips", "q"]);
+            ["type", "--platform", "System.Net.Http", "-S", "API Info", "--fields", "Type", format]);
 
         Assert.Equal(1, exit);
         Assert.Contains("Type", error, StringComparison.Ordinal);
@@ -508,7 +503,7 @@ public partial class CommandExecutionTests
         // The companion: the same name against the kind it actually is must still render, so the
         // rule is "wrong kind", not "this name is banned".
         var (okExit, okOutput, _) = await RunAppAsync(
-            ["type", "--platform", "System.Net.Http", "-S", "Classes", "--columns", "Type", "--tsv", "--tips", "q"]);
+            ["type", "--platform", "System.Net.Http", "-S", "Classes", "--columns", "Type", "--tsv"]);
 
         Assert.Equal(0, okExit);
         Assert.Contains("System.Net.Http.HttpClient", okOutput, StringComparison.Ordinal);
@@ -538,7 +533,7 @@ public partial class CommandExecutionTests
         // nothing and the gate is actually reached. Against a platform library the render is
         // non-empty and the wildcard never gets as far as the name check.
         var (exit, _, _) = await RunAppAsync(
-            ["type", "--library", TestAssemblyPath, "-S", "API Info", flag, pattern, "--tsv", "--tips", "q"]);
+            ["type", "--library", TestAssemblyPath, "-S", "API Info", flag, pattern, "--tsv"]);
 
         Assert.Equal(expectedExit, exit);
     }
@@ -555,14 +550,14 @@ public partial class CommandExecutionTests
     public async Task Type_Listing_StableNameProjection_IsNotAValidProjectionName()
     {
         var (exit, output, error) = await RunAppAsync(
-            ["type", "--platform", "System.Text.Json", "-S", "API Info", "--fields", "Assembly", "--tips", "q"]);
+            ["type", "--platform", "System.Text.Json", "-S", "API Info", "--fields", "Assembly"]);
 
         Assert.Equal(1, exit);
         Assert.Contains("Assembly", error, StringComparison.Ordinal);
         Assert.Equal(string.Empty, output.Trim());
 
         var (okExit, okOutput, _) = await RunAppAsync(
-            ["type", "--platform", "System.Text.Json", "-S", "API Info", "--fields", "Library", "--tips", "q"]);
+            ["type", "--platform", "System.Text.Json", "-S", "API Info", "--fields", "Library"]);
 
         Assert.Equal(0, okExit);
         Assert.Contains("| Library | System.Text.Json.dll |", okOutput, StringComparison.Ordinal);
@@ -579,7 +574,6 @@ public partial class CommandExecutionTests
     // local .dll has none, so the render is empty for a reason that is not an unmatched name.
     [InlineData((object)new[] { "-S", "API Info", "--fields", "Version" })]
     [InlineData((object)new[] { "-S", "API Info", "--fields", "Version", "--tsv" })]
-    [InlineData((object)new[] { "-S", "API Info", "--fields", "Version", "--count" })]
     // The same known field, but selected ALONGSIDE a section whose schema does not list it, with
     // that section filtered to zero rows. `Version` is document-level, so it belongs to no
     // section in particular; resolving it only against the SELECTED section reported it
@@ -590,7 +584,7 @@ public partial class CommandExecutionTests
     public async Task Type_Listing_EmptyResultWithoutAnUnmatchedName_StaysSuccessful(string[] args)
     {
         var (exit, _, error) = await RunAppAsync(
-            ["type", "--library", TestAssemblyPath, .. args, "--tips", "q"]);
+            ["type", "--library", TestAssemblyPath, .. args]);
 
         Assert.Equal(0, exit);
         Assert.DoesNotContain("No fields matched", error, StringComparison.Ordinal);
@@ -612,7 +606,7 @@ public partial class CommandExecutionTests
         string[] formatArgs = format.Length == 0 ? [] : [format];
 
         var (exit, _, error) = await RunAppAsync(
-            ["type", "--platform", "System.Net.Http", "-S", "Interfaces", .. formatArgs, "--tips", "q"]);
+            ["type", "--platform", "System.Net.Http", "-S", "Interfaces", .. formatArgs]);
 
         Assert.Equal(0, exit);
         Assert.DoesNotContain("Nothing to render", error, StringComparison.Ordinal);
@@ -621,7 +615,7 @@ public partial class CommandExecutionTests
         // Non-vacuity: the section must really be empty in the tabular form, or this asserts
         // nothing about the gate. `--tsv` renders zero bytes for a zero-row section.
         var (tsvExit, tsvOutput, _) = await RunAppAsync(
-            ["type", "--platform", "System.Net.Http", "-S", "Interfaces", "--tsv", "--tips", "q"]);
+            ["type", "--platform", "System.Net.Http", "-S", "Interfaces", "--tsv"]);
 
         Assert.Equal(0, tsvExit);
         Assert.Equal(string.Empty, tsvOutput.Trim());
@@ -640,7 +634,7 @@ public partial class CommandExecutionTests
         foreach (var verbosity in new[] { "-v:q", "-v:m", "-v:n", "-v:d" })
         {
             var (exit, output, _) = await RunAppAsync(
-                "type", "--platform", library, verbosity, "--tips", "q");
+                "type", "--platform", library, verbosity);
 
             Assert.Equal(0, exit);
             Assert.DoesNotContain(SectionNames.ApiInfo, SectionHeadings(output));
@@ -661,9 +655,9 @@ public partial class CommandExecutionTests
         // stronger claim than before, not a weaker one -- it pins agreement across the two views a
         // reader actually chooses between, rather than agreement within one rendering.
         var (quietExit, quietOutput, _) = await RunAppAsync(
-            "type", "--platform", "System.Text.Json", "-v:q", "--tips", "q");
+            "type", "--platform", "System.Text.Json", "-v:q");
         var (exit, output, _) = await RunAppAsync(
-            "type", "--platform", "System.Text.Json", "-S", SectionNames.ApiInfo, "--tips", "q");
+            "type", "--platform", "System.Text.Json", "-S", SectionNames.ApiInfo, "--markdown");
 
         Assert.Equal(0, quietExit);
         Assert.Equal(0, exit);
@@ -697,9 +691,9 @@ public partial class CommandExecutionTests
         // contributes exactly one row at either size. A future field that enumerated anything would
         // fail here rather than quietly making the overview unbounded.
         var (bigExit, big, _) = await RunAppAsync(
-            "type", "--platform", "System.Private.CoreLib", "-S", SectionNames.ApiInfo, "--tips", "q");
+            "type", "--platform", "System.Private.CoreLib", "-S", SectionNames.ApiInfo, "--markdown");
         var (smallExit, small, _) = await RunAppAsync(
-            "type", "--platform", "System.Text.Json", "-S", SectionNames.ApiInfo, "--tips", "q");
+            "type", "--platform", "System.Text.Json", "-S", SectionNames.ApiInfo, "--markdown");
 
         Assert.Equal(0, bigExit);
         Assert.Equal(0, smallExit);
@@ -722,18 +716,20 @@ public partial class CommandExecutionTests
         // renderers disagreeing about one -S is the failure this pins, and it is invisible to any
         // test that only checks markdown.
         var (mdExit, markdown, _) = await RunAppAsync(
-            "type", "--platform", "System.Text.Json", "-S", SectionNames.ApiInfo, "--tips", "q");
+            "type", "--platform", "System.Text.Json", "-S", SectionNames.ApiInfo, "--markdown");
         var (tsvExit, tsv, _) = await RunAppAsync(
-            "type", "--platform", "System.Text.Json", "-S", SectionNames.ApiInfo, "--tsv", "--tips", "q");
+            "type", "--platform", "System.Text.Json", "-S", SectionNames.ApiInfo, "--tsv");
         var (jsonlExit, jsonl, _) = await RunAppAsync(
-            "type", "--platform", "System.Text.Json", "-S", SectionNames.ApiInfo, "--jsonl", "--tips", "q");
-        var (countExit, count, _) = await RunAppAsync(
-            "type", "--platform", "System.Text.Json", "-S", SectionNames.ApiInfo, "--count", "--tips", "q");
+            "type", "--platform", "System.Text.Json", "-S", SectionNames.ApiInfo, "--jsonl");
+        var (countExit, count, countError) = await RunAppAsync(
+            "type", "--platform", "System.Text.Json", "-S", SectionNames.ApiInfo, "--count");
 
         Assert.Equal(0, mdExit);
         Assert.Equal(0, tsvExit);
         Assert.Equal(0, jsonlExit);
-        Assert.Equal(0, countExit);
+        // API Info is a scalar record: --count is rejected before acquisition.
+        Assert.Equal(1, countExit);
+        Assert.Contains("Section 'API Info' is scalar and does not support --count", countError);
 
         var tsvLines = tsv.Split('\n', StringSplitOptions.RemoveEmptyEntries);
         Assert.Equal("field\tvalue", tsvLines[0]);
@@ -754,7 +750,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(markdownRows, tsvLines.Length - 1);
         Assert.Equal(markdownRows, jsonlRows);
-        Assert.Equal(markdownRows.ToString(), count.Trim());
+        Assert.Empty(count.Trim());
     }
 
     [Fact]
@@ -768,9 +764,7 @@ public partial class CommandExecutionTests
             "Classes",
             "--plaintext",
             "--rows",
-            "2",
-            "--tips",
-            "q");
+            "2");
 
         Assert.Equal(0, exit);
         Assert.Equal(
@@ -789,7 +783,7 @@ public partial class CommandExecutionTests
         // per-kind tables must keep their existing surface projection. A predicate that widened to
         // "any single section" would silently convert these to field/value rows.
         var (exit, tsv, _) = await RunAppAsync(
-            "type", "--platform", "System.Text.Json", "-S", section, "--tsv", "--tips", "q");
+            "type", "--platform", "System.Text.Json", "-S", section, "--tsv");
 
         Assert.Equal(0, exit);
         Assert.StartsWith("kind\ttype\tmembers", tsv, StringComparison.Ordinal);
@@ -815,7 +809,7 @@ public partial class CommandExecutionTests
         foreach (var section in new[] { "Classes", SectionNames.ApiInfo })
         {
             var (exit, output, error) = await RunAppAsync(
-                "type", "--platform", "System.Text.Json", "-S", section, "--tsv", flag, "Nonexistent", "--tips", "q");
+                "type", "--platform", "System.Text.Json", "-S", section, "--tsv", flag, "Nonexistent");
 
             Assert.Contains("Nonexistent", error, StringComparison.Ordinal);
 
@@ -835,7 +829,7 @@ public partial class CommandExecutionTests
         foreach (var (section, name) in new[] { ("Classes", "Type"), (SectionNames.ApiInfo, factName) })
         {
             var (okExit, okOutput, _) = await RunAppAsync(
-                "type", "--platform", "System.Text.Json", "-S", section, "--tsv", flag, name, "--tips", "q");
+                "type", "--platform", "System.Text.Json", "-S", section, "--tsv", flag, name);
 
             Assert.Equal(0, okExit);
             Assert.NotEqual(string.Empty, okOutput.Trim());
@@ -848,7 +842,7 @@ public partial class CommandExecutionTests
         // The discovery manifest is a second renderer fed by the option-filtered view, so a section
         // that renders under -S but never appears under -D is undiscoverable in practice.
         var (exit, output, _) = await RunAppAsync(
-            "type", "--platform", "System.Text.Json", "-D", "--tips", "q");
+            "type", "--platform", "System.Text.Json", "-D");
 
         Assert.Equal(0, exit);
         Assert.Contains(SectionNames.ApiInfo, output, StringComparison.Ordinal);
@@ -858,7 +852,7 @@ public partial class CommandExecutionTests
     public async Task Type_Listing_DiscoveryUsesAuthoredSurfaceCategoryWithoutComputedPoles()
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", "-D", "--schema", "--table", "--tips", "q");
+            "type", "-D", "--schema", "--table");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -878,9 +872,7 @@ public partial class CommandExecutionTests
             "--platform",
             "System.Text.Json",
             "-S",
-            SectionCategoryNames.Surface,
-            "--tips",
-            "q");
+            SectionCategoryNames.Surface);
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -896,18 +888,14 @@ public partial class CommandExecutionTests
             "--platform",
             "System.Drawing",
             "-D",
-            "--table",
-            "--tips",
-            "q");
+            "--table");
         var (_, countOutput, _) = await RunAppAsync(
             "type",
             "--platform",
             "System.Drawing",
             "-S",
             SectionNames.TypeForwarders,
-            "--count",
-            "--tips",
-            "q");
+            "--count");
 
         Assert.Contains("Classes", discovery, StringComparison.Ordinal);
         Assert.Contains(
@@ -934,9 +922,7 @@ public partial class CommandExecutionTests
             "System.Drawing",
             "-S",
             SectionNames.TypeForwarders,
-            format,
-            "--tips",
-            "q");
+            format);
 
         Assert.Contains(expected, output, StringComparison.Ordinal);
         Assert.DoesNotContain(unexpected, output, StringComparison.Ordinal);
@@ -959,9 +945,7 @@ public partial class CommandExecutionTests
             "--columns",
             "Target Assembly",
             "--rows",
-            "1",
-            "--tips",
-            "q");
+            "1");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -979,9 +963,7 @@ public partial class CommandExecutionTests
                 "System.Xml",
                 "-S",
                 SectionNames.TypeForwarders,
-                "--count",
-                "--tips",
-                "q");
+                "--count");
         var (rowsExit, rowsOutput, rowsError) =
             await RunAppAsync(
                 "type",
@@ -989,8 +971,7 @@ public partial class CommandExecutionTests
                 "System.Xml",
                 "-S",
                 SectionNames.TypeForwarders,
-                "--tips",
-                "q");
+                "--markdown");
 
         Assert.Equal(0, countExit);
         Assert.Equal(0, rowsExit);
@@ -1035,18 +1016,14 @@ public partial class CommandExecutionTests
             "-v:d",
             "-S",
             SectionNames.Classes,
-            "--count",
-            "--tips",
-            "q");
+            "--count");
         var detailedRows = await RunAppAsync(
             "type",
             "--platform",
             "System.Xml",
             "-v:d",
             "-S",
-            SectionNames.Classes,
-            "--tips",
-            "q");
+            SectionNames.Classes);
         var tableCount = await RunAppAsync(
             "type",
             "--platform",
@@ -1054,18 +1031,14 @@ public partial class CommandExecutionTests
             "-S",
             SectionNames.Classes,
             "--count",
-            "--table",
-            "--tips",
-            "q");
+            "--table");
         var tableRows = await RunAppAsync(
             "type",
             "--platform",
             "System.Xml",
             "-S",
             SectionNames.Classes,
-            "--table",
-            "--tips",
-            "q");
+            "--table");
 
         Assert.Equal(0, detailedCount.Exit);
         Assert.Equal(0, detailedRows.Exit);
@@ -1112,9 +1085,7 @@ public partial class CommandExecutionTests
                 "type",
                 "--platform",
                 "System.Xml",
-                "--count",
-                "--tips",
-                "q");
+                "--count");
         var (forwarderExit, forwarderOutput, forwarderError) =
             await RunAppAsync(
                 "type",
@@ -1122,16 +1093,12 @@ public partial class CommandExecutionTests
                 "System.Xml",
                 "-S",
                 SectionNames.TypeForwarders,
-                "--count",
-                "--tips",
-                "q");
+                "--count");
         var (rowsExit, rowsOutput, rowsError) =
             await RunAppAsync(
                 "type",
                 "--platform",
-                "System.Xml",
-                "--tips",
-                "q");
+                "System.Xml");
 
         Assert.Equal(0, defaultExit);
         Assert.Equal(0, forwarderExit);
@@ -1158,16 +1125,12 @@ public partial class CommandExecutionTests
                 "type",
                 "--platform",
                 "System.Private.CoreLib",
-                "--count",
-                "--tips",
-                "q");
+                "--count");
         var (rowsExit, rowsOutput, rowsError) =
             await RunAppAsync(
                 "type",
                 "--platform",
-                "System.Private.CoreLib",
-                "--tips",
-                "q");
+                "System.Private.CoreLib");
 
         Assert.Equal(0, countExit);
         Assert.Equal(0, rowsExit);
@@ -1197,9 +1160,7 @@ public partial class CommandExecutionTests
             "--platform",
             "System.Text.Json",
             "-S",
-            "@All",
-            "--tips",
-            "q");
+            "@All");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -1215,9 +1176,7 @@ public partial class CommandExecutionTests
             "--platform",
             "System.Text.Json",
             "-D",
-            "--table",
-            "--tips",
-            "q");
+            "--table");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1238,9 +1197,7 @@ public partial class CommandExecutionTests
             "--platform",
             "System.Text.Json",
             "-S",
-            "@All",
-            "--tips",
-            "q");
+            "@All");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -1272,9 +1229,7 @@ public partial class CommandExecutionTests
             "type",
             "System.Func`17",
             "-S",
-            "Type Info;Baseclass",
-            "--tips",
-            "q");
+            "Type Info;Baseclass");
 
         Assert.Equal(0, exit);
         Assert.Equal(

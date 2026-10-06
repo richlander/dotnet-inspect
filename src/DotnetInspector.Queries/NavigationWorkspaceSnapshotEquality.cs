@@ -105,6 +105,7 @@ internal static class NavigationWorkspaceSnapshotEquality
         && a.HasJsonStringEnumConverter == b.HasJsonStringEnumConverter
         && a.JsonConverterAttributeCount == b.JsonConverterAttributeCount
         && a.HasUnsupportedJsonWireAttributes == b.HasUnsupportedJsonWireAttributes
+        && a.JsonUnmappedMemberHandling == b.JsonUnmappedMemberHandling
         && a.JsonSerializableAttributeCount == b.JsonSerializableAttributeCount
         && Sequence(a.JsonSerializableRoots, b.JsonSerializableRoots)
         && a.JsonPropertyNamingPolicy == b.JsonPropertyNamingPolicy
@@ -158,7 +159,8 @@ internal static class NavigationWorkspaceSnapshotEquality
         && OptionalArray(a.AccessorImplementations, b.AccessorImplementations)
         && a.HasRuntimeJsExportWrapperCandidate == b.HasRuntimeJsExportWrapperCandidate
         && Sequence(a.RuntimeJsExportWrapperCandidates, b.RuntimeJsExportWrapperCandidates)
-        && a.Accessibility == b.Accessibility && a.IsExtension == b.IsExtension
+        && a.Accessibility == b.Accessibility && a.DeclaredAccessibility == b.DeclaredAccessibility
+        && a.IsExtension == b.IsExtension
         && a.IsCompilerGenerated == b.IsCompilerGenerated && a.HasJsonInclude == b.HasJsonInclude
         && a.HasMalformedJsonInclude == b.HasMalformedJsonInclude
         && Sequence(a.JsonIgnoreConditions, b.JsonIgnoreConditions)
@@ -168,6 +170,8 @@ internal static class NavigationWorkspaceSnapshotEquality
         && a.HasRuntimeJsExport == b.HasRuntimeJsExport
         && a.RuntimeJsExportAttributeCount == b.RuntimeJsExportAttributeCount
         && a.HasMalformedRuntimeJsExportAttribute == b.HasMalformedRuntimeJsExportAttribute
+        && a.SetsRequiredMembersAttributeCount == b.SetsRequiredMembersAttributeCount
+        && a.HasMalformedSetsRequiredMembersAttribute == b.HasMalformedSetsRequiredMembersAttribute
         && Sequence(a.JsonStringEnumMemberNameAttributeValues, b.JsonStringEnumMemberNameAttributeValues)
         && a.IsObsolete == b.IsObsolete && a.ObsoleteMessage == b.ObsoleteMessage
         && a.ObsoleteIsError == b.ObsoleteIsError

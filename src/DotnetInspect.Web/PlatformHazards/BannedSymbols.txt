@@ -1,0 +1,14 @@
+; The executable host's positive project and compiled-assembly boundary admits the .NET platform.
+; These APIs are platform members, so dependency layering cannot distinguish them from ordinary
+; runtime use. Keep this narrow semantic gate for hazards dependency layering cannot express.
+
+T:System.Reflection.PortableExecutable.PEReader;Raw image decoding belongs to product realization, not the executable host.
+T:System.Reflection.PortableExecutable.PEHeaders;Raw PE header decoding belongs to product realization, not the executable host.
+T:System.Reflection.Metadata.MetadataReader;Raw metadata decoding belongs to product realization, not the executable host.
+T:System.Reflection.Metadata.MetadataReaderProvider;Raw metadata decoding belongs to product realization, not the executable host.
+T:System.Reflection.Metadata.PEReaderExtensions;Bridging raw PE content to metadata belongs to product realization, not the executable host.
+T:System.Reflection.Assembly;Inspected assemblies are parsed by product operations, never loaded into or reflected over in the runtime.
+T:System.Reflection.AssemblyName;Assembly identity decoding belongs to product realization, not runtime reflection in the executable host.
+T:System.AppDomain;Inspected assemblies are never loaded, activated, or executed in a runtime application domain.
+T:System.Activator;Inspected assemblies are never activated through runtime reflection.
+T:System.Runtime.Loader.AssemblyLoadContext;Inspected assemblies are parsed by product operations, never loaded into the runtime.

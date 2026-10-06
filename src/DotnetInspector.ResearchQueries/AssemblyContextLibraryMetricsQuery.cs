@@ -14,9 +14,9 @@ public static class AssemblyContextLibraryMetricsQuery
         ExecuteParticipant(group, participant, CancellationToken.None);
 
     public static AssemblyContextEntry<LibraryMetricsResult> ExecuteParticipant(
-        AssemblyContextGroup group,
-        AssemblyContextParticipant participant,
-        CancellationToken cancellationToken)
+            AssemblyContextGroup group,
+            AssemblyContextParticipant participant,
+            CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(group);
         ArgumentNullException.ThrowIfNull(participant);

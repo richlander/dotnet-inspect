@@ -2,8 +2,9 @@
 
 This document explains how one retained nightly candidate becomes a coordinated
 dotnet-inspect release: seven NuGet packages, one GitHub release, and the
-production site at `https://dotnet-inspect.net`. Repository development,
-worktree, build, and test rules live in [AGENTS.md](../AGENTS.md). The
+production site at `https://dotnet-inspect.net`. Repository development and
+worktree rules live in [Repository workflow](repository-workflow.md); build and
+test rules live in [Local development](dev-environment.md). The
 executable sources of truth are
 [release-candidate.yml](../.github/workflows/release-candidate.yml) and
 [release.yml](../.github/workflows/release.yml). The repo-local
@@ -82,8 +83,8 @@ concern acceptance.
 ## Publication validation
 
 `eng/validate-release-candidate.sh` downloads the selected run, latest-attempt
-jobs, retained artifact metadata, and exact-SHA `ci-required` check. Its
-file-based validator requires:
+jobs, retained artifact metadata, and exact-SHA `ci / ci-required` main-push
+check. Its file-based validator requires:
 
 - workflow path `.github/workflows/release-candidate.yml`;
 - event `schedule` or `workflow_dispatch`, branch `main`, and this repository
@@ -92,7 +93,7 @@ file-based validator requires:
 - completed successful source, five native package, portable package,
   production-site, and assembly jobs from that same attempt;
 - one same-attempt copy of every required Deep Inspect candidate job;
-- successful exact-SHA `ci-required`;
+- successful exact-SHA `ci / ci-required`;
 - a coherent green or explicitly accepted concern outcome;
 - exactly one unexpired, nonempty
   `dotnet-inspect-release-candidate` artifact for the run; and

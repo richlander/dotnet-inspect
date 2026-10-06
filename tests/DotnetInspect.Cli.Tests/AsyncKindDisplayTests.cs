@@ -17,9 +17,9 @@ public class AsyncKindDisplayTests
 {
     private static string SerializeFull(LibraryInspection inspection)
     {
-        inspection.UnsafeMethods = [];
-        inspection.PInvokeMethods = [];
-        inspection.AsyncMethods = [];
+        inspection.UnsafeMethodCount = 0;
+        inspection.PInvokeMethodCount = 0;
+        inspection.AsyncMethodCount = 0;
         using var session =
             AssemblyInspectionSession.Open(typeof(AsyncKindDisplayTests).Assembly.Location);
         AuditSignalBuilder.ApplyLibraryAudit(inspection, session.AuditMetadata());

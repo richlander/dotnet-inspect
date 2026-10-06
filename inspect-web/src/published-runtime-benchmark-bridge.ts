@@ -1,14 +1,23 @@
 import type { EngineClient } from "./engine-client.ts";
 
 type BenchmarkHost = Pick<EngineClient["host"], "buildIdentity">;
-type BenchmarkPackage = Pick<EngineClient["package"], "queryPackage">;
+type BenchmarkPackage = Pick<
+  EngineClient["package"],
+  "queryPackage" | "loadRuntimePack"
+>;
 type BenchmarkAnalysis = Pick<
   EngineClient["analysis"],
   "queryMemberFacts" | "queryPackagePerformance"
 >;
 type BenchmarkSource = Pick<
   EngineClient["source"],
-  "queryMethodBodyComparison" | "queryMethodBodyComparisonTargets"
+  "queryRetainedMethodBodyComparison"
+  | "queryRetainedMethodBodyComparisonTargets"
+>;
+type BenchmarkCatalog = Pick<
+  EngineClient["catalog"],
+  "activateRetainedWorkspaceDefinition"
+  | "captureCompleteWorkspaceShareState"
 >;
 
 export interface PublishedRuntimeBenchmarkBridge {
@@ -16,6 +25,7 @@ export interface PublishedRuntimeBenchmarkBridge {
   readonly package: BenchmarkPackage;
   readonly analysis: BenchmarkAnalysis;
   readonly source: BenchmarkSource;
+  readonly catalog: BenchmarkCatalog;
 }
 
 export interface PublishedRuntimeBenchmarkTarget {
@@ -37,15 +47,23 @@ export function createPublishedRuntimeBenchmarkBridge(
     },
     package: {
       queryPackage: client.package.queryPackage,
+      loadRuntimePack: client.package.loadRuntimePack,
     },
     analysis: {
       queryMemberFacts: client.analysis.queryMemberFacts,
       queryPackagePerformance: client.analysis.queryPackagePerformance,
     },
     source: {
-      queryMethodBodyComparison: client.source.queryMethodBodyComparison,
-      queryMethodBodyComparisonTargets:
-        client.source.queryMethodBodyComparisonTargets,
+      queryRetainedMethodBodyComparison:
+        client.source.queryRetainedMethodBodyComparison,
+      queryRetainedMethodBodyComparisonTargets:
+        client.source.queryRetainedMethodBodyComparisonTargets,
+    },
+    catalog: {
+      activateRetainedWorkspaceDefinition:
+        client.catalog.activateRetainedWorkspaceDefinition,
+      captureCompleteWorkspaceShareState:
+        client.catalog.captureCompleteWorkspaceShareState,
     },
   };
 }

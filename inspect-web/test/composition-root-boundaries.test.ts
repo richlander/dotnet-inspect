@@ -201,7 +201,7 @@ test("workspace UI routes replacements and restore notices through bounded paths
     /if \(loc\.tabs\?\.length && !workspaceCoordinatesMatch\(state\.packages, loc\.tabs\)\) \{\s+observeAsync\(\s*restoreHistoryWorkspace\(\)/);
   assert.match(
     appSource,
-    /for \(const packageModel of discarded\)\s+releasePackageModelCaches\(packageModel\);/);
+    /for \(const packageModel of discarded\) \{\s*packageModel\.platformContextId = null;\s*releasePackageModelCaches\(packageModel\);\s*\}/);
   assert.match(
     appSource,
     /type: type\.queryId \?\? type\.id,\s+typeIdentity: type\.definitionId \?\? type\.id/);
@@ -246,7 +246,7 @@ test("workspace UI routes replacements and restore notices through bounded paths
     /function deleteRetainedWorkspace\(workspaceId: string\): void \{\s*if \(retainedWorkspaceActivation\?\.state\.definitions\.some\([\s\S]*deleteManagedRetainedWorkspace\(workspaceId\),\s+"Deleting retained Workspace",\s+\);\s+return;\s+\}\s+try \{\s*navigationSequence\.begin\(\)/);
   assert.match(
     appSource,
-    /onScopeSelect: target => \{[\s\S]*if \(target === "workspace"\) \{\s*navigationSequence\.begin\(\);/);
+    /onScopeSelect: target => \{\s*if \(target === "platform"\) \{[\s\S]*return;\s*\}\s*const navigationSeq = navigationSequence\.begin\(\);\s*contentFramePane = "detail";\s*if \(target === "workspace"\) \{/);
   assert.match(
     appSource,
     /const revision = workspaceOccurrenceRevision;[\s\S]*superseded = view\.superseded;[\s\S]*const ownsCurrentRequest =\s*revision === workspaceOccurrenceRevision\s*&& signature === state\.workspaceOccurrenceSignature;[\s\S]*const desiredSignature = JSON\.stringify\(workspaceOccurrenceRequest\(\)\);[\s\S]*!state\.workspaceOccurrenceLoading[\s\S]*state\.workspaceOccurrenceSignature !== desiredSignature/);
@@ -255,7 +255,7 @@ test("workspace UI routes replacements and restore notices through bounded paths
     /if \(!workspaceOccurrenceViewIsVisible\(\)\s*&& \(state\.workspaceOccurrenceSignature\s*\|\| state\.workspaceOccurrences\)\) \{\s*clearWorkspaceOccurrenceView\(\)/);
   assert.match(
     appSource,
-    /function packageLibraryInventory\(\)[\s\S]*state\.package\.assemblies\.map\(assembly =>/);
+    /function packageLibraryInventory\(\)[\s\S]*packageLibrariesForModel\(state\.package\)/);
   assert.match(
     appSource,
     /function packageLibraries\(\) \{\s*return packageLibraryInventory\(\);\s*\}/);

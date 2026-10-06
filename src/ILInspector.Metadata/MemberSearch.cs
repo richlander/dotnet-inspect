@@ -1,3 +1,5 @@
+using ILInspector.MetadataPrimitives;
+
 namespace ILInspector.Metadata;
 
 /// <summary>
@@ -12,8 +14,23 @@ public sealed record MemberSearchResult
     /// <summary>The input pattern that matched this member.</summary>
     public required string Pattern { get; init; }
 
+    /// <summary>The input ordinal of <see cref="Pattern"/>.</summary>
+    public int PatternOrdinal { get; init; }
+
     /// <summary>The member's metadata name (e.g. <c>Parse</c>, <c>op_Addition</c>, <c>Item</c>).</summary>
     public required string MemberName { get; init; }
+
+    /// <summary>The exact structured identity of the declaring Type.</summary>
+    public required MetadataTypeDefinitionName DeclaringTypeName { get; init; }
+
+    /// <summary>The producer-issued durable identity of this member.</summary>
+    public required MemberAnchor Anchor { get; init; }
+
+    /// <summary>The declaring Type's producer order within the assembly surface.</summary>
+    public int DeclarationOrder { get; init; }
+
+    /// <summary>The member's producer order within its declaring Type.</summary>
+    public int MemberOrder { get; init; }
 
     /// <summary>Full name of the declaring type (<c>Namespace.Type</c>, or <c>Type</c> when global).</summary>
     public required string DeclaringType { get; init; }
@@ -173,15 +190,30 @@ public static class MemberSearch
         int? limit,
         List<MemberSearchResult> results)
     {
-        foreach (var type in surface.Types)
+        for (int declarationOrder = 0;
+            declarationOrder < surface.Types.Count;
+            declarationOrder++)
         {
-            foreach (var member in type.Members)
+            ApiType type = surface.Types[declarationOrder];
+            MetadataTypeDefinitionName declaringTypeName =
+                type.DefinitionName
+                ?? throw new InvalidOperationException(
+                    $"Member search cannot identify declaring Type "
+                    + $"'{type.FullName}'.");
+            for (int memberOrder = 0;
+                memberOrder < type.Members.Count;
+                memberOrder++)
             {
-                foreach (var pattern in patterns)
+                ApiMember member = type.Members[memberOrder];
+                MemberAnchor? anchor = null;
+                for (int patternOrdinal = 0;
+                    patternOrdinal < patterns.Count;
+                    patternOrdinal++)
                 {
                     if (limit is int cap && results.Count >= cap)
                         return;
 
+                    string pattern = patterns[patternOrdinal];
                     var isGlob = pattern.Contains('*') || pattern.Contains('?');
                     var matched = isGlob
                         ? TypeMatcher.MatchesGlob(member.Name, pattern)
@@ -193,7 +225,15 @@ public static class MemberSearch
                     results.Add(new MemberSearchResult
                     {
                         Pattern = pattern,
+                        PatternOrdinal = patternOrdinal,
                         MemberName = member.Name,
+                        DeclaringTypeName = declaringTypeName,
+                        Anchor = anchor ??=
+                            ApiMemberIdentity.GetMemberAnchor(
+                                type,
+                                member),
+                        DeclarationOrder = declarationOrder,
+                        MemberOrder = memberOrder,
                         DeclaringType = type.FullName,
                         DeclaringNamespace = type.Namespace,
                         Kind = member.Kind,

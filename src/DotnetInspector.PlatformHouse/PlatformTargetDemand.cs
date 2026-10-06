@@ -319,11 +319,13 @@ public abstract class PlatformTargetDemand
             PlatformTargetDiscoveryBudget work)
             : base(family)
         {
-            if (family != PlatformFamily.DotNetRuntime)
+            // Each shared-framework family has its own named versionless
+            // policy; the policy shape does not depend on the family.
+            if (!Enum.IsDefined(family))
             {
-                throw new ArgumentException(
-                    "The versionless runtime policy requires the runtime family.",
-                    nameof(family));
+                throw new ArgumentOutOfRangeException(
+                    nameof(family),
+                    "A family-default demand requires a defined platform family.");
             }
             ArgumentNullException.ThrowIfNull(policy);
             ArgumentNullException.ThrowIfNull(work);

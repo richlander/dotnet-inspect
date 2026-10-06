@@ -250,6 +250,19 @@ public sealed partial class BrowserEngineBoundaryTests
                 allocation.GetProperty("kind").GetString()
                     == nameof(AllocationKind.Box)
                 && allocation.GetProperty("countedAsHeap").GetBoolean());
+        JsonElement boxedAllocation = Assert.Single(
+            root.GetProperty("allocations").EnumerateArray(),
+            allocation =>
+                allocation.GetProperty("kind").GetString()
+                    == nameof(AllocationKind.Box));
+        Assert.Contains(
+            boxedAllocation.GetProperty("lifetimeUses")
+                .EnumerateArray(),
+            use => use.GetProperty("kind").GetString()
+                == "return");
+        Assert.Empty(
+            boxedAllocation.GetProperty("lifetimeLimitations")
+                .EnumerateArray());
         Assert.Contains(
             root.GetProperty("performanceOpportunities")
                 .EnumerateArray(),

@@ -17,6 +17,14 @@ public readonly record struct MetadataMethodSemanticsAssociation(
     MetadataMethodSemanticsAssociationKind AssociationKind,
     int AssociationRowNumber);
 
+internal readonly record struct MetadataMethodSemanticsAssociationRange(
+    int Start,
+    int Count);
+
+internal readonly record struct MetadataMethodSemanticsAssociationKey(
+    MetadataMethodSemanticsAssociationKind Kind,
+    int RowNumber);
+
 public enum MetadataMethodSemanticsFailureReason
 {
     BudgetExceeded,
@@ -57,11 +65,19 @@ public abstract record MetadataMethodSemanticsAssociationResult
     {
         internal Completed(
             ImmutableArray<MetadataMethodSemanticsAssociation> associations,
+            ImmutableDictionary<
+                MetadataMethodSemanticsAssociationKey,
+                MetadataMethodSemanticsAssociationRange> ranges,
+            ImmutableDictionary<
+                MethodDefinitionHandle,
+                ImmutableArray<int>> methodIndexes,
             bool associationsAreNondecreasing,
             MetadataOperationCounters counters)
             : base(counters)
         {
             Associations = associations;
+            Ranges = ranges;
+            MethodIndexes = methodIndexes;
             AssociationsAreNondecreasing =
                 associationsAreNondecreasing;
         }
@@ -70,6 +86,48 @@ public abstract record MetadataMethodSemanticsAssociationResult
             Associations { get; }
 
         public bool AssociationsAreNondecreasing { get; }
+
+        ImmutableDictionary<
+            MetadataMethodSemanticsAssociationKey,
+            MetadataMethodSemanticsAssociationRange> Ranges { get; }
+
+        ImmutableDictionary<
+            MethodDefinitionHandle,
+            ImmutableArray<int>> MethodIndexes { get; }
+
+        internal MetadataMethodSemanticsAssociationRange FindRange(
+            MetadataMethodSemanticsAssociationKind kind,
+            int rowNumber,
+            Action beforeProbe,
+            CancellationToken token)
+        {
+            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(rowNumber);
+            ArgumentNullException.ThrowIfNull(beforeProbe);
+
+            token.ThrowIfCancellationRequested();
+            beforeProbe();
+            return Ranges.TryGetValue(
+                new(kind, rowNumber),
+                out MetadataMethodSemanticsAssociationRange range)
+                    ? range
+                    : new(0, 0);
+        }
+
+        internal ImmutableArray<int> FindMethodIndexes(
+            MethodDefinitionHandle method,
+            Action beforeProbe,
+            CancellationToken token)
+        {
+            ArgumentNullException.ThrowIfNull(beforeProbe);
+
+            token.ThrowIfCancellationRequested();
+            beforeProbe();
+            return MethodIndexes.TryGetValue(
+                method,
+                out ImmutableArray<int> indexes)
+                    ? indexes
+                    : [];
+        }
     }
 
     public sealed record Rejected
@@ -204,8 +262,73 @@ public sealed class MethodSemanticsAssociationSession
                     row.AssociationRowNumber));
         }
 
+        ImmutableArray<MetadataMethodSemanticsAssociation> completed =
+            associations.MoveToImmutable();
+        var methodIndexBuilders =
+            new Dictionary<
+                MethodDefinitionHandle,
+                ImmutableArray<int>.Builder>();
+        for (int index = 0; index < completed.Length; index++)
+        {
+            MethodDefinitionHandle method = completed[index].Method;
+            if (!methodIndexBuilders.TryGetValue(
+                    method,
+                    out ImmutableArray<int>.Builder? indexes))
+            {
+                indexes = ImmutableArray.CreateBuilder<int>();
+                methodIndexBuilders.Add(method, indexes);
+            }
+            indexes.Add(index);
+        }
+        var methodIndexes = ImmutableDictionary.CreateBuilder<
+            MethodDefinitionHandle,
+            ImmutableArray<int>>();
+        foreach ((
+            MethodDefinitionHandle method,
+            ImmutableArray<int>.Builder indexes)
+            in methodIndexBuilders)
+        {
+            methodIndexes.Add(method, indexes.ToImmutable());
+        }
+
+        ImmutableDictionary<
+            MetadataMethodSemanticsAssociationKey,
+            MetadataMethodSemanticsAssociationRange> ranges =
+                ImmutableDictionary<
+                    MetadataMethodSemanticsAssociationKey,
+                    MetadataMethodSemanticsAssociationRange>.Empty;
+        if (success.AssociationsAreNondecreasing)
+        {
+            var rangesBuilder = ImmutableDictionary.CreateBuilder<
+                MetadataMethodSemanticsAssociationKey,
+                MetadataMethodSemanticsAssociationRange>();
+            int start = 0;
+            while (start < completed.Length)
+            {
+                MetadataMethodSemanticsAssociation association =
+                    completed[start];
+                var key = new MetadataMethodSemanticsAssociationKey(
+                    association.AssociationKind,
+                    association.AssociationRowNumber);
+                int end = start + 1;
+                while (end < completed.Length
+                    && completed[end].AssociationKind == key.Kind
+                    && completed[end].AssociationRowNumber == key.RowNumber)
+                {
+                    end++;
+                }
+
+                rangesBuilder.Add(key, new(start, end - start));
+                start = end;
+            }
+
+            ranges = rangesBuilder.ToImmutable();
+        }
+
         return new MetadataMethodSemanticsAssociationResult.Completed(
-            associations.MoveToImmutable(),
+            completed,
+            ranges,
+            methodIndexes.ToImmutable(),
             success.AssociationsAreNondecreasing,
             counters);
     }

@@ -144,13 +144,19 @@ public sealed class MemberBodyProducerMemberRenderTests
             ApiSurfaceExtractor.Extract(pe, includeAll: true).Types,
             candidate =>
                 candidate.FullName == typeof(ReadonlyExplicitMemberRenderSpecimen).FullName);
-        ApiMember accessor = Assert.Single(
+        ApiMember property = Assert.Single(
             type.Members,
-            member => member.Kind == "explicit-interface-implementation"
+            member => member.Kind == "property"
                 && member.Name.EndsWith(
-                    $".{accessorPrefix}Label",
+                    $".{nameof(get_IMemberRenderExplicitProperty.Label)}",
                     StringComparison.Ordinal));
+        ApiMember accessor = Assert.Single(
+            ApiMemberAccessors.Create(property, type),
+            member => member.Name.EndsWith(
+                $".{accessorPrefix}{nameof(get_IMemberRenderExplicitProperty.Label)}",
+                StringComparison.Ordinal));
         Assert.True(accessor.IsReadOnly);
+        type.Members = [accessor];
 
         var rendered = MemberBodyProducer.ProduceMember(
             type, accessor, AssemblyPath, pdbPath: null);

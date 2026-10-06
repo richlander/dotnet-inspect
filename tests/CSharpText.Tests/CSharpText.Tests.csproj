@@ -15,6 +15,7 @@
     <PackageReference Include="xunit.v3" />
     <!-- Roslyn remains a test-only oracle for declaration and conditional-span validity. -->
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" />
+    <PackageDownload Include="Microsoft.NETCore.App.Ref" Version="[10.0.10]" />
   </ItemGroup>
 
   <ItemGroup>

@@ -26,9 +26,7 @@ public partial class CommandExecutionTests
                 "library",
                 path,
                 "-S",
-                SectionNames.LibraryInfo,
-                "--tips",
-                "q");
+                SectionNames.LibraryInfo);
 
             Assert.True(
                 exit == 0,
@@ -58,7 +56,7 @@ public partial class CommandExecutionTests
             WriteReferenceFixtureAssembly(
                 path,
                 "Sample.Library",
-                "Aspire.Hosting.Azure.SignalR",
+                "Microsoft.Extensions.AI",
                 "ThirdParty.Client");
 
             var (exit, output, error) = await RunAppAsync(
@@ -66,22 +64,29 @@ public partial class CommandExecutionTests
                 path,
                 "-S",
                 SectionNames.EcosystemDependencies,
-                "--table",
-                "--tips",
-                "q");
+                "--table");
 
             Assert.True(
                 exit == 0,
                 $"Expected exit code 0, got {exit}.{Environment.NewLine}{error}");
             Assert.Empty(error);
-            Assert.Contains("Aspire", output, StringComparison.Ordinal);
-            Assert.Contains("Azure", output, StringComparison.Ordinal);
+            Assert.Contains(
+                output.Split('\n'),
+                line => line.TrimStart().StartsWith(
+                    "Microsoft.Extensions  ",
+                    StringComparison.Ordinal));
+            Assert.Contains(
+                output.Split('\n'),
+                line => line.TrimStart().StartsWith(
+                    "AI  ",
+                    StringComparison.Ordinal));
             Assert.Equal(
                 2,
                 output.Split('\n').Count(
                     line => line.Contains(
-                        "Aspire.Hosting.Azure.SignalR",
+                        "Microsoft.Extensions.AI",
                         StringComparison.Ordinal)));
+            Assert.Contains("Candidate", output, StringComparison.Ordinal);
             Assert.DoesNotContain(
                 "ThirdParty.Client",
                 output,
@@ -110,7 +115,7 @@ public partial class CommandExecutionTests
             WriteReferenceFixtureAssembly(
                 path,
                 "Sample.Library",
-                "Aspire.Hosting.Azure.SignalR");
+                "Microsoft.Extensions.AI");
 
             var (headExit, headOutput, headError) = await RunAppAsync(
                 "library",
@@ -119,9 +124,7 @@ public partial class CommandExecutionTests
                 SectionNames.EcosystemDependencies,
                 "--json",
                 "-n",
-                "1",
-                "--tips",
-                "q");
+                "1");
             var (tailExit, tailOutput, tailError) = await RunAppAsync(
                 "library",
                 path,
@@ -130,9 +133,7 @@ public partial class CommandExecutionTests
                 "--json",
                 "-n",
                 "1",
-                "--tail",
-                "--tips",
-                "q");
+                "--tail");
 
             Assert.True(
                 headExit == 0,
@@ -152,24 +153,83 @@ public partial class CommandExecutionTests
                     "ecosystem_dependencies");
             JsonElement headDependency =
                 Assert.Single(
-                    headRecognition.GetProperty("dependencies")
+                    headRecognition.GetProperty("candidates")
                         .EnumerateArray());
             JsonElement tailDependency =
                 Assert.Single(
-                    tailRecognition.GetProperty("dependencies")
+                    tailRecognition.GetProperty("candidates")
                         .EnumerateArray());
             Assert.Equal(
-                "Aspire",
+                "Microsoft.Extensions",
                 headDependency.GetProperty("ecosystem").GetString());
             Assert.Equal(
-                "Azure",
+                "AI",
                 tailDependency.GetProperty("ecosystem").GetString());
             Assert.Equal(
-                "Aspire.Hosting.Azure.SignalR, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null",
+                "Microsoft.Extensions.AI, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null",
                 tailDependency.GetProperty("dependency").GetString());
             Assert.Equal(
-                2,
+                "Candidate",
+                tailDependency.GetProperty("recognition").GetString());
+            Assert.Equal(
+                0,
                 tailRecognition.GetProperty("ecosystems").GetArrayLength());
+            Assert.Equal(
+                2,
+                tailRecognition.GetProperty("candidate_ecosystems")
+                    .GetArrayLength());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task LibraryEcosystemDependencies_ExposeCatalogBackedEvidence()
+    {
+        var tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"library-ecosystem-evidence-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        string path = Path.Combine(tempDir, "Sample.Library.dll");
+        try
+        {
+            WriteReferenceFixtureAssembly(
+                path,
+                "Sample.Library",
+                "Microsoft.Extensions.Options");
+
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                path,
+                "-S",
+                SectionNames.EcosystemDependencies,
+                "--json");
+
+            Assert.True(
+                exit == 0,
+                $"Expected exit code 0, got {exit}.{Environment.NewLine}{error}");
+            Assert.Empty(error);
+            using JsonDocument result = JsonDocument.Parse(output);
+            JsonElement recognition = result.RootElement.GetProperty(
+                "ecosystem_dependencies");
+            JsonElement dependency = Assert.Single(
+                recognition.GetProperty("dependencies").EnumerateArray());
+            Assert.Equal(
+                "Catalog-backed",
+                dependency.GetProperty("recognition").GetString());
+            Assert.Equal(
+                "Microsoft.Extensions.Options@10.0.0/"
+                    + "lib/net10.0/Microsoft.Extensions.Options.dll",
+                dependency.GetProperty("assembly_evidence").GetString());
+            Assert.Empty(
+                recognition.GetProperty("candidates").EnumerateArray());
+            Assert.Equal(
+                ["Microsoft.Extensions"],
+                recognition.GetProperty("ecosystems")
+                    .EnumerateArray()
+                    .Select(static item => item.GetString()));
         }
         finally
         {
@@ -197,9 +257,7 @@ public partial class CommandExecutionTests
                 path,
                 "-S",
                 $"{SectionNames.LibraryInfo},{SectionNames.EcosystemDependencies}",
-                "--json",
-                "--tips",
-                "q");
+                "--json");
 
             Assert.True(
                 exit == 0,
@@ -232,9 +290,7 @@ public partial class CommandExecutionTests
             $"{SectionNames.LibraryInfo},{SectionNames.EcosystemDependencies}",
             "--json",
             "-n",
-            "1",
-            "--tips",
-            "q");
+            "1");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -257,9 +313,7 @@ public partial class CommandExecutionTests
                 packagePath,
                 "-S",
                 SectionNames.EcosystemDependencies,
-                "--json",
-                "--tips",
-                "q");
+                "--json");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -316,9 +370,7 @@ public partial class CommandExecutionTests
                 "all",
                 "-S",
                 SectionNames.EcosystemDependencies,
-                "--json",
-                "--tips",
-                "q");
+                "--json");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -341,8 +393,17 @@ public partial class CommandExecutionTests
                 .Select(static ecosystem => ecosystem.GetString()!)
                 .ToArray();
             Assert.Contains("Microsoft.Extensions", ecosystems);
-            Assert.Contains("Aspire", ecosystems);
-            Assert.Contains("Azure", ecosystems);
+            Assert.DoesNotContain("Azure", ecosystems);
+            string[] candidates = inspections
+                .SelectMany(inspection =>
+                    inspection.GetProperty("ecosystem_dependencies")
+                        .GetProperty("candidate_ecosystems")
+                        .EnumerateArray())
+                .Select(static ecosystem => ecosystem.GetString()!)
+                .ToArray();
+            Assert.Contains("Aspire", candidates);
+            Assert.DoesNotContain("Aspire", ecosystems);
+            Assert.DoesNotContain("Azure", candidates);
         }
         finally
         {

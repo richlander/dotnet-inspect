@@ -336,6 +336,7 @@ internal sealed class PackageArchiveEntryReadStream : Stream
     private readonly ulong _expectedLength;
     private readonly uint _expectedCrc32;
     private readonly long _maxExpandedBytes;
+    private readonly IDisposable? _owner;
     private ZipCrc32 _crc = new();
     private long _expandedBytes;
     private bool _completed;
@@ -349,7 +350,8 @@ internal sealed class PackageArchiveEntryReadStream : Stream
             content,
             entry.UncompressedSize,
             entry.Crc32,
-            maxExpandedBytes)
+            maxExpandedBytes,
+            owner: null)
     {
     }
 
@@ -357,7 +359,22 @@ internal sealed class PackageArchiveEntryReadStream : Stream
         Stream content,
         ulong expectedLength,
         uint expectedCrc32,
-        long maxExpandedBytes)
+        long maxExpandedBytes) :
+        this(
+            content,
+            expectedLength,
+            expectedCrc32,
+            maxExpandedBytes,
+            owner: null)
+    {
+    }
+
+    internal PackageArchiveEntryReadStream(
+        Stream content,
+        ulong expectedLength,
+        uint expectedCrc32,
+        long maxExpandedBytes,
+        IDisposable? owner)
     {
         ArgumentNullException.ThrowIfNull(content);
         ArgumentOutOfRangeException.ThrowIfNegative(maxExpandedBytes);
@@ -365,6 +382,7 @@ internal sealed class PackageArchiveEntryReadStream : Stream
         _expectedLength = expectedLength;
         _expectedCrc32 = expectedCrc32;
         _maxExpandedBytes = maxExpandedBytes;
+        _owner = owner;
     }
 
     public override bool CanRead => !_disposed;
@@ -464,7 +482,16 @@ internal sealed class PackageArchiveEntryReadStream : Stream
     protected override void Dispose(bool disposing)
     {
         if (!_disposed && disposing)
-            _content.Dispose();
+        {
+            try
+            {
+                _content.Dispose();
+            }
+            finally
+            {
+                _owner?.Dispose();
+            }
+        }
         _disposed = true;
         base.Dispose(disposing);
     }
@@ -472,7 +499,16 @@ internal sealed class PackageArchiveEntryReadStream : Stream
     public override async ValueTask DisposeAsync()
     {
         if (!_disposed)
-            await _content.DisposeAsync().ConfigureAwait(false);
+        {
+            try
+            {
+                await _content.DisposeAsync().ConfigureAwait(false);
+            }
+            finally
+            {
+                _owner?.Dispose();
+            }
+        }
         _disposed = true;
         GC.SuppressFinalize(this);
     }

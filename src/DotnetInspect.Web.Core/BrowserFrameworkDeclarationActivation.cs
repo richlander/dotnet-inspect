@@ -140,6 +140,32 @@ internal sealed class BrowserFrameworkDeclarationAction
     internal object Token { get; }
 }
 
+[SupportedOSPlatform("browser")]
+internal sealed class BrowserFrameworkDeclarationActivationAdmission :
+    IDisposable
+{
+    readonly BrowserFrameworkDeclarationActivation _owner;
+    int _disposed;
+
+    internal BrowserFrameworkDeclarationActivationAdmission(
+        BrowserFrameworkDeclarationActivation owner,
+        BrowserFrameworkDeclarationAction action)
+    {
+        _owner = owner;
+        Action = action;
+    }
+
+    internal BrowserFrameworkDeclarationAction Action { get; }
+
+    internal BrowserFrameworkDeclarationActivation Owner => _owner;
+
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) == 0)
+            _owner.CompleteAdmission(Action);
+    }
+}
+
 internal sealed class BrowserFrameworkDeclarationResultAuthority
 {
     internal BrowserFrameworkDeclarationResultAuthority(
@@ -237,6 +263,9 @@ internal sealed class BrowserFrameworkDeclarationActivation : IDisposable
     readonly object _gate = new();
     readonly object _issuer = new();
     readonly BrowserWorkspaceRealizationHost _host;
+    ImmutableDictionary<object, ActionEntry> _admitted =
+        ImmutableDictionary<object, ActionEntry>.Empty
+            .WithComparers(ReferenceEqualityComparer.Instance);
     PublicationState? _current;
     long _latestResultGeneration = -1;
     bool _closed;
@@ -445,25 +474,90 @@ internal sealed class BrowserFrameworkDeclarationActivation : IDisposable
                 new BrowserFrameworkDeclarationActivationBlock.Canceled());
         }
 
-        if (!ReferenceEquals(action.Issuer, _issuer))
+        BrowserFrameworkDeclarationActivationAdmission? admission =
+            Admit(action, out BrowserFrameworkDeclarationActivationBlock? block);
+        if (admission is null)
         {
             return Blocked(
                 action,
-                new BrowserFrameworkDeclarationActivationBlock.Refused(
-                    BrowserFrameworkDeclarationRefusedReason.ForeignAction));
-        }
-        if (!TryGetCurrentEntry(action, out ActionEntry? entry))
-        {
-            return Blocked(
-                action,
-                new BrowserFrameworkDeclarationActivationBlock.Stale(
-                    BrowserFrameworkDeclarationStaleReason.Result));
+                block
+                ?? throw new InvalidOperationException(
+                    "Framework activation admission returned no result."));
         }
 
-        WorkspaceRealizationOperationAdmission admission;
+        return await ActivateAsync(admission, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    internal BrowserFrameworkDeclarationActivationAdmission? Admit(
+        BrowserFrameworkDeclarationAction action,
+        out BrowserFrameworkDeclarationActivationBlock? block)
+    {
+        ArgumentNullException.ThrowIfNull(action);
+        lock (_gate)
+        {
+            if (!ReferenceEquals(action.Issuer, _issuer))
+            {
+                block = new BrowserFrameworkDeclarationActivationBlock.Refused(
+                    BrowserFrameworkDeclarationRefusedReason.ForeignAction);
+                return null;
+            }
+            if (_closed
+                || _current is not { } current
+                || !ReferenceEquals(
+                    current.Identity,
+                    action.Publication)
+                || !current.Entries.TryGetValue(
+                    action.Token,
+                    out ActionEntry? entry))
+            {
+                block = new BrowserFrameworkDeclarationActivationBlock.Stale(
+                    BrowserFrameworkDeclarationStaleReason.Result);
+                return null;
+            }
+
+            current.Entries = current.Entries.Remove(action.Token);
+            _admitted = _admitted.Add(action.Token, entry);
+            block = null;
+            return new(this, action);
+        }
+    }
+
+    internal async ValueTask<BrowserFrameworkDeclarationActivationResult>
+        ActivateAsync(
+            BrowserFrameworkDeclarationActivationAdmission admission,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(admission);
+        if (!ReferenceEquals(admission.Owner, this))
+        {
+            throw new ArgumentException(
+                "The framework activation admission belongs to a different owner.",
+                nameof(admission));
+        }
+
+        BrowserFrameworkDeclarationAction action = admission.Action;
+        using (admission)
+        {
+            if (cancellationToken.IsCancellationRequested)
+            {
+                return Blocked(
+                    action,
+                    new BrowserFrameworkDeclarationActivationBlock.Canceled());
+            }
+            if (!TryGetAdmittedEntry(action, out ActionEntry? entry))
+            {
+                return Blocked(
+                    action,
+                    new BrowserFrameworkDeclarationActivationBlock.Stale(
+                        BrowserFrameworkDeclarationStaleReason.Result));
+            }
+
+        WorkspaceRealizationOperationAdmission workspaceAdmission;
         try
         {
-            admission = await _host.EnterOperationAsync(cancellationToken)
+            workspaceAdmission =
+                await _host.EnterOperationAsync(cancellationToken)
                 .ConfigureAwait(false);
         }
         catch (OperationCanceledException)
@@ -473,7 +567,7 @@ internal sealed class BrowserFrameworkDeclarationActivation : IDisposable
                 action,
                 new BrowserFrameworkDeclarationActivationBlock.Canceled());
         }
-        if (admission
+        if (workspaceAdmission
             is WorkspaceRealizationOperationAdmission.Unavailable unavailable)
         {
             return Blocked(
@@ -482,7 +576,8 @@ internal sealed class BrowserFrameworkDeclarationActivation : IDisposable
         }
 
         using WorkspaceRealizationOperationLease operation =
-            ((WorkspaceRealizationOperationAdmission.Admitted)admission).Lease;
+            ((WorkspaceRealizationOperationAdmission.Admitted)
+                workspaceAdmission).Lease;
         InspectionWorkspace workspace = operation.Workspace;
         if (!ReferenceEquals(operation.Realization, entry.Realization)
             || !ReferenceEquals(workspace.Identity, entry.Realization))
@@ -512,7 +607,7 @@ internal sealed class BrowserFrameworkDeclarationActivation : IDisposable
                 new BrowserFrameworkDeclarationActivationBlock.Stale(
                     BrowserFrameworkDeclarationStaleReason.Realization));
         }
-        if (!TryGetCurrentEntry(action, out ActionEntry? current)
+        if (!TryGetAdmittedEntry(action, out ActionEntry? current)
             || !ReferenceEquals(current, entry))
         {
             return Blocked(
@@ -640,7 +735,7 @@ internal sealed class BrowserFrameworkDeclarationActivation : IDisposable
                 new BrowserFrameworkDeclarationActivationBlock.Stale(
                     BrowserFrameworkDeclarationStaleReason.Realization));
         }
-        if (!TryGetCurrentEntry(action, out current)
+        if (!TryGetAdmittedEntry(action, out current)
             || !ReferenceEquals(current, entry))
         {
             return Blocked(
@@ -652,6 +747,7 @@ internal sealed class BrowserFrameworkDeclarationActivation : IDisposable
         return new BrowserFrameworkDeclarationActivationResult.Settled(
             action,
             effect);
+        }
     }
 
     public void Dispose()
@@ -953,23 +1049,21 @@ internal sealed class BrowserFrameworkDeclarationActivation : IDisposable
         }
     }
 
-    bool TryGetCurrentEntry(
+    bool TryGetAdmittedEntry(
         BrowserFrameworkDeclarationAction action,
         [NotNullWhen(true)] out ActionEntry? entry)
     {
         lock (_gate)
         {
-            if (_closed
-                || _current is not { } current
-                || !ReferenceEquals(
-                    current.Identity,
-                    action.Publication))
-            {
-                entry = null;
-                return false;
-            }
-            return current.Entries.TryGetValue(action.Token, out entry);
+            return _admitted.TryGetValue(action.Token, out entry);
         }
+    }
+
+    internal void CompleteAdmission(
+        BrowserFrameworkDeclarationAction action)
+    {
+        lock (_gate)
+            _admitted = _admitted.Remove(action.Token);
     }
 
     static BrowserFrameworkDeclarationPublication BlockedPublication(

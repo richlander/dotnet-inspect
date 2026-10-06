@@ -154,7 +154,7 @@ observation that supports them:
 This separates two joins that have different stability contracts. `Candidate`
 is exact within one assembly build and is the key for runtime/static trace
 correlation. Cross-version onset still uses the producer-native
-`diff --finding` or `timeline --finding` matcher, where IL offsets and metadata
+`diff --analysis` or `diff --history --finding` matcher, where IL offsets and metadata
 tokens remain provenance rather than correspondence identity. Aggregate rows such as `allocation-hotspot` have no exact source occurrence and
 therefore use `Provenance=aggregate` while keeping their `Finding`, `Operation`,
 `Token`, and `IL` fields empty. A composite repeated-scan judgment may retain

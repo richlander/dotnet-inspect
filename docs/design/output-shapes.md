@@ -28,6 +28,8 @@ focused-owner gaps; it defines no product syntax, behavior, or gates.
 
 Related docs:
 
+- [CLI output format and destination](cli-output-format-and-destination.md) —
+  `--format` presentation selection and `-o` / `--output` destination grammar
 - [Output style guide](style-guide.md#machine-names-and-identifiers) — machine
   property and semantic identifier naming
 - [Output composition model](output-composition.md) — section selection, filtering, and writer capabilities
@@ -70,13 +72,28 @@ attachment, not a new rung in this ladder.
 ### Implementation status
 
 Baseline transport is adopted by positional `depends <type>`, ordinary
-Library API Diff with exactly one Library per endpoint, Package Activity,
-ordinary Package Query, Package Query assembly-semantic evaluation, and exact
-package-backed Type and Library API inspection.
+Library API Diff with exactly one Library per endpoint, analysis-selected Diff,
+Package Activity, ordinary Package Query, Package Query assembly-semantic
+evaluation, and exact package-backed Type and Library API inspection.
 The dependency operation registers `result_kind` `type-dependencies` at
 `schema_version` `1` and uses one host-neutral
 `TypeDependencySectionJsonContext` for both Content-only `--json` and the
 Content subtree of `--envelope`.
+
+Analysis-selected Diff registers `result_kind` `diff-analysis` at
+`schema_version` `2`. `DiffAnalysisInspectionJsonContext` serializes the same
+host-neutral `DiffAnalysisDocument` for Content-only `--json` and the Content
+subtree of `--envelope`. The Document retains comparison context, ordered
+analysis outcomes, typed API inspection failures, and only the requested
+Changes, Summary, and Transitions payloads. API Changes include
+compatibility-classified rows and producer correspondence that has no
+compatibility classification, such as a changed Type definition. Type and
+Member targets shape that semantic Content; presentation projection is not
+admitted on the complete transport. A selected-Library composition may also
+retain the owner-issued `LibraryApiDiffOutcome` as `libraryApi`. It is omitted
+when that composition did not run. The embedded outcome preserves its existing
+portable schema and is derived from the same API comparison as generic Diff,
+not from host-side reconstruction or a second comparison.
 
 Debug asset-mode `depends` adopts `--evidence-envelope <path>` for
 `DependencyInspectionContent` and `DependencyInspectionEvidenceDocument`.
@@ -134,7 +151,7 @@ sources, PDB Source, categories or additional sections, row/field/column
 projection, and alternate formats remain outside this complete transport.
 Share is `NonProjectable` at `comparison/endpoints`.
 
-Package Activity registers `ecosystem-change-report` at schema version `1`.
+Package Activity registers `ecosystem-change-report` at schema version `2`.
 Unprojected `--json` and `--envelope.content` share the owner-issued
 `EcosystemChangeReportDocument` serializer. Report scope, interval, security
 selection, and semantic result limit remain service inputs. Projection, Count,
@@ -364,6 +381,7 @@ The registered adopter identities are:
 | --- | --- |
 | `type-dependencies` | `TypeDependencySectionResult` |
 | `library-api-diff` | `LibraryApiDiffOutcome` |
+| `diff-analysis` | `DiffAnalysisDocument` |
 | `asset-dependencies` | `DependencyInspectionContent` |
 | `ecosystem-change-report` | `EcosystemChangeReportDocument` |
 | `package-query` | `PackageQueryDocument` |
@@ -449,7 +467,7 @@ Serialization never recaptures evidence or projects Share.
 | Markdown, plaintext, table, TSV, JSONL, tree, Mermaid, or name-only output | Reject competing primary presentations. | Retain the ordinary route's behavior. |
 | `--compact` | Change envelope JSON whitespace only. | Change attachment JSON whitespace; when paired, change both envelopes. |
 | `--share[=url\|packet]` | Preserve the adopting command's current output-channel and exit contract using this envelope's Share. | Preserve the same contract from the enriched value's Share. Package Dependencies retains its known scalar-stdout fast path until the coherent [existing-adopter migration](cli-workspace-sharing.md#status-and-gates); evidence transport does not partially migrate only its output channel. |
-| `--verbose`, `--trace`, `--tips` | Retain their stderr-only role. | Retain their ordinary role; only the evidence option requests service evidence. |
+| `--verbose`, `--trace`, `-E .tips` | Retain their stderr-only role. | Retain their ordinary role; only the evidence option requests service evidence. |
 | Source, endpoints, subject, API scope, traversal, or other semantic inputs | Retain the operation owner's admission, authorization, and semantic meaning. | Retain the same meaning. |
 | `-S`, `-v`, row/query controls, or `--count` | Admit only when the operation binds their complete effect into its owner-issued service result; reject post-service shaping. | Retain ordinary shaping; semantic inputs still bind the service result. |
 | `--fields`, `--columns`, `--raw`, `--no-headers`, `--print`, `--value`, URL/path projections, or rendered-line clipping | Reject post-service presentation or projection requests. | Retain ordinary primary-output behavior without shaping the attachment. |
@@ -719,6 +737,10 @@ eligibility against the resulting Scalar or one count Table as defined below.
 A command may publish owner-issued output-capability metadata for its selectable
 sections. Each section declares the presentation modes supported by its product
 shape, plus any mode that requires the section to be the complete selection.
+Under [Section shapes](section-shapes.md), an adopting command derives those
+modes from the section's declared shape (Table, Hierarchy, or Text) rather
+than declaring them independently; this section continues to own how a complete
+selection is evaluated against them.
 The command also declares any section family that forms one homogeneous Table
 when multiple members are selected.
 
@@ -1067,6 +1089,12 @@ expose one object containing the active cache `location`, formatted `total`,
 and a `categories` array whose rows contain `name`, `size`, and `items`.
 JSONL emits that complete object as exactly one line. An empty cache retains the
 same object shape with `categories: []`.
+
+The Browser-focused
+[Progressive JSONL Delivery](progressive-jsonl-delivery.md) contract does not
+change this or another public CLI JSONL shape. It consumes the established
+one-complete-JSON-value-per-line convention while using a separately declared
+compact positional row only for its explicit managed Browser stream.
 
 This boundary exists because generated Markout list sections do not emit an
 empty section, so lowered JSON cannot preserve the required empty array.
@@ -1421,13 +1449,13 @@ folded and their rendering hazards (VT, ANSI escapes, bidi overrides, LS/PS)
 rewritten as visible `\uXXXX`, so they cannot escape a table cell, a code
 fence, a tree gutter, or a diagnostic line (issue #3319).
 
-Printing documents (`-S "Package README file" --print`) and `--content`
+Printing documents (`-S README --print`) and `--content`
 visually encode rendering hazards on stdout. Exact payload transfer is an
 explicit unary file operation: add `--out <path>` to a selection that resolves
 one payload. An unscoped file export preserves the package bytes exactly,
 including encoding, byte order mark, and line endings, except for package skill
 documents: skills are agent instructions, so every route, including
-`project -S Skills --print`, `package -S "Package skill files" --print`,
+`project -S Skills --print`, `package -S Skills --print`,
 `--content`, and a package README declaration, classifies through a
 `TextPolicy.Prose` `InertString` and carries one containment-selected value
 through stdout, structured output, and `--out`. The raw scoped skill is
@@ -1467,7 +1495,7 @@ described by the historical #4677 target. It remains pending focused L3
 payload-projection ownership and gates.
 
 Tool-authored companion output still uses the stream split: for example,
-`package X -S "Package README file" --print` writes the framed, encoded
+`package X -S README --print` writes the framed, encoded
 document to stdout and any tips or diagnostics to stderr.
 
 Two consequences define the boundary:

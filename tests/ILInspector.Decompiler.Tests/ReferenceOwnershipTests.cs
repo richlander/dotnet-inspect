@@ -63,6 +63,19 @@ public class ReferenceOwnershipTests
     }
 
     [Fact]
+    public void LocalReferencesOnlyWithin_IgnoresIndependentNestedFunctionSlots()
+    {
+        var outer = new Block();
+        var store = new StoreLocal(0, Int, new Constant(1, Int));
+        outer.Add(store);
+        outer.Add(LocalFunctionWith(new Return(new LoadLocal(0, Int))));
+
+        var function = Function(outer);
+
+        Assert.True(ReferenceOwnership.LocalReferencesOnlyWithin(function, 0, [store]));
+    }
+
+    [Fact]
     public void StackSlotReferencesOnlyWithin_CoversLoadAndStore()
     {
         var allowed = StackSlotBlock();
@@ -77,6 +90,19 @@ public class ReferenceOwnershipTests
         function = Function(allowed, external);
 
         Assert.False(ReferenceOwnership.StackSlotReferencesOnlyWithin(function, 256, [external]));
+    }
+
+    [Fact]
+    public void StackSlotReferencesOnlyWithin_IgnoresIndependentNestedFunctionSlots()
+    {
+        var outer = new Block();
+        var store = new StoreStackSlot(256, new Constant(1, Int));
+        outer.Add(store);
+        outer.Add(LocalFunctionWith(new Return(new LoadStackSlot(256, Int))));
+
+        var function = Function(outer);
+
+        Assert.True(ReferenceOwnership.StackSlotReferencesOnlyWithin(function, 256, [store]));
     }
 
     [Fact]
@@ -153,5 +179,23 @@ public class ReferenceOwnershipTests
         block.Add(new StoreStackSlot(256, new Constant(1, Int)));
         block.Add(new Return(new LoadStackSlot(256, Int)));
         return block;
+    }
+
+    static LocalFunctionStatement LocalFunctionWith(IrNode statement)
+    {
+        var block = new Block();
+        block.Add(statement);
+        var body = new BlockContainer();
+        body.Add(block);
+        return new LocalFunctionStatement(
+            "L",
+            Int,
+            [],
+            isStatic: true,
+            [Int],
+            [null],
+            usesUpdatedMemorySafetyRules: false,
+            skipLocalsInit: false,
+            body);
     }
 }

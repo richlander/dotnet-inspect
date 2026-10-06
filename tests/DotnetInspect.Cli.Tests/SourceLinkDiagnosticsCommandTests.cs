@@ -17,11 +17,11 @@ public partial class CommandExecutionTests
         string path = FixtureCatalog.SourceLinkMalformed.AssemblyPath();
 
         var signals = await RunAppAsync(
-            "library", path, "-S", "Signals", "--tips", "q");
+            "library", path, "-S", "Signals");
         var diagnostics = await RunAppAsync(
-            "library", path, "-S", "SourceLink: Diagnostics", "--tips", "q");
+            "library", path, "-S", "SourceLink: Diagnostics");
         var paths = await RunAppAsync(
-            "library", path, "-S", "Non-normalized Paths", "--tips", "q");
+            "library", path, "-S", "Non-normalized Paths");
 
         Assert.Equal(0, signals.Exit);
         Assert.Contains("Present (unusable)", signals.Output, StringComparison.Ordinal);
@@ -116,8 +116,8 @@ public partial class CommandExecutionTests
 
             var (exit, output, error) = await RunAppAsync(
                 "library", assemblyPath,
-                "-D", "--effective", "--tree",
-                "--tips", "q");
+                "-D", "--effective", "--tree"
+                );
 
             Assert.Equal(0, exit);
             Assert.Empty(error);

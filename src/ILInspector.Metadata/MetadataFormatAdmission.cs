@@ -40,7 +40,19 @@ public static class MetadataFormatAdmission
     {
         ArgumentNullException.ThrowIfNull(peReader);
 
-        return Admit(MetadataImageFormatClassifier.Classify(peReader));
+        return AdmitAndClassify(peReader)
+            is MetadataImageFormatResult.SupportedEcma335;
+    }
+
+    internal static MetadataImageFormatResult AdmitAndClassify(
+        PEReader peReader)
+    {
+        ArgumentNullException.ThrowIfNull(peReader);
+
+        MetadataImageFormatResult result =
+            MetadataImageFormatClassifier.Classify(peReader);
+        _ = Admit(result);
+        return result;
     }
 
     internal static void AdmitRoot(BlobReader root) =>

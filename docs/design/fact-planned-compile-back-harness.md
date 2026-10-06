@@ -285,15 +285,65 @@ cap-eligible sequence only after one completed CSharp decision:
 - an explicit or operator MethodImpl body has a
   `CSharpMethodDeclarationPost.Capture` plus
   `CSharpDeclarationRepresentability.Decide` result of `Representable`.
+- a property, indexer, or event accessor has a
+  `CSharpAccessorDeclarationPost.Capture` plus
+  `CSharpAccessorDeclarationRepresentability.Decide` result of
+  `Representable`.
 
-The exact path retains the accepted declaration request. `Unrepresentable` and
-`Unavailable` results remain typed selector exclusions and never fall through
-to ordinary artifact eligibility. Positive MethodSemantics evidence or an
-owning property/event accessor token defers accessors to their separately owned
-adoption, and unavailable MethodSemantics is also an exclusion rather than
-proof of an ordinary method. Stable sampling and the cross-assembly cap apply
-only after those product decisions and the canonical target signature are
-complete.
+The exact paths retain the accepted method or accessor declaration request.
+`Unrepresentable` and `Unavailable` results remain typed selector exclusions
+and never fall through to ordinary artifact eligibility. A body with
+MethodSemantics evidence must complete the accessor decision; unavailable
+MethodSemantics is also an exclusion rather than proof of an ordinary method.
+Each accepted accessor request retains the complete aggregate and identifies
+the exact selected body while assigning sibling policy to the other
+conventional accessors. Stable sampling and the cross-assembly cap apply only
+after those product decisions and the canonical target signature are complete.
+
+The `DotnetInspector.ResearchQueries` operation owner owns the metadata/CSharp
+target decision and complete pre-cap source scan. The standalone selector and
+the test-only NLinq oracle both consume that decision; neither the
+DecompilerHarness host nor the oracle duplicates it. The NLinq oracle still
+enumerates metadata candidates independently, then queries exact eligible
+Count, complete eligible target Rows, and deterministically ordered typed
+exclusion Rows.
+
+The first production QuerySpace slice exposes exact eligible Count through one
+operation, one candidate row set, and the Count terminal. The operation-owned
+source performs the complete eligibility scan without constructing eligible
+target rows, then `DotnetInspector.ResearchSections` supplies the owner-issued
+exact cardinality and completion receipt to the generic section-row Count
+executor.
+The receipt records scanned bodies, declaration candidates, and zero
+materialized target rows. DecompilerHarness consumes this path through
+`--return-to-sender-target-count`.
+
+This slice does not expose production Rows, realize targets through House,
+replace stable sampling or the cross-assembly cap, or cut raised standalone
+RTS execution over to QuerySpace. The NLinq population remains independent
+behavioral evidence for Count, Rows, and exclusions rather than a production
+source adapter or performance claim.
+
+The Count performance gate uses the pinned 14-assembly, 89,065-body corpus.
+Old, LINQ, NLinq, and Planner agree on all 14 exact Counts: 42 comparisons,
+zero mismatches, 64,453 declaration-candidate rows, and 61,463 eligible
+targets. Old materializes all 64,453 decision rows; Planner materializes zero.
+The Count-only operation opens 14 assembly/source sessions and performs no
+House realization, product-artifact production, Roslyn compilation, or IL
+comparison.
+
+NativeAOT base/head evidence compares base
+`16d3c9211be31b359bb48ba93cecef3fef36e37f` with this Count slice. Three
+repeated full-corpus executions preserve Count exactly; median elapsed moves
+from 82.182 seconds to 90.347 seconds and median current-thread allocation from
+112,618,075,592 bytes to 112,408,763,736 bytes. Four rotated process-start
+executions report median elapsed of 69.40 versus 74.57 seconds, while median
+peak RSS falls from 454,926 KB to 329,548 KB. On the small StructuredTypes
+witness, the four-column NativeAOT scorecard reports Old 6,990.7 us, LINQ
+6,732.2 us, NLinq 6,759.4 us, and Planner 6,530.0 us. The committed
+`ReturnToSenderTargetScorecard` owns the reproducible check and timing
+invocations; these measurements establish the Count slice only, not the later
+Rows or House realization work.
 
 ### Product artifact provider
 

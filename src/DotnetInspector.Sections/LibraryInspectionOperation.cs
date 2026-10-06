@@ -35,41 +35,123 @@ public static class LibraryInspectionOperation
         {
             ArgumentNullException.ThrowIfNull(request);
             cancellationToken.ThrowIfCancellationRequested();
-            RowsPreparation rows = PrepareRows(request.Plan.Types);
-            LibraryTypeDeclarationInventoryInspectionOutcome outcome =
-                LibraryTypeDeclarationInventoryInspection.Execute(
-                    new(
-                        request.Library,
-                        InventoryBounds(request.Plan.Bounds),
-                        SourceRows(request.Plan.Types, rows)),
-                    lease,
-                    cancellationToken);
-            InspectionEnvelope<LibraryInspectionOutcome> envelope = Project(
-                outcome,
-                request,
-                rows,
-                cancellationToken);
+            InspectionEnvelope<LibraryInspectionOutcome> envelope =
+                request.Plan.Types is { } types
+                    ? WithFacts(
+                        ExecuteTypes(request, types, lease, cancellationToken),
+                        request,
+                        lease,
+                        cancellationToken)
+                    : ExecuteFactsOnly(request, lease, cancellationToken);
             return request.Plan.Enablements is null
                 || envelope.Content
                     is not LibraryInspectionOutcome.Available available
                 ? envelope
-                : new(
-                    new LibraryInspectionOutcome.Available(
-                        available.Document with
-                        {
-                            Enablements = LibraryEnablementsInspection.Execute(
-                                request.Library,
-                                lease,
-                                cancellationToken),
-                        }),
-                    envelope.Share,
-                    envelope.Diagnostics);
+                : Replace(
+                    envelope,
+                    available.Document with
+                    {
+                        Enablements = LibraryEnablementsInspection.Execute(
+                            request.Library,
+                            lease,
+                            cancellationToken),
+                    });
         }
         finally
         {
             lease.Dispose();
         }
     }
+
+    private static InspectionEnvelope<LibraryInspectionOutcome> ExecuteTypes(
+        LibraryInspectionRequest request,
+        LibraryTypePopulationRequest types,
+        LibraryOperationLease lease,
+        CancellationToken cancellationToken)
+    {
+        RowsPreparation rows = PrepareRows(types);
+        LibraryTypeDeclarationInventoryInspectionOutcome outcome =
+            LibraryTypeDeclarationInventoryInspection.Execute(
+                new(
+                    request.Library,
+                    InventoryBounds(request.Plan.Bounds),
+                    SourceRows(types, rows)),
+                lease,
+                cancellationToken);
+        return Project(outcome, request, rows, cancellationToken);
+    }
+
+    /// <summary>
+    /// Answers a plan without a Type population: identity, MVID, and the
+    /// requested fact groups, with no declaration inventory work.
+    /// </summary>
+    private static InspectionEnvelope<LibraryInspectionOutcome> ExecuteFactsOnly(
+        LibraryInspectionRequest request,
+        LibraryOperationLease lease,
+        CancellationToken cancellationToken) =>
+        LibraryFactsInspection.Execute(request.Library, lease, cancellationToken) switch
+        {
+            LibraryFactsInspectionOutcome.Available facts => new(
+                new LibraryInspectionOutcome.Available(
+                    Facts(
+                        new LibraryDocument(
+                            PortableIdentity(facts.AssemblyIdentity),
+                            facts.ModuleVersionId,
+                            Types: null,
+                            new(facts.AssemblyBytes, 0, 0, 0),
+                            request.Plan.Bounds),
+                        facts,
+                        request)),
+                new InspectionShare.NonProjectable(SharePath, ShareReason),
+                ImmutableArray<InspectionDiagnostic>.Empty),
+            LibraryFactsInspectionOutcome.Rejected rejected => Rejected(rejected.Kind),
+            LibraryFactsInspectionOutcome.Failed failed => Failed(failed.Kind),
+            _ => throw new InvalidOperationException("Unknown Library facts outcome."),
+        };
+
+    private static InspectionEnvelope<LibraryInspectionOutcome> WithFacts(
+        InspectionEnvelope<LibraryInspectionOutcome> envelope,
+        LibraryInspectionRequest request,
+        LibraryOperationLease lease,
+        CancellationToken cancellationToken)
+    {
+        if (request.Plan.Image is null && request.Plan.Description is null
+            || envelope.Content is not LibraryInspectionOutcome.Available available)
+        {
+            return envelope;
+        }
+
+        return LibraryFactsInspection.Execute(request.Library, lease, cancellationToken) switch
+        {
+            LibraryFactsInspectionOutcome.Available facts =>
+                Replace(envelope, Facts(available.Document, facts, request)),
+            LibraryFactsInspectionOutcome.Rejected rejected => Rejected(rejected.Kind),
+            LibraryFactsInspectionOutcome.Failed failed => Failed(failed.Kind),
+            _ => throw new InvalidOperationException("Unknown Library facts outcome."),
+        };
+    }
+
+    private static LibraryDocument Facts(
+        LibraryDocument document,
+        LibraryFactsInspectionOutcome.Available facts,
+        LibraryInspectionRequest request) =>
+        document with
+        {
+            Image = request.Plan.Image is null
+                ? null
+                : LibraryImageFacts.From(facts.AssemblyBytes, facts.Facts),
+            Description = request.Plan.Description is null
+                ? null
+                : LibraryDescriptionFacts.From(facts.Facts),
+        };
+
+    private static InspectionEnvelope<LibraryInspectionOutcome> Replace(
+        InspectionEnvelope<LibraryInspectionOutcome> envelope,
+        LibraryDocument document) =>
+        new(
+            new LibraryInspectionOutcome.Available(document),
+            envelope.Share,
+            envelope.Diagnostics);
 
     private static InspectionEnvelope<LibraryInspectionOutcome> Project(
         LibraryTypeDeclarationInventoryInspectionOutcome outcome,
@@ -106,30 +188,30 @@ public static class LibraryInspectionOperation
         var diagnostics =
             ImmutableArray.CreateBuilder<InspectionDiagnostic>();
         LibraryTypePopulationCountOutcome? count = null;
-        if (request.Plan.Types.Count is not null)
+        if (request.Plan.Types!.Count is not null)
         {
             (
                 count,
                 ImmutableArray<InspectionDiagnostic> countDiagnostics) =
                 Count(
                     correspondence.Inventory,
-                    request.Plan.Types.DeclarationSelection,
-                    request.Plan.Types.DefinitionKinds,
-                    request.Plan.Types.Namespace,
-                    request.Plan.Types.NamespaceMatch,
+                    request.Plan.Types!.DeclarationSelection,
+                    request.Plan.Types!.DefinitionKinds,
+                    request.Plan.Types!.Namespace,
+                    request.Plan.Types!.NamespaceMatch,
                     request.Plan.Bounds,
                     cancellationToken);
             diagnostics.AddRange(countDiagnostics);
         }
         LibraryTypePopulationRowsOutcome? rowResult = null;
-        if (request.Plan.Types.Rows is { } rowRequest)
+        if (request.Plan.Types!.Rows is { } rowRequest)
         {
             (
                 rowResult,
                 ImmutableArray<InspectionDiagnostic> rowDiagnostics) =
                 Rows(
                     correspondence,
-                    request.Plan.Types,
+                    request.Plan.Types!,
                     rowRequest,
                     request.Plan.Bounds,
                     rows,
@@ -200,7 +282,7 @@ public static class LibraryInspectionOperation
         var diagnostics =
             ImmutableArray.CreateBuilder<InspectionDiagnostic>();
         LibraryTypePopulationCountOutcome? count = null;
-        if (request.Plan.Types.Count is not null)
+        if (request.Plan.Types!.Count is not null)
         {
             count = new LibraryTypePopulationCountOutcome.Incomplete(
                 countBound,
@@ -214,7 +296,7 @@ public static class LibraryInspectionOperation
         }
 
         LibraryTypePopulationRowsOutcome? rowResult = null;
-        if (request.Plan.Types.Rows is not null)
+        if (request.Plan.Types!.Rows is not null)
         {
             LibraryTypePopulationRowsRejection? rejection =
                 ContinuationRejection(
@@ -267,11 +349,11 @@ public static class LibraryInspectionOperation
             PortableIdentity(subject.AssemblyIdentity);
         var binding = new LibraryTypePopulationBinding(
             subject.ModuleVersionId,
-            request.Plan.Types.Accessibility,
-            request.Plan.Types.DeclarationSelection,
-            request.Plan.Types.DefinitionKinds,
-            request.Plan.Types.Namespace,
-            request.Plan.Types.NamespaceMatch);
+            request.Plan.Types!.Accessibility,
+            request.Plan.Types!.DeclarationSelection,
+            request.Plan.Types!.DefinitionKinds,
+            request.Plan.Types!.Namespace,
+            request.Plan.Types!.NamespaceMatch);
         var document = new LibraryDocument(
             portableIdentity,
             subject.ModuleVersionId,

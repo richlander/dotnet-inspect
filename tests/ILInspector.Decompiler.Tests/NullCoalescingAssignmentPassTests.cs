@@ -66,7 +66,7 @@ public class NullCoalescingAssignmentPassTests
         var assignment = Assert.Single(function.Descendants.OfType<NullCoalescingAssignment>());
         Assert.Equal(0x10, assignment.SourceOffset);
         Assert.True(assignment.OwnsSourceLabel);
-        string output = CSharpPrinter.Print(function).Output ?? "";
+        string output = DecidedPrint.Print(function).Output ?? "";
         Assert.Contains("goto IL_0010;", output);
         Assert.Contains("IL_0010:", output);
     }
@@ -108,14 +108,14 @@ public class NullCoalescingAssignmentPassTests
         var assignment = Assert.Single(function.Descendants.OfType<NullCoalescingAssignment>());
         Assert.Equal(0x10, assignment.SourceOffset);
         Assert.False(assignment.OwnsSourceLabel);
-        string output = CSharpPrinter.Print(function).Output ?? "";
+        string output = DecidedPrint.Print(function).Output ?? "";
         Assert.DoesNotContain("IL_0010:", output);
     }
 
     [Fact]
     public void PrintRaised_RendersNullCoalescingAssignment()
     {
-        var output = CSharpPrinter.Print(Raised(nameof(CfgSampleClass.NullCoalescingAssignLocal))).Output;
+        var output = DecidedPrint.Print(Raised(nameof(CfgSampleClass.NullCoalescingAssignLocal))).Output;
 
         Assert.NotNull(output);
         Assert.Contains("value ??= fallback;", output);
@@ -128,7 +128,7 @@ public class NullCoalescingAssignmentPassTests
         var function = Raised(nameof(CfgSampleClass.NullCoalescingAssignLocalWithExtraThenStatement));
 
         Assert.Empty(function.Descendants.OfType<NullCoalescingAssignment>());
-        var output = CSharpPrinter.Print(function).Output;
+        var output = DecidedPrint.Print(function).Output;
         Assert.NotNull(output);
         Assert.DoesNotContain("??=", output);
         Assert.Contains("if (value is null)", output);
@@ -151,7 +151,7 @@ public class NullCoalescingAssignmentPassTests
 
         var coalesce = Assert.Single(function.Descendants.OfType<Coalesce>());
         Assert.Equal("int", coalesce.ResultType?.ToDisplayString());
-        var output = CSharpPrinter.Print(function).Output;
+        var output = DecidedPrint.Print(function).Output;
 
         Assert.NotNull(output);
         Assert.Contains("return value ?? 42;", output);
@@ -164,7 +164,7 @@ public class NullCoalescingAssignmentPassTests
         var function = Raised(nameof(CfgSampleClass.NullableValueParameterlessGetValueOrDefault));
 
         Assert.Empty(function.Descendants.OfType<Coalesce>());
-        var output = CSharpPrinter.Print(function).Output;
+        var output = DecidedPrint.Print(function).Output;
 
         Assert.NotNull(output);
         Assert.Contains("return value.GetValueOrDefault();", output);
@@ -177,7 +177,7 @@ public class NullCoalescingAssignmentPassTests
         var function = Raised(nameof(CfgSampleClass.NullableValueGetValueOrDefaultStatement));
 
         Assert.Single(function.Descendants.OfType<Coalesce>());
-        var output = CSharpPrinter.Print(function).Output;
+        var output = DecidedPrint.Print(function).Output;
 
         Assert.NotNull(output);
         Assert.Contains("_ = value ?? 42;", output);
@@ -190,7 +190,7 @@ public class NullCoalescingAssignmentPassTests
         var function = Raised(nameof(CfgSampleClass.NullableValueGetValueOrDefaultSideEffect));
 
         Assert.Empty(function.Descendants.OfType<Coalesce>());
-        var output = CSharpPrinter.Print(function).Output;
+        var output = DecidedPrint.Print(function).Output;
 
         Assert.NotNull(output);
         Assert.Contains("return value.GetValueOrDefault(NullableFallbackWithSideEffect());", output);
@@ -211,7 +211,7 @@ public class NullCoalescingAssignmentPassTests
     [Fact]
     public void PrintRaised_RendersStaticFieldNullCoalescingAssignment()
     {
-        var output = CSharpPrinter.Print(Raised(nameof(CfgSampleClass.NullCoalescingAssignStaticField))).Output;
+        var output = DecidedPrint.Print(Raised(nameof(CfgSampleClass.NullCoalescingAssignStaticField))).Output;
 
         Assert.NotNull(output);
         Assert.Contains("CachedName ??= fallback;", output);
@@ -233,7 +233,7 @@ public class NullCoalescingAssignmentPassTests
     [Fact]
     public void PrintRaised_RendersInstanceFieldNullCoalescingAssignment()
     {
-        var output = CSharpPrinter.Print(Raised(nameof(CfgSampleClass.NullCoalescingAssignInstanceField))).Output;
+        var output = DecidedPrint.Print(Raised(nameof(CfgSampleClass.NullCoalescingAssignInstanceField))).Output;
 
         Assert.NotNull(output);
         Assert.Contains("holder.Cache ??= fallback;", output);
@@ -255,7 +255,7 @@ public class NullCoalescingAssignmentPassTests
     [Fact]
     public void LazyFieldGetter_RendersExpressionNullCoalescingAssignment()
     {
-        var output = CSharpPrinter.Print(Raised(nameof(CfgSampleClass.LazyFieldGetter))).Output;
+        var output = DecidedPrint.Print(Raised(nameof(CfgSampleClass.LazyFieldGetter))).Output;
 
         Assert.NotNull(output);
         Assert.Contains("return LazyFieldCache ??= fallback;", output);
@@ -285,7 +285,7 @@ public class NullCoalescingAssignmentPassTests
 
         Assert.Empty(function.Descendants.OfType<NullCoalescingFieldAssignment>());
         Assert.Empty(function.Descendants.OfType<NullCoalescingFieldAssignmentExpression>());
-        var output = CSharpPrinter.Print(function).Output;
+        var output = DecidedPrint.Print(function).Output;
         Assert.NotNull(output);
         Assert.DoesNotContain("??=", output);
     }
@@ -308,7 +308,7 @@ public class NullCoalescingAssignmentPassTests
     [Fact]
     public void PrintRaised_RendersInstancePropertyNullCoalescingAssignment()
     {
-        var output = CSharpPrinter.Print(Raised(nameof(CfgSampleClass.NullCoalescingAssignInstanceProperty))).Output;
+        var output = DecidedPrint.Print(Raised(nameof(CfgSampleClass.NullCoalescingAssignInstanceProperty))).Output;
 
         Assert.NotNull(output);
         Assert.Contains("holder.CacheProp ??= fallback;", output);
@@ -331,7 +331,7 @@ public class NullCoalescingAssignmentPassTests
     [Fact]
     public void PrintRaised_LeavesStaticPropertyNullAssignmentExpanded()
     {
-        var output = CSharpPrinter.Print(Raised(nameof(CfgSampleClass.NullCoalescingAssignStaticProperty))).Output;
+        var output = DecidedPrint.Print(Raised(nameof(CfgSampleClass.NullCoalescingAssignStaticProperty))).Output;
 
         Assert.NotNull(output);
         Assert.DoesNotContain("??=", output);
@@ -347,7 +347,7 @@ public class NullCoalescingAssignmentPassTests
         Assert.Empty(function.Descendants.OfType<NullCoalescingPropertyAssignment>());
         Assert.Single(function.Descendants.OfType<IfStatement>());
         Assert.Single(function.Descendants.OfType<StoreProperty>());
-        var output = CSharpPrinter.Print(function).Output;
+        var output = DecidedPrint.Print(function).Output;
         Assert.NotNull(output);
         Assert.DoesNotContain("??=", output);
         Assert.Contains("if (CfgSampleClass.StaticNameProp is null)", output);
@@ -367,7 +367,7 @@ public class NullCoalescingAssignmentPassTests
         // inlining pass folds that single-use local back to the field chain.
         Assert.IsType<LoadField>(assignment.Instance);
 
-        var output = CSharpPrinter.Print(function).Output;
+        var output = DecidedPrint.Print(function).Output;
         Assert.NotNull(output);
         Assert.Contains("holder.Next.CacheProp ??= fallback;", output);
     }
@@ -378,7 +378,7 @@ public class NullCoalescingAssignmentPassTests
         var function = Raised(nameof(CfgSampleClass.NullCoalescingAssignPropertyWithExtraThenStatement));
 
         Assert.Empty(function.Descendants.OfType<NullCoalescingPropertyAssignment>());
-        var output = CSharpPrinter.Print(function).Output;
+        var output = DecidedPrint.Print(function).Output;
         Assert.NotNull(output);
         Assert.DoesNotContain("??=", output);
     }
@@ -391,7 +391,7 @@ public class NullCoalescingAssignmentPassTests
         Assert.Empty(function.Descendants.OfType<NullCoalescingPropertyAssignment>());
         Assert.Single(function.Descendants.OfType<IfStatement>());
         Assert.Single(function.Descendants.OfType<StoreProperty>());
-        var output = CSharpPrinter.Print(function).Output;
+        var output = DecidedPrint.Print(function).Output;
         Assert.NotNull(output);
         Assert.DoesNotContain("??=", output);
         Assert.Contains("if (holder.CacheProp is null)", output);
@@ -515,7 +515,7 @@ public class NullCoalescingAssignmentPassTests
     [Fact]
     public void PrintRaised_RendersIndexerNullCoalescingAssignment()
     {
-        var output = CSharpPrinter.Print(Raised(nameof(CfgSampleClass.NullCoalescingAssignIndexer))).Output;
+        var output = DecidedPrint.Print(Raised(nameof(CfgSampleClass.NullCoalescingAssignIndexer))).Output;
 
         Assert.NotNull(output);
         Assert.Contains("cache[key] ??= fallback;", output);
@@ -528,14 +528,14 @@ public class NullCoalescingAssignmentPassTests
 
         var assignment = Assert.Single(function.Descendants.OfType<NullCoalescingPropertyAssignment>());
         Assert.IsType<Constant>(Assert.Single(assignment.IndexArguments));
-        var output = CSharpPrinter.Print(function).Output;
+        var output = DecidedPrint.Print(function).Output;
         Assert.Contains("cache[0] ??= fallback;", output);
     }
 
     [Fact]
     public void DictionaryIndexerNullAssignment_RaisesToNullCoalescingPropertyAssignment()
     {
-        var output = CSharpPrinter.Print(Raised(nameof(CfgSampleClass.NullCoalescingAssignDictionaryIndexer))).Output;
+        var output = DecidedPrint.Print(Raised(nameof(CfgSampleClass.NullCoalescingAssignDictionaryIndexer))).Output;
 
         Assert.NotNull(output);
         Assert.Contains("map[key] ??= fallback;", output);
@@ -549,7 +549,7 @@ public class NullCoalescingAssignmentPassTests
         Assert.Empty(function.Descendants.OfType<NullCoalescingPropertyAssignment>());
         Assert.Single(function.Descendants.OfType<IfStatement>());
         Assert.Single(function.Descendants.OfType<StoreProperty>());
-        var output = CSharpPrinter.Print(function).Output;
+        var output = DecidedPrint.Print(function).Output;
         Assert.NotNull(output);
         Assert.DoesNotContain("??=", output);
         Assert.Contains("if (map[key] is null)", output);
@@ -572,7 +572,7 @@ public class NullCoalescingAssignmentPassTests
     [Fact]
     public void IndexerCompoundAssignment_RendersAsCompoundOnReevaluablePlace()
     {
-        var output = CSharpPrinter.Print(Raised(nameof(CfgSampleClass.CompoundAssignIndexer))).Output;
+        var output = DecidedPrint.Print(Raised(nameof(CfgSampleClass.CompoundAssignIndexer))).Output;
 
         Assert.NotNull(output);
         // The receiver/index stay as csc's spill locals (folding them would drop the
@@ -584,7 +584,7 @@ public class NullCoalescingAssignmentPassTests
     [Fact]
     public void DictionaryIndexerCompoundAssignment_RendersAsCompound()
     {
-        var output = CSharpPrinter.Print(Raised(nameof(CfgSampleClass.CompoundAssignDictionaryIndexer))).Output;
+        var output = DecidedPrint.Print(Raised(nameof(CfgSampleClass.CompoundAssignDictionaryIndexer))).Output;
 
         Assert.NotNull(output);
         Assert.Contains("[V_1] += delta;", output);
@@ -594,7 +594,7 @@ public class NullCoalescingAssignmentPassTests
     public void IndexerCompoundAssignmentWithDifferentConstantIndex_DoesNotFold()
     {
         var function = FunctionWithIndexerCompoundAssignment(loadIndex: 1, storeIndex: 2);
-        var output = CSharpPrinter.Print(function).Output;
+        var output = DecidedPrint.Print(function).Output;
 
         Assert.NotNull(output);
         Assert.DoesNotContain("+=", output);

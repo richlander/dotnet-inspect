@@ -77,7 +77,10 @@ public static class LibraryNamespaceDiscovery
     {
         ArgumentNullException.ThrowIfNull(document);
         ArgumentNullException.ThrowIfNull(namespaceName);
-        LibraryTypePopulationBinding binding = document.Types.Binding;
+        LibraryTypePopulationBinding binding = (document.Types
+            ?? throw new ArgumentException(
+                "The Library document has no Type population.",
+                nameof(document))).Binding;
         if (!string.Equals(
                 binding.Namespace,
                 namespaceName,
@@ -89,7 +92,7 @@ public static class LibraryNamespaceDiscovery
                 nameof(document));
         }
 
-        return document.Types.Rows
+        return document.Types!.Rows
             ?? throw new ArgumentException(
                 "The Library document does not contain namespace probe rows.",
                 nameof(document));

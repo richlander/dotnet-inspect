@@ -1,10 +1,75 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using Inspector.Resources;
 using ILInspector.MetadataPrimitives;
 
 namespace ILInspector.Metadata;
+
+/// <summary>
+/// Opaque identity for the exact image behind one assembly inspection session.
+/// It carries no access to the image.
+/// </summary>
+public sealed class AssemblyInspectionSubjectIdentity
+{
+    internal AssemblyInspectionSubjectIdentity()
+    {
+    }
+}
+
+/// <summary>
+/// Stack-only access to one exact operation over one exact assembly subject.
+/// </summary>
+public readonly ref struct AssemblyInspectionOperationAccess<TOperation>
+    where TOperation : class
+{
+    readonly ReadOnlyResourceSnapshotView<AssemblyInspectionSession> _snapshot;
+
+    internal AssemblyInspectionOperationAccess(
+        TOperation operation,
+        AssemblyInspectionSubjectIdentity subject,
+        ReadOnlyResourceSnapshotView<AssemblyInspectionSession> snapshot)
+    {
+        Operation = operation;
+        Subject = subject;
+        _snapshot = snapshot;
+    }
+
+    /// <summary>The exact operation for which the owner issued this access.</summary>
+    public TOperation Operation { get; }
+
+    /// <summary>The exact subject behind this access.</summary>
+    public AssemblyInspectionSubjectIdentity Subject { get; }
+
+    /// <summary>Whether session-owned admission found managed metadata.</summary>
+    public bool HasMetadata => _snapshot.Value.HasMetadata;
+
+    /// <summary>Lends the exact subject's reader for this synchronous operation.</summary>
+    public TResult InspectImage<TResult>(Func<PEReader, TResult> inspect) =>
+        _snapshot.Value.InspectImage(inspect);
+}
+
+/// <summary>
+/// Executes one operation while its exact assembly access remains live.
+/// </summary>
+public delegate TResult AssemblyInspectionOperationCallback<
+    TOperation,
+    TResult>(
+    scoped AssemblyInspectionOperationAccess<TOperation> access)
+    where TOperation : class;
+
+/// <summary>
+/// Executes one operation with caller state while its exact assembly access
+/// remains live.
+/// </summary>
+public delegate TResult AssemblyInspectionOperationCallback<
+    TOperation,
+    TState,
+    TResult>(
+    scoped AssemblyInspectionOperationAccess<TOperation> access,
+    TState state)
+    where TOperation : class;
 
 /// <summary>
 /// The assembly-level inspection hub. Opens a PE image once (via <see cref="AssemblyImage"/>) and
@@ -28,6 +93,7 @@ public sealed class AssemblyInspectionSession :
     IResourceSnapshotSource<AssemblyInspectionSession>
 {
     readonly AssemblyImage _image;
+    readonly AssemblyInspectionSubjectIdentity _subject = new();
     readonly Lazy<MetadataTypeDeclarationProbe.Index>
         _declarationIndex;
     MethodBodySource? _methodBodies;
@@ -95,7 +161,30 @@ public sealed class AssemblyInspectionSession :
     /// <c>BorrowedSession_FailsLoudlyAfterTheLenderIsDisposed</c>.
     /// </summary>
     public static AssemblyInspectionSession Borrow(PdbContext context)
-        => new(AssemblyImage.Borrow(context.BorrowedPEReader, context.EnsureAliveForBorrower));
+        => new(
+            AssemblyImage.Borrow(
+                context.BorrowedPEReader,
+                context.EnsureAliveForBorrower,
+                context.ArtifactIdentity));
+
+    /// <summary>
+    /// Exact acquisition-issued artifact identity retained by this image, when
+    /// the session was opened or borrowed from an artifact-backed descriptor.
+    /// </summary>
+    public AssemblyArtifactIdentity? ArtifactIdentity =>
+        _image.ArtifactIdentity;
+
+    /// <summary>
+    /// Whether this session and <paramref name="assembly"/> retain the same
+    /// acquisition-issued artifact identity.
+    /// </summary>
+    public bool IsSameArtifact(ResolvedAssemblyReference assembly)
+    {
+        ArgumentNullException.ThrowIfNull(assembly);
+        return ArtifactIdentity is { } sessionArtifact
+            && assembly.Registration.ArtifactIdentity is { } assemblyArtifact
+            && sessionArtifact == assemblyArtifact;
+    }
 
     public MetadataDeclarationSession CreateDeclarationSession(
         MetadataOperationContext operationContext)
@@ -121,10 +210,10 @@ public sealed class AssemblyInspectionSession :
         _image.EnsureAlive();
 
     internal MetadataReader GetMetadataReaderForDeclarationSession()
-    {
-        _image.EnsureAlive();
-        return _image.GetMetadataReader();
-    }
+        => GetAdmittedMetadataReader();
+
+    internal MetadataReader GetAdmittedMetadataReader() =>
+        _image.GetMetadataReader();
 
     internal PEReader GetPEReaderForDeclarationSession()
     {
@@ -151,6 +240,65 @@ public sealed class AssemblyInspectionSession :
             state);
     }
 
+    /// <summary>
+    /// Issues stack-only access binding one exact operation to this session's
+    /// exact subject for the duration of <paramref name="callback"/>.
+    /// </summary>
+    public TResult SnapshotOperation<TOperation, TResult>(
+        TOperation operation,
+        AssemblyInspectionOperationCallback<TOperation, TResult> callback)
+        where TOperation : class
+    {
+        ArgumentNullException.ThrowIfNull(operation);
+        ArgumentNullException.ThrowIfNull(callback);
+        _image.EnsureAlive();
+        return callback(
+            new AssemblyInspectionOperationAccess<TOperation>(
+                operation,
+                _subject,
+                new ReadOnlyResourceSnapshotView<AssemblyInspectionSession>(
+                    this)));
+    }
+
+    /// <summary>
+    /// Issues stack-only access binding one exact operation and caller state to
+    /// this session's exact subject for the duration of
+    /// <paramref name="callback"/>.
+    /// </summary>
+    public TResult SnapshotOperation<TOperation, TState, TResult>(
+        TOperation operation,
+        TState state,
+        AssemblyInspectionOperationCallback<
+            TOperation,
+            TState,
+            TResult> callback)
+        where TOperation : class
+    {
+        ArgumentNullException.ThrowIfNull(operation);
+        ArgumentNullException.ThrowIfNull(callback);
+        _image.EnsureAlive();
+        return callback(
+            new AssemblyInspectionOperationAccess<TOperation>(
+                operation,
+                _subject,
+                new ReadOnlyResourceSnapshotView<AssemblyInspectionSession>(
+                    this)),
+            state);
+    }
+
+    /// <summary>
+    /// Lends the session's open reader to <paramref name="inspect"/> for the
+    /// duration of the call, as <see cref="PdbContext.InspectImage{TResult}"/>
+    /// does, so a host-neutral query can plan work over it without reopening
+    /// the source.
+    /// </summary>
+    public TResult InspectImage<TResult>(Func<PEReader, TResult> inspect)
+    {
+        ArgumentNullException.ThrowIfNull(inspect);
+        _image.EnsureAlive();
+        return inspect(_image.PEReader);
+    }
+
     /// <summary>Whether the image contains managed metadata (false for a native binary).</summary>
     public bool HasMetadata
     {
@@ -169,7 +317,10 @@ public sealed class AssemblyInspectionSession :
         get
         {
             _image.EnsureAlive();
-            return _methodBodies ??= new MethodBodySource(_image.PEReader, _image.EnsureAlive);
+            return _methodBodies ??= new MethodBodySource(
+                _image.PEReader,
+                _image.GetMetadataReader(),
+                _image.EnsureAlive);
         }
     }
 
@@ -195,9 +346,120 @@ public sealed class AssemblyInspectionSession :
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
-        _image.EnsureAlive();
+        if (!_image.TryGetMetadataReader(out MetadataReader? reader))
+        {
+            return new MetadataRelationInspectionOutcome.Rejected(
+                _image.Format,
+                "The selected image contains no managed metadata.");
+        }
         return MetadataRelationInspection.Execute(
             _image.PEReader,
+            reader,
+            request,
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// Selects incoming hierarchy occurrences by exact definition name without
+    /// decoding unrelated constructed target shapes.
+    /// </summary>
+    public MetadataHierarchyRelationAnalysisOutcome
+        AnalyzeHierarchyRelations(
+            MetadataHierarchyRelationAnalysisRequest request,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (!_image.TryGetMetadataReader(out MetadataReader? reader))
+        {
+            return new MetadataHierarchyRelationAnalysisOutcome.Rejected(
+                _image.Format,
+                "The selected image contains no managed metadata.");
+        }
+        return MetadataRelationInspection.ExecuteHierarchyAnalysis(
+            reader,
+            request,
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// Prepares a target-independent hierarchy census and reverse lookup over
+    /// this exact image.
+    /// </summary>
+    public MetadataHierarchyRelationIndexPreparation
+        PrepareHierarchyRelationIndex(
+            MetadataOperationPolicy? policy = null,
+            CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!_image.TryGetMetadataReader(out MetadataReader? reader))
+        {
+            return new MetadataHierarchyRelationIndexPreparation.Rejected(
+                _image.Format,
+                "The selected image contains no managed metadata.");
+        }
+        return MetadataRelationInspection.PrepareHierarchyIndex(
+            this,
+            reader,
+            policy ?? new MetadataOperationPolicy(long.MaxValue),
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// Finds exact TypeDef names by one simple ASCII leaf name without
+    /// materializing unrelated declaration names.
+    /// </summary>
+    public MetadataTypeDefinitionNameSearchResult
+        FindTypeDefinitionsBySimpleName(string simpleName)
+    {
+        _image.EnsureAlive();
+        return MetadataTypeDefinitionName
+            .FindDefinitionsBySimpleName(
+                _image.GetMetadataReader(),
+                simpleName);
+    }
+
+    /// <summary>
+    /// Produces one qualified whole-Library or exact-namespace Type-to-Type
+    /// signature-use population for this exact image.
+    /// </summary>
+    public MetadataLibrarySignatureUseOutcome LibrarySignatureUses(
+        MetadataLibrarySignatureUseRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (!_image.TryGetMetadataReader(out MetadataReader? reader))
+        {
+            return new MetadataLibrarySignatureUseOutcome.Rejected(
+                MetadataLibrarySignatureUseRejectionKind.UnsupportedImage,
+                "The selected image contains no managed metadata.",
+                _image.Format);
+        }
+        return MetadataLibrarySignatureUseInspection.Execute(
+            _image.PEReader,
+            reader,
+            request,
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// Produces independently qualified exact-namespace Type-to-Type
+    /// signature-use populations through one shared image traversal.
+    /// </summary>
+    public MetadataLibrarySignatureUseBatchOutcome LibrarySignatureUseBatch(
+        MetadataLibrarySignatureUseBatchRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (!_image.TryGetMetadataReader(out MetadataReader? reader))
+        {
+            return new MetadataLibrarySignatureUseBatchOutcome.Rejected(
+                MetadataLibrarySignatureUseRejectionKind.UnsupportedImage,
+                "The selected image contains no managed metadata.",
+                _image.Format);
+        }
+        return MetadataLibrarySignatureUseInspection.ExecuteBatch(
+            _image.PEReader,
+            reader,
             request,
             cancellationToken);
     }
@@ -212,10 +474,16 @@ public sealed class AssemblyInspectionSession :
             CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
-        _image.EnsureAlive();
+        if (!_image.TryGetMetadataReader(out MetadataReader? reader))
+        {
+            return new
+                MetadataAssemblyReferenceRelationPopulationOutcome.Rejected(
+                    _image.Format,
+                    "The selected image contains no managed metadata.");
+        }
         return MetadataRelationInspection
             .ExecuteAssemblyReferencePopulation(
-                _image.PEReader,
+                reader,
                 request,
                 cancellationToken);
     }
@@ -229,9 +497,15 @@ public sealed class AssemblyInspectionSession :
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
-        _image.EnsureAlive();
+        if (!_image.TryGetMetadataReader(out MetadataReader? reader))
+        {
+            return new MetadataExtensionRelationPopulationOutcome.Rejected(
+                _image.Format,
+                "The selected image contains no managed metadata.");
+        }
         return MetadataRelationInspection.ExecuteExtensionPopulation(
             _image.PEReader,
+            reader,
             request,
             cancellationToken);
     }
@@ -245,9 +519,45 @@ public sealed class AssemblyInspectionSession :
     public AssemblyIdentityNames IdentityNames()
         => AssemblyIdentityScanner.Scan(_image.PEReader);
 
-    /// <summary>The public (or, with <paramref name="includeAll"/>, full) API surface.</summary>
+    /// <summary>
+    /// The public (or, with <paramref name="includeAll"/>, full) declarations
+    /// physically owned by each API Type.
+    /// </summary>
     public ApiSurface ApiSurface(bool includeAll = false, bool typesOnly = false)
-        => ApiSurfaceExtractor.Extract(_image.PEReader, includeAll, typesOnly);
+        => ApiSurfaceExtractor.ExtractDeclarations(
+            _image.PEReader,
+            includeAll,
+            typesOnly);
+
+    /// <summary>
+    /// Temporary compatibility surface that appends same-image extension
+    /// projections to their receiver Types.
+    /// </summary>
+    public ApiSurface CompatibilityApiSurface(
+        bool includeAll = false,
+        bool typesOnly = false)
+        => ApiSurfaceExtractor.Extract(
+            _image.PEReader,
+            includeAll,
+            typesOnly);
+
+    /// <summary>
+    /// Reads declaration-only API Types in metadata order and stops before the
+    /// Type after <paramref name="stopAfterType"/> first returns
+    /// <see langword="true"/>.
+    /// </summary>
+    public ApiSurface ApiSurfaceUntil(
+        bool includeAll,
+        bool typesOnly,
+        Func<ApiType, bool> stopAfterType)
+    {
+        ArgumentNullException.ThrowIfNull(stopAfterType);
+        return ApiSurfaceExtractor.ExtractUntil(
+            _image.PEReader,
+            includeAll,
+            typesOnly,
+            stopAfterType);
+    }
 
     internal ApiSurface ApiSurface(
         ResolvedAssemblyReference source,
@@ -266,11 +576,48 @@ public sealed class AssemblyInspectionSession :
             typesOnly,
             includeCompilerGenerated);
 
+    internal ApiSurface CompatibilityApiSurface(
+        ResolvedAssemblyReference source,
+        TypeResolutionCatalog catalog,
+        IAssemblyBindingPolicy bindingPolicy,
+        bool includeAll,
+        bool typesOnly,
+        bool includeCompilerGenerated) =>
+        CompatibilityApiSurface(
+            source,
+            catalog,
+            bindingPolicy,
+            includeAll
+                ? ApiSurfaceExtractionScope.IncludeAll
+                : ApiSurfaceExtractionScope.Public,
+            typesOnly,
+            includeCompilerGenerated);
+
     /// <summary>
-    /// Projects one explicit API scope with resolution-aware generic
-    /// constraints.
+    /// Projects declarations at one explicit API scope with resolution-aware
+    /// generic constraints.
     /// </summary>
     public ApiSurface ApiSurface(
+        ResolvedAssemblyReference source,
+        TypeResolutionCatalog catalog,
+        IAssemblyBindingPolicy bindingPolicy,
+        ApiSurfaceExtractionScope scope,
+        bool typesOnly = false,
+        bool includeCompilerGenerated = false) =>
+        ApiSurfaceExtractor.ExtractDeclarations(
+            _image.PEReader,
+            source,
+            catalog,
+            bindingPolicy,
+            scope,
+            typesOnly,
+            includeCompilerGenerated);
+
+    /// <summary>
+    /// Projects a temporary compatibility surface with resolution-aware
+    /// generic constraints.
+    /// </summary>
+    public ApiSurface CompatibilityApiSurface(
         ResolvedAssemblyReference source,
         TypeResolutionCatalog catalog,
         IAssemblyBindingPolicy bindingPolicy,
@@ -312,16 +659,46 @@ public sealed class AssemblyInspectionSession :
             out code);
     }
 
-    /// <summary>The API surface at one explicit extraction scope.</summary>
+    /// <summary>
+    /// The declarations physically owned by each API Type at one explicit
+    /// extraction scope.
+    /// </summary>
     public ApiSurface ApiSurface(ApiSurfaceExtractionScope scope, bool typesOnly = false)
+        => ApiSurfaceExtractor.ExtractDeclarations(
+            _image.PEReader,
+            scope,
+            typesOnly);
+
+    /// <summary>
+    /// The temporary compatibility surface at one explicit extraction scope.
+    /// </summary>
+    public ApiSurface CompatibilityApiSurface(
+        ApiSurfaceExtractionScope scope,
+        bool typesOnly = false)
         => ApiSurfaceExtractor.Extract(_image.PEReader, scope, typesOnly);
 
     /// <summary>
-    /// The API surface at one explicit extraction scope under hard retention bounds. An image
-    /// that does not fit is abandoned before it is materialized, and reported as
-    /// <see cref="ApiSurfaceExtractionResult.Exceeded"/> rather than returned shortened.
+    /// The declarations physically owned by each API Type under hard retention
+    /// bounds. An image that does not fit is abandoned before it is
+    /// materialized and reported as
+    /// <see cref="ApiSurfaceExtractionResult.Exceeded"/>.
     /// </summary>
     public ApiSurfaceExtractionResult BoundedApiSurface(
+        ApiSurfaceExtractionScope scope,
+        ApiSurfaceExtractionBounds bounds,
+        bool typesOnly = false,
+        bool includeCompilerGenerated = false)
+        => ApiSurfaceExtractor.ExtractDeclarationsBounded(
+            _image.PEReader,
+            scope,
+            bounds,
+            typesOnly,
+            includeCompilerGenerated);
+
+    /// <summary>
+    /// The temporary compatibility surface under hard retention bounds.
+    /// </summary>
+    public ApiSurfaceExtractionResult BoundedCompatibilityApiSurface(
         ApiSurfaceExtractionScope scope,
         ApiSurfaceExtractionBounds bounds,
         bool typesOnly = false,
@@ -333,15 +710,34 @@ public sealed class AssemblyInspectionSession :
             typesOnly,
             includeCompilerGenerated);
 
-    /// <summary>Projects bounded API facts with resolution-aware generic constraints.</summary>
+    /// <summary>
+    /// Projects bounded declarations with resolution-aware generic constraints.
+    /// </summary>
     public ApiSurfaceExtractionResult BoundedApiSurface(
         ResolvedAssemblyReference source,
         TypeResolutionCatalog catalog,
         IAssemblyBindingPolicy bindingPolicy,
         ApiSurfaceExtractionScope scope,
-        ApiSurfaceExtractionBounds bounds)
+        ApiSurfaceExtractionBounds bounds,
+        bool includeCompilerGenerated = false)
+        => ApiSurfaceExtractor.ExtractDeclarationsBounded(
+            _image.PEReader, source, catalog, bindingPolicy, scope, bounds,
+            includeCompilerGenerated);
+
+    /// <summary>
+    /// Projects a bounded temporary compatibility surface with
+    /// resolution-aware generic constraints.
+    /// </summary>
+    public ApiSurfaceExtractionResult BoundedCompatibilityApiSurface(
+        ResolvedAssemblyReference source,
+        TypeResolutionCatalog catalog,
+        IAssemblyBindingPolicy bindingPolicy,
+        ApiSurfaceExtractionScope scope,
+        ApiSurfaceExtractionBounds bounds,
+        bool includeCompilerGenerated = false)
         => ApiSurfaceExtractor.ExtractBounded(
-            _image.PEReader, source, catalog, bindingPolicy, scope, bounds);
+            _image.PEReader, source, catalog, bindingPolicy, scope, bounds,
+            includeCompilerGenerated);
 
     /// <summary>Manifest resources.</summary>
     public List<ManifestResourceInfo> Resources()
@@ -367,12 +763,6 @@ public sealed class AssemblyInspectionSession :
         return SwitchScanner.Scan(_image.PEReader);
     }
 
-    /// <summary>Classified methods (unsafe / P-Invoke / async).</summary>
-    public List<ClassifiedMethodInfo> ClassifiedMethods()
-    {
-        _image.EnsureAlive();
-        return MethodClassificationScanner.Scan(_image.PEReader);
-    }
 
     /// <summary>OpenTelemetry integration signals.</summary>
     public List<OpenTelemetrySignalInfo> OpenTelemetrySignals()
@@ -477,6 +867,16 @@ public sealed class AssemblyInspectionSession :
     {
         _image.EnsureAlive();
         return LibraryEnablementFacts.Read(_image.PEReader);
+    }
+
+    /// <summary>
+    /// Image and Description facts read from this image alone
+    /// (<c>docs/design/library-inspection-document.md#library-facts</c>).
+    /// </summary>
+    public AssemblyLibraryFactsObservation LibraryFacts()
+    {
+        _image.EnsureAlive();
+        return AssemblyLibraryFactsObservation.Read(_image.PEReader);
     }
 
     /// <summary>Presence flags for assembly-level features.</summary>
@@ -606,6 +1006,86 @@ public sealed class AssemblyInspectionSession :
     {
         _image.EnsureAlive();
         return _declarationIndex.Value.Probe(name);
+    }
+
+    /// <summary>
+    /// Reports whether one exact MethodDef carries the supplied metadata-owned
+    /// member identity in this immutable assembly image.
+    /// </summary>
+    public bool MethodAnchorMatches(
+        MetadataTypeDefinitionName declaringType,
+        int methodDefinitionToken,
+        MemberAnchor anchor)
+    {
+        ArgumentNullException.ThrowIfNull(declaringType);
+        ArgumentNullException.ThrowIfNull(anchor);
+        _image.EnsureAlive();
+
+        int row = methodDefinitionToken & 0x00FFFFFF;
+        MetadataReader reader = _image.GetMetadataReader();
+        if ((methodDefinitionToken & unchecked((int)0xFF000000))
+                != 0x06000000
+            || row == 0
+            || row > reader.MethodDefinitions.Count
+            || _declarationIndex.Value.Probe(declaringType)
+                is not TypeDeclarationResult.Defined defined)
+        {
+            return false;
+        }
+
+        MethodDefinition method =
+            reader.GetMethodDefinition(
+                MetadataTokens.MethodDefinitionHandle(row));
+        if (MetadataTokens.GetToken(method.GetDeclaringType())
+            != defined.Definition.Value)
+        {
+            return false;
+        }
+
+        MemberAnchor ordinary =
+            ApiMemberIdentity.CreateMethodAnchor(
+                reader,
+                method.GetDeclaringType(),
+                method,
+                isExtensionMethod: false);
+        return ordinary == anchor
+            || ApiMemberIdentity.CreateMethodAnchor(
+                    reader,
+                    method.GetDeclaringType(),
+                    method,
+                    isExtensionMethod: true)
+                == anchor;
+    }
+
+    /// <summary>
+    /// Executes Count or Rows over one bound TypeDef's declared MethodDefs.
+    /// </summary>
+    public MetadataDeclaredMethodPopulationOutcome DeclaredMethods(
+        MetadataDeclaredMethodPopulationRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        _image.EnsureAlive();
+        return MetadataDeclaredMethodPopulationInspection.Inspect(
+            _image.PEReader,
+            _image.GetMetadataReader(),
+            request);
+    }
+
+    /// <summary>
+    /// Authenticates one TypeDef and prepares its declared-MethodDef source for
+    /// repeated terminal execution while this session remains alive.
+    /// </summary>
+    public MetadataDeclaredMethodPopulationPreparation
+        PrepareDeclaredMethods(
+            MetadataTypeDefinitionBinding type)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+        _image.EnsureAlive();
+        return MetadataDeclaredMethodPopulationInspection.Prepare(
+            this,
+            _image.PEReader,
+            _image.GetMetadataReader(),
+            type);
     }
 
     /// <summary>
