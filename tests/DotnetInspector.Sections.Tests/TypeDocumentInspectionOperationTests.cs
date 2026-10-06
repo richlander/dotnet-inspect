@@ -304,8 +304,6 @@ public sealed class TypeDocumentInspectionOperationTests
             checked(source.TypeDefinitionToken + 1),
             source.Signature,
             source.Category,
-            source.BaseKind,
-            source.InterfaceCount,
             source.Attributes,
             source.IsByRefLike,
             source.DefinesCoreLibraryRoot,
