@@ -1,5 +1,6 @@
 using System.Linq;
 
+using QuerySpace.Explanation;
 using QuerySpace.Vocabulary;
 
 namespace DotnetInspector.Queries.Tests;
@@ -28,16 +29,16 @@ public class ApiAccessibilityVocabularyTests
             ApiAccessibility.Values.Zip(accessibility.Terms))
         {
             Assert.Equal(bucket.Label, term.DisplayLabel);
-            var order = Assert.IsType<VocabularyMapValue.Scalar>(
+            var order = Assert.IsType<ExplanationValue.Scalar>(
                 Assert.Single(term.GetRequiredValues(accessibility.GetMap("order").Identity)));
             Assert.Equal(bucket.Order, order.Value.Integer);
-            var isDefault = Assert.IsType<VocabularyMapValue.Scalar>(
+            var isDefault = Assert.IsType<ExplanationValue.Scalar>(
                 Assert.Single(term.GetRequiredValues(accessibility.GetMap("default").Identity)));
             Assert.Equal(bucket.IsDefault, isDefault.Value.Boolean);
         }
         Assert.Single(accessibility.Terms, term =>
-            ((VocabularyMapValue.Scalar)term.GetRequiredValues(
-                accessibility.GetMap("default").Identity)[0]).Value.Boolean);
+            ((ExplanationValue.Scalar)term.GetRequiredValues(
+                accessibility.GetMap("default").Identity)[0]).Value.Boolean == true);
     }
 
     [Fact]

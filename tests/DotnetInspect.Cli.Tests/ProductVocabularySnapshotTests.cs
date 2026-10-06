@@ -4,6 +4,7 @@ using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
+using QuerySpace.Explanation;
 using QuerySpace.Vocabulary;
 
 namespace DotnetInspect.Cli.Tests;
@@ -31,8 +32,8 @@ public sealed class ProductVocabularySnapshotTests
 
         foreach (VocabularyTerm choice in choices.Terms)
         {
-            VocabularyMapValue.Term value = Assert.IsType<
-                VocabularyMapValue.Term>(
+            ExplanationValue.VocabularyTerm value = Assert.IsType<
+                ExplanationValue.VocabularyTerm>(
                 Assert.Single(choice.GetRequiredValues(tier.Identity)));
             Assert.Same(
                 snapshot.GetTerm(value.Identity),
