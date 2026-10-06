@@ -178,7 +178,14 @@ internal static class ReleaseCandidateWorkflowContract
         RequireContains(
             sourceRun,
             ".check_runs[] | select(.name == \"ci / ci-required\")");
+        RequireContains(sourceRun, "completed/success)");
+        RequireContains(
+            sourceRun,
+            "::error::ci / ci-required for $GITHUB_SHA is $ci;");
         RequireContains(sourceRun, "test \"$skill_version\" = \"$version\"");
+        RequireContains(
+            sourceRun,
+            "::error::Product skill version '$skill_version' does not match");
         RequireContains(
             sourceRun,
             "Version $version does not advance released version $release_version.");
