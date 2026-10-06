@@ -713,12 +713,14 @@ through the QuerySpace route in
   they answer distinct current questions.
 
 The focused singleton `PointerFreeUnsafeMethod` case proves that the population
-operation can return one exact row. The target document-resolution contract
+operation can return one exact row.
+[`MemberDocumentResolutionOperation`](../src/DotnetInspector.Sections/MemberDocumentResolution.cs)
 uses that row's owner-issued identity to select `MemberDocument` rather than
 exposing a one-row `MemberOverviewDocument`. The neighboring 15-row `Serialize`
-family proves that CLI default Tree, explicit Tree, and Browser family views
-consume the same owner-issued population; a missing group remains typed
-rejection.
+family proves that the same operation returns the complete
+`MemberOverviewDocument`; a missing group remains typed rejection. CLI default
+Tree, explicit Tree, and Browser family views continue to consume the
+transitional operation until their focused adoption slice.
 
 This pilot uses the full stack because its question needs the full stack. It
 does not imply that a scalar Query needs a Section, that every Section needs
