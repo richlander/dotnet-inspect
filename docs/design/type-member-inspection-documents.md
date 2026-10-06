@@ -6,14 +6,23 @@ This document is the normative design for the Type and Member declaration
 document family tracked by
 [#8430](https://github.com/richlander/dotnet-inspect/issues/8430).
 
-The design is proposed. Existing production types and routes use some of these
-names for narrower or transitional shapes. Adoption must migrate those shapes
-without presenting the target contract as current behavior.
+The design is approved. The four public document declarations, their shared
+exact-Member declaration shape, population correspondence guards, and
+source-generated JSON contracts are implemented. Existing production
+operations still return explicitly named transitional content shapes; later
+adoption slices must switch those producers without presenting the target
+contract as current behavior.
 
 The user approved defining these four documents together and integrating their
 resolved Member subjects with
 [Contextual Resource Explanation](contextual-resource-explanation.md). CLI and
 Browser rendering are explicitly outside this effort.
+
+Direct JSON transport preserves exact Type and Member identity, population
+bindings, inert strings, spelling, and closed population outcomes. In-process
+Library subject correspondence is deliberately not serialized; a transported
+`TypeSubject` retains its exact portable identity and has no attached Library
+authority.
 
 ## Owner and exact claim
 
@@ -288,9 +297,9 @@ operation never loads or executes inspected code.
 [#8430](https://github.com/richlander/dotnet-inspect/issues/8430) tracks
 production adoption as focused slices:
 
-1. Lock this four-document object model and explanation handoff.
+1. Lock this four-document object model and explanation handoff. Complete.
 2. Establish the public document declarations, population bindings, Rows and
-   Count correspondence, and serialization contracts.
+   Count correspondence, and serialization contracts. Complete.
 3. Implement `MemberOverviewDocument` and exact `MemberDocument` resolution.
 4. Adopt the resolved Member subject mapping in Contextual Resource
    Explanation.

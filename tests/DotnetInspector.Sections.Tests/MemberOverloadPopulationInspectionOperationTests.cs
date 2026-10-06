@@ -422,7 +422,7 @@ public sealed class MemberOverloadPopulationInspectionOperationTests
                     group.Overloads.Rows)
                 .Items[5];
 
-        MemberDocument ordinal =
+        MemberDocumentInspectionContent ordinal =
             Assert.IsType<MemberDocumentInspectionOutcome.Available>(
                     ExecuteMemberDocument(
                             library,
@@ -430,7 +430,7 @@ public sealed class MemberOverloadPopulationInspectionOperationTests
                             new(baselineOrdinal: expected.BaselineOrdinal))
                         .Content)
                 .Document;
-        MemberDocument fingerprint =
+        MemberDocumentInspectionContent fingerprint =
             Assert.IsType<MemberDocumentInspectionOutcome.Available>(
                     ExecuteMemberDocument(
                             library,
@@ -538,7 +538,7 @@ public sealed class MemberOverloadPopulationInspectionOperationTests
                 },
                 TestContext.Current.CancellationToken);
 
-        MemberDocument document =
+        MemberDocumentInspectionContent document =
             Assert.IsType<MemberDocumentInspectionOutcome.Available>(
                     inspection.Content)
                 .Document;
@@ -564,7 +564,7 @@ public sealed class MemberOverloadPopulationInspectionOperationTests
             await LibraryInspectionTestLibrary.CreateAsync(
                 content,
                 LibraryInspectionTestLibrary.Identity(content));
-        MemberDocument expected =
+        MemberDocumentInspectionContent expected =
             Assert.IsType<MemberDocumentInspectionOutcome.Available>(
                     ExecuteMemberDocument(
                             library,
@@ -688,7 +688,7 @@ public sealed class MemberOverloadPopulationInspectionOperationTests
                 },
                 TestContext.Current.CancellationToken);
 
-        MemberDocument document =
+        MemberDocumentInspectionContent document =
             Assert.IsType<MemberDocumentInspectionOutcome.Available>(
                     inspection.Content)
                 .Document;
@@ -982,7 +982,7 @@ public sealed class MemberOverloadPopulationInspectionOperationTests
                 + first.Fingerprint.Length
                 + first.Accessibility.Length);
 
-        MemberDocument exact =
+        MemberDocumentInspectionContent exact =
             Assert.IsType<MemberDocumentInspectionOutcome.Available>(
                     ExecuteMemberDocument(
                             library,

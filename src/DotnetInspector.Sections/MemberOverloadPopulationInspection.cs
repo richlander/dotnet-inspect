@@ -64,7 +64,9 @@ public sealed record MemberGroupSubject
         MetadataTypeDefinitionName declaringType,
         string name,
         MemberGroupCategory category = MemberGroupCategory.Method,
-        MemberGroupRole role = MemberGroupRole.Declared)
+        MemberGroupRole role = MemberGroupRole.Declared,
+        TypeMemberGroupSpelling spelling =
+            TypeMemberGroupSpelling.CSharp)
     {
         DeclaringType = declaringType
             ?? throw new ArgumentNullException(nameof(declaringType));
@@ -83,16 +85,25 @@ public sealed record MemberGroupSubject
                 role,
                 "Unknown Member-group role.");
         }
+        if (!Enum.IsDefined(spelling))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(spelling),
+                spelling,
+                "Unknown Member-group spelling.");
+        }
 
         Name = name;
         Category = category;
         Role = role;
+        Spelling = spelling;
     }
 
     public MetadataTypeDefinitionName DeclaringType { get; }
     public string Name { get; }
     public MemberGroupCategory Category { get; }
     public MemberGroupRole Role { get; }
+    public TypeMemberGroupSpelling Spelling { get; }
 }
 
 public sealed record MemberOverloadCountRequest;
@@ -117,7 +128,9 @@ public sealed record MemberOverloadPopulationBinding
             MemberOverloadAccessibilityFilter.Public,
         MemberOverloadReceiverFilter receiver =
             MemberOverloadReceiverFilter.All,
-        bool includeHidden = false)
+        bool includeHidden = false,
+        TypeMemberGroupSpelling spelling =
+            TypeMemberGroupSpelling.CSharp)
     {
         Assembly = assembly
             ?? throw new ArgumentNullException(nameof(assembly));
@@ -167,6 +180,13 @@ public sealed record MemberOverloadPopulationBinding
                 receiver,
                 "Unknown exact-Member receiver filter.");
         }
+        if (!Enum.IsDefined(spelling))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(spelling),
+                spelling,
+                "Unknown Member-group spelling.");
+        }
 
         ModuleVersionId = moduleVersionId;
         TypeDefinitionToken = typeDefinitionToken;
@@ -177,6 +197,7 @@ public sealed record MemberOverloadPopulationBinding
         Accessibility = accessibility;
         Receiver = receiver;
         IncludeHidden = includeHidden;
+        Spelling = spelling;
     }
 
     public LibraryAssemblyIdentity Assembly { get; }
@@ -190,6 +211,7 @@ public sealed record MemberOverloadPopulationBinding
     public MemberOverloadAccessibilityFilter Accessibility { get; }
     public MemberOverloadReceiverFilter Receiver { get; }
     public bool IncludeHidden { get; }
+    public TypeMemberGroupSpelling Spelling { get; }
 }
 
 public sealed record MemberOverloadContinuation
