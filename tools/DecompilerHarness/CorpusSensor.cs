@@ -859,12 +859,15 @@ internal static class CorpusSensor
         MetadataSource source,
         CorpusProfile profile)
     {
-        // Only the opt-in profile needs stage snapshots for feature coverage.
-        // Both runners receive the capabilities used by MemberBodyProducer.
+        // Only the opt-in profile needs pass-change attribution for feature
+        // coverage. Both runners receive the capabilities used by
+        // MemberBodyProducer.
         if (profile == CorpusProfile.OptInNet11)
         {
-            return StageDump.PassesThatChanged(IrPasses.RunWithStages(function,
-                method => IrImporter.Import(source, method), source.AreProvablyDisjoint));
+            return PassExecutionReceipts.ChangedPasses(IrPasses.RunWithReceipts(
+                function,
+                method => IrImporter.Import(source, method),
+                source.AreProvablyDisjoint));
         }
 
         IrPasses.Run(function, IrPasses.Default,
