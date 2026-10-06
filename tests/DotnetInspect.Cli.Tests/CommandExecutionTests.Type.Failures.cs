@@ -66,7 +66,7 @@ public partial class CommandExecutionTests
                 [],
                 ["--json"],
                 ["--table"],
-                ["-S", "Type Info", "--count"],
+                ["-S", "Methods", "--count"],
             ];
             string[][] memberOutputOptions =
             [
@@ -301,7 +301,8 @@ public partial class CommandExecutionTests
                 "--library",
                 path,
                 "-S",
-                "Inspection Failures");
+                "Inspection Failures",
+                "--markdown");
 
             Assert.Equal(1, result.Exit);
             Assert.Empty(result.Error);
