@@ -50,8 +50,8 @@ A value's path segment is its exact identity in ASCII lower case with `:`
 replaced by `.`, under
 [Value-vocabulary resources](resource-explanation.md#value-vocabulary-resources).
 The path segment is the only path spelling. The exact identity, which queries
-accept, is the value's identity fact, so the vocabulary's depth-1 listing
-shows both.
+accept, is the value's identity fact, so the vocabulary's depth-1 Document
+carries both; JSON output and each value's own explanation present it.
 
 Inspect Web requests the same explanation. A catalog-facade export resolves a
 `vocabularies` path against the Browser-composed snapshot and returns the same
@@ -78,8 +78,8 @@ The `dotnet-inspect vocabulary` command retires, with the parts only it uses:
   (`VocabularyJson` and the `VocabularyWire*` types).
 
 Each map's per-field query operators retire with the document. Only the
-document's JSON and the explanation `fields` fact read them, and no
-predicate enforces them. The operators a query input accepts belong to that
+document's JSON read them, and no predicate enforces them. Resource
+Explanation no longer presents them. The operators a query input accepts belong to that
 input and are presented by `-Q`.
 
 `vocabulary` stays a reserved command name. Invoking it fails with an error
