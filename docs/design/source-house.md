@@ -735,6 +735,14 @@ Authored source is preferred because it carries checksum-verified provenance
 to producer text. Decompiled source remains a distinct reconstructed
 representation with its own diagnostics and fidelity boundaries.
 
+An admitted exact-member request may carry typed evidence that upstream
+Portable PDB opening has already settled as unavailable. When the request has
+no matching companion PDB and otherwise satisfies the selected-content, lease,
+and deadline contract, `BestAvailable` records a zero-work authored-unavailable
+attempt and proceeds directly to decompilation. A supplied companion or
+contradictory request state defeats that optimization and preserves ordinary
+authored settlement and typed validation.
+
 An operation that needs both authored and decompiled attempts for comparison
 is not `BestAvailable`. It is a separate explicit comparison demand or query
 because it deliberately defeats short-circuiting and incurs both producers'

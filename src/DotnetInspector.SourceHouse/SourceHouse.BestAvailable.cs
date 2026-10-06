@@ -25,11 +25,15 @@ public static partial class SourceHouse
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
-            authored = await ExecuteCoreAsync(
-                    authoredRequest,
-                    operationLease,
-                    cancellationToken)
-                .ConfigureAwait(false);
+            authored = CanUsePortablePdbUnavailablePrecondition(
+                request,
+                operationLease)
+                ? PortablePdbUnavailable()
+                : await ExecuteCoreAsync(
+                        authoredRequest,
+                        operationLease,
+                        cancellationToken)
+                    .ConfigureAwait(false);
             if (authored is not AvailableOutcome)
             {
                 var decompilationRequest =
@@ -68,6 +72,59 @@ public static partial class SourceHouse
             decompiled,
             settlement);
     }
+
+    private static bool
+        CanUsePortablePdbUnavailablePrecondition(
+            SourceHouseBestAvailableRequest request,
+            LibraryOperationLease operationLease)
+    {
+        if (request.AuthoredPrecondition
+                != SourceHouseBestAvailableAuthoredPrecondition
+                    .PortablePdbUnavailable
+            || !ReferenceEquals(
+                request.SelectedAssembly.Library,
+                request.Library)
+            || (!request.SelectedAssembly.HasRole(
+                    LibraryContentRole.ApiAssembly)
+                && !request.SelectedAssembly.HasRole(
+                    LibraryContentRole.ImplementationAssembly))
+            || !ReferenceEquals(
+                operationLease.Reference,
+                request.Library)
+            || DeadlineExpired(request.AuthoredPlan))
+        {
+            return false;
+        }
+
+        return !request.Library.Contents.Any(
+            content =>
+                content.HasRole(
+                    LibraryContentRole.PortablePdb)
+                && ReferenceEquals(
+                    content.AssociatedAssembly,
+                    request.SelectedAssembly));
+    }
+
+    private static ProvisionalOutcome
+        PortablePdbUnavailable() =>
+        new UnavailableOutcome(
+            new SourceHousePdbContribution(
+                SourceHousePdbContributionKind.Unavailable,
+                content: null,
+                bytesObserved: 0,
+                sourceLinkMap: null,
+                observations: []),
+            new SourceHouseAuthoredAttempt.Unavailable(
+                mapping: null,
+                sourceAttempts: []),
+            new(
+                AssemblyBytesObserved: 0,
+                PortablePdbBytesObserved: 0,
+                DocumentsObserved: 0,
+                TargetMappingsObserved: 0,
+                CandidateAttempts: 0,
+                SourceBytesObserved: 0,
+                SourceTextCharactersObserved: 0));
 
     private static SourceHouseBestAvailableOutcome CompleteBestAvailable(
         SourceHouseBestAvailableRequestEvidence request,

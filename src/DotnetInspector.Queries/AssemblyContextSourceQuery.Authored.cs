@@ -266,6 +266,7 @@ public static partial class AssemblyContextSourceQuery
         Exception? acquisitionFailure = opened.Failure;
         Exception? primaryFailure = null;
         bool? portablePdbAvailable = null;
+        bool authoredPortablePdbUnavailable = false;
         if (opened.Source is { } source)
         {
             try
@@ -278,6 +279,8 @@ public static partial class AssemblyContextSourceQuery
                         : source.Context.PdbId is not null
                             ? false
                             : null;
+                authoredPortablePdbUnavailable =
+                    !source.Context.HasPdb;
                 try
                 {
                     provenance = new(
@@ -324,6 +327,7 @@ public static partial class AssemblyContextSourceQuery
         }
         else
         {
+            authoredPortablePdbUnavailable = true;
             cancellationToken.ThrowIfCancellationRequested();
             EnsureBindingPolicyVersion(participant, version);
             if (!retainLibrary && !bestAvailable)
@@ -434,7 +438,12 @@ public static partial class AssemblyContextSourceQuery
                                 .ImplementationAssembly!,
                             memberTarget,
                             plan,
-                            decompilationPlan);
+                            decompilationPlan,
+                            authoredPortablePdbUnavailable
+                                ? SourceHouseBestAvailableAuthoredPrecondition
+                                    .PortablePdbUnavailable
+                                : SourceHouseBestAvailableAuthoredPrecondition
+                                    .Attempt);
                     if (completed.Owner.IssueOperationLease(
                             completed.Reference)
                         is not LibraryOperationLeaseIssueOutcome

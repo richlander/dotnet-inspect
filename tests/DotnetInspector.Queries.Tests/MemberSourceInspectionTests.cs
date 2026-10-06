@@ -447,6 +447,10 @@ public sealed partial class AssemblyContextSourceQueryTests
         Assert.Equal(
             SourceHouseSelectedSource.Decompiled,
             best.Selected);
+        Assert.Equal(
+            SourceHouseBestAvailableAuthoredPrecondition
+                .PortablePdbUnavailable,
+            best.Request.AuthoredPrecondition);
         Assert.IsType<SourceHouseOutcome.Unavailable>(
             best.AuthoredOutcome);
         Assert.Same(

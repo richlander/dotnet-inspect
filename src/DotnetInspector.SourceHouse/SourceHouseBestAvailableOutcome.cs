@@ -3,6 +3,12 @@ using ILInspector.Decompiler;
 
 namespace DotnetInspector.SourceHouse;
 
+public enum SourceHouseBestAvailableAuthoredPrecondition
+{
+    Attempt,
+    PortablePdbUnavailable,
+}
+
 public sealed class SourceHouseBestAvailableRequest
 {
     public SourceHouseBestAvailableRequest(
@@ -11,7 +17,11 @@ public sealed class SourceHouseBestAvailableRequest
         LibraryContentReference selectedAssembly,
         SourceHouseTarget.MemberTarget target,
         SourceHouseOperationPlan authoredPlan,
-        SourceHouseDecompilationPlan decompilationPlan)
+        SourceHouseDecompilationPlan decompilationPlan,
+        SourceHouseBestAvailableAuthoredPrecondition
+            authoredPrecondition =
+                SourceHouseBestAvailableAuthoredPrecondition
+                    .Attempt)
     {
         ArgumentNullException.ThrowIfNull(identity);
         ArgumentNullException.ThrowIfNull(library);
@@ -19,6 +29,11 @@ public sealed class SourceHouseBestAvailableRequest
         ArgumentNullException.ThrowIfNull(target);
         ArgumentNullException.ThrowIfNull(authoredPlan);
         ArgumentNullException.ThrowIfNull(decompilationPlan);
+        if (!Enum.IsDefined(authoredPrecondition))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(authoredPrecondition));
+        }
         if (!string.Equals(
                 authoredPlan.Identity.Name,
                 decompilationPlan.Identity.Name,
@@ -38,6 +53,7 @@ public sealed class SourceHouseBestAvailableRequest
         Target = target;
         AuthoredPlan = authoredPlan;
         DecompilationPlan = decompilationPlan;
+        AuthoredPrecondition = authoredPrecondition;
     }
 
     public SourceHouseRequestIdentity Identity { get; }
@@ -46,6 +62,9 @@ public sealed class SourceHouseBestAvailableRequest
     public SourceHouseTarget.MemberTarget Target { get; }
     public SourceHouseOperationPlan AuthoredPlan { get; }
     public SourceHouseDecompilationPlan DecompilationPlan { get; }
+    public SourceHouseBestAvailableAuthoredPrecondition
+        AuthoredPrecondition
+    { get; }
 }
 
 public sealed record SourceHouseBestAvailableRequestEvidence
@@ -59,6 +78,7 @@ public sealed record SourceHouseBestAvailableRequestEvidence
         Target = request.Target;
         OperationPlan = request.AuthoredPlan.Identity;
         PolicyGeneration = request.AuthoredPlan.PolicyGeneration;
+        AuthoredPrecondition = request.AuthoredPrecondition;
     }
 
     public SourceHouseRequestIdentity Identity { get; }
@@ -67,6 +87,9 @@ public sealed record SourceHouseBestAvailableRequestEvidence
     public SourceHouseTarget.MemberTarget Target { get; }
     public SourceHouseOperationPlanIdentity OperationPlan { get; }
     public SourceHousePolicyGeneration PolicyGeneration { get; }
+    public SourceHouseBestAvailableAuthoredPrecondition
+        AuthoredPrecondition
+    { get; }
     public SourceHouseSourcePolicy SourcePolicy =>
         SourceHouseSourcePolicy.BestAvailable;
     public SourceHousePdbAcquisitionPolicy PdbAcquisitionPolicy =>

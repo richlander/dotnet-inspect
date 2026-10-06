@@ -104,6 +104,92 @@ public sealed partial class AuthoredSourceHouseTests
 
     [Fact]
     public async Task
+        BestAvailable_PortablePdbUnavailableSkipsAuthoredWork()
+    {
+        RealAsset asset = MemberSlicingAsset();
+        await using LibraryFixture library =
+            await LibraryFixture.CreateAsync(
+                asset.AssemblyPath);
+
+        SourceHouseBestAvailableOutcome.Available available =
+            Assert.IsType<
+                SourceHouseBestAvailableOutcome.Available>(
+                await SourceHouse.ExecuteBestAvailableAsync(
+                    BestAvailableRequest(
+                        library,
+                        asset,
+                        capabilities: [],
+                        authoredPrecondition:
+                            SourceHouseBestAvailableAuthoredPrecondition
+                                .PortablePdbUnavailable),
+                    library.IssueOperation(),
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            SourceHouseSelectedSource.Decompiled,
+            available.Selected);
+        SourceHouseOutcome.Unavailable authored =
+            Assert.IsType<SourceHouseOutcome.Unavailable>(
+                available.AuthoredOutcome);
+        Assert.Equal(
+            SourceHouseBestAvailableAuthoredPrecondition
+                .PortablePdbUnavailable,
+            available.Request.AuthoredPrecondition);
+        Assert.Equal(
+            0,
+            authored.Work.AssemblyBytesObserved);
+        Assert.Empty(
+            authored.AuthoredAttempt.SourceAttempts);
+    }
+
+    [Fact]
+    public async Task
+        BestAvailable_PortablePdbUnavailableDoesNotOverrideCompanion()
+    {
+        RealAsset asset = MemberSlicingAsset();
+        await using LibraryFixture library =
+            await LibraryFixture.CreateAsync(
+                asset.AssemblyPath,
+                asset.PdbPath);
+
+        SourceHouseBestAvailableOutcome.Available available =
+            Assert.IsType<
+                SourceHouseBestAvailableOutcome.Available>(
+                await SourceHouse.ExecuteBestAvailableAsync(
+                    BestAvailableRequest(
+                        library,
+                        asset,
+                        [
+                            Capability(
+                                "repository",
+                                SourceHouseCapabilityCategory
+                                    .Repository,
+                                (candidate, _, _) =>
+                                    ValueTask.FromResult<
+                                        SourceHouseCapabilityOutcome>(
+                                            new SourceHouseCapabilityOutcome
+                                                .Available(
+                                                    ReadCandidateSource(
+                                                        candidate)))),
+                        ],
+                        authoredPrecondition:
+                            SourceHouseBestAvailableAuthoredPrecondition
+                                .PortablePdbUnavailable),
+                    library.IssueOperation(),
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            SourceHouseSelectedSource.Authored,
+            available.Selected);
+        Assert.IsType<SourceHouseOutcome.Available>(
+            available.AuthoredOutcome);
+        Assert.Null(available.DecompilationOutcome);
+        Assert.True(
+            available.AuthoredOutcome.Work.AssemblyBytesObserved > 0);
+    }
+
+    [Fact]
+    public async Task
         BestAvailable_BodyProjectionBudgetIsIncomplete()
     {
         RealAsset asset = MemberSlicingAsset();
@@ -211,7 +297,11 @@ public sealed partial class AuthoredSourceHouseTests
                 capabilities,
             int maximumBodyProjections =
                 CSharpDecompilerService
-                    .DefaultMaxBodyProjections)
+                    .DefaultMaxBodyProjections,
+            SourceHouseBestAvailableAuthoredPrecondition
+                authoredPrecondition =
+                    SourceHouseBestAvailableAuthoredPrecondition
+                        .Attempt)
     {
         SourceHouseAuthoredRequest authored = Request(
             library,
@@ -239,6 +329,7 @@ public sealed partial class AuthoredSourceHouseTests
             library.Reference.ApiAssembly,
             asset.MemberTarget,
             authored.Plan,
-            plan);
+            plan,
+            authoredPrecondition);
     }
 }

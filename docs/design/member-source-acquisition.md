@@ -36,6 +36,13 @@ attempts. Embedded symbols remain embedded for Library admission; external
 symbols retain independent companion provenance. A second symbol acquisition
 is not needed for fallback or comparison.
 
+When upstream PDB opening settles that no Portable PDB is available, ordinary
+Source transfers that typed precondition with the exact-member request.
+SourceHouse still owns `BestAvailable` selection and lease settlement: it
+records authored unavailability without repeating assembly/PDB work, then
+attempts decompilation. The precondition does not override an admitted matching
+companion or House validation.
+
 The acquired SourceLink reader closes before Library admission. The House
 settles its transferred operation lease, then the query retires the Library
 owner before its Artifact session. Failed cleanup prevents publication;
