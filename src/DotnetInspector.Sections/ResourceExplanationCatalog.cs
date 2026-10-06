@@ -929,11 +929,34 @@ public sealed class ResourceExplanationCatalog
         ArgumentNullException.ThrowIfNull(snapshot);
         VocabularyDocument document =
             ProductVocabularyProjection.ToDocument(snapshot);
+        var projected = document.Sections
+            .Where(static section =>
+                section.Id != ProductVocabularyComposition.SectionsId)
+            .ToDictionary(static section => section.Id, StringComparer.Ordinal);
+        VocabularyDefinition index = snapshot.GetVocabulary(
+            new VocabularyIdentity(
+                snapshot.Catalog,
+                ProductVocabularyComposition.SectionsId));
         ImmutableArray<VocabularySection> sections =
         [
-            .. document.Sections.Where(static section =>
-                section.Id != ProductVocabularyComposition.SectionsId),
+            .. index.Terms.Select(term =>
+                projected.TryGetValue(
+                    term.Identity.Value,
+                    out VocabularySection? section)
+                    ? section
+                    : throw new InvalidOperationException(
+                        $"Indexed vocabulary '{term.Identity.Value}' has no "
+                        + "Product Vocabulary section to explain."))
         ];
+        if (sections.Length != projected.Count)
+        {
+            throw new InvalidOperationException(
+                "The Product Vocabulary projection has a section the "
+                + "sections index does not list.");
+        }
+        var members = sections
+            .Select(static section => section.Id)
+            .ToHashSet(StringComparer.Ordinal);
 
         ExplanationResourceTypeIdentity type =
             ResourceExplanationVocabulary.ValueVocabularyType;
@@ -1027,7 +1050,7 @@ public sealed class ResourceExplanationCatalog
                             IEnumerable<ExplanationResourceKey>>
                         {
                             ["term-map-target"] =
-                                TermMapTargets(definition),
+                                TermMapTargets(definition, members),
                         })));
         }
 
@@ -1040,22 +1063,24 @@ public sealed class ResourceExplanationCatalog
         new ResourcePath(VocabulariesCollectionSegment)
             .Append(vocabularyIdentity);
 
-    private static IEnumerable<ExplanationResourceKey> TermMapTargets(
-        VocabularyDefinition definition) =>
-        definition.Maps
-            .Select(static map => map.Target)
-            .OfType<VocabularyMapTarget.Terms>()
-            .Select(terms => terms.Reference switch
-            {
-                VocabularyTermSetReference.Local local =>
-                    local.Vocabulary.Value,
-                _ => throw new NotSupportedException(
-                    $"Vocabulary '{definition.Identity}' has a term map "
-                    + "into another snapshot; explanation projects only "
-                    + "local term-map targets."),
-            })
-            .Distinct(StringComparer.Ordinal)
-            .Select(VocabularyKey);
+    private static ImmutableArray<ExplanationResourceKey> TermMapTargets(
+        VocabularyDefinition definition,
+        IReadOnlySet<string> members) =>
+        [
+            .. definition.Maps
+                .Select(static map => map.Target)
+                .OfType<VocabularyMapTarget.Terms>()
+                .Select(terms =>
+                    terms.Reference is VocabularyTermSetReference.Local local
+                    && members.Contains(local.Vocabulary.Value)
+                        ? local.Vocabulary.Value
+                        : throw new InvalidOperationException(
+                            $"Vocabulary '{definition.Identity}' has a term "
+                            + "map whose target is not an explained "
+                            + "vocabulary in this snapshot."))
+                .Distinct(StringComparer.Ordinal)
+                .Select(VocabularyKey),
+        ];
 
     private static ExplanationResourceKey VocabularyKey(string identity) =>
         ResourceExplanationVocabulary.Key(

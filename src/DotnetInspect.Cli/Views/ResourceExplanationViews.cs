@@ -509,7 +509,7 @@ public sealed class ResourceExplanationView
                 ],
                 resource.ResourceType.Value == "value-vocabulary"
                     ? $"vocabulary -S \"{
-                        ResourceExplanationFactView.OptionalText(
+                        ResourceExplanationFactView.RequiredText(
                             resource,
                             "name")}\""
                     : null);

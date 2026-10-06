@@ -325,10 +325,9 @@ Package Query operation-facet domain from its `QuerySpaceBinding`, together
 with its document, route, required-context relation, and selected host
 bindings. Product Vocabulary adopts its complete composed domain under
 [Value-vocabulary resources](#value-vocabulary-resources). Within each
-adopted domain, an
-adapter cannot silently omit a newly added resource or owner-issued
-relationship. Later owner adoptions add their complete declared domains rather
-than cherry-picking resources by name.
+adopted domain, an adapter cannot silently omit a newly added resource or
+owner-issued relationship. Later owner adoptions add their complete declared
+domains rather than cherry-picking resources by name.
 
 ### Canonical path grammar
 
@@ -1000,16 +999,19 @@ Product Vocabulary owner. The host's composed snapshot and its
   vocabulary identity already satisfies the segment grammar and is reused
   unchanged. The collection `vocabularies` lists every vocabulary in the
   composed sections index, in index order. The index vocabulary itself is not
-  a member; the collection is its explanation.
+  a member; the collection is its explanation. Construction fails visibly
+  when the index and the Product Vocabulary projection list different
+  vocabularies.
 - **Facts.** Identity, display name, summary, value count, accepted
   query-input identities, each field with its value kind and legal operators,
   the values marked as defaults, and the first five values in owner order as
   bounded examples. Accepted query inputs are opaque external identities until
   their owners publish explanation resources.
-- **Relationships.** A term map whose target is another vocabulary in the
-  same snapshot is a typed relationship to that vocabulary's resource. A term
-  map into another snapshot has no resource in this catalog, and construction
-  fails visibly rather than inventing a target.
+- **Relationships.** A term map whose target is another explained vocabulary
+  is a typed relationship to that vocabulary's resource. Construction fails
+  visibly for any other target rather than inventing one. A term map into
+  another snapshot already fails when the host composes its product snapshot,
+  because hosts supply no external snapshots.
 
 The explanation of a vocabulary is not its full value listing. It points to
 the ordinary `vocabulary` command for bulk rows. The initial query adapter

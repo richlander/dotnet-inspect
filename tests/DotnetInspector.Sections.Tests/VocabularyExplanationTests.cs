@@ -15,22 +15,23 @@ namespace DotnetInspector.Sections.Tests;
 /// </summary>
 public sealed class VocabularyExplanationTests
 {
-    private static readonly string[] ProductVocabularyIds =
-    [
-        ApiAccessibilityVocabulary.AccessibilityId,
-        StyleOptionVocabularies.StyleTiersId,
-        StyleOptionVocabularies.StyleChoicesId,
-        BodyShapeVocabulary.BodyKindsId,
-    ];
-
     [Fact]
     public void CollectionListsEveryIndexedVocabularyInIndexOrder()
     {
+        VocabularySnapshot snapshot = ProductSnapshot();
         ResourceExplanationCatalog catalog =
-            ResourceExplanationCatalog.CreateVocabularies(ProductSnapshot());
+            ResourceExplanationCatalog.CreateVocabularies(snapshot);
+        string[] productVocabularyIds =
+        [
+            .. snapshot.GetVocabulary(new VocabularyIdentity(
+                    snapshot.Catalog,
+                    ProductVocabularyComposition.SectionsId))
+                .Terms.Select(term => term.Identity.Value),
+        ];
+        Assert.Equal(4, productVocabularyIds.Length);
 
         Assert.Equal(
-            ProductVocabularyIds.Select(id => $"vocabularies/{id}"),
+            productVocabularyIds.Select(id => $"vocabularies/{id}"),
             catalog.Resources
                 .Where(resource =>
                     resource.ResourceType.Value == "value-vocabulary")
@@ -46,10 +47,10 @@ public sealed class VocabularyExplanationTests
             document.Relationships,
             relationship => relationship.Relationship.Value == "collection-vocabulary");
         Assert.Equal(
-            ProductVocabularyIds,
+            productVocabularyIds,
             members.Targets.Select(target => KeyIdentity(target.Resource)));
         Assert.Equal(
-            ProductVocabularyIds.Length,
+            productVocabularyIds.Length,
             Integer(document.Resources[0], "members"));
     }
 
@@ -131,6 +132,28 @@ public sealed class VocabularyExplanationTests
     }
 
     [Fact]
+    public void IndexedVocabularyWithoutAProjectedSectionFailsVisibly()
+    {
+        VocabularyCatalogIdentity catalog = ProductVocabularyComposition.Catalog;
+        VocabularySnapshot snapshot = ProductVocabularyComposition.Compose(
+            [
+                .. ProductContributions(catalog),
+                new(
+                    new VocabularyDefinition(
+                        new(catalog, "test.colors"),
+                        "Colors",
+                        "Test colors.",
+                        maps: [],
+                        [new(new(new(catalog, "test.colors"), "red"), "Red", null)]),
+                    "test.paint"),
+            ]);
+
+        InvalidOperationException failure = Assert.Throws<InvalidOperationException>(
+            () => ResourceExplanationCatalog.CreateVocabularies(snapshot));
+        Assert.Contains("test.colors", failure.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void UnknownVocabularyPathSuggestsCanonicalPaths()
     {
         ResourceExplanationCatalog catalog =
@@ -143,10 +166,12 @@ public sealed class VocabularyExplanationTests
             unknown.Suggestions.Select(suggestion => suggestion.Value));
     }
 
-    private static VocabularySnapshot ProductSnapshot()
-    {
-        VocabularyCatalogIdentity catalog = ProductVocabularyComposition.Catalog;
-        return ProductVocabularyComposition.Compose(
+    private static VocabularySnapshot ProductSnapshot() =>
+        ProductVocabularyComposition.Compose(
+            ProductContributions(ProductVocabularyComposition.Catalog));
+
+    private static ProductVocabularyContribution[] ProductContributions(
+        VocabularyCatalogIdentity catalog) =>
             [
                 new(
                     ApiAccessibilityVocabulary.Declare(catalog),
@@ -160,8 +185,7 @@ public sealed class VocabularyExplanationTests
                     "decompiler.style-picker",
                     "decompiler.render"),
                 new(BodyShapeVocabulary.Declare(catalog), "decompiler.body-kind"),
-            ]);
-    }
+            ];
 
     private static ResourceExplanationDocument Explain(
         ResourceExplanationCatalog catalog,
