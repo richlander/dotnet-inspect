@@ -981,7 +981,8 @@ public sealed class PackageHouseEvidence
         IEnumerable<PackageHouseFailure>? failures = null,
         PackageHouseFileList? fileList = null,
         PackageHouseContentNarrowingReceipt? contentNarrowing = null,
-        PackageHouseLibraryAndInventory? libraryAndInventory = null)
+        PackageHouseLibraryAndInventory? libraryAndInventory = null,
+        PackageHouseLibraryInventory? libraryInventory = null)
     {
         ArgumentNullException.ThrowIfNull(request);
         if (decision is not null
@@ -1055,6 +1056,23 @@ public sealed class PackageHouseEvidence
                 "Library-and-inventory evidence requires its exact acquired composite terminal.",
                 nameof(libraryAndInventory));
         }
+        if (libraryInventory is not null
+            && (acquisition is null
+                || (request.ContentQuery?.LibraryInventoryTerminal is null
+                    && request.ContentQuery
+                        ?.LibraryAndInventoryTerminal is null)
+                || !ReferenceEquals(
+                    libraryInventory.Narrowing,
+                    contentNarrowing)
+                || (libraryAndInventory is not null
+                    && !ReferenceEquals(
+                        libraryAndInventory.Inventory,
+                        libraryInventory))))
+        {
+            throw new ArgumentException(
+                "Library inventory evidence requires its exact acquired inventory terminal.",
+                nameof(libraryInventory));
+        }
 
         Request = request;
         Decision = decision;
@@ -1063,6 +1081,7 @@ public sealed class PackageHouseEvidence
         ContentNarrowing = contentNarrowing;
         FileList = fileList;
         LibraryAndInventory = libraryAndInventory;
+        LibraryInventory = libraryInventory;
         Failures = failures is null
             ? []
             : [.. failures];
@@ -1103,6 +1122,12 @@ public sealed class PackageHouseEvidence
     /// requested by the composite content terminal.
     /// </summary>
     public PackageHouseLibraryAndInventory? LibraryAndInventory { get; }
+
+    /// <summary>
+    /// The complete resource-free logical Library inventory requested by an
+    /// inventory terminal.
+    /// </summary>
+    public PackageHouseLibraryInventory? LibraryInventory { get; }
 
     public ImmutableArray<PackageHouseFailure> Failures { get; }
 

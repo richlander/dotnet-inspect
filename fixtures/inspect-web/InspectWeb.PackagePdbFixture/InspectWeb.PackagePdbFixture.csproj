@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <AssemblyName>InspectWebPackagePdbFixture</AssemblyName>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <IsAotCompatible>false</IsAotCompatible>
+    <DebugType>portable</DebugType>
+    <SourceLink>$(MSBuildProjectDirectory)/sourcelink.json</SourceLink>
+    <EnableSourceControlManagerQueries>false</EnableSourceControlManagerQueries>
+    <EnableSourceLink>false</EnableSourceLink>
+  </PropertyGroup>
+  <ItemGroup>
+    <Content Include="Counter.cs" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <Target Name="BuildPackagePdbFixturePackage" AfterTargets="Build">
+    <PropertyGroup>
+      <FixturePackageDirectory>$(IntermediateOutputPath)package/</FixturePackageDirectory>
+    </PropertyGroup>
+    <Copy
+      SourceFiles="$(TargetPath);$(TargetDir)$(TargetName).pdb"
+      DestinationFolder="$(FixturePackageDirectory)lib/$(TargetFramework)" />
+    <Copy
+      SourceFiles="InspectWeb.PackagePdbFixture.nuspec"
+      DestinationFolder="$(FixturePackageDirectory)" />
+    <ZipDirectory
+      SourceDirectory="$(FixturePackageDirectory)"
+      DestinationFile="$(TargetDir)InspectWeb.PackagePdbFixture.1.0.0.nupkg"
+      Overwrite="true" />
+  </Target>
+</Project>
