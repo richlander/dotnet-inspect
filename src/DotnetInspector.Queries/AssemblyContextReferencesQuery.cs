@@ -43,38 +43,8 @@ public static class AssemblyContextReferencesQuery
         ExecuteParticipantRows(
             AssemblyContextGroup group,
             AssemblyContextParticipant participant)
-    {
-        AssemblyContextEntry<ImmutableArray<AssemblyReferenceIdentity>> result =
-            ExecuteParticipant(group, participant);
-        return result switch
-        {
-            AssemblyContextEntry<
-                ImmutableArray<AssemblyReferenceIdentity>>.Available available =>
-                new AssemblyContextEntry<
-                    ImmutableArray<AssemblyReferenceRow>>.Available(
-                        available.Subject,
-                        [
-                            .. available.Value.Select(static reference =>
-                                new AssemblyReferenceRow(
-                                    reference.Name,
-                                    reference.Version?.ToString() ?? "",
-                                    reference.Culture,
-                                    reference.PublicKeyToken)),
-                        ]),
-            AssemblyContextEntry<
-                ImmutableArray<AssemblyReferenceIdentity>>.Rejected rejected =>
-                new AssemblyContextEntry<
-                    ImmutableArray<AssemblyReferenceRow>>.Rejected(
-                        rejected.Subject,
-                        rejected.Failure),
-            AssemblyContextEntry<
-                ImmutableArray<AssemblyReferenceIdentity>>.Failed failed =>
-                new AssemblyContextEntry<
-                    ImmutableArray<AssemblyReferenceRow>>.Failed(
-                        failed.Subject,
-                        failed.Error),
-            _ => throw new InvalidOperationException(
-                "Unknown assembly-context reference query result."),
-        };
-    }
+        => AssemblyContextQueryExecutor.ExecuteParticipant(
+            group,
+            participant,
+            AssemblyReferencesQuery.ReadRows);
 }

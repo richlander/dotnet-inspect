@@ -35,6 +35,7 @@ public sealed class AssemblyContextReferencesQueryTests
             portable.Value,
             reference => reference.Name == "System.Runtime");
         Assert.False(string.IsNullOrWhiteSpace(systemRuntime.Version));
+        Assert.Equal("neutral", systemRuntime.Culture);
         Assert.False(string.IsNullOrWhiteSpace(systemRuntime.PublicKeyToken));
     }
 
