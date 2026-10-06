@@ -185,7 +185,7 @@ internal sealed partial class LibraryMethodAnalysisRunner
                         null,
                         owner.Status == BodyUseOwnerStatus.Rejected
                             ? "Generated-body ownership evidence was rejected."
-                            : "The physical body has no authenticated logical owner."));
+                            : "Compiler-generated body retained as physical-only evidence; its Type uses are excluded from logical-owner relationships."));
             }
 
             TypeDefinitionHandle physicalType =

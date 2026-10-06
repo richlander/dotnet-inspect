@@ -213,6 +213,21 @@ so diagnostics never reduce the Type inventory's space. An unavailable
 implementation channel leaves surface cues visible and names the body
 unavailability. Retry remains a failure-status action, not a salience control.
 
+Qualification messages identify the affected evidence mode. Implementation
+qualification does not change the surface presentation's disposition or
+diagnostics. Repeated implementation diagnostics are disclosed once.
+
+Markout 0.38.0 (`net10.0`), opened at `Markout.BlockWriter`, motivates this
+boundary: compiler-generated physical-only bodies produce an implementation
+qualification while signature-based surface cues remain usable. A focused
+TypeScript regression retains the surface disposition and cues, labels the
+implementation qualification, and deduplicates repeated body diagnostics.
+Running `AnalysisLibraryBodyUseService.ExecutePath` on the package's
+`lib/net10.0/Markout.dll` records 1,540 considered bodies, 820 logical-owner
+bodies, 720 physical-only bodies, and 9,139 examined typed operands, with zero
+unavailable or limited bodies or operands. This is a fidelity qualification,
+not a body-decoding failure.
+
 ## Validation
 
 The contract is gated at four boundaries:

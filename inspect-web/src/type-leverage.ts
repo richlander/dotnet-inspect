@@ -304,9 +304,15 @@ export function projectTypeLeverage(
           `Implementation Type-leverage shard '${bodyShard.namespace}' has invalid coverage.`,
         );
       }
-      if (bodyShard.disposition.toLowerCase() !== "complete")
-        disposition = bodyShard.disposition;
-      diagnostics.push(...bodyShard.diagnostics);
+      if (bodyShard.disposition.toLowerCase() !== "complete"
+        || bodyShard.diagnostics.length > 0) {
+        warnings.push(
+          `Implementation Type leverage has ${bodyShard.disposition.toLowerCase()} evidence; surface leverage is independent`,
+        );
+      }
+      warnings.push(...bodyShard.diagnostics.map(
+        detail => `Implementation Type leverage: ${detail}`,
+      ));
       const rows = new Map<string, BrowserLibraryTypeLeverageRow>();
       for (const row of bodyShard.types) {
         if (rows.has(row.typeDefinitionId)
@@ -377,7 +383,7 @@ export function projectTypeLeverage(
     disposition,
     coverage: sumCoverage(coverages),
     diagnostics: [...new Set(diagnostics)],
-    warnings,
+    warnings: [...new Set(warnings)],
   };
 }
 

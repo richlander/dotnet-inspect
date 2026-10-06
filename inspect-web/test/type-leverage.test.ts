@@ -239,6 +239,33 @@ test("aligned and opposing evidence modes retain two independent poles", () => {
   assert.equal(projection.mountainPeakCount, 1);
 });
 
+test("physical-only implementation evidence keeps surface salience complete", () => {
+  const detail = "Compiler-generated body retained as physical-only evidence; its Type uses are excluded from logical-owner relationships.";
+  const projection = projectTypeLeverage({
+    ...document,
+    implementation: {
+      ...document.implementation,
+      typeLeverageShards: [bodyShard, bodyToolsShard].map(value => ({
+        ...value,
+        disposition: "qualified",
+        bodyCoverage: { ...bodyCoverage, bodiesExamined: 7, bodiesPhysicalOnly: 1 },
+        diagnostics: [detail, detail],
+      })),
+    },
+  });
+
+  assert.equal(projection.disposition, "complete");
+  assert.deepEqual(projection.diagnostics, []);
+  assert.equal(
+    projection.byType.get("Example.Core.Sea")?.[0]?.evidenceMode,
+    "surface",
+  );
+  assert.deepEqual(projection.warnings, [
+    "Implementation Type leverage has qualified evidence; surface leverage is independent",
+    `Implementation Type leverage: ${detail}`,
+  ]);
+});
+
 test("implementation unavailability retains surface cues and warning", () => {
   const projection = projectTypeLeverage({
     ...document,
@@ -566,12 +593,12 @@ test("physical-only qualification supplies feedback without losing cues", () => 
           bodiesExamined: 7,
           bodiesPhysicalOnly: 1,
         },
-        diagnostics: ["The physical body has no authenticated logical owner."],
+        diagnostics: ["Compiler-generated body retained as physical-only evidence; its Type uses are excluded from logical-owner relationships."],
       })),
     },
   });
   assert.deepEqual(typeLeverageFeedback(projection), {
-    message: "Structural salience has qualified evidence: The physical body has no authenticated logical owner.",
+    message: "Structural salience has qualified evidence: Implementation Type leverage has qualified evidence; surface leverage is independent; Implementation Type leverage: Compiler-generated body retained as physical-only evidence; its Type uses are excluded from logical-owner relationships.",
     retry: "type-leverage",
   });
   assert.deepEqual(projection.byType, projectTypeLeverage(document).byType);
