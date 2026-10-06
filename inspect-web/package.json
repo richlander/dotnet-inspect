@@ -27,16 +27,16 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",
-    "@types/node": "^26.6.1",
+    "@types/node": "^26.6.4",
     "@types/prismjs": "^1.26.6",
-    "html-validate": "^11.16.0",
-    "knip": "^6.38.0",
-    "oxc-parser": "^0.151.0",
-    "oxlint": "^1.83.0",
+    "html-validate": "^11.16.1",
+    "knip": "^6.39.0",
+    "oxc-parser": "^0.152.0",
+    "oxlint": "^1.86.0",
     "oxlint-tsgolint": "7.0.2003",
     "type-fest": "5.10.0",
     "typescript": "7.0.2",
-    "vite": "^8.3.1"
+    "vite": "^8.3.2"
   },
   "dependencies": {
     "dompurify": "3.4.16",

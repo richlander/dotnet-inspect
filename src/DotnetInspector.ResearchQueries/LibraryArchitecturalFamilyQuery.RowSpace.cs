@@ -9,7 +9,7 @@ using QuerySpace.Rows;
 
 namespace DotnetInspector.Queries;
 
-public static partial class LibraryFamilyRoleQuery
+public static partial class LibraryArchitecturalFamilyQuery
 {
     public const string FamilyKindKey = "kind";
     public const string FamilyWordKey = "word";
@@ -57,62 +57,62 @@ public static partial class LibraryFamilyRoleQuery
             RowQueryOperator.LessOrEqual,
         ];
 
-    private static readonly RowQueryNamedOrder<LibraryFamilyRoleRow>
+    private static readonly RowQueryNamedOrder<LibraryArchitecturalFamilyRow>
         FamilyPrevalenceOrderDefinition =
             new(
                 RowQueryNamedOrderIdentity.Create(),
                 FamilyPrevalenceOrder,
                 RowQueryOrderPurpose.Ranking,
                 direction => Directional(
-                    LibraryFamilyRoleOrder.Prevalence,
+                    LibraryArchitecturalFamilyOrder.Prevalence,
                     direction));
 
-    private static readonly RowQueryNamedOrder<LibraryFamilyRoleTypeRow>
+    private static readonly RowQueryNamedOrder<LibraryArchitecturalFamilyTypeRow>
         TypeDefinitionOrderDefinition =
             new(
                 RowQueryNamedOrderIdentity.Create(),
                 TypeDefinitionOrder,
                 RowQueryOrderPurpose.Sequence,
                 direction => Directional(
-                    Comparer<LibraryFamilyRoleTypeRow>.Create(
+                    Comparer<LibraryArchitecturalFamilyTypeRow>.Create(
                         static (left, right) =>
                             left.Type.Definition.Value.CompareTo(
                                 right.Type.Definition.Value)),
                     direction));
 
-    private static readonly RowQueryVocabulary<LibraryFamilyRoleRow>
+    private static readonly RowQueryVocabulary<LibraryArchitecturalFamilyRow>
         FamilyVocabulary =
-            RowQueryVocabulary<LibraryFamilyRoleRow>.Create(
+            RowQueryVocabulary<LibraryArchitecturalFamilyRow>.Create(
                 RowQueryVocabularyIdentity.Create(),
                 [
                     FamilyKindQueryKey(),
                     FamilyWordQueryKey(),
-                    NumericKey<LibraryFamilyRoleRow>(
+                    NumericKey<LibraryArchitecturalFamilyRow>(
                         FamilyTypeCountKey,
                         static row => row.TypeCount),
-                    NumericKey<LibraryFamilyRoleRow>(
+                    NumericKey<LibraryArchitecturalFamilyRow>(
                         FamilyFoundationCountKey,
                         static row => row.FoundationCount),
-                    NumericKey<LibraryFamilyRoleRow>(
+                    NumericKey<LibraryArchitecturalFamilyRow>(
                         FamilyHubCountKey,
                         static row => row.HubCount),
-                    NumericKey<LibraryFamilyRoleRow>(
+                    NumericKey<LibraryArchitecturalFamilyRow>(
                         FamilyOrchestratorCountKey,
                         static row => row.OrchestratorCount),
-                    NumericKey<LibraryFamilyRoleRow>(
+                    NumericKey<LibraryArchitecturalFamilyRow>(
                         FamilySeaLevelCountKey,
                         static row => row.SeaLevelCount),
-                    NumericKey<LibraryFamilyRoleRow>(
+                    NumericKey<LibraryArchitecturalFamilyRow>(
                         FamilyMountainPeakCountKey,
                         static row => row.MountainPeakCount),
-                    NumericKey<LibraryFamilyRoleRow>(
+                    NumericKey<LibraryArchitecturalFamilyRow>(
                         FamilyNoRoleCountKey,
                         static row => row.NoIssuedStructuralRoleCount),
-                    NumericKey<LibraryFamilyRoleRow>(
+                    NumericKey<LibraryArchitecturalFamilyRow>(
                         FamilyNamespaceCountKey,
                         static row => row.DistinctNamespaceCount),
                     EnumKey<
-                        LibraryFamilyRoleRow,
+                        LibraryArchitecturalFamilyRow,
                         LibraryStructuralEvidenceDisposition>(
                             FamilyStructuralDispositionKey,
                             static row => row.StructuralDisposition),
@@ -127,47 +127,47 @@ public static partial class LibraryFamilyRoleQuery
                         FamilyPrevalenceOrderDefinition,
                         RowQueryOrderDirection.Ascending));
 
-    private static readonly RowQueryVocabulary<LibraryFamilyRoleTypeRow>
+    private static readonly RowQueryVocabulary<LibraryArchitecturalFamilyTypeRow>
         TypeVocabulary =
-            RowQueryVocabulary<LibraryFamilyRoleTypeRow>.Create(
+            RowQueryVocabulary<LibraryArchitecturalFamilyTypeRow>.Create(
                 RowQueryVocabularyIdentity.Create(),
                 [
-                    OrdinalTextKey<LibraryFamilyRoleTypeRow>(
+                    OrdinalTextKey<LibraryArchitecturalFamilyTypeRow>(
                         TypeNamespaceKey,
                         static row => row.Namespace),
-                    NumericKey<LibraryFamilyRoleTypeRow>(
+                    NumericKey<LibraryArchitecturalFamilyTypeRow>(
                         TypeDefinitionTokenKey,
                         static row => row.Type.Definition.Value),
                     EnumKey<
-                        LibraryFamilyRoleTypeRow,
+                        LibraryArchitecturalFamilyTypeRow,
                         AssemblyTypeDefinitionKind>(
                             TypeDefinitionKindKey,
                             static row => row.DefinitionKind),
                     TypeFamilyKindQueryKey(),
                     TypeFamilyWordQueryKey(),
                     NullableEnumKey<
-                        LibraryFamilyRoleTypeRow,
+                        LibraryArchitecturalFamilyTypeRow,
                         PdbTypeSourceDisposition>(
                             TypeSourceDispositionKey,
                             static row => row.SourceDisposition),
-                    NullableNumericKey<LibraryFamilyRoleTypeRow>(
+                    NullableNumericKey<LibraryArchitecturalFamilyTypeRow>(
                         TypeIncomingDegreeKey,
                         static row => row.SignatureIncomingDegree),
-                    NullableNumericKey<LibraryFamilyRoleTypeRow>(
+                    NullableNumericKey<LibraryArchitecturalFamilyTypeRow>(
                         TypeOutgoingDegreeKey,
                         static row => row.SignatureOutgoingDegree),
                     NullableEnumKey<
-                        LibraryFamilyRoleTypeRow,
+                        LibraryArchitecturalFamilyTypeRow,
                         LibraryStructuralTypeRole>(
                             TypeStructuralRoleKey,
                             static row => row.StructuralRole),
                     NullableEnumKey<
-                        LibraryFamilyRoleTypeRow,
+                        LibraryArchitecturalFamilyTypeRow,
                         LibraryStructuralTypePole>(
                             TypeStructuralPoleKey,
                             static row => row.StructuralPole),
                     EnumKey<
-                        LibraryFamilyRoleTypeRow,
+                        LibraryArchitecturalFamilyTypeRow,
                         LibraryStructuralEvidenceDisposition>(
                             TypeStructuralDispositionKey,
                             static row => row.StructuralDisposition),
@@ -178,7 +178,7 @@ public static partial class LibraryFamilyRoleQuery
                         TypeDefinitionOrderDefinition,
                         RowQueryOrderDirection.Ascending));
 
-    public static QuerySpaceRowScopeBinding<LibraryFamilyRoleRow>
+    public static QuerySpaceRowScopeBinding<LibraryArchitecturalFamilyRow>
         FamilyRowsScope
     { get; } =
         new(
@@ -188,7 +188,7 @@ public static partial class LibraryFamilyRoleQuery
                 [FamilyRowsRowSet],
                 [
                     Facet(
-                        "library-family-roles.family.kind",
+                        "architectural-families.family.kind",
                         FamilyKindKey,
                         EqualityOperators,
                         "name-family kind",
@@ -197,7 +197,7 @@ public static partial class LibraryFamilyRoleQuery
                         "Matches the exact one- or two-word suffix kind.",
                         supportsOrdering: true),
                     Facet(
-                        "library-family-roles.family.word",
+                        "architectural-families.family.word",
                         FamilyWordKey,
                         EqualityOperators,
                         "ordinal identifier word",
@@ -206,47 +206,47 @@ public static partial class LibraryFamilyRoleQuery
                         "Matches any exact owner-issued suffix word.",
                         supportsOrdering: false),
                     NumericFacet(
-                        "library-family-roles.family.type-count",
+                        "architectural-families.family.type-count",
                         FamilyTypeCountKey,
                         "Type count",
                         "Matches the exact supporting Type count."),
                     NumericFacet(
-                        "library-family-roles.family.foundation-count",
+                        "architectural-families.family.foundation-count",
                         FamilyFoundationCountKey,
                         "foundation count",
                         "Matches the owner-issued foundation count."),
                     NumericFacet(
-                        "library-family-roles.family.hub-count",
+                        "architectural-families.family.hub-count",
                         FamilyHubCountKey,
                         "hub count",
                         "Matches the owner-issued hub count."),
                     NumericFacet(
-                        "library-family-roles.family.orchestrator-count",
+                        "architectural-families.family.orchestrator-count",
                         FamilyOrchestratorCountKey,
                         "orchestrator count",
                         "Matches the owner-issued orchestrator count."),
                     NumericFacet(
-                        "library-family-roles.family.sea-level-count",
+                        "architectural-families.family.sea-level-count",
                         FamilySeaLevelCountKey,
                         "sea-level count",
                         "Matches the owner-issued sea-level pole count."),
                     NumericFacet(
-                        "library-family-roles.family.mountain-peak-count",
+                        "architectural-families.family.mountain-peak-count",
                         FamilyMountainPeakCountKey,
                         "mountain-peak count",
                         "Matches the owner-issued mountain-peak pole count."),
                     NumericFacet(
-                        "library-family-roles.family.no-role-count",
+                        "architectural-families.family.no-role-count",
                         FamilyNoRoleCountKey,
                         "no-issued-role count",
                         "Matches the count without an issued structural role."),
                     NumericFacet(
-                        "library-family-roles.family.namespace-count",
+                        "architectural-families.family.namespace-count",
                         FamilyNamespaceCountKey,
                         "namespace count",
                         "Matches the exact distinct namespace count."),
                     EnumFacet<LibraryStructuralEvidenceDisposition>(
-                        "library-family-roles.family.structural-disposition",
+                        "architectural-families.family.structural-disposition",
                         FamilyStructuralDispositionKey,
                         "structural disposition",
                         "Matches the owner-issued structural disposition."),
@@ -264,7 +264,7 @@ public static partial class LibraryFamilyRoleQuery
                 ]),
             FamilyVocabulary);
 
-    public static QuerySpaceRowScopeBinding<LibraryFamilyRoleTypeRow>
+    public static QuerySpaceRowScopeBinding<LibraryArchitecturalFamilyTypeRow>
         TypeRowsScope
     { get; } =
         new(
@@ -274,7 +274,7 @@ public static partial class LibraryFamilyRoleQuery
                 [TypeRowsRowSet],
                 [
                     Facet(
-                        "library-family-roles.type.namespace",
+                        "architectural-families.type.namespace",
                         TypeNamespaceKey,
                         EqualityOperators,
                         "ordinal metadata namespace",
@@ -283,17 +283,17 @@ public static partial class LibraryFamilyRoleQuery
                         "Matches the exact metadata namespace.",
                         supportsOrdering: true),
                     NumericFacet(
-                        "library-family-roles.type.definition-token",
+                        "architectural-families.type.definition-token",
                         TypeDefinitionTokenKey,
                         "TypeDef token",
                         "Matches the exact positive TypeDef token."),
                     EnumFacet<AssemblyTypeDefinitionKind>(
-                        "library-family-roles.type.definition-kind",
+                        "architectural-families.type.definition-kind",
                         TypeDefinitionKindKey,
                         "definition kind",
                         "Matches the Metadata-owned Type definition kind."),
                     Facet(
-                        "library-family-roles.type.family-kind",
+                        "architectural-families.type.family-kind",
                         TypeFamilyKindKey,
                         EqualityOperators,
                         "name-family kind",
@@ -302,7 +302,7 @@ public static partial class LibraryFamilyRoleQuery
                         "Matches an assigned family of the requested kind.",
                         supportsOrdering: false),
                     Facet(
-                        "library-family-roles.type.family-word",
+                        "architectural-families.type.family-word",
                         TypeFamilyWordKey,
                         EqualityOperators,
                         "ordinal identifier word",
@@ -311,32 +311,32 @@ public static partial class LibraryFamilyRoleQuery
                         "Matches any word in an assigned suffix family.",
                         supportsOrdering: false),
                     EnumFacet<PdbTypeSourceDisposition>(
-                        "library-family-roles.type.source-disposition",
+                        "architectural-families.type.source-disposition",
                         TypeSourceDispositionKey,
                         "source disposition",
                         "Matches the optional source disposition."),
                     NumericFacet(
-                        "library-family-roles.type.incoming-degree",
+                        "architectural-families.type.incoming-degree",
                         TypeIncomingDegreeKey,
                         "incoming degree",
                         "Matches the optional signature incoming degree."),
                     NumericFacet(
-                        "library-family-roles.type.outgoing-degree",
+                        "architectural-families.type.outgoing-degree",
                         TypeOutgoingDegreeKey,
                         "outgoing degree",
                         "Matches the optional signature outgoing degree."),
                     EnumFacet<LibraryStructuralTypeRole>(
-                        "library-family-roles.type.structural-role",
+                        "architectural-families.type.structural-role",
                         TypeStructuralRoleKey,
                         "structural role",
                         "Matches the optional owner-issued structural role."),
                     EnumFacet<LibraryStructuralTypePole>(
-                        "library-family-roles.type.structural-pole",
+                        "architectural-families.type.structural-pole",
                         TypeStructuralPoleKey,
                         "structural pole",
                         "Matches the optional owner-issued pole."),
                     EnumFacet<LibraryStructuralEvidenceDisposition>(
-                        "library-family-roles.type.structural-disposition",
+                        "architectural-families.type.structural-disposition",
                         TypeStructuralDispositionKey,
                         "structural disposition",
                         "Matches the owner-issued structural disposition."),
@@ -369,10 +369,10 @@ public static partial class LibraryFamilyRoleQuery
             [
                 new(
                     QuerySpaceTerminalRequirement.Rows,
-                    "library-family-roles/rows/v1"),
+                    "architectural-families/rows/v1"),
                 new(
                     QuerySpaceTerminalRequirement.Count,
-                    "library-family-roles/count/v1"),
+                    "architectural-families/count/v1"),
             ]);
 
     private static QuerySpaceRowFacetDescriptor NumericFacet(
@@ -441,9 +441,9 @@ public static partial class LibraryFamilyRoleQuery
                 nameof(operation)),
         };
 
-    private static RowQueryKey<LibraryFamilyRoleRow>
+    private static RowQueryKey<LibraryArchitecturalFamilyRow>
         FamilyKindQueryKey() =>
-        RowQueryKey<LibraryFamilyRoleRow>.Create(
+        RowQueryKey<LibraryArchitecturalFamilyRow>.Create(
             RowQueryKeyIdentity.Create(),
             FamilyKindKey,
             EqualityOperators,
@@ -456,28 +456,28 @@ public static partial class LibraryFamilyRoleQuery
                 direction,
                 missingLast: false));
 
-    private static RowQueryKey<LibraryFamilyRoleRow>
+    private static RowQueryKey<LibraryArchitecturalFamilyRow>
         FamilyWordQueryKey() =>
-        RowQueryKey<LibraryFamilyRoleRow>.Create(
+        RowQueryKey<LibraryArchitecturalFamilyRow>.Create(
             RowQueryKeyIdentity.Create(),
             FamilyWordKey,
             EqualityOperators,
             static row =>
-                RowQueryValue<LibraryFamilyRoleRow>.Present(row),
+                RowQueryValue<LibraryArchitecturalFamilyRow>.Present(row),
             static (operation, token) =>
-                BindFamilyWord<LibraryFamilyRoleRow>(
+                BindFamilyWord<LibraryArchitecturalFamilyRow>(
                     operation,
                     token,
                     static row => [row.Identity]));
 
-    private static RowQueryKey<LibraryFamilyRoleTypeRow>
+    private static RowQueryKey<LibraryArchitecturalFamilyTypeRow>
         TypeFamilyKindQueryKey() =>
-        RowQueryKey<LibraryFamilyRoleTypeRow>.Create(
+        RowQueryKey<LibraryArchitecturalFamilyTypeRow>.Create(
             RowQueryKeyIdentity.Create(),
             TypeFamilyKindKey,
             EqualityOperators,
             static row =>
-                RowQueryValue<LibraryFamilyRoleTypeRow>.Present(row),
+                RowQueryValue<LibraryArchitecturalFamilyTypeRow>.Present(row),
             static (operation, token) =>
             {
                 LibraryNameFamilyKind? expected =
@@ -485,7 +485,7 @@ public static partial class LibraryFamilyRoleQuery
                 if (expected is null)
                     return null;
 
-                bool HasKind(LibraryFamilyRoleTypeRow row) =>
+                bool HasKind(LibraryArchitecturalFamilyTypeRow row) =>
                     row.OneWordSuffix?.Kind == expected
                     || row.TwoWordSuffix?.Kind == expected;
                 return operation switch
@@ -497,16 +497,16 @@ public static partial class LibraryFamilyRoleQuery
                 };
             });
 
-    private static RowQueryKey<LibraryFamilyRoleTypeRow>
+    private static RowQueryKey<LibraryArchitecturalFamilyTypeRow>
         TypeFamilyWordQueryKey() =>
-        RowQueryKey<LibraryFamilyRoleTypeRow>.Create(
+        RowQueryKey<LibraryArchitecturalFamilyTypeRow>.Create(
             RowQueryKeyIdentity.Create(),
             TypeFamilyWordKey,
             EqualityOperators,
             static row =>
-                RowQueryValue<LibraryFamilyRoleTypeRow>.Present(row),
+                RowQueryValue<LibraryArchitecturalFamilyTypeRow>.Present(row),
             static (operation, token) =>
-                BindFamilyWord<LibraryFamilyRoleTypeRow>(
+                BindFamilyWord<LibraryArchitecturalFamilyTypeRow>(
                     operation,
                     token,
                     static row =>

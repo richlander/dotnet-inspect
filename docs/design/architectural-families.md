@@ -1,4 +1,4 @@
-# Library family-role composition
+# Architectural Families
 
 ## Status, owner, and claim
 
@@ -9,13 +9,13 @@ architecture narrative in
 learn-the-codebase scenario in
 [#8744](https://github.com/richlander/dotnet-inspect/issues/8744).
 
-The **Library Family-Role Composition** owner defines one claim:
+The **Architectural Families** owner defines one claim:
 
 > Given name-family and structural-salience results produced for the same exact
 > acquired Library generation, join their Type rows by
 > `MetadataTypeDefinitionAddress`, preserve both owners' methodology and
-> qualification receipts, and issue exact Type and family-role rows without
-> assigning semantic meaning or quality.
+> qualification receipts, and issue exact Type and architectural-family rows
+> without assigning semantic meaning or quality.
 
 The owner is `ILInspector.Research`. It owns only the correspondence,
 qualification, population accounting, and resource-free composed document.
@@ -74,7 +74,7 @@ one typed result rather than parallel host compositions.
 
 ### Exact Library binding
 
-One execution carries a `LibraryFamilyRoleBinding` with:
+One execution carries a `LibraryArchitecturalFamilyBinding` with:
 
 ```text
 AssemblyArtifactIdentity
@@ -188,19 +188,19 @@ separately navigable evidence.
 
 ## Issued document
 
-The result is a typed `LibraryFamilyRoleCompositionOutcome`.
+The result is a typed `LibraryArchitecturalFamilyCompositionOutcome`.
 
 Its available case carries one resource-free
-`LibraryFamilyRoleCompositionDocument` containing:
+`LibraryArchitecturalFamilyCompositionDocument` containing:
 
-- exact `LibraryFamilyRoleBinding`;
+- exact `LibraryArchitecturalFamilyBinding`;
 - a composition methodology version;
 - imported name-family methodology, receipt, and provenance qualification;
 - imported structural methodology, evidence mode, dispositions, and Graph work
   receipts;
-- one `LibraryFamilyRoleTypeRow` per exact Type;
-- family-role populations for every admitted source population; and
-- one `LibraryFamilyRoleCompositionReceipt`.
+- one `LibraryArchitecturalFamilyTypeRow` per exact Type;
+- architectural-family populations for every admitted source population; and
+- one `LibraryArchitecturalFamilyCompositionReceipt`.
 
 Expected correspondence failures produce typed rejected outcomes. An imported
 unavailable or failed owner result remains that owner's visible outcome before
@@ -212,7 +212,7 @@ handle enters the detached document.
 
 ## Type rows
 
-One `LibraryFamilyRoleTypeRow` retains:
+One `LibraryArchitecturalFamilyTypeRow` retains:
 
 - `MetadataTypeDefinitionAddress`;
 - structured metadata name, definition kind, and exact namespace;
@@ -249,7 +249,7 @@ Each population retains the source population's exact denominator and
 qualification.
 
 For each exact one-word or two-word family identity,
-`LibraryFamilyRoleRow` contains:
+`LibraryArchitecturalFamilyRow` contains:
 
 - total member Type count;
 - foundation, hub, and orchestrator counts;
@@ -275,7 +275,7 @@ pole, family size, or source disposition.
 
 ## Qualification and accounting
 
-`LibraryFamilyRoleCompositionReceipt` records:
+`LibraryArchitecturalFamilyCompositionReceipt` records:
 
 - exact Type count;
 - count with each structural role;
@@ -303,8 +303,8 @@ reason and receipt from each owner rather than collapsing them to one Boolean.
 
 The composition declares two QuerySpace row sets beside its Research document:
 
-- `family-role-rows`; and
-- `type-role-rows`.
+- `families`; and
+- `types`.
 
 One request selects:
 
@@ -358,13 +358,13 @@ label and links to the exact family, Type, methodology, and qualification rows.
 ### CLI
 
 The CLI adds one exact-name-only, non-default Library section,
-`Name Family Roles`.
+`Architectural Families`.
 
 Markout remains the multi-format lowering. Markdown and tables lead with
-family-role rows and permit exact Type support rows through section selection.
-TSV, JSONL, and projected JSON expose the same QuerySpace rows. Complete JSON
-and `InspectionEnvelope<TContent>` retain the full resource-free document,
-Share disposition, and diagnostics.
+architectural-family rows and permit exact Type support rows through section
+selection. TSV, JSONL, and projected JSON expose the same QuerySpace rows.
+Complete JSON and `InspectionEnvelope<TContent>` retain the full resource-free
+document, Share disposition, and diagnostics.
 
 The CLI does not parse names, run Graph, or join owner documents.
 
@@ -398,12 +398,12 @@ membership.
    receipts, and fixture gates.
 3. **QuerySpace:** declare and register the two row vocabularies beside the
    Research owner.
-4. **CLI:** add the exact-name-only `Name Family Roles` section through Markout
+4. **CLI:** add the exact-name-only `Architectural Families` section through Markout
    and complete envelope transport.
 5. **Browser/Wasm:** add the explicit family gesture, family detail, ordinary
    Type filtering, and exact-Type activation through the same managed query.
 6. **Workflow:** the `project-analysis` architecture-narrative workflow
-   consumes typed family-role rows and labels semantic conclusions as
+   consumes typed architectural-family rows and labels semantic conclusions as
    interpretation.
 
 Steps 1-3 establish the shared owner path. The CLI reaches production in step

@@ -969,8 +969,8 @@ public partial class PackageCommand
                 options.NameFamilyPopulation,
             NameFamilyRowSelection =
                 options.NameFamilyRowSelection,
-            NameFamilyRoleTypeRows =
-                options.NameFamilyRoleTypeRows,
+            ArchitecturalFamilyTypeRows =
+                options.ArchitecturalFamilyTypeRows,
             DependencyStructureRowSelection =
                 options.DependencyStructureRowSelection,
             IntegrationQuery = options.IntegrationQuery,
