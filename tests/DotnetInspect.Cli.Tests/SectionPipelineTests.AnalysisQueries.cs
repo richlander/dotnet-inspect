@@ -599,6 +599,7 @@ public partial class SectionPipelineTests
     public void OptimizationOpportunitiesQuery_CountUsesScalarResult()
     {
         var registry = LibrarySections.CreateQueryRegistry();
+        var trace = new InspectionTrace();
         using var service = SourceLinkService.OpenPrefetched(
             typeof(SectionPipelineTests).Assembly.Location,
             _ => { });
@@ -613,6 +614,7 @@ public partial class SectionPipelineTests
                 Analysis.LibraryBodyAnalysisFeatures
                     .OptimizationOpportunities,
             CountOnly = true,
+            Trace = trace,
         };
 
         InspectionQueryResults results = registry.Run(
@@ -624,6 +626,19 @@ public partial class SectionPipelineTests
                 results.Get(
                     OptimizationOpportunitiesQuery.Definition));
         Assert.True(counted.Counts.Total > 0);
+        var stages = Assert.Single(
+            trace.Resources,
+            resource =>
+                resource.Resource == "body analysis stages");
+        Assert.Contains(
+            "CanonicalMethodContext",
+            stages.Detail.ToString());
+        Assert.Contains(
+            "CallAnalysis",
+            stages.Detail.ToString());
+        Assert.Contains(
+            "OptimizationOpportunityAnalysis",
+            stages.Detail.ToString());
     }
 
     [Fact]

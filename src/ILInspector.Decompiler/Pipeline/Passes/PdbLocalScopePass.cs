@@ -5,6 +5,12 @@ public sealed class PdbLocalScopePass : IIrPass
 {
     public string Name => "pdb-local-scopes";
 
+    public PassAnalysisKind RequiredAnalyses
+        => PassAnalysisKind.BranchTargets;
+
+    public PassAnalysisKind PreservedAnalyses
+        => PassAnalysisKind.BranchTargets;
+
     public void Run(IrFunction function, PassContext context)
     {
         var duplicates = Enumerable.Range(0, function.LocalNames.Length)
@@ -20,6 +26,8 @@ public sealed class PdbLocalScopePass : IIrPass
         if (duplicates.Length == 0)
             return;
 
+        IReadOnlySet<int> branchTargets =
+            context.BranchTargets(function);
         var nodeOrder = IrFunction.NodesSharingLocalScope(function)
             .Select((node, position) => (node, position))
             .ToDictionary(pair => pair.node, pair => pair.position);
@@ -76,7 +84,12 @@ public sealed class PdbLocalScopePass : IIrPass
             {
                 continue;
             }
-            TryRetainBlock(function, index, group, context);
+            TryRetainBlock(
+                function,
+                index,
+                group,
+                branchTargets,
+                context);
         }
 
         int ScopeRow(int index)
@@ -86,7 +99,12 @@ public sealed class PdbLocalScopePass : IIrPass
                 : -1;
     }
 
-    static void TryRetainBlock(IrFunction function, int index, int[] sameName, PassContext context)
+    static void TryRetainBlock(
+        IrFunction function,
+        int index,
+        int[] sameName,
+        IReadOnlySet<int> branchTargets,
+        PassContext context)
     {
         var references = IrFunction.LocalSlotReferencesInScope(function.Body, index).ToArray();
         if (references.Length == 0)
@@ -106,7 +124,14 @@ public sealed class PdbLocalScopePass : IIrPass
             if (statement is null)
             {
                 TryRetainBasicBlockRange(
-                    function, index, sameName, declaration, block, references, context);
+                    function,
+                    index,
+                    sameName,
+                    declaration,
+                    block,
+                    references,
+                    branchTargets,
+                    context);
                 return;
             }
             if (statement.ChildIndex < first)
@@ -122,6 +147,7 @@ public sealed class PdbLocalScopePass : IIrPass
                 sameName,
                 declaration,
                 block,
+                branchTargets,
                 context);
             return;
         }
@@ -161,6 +187,7 @@ public sealed class PdbLocalScopePass : IIrPass
         IrNode declaration,
         Block declarationBlock,
         IrNode[] references,
+        IReadOnlySet<int> branchTargets,
         PassContext context)
     {
         if (declarationBlock.Parent is not BlockContainer container)
@@ -207,7 +234,6 @@ public sealed class PdbLocalScopePass : IIrPass
             return;
         }
 
-        var branchTargets = ReferenceOwnership.CollectBranchTargets(function);
         var retainedLabels = new Dictionary<int, LabelAnchor>();
         for (int blockIndex = firstBlock + 1; blockIndex <= lastBlock; blockIndex++)
         {
@@ -433,6 +459,7 @@ public sealed class PdbLocalScopePass : IIrPass
         int[] sameName,
         IrNode declaration,
         Block block,
+        IReadOnlySet<int> branchTargets,
         PassContext context)
     {
         IrNode[] range = [.. block.Children];
@@ -449,7 +476,6 @@ public sealed class PdbLocalScopePass : IIrPass
             return;
         }
 
-        HashSet<int> branchTargets = ReferenceOwnership.CollectBranchTargets(function);
         int[] targetedLabels = block.Children
             .Skip(declaration.ChildIndex + 1)
             .SelectMany(statement =>

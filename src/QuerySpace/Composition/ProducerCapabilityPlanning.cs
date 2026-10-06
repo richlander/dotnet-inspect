@@ -96,9 +96,6 @@ public enum ProducerCapabilityPlanRejectionReason
     /// <summary>A requirement or declaration belongs to another resource.</summary>
     ResourceMismatch,
 
-    /// <summary>No declaration can produce the requested capability.</summary>
-    UnknownCapability,
-
     /// <summary>A declaration identity occurred more than once.</summary>
     DuplicateDeclaration,
 
@@ -113,9 +110,6 @@ public enum ProducerCapabilityPlanRejectionReason
 
     /// <summary>A selected provision is missing a declared dependency.</summary>
     MissingDependency,
-
-    /// <summary>Selected provision dependencies contain a cycle.</summary>
-    DependencyCycle,
 
     /// <summary>A dependency appears after the provision that needs it.</summary>
     DependencyOrder,
@@ -204,7 +198,6 @@ public static class ProducerCapabilityPlanValidator
             ProducerCapabilityProvisionDeclaration> declarationsByIdentity =
                 ValidateDeclarations(
                     domain,
-                    validatedRequirements,
                     declarations,
                     rejections);
         Dictionary<
@@ -216,11 +209,6 @@ public static class ProducerCapabilityPlanValidator
                     coverages,
                     rejections);
 
-        ValidateKnownCapabilities(
-            validatedRequirements,
-            declarationsByIdentity.Values,
-            coveragesByIdentity.Values,
-            rejections);
         if (rejections.Count > 0)
             return Rejected(rejections);
 
@@ -255,6 +243,7 @@ public static class ProducerCapabilityPlanValidator
                 ValidateSelectedProvisions(
                     candidate,
                     declarationsByIdentity,
+                    validatedRequirements[0].Resource,
                     rejections);
         ValidateDependencies(
             selectedProvisions,
@@ -332,13 +321,11 @@ public static class ProducerCapabilityPlanValidator
                         .DuplicateAssociation));
                 continue;
             }
-            if (!HasDomain(
-                    domain,
-                    candidate.Scope,
-                    candidate.Capability,
-                    candidate.Completion,
-                    candidate.Outcome,
-                    candidate.Parameters))
+            // Scope, capability, completion, and outcome are compared by
+            // reference with domain-checked declarations, so only parameters,
+            // which no offer carries, need their own domain check.
+            if (candidate.Parameters is not null
+                && !ReferenceEquals(candidate.Parameters.Domain, domain))
             {
                 rejections.Add(new(
                     index,
@@ -378,7 +365,6 @@ public static class ProducerCapabilityPlanValidator
         ProducerCapabilityProvisionIdentity,
         ProducerCapabilityProvisionDeclaration> ValidateDeclarations(
             ProducerCapabilityDomainIdentity domain,
-            ImmutableArray<ProducerCapabilityRequirement> requirements,
             IReadOnlyList<ProducerCapabilityProvisionDeclaration?>
                 declarations,
             ImmutableArray<ProducerCapabilityPlanRejection>.Builder
@@ -389,10 +375,6 @@ public static class ProducerCapabilityPlanValidator
                 ProducerCapabilityProvisionIdentity,
                 ProducerCapabilityProvisionDeclaration>(
                     ReferenceEqualityComparer.Instance);
-        QuerySpaceResourceIdentity? resource =
-            requirements.IsDefaultOrEmpty
-                ? null
-                : requirements[0].Resource;
         for (int index = 0; index < declarations.Count; index++)
         {
             ProducerCapabilityProvisionDeclaration? declaration =
@@ -438,17 +420,6 @@ public static class ProducerCapabilityPlanValidator
                     null,
                     ProducerCapabilityPlanRejectionReason
                         .ProducerDomainMismatch));
-            }
-            if (resource is not null
-                && !ReferenceEquals(
-                    declaration.Scope.Resource,
-                    resource))
-            {
-                rejections.Add(new(
-                    index,
-                    null,
-                    ProducerCapabilityPlanRejectionReason
-                        .ResourceMismatch));
             }
             if (!byIdentity.TryAdd(
                     declaration.Identity,
@@ -554,39 +525,6 @@ public static class ProducerCapabilityPlanValidator
         return byIdentity;
     }
 
-    static void ValidateKnownCapabilities(
-        ImmutableArray<ProducerCapabilityRequirement> requirements,
-        IEnumerable<ProducerCapabilityProvisionDeclaration> declarations,
-        IEnumerable<ProducerCapabilityCoverageDeclaration> coverages,
-        ImmutableArray<ProducerCapabilityPlanRejection>.Builder
-            rejections)
-    {
-        var known =
-            new HashSet<ProducerCapabilityIdentity>(
-                ReferenceEqualityComparer.Instance);
-        foreach (ProducerCapabilityProvisionDeclaration declaration
-            in declarations)
-        {
-            known.Add(declaration.Capability);
-        }
-        foreach (ProducerCapabilityCoverageDeclaration coverage
-            in coverages)
-        {
-            known.Add(coverage.TargetCapability);
-        }
-        for (int index = 0; index < requirements.Length; index++)
-        {
-            if (!known.Contains(requirements[index].Capability))
-            {
-                rejections.Add(new(
-                    index,
-                    requirements[index].Association,
-                    ProducerCapabilityPlanRejectionReason
-                        .UnknownCapability));
-            }
-        }
-    }
-
     static ImmutableArray<ProducerCapabilityProvisionDeclaration>
         ValidateSelectedProvisions(
             ProducerCapabilityPlanCandidate candidate,
@@ -594,6 +532,7 @@ public static class ProducerCapabilityPlanValidator
                 ProducerCapabilityProvisionIdentity,
                 ProducerCapabilityProvisionDeclaration>
                     declarations,
+            QuerySpaceResourceIdentity resource,
             ImmutableArray<ProducerCapabilityPlanRejection>.Builder
                 rejections)
     {
@@ -646,6 +585,14 @@ public static class ProducerCapabilityPlanValidator
                         .UnknownProvision));
                 continue;
             }
+            if (!ReferenceEquals(declaration.Scope.Resource, resource))
+            {
+                rejections.Add(new(
+                    index,
+                    null,
+                    ProducerCapabilityPlanRejectionReason
+                        .ResourceMismatch));
+            }
             selected.Add(declaration);
         }
         return selected.ToImmutable();
@@ -692,67 +639,6 @@ public static class ProducerCapabilityPlanValidator
                 }
             }
         }
-
-        var visiting =
-            new HashSet<ProducerCapabilityProvisionIdentity>(
-                ReferenceEqualityComparer.Instance);
-        var visited =
-            new HashSet<ProducerCapabilityProvisionIdentity>(
-                ReferenceEqualityComparer.Instance);
-        foreach (ProducerCapabilityProvisionDeclaration declaration
-            in selected)
-        {
-            if (HasDependencyCycle(
-                    declaration.Identity,
-                    declarations,
-                    selectedIndices,
-                    visiting,
-                    visited))
-            {
-                rejections.Add(new(
-                    selectedIndices[declaration.Identity],
-                    null,
-                    ProducerCapabilityPlanRejectionReason
-                        .DependencyCycle));
-                break;
-            }
-        }
-    }
-
-    static bool HasDependencyCycle(
-        ProducerCapabilityProvisionIdentity identity,
-        IReadOnlyDictionary<
-            ProducerCapabilityProvisionIdentity,
-            ProducerCapabilityProvisionDeclaration> declarations,
-        IReadOnlyDictionary<ProducerCapabilityProvisionIdentity, int>
-            selected,
-        HashSet<ProducerCapabilityProvisionIdentity> visiting,
-        HashSet<ProducerCapabilityProvisionIdentity> visited)
-    {
-        if (visited.Contains(identity)
-            || !selected.ContainsKey(identity))
-        {
-            return false;
-        }
-        if (!visiting.Add(identity))
-            return true;
-
-        foreach (ProducerCapabilityProvisionIdentity dependency
-            in declarations[identity].Dependencies)
-        {
-            if (HasDependencyCycle(
-                    dependency,
-                    declarations,
-                    selected,
-                    visiting,
-                    visited))
-            {
-                return true;
-            }
-        }
-        visiting.Remove(identity);
-        visited.Add(identity);
-        return false;
     }
 
     static ImmutableArray<ProducerCapabilitySatisfaction>
@@ -988,14 +874,11 @@ public static class ProducerCapabilityPlanValidator
         ProducerCapabilityScopeIdentity scope,
         ProducerCapabilityIdentity capability,
         ProducerCapabilityCompletionIdentity completion,
-        ProducerCapabilityOutcomeIdentity outcome,
-        ProducerCapabilityParameterIdentity? parameters = null) =>
+        ProducerCapabilityOutcomeIdentity outcome) =>
         ReferenceEquals(scope.Domain, domain)
         && ReferenceEquals(capability.Domain, domain)
         && ReferenceEquals(completion.Domain, domain)
-        && ReferenceEquals(outcome.Domain, domain)
-        && (parameters is null
-            || ReferenceEquals(parameters.Domain, domain));
+        && ReferenceEquals(outcome.Domain, domain);
 
     static ProducerCapabilityPlanResult Rejected(
         ImmutableArray<ProducerCapabilityPlanRejection>.Builder

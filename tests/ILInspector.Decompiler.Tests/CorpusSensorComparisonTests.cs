@@ -2044,28 +2044,79 @@ public class CorpusSensorComparisonTests
     }
 
     [Fact]
-    public void IndependentReturnToSenderTargets_FailWhenExactCapIsUnavailable()
+    public void IndependentReturnToSenderTargets_RecordExhaustedShortfallBelowCap()
     {
+        // Issue 9502: the census corpus assembly ILInspector.MetadataPrimitives
+        // has 61 non-synthesized ledger members but only 32 owner-eligible
+        // RTS targets, below the census cap of 50. Nested-type members stay in
+        // the member ledger while the owner decision excludes them.
         string assemblyPath =
             FidelityCheckGeneratedFilterTests.CompileFixture("""
                 public static class SparseIndependentTargets
                 {
                     public static int Only(int value) => value + 1;
+
+                    public static class Nested
+                    {
+                        public static int First(int value) => value + 2;
+                        public static int Second(int value) => value + 3;
+                    }
                 }
                 """, assemblyName: "SparseIndependentTargets");
         try
         {
-            var exception = Assert.Throws<InvalidOperationException>(() =>
+            IReadOnlyList<FidelityCheck.CompileBackTarget> complete =
+                FidelityCheck.SelectReturnToSenderTargets(
+                    [assemblyPath],
+                    cap: int.MaxValue);
+            IReadOnlyList<FidelityCheck.CompileBackTarget> selected =
                 CorpusSensor.SelectIndependentReturnToSenderTargetsForTesting(
                     assemblyPath,
-                    cap: 2));
+                    cap: 3);
 
-            Assert.Contains(
-                "requires exactly 2 eligible targets",
-                exception.Message);
-            Assert.Contains(
-                "selection settled 1",
-                exception.Message);
+            FidelityCheck.CompileBackTarget only = Assert.Single(selected);
+            Assert.Equal("SparseIndependentTargets", only.Type);
+            Assert.Equal("Only", only.Method);
+            Assert.Equal(
+                complete.Select(target => (target.Type, target.Method, target.Overload)),
+                selected.Select(target => (target.Type, target.Method, target.Overload)));
+        }
+        finally
+        {
+            FidelityCheckGeneratedFilterTests.DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public async Task ReturnToSenderCutover_CompletesWhenEligiblePopulationIsBelowCap()
+    {
+        string assemblyPath =
+            FidelityCheckGeneratedFilterTests.CompileFixture("""
+                public static class SparseCutoverTargets
+                {
+                    public static int Only(int value) => value + 1;
+
+                    public static class Nested
+                    {
+                        public static int First(int value) => value + 2;
+                        public static int Second(int value) => value + 3;
+                    }
+                }
+                """, assemblyName: "SparseCutoverTargets");
+        try
+        {
+            var snapshot = await CorpusSensor.CaptureReturnToSenderCutoverForTesting(
+                [assemblyPath],
+                fidelityCap: 3);
+            var cutover = Assert.IsType<ReturnToSenderCutoverMetrics>(
+                snapshot.Metrics.Fidelity.ReturnToSenderCutover);
+            CorpusMethodSnapshot sampled = Assert.Single(
+                snapshot.Methods!,
+                method => method.FidelityCheck != "not-sampled");
+
+            Assert.Equal(1, cutover.SelectedMethods);
+            Assert.Equal("Only", sampled.Method);
+            Assert.True(snapshot.Methods!.Count >= 3);
         }
         finally
         {

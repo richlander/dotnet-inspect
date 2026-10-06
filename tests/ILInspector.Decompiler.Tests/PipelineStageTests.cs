@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using CSharpText.Tests;
 using ILInspector.Decompiler.Pipeline;
 
 namespace ILInspector.Decompiler.Tests;
@@ -100,6 +101,159 @@ public class PipelineStageTests
     }
 
     [Fact]
+    public void RunWithAnalysisReceipts_ReusesBranchTargetsAcrossPdbPasses()
+    {
+        using var source = MetadataSource.Open(
+            typeof(PdbScopeFixtures).Assembly.Location);
+        var receipted = IrImporter.Import(
+            source,
+            typeof(PdbScopeFixtures).FullName!,
+            nameof(PdbScopeFixtures.SequentialScopeLocalsWithEntryAndInternalLabels))!;
+        var plain = IrImporter.Import(
+            source,
+            typeof(PdbScopeFixtures).FullName!,
+            nameof(PdbScopeFixtures.SequentialScopeLocalsWithEntryAndInternalLabels))!;
+        ImmutableArray<IIrPass> passes =
+        [
+            new StoreElementReceiverInliningPass(),
+            new PdbScopeEntryLocalPass(),
+            new PdbLocalScopePass(),
+        ];
+
+        var receipts = IrPasses.RunWithAnalysisReceipts(
+            receipted,
+            passes,
+            PassContext.None);
+        IrPasses.Run(plain, passes);
+
+        Assert.Equal(IrPrinter.Dump(plain), IrPrinter.Dump(receipted));
+        Assert.Equal(
+        [
+            new PassAnalysisReceipt(
+                1,
+                "store-element-receiver-inlining",
+                PassAnalysisKind.BranchTargets,
+                0,
+                PassAnalysisAcquisition.Constructed,
+                PassAnalysisDisposition.Preserved),
+            new PassAnalysisReceipt(
+                2,
+                "pdb-scope-entry-locals",
+                PassAnalysisKind.BranchTargets,
+                0,
+                PassAnalysisAcquisition.Reused,
+                PassAnalysisDisposition.Preserved),
+            new PassAnalysisReceipt(
+                3,
+                "pdb-local-scopes",
+                PassAnalysisKind.BranchTargets,
+                0,
+                PassAnalysisAcquisition.Reused,
+                PassAnalysisDisposition.Preserved),
+        ], receipts);
+    }
+
+    [Fact]
+    public void RunWithAnalysisReceipts_InvalidationForcesConstruction()
+    {
+        var function = ImportFixture(nameof(CfgSampleClass.Add));
+        var consumer = new BranchTargetAnalysisPass(
+            "consumer",
+            preserves: true);
+        ImmutableArray<IIrPass> passes =
+        [
+            consumer,
+            new RecordingPass("invalidator"),
+            consumer,
+        ];
+
+        var receipts = IrPasses.RunWithAnalysisReceipts(
+            function,
+            passes,
+            PassContext.None);
+
+        Assert.Equal(
+        [
+            new PassAnalysisReceipt(
+                1,
+                "consumer",
+                PassAnalysisKind.BranchTargets,
+                0,
+                PassAnalysisAcquisition.Constructed,
+                PassAnalysisDisposition.Preserved),
+            new PassAnalysisReceipt(
+                2,
+                "invalidator",
+                PassAnalysisKind.BranchTargets,
+                0,
+                PassAnalysisAcquisition.None,
+                PassAnalysisDisposition.Invalidated),
+            new PassAnalysisReceipt(
+                3,
+                "consumer",
+                PassAnalysisKind.BranchTargets,
+                1,
+                PassAnalysisAcquisition.Constructed,
+                PassAnalysisDisposition.Preserved),
+        ], receipts);
+    }
+
+    [Fact]
+    public void Run_RejectsUndeclaredAnalysisRequest()
+    {
+        var function = ImportFixture(nameof(CfgSampleClass.Add));
+
+        var exception = Assert.Throws<InvalidOperationException>(
+            () => IrPasses.Run(
+                function,
+                [new UndeclaredBranchTargetAnalysisPass()]));
+
+        Assert.Contains(
+            "did not declare the branch-target analysis",
+            exception.Message);
+    }
+
+    [Fact]
+    public void RunWithAnalysisReceipts_ThrowingPassIssuesNoReceipt()
+    {
+        var function = ImportFixture(nameof(CfgSampleClass.Add));
+        var receipts = new List<PassAnalysisReceipt>();
+
+        Assert.Throws<ExpectedPassException>(
+            () => IrPasses.RunWithAnalysisReceipts(
+                function,
+                [new BranchTargetAnalysisPass(
+                    "throwing",
+                    preserves: true,
+                    throwAfterRequest: true)],
+                PassContext.None,
+                receipts));
+
+        Assert.Empty(receipts);
+    }
+
+    [Fact]
+    public void NestedPipeline_UsesIndependentAnalysisState()
+    {
+        var function = ImportFixture(nameof(CfgSampleClass.Add));
+        var imported = ImportFixture("TryFinallyTwoReturns");
+        var method = new MethodRef(
+            TypeRef.Definition("Tests", "Samples", "Imported"),
+            "M",
+            TypeRef.CoreLib("System", "Void"),
+            [],
+            HasThis: false);
+        var context = new PassContext(
+            new Stepper(enabled: false),
+            importMethodBody: _ => imported);
+
+        IrPasses.Run(
+            function,
+            [new ImportingBranchTargetAnalysisPass(method)],
+            context);
+    }
+
+    [Fact]
     public void StageDump_Format_FramesEveryStageWithAHeader()
     {
         var function = ImportFixture(nameof(CfgSampleClass.Add));
@@ -155,6 +309,63 @@ public class PipelineStageTests
         {
         }
     }
+
+    sealed class BranchTargetAnalysisPass(
+        string name,
+        bool preserves,
+        bool throwAfterRequest = false) : IIrPass
+    {
+        public string Name => name;
+
+        public PassAnalysisKind RequiredAnalyses
+            => PassAnalysisKind.BranchTargets;
+
+        public PassAnalysisKind PreservedAnalyses
+            => preserves
+                ? PassAnalysisKind.BranchTargets
+                : PassAnalysisKind.None;
+
+        public void Run(IrFunction function, PassContext context)
+        {
+            _ = context.BranchTargets(function);
+            if (throwAfterRequest)
+                throw new ExpectedPassException();
+        }
+    }
+
+    sealed class UndeclaredBranchTargetAnalysisPass : IIrPass
+    {
+        public string Name => "undeclared";
+
+        public void Run(IrFunction function, PassContext context)
+            => _ = context.BranchTargets(function);
+    }
+
+    sealed class ImportingBranchTargetAnalysisPass(
+        MethodRef method) : IIrPass
+    {
+        public string Name => "importing";
+
+        public PassAnalysisKind RequiredAnalyses
+            => PassAnalysisKind.BranchTargets;
+
+        public PassAnalysisKind PreservedAnalyses
+            => PassAnalysisKind.BranchTargets;
+
+        public void Run(IrFunction function, PassContext context)
+        {
+            _ = context.BranchTargets(function);
+            Assert.True(context.TryImportAndRunMethodBody(
+                method,
+                [new BranchTargetAnalysisPass(
+                    "nested",
+                    preserves: true)],
+                out IrFunction? body));
+            Assert.NotNull(body);
+        }
+    }
+
+    sealed class ExpectedPassException : Exception;
 
     [Fact]
     public void StageDump_Format_ReadingGuideNamesRaisedCSharpOnlyWhenIncluded()

@@ -65,6 +65,12 @@ than declaring a parallel wire union. Rendering remains in the existing
 browser HTML presentation path, consuming that typed result; this change adds
 no new rendering format or replacement transport.
 
+`AssemblyContextReferencesQuery.ExecuteParticipantRows` issues the detached
+name, version, culture, and public-key-token rows consumed by the package
+facade. The facade orders and lowers those owner-issued rows into its wire
+records; it does not receive or project Metadata assembly identities for this
+result.
+
 `BrowserAssemblyReferenceResultTests` gates the real generated serializer's
 nonempty list, empty list, failure text including an empty message, and default
 null. `BrowserEngineBoundaryTests` gates the real package query's reference

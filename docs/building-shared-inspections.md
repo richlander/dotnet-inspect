@@ -680,6 +680,17 @@ command.
 
 ## Worked pattern: MemberGroup documents
 
+The compact Type declaration path now follows the same ownership split.
+[`TypeOverviewDocumentInspectionOperation`](../src/DotnetInspector.Sections/TypeOverviewDocumentInspection.cs)
+projects the existing exact-Type and Type MemberGroup population operation into
+one final `TypeOverviewDocument`. Its request requires compact Rows with a
+nested exact-Member Count for every MemberGroup, and its closed outcome
+promotes Type, population, and Rows non-successes rather than exposing
+success-shaped partial content. The operation preserves the owner-issued exact
+Type and population binding, filtering intent, ordering, continuation, Share,
+and diagnostics; it does not spell complete Member signatures or adopt host
+rendering.
+
 The capability-led pilot for
 [#8802](https://github.com/richlander/dotnet-inspect/issues/8802) is the current
 MemberGroup inspection delivered by
