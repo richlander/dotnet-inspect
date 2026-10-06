@@ -1024,6 +1024,37 @@ public class ReturnToSenderTargetSelectionTests
                     })),
         ];
 
+    static TargetSelectionSnapshot[] TargetSnapshot(
+        IReadOnlyList<FidelityCheck.CompileBackTarget> targets)
+        =>
+        [
+            .. targets.Select(
+                target => new TargetSelectionSnapshot(
+                    target.AssemblyPath,
+                    target.Type,
+                    target.Method,
+                    target.Overload,
+                    target.Signature,
+                    target.Address,
+                    target.Declaration switch
+                    {
+                        ReturnToSenderDeclarationSelection
+                            .OrdinaryMethod =>
+                            ReturnToSenderDeclarationProducer
+                                .OrdinaryTypeArtifact,
+                        ReturnToSenderDeclarationSelection
+                            .ExactMethod =>
+                            ReturnToSenderDeclarationProducer
+                                .ExactMethodDeclaration,
+                        ReturnToSenderDeclarationSelection
+                            .ExactAccessor =>
+                            ReturnToSenderDeclarationProducer
+                                .ExactAccessorDeclaration,
+                        _ => throw new InvalidOperationException(
+                            "Unknown RTS declaration selection."),
+                    })),
+        ];
+
     readonly record struct TargetSelectionSnapshot(
         string AssemblyPath,
         string Type,

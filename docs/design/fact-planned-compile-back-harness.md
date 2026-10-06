@@ -320,7 +320,9 @@ DecompilerHarness corpus `rts-native` and `rts-cutover` execution consume this
 plan before native RTS evaluation; their per-assembly fidelity cap must settle
 exactly or the corpus run fails visibly. Corpus result association uses the
 selected target's assembly, declaring type, method name, and metadata overload
-ordinal rather than reparsing its display signature.
+ordinal rather than reparsing its display signature. The harness status stream
+reports the capped plan's ranked and deeply evaluated body counts, declaration
+candidate count, and evaluated exclusions.
 
 This capped plan does not claim a complete population receipt. Its receipt
 separately reports bodies ranked, bodies deeply evaluated, declaration

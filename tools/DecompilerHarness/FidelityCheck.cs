@@ -217,17 +217,7 @@ static partial class FidelityCheck
         => SelectReturnToSenderTargetsCapped(
             assemblies,
             cap,
-            typeFilter).Targets
-            .Select(
-                static target => new CompileBackTarget(
-                    target.AssemblyPath,
-                    target.Type,
-                    target.Method,
-                    target.Overload,
-                    target.Signature,
-                    target.Address,
-                    target.Declaration))
-            .ToArray();
+            typeFilter).Targets;
 
     internal static CappedReturnToSenderTargetSelection
         SelectReturnToSenderTargetsCapped(
@@ -240,7 +230,7 @@ static partial class FidelityCheck
             return new([], 0, 0, 0, 0);
 
         var selected =
-            new List<ReturnToSenderTarget>(Math.Min(cap, 4096));
+            new List<CompileBackTarget>(Math.Min(cap, 4096));
         int rankedBodyCount = 0;
         int evaluatedBodyCount = 0;
         int declarationCandidateCount = 0;
@@ -268,7 +258,16 @@ static partial class FidelityCheck
                     source,
                     remaining,
                     typeFilter);
-            selected.AddRange(selection.Targets);
+            selected.AddRange(
+                selection.Targets.Select(
+                    static target => new CompileBackTarget(
+                        target.AssemblyPath,
+                        target.Type,
+                        target.Method,
+                        target.Overload,
+                        target.Signature,
+                        target.Address,
+                        target.Declaration)));
             rankedBodyCount = checked(
                 rankedBodyCount
                 + selection.RankedBodyCount);
@@ -591,7 +590,7 @@ static partial class FidelityCheck
         int EligibleCount);
 
     internal sealed record CappedReturnToSenderTargetSelection(
-        IReadOnlyList<ReturnToSenderTarget> Targets,
+        IReadOnlyList<CompileBackTarget> Targets,
         int RankedBodyCount,
         int EvaluatedBodyCount,
         int DeclarationCandidateCount,

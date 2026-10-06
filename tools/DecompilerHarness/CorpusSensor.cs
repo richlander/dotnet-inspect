@@ -1783,19 +1783,28 @@ internal static class CorpusSensor
             string assemblyPath,
             int cap)
     {
-        IReadOnlyList<FidelityCheck.CompileBackTarget> targets =
-            FidelityCheck.SelectReturnToSenderTargets(
+        FidelityCheck.CappedReturnToSenderTargetSelection selection =
+            FidelityCheck.SelectReturnToSenderTargetsCapped(
                 [assemblyPath],
                 cap);
-        if (targets.Count != cap)
+        if (selection.Targets.Count != cap)
         {
             throw new InvalidOperationException(
                 $"Independent RTS requires exactly {cap} eligible targets "
                 + $"for '{PortablePath(assemblyPath)}', but owner-issued "
-                + $"selection settled {targets.Count}.");
+                + $"selection settled {selection.Targets.Count}.");
         }
 
-        return new(assemblyPath, targets);
+        HarnessLog.Status(
+            $"RTS target selection {PortablePath(assemblyPath)}: "
+            + $"{selection.Targets.Count} selected; "
+            + $"{selection.RankedBodyCount} ranked bodies; "
+            + $"{selection.EvaluatedBodyCount} deeply evaluated bodies; "
+            + $"{selection.DeclarationCandidateCount} declaration "
+            + $"candidates; "
+            + $"{selection.ExcludedDeclarationCandidateCount} evaluated "
+            + $"exclusions.");
+        return new(assemblyPath, selection.Targets);
     }
 
     static IReadOnlyList<FidelityCheck.CompileBackTarget> DeterministicCompileBackTargetAttemptsForAssembly(
