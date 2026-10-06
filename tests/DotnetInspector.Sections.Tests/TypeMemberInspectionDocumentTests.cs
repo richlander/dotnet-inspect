@@ -187,6 +187,123 @@ public sealed class TypeMemberInspectionDocumentTests
         Assert.Equal("members", exception.ParamName);
     }
 
+    [Fact]
+    public void TypeDocument_RejectsDifferentPopulationIntent()
+    {
+        DocumentFixture fixture = CreateFixture();
+        var allAccessibility =
+            new TypeMemberGroupPopulationBinding(
+                fixture.TypePopulation.Assembly,
+                fixture.TypePopulation.ModuleVersionId,
+                fixture.TypePopulation.Type,
+                fixture.TypePopulation.TypeDefinitionToken,
+                fixture.TypePopulation.Spelling,
+                fixture.TypePopulation.IncludeHidden,
+                TypeMemberGroupAccessibilityFilter.All,
+                fixture.TypePopulation.Receiver,
+                fixture.TypePopulation.Ordering);
+
+        ArgumentException exception =
+            Assert.Throws<ArgumentException>(
+                () => new TypeDocument(
+                    fixture.Type,
+                    allAccessibility,
+                    [fixture.Declaration],
+                    assemblyBytes: 123));
+
+        Assert.Equal("members", exception.ParamName);
+    }
+
+    [Fact]
+    public void TypeDocument_AcceptsMatchingNonExtensionIntent()
+    {
+        DocumentFixture fixture = CreateFixture();
+        var typePopulation =
+            new TypeMemberGroupPopulationBinding(
+                fixture.TypePopulation.Assembly,
+                fixture.TypePopulation.ModuleVersionId,
+                fixture.TypePopulation.Type,
+                fixture.TypePopulation.TypeDefinitionToken,
+                fixture.TypePopulation.Spelling,
+                fixture.TypePopulation.IncludeHidden,
+                fixture.TypePopulation.Accessibility,
+                TypeMemberGroupReceiverFilter.NonExtension,
+                fixture.TypePopulation.Ordering);
+        var memberPopulation =
+            new MemberOverloadPopulationBinding(
+                fixture.MemberPopulation.Assembly,
+                fixture.MemberPopulation.ModuleVersionId,
+                fixture.MemberPopulation.DeclaringType,
+                fixture.MemberPopulation.TypeDefinitionToken,
+                fixture.MemberPopulation.Name,
+                fixture.MemberPopulation.Category,
+                fixture.MemberPopulation.Role,
+                fixture.MemberPopulation.Ordering,
+                fixture.MemberPopulation.Accessibility,
+                MemberOverloadReceiverFilter.NonExtension,
+                fixture.MemberPopulation.IncludeHidden,
+                fixture.MemberPopulation.Spelling);
+        var member = new MemberSubject(
+            fixture.Group,
+            memberPopulation,
+            fixture.Member.MetadataToken,
+            fixture.Member.Anchor,
+            fixture.Member.BaselineOrdinal,
+            fixture.Member.Fingerprint,
+            fixture.Member.DocumentationId);
+        var declaration = new MemberDeclaration(
+            member,
+            fixture.Declaration.DisplaySignature,
+            fixture.Declaration.CanonicalSignature,
+            fixture.Declaration.Accessibility,
+            fixture.Declaration.Receiver);
+
+        var document = new TypeDocument(
+            fixture.Type,
+            typePopulation,
+            [declaration],
+            assemblyBytes: 123);
+
+        Assert.Equal(
+            MemberOverloadReceiverFilter.NonExtension,
+            Assert.Single(document.Members)
+                .Subject.Population.Receiver);
+    }
+
+    [Fact]
+    public void
+        MemberDeclaration_ComparesCanonicalSignatureAfterInertEncoding()
+    {
+        DocumentFixture fixture = CreateFixture();
+        const string rawCanonical = "void N.C.\nM()";
+        string fingerprint =
+            MemberAnchor.ComputeFingerprint(rawCanonical);
+        var member = new MemberSubject(
+            fixture.Group,
+            fixture.MemberPopulation,
+            fixture.Member.MetadataToken,
+            new(
+                "M()",
+                rawCanonical,
+                fingerprint,
+                "N.C",
+                "M"),
+            fixture.Member.BaselineOrdinal,
+            Text(fingerprint),
+            fixture.Member.DocumentationId);
+
+        var declaration = new MemberDeclaration(
+            member,
+            fixture.Declaration.DisplaySignature,
+            Text(rawCanonical),
+            fixture.Declaration.Accessibility,
+            fixture.Declaration.Receiver);
+
+        Assert.NotEqual(
+            rawCanonical,
+            declaration.CanonicalSignature.ToString());
+    }
+
     private static DocumentFixture CreateFixture()
     {
         MetadataTypeDefinitionName type = Name("N", "C");

@@ -128,10 +128,10 @@ public record MemberDeclaration
                 receiver,
                 "Unknown Member receiver.");
         }
-        if (!string.Equals(
-                canonicalSignature.ToString(),
-                subject.Anchor.CanonicalSignature,
-                StringComparison.Ordinal))
+        if (canonicalSignature
+            != new InertString(
+                TextPolicy.Field,
+                subject.Anchor.CanonicalSignature))
         {
             throw new ArgumentException(
                 "The Member canonical signature must match its exact identity.",
@@ -195,6 +195,12 @@ public sealed record MemberDocumentInspectionPlan
         MemberSourceAttachmentRequest? source = null)
     {
         Group = group ?? throw new ArgumentNullException(nameof(group));
+        if (Group.Spelling is not TypeMemberGroupSpelling.CSharp)
+        {
+            throw new ArgumentException(
+                "The transitional exact-Member producer currently supports C# spelling only.",
+                nameof(group));
+        }
         Selector =
             selector ?? throw new ArgumentNullException(nameof(selector));
         Bounds = bounds ?? throw new ArgumentNullException(nameof(bounds));

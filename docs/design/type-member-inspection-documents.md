@@ -12,6 +12,9 @@ source-generated JSON contracts are implemented. Existing production
 operations still return explicitly named transitional content shapes; later
 adoption slices must switch those producers without presenting the target
 contract as current behavior.
+The transitional exact-Member producer remains C#-spelling-only and rejects
+Metadata spelling until a later producer slice can emit true Metadata
+declarations.
 
 The user approved defining these four documents together and integrating their
 resolved Member subjects with

@@ -86,7 +86,8 @@ public sealed record TypeDocument
                 "The Type subject and Member-group population binding must identify the same exact Type.",
                 nameof(memberGroups));
         }
-        if (Members.Any(member => !Matches(subject, member)))
+        if (Members.Any(member =>
+                !Matches(subject, memberGroups, member)))
         {
             throw new ArgumentException(
                 "Every Member declaration must identify the Type document's exact Type.",
@@ -103,6 +104,7 @@ public sealed record TypeDocument
 
     private static bool Matches(
         TypeSubject subject,
+        TypeMemberGroupPopulationBinding memberGroups,
         MemberDeclaration member) =>
         member.Subject.Group.DeclaringType == subject.Type
         && member.Subject.Population.Assembly == subject.Assembly
@@ -110,7 +112,64 @@ public sealed record TypeDocument
             == subject.ModuleVersionId
         && member.Subject.Population.DeclaringType == subject.Type
         && member.Subject.Population.TypeDefinitionToken
-            == subject.TypeDefinitionToken;
+            == subject.TypeDefinitionToken
+        && MatchesIntent(
+            member.Subject.Population,
+            member.Subject.Group,
+            memberGroups);
+
+    private static bool MatchesIntent(
+        MemberOverloadPopulationBinding member,
+        MemberGroupSubject group,
+        TypeMemberGroupPopulationBinding memberGroups) =>
+        group.Spelling == member.Spelling
+        && member.Spelling == memberGroups.Spelling
+        && member.IncludeHidden == memberGroups.IncludeHidden
+        && member.Ordering == MemberOverloadOrdering.Metadata
+        && memberGroups.Ordering
+            == TypeMemberGroupOrdering.Metadata
+        && Matches(
+            member.Accessibility,
+            memberGroups.Accessibility)
+        && Matches(
+            member.Receiver,
+            memberGroups.Receiver);
+
+    private static bool Matches(
+        MemberOverloadAccessibilityFilter member,
+        TypeMemberGroupAccessibilityFilter type) =>
+        (member, type) switch
+        {
+            (MemberOverloadAccessibilityFilter.Public,
+                TypeMemberGroupAccessibilityFilter.Public) => true,
+            (MemberOverloadAccessibilityFilter.Protected,
+                TypeMemberGroupAccessibilityFilter.Protected) => true,
+            (MemberOverloadAccessibilityFilter.Internal,
+                TypeMemberGroupAccessibilityFilter.Internal) => true,
+            (MemberOverloadAccessibilityFilter.Private,
+                TypeMemberGroupAccessibilityFilter.Private) => true,
+            (MemberOverloadAccessibilityFilter.All,
+                TypeMemberGroupAccessibilityFilter.All) => true,
+            _ => false,
+        };
+
+    private static bool Matches(
+        MemberOverloadReceiverFilter member,
+        TypeMemberGroupReceiverFilter type) =>
+        (member, type) switch
+        {
+            (MemberOverloadReceiverFilter.All,
+                TypeMemberGroupReceiverFilter.All) => true,
+            (MemberOverloadReceiverFilter.This,
+                TypeMemberGroupReceiverFilter.This) => true,
+            (MemberOverloadReceiverFilter.Static,
+                TypeMemberGroupReceiverFilter.Static) => true,
+            (MemberOverloadReceiverFilter.Extension,
+                TypeMemberGroupReceiverFilter.Extension) => true,
+            (MemberOverloadReceiverFilter.NonExtension,
+                TypeMemberGroupReceiverFilter.NonExtension) => true,
+            _ => false,
+        };
 }
 
 public sealed record MemberOverviewDocument

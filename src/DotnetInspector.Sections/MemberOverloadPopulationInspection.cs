@@ -56,6 +56,7 @@ public enum MemberOverloadReceiverFilter
     This,
     Static,
     Extension,
+    NonExtension,
 }
 
 public sealed record MemberGroupSubject
@@ -315,6 +316,12 @@ public sealed record MemberOverloadPopulationInspectionPlan
         {
             throw new ArgumentException(
                 "The exact-overload population currently supports method groups only.",
+                nameof(subject));
+        }
+        if (Subject.Spelling is not TypeMemberGroupSpelling.CSharp)
+        {
+            throw new ArgumentException(
+                "The transitional exact-overload producer currently supports C# spelling only.",
                 nameof(subject));
         }
         Overloads = overloads
