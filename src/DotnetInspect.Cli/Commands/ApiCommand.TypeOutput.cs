@@ -285,8 +285,12 @@ public partial class ApiCommand
             return 1;
         }
 
+        // A lone Text with a bare payload writes its own facts-plus-content JSON
+        // once its payload is populated (below), not the type document.
+        bool textPayloadJson = IsTextPayloadJson(options) && !typeApiDeclarationsJson;
         if (options.JsonOutput && !options.Count && !IsProjectionRequested(options)
             && !typeApiDeclarationsJson
+            && !textPayloadJson
             && !sourceJson
             && !sourceDocumentJson && !findingCensusJson && !factsJson
             && !projectedFactsJson && !callsJson && !callersJson
@@ -1128,6 +1132,20 @@ public partial class ApiCommand
 
             ApiOutputFormatter.WriteCallGraphWarning(view);
             return 0;
+        }
+
+        if (textPayloadJson && LonePayloadJsonTextSection(options) is { } jsonTextSection)
+        {
+            int result = WriteTextPayloadJson(sink, view, options, jsonTextSection);
+            ApiOutputFormatter.WriteCallGraphWarning(view);
+            return result;
+        }
+
+        if (options.Tabular && LoneFactRowTextSection(options) is { } factRowSection)
+        {
+            int result = WriteTextFactRow(sink, view, options, factRowSection);
+            ApiOutputFormatter.WriteCallGraphWarning(view);
+            return result;
         }
 
         if (options.UsesNativePayloadDefault)

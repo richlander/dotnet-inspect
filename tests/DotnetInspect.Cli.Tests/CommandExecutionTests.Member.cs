@@ -732,7 +732,7 @@ public partial class CommandExecutionTests
             output);
         Assert.Contains(
             "| Decompiled Source | section | member-detail/sections/decompiled-source "
-            + "| --markdown, --plaintext "
+            + "| --markdown, --plaintext, --json, --table, --tsv, --jsonl "
             + "| text | scalar |  |",
             output);
 
@@ -1140,6 +1140,62 @@ public partial class CommandExecutionTests
         JsonElement sourceCount = mapDocument.RootElement.EnumerateArray()
             .Single(static r => r.GetProperty("section").GetString() == SectionNames.Source);
         Assert.Equal(lineCount, sourceCount.GetProperty("count").GetInt32());
+    }
+
+    [Fact]
+    public async Task Text_FactRowAndJsonCarryThePayload()
+    {
+        // A Text with a bare payload lowers to one fact row in the row formats
+        // and to a facts-plus-content JSON value (#9456), while composed
+        // Markdown keeps every body (the type/member divergence recorded in
+        // Section shapes) and native output keeps the bare payload.
+        string[] member =
+        [
+            "member", "DotnetInspect.Cli.Tests.CommandExecutionTests+ConstructorChainTarget", ".ctor:1",
+            "--library", TestAssemblyPath, "--all",
+        ];
+        var (nativeExit, native, _) = await RunAppAsync([.. member, "-S", SectionNames.DecompiledSource]);
+        var (tsvExit, tsv, tsvError) = await RunAppAsync([.. member, "-S", SectionNames.DecompiledSource, "--tsv"]);
+        var (jsonExit, json, jsonError) = await RunAppAsync([.. member, "-S", SectionNames.DecompiledSource, "--json"]);
+
+        Assert.Equal(0, nativeExit);
+        Assert.Equal(0, tsvExit);
+        Assert.Empty(tsvError);
+        string[] rows = tsv.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        Assert.Equal(["section\tlines\tcharacters", $"{SectionNames.DecompiledSource}\t{native.TrimEnd().Split('\n').Length}"], [rows[0], string.Join('\t', rows[1].Split('\t').Take(2))]);
+        Assert.Equal(2, rows.Length);
+
+        Assert.Equal(0, jsonExit);
+        Assert.Empty(jsonError);
+        using JsonDocument document = JsonDocument.Parse(json);
+        JsonElement root = document.RootElement;
+        Assert.Equal(SectionNames.DecompiledSource, root.GetProperty("section").GetString());
+        string content = root.GetProperty("content").GetString()!;
+        Assert.Equal(native.TrimEnd(), content.TrimEnd());
+        Assert.Equal(content.Length, root.GetProperty("characters").GetInt32());
+        Assert.Equal(rows[1].Split('\t')[1], root.GetProperty("lines").GetInt32().ToString(CultureInfo.InvariantCulture));
+
+        // IL, a different Text family, lowers the same way.
+        var (ilExit, il, _) = await RunAppAsync([.. member, "-S", SectionNames.IL, "--jsonl"]);
+        Assert.Equal(0, ilExit);
+        using JsonDocument ilRow = JsonDocument.Parse(il.Trim());
+        Assert.Equal(SectionNames.IL, ilRow.RootElement.GetProperty("section").GetString());
+        Assert.True(ilRow.RootElement.GetProperty("lines").GetInt32() > 0);
+        Assert.False(ilRow.RootElement.TryGetProperty("content", out _));
+
+        // Composed Markdown keeps both bodies side by side.
+        var (composedExit, composed, _) = await RunAppAsync(
+            [.. member, "-S", $"{SectionNames.DecompiledSource},{SectionNames.IL}", "--markdown"]);
+        Assert.Equal(0, composedExit);
+        Assert.Contains("## Decompiled Source", composed);
+        Assert.Contains("## IL", composed);
+        Assert.Contains(native.Split('\n')[0], composed);
+        Assert.DoesNotContain("| Section | Lines | Characters |", composed);
+
+        // A fact row is not an inventory: Count and --rows stay rejected.
+        var (countExit, _, countError) = await RunAppAsync([.. member, "-S", SectionNames.DecompiledSource, "--count"]);
+        Assert.Equal(1, countExit);
+        Assert.Contains("is scalar and does not support --count", countError);
     }
 
     [Fact]

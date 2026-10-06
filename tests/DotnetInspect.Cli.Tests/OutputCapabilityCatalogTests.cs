@@ -126,8 +126,10 @@ public class OutputCapabilityCatalogTests
                 StructuralViewIdentity.Type,
                 InspectionCatalogIdentity.ApiType));
 
-        Assert.Equal(ApiOutputCapabilities.TextFormats, detail.FormatsForSection(SectionNames.DecompiledSource));
-        Assert.Equal(ApiOutputCapabilities.TextFormats, detail.FormatsForSection(SectionNames.IL));
+        // A Text with a bare payload lowers to its fact row in the row formats
+        // and to a facts-plus-content JSON value (#9456).
+        Assert.Equal(OutputCapabilityCatalog.StandardSectionFormats, detail.FormatsForSection(SectionNames.DecompiledSource));
+        Assert.Equal(OutputCapabilityCatalog.StandardSectionFormats, detail.FormatsForSection(SectionNames.IL));
         // Source is the Text with a Lines inventory: its rows lower to the row
         // formats, beside its dedicated JSON document.
         Assert.Equal(
@@ -144,8 +146,9 @@ public class OutputCapabilityCatalogTests
         Assert.Equal(ApiOutputCapabilities.TableFormats, typeView.FormatsForSection(SectionNames.PerformanceTriage));
         Assert.Equal(OutputCapabilityCatalog.StandardSectionFormats, typeView.FormatsForSection(SectionNames.Methods));
         Assert.Equal(OutputCapabilityCatalog.StandardSectionFormats, typeView.FormatsForSection(SectionNames.TypeInfo));
-        Assert.Contains(DiscoveryOutputMode.Json, typeView.FormatsForSection(SectionNames.ApiDeclarations));
-        Assert.DoesNotContain(DiscoveryOutputMode.Json, memberTypeView.FormatsForSection(SectionNames.ApiDeclarations));
+        // API Declarations has a bare payload only on the type command's view.
+        Assert.Equal(OutputCapabilityCatalog.StandardSectionFormats, typeView.FormatsForSection(SectionNames.ApiDeclarations));
+        Assert.Equal(ApiOutputCapabilities.TextFormats, memberTypeView.FormatsForSection(SectionNames.ApiDeclarations));
         Assert.Equal(OutputCapabilityCatalog.StandardSectionFormats, listing.FormatsForSection(SectionNames.Classes));
     }
 
@@ -154,10 +157,10 @@ public class OutputCapabilityCatalogTests
     {
         // Type and member formats derive from each section's declared shape;
         // Call Graph is a Graph rather than a shape, so it alone keeps the
-        // tree and Mermaid lowerings beside the standard formats. A Text
-        // advertises only the formats the CLI executes for it today: the row
-        // formats need a fact row the type and member owners do not have yet
-        // (round-4 finding: --jsonl on Decompiled Source returned nothing).
+        // tree and Mermaid lowerings beside the standard formats. A Text with a
+        // bare payload lowers to its fact row and a facts-plus-content JSON
+        // value; Source's rows are its lines; a Text without a bare payload
+        // keeps only its composed formats.
         OutputCapabilityCatalog catalog = ApiOutputCapabilities.For(
             StructuralViewRegistry.Route(
                 StructuralViewIdentity.MemberTarget,
@@ -175,8 +178,13 @@ public class OutputCapabilityCatalogTests
             OutputCapabilityCatalog.StandardSectionFormats,
             catalog.FormatsForSection(SectionNames.Source));
         Assert.Equal(
-            ApiOutputCapabilities.TextFormats,
+            OutputCapabilityCatalog.StandardSectionFormats,
             catalog.FormatsForSection(SectionNames.SemanticsOverlay));
+        // Annotated Source Document has no bare payload, so it keeps the
+        // composed formats and its dedicated JSON document.
+        Assert.Equal(
+            [DiscoveryOutputMode.Markdown, DiscoveryOutputMode.PlainText, DiscoveryOutputMode.Json],
+            catalog.FormatsForSection(SectionNames.AnnotatedSourceDocument));
         Assert.Equal(
             OutputCapabilityCatalog.FormatOrder,
             catalog.FormatsForSection(SectionNames.CallGraph));

@@ -440,6 +440,19 @@ unchanged.
 4. **Member owner.** Classifies the `member` sections, including overload
    inventories, call relationships, and source and decompiler Texts.
 
+   The type and member owners' Texts lower as follows (#9456). `Source` keeps
+   its `Lines` inventory. Every other Text with one bare payload — API
+   declarations, decompiled, annotated, PDB, and diffed source, the overlays,
+   and IL — has a JSON value of section, line count, character count, and the
+   complete payload, and its row formats show its fact row of those facts;
+   diffed source keeps its owner's richer row form, the comparison metadata and
+   summary. A Text without a bare payload keeps its composed and dedicated
+   lowerings. **Divergence:** a type or member Text composed with other
+   sections shows its body in Markdown rather than its fact row, because
+   reading two code views side by side (`-S "Decompiled Source,IL"`) is the
+   owners' primary composed use; the operator approved this divergence on
+   2026-10-06.
+
 Each adoption changes only its owning command and is tracked by its own
 focused issue. This document authorizes no cross-command sweep, and it does
 not change Browser/Wasm presentation; the Browser consumes the same declared
