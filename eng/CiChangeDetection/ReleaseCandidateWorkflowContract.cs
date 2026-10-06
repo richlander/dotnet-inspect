@@ -70,6 +70,26 @@ internal static class ReleaseCandidateWorkflowContract
             "      inputs.lane == 'census' ||\n",
             ValidateDeepInspectAdoption,
             "Deep Inspect contract accepted a missing release-candidate route.");
+        AssertMutationRejected(
+            deepInspect,
+            "      - name: Run Resource ownership contract tests\n" +
+            "        if: ${{ !cancelled() && steps.build.outcome == 'success' }}\n" +
+            "        run: dotnet run --project tests/Inspector.Resources.Tests -c Release\n",
+            "",
+            ValidateDeepInspectAdoption,
+            "Deep Inspect contract accepted a removed daily suite.");
+        AssertMutationRejected(
+            deepInspect,
+            "        run: eng/test-ts-jsexport-context-aot.sh \"linux-x64\"\n",
+            "        run: echo skipped\n",
+            ValidateDeepInspectAdoption,
+            "Deep Inspect contract accepted a missing NativeAOT probe.");
+        AssertMutationRejected(
+            deepInspect,
+            "        if: ${{ !cancelled() && steps.package_fixture.outcome == 'failure' }}\n",
+            "        if: false\n",
+            ValidateDeepInspectAdoption,
+            "Deep Inspect contract accepted a green failed package fixture.");
     }
 
     private static void ValidateCandidate(string workflow)
@@ -275,6 +295,10 @@ internal static class ReleaseCandidateWorkflowContract
         YamlMappingNode jobs = GetRequiredMapping(root, "jobs", "Deep Inspect workflow");
         YamlMappingNode testJob =
             GetRequiredMapping(jobs, "test", "Deep Inspect jobs");
+        YamlMappingNode testPermissions =
+            GetRequiredMapping(testJob, "permissions", "Deep Inspect test lane");
+        RequireScalarValue(testPermissions, "contents", "read", "Deep Inspect test permissions");
+        RequireScalarValue(testPermissions, "packages", "read", "Deep Inspect test permissions");
         string testCondition = GetRequiredScalar(
             testJob,
             "if",
@@ -286,8 +310,10 @@ internal static class ReleaseCandidateWorkflowContract
             testJob,
             "steps",
             "Deep Inspect test lane");
-        YamlMappingNode[] querySteps = testSteps.Children
+        YamlMappingNode[] scheduledSteps = testSteps.Children
             .Select(node => RequireMapping(node, "Deep Inspect test step"))
+            .ToArray();
+        YamlMappingNode[] querySteps = scheduledSteps
             .Where(step => GetOptionalScalar(step, "name") == "Run query tests")
             .ToArray();
         if (querySteps.Length != 1)
@@ -298,6 +324,125 @@ internal static class ReleaseCandidateWorkflowContract
             "run",
             "dotnet run --project tests/DotnetInspector.Queries.Tests -c Release",
             "Deep Inspect query step");
+        foreach (string project in new[]
+        {
+            "eng/DependencyPolicy.Tests",
+            "tests/ILInspector.CSharp.Tests",
+            "tests/Inspector.Graph.Tests",
+            "tests/DotnetInspector.Libraries.Tests",
+            "tests/Inspector.Resources.Tests",
+            "tests/DotnetInspector.Platforms.Tests",
+            "tests/DotnetInspector.DependencyManifests.Tests",
+            "tests/DotnetInspector.PlatformHouse.Tests",
+            "tests/DotnetInspector.PlatformHouse.Local.Tests",
+            "tests/DotnetInspector.PortableQueries.Tests",
+            "tests/DotnetInspector.RowSelection.Tests",
+            "tests/DotnetInspector.PerformanceOracles.Tests",
+            "tests/Inspector.Text.Tests",
+            "tests/DotnetInspector.SourceSelection.Tests",
+            "tests/DotnetInspector.SourceDelegation.Tests",
+            "tests/DotnetInspector.SourceHouse.Tests",
+            "tests/DotnetInspector.Sections.Tests",
+            "tests/ILInspector.Instructions.Tests",
+            "tests/ILInspector.ILDiff.Tests",
+            "tests/DotnetInspector.FixtureInfrastructure.Tests",
+            "tests/NetworkAccess.Tests",
+            "tests/BinaryFetch.Tests",
+            "tests/ZipFetch.Tests",
+            "tests/UntrustedDocuments.Tests",
+            "tests/DotnetInspector.Networking.Tests",
+            "tests/DotnetInspector.Cache.Tests",
+            "tests/DotnetInspector.Packages.Tests",
+            "tests/ILInspector.JsExportSurface.Tests",
+            "tests/runfaster.Tests",
+        })
+        {
+            string command = $"dotnet run --project {project} -c Release";
+            YamlMappingNode[] matches = scheduledSteps
+                .Where(step => GetOptionalScalar(step, "run") == command)
+                .ToArray();
+            if (matches.Length != 1)
+                throw new InvalidOperationException(
+                    $"Daily Deep Inspect must run the complete {project} suite once.");
+            RequireScalarValue(
+                matches[0],
+                "if",
+                "${{ !cancelled() && steps.build.outcome == 'success' }}",
+                $"Deep Inspect {project} step");
+        }
+        foreach ((string name, string command) in new[]
+        {
+            ("Self-test Library Type-leverage census", "eng/census-library-type-leverage.cs"),
+            ("Test CLI runtime flavor across publish modes", "eng/test-runtime-flavor.sh linux-x64"),
+            ("Run MethodSemantics NativeAOT probe", "eng/run-method-semantics-platform-probe.sh nativeaot linux-x64"),
+            ("Run local-path admission NativeAOT probe", "eng/run-local-path-admission-platform-probe.sh nativeaot linux-x64"),
+            ("Prepare PR decompiler corpus", "eng/prepare-decompiler-pr-corpus.sh"),
+            ("Run PR decompiler corpus sensor", "--diff-corpus-baseline tools/DecompilerHarness/corpus/pr-quick-baseline.json"),
+            ("Run GitHub Packages fixture test", "Package_Manifest_RendersToolManifestRows"),
+            ("Check Subject Relations constructed-generic oracle", "tools/SubjectRelationsScorecard"),
+            ("Exercise Catalog research probe (offline)", "tools/CatalogChangeBenchmark.cs"),
+            ("Exercise package assembly-query benchmark (offline)", "tools/PackageAssemblyQueryBenchmark.cs"),
+            ("Run JSExport runtime-async wire gates", "RuntimeAsync"),
+            ("Run ts-jsexport generator acceptance gates", "TsJsExportContractsTests"),
+            ("Run ts-jsexport context NativeAOT gate", "eng/test-ts-jsexport-context-aot.sh"),
+            ("Run Debug dependency sidecar contracts (Release)", "-p:DefineConstants=DEBUG"),
+        })
+        {
+            YamlMappingNode[] matches = scheduledSteps
+                .Where(step => GetOptionalScalar(step, "name") == name)
+                .ToArray();
+            if (matches.Length != 1 || !GetRequiredScalar(
+                    matches[0],
+                    "run",
+                    $"Deep Inspect {name}").Contains(command, StringComparison.Ordinal))
+                throw new InvalidOperationException(
+                    $"Daily Deep Inspect must run {name} once.");
+            RequireScalarValue(
+                matches[0],
+                "if",
+                "${{ !cancelled() && steps.build.outcome == 'success' }}",
+                $"Deep Inspect {name} condition");
+        }
+        YamlMappingNode corpusRun = scheduledSteps.Single(step =>
+            GetOptionalScalar(step, "name") == "Run PR decompiler corpus sensor");
+        RequireScalarValue(
+            corpusRun, "continue-on-error", "true", "Deep Inspect PR corpus sensor");
+        YamlMappingNode corpusUpload = scheduledSteps.Single(step =>
+            GetOptionalScalar(step, "name") == "Upload PR decompiler corpus artifact");
+        RequireScalarValue(
+            corpusUpload, "if", "always()", "Deep Inspect PR corpus upload");
+        RequireScalarValue(
+            corpusUpload, "uses", "actions/upload-artifact@v7", "Deep Inspect PR corpus upload");
+        YamlMappingNode corpusCheck = scheduledSteps.Single(step =>
+            GetOptionalScalar(step, "name") == "Check PR decompiler corpus result");
+        RequireScalarValue(
+            corpusCheck,
+            "if",
+            "${{ !cancelled() && steps.decompiler_pr_corpus.outcome == 'failure' }}",
+            "Deep Inspect PR corpus failure check");
+        YamlMappingNode packageFixture = scheduledSteps.Single(step =>
+            GetOptionalScalar(step, "name") == "Run GitHub Packages fixture test");
+        RequireScalarValue(
+            packageFixture, "continue-on-error", "true", "Deep Inspect package fixture");
+        YamlMappingNode packageFixtureEnv = GetRequiredMapping(
+            packageFixture, "env", "Deep Inspect package fixture");
+        RequireScalarValue(
+            packageFixtureEnv,
+            "DOTNET_INSPECT_PACKAGE_FIXTURE_USER",
+            "${{ github.actor }}",
+            "Deep Inspect package fixture");
+        RequireScalarValue(
+            packageFixtureEnv,
+            "DOTNET_INSPECT_PACKAGE_FIXTURE_TOKEN",
+            "${{ github.token }}",
+            "Deep Inspect package fixture");
+        YamlMappingNode packageFixtureCheck = scheduledSteps.Single(step =>
+            GetOptionalScalar(step, "name") == "Check GitHub Packages fixture result");
+        RequireScalarValue(
+            packageFixtureCheck,
+            "if",
+            "${{ !cancelled() && steps.package_fixture.outcome == 'failure' }}",
+            "Deep Inspect package fixture failure check");
         foreach ((string name, string command) in new[]
         {
             ("Discover expected decompiler gate tests", "--gate-discovery-receipt"),

@@ -86,7 +86,10 @@ the dependency-policy job selected only for pushes to `main`.
   query, analysis, NuGet, metadata, and other host-neutral suites. Its
   Windows/macOS lane retains tests with platform-sensitive behavior.
 - The daily test lane runs the slow legacy source-identity inventory over the
-  full C# tree. PR CI does not repeat that exhaustive scan.
+  full C# tree. It also owns the runtime-flavor and NativeAOT probes, the
+  DEBUG-conditional sidecar test, authenticated package fixture, JSExport
+  acceptance checks, and PR-quick decompiler corpus sensor formerly in the PR
+  matrix. PR CI does not repeat that exhaustive and specialized work.
 - Inspect Web keeps Browser/Wasm platform probes and managed API tests in PR
   CI. Its daily Deep Inspect web lane runs frontend analysis and build, Node
   tests, the browser engine, Firefox UI tests, complete facade and canary

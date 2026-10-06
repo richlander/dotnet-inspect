@@ -136,6 +136,9 @@ jobs:
 
   test:
     name: Test lane
+    permissions:
+      contents: read
+      packages: read
     # Linux is the exhaustive Deep Inspect host. It runs every slow or
     # host-neutral suite once, while the platform matrix below concentrates on
     # fast CLI behavior and code with real OS, filesystem, runtime-layout, or
@@ -270,6 +273,124 @@ jobs:
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: dotnet run --project tests/DotnetInspector.Presentation.Tests -c Release
 
+      # These complete suites were previously selected in the PR test matrix.
+      # Run them on the scheduled Linux lane after the shared Release build.
+      - name: Run Dependency policy tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: dotnet run --project eng/DependencyPolicy.Tests -c Release
+
+      - name: Run CSharp tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: dotnet run --project tests/ILInspector.CSharp.Tests -c Release
+
+      - name: Run Graph contract tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: dotnet run --project tests/Inspector.Graph.Tests -c Release
+
+      - name: Run Library contract tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: dotnet run --project tests/DotnetInspector.Libraries.Tests -c Release
+
+      - name: Run Resource ownership contract tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: dotnet run --project tests/Inspector.Resources.Tests -c Release
+
+      - name: Run Platform target and manifest tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: dotnet run --project tests/DotnetInspector.Platforms.Tests -c Release
+
+      - name: Run Dependency manifest tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: dotnet run --project tests/DotnetInspector.DependencyManifests.Tests -c Release
+
+      - name: Run PlatformHouse tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: dotnet run --project tests/DotnetInspector.PlatformHouse.Tests -c Release
+
+      - name: Run Local PlatformHouse adapter tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: dotnet run --project tests/DotnetInspector.PlatformHouse.Local.Tests -c Release
+
+      - name: Run Portable query tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: dotnet run --project tests/DotnetInspector.PortableQueries.Tests -c Release
+
+      - name: Run Row selection tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: dotnet run --project tests/DotnetInspector.RowSelection.Tests -c Release
+
+      - name: Run Performance oracle tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: dotnet run --project tests/DotnetInspector.PerformanceOracles.Tests -c Release
+
+      - name: Run Decoded text tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: dotnet run --project tests/Inspector.Text.Tests -c Release
+
+      - name: Run Source selection tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: dotnet run --project tests/DotnetInspector.SourceSelection.Tests -c Release
+
+      - name: Run Source delegation tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: dotnet run --project tests/DotnetInspector.SourceDelegation.Tests -c Release
+
+      - name: Run SourceHouse tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: dotnet run --project tests/DotnetInspector.SourceHouse.Tests -c Release
+
+      - name: Run Section row tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: dotnet run --project tests/DotnetInspector.Sections.Tests -c Release
+
+      - name: Run Instruction substrate tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: dotnet run --project tests/ILInspector.Instructions.Tests -c Release
+
+      - name: Run IL diff tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: dotnet run --project tests/ILInspector.ILDiff.Tests -c Release
+
+      - name: Run Fixture catalog tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: dotnet run --project tests/DotnetInspector.FixtureInfrastructure.Tests -c Release
+
+      - name: Run Network access tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: dotnet run --project tests/NetworkAccess.Tests -c Release
+
+      - name: Run Binary fetch tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: dotnet run --project tests/BinaryFetch.Tests -c Release
+
+      - name: Run Zip fetch tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: dotnet run --project tests/ZipFetch.Tests -c Release
+
+      - name: Run Untrusted documents tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: dotnet run --project tests/UntrustedDocuments.Tests -c Release
+
+      - name: Run Networking tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: dotnet run --project tests/DotnetInspector.Networking.Tests -c Release
+
+      - name: Run Cache tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: dotnet run --project tests/DotnetInspector.Cache.Tests -c Release
+
+      - name: Run Packages tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: dotnet run --project tests/DotnetInspector.Packages.Tests -c Release
+
+      - name: Run JSExport surface tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: dotnet run --project tests/ILInspector.JsExportSurface.Tests -c Release
+
+      - name: Run runfaster tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: dotnet run --project tests/runfaster.Tests -c Release
+
       - name: Run Research tests
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: dotnet run --project tests/ILInspector.Research.Tests -c Release -- --fail-skips on
@@ -289,6 +410,206 @@ jobs:
       - name: Run IL round-trip tests (including slow sweep)
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: dotnet run --project tests/DotnetInspector.ILRoundtrip.Tests -c Release
+
+      # Specialized probes and receipts retain the exact PR gate shape on the
+      # daily Linux lane, including non-vacuous fixture checks.
+      - name: Self-test Library Type-leverage census
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: >-
+          dotnet run -c Release
+          eng/census-library-type-leverage.cs --
+          --self-test
+
+      - name: Test CLI runtime flavor across publish modes
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: bash eng/test-runtime-flavor.sh linux-x64
+
+      - name: Run MethodSemantics NativeAOT probe
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: eng/run-method-semantics-platform-probe.sh nativeaot linux-x64
+
+      - name: Run local-path admission NativeAOT probe
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: eng/run-local-path-admission-platform-probe.sh nativeaot linux-x64
+
+      - name: Prepare PR decompiler corpus
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: |
+          mkdir -p artifacts/decompiler-pr-corpus
+          bash eng/prepare-decompiler-pr-corpus.sh artifacts/decompiler-pr-corpus/assemblies.txt
+
+      - name: Run PR decompiler corpus sensor
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        id: decompiler_pr_corpus
+        continue-on-error: true
+        shell: bash
+        run: |
+          mapfile -t assemblies < artifacts/decompiler-pr-corpus/assemblies.txt
+          set +e
+          dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
+            --emit-corpus-snapshot artifacts/decompiler-pr-corpus/snapshot.json \
+            --diff-corpus-baseline tools/DecompilerHarness/corpus/pr-quick-baseline.json \
+            --quality-diff-card \
+            --corpus-method-cap 100 \
+            --compile-cap 0 \
+            --corpus-fidelity-cap 0 \
+            --corpus-fidelity-oracle compile-back \
+            --max-examples 3 \
+            | tee artifacts/decompiler-pr-corpus/quality-diff-card.md
+          status=${PIPESTATUS[0]}
+          echo "$status" > artifacts/decompiler-pr-corpus/exit-code.txt
+          exit "$status"
+
+      - name: Upload PR decompiler corpus artifact
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: decompiler-pr-corpus
+          path: artifacts/decompiler-pr-corpus/
+          if-no-files-found: error
+
+      - name: Check PR decompiler corpus result
+        if: ${{ !cancelled() && steps.decompiler_pr_corpus.outcome == 'failure' }}
+        run: exit 1
+
+      - name: Run GitHub Packages fixture test
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        id: package_fixture
+        continue-on-error: true
+        shell: bash
+        env:
+          DOTNET_INSPECT_PACKAGE_FIXTURE_USER: ${{ github.actor }}
+          DOTNET_INSPECT_PACKAGE_FIXTURE_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          results_dir="$RUNNER_TEMP"
+          results_name="package-fixture-tests.xml"
+          results="$results_dir/$results_name"
+          dotnet run --project tests/DotnetInspect.Cli.Tests -c Release --no-build -- \
+            --filter-method '*Package_Manifest_RendersToolManifestRows*' \
+            --report-xunit-xml \
+            --report-xunit-xml-filename "$results_name" \
+            --results-directory "$results_dir" \
+            --minimum-expected-tests 1
+          if ! grep -Eq '<assembly[^>]+skipped="0"' "$results"; then
+            echo "::error::Package fixture test skipped authenticated execution." >&2
+            exit 1
+          fi
+
+      - name: Check GitHub Packages fixture result
+        if: ${{ !cancelled() && steps.package_fixture.outcome == 'failure' }}
+        run: |
+          echo "::error::The authenticated GitHub Packages fixture test failed." >&2
+          echo "This lane cannot certify hosted fixture consumption. See the fixture test step." >&2
+          exit 1
+
+      - name: Check Subject Relations constructed-generic oracle
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: >
+          dotnet run --project tools/SubjectRelationsScorecard -c Release
+          --no-build -- check
+          'tests/ILInspector.Metadata.Tests/bin/Release/net11.0/PinnedArtifacts/System.Private.CoreLib.dll|interface|System.Collections.Generic.IEnumerable`1'
+
+      - name: Exercise Catalog research probe (offline)
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: dotnet run tools/CatalogChangeBenchmark.cs -c Release -- --self-test
+
+      - name: Exercise package assembly-query benchmark (offline)
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: dotnet run tools/PackageAssemblyQueryBenchmark.cs -c Release -- --self-test
+
+      - name: Run JSExport runtime-async wire gates
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          results_dir="$RUNNER_TEMP"
+          results_name="jsexport-runtime-async-wire-tests.xml"
+          results="$results_dir/$results_name"
+          dotnet run --project tests/ILInspector.JsExportSurface.Tests \
+            -c Release --no-build -- \
+            --filter-method '*Build_ProducesEqualWireFactsAcrossAsyncLoweringsForDirectSerializerResult*' \
+            --filter-method '*Build_ProducesEqualWireFactsAcrossAsyncLoweringsForSerializerStoredAcrossSuspension*' \
+            --filter-method '*Build_RejectsConditionalSerializerStoreAcrossAsyncLowerings*' \
+            --filter-method '*RuntimeAsync*' \
+            --report-xunit-xml \
+            --report-xunit-xml-filename "$results_name" \
+            --results-directory "$results_dir"
+          if ! grep -Eq 'total="[1-9][0-9]*"' "$results"; then
+            echo "::error::JSExport runtime-async wire test filters selected no tests." >&2
+            exit 1
+          fi
+          for method in \
+            Build_ProducesEqualWireFactsAcrossAsyncLoweringsForDirectSerializerResult \
+            Build_ProducesEqualWireFactsAcrossAsyncLoweringsForSerializerStoredAcrossSuspension \
+            Build_RejectsConditionalSerializerStoreAcrossAsyncLowerings
+          do
+            if ! grep -Fq "method=\"$method\"" "$results"; then
+              echo "::error::JSExport runtime-async wire gate '$method' did not run." >&2
+              exit 1
+            fi
+          done
+
+      - name: Run ts-jsexport generator acceptance gates
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          results_dir="$RUNNER_TEMP"
+          results_name="ts-jsexport-generator-tests.xml"
+          results="$results_dir/$results_name"
+          dotnet run --project tests/ILInspector.JsExportSurface.Tests \
+            -c Release --no-build -- \
+            --filter-class 'ILInspector.JsExportSurface.Tests.JsonNamingPoliciesTests' \
+            --filter-class 'ILInspector.JsExportSurface.Tests.JsExportContextLoaderTests' \
+            --filter-class 'ILInspector.JsExportSurface.Tests.TypeScriptFacadeEmitterTests' \
+            --filter-class 'ILInspector.JsExportSurface.Tests.TsJsExportContractsTests' \
+            --filter-class 'ILInspector.JsExportSurface.Tests.TsJsExportCommandTests' \
+            --report-xunit-xml \
+            --report-xunit-xml-filename "$results_name" \
+            --results-directory "$results_dir"
+          for class in \
+            ILInspector.JsExportSurface.Tests.JsonNamingPoliciesTests \
+            ILInspector.JsExportSurface.Tests.JsExportContextLoaderTests \
+            ILInspector.JsExportSurface.Tests.TypeScriptFacadeEmitterTests \
+            ILInspector.JsExportSurface.Tests.TsJsExportContractsTests \
+            ILInspector.JsExportSurface.Tests.TsJsExportCommandTests
+          do
+            if ! grep -Fq "type=\"$class\"" "$results"; then
+              echo "::error::ts-jsexport generator gate '$class' selected no tests." >&2
+              exit 1
+            fi
+          done
+          negative_results_name="ts-jsexport-negative-tests.xml"
+          negative_results="$results_dir/$negative_results_name"
+          dotnet run --project tests/ILInspector.JsExportSurface.Tests \
+            -c Release --no-build -- \
+            --filter-method '*Emit_DoesNotApplyDictionarySemanticsToLookalikeType*' \
+            --filter-method '*Emit_RejectsUnresolvedStructuredProducerWithIntrinsicSpelling*' \
+            --filter-method '*GeneratorLoader_ReadsOneImageForMetadataAndBodyEvidence*' \
+            --report-xunit-xml \
+            --report-xunit-xml-filename "$negative_results_name" \
+            --results-directory "$results_dir"
+          for method in \
+            Emit_DoesNotApplyDictionarySemanticsToLookalikeType \
+            Emit_RejectsUnresolvedStructuredProducerWithIntrinsicSpelling \
+            GeneratorLoader_ReadsOneImageForMetadataAndBodyEvidence
+          do
+            if ! grep -Fq "method=\"$method\"" "$negative_results"; then
+              echo "::error::ts-jsexport negative gate '$method' did not run." >&2
+              exit 1
+            fi
+          done
+
+      - name: Run ts-jsexport context NativeAOT gate
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: eng/test-ts-jsexport-context-aot.sh "linux-x64"
+
+      - name: Run Debug dependency sidecar contracts (Release)
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: >-
+          dotnet run --project tests/DotnetInspect.Cli.Tests -c Release
+          --no-restore -p:DefineConstants=DEBUG --
+          --filter-class 'DotnetInspect.Cli.Tests.DependsAssetCommandTests'
+          --filter-not-trait "Speed=Slow"
 
       # Deliberately last: the suites above still report their results when
       # acquisition fails, but the lane must not go green after replacing its
