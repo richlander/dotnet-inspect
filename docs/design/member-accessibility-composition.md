@@ -6,14 +6,14 @@ This is a thin composition map, tracked by
 [#8718](https://github.com/richlander/dotnet-inspect/issues/8718). It
 connects two owner contracts and the consumers that adopt them. It states no
 owner rule of its own. Like
-[Type, MemberGroup, and Member inspection documents](type-member-inspection-documents.md#requirements-on-related-work),
+[Type and Member inspection documents](type-member-inspection-documents.md),
 it records requirements on related work, which the implementing owners adopt.
 The operator approved this cross-owner scope.
 
 | Owner | Contract this map relies on |
 | --- | --- |
 | [API and implementation population scope](api-population-scope.md#accessibility-within-api-visibility-scope) | Accessibility buckets and hidden status as independent visibility axes; `public` without hidden declarations as the default; `--all` and the `accessibility` term; [C# and metadata spelling](api-population-scope.md#spelling-within-api-visibility-scope) |
-| [Type, MemberGroup, and Member inspection documents](type-member-inspection-documents.md#composition-count) | The `accessibility` projection over the Type Members row set, and Composition Count in one pass |
+| [Type and Member inspection documents](type-member-inspection-documents.md#typeoverviewdocument) | The compact Type Member rows and exact-Member Counts over which this map requires the `accessibility` projection and Composition Count |
 
 ## What the reader sees
 
