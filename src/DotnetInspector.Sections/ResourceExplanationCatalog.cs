@@ -5,6 +5,7 @@ using QuerySpace;
 using QuerySpace.Composition;
 using QuerySpace.Explanation;
 using QuerySpace.Operations;
+using QuerySpace.Vocabulary;
 
 namespace DotnetInspector.Sections;
 
@@ -915,6 +916,151 @@ public sealed class ResourceExplanationCatalog
         new(
             InspectionCapabilityResourceKind.Analysis,
             registration.Analysis.Id.Value);
+
+    /// <summary>
+    /// Explains every product vocabulary a host composed into
+    /// <paramref name="snapshot"/>: the <c>vocabularies</c> collection and one
+    /// <c>vocabularies/&lt;id&gt;</c> resource per vocabulary in the sections
+    /// index, in index order.
+    /// </summary>
+    public static ResourceExplanationCatalog CreateVocabularies(
+        VocabularySnapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        VocabularyDocument document =
+            ProductVocabularyProjection.ToDocument(snapshot);
+        ImmutableArray<VocabularySection> sections =
+        [
+            .. document.Sections.Where(static section =>
+                section.Id != ProductVocabularyComposition.SectionsId),
+        ];
+
+        ExplanationResourceTypeIdentity type =
+            ResourceExplanationVocabulary.ValueVocabularyType;
+        var collectionPath = new ResourcePath(VocabulariesCollectionSegment);
+        ExplanationResourceKey collectionKey =
+            ResourceExplanationVocabulary.Key(
+                ResourceExplanationVocabulary.NavigationCollectionType,
+                Pack("vocabulary-collection"));
+        var snapshots = new List<ExplanationResourceSnapshot>
+        {
+            NavigationSnapshot(
+                collectionPath,
+                collectionKey,
+                "Vocabularies",
+                sections.Length,
+                new Dictionary<string, IEnumerable<ExplanationResourceKey>>
+                {
+                    ["collection-vocabulary"] =
+                        sections.Select(static section =>
+                            VocabularyKey(section.Id)),
+                }),
+        };
+
+        foreach (VocabularySection section in sections)
+        {
+            VocabularyDefinition definition = snapshot.GetVocabulary(
+                new VocabularyIdentity(snapshot.Catalog, section.Id));
+            snapshots.Add(
+                Snapshot(
+                    VocabularyPath(section.Id),
+                    VocabularyKey(section.Id),
+                    [
+                        ResourceExplanationVocabulary.TextFact(
+                            type,
+                            "identity",
+                            section.Id),
+                        ResourceExplanationVocabulary.TextFact(
+                            type,
+                            "name",
+                            section.Name),
+                        ResourceExplanationVocabulary.TextFact(
+                            type,
+                            "summary",
+                            section.Summary),
+                        ResourceExplanationVocabulary.IntegerFact(
+                            type,
+                            "members",
+                            section.Values.Length),
+                        ResourceExplanationVocabulary.TextsFact(
+                            type,
+                            "accepted-by",
+                            section.AcceptedBy),
+                        ResourceExplanationVocabulary.TextsFact(
+                            type,
+                            "fields",
+                            section.Fields.Select(static field =>
+                                $"{field.Id} "
+                                + $"({VocabularyJson.Name(field.Kind)}): "
+                                + string.Join(
+                                    ", ",
+                                    field.Operators.Select(
+                                        VocabularyJson.Name)))),
+                        ResourceExplanationVocabulary.TextsFact(
+                            type,
+                            "defaults",
+                            section.Values
+                                .Where(static row =>
+                                    row.TryGetValue(
+                                        "default",
+                                        out VocabularyValue value)
+                                    && value is
+                                    {
+                                        Kind: VocabularyValueKind.Boolean,
+                                        Boolean: true,
+                                    })
+                                .Select(static row =>
+                                    row.GetRequired("id").Text!)),
+                        ResourceExplanationVocabulary.TextsFact(
+                            type,
+                            "examples",
+                            section.Values
+                                .Take(ResourceExplanationVocabulary
+                                    .ExampleCount)
+                                .Select(static row =>
+                                    row.GetRequired("id").Text!)),
+                    ],
+                    RelationshipObservations(
+                        type,
+                        new Dictionary<
+                            string,
+                            IEnumerable<ExplanationResourceKey>>
+                        {
+                            ["term-map-target"] =
+                                TermMapTargets(definition),
+                        })));
+        }
+
+        return Create(ResourceExplanationVocabulary.Schemas, snapshots);
+    }
+
+    public const string VocabulariesCollectionSegment = "vocabularies";
+
+    public static ResourcePath VocabularyPath(string vocabularyIdentity) =>
+        new ResourcePath(VocabulariesCollectionSegment)
+            .Append(vocabularyIdentity);
+
+    private static IEnumerable<ExplanationResourceKey> TermMapTargets(
+        VocabularyDefinition definition) =>
+        definition.Maps
+            .Select(static map => map.Target)
+            .OfType<VocabularyMapTarget.Terms>()
+            .Select(terms => terms.Reference switch
+            {
+                VocabularyTermSetReference.Local local =>
+                    local.Vocabulary.Value,
+                _ => throw new NotSupportedException(
+                    $"Vocabulary '{definition.Identity}' has a term map "
+                    + "into another snapshot; explanation projects only "
+                    + "local term-map targets."),
+            })
+            .Distinct(StringComparer.Ordinal)
+            .Select(VocabularyKey);
+
+    private static ExplanationResourceKey VocabularyKey(string identity) =>
+        ResourceExplanationVocabulary.Key(
+            ResourceExplanationVocabulary.ValueVocabularyType,
+            Pack(identity));
 
     public static ResourceExplanationCatalog Combine(
         params ResourceExplanationCatalog[] catalogs)

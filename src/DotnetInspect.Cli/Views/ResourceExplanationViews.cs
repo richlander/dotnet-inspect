@@ -105,6 +105,23 @@ public sealed class ResourceExplanationView
     public List<string> Examples { get; init; } = [];
 
     [MarkoutJoin(", ")]
+    public List<string> AcceptedBy { get; init; } = [];
+
+    [MarkoutJoin("; ")]
+    public List<string> Fields { get; init; } = [];
+
+    [MarkoutJoin(", ")]
+    public List<string> Defaults { get; init; } = [];
+
+    public string? ValueRows
+    {
+        get;
+        init => field = value is null
+            ? null
+            : LibraryViewText.Contain(value);
+    }
+
+    [MarkoutJoin(", ")]
     public List<string> Effects { get; init; } = [];
 
     public string? ConsumerKind
@@ -299,6 +316,10 @@ public sealed class ResourceExplanationView
             ValueKind = details.ValueKind,
             Values = details.Values,
             Examples = details.Examples,
+            AcceptedBy = details.AcceptedBy ?? [],
+            Fields = details.Fields ?? [],
+            Defaults = details.Defaults ?? [],
+            ValueRows = details.ValueRows,
             Effects = details.Effects,
             ConsumerKind = details.ConsumerKind,
             Gesture = details.Gesture,
@@ -387,7 +408,11 @@ public sealed class ResourceExplanationView
         string? ConsumerKind,
         string? Gesture,
         string? Shape = null,
-        string? Cardinality = null)
+        string? Cardinality = null,
+        List<string>? AcceptedBy = null,
+        List<string>? Fields = null,
+        List<string>? Defaults = null,
+        string? ValueRows = null)
     {
         internal static RootDetails Create(
             ResourceExplanationResource resource)
@@ -466,7 +491,28 @@ public sealed class ResourceExplanationView
                     "shape"),
                 ResourceExplanationFactView.OptionalText(
                     resource,
-                    "cardinality"));
+                    "cardinality"),
+                [
+                    .. ResourceExplanationFactView.Texts(
+                        resource,
+                        "accepted-by"),
+                ],
+                [
+                    .. ResourceExplanationFactView.Texts(
+                        resource,
+                        "fields"),
+                ],
+                [
+                    .. ResourceExplanationFactView.Texts(
+                        resource,
+                        "defaults"),
+                ],
+                resource.ResourceType.Value == "value-vocabulary"
+                    ? $"vocabulary -S \"{
+                        ResourceExplanationFactView.OptionalText(
+                            resource,
+                            "name")}\""
+                    : null);
         }
 
         private static RootDetails Empty(
@@ -584,6 +630,7 @@ public sealed record ResourceExplanationResourceRow(
             "consumer" => "Consumer",
             "analysis-requests" => "Analysis Requests",
             "findings" => "Findings",
+            "product-vocabulary" => "Product Vocabulary",
             _ => value,
         };
 }
