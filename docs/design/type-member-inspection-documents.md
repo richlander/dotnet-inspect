@@ -1412,9 +1412,7 @@ NativeAOT samples. Exact output remained byte-identical:
 | bare `-D` | 815.52 ms | 48.03 / 49.01 ms | 48.74 / 50.02 ms |
 
 The inspected CoreLib SHA-256 is
-`9573ebabb9af0671f76f4aa958223b8a0b50c299affcb1a2f75c9ee717305fc8`;
-the measured NativeAOT binary SHA-256 is
-`7beaaa2637f177ad3650ddfafa3e6ee9fd4edfaf6aadb2534aff3ac113c55fe6`.
+`9573ebabb9af0671f76f4aa958223b8a0b50c299affcb1a2f75c9ee717305fc8`.
 
 ## Required evidence
 
