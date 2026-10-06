@@ -519,10 +519,10 @@ badges, conflicts, persistence, and selection behavior.
 
 The snapshot is data, not rendered output.
 
-- The CLI continues to lower Product Vocabulary through its existing typed
-  Markout view for Markdown, plaintext, table, TSV, JSONL, and projected JSON.
-- Existing unprojected CLI JSON remains its approved typed compatibility
-  projection.
+- Both hosts present Product Vocabulary through Resource Explanation's
+  [value-vocabulary resources](resource-explanation.md#value-vocabulary-resources).
+  The former CLI `vocabulary` view and its typed compatibility JSON retire
+  under [Product Vocabulary](vocabulary.md#retirement).
 - Browser/Wasm receives generated JSON-wire declarations and owns interaction
   and HTML presentation.
 - The Browser wire scopes vocabulary, term-definition, and map-definition

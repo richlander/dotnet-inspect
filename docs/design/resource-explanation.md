@@ -68,7 +68,7 @@ dotnet-inspect has several introspection surfaces with different jobs:
 | --- | --- |
 | `-D` | Which structural resources are available here? |
 | `-Q` | Which query capabilities does this route expose? |
-| `vocabulary` | Which stable values may I supply? |
+| `explain vocabularies` | Which stable values may I supply? |
 | `explain <search text>` | Which installed product resources might match this text? |
 | `explain <resource path>` | What exactly is this one product resource, and how is it related to other resources? |
 | `<command> --explain` | Make complete or projected explanation the primary result on `stdout`. |
@@ -860,8 +860,8 @@ This keeps the common response concise while making the next exact gesture
 copyable.
 
 Owner-issued examples are direct facts only when they are bounded descriptor
-content. Explanation does not enumerate a value vocabulary's complete rows;
-the `vocabulary` command retains that bulk role.
+content. A value vocabulary's values are resources reached through an ordered
+relationship, so traversal, not a direct fact, enumerates them.
 
 Repeated owner collections are represented as relationships and are therefore
 subject to the relationship limit. Direct facts contain scalar values, typed
@@ -991,30 +991,57 @@ owner publishes the required schema and key projection.
 
 Each product vocabulary a host composes under
 [Product Vocabulary ownership](vocabulary.md#ownership) is an installed
-explainable resource with a Value Vocabulary resource type issued by the
-Product Vocabulary owner. The host's composed snapshot and its
-`VocabularyDocument` projection are the complete input:
+explainable resource with a Value Vocabulary resource type, and each of its
+values is a resource with a Vocabulary Value resource type. Both types are
+issued by the Product Vocabulary owner. The host's composed snapshot is the
+complete input. Explanation reads vocabularies, maps, and values from it
+generically; it names no individual vocabulary and restates no value.
 
-- **Path.** Its canonical path is `vocabularies/<vocabulary-id>`. The
-  vocabulary identity already satisfies the segment grammar and is reused
-  unchanged. The collection `vocabularies` lists every vocabulary in the
-  composed sections index, in index order. The index vocabulary itself is not
-  a member; the collection is its explanation. Construction fails visibly
-  when the index and the Product Vocabulary projection list different
-  vocabularies.
-- **Facts.** Identity, display name, summary, value count, accepted
-  query-input identities, each field with its value kind and legal operators,
-  the values marked as defaults, and the first five values in owner order as
-  bounded examples. Accepted query inputs are opaque external identities until
-  their owners publish explanation resources.
-- **Relationships.** A term map whose target is another explained vocabulary
-  is a typed relationship to that vocabulary's resource. Construction fails
-  visibly for any other target rather than inventing one. A term map into
-  another snapshot already fails when the host composes its product snapshot,
-  because hosts supply no external snapshots.
+- **Paths.** The collection is `vocabularies`, a vocabulary is
+  `vocabularies/<vocabulary-id>`, and a value is
+  `vocabularies/<vocabulary-id>/values/<value-segment>`. Vocabulary identities
+  satisfy the segment grammar and are reused unchanged. Value identities need
+  not: body kinds and style tiers are PascalCase, and some style choices
+  contain `:`. The Product Vocabulary adoption therefore registers each
+  value's segment explicitly as its owner identity in ASCII lower case with
+  `:` replaced by `.`. The rule depends only on the stable owner identity,
+  never on a display label. Construction fails visibly when a segment falls
+  outside the grammar or two values of one vocabulary share a segment. The
+  exact identity remains the value's identity fact, and it is the identity
+  queries accept.
+- **Collection.** `vocabularies` lists every vocabulary in the composed
+  sections index, in index order. The index vocabulary itself is not a member;
+  the collection is its explanation.
+- **Vocabulary facts.** Identity, display name, summary, value count, accepted
+  query-input identities, each map with its value kind or target vocabulary,
+  cardinality, and coverage, and the values whose Boolean `default` map is
+  true. Accepted query inputs are opaque external identities until their
+  owners publish explanation resources.
+- **Value facts.** Identity, display name, optional summary, and the value's
+  scalar map entries keyed by map identity and typed by the map's declared
+  scalar kind.
+- **Relationships.** A vocabulary has an ordered relationship to every one of
+  its values, in owner order, and a relationship to each vocabulary its term
+  maps target. A value has a typed relationship to each value its term-map
+  entries name. Construction fails visibly for a term-map target that is not
+  an explained vocabulary in the snapshot rather than inventing one. A term
+  map into another snapshot already fails when the host composes its product
+  snapshot, because hosts supply no external snapshots.
 
-The explanation of a vocabulary is not its full value listing. It points to
-the ordinary `vocabulary` command for bulk rows.
+The explanation is the complete listing. A vocabulary's values relationship
+names every value, subject to the ordinary relationship-target limit and its
+visible truncation, and depth 1 returns each value's resource. No separate
+command or document carries vocabulary values; the former `vocabulary`
+command retires under [Product Vocabulary](vocabulary.md#retirement).
+
+Both hosts request the same explanation. The CLI's `explain` and an Inspect
+Web catalog-facade export resolve the same path against their own composed
+snapshots and return the same Document Content under one host-neutral set of
+traversal limits. A shared fixture asserts equal Content for equal snapshots,
+as `ProductVocabularyPin` does for the snapshot. The Browser export carries
+the completed Document as owner-issued content in a facade-local envelope
+record, the established form for owner content that crosses a facade
+boundary.
 
 A CLI query key whose values are one vocabulary's identities, such as the
 Body Shapes `Kind` key, carries that vocabulary's name and canonical path on
@@ -1139,7 +1166,10 @@ Browser/Wasm consumes the same completed
 `InspectionEnvelope<ResourceExplanationDocument>`.
 It may render links, breadcrumbs, expandable relationships, and
 purpose-specific controls, but it does not reconstruct the graph from CLI
-text or restate owner catalogs in TypeScript.
+text or restate owner catalogs in TypeScript. The first Browser request
+surface is the vocabulary explanation export under
+[Value-vocabulary resources](#value-vocabulary-resources); the structural
+explanation consumer remains adoption step 4.
 
 The shared implementation targets NativeAOT and single-threaded Browser/Wasm
 and uses explicit static registrations and source-generated serialization.
@@ -1268,11 +1298,12 @@ The original installed-resource slices remain:
 6. **In progress:** Package Query adopts operation query-resource variants,
    canonical paths, required-context links, and its current-host production
    binding. Remaining Query Space owners and row-query resources stay staged.
-7. **Complete for the CLI:** Product Vocabulary adopts resource schemas,
-   snapshots, and typed term-map links under
+7. **In progress:** Product Vocabulary adopts resource schemas, snapshots, and
+   typed term-map links under
    [Value-vocabulary resources](#value-vocabulary-resources), and a CLI query
-   key that accepts a value vocabulary links to its resource. The Browser
-   follows its explanation consumer in step 4.
+   key that accepts a value vocabulary links to its resource. Complete for the
+   CLI; values as resources and the Inspect Web export follow, after which the
+   `vocabulary` command retires.
 8. Register the stable explanation result contract; then let the focused
    envelope-contract catalog adopt explanation paths and machine-readable
    schemas.

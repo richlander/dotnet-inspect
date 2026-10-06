@@ -1,85 +1,77 @@
 # Product Vocabulary
 
-`dotnet-inspect vocabulary` exposes the stable values accepted by product-owned
-queries. It is an inspection document, not a help-text command or an enum dump:
-sections are vocabularies, and section rows are legal values.
+Product vocabularies are the stable values that product-owned queries accept:
+API accessibility facets, C# style tiers and choices, and C# body kinds. Both
+hosts present them through
+[Resource Explanation](resource-explanation.md#value-vocabulary-resources).
+There is no separate vocabulary command, document, or wire format.
 
-## Data all the way down
+**Status.** This is the target set by
+[#9250](https://github.com/richlander/dotnet-inspect/issues/9250) step 8.
+`explain vocabularies` and `explain vocabularies/<id>` ship in the CLI today.
+Values as resources, the Inspect Web export, and the
+[retirement](#retirement) of the `vocabulary` command land as later slices of
+that step; until the retirement slice lands, the command still runs.
 
-Vocabulary uses the ordinary output model:
+## Product surface
+
+A vocabulary, its values, and the inputs that accept them are explainable
+resources:
 
 ```bash
-dotnet-inspect vocabulary
-dotnet-inspect vocabulary -D
-dotnet-inspect vocabulary -S Accessibility
-dotnet-inspect vocabulary -S "C# Style Choices" --json
-dotnet-inspect vocabulary -S "C# Body Kinds"
-dotnet-inspect vocabulary -S Accessibility -n 2 --tail
-dotnet-inspect vocabulary -S "C#*" --count
+dotnet-inspect explain vocabularies
+dotnet-inspect explain vocabularies/csharp.body-kinds
+dotnet-inspect explain vocabularies/csharp.body-kinds --depth 1
+dotnet-inspect explain vocabularies/csharp.body-kinds/values/objectcreationexpression
+dotnet-inspect explain vocabularies/csharp.style-choices --depth 1 --json
 ```
 
-- Bare `vocabulary` renders a compact `Vocabulary Sections` index with the
-  section name, summary, and value count. The index lists the value
-  vocabularies, not itself.
-- `-D` discovers sections and fields.
-- `-S` selects the values to materialize by exact section name, stable section
-  ID, or glob.
-- `--columns` and `--fields` project values. `-n` selects Head rows by default
-  and Tail rows with `--tail`; `--rows` accepts one-based inclusive `N..M`,
-  `N..`, and `..M` windows. These gestures compose in argument order and apply
-  independently to every selected vocabulary section through the shared
-  semantic row-selection path. Discovery retains its existing structural-row
-  window behavior.
-- `--count` collapses each selected row set after projection and semantic row
-  selection.
-- Markdown, plain text, table, TSV, JSONL, and JSON use the same section and row identities.
+- `vocabularies` lists every composed vocabulary in index order.
+- `vocabularies/<id>` explains one vocabulary: its identity, name, summary,
+  value count, accepted query inputs, maps, and defaults. Its values are an
+  ordered relationship, so every value is reachable.
+- `vocabularies/<id>/values/<value>` explains one value: its exact owner
+  identity, display label, summary, and owner-issued map values. A term-map
+  value is a typed link to the target value's resource.
+- `--depth 1` on a vocabulary returns the vocabulary and all of its values in
+  one Document, which is the bulk listing the retired command provided.
 
-`VocabularyCommandTests.CommandLine_HeadTailAndBareLimitUseSemanticRows`,
-`CommandLine_ComposesSemanticStagesInArgumentOrder`,
-`Command_MultiSectionStrictWindowFailsWithoutPartialOutput`, and
-`CommandLine_MultiSectionCountObservesSemanticWindow` gate the CLI grammar,
-ordered execution, all-or-failure behavior, and terminal count composition in
-Release. Predicate, baseline-order, and Top adoption remain with the shared
-row-query and CLI owners tracked by #5162, #5414, and #6489; vocabulary does
-not implement a command-local substitute.
+Inspect Web requests the same explanation. A catalog-facade export resolves a
+`vocabularies` path against the Browser-composed snapshot and returns the same
+`ResourceExplanationDocument` Content the CLI produces for the same path and
+depth. Both hosts use one host-neutral set of traversal limits, so equal
+snapshots yield equal Content. Inspect Web's existing snapshot export for the
+Settings style picker is unchanged.
 
-Markdown, plain text, table, TSV, JSONL, and projected JSON lower one typed
-`VocabularyView` through `MarkoutSerializer` and
-`VocabularyViewContext`. Runtime-named sections and runtime-column tables keep
-the composed snapshot authoritative for names, field labels, stable field IDs,
-and row order; that snapshot is the host-composed snapshot described under
-[Ownership](#ownership). Each runtime section carries its summary as an ordinary
-Markout paragraph because unwrapped child sections lower their content rather
-than their `DescriptionProperty` metadata. `VocabularyCommandTests` gates these
-formats in Release, including
-`Command_DefaultRendersTheSelfDescribingSectionIndex`,
-`Command_PlainTextUsesThePlainTextFormatter`, and
-`Command_JsonlUsesProjectedRuntimeColumns`.
+A CLI query key whose values come from one vocabulary links to that
+vocabulary's resource. `-Q` presents the link, for example
+`explain vocabularies/csharp.body-kinds` for the Body Shapes `Kind` key.
 
-Plain unprojected `--json` is an approved CLI-host exception to ordinary
-Markout lowering. Its typed input is the selected owner-issued
-`VocabularySection` sequence plus the catalog schema version, and its lowering
-boundary is `VocabularyWireDocument` through the generated
-`VocabularyWireJsonContext` or `VocabularyWireCompactJsonContext`. This path
-preserves the established schema-versioned document containing section
-metadata, field schemas, operators, accepted-command identities, and typed
-value cells; the lowered Markout table shape cannot represent that contract
-without discarding schema or changing typed values to display strings. The
-exception is limited to unprojected CLI `--json`; every human, tabular, stream,
-and projected-JSON path uses the typed Markout view. The Release gates are
-`JsonSerialization_PreservesWireShapeAcrossIndentationModes`,
-`Command_JsonCarriesTypedSchemaAndValues`, and
-`Command_PartialMachineKeyProjectionKeepsSectionIdentityAcrossFormats`.
+### Retirement
 
-The structured document carries a schema version. Every section declares its
-stable ID, accepted query inputs, field schema, legal operators, and typed
-values. A stable value ID can therefore flow from discovery or a website picker
-back into a typed query without parsing labels.
+The `dotnet-inspect vocabulary` command retires, with the parts only it uses:
 
-The catalog is intentionally flat. Its small section corpus does not warrant
-categories, category-first discovery, or category selectors. Exact names and
-globs provide the complete multi-section selection model. Schema version 2
-removes the former `categories` member from structured vocabulary sections.
+- the CLI command, its options, section descriptors (`VocabularySections`),
+  and views;
+- the `@Vocabulary` selection category;
+- the Product Vocabulary document (`VocabularyDocument` and
+  `ProductVocabularyProjection`) and its schema-versioned JSON wire projection
+  (`VocabularyJson` and the `VocabularyWire*` types).
+
+`vocabulary` stays a reserved command name. Invoking it fails with an error
+that names `explain vocabularies`. The retirement is a disclosed CLI breaking
+change. It lands only after values are explainable resources and Inspect Web
+can request the explanation, so no information or host loses access in
+between.
+
+What stays is the substrate: owner declarations, host composition, the
+`ProductVocabularyPin` digest, Inspect Web's snapshot export for Settings, and
+[JSON Schema Vocabulary Bindings](json-schema-vocabulary-bindings.md), which
+read the composed snapshot directly.
+
+Static vocabulary answers "what may I ask?" Target-aware facets remain query
+results: they add availability, counts, or rejection reasons for one inspected
+target while retaining the static value IDs.
 
 ## Ownership
 
@@ -93,9 +85,7 @@ identity, display label, maps, terms, and order are the owner's, and equal
 inputs yield equal declarations. A host composes the declarations it ships into
 one exactly identified snapshot, under the tier-1 composition rule the
 [QuerySpace library boundary](query-space-library.md#two-assemblies-and-two-participation-tiers)
-states. No component owns the complete list of product vocabularies; the
-Product Vocabulary document schema and the CLI's section descriptors, described
-below, each name the sections they present.
+states. No component owns the complete list of product vocabularies.
 
 The term owners, and therefore the declaring owners, are:
 
@@ -122,9 +112,7 @@ canonical explanation path, derived from the owner's identity constant and
 `explain vocabularies/csharp.body-kinds` for the key. Each composed
 vocabulary is explainable at `vocabularies/<id>` under
 [Resource Explanation](resource-explanation.md#value-vocabulary-resources),
-which names its accepted query inputs. The product vocabulary document, its
-sections, fields, operators, rows, and wire projection are declared section
-schemas owned by `DotnetInspector.Sections`.
+which names its accepted query inputs.
 
 Each host composes the vocabularies it ships. The CLI and Inspect Web each
 pass their own list of owner declarations, with the product query inputs that
@@ -150,43 +138,26 @@ Inspect Web and CLI lanes, while a CLI-only change does not run the Inspect
 Web lane.
 
 The declaration types live in `QuerySpace.Primitives`. The composition
-(`ProductVocabularyComposition`), the document projection
-(`ProductVocabularyProjection`), the inspection wrapper, and the document and
-wire types live in `DotnetInspector.Sections`. Each host holds its
-contribution list, and no assembly between the owners and the hosts restates
-their values. Two fixed section lists remain, both naming sections rather than
-restating values:
-
-- **Document schema.** `ProductVocabularyProjection` names each section it
-  projects, with that section's fields and operators, and fails visibly when a
-  composed snapshot lacks one. A vocabulary that a host contributes without a
-  document section appears only as an index row.
-- **CLI section descriptors.** `VocabularySections` in the CLI host declares
-  one section descriptor per document section, with its selection category.
-  `-S` resolves only sections that have a descriptor, so an unlisted section is
-  reported as unresolved.
-
-Adding a vocabulary therefore takes an owner declaration, a contribution in
-each host that ships it, a document section, and, for the CLI, a section
-descriptor. Whether the document keeps a per-section schema or projects every
-composed vocabulary generically is decided with the explanation adoption in
-[#9250](https://github.com/richlander/dotnet-inspect/issues/9250) steps 7
-and 8.
-
-Static vocabulary answers "what may I ask?" Target-aware facets remain query
-results: they add availability, counts, or rejection reasons for one inspected
-target while retaining the static value IDs.
+(`ProductVocabularyComposition`) and the inspection wrapper live in
+`DotnetInspector.Sections`, beside Resource Explanation's
+`ResourceExplanationCatalog.CreateVocabularies`, which explains a composed
+snapshot generically. Each host holds its contribution list, and no assembly
+between the owners and the hosts restates their values or names their
+sections. Adding a vocabulary therefore takes an owner declaration and a
+contribution in each host that ships it; explanation, the Browser export, and
+the snapshot pin pick it up without another list.
 
 ## Vocabulary Mappings adoption
 
 [Vocabulary Mappings](vocabulary-mappings.md) generalizes stable terms and
 named scalar or term-reference maps across hosts. Product Vocabulary is its
-first adopter. This owner continues to define the query values, fields,
-operators, accepted inputs, and CLI behavior; the mapping pattern defines only
+first adopter. This owner continues to define the query values, accepted
+inputs, and their product presentation; the mapping pattern defines only
 how those owner-issued facts become an immutable, exactly identified snapshot.
 
-The first adoption preserves the existing CLI structured contract as a
-compatibility projection. It additionally authenticates
+The first adoption preserved the former CLI structured document as a
+compatibility projection; that projection retires with the `vocabulary`
+command. The adoption additionally authenticates
 `csharp.style-choices.tier` as a complete, exactly-one term map to
 `csharp.style-tiers`, allowing Inspect Web to group choices without treating an
 ordinary string field as an implicit foreign key. Other string-valued fields
@@ -200,15 +171,18 @@ discoverable; it does not infer which product feature should use them.
 Implementation and host migration remain tracked by
 [#8593](https://github.com/richlander/dotnet-inspect/issues/8593).
 
-## Current sections
+## Current vocabularies
 
-| Section | Stable ID | Values |
-| ------- | --------- | ------ |
-| Vocabulary Sections | `vocabulary.sections` | Available vocabulary sections |
+| Vocabulary | Stable ID | Values |
+| ---------- | --------- | ------ |
 | Accessibility | `api.accessibility` | API accessibility facet IDs |
 | C# Style Tiers | `csharp.style-tiers` | Style fidelity/presentation tiers |
 | C# Style Choices | `csharp.style-choices` | Selectable rendering choice IDs |
 | C# Body Kinds | `csharp.body-kinds` | Exact rendered body-syntax kinds |
+
+Each is explainable at `vocabularies/<stable-id>`. The composition's own
+`vocabulary.sections` index lists them and their accepting inputs; it is the
+input to the `vocabularies` collection rather than a member of it.
 
 The library `Body Shapes` section consumes body-kind IDs through
 `--where "Kind=<ID>"` and auto-selects that section when no explicit `-S`
