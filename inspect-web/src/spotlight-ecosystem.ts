@@ -28,6 +28,7 @@ export function createSpotlightEcosystemClassification(options: {
   let inventoryRevision = 0;
   let inventory: BrowserEcosystemPackageInventory | null = null;
   let requestKey = "";
+  let requestGeneration = 0;
   let annotations = new Map<string, BrowserEcosystemPackageClassification>();
   let failure = "";
   return {
@@ -51,6 +52,7 @@ export function createSpotlightEcosystemClassification(options: {
       const key = JSON.stringify([traversalTfm, candidatesJson, inventoryRevision]);
       if (key !== requestKey) {
         requestKey = key;
+        const generation = ++requestGeneration;
         annotations = new Map();
         failure = "";
         if (candidates.length > 0) {
@@ -58,13 +60,13 @@ export function createSpotlightEcosystemClassification(options: {
           // Promise.resolve also contains a synchronous transport failure.
           void Promise.resolve().then(() => options.classify(
             traversalTfm, candidates, requestedInventory)).then(values => {
-            if (requestKey !== key) return undefined;
+            if (requestGeneration !== generation) return undefined;
             annotations = new Map();
             for (const value of values) annotations.set(coordinateKey(value), value);
             options.updateResults();
             return undefined;
           }, (error: unknown) => {
-            if (requestKey !== key) return undefined;
+            if (requestGeneration !== generation) return undefined;
             failure = `Ecosystem annotations unavailable: ${error instanceof Error ? error.message : String(error)}`;
             options.updateResults();
             return undefined;

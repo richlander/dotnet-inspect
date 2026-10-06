@@ -81,3 +81,26 @@ test("failure preserves results, is visible, and does not spin on refresh", asyn
   await tick();
   assert.equal(calls, 1);
 });
+
+test("returning to an earlier batch ignores its superseded success and failure", async () => {
+  const pending: { resolve: (values: readonly BrowserEcosystemPackageClassification[]) => void; reject: (error: Error) => void }[] = [];
+  let updates = 0;
+  const coordinator = createSpotlightEcosystemClassification({
+    classify: () => new Promise((resolve, reject) => { pending.push({ resolve, reject }); }),
+    updateResults: () => { updates++; },
+  });
+  const other: SpotlightResult[] = [{ kind: "pkg-nuget", hit: { id: "System.Linq", version: "4.3.0" }, ranges: [] }];
+  for (const batch of [hits, other, hits, other, hits]) {
+    coordinator.project(batch, "net10.0", target);
+    await tick();
+  }
+  pending[4]!.resolve([annotation]);
+  await tick();
+  pending[0]!.resolve([{ ...annotation, isPruned: false }]);
+  pending[2]!.reject(new Error("superseded Worker failure"));
+  await tick();
+  const results = coordinator.project(hits, "net10.0", target);
+  if (results[0]?.kind === "pkg-nuget") assert.equal(results[0].ecosystem?.isPruned, true);
+  assert.equal(coordinator.error(), "");
+  assert.equal(updates, 1);
+});
