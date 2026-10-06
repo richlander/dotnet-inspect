@@ -1500,8 +1500,9 @@ Count maps over several sections keep their per-section meaning.
 trailing line terminator; `--rows` selects lines, which native output,
 `--markdown`, and `--plaintext` print as text; and `--table`, `--tsv`, and
 `--jsonl` emit one row per line with its number, UTF-16 start offset, content,
-and terminator. Default output is unchanged, and `-n` remains a rendered-line
-window.
+and terminator, which `--columns` and `--fields` can project. `--json` stays
+the complete Source document, so it rejects `--rows`. Default output is
+unchanged, and `-n` remains a rendered-line window.
 
 ```bash
 dotnet-inspect type string --tree

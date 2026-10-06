@@ -1711,7 +1711,14 @@ public partial class ApiCommand
             return false;
 
         raw = GetApiPayloadContent(view, included.First()) ?? "";
-        return raw.Length > 0;
+        // A --rows selection of Source lines can legitimately be empty (the
+        // empty final line after a trailing terminator); it is still the native
+        // payload, not a missing one.
+        bool selectedSourceLines =
+            options.Rows is not null
+            && included.First().Equals(SectionNames.Source, StringComparison.OrdinalIgnoreCase)
+            && view.MemberCode?.SourceCode is not null;
+        return raw.Length > 0 || selectedSourceLines;
     }
 
     private static string? GetApiPayloadContent(TypeView view, string section)

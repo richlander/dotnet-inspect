@@ -80,6 +80,16 @@ public partial class ApiCommand
         if (IsColumnProjectionRequested(options))
             return RejectColumnProjectionUnderJson(
                 suggestPayloadProjection: true);
+        // The Source JSON document carries the complete view; it has no shape
+        // for a line selection, so a --rows window fails visibly rather than
+        // being dropped.
+        if (options.Rows is not null)
+        {
+            CommandError.Write(
+                "Source --json carries the complete document and cannot represent a --rows selection.",
+                "Use --jsonl for the selected line rows, or omit --rows.");
+            return 1;
+        }
 
         if (!TryCreateSourceDocument(
                 options,

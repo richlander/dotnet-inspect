@@ -408,8 +408,10 @@ CLI adoption:
    existing Markout code-document lowering.
 3. `--count` reports exact line Count. Semantic `--rows` selects line rows,
    which native output prints as their text and the row formats (`--table`,
-   `--tsv`, `--jsonl`) emit as number, start, content, and terminator; rendered
-   `-n` remains a separate presentation limit.
+   `--tsv`, `--jsonl`) emit as number, start, content, and terminator — the
+   Source section's projectable columns; rendered `-n` remains a separate
+   presentation limit. The Source JSON document stays the complete view, so
+   `--json` with `--rows` fails visibly instead of dropping the selection.
 4. The current host-local `CliSourceDocument` projection retires after existing
    direct JSON, notes, printable-document, and failure behavior is preserved.
 

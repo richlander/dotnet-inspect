@@ -1067,6 +1067,45 @@ public partial class CommandExecutionTests
         Assert.Equal(0, typeCountExit);
         Assert.True(int.Parse(typeCount.Trim(), CultureInfo.InvariantCulture) >= lineCount);
 
+        // The type Source of a whole authored file ends with a terminator, so
+        // its last line row is the empty final line: Count includes it, its
+        // row has empty content and no terminator, and native output of that
+        // one-line selection is still native text (round-1 finding).
+        string[] type =
+        [
+            "type", "DotnetInspect.Cli.Tests.CommandExecutionTests+ConstructorChainTarget",
+            "--library", TestAssemblyPath, "--all", "-S", SectionNames.Source,
+        ];
+        int typeLines = int.Parse(typeCount.Trim(), CultureInfo.InvariantCulture);
+        string last = $"{typeLines}..{typeLines}";
+        var (lastRowExit, lastRow, _) = await RunAppAsync([.. type, "--rows", last, "--tsv"]);
+        var (lastNativeExit, lastNative, _) = await RunAppAsync([.. type, "--rows", last]);
+
+        Assert.Equal(0, lastRowExit);
+        string[] lastCells = lastRow.Split('\n', StringSplitOptions.RemoveEmptyEntries)[1].Split('\t');
+        Assert.Equal(typeLines.ToString(CultureInfo.InvariantCulture), lastCells[0]);
+        Assert.Equal("", lastCells[2]);
+        Assert.Equal("none", lastCells[3]);
+        Assert.Equal(0, lastNativeExit);
+        Assert.Equal("\n", lastNative);
+
+        // Source --json is the complete document: a --rows window fails
+        // visibly instead of being dropped (round-1 finding).
+        var (jsonRowsExit, jsonRows, jsonRowsError) = await RunAppAsync([.. member, "--json", "--rows", "1..1"]);
+
+        Assert.Equal(1, jsonRowsExit);
+        Assert.Empty(jsonRows);
+        Assert.Contains("cannot represent a --rows selection", jsonRowsError);
+
+        // The line columns are the Source schema, so they project (round-1 finding).
+        var (projectedExit, projected, projectedError) = await RunAppAsync(
+            [.. member, "--tsv", "--columns", "Content"]);
+
+        Assert.Equal(0, projectedExit);
+        Assert.DoesNotContain("No columns matched", projectedError);
+        Assert.Equal("content", projected.Split('\n')[0]);
+        Assert.Equal(rows[1].Split('\t')[2], projected.Split('\n')[1]);
+
         // A count map over Source and another section keeps per-section meaning.
         var (mapExit, map, _) = await RunAppAsync(
             [.. member[..^1], $"{SectionNames.Source},{SectionNames.Signature}", "--count", "--json"]);
