@@ -130,3 +130,16 @@ test("feedback survives rerenders, clears on traversal, and rejects late results
   feedback.synchronize("JsonCommentHandling/api");
   assert.deepEqual(feedback.errors(), []);
 });
+
+
+test("active result replaces defaults while feedback takes precedence", () => {
+  const result = { subject: "Example <Core>", title: "API <comparison>", context: "1 → 2", facts: [{ value: 0, label: "breaking" }], qualification: "2 inspection notices" };
+  const html = dataBarHtml({ result }, escapeHtml);
+  assert.match(html, /Inspection result/);
+  assert.match(html, /Example &lt;Core&gt; · API &lt;comparison&gt; · 1 → 2 · 0 breaking · 2 inspection notices/);
+  assert.doesNotMatch(html, /Product information|CLI tool/);
+  const error = dataBarHtml({ result, errors: [{ message: "Qualified evidence" }] }, escapeHtml);
+  assert.match(error, /Qualified evidence/);
+  assert.doesNotMatch(error, /API &lt;comparison&gt;|0 breaking/);
+  assert.match(dataBarHtml({ result: null }, escapeHtml), /Product information/);
+});
