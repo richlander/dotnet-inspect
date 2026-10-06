@@ -611,6 +611,7 @@ import {
   bindLibraryApiDiffRows,
   createLibraryApiDiffCoordinator,
   libraryApiDiffPresence,
+  libraryApiDiffDataBarResult,
   libraryApiDiffMemberExploreContext,
   renderLibraryApiDiff,
   type LibraryApiDiffMemberExploreContext,
@@ -7683,6 +7684,15 @@ function renderLibraryDiffTools(subject: CompareSubject): string {
   </div>`;
 }
 
+function currentDataBarResult() {
+  const subject = currentCompareSubject();
+  if (subject?.kind !== "library" || currentCompareMode() !== "diff") return null;
+  return libraryApiDiffDataBarResult(
+    state.libraryApiDiff,
+    currentLibraryApiDiffSelection(),
+  );
+}
+
 function renderCompareSurface(): string {
   const subject = currentCompareSubject();
   if (!subject) return "";
@@ -7706,6 +7716,7 @@ function renderCompareSurface(): string {
   );
   return renderLibraryApiDiff(state.libraryApiDiff, escapeHtml, {
     ...options,
+    resultSummaryInDataBar: currentDataBarResult() !== null,
     subjectLabel,
     targetText,
     ...(subject.kind === "library"
@@ -9230,6 +9241,7 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
       ${dataBarHtml({
         buildIdentity: state.buildIdentity,
         errors: dataBarFeedback.errors(),
+        result: currentDataBarResult(),
         producer: {
           kind: pkg.source.kind === "platform"
             || state.rootKind === "library"

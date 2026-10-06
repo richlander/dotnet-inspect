@@ -44,8 +44,8 @@ export function renderCompareFrame(options: CompareFrameOptions): string {
       <div class="compare-head-copy">
         <h1 id="compare-title">${escapeHtml(options.subjectLabel)}</h1>
         <div class="compare-context">
-          <p class="compare-status" role="status">${escapeHtml(options.status)}</p>
-          <span class="compare-context-separator" aria-hidden="true">·</span>
+          ${options.status ? `<p class="compare-status" role="status">${escapeHtml(options.status)}</p>
+          <span class="compare-context-separator" aria-hidden="true">·</span>` : ""}
           <span class="compare-target-label">${escapeHtml(compareTargetLabel(mode))}</span>
           <span class="compare-target-value">${escapeHtml(options.targetText)}</span>
           <button type="button" class="compare-change-target" id="compare-change-target">Change target</button>
