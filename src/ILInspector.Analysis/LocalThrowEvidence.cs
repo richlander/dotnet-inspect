@@ -50,7 +50,7 @@ public enum LocalThrowUnavailableReason
 }
 
 /// <summary>
-/// Local-throw coverage for one physical MethodDef in the index's module.
+/// Local-throw coverage for one physical MethodDef in the result's module.
 /// Synthesized bodies are not attributed to a kickoff or enclosing method.
 /// </summary>
 public abstract record MethodLocalThrowEvidence(
@@ -75,4 +75,45 @@ public abstract record MethodLocalThrowEvidence(
         ImmutableArray<LocalThrowSite> Sites,
         string? Detail = null)
         : MethodLocalThrowEvidence(MethodToken, Sites);
+}
+
+/// <summary>
+/// Physical local-throw evidence produced by one library-body Analysis
+/// execution.
+/// </summary>
+public sealed class LibraryLocalThrowAnalysisResult
+{
+    readonly ImmutableArray<MethodLocalThrowEvidence> _evidence;
+
+    internal LibraryLocalThrowAnalysisResult(
+        LibraryBodyAnalysisReceipt receipt,
+        ImmutableArray<MethodLocalThrowEvidence> evidence)
+    {
+        Receipt = receipt;
+        _evidence = evidence;
+    }
+
+    /// <summary>
+    /// Common identity, coverage, and diagnostics for the producing execution.
+    /// </summary>
+    public LibraryBodyAnalysisReceipt Receipt { get; }
+
+    /// <summary>Whether local-throw production participated.</summary>
+    public bool WasRequested =>
+        Receipt.Features.HasFlag(
+            LibraryBodyAnalysisFeatures.LocalThrows);
+
+    /// <summary>
+    /// Physical local-throw evidence, including unresolved sites and
+    /// unavailable bodies. No kickoff or enclosing-source attribution is
+    /// applied.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">
+    /// Local-throw production did not participate.
+    /// </exception>
+    public ImmutableArray<MethodLocalThrowEvidence> Evidence =>
+        WasRequested
+            ? _evidence
+            : throw new InvalidOperationException(
+                "Local throws were not requested for this Analysis execution.");
 }

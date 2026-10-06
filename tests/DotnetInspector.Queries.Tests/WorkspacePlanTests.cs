@@ -13,12 +13,15 @@ public sealed class WorkspacePlanTests
     [Fact]
     public async Task EmptyPlanIsReusableWithoutSharingLiveIdentity()
     {
+        Assert.Equal(
+            ProductDotNetReleaseLine.TargetFramework,
+            TraversalTargetFrameworkPolicy.ProductDefaultTargetFramework);
         WorkspacePlan plan = new();
         Assert.Same(
             TraversalTargetFrameworkPolicy.ProductDefault,
             plan.TraversalTargetPolicy);
         Assert.Equal(
-            "net12.0",
+            "net11.0",
             plan.TraversalTargetPolicy.TargetFramework);
         Assert.Equal(
             TraversalTargetFrameworkPolicySource.ProductDefault,

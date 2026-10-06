@@ -77,6 +77,7 @@ public sealed class VarWhenApparentTests
             new MethodSignature(slotType, [], HasThis: false, GenericParameterCount: 0),
             [],
             body);
+        new ResidualSlotBindingPass().Run(function, PassContext.None);
         return CSharpPrinter.Print(function, options).Output!;
     }
 

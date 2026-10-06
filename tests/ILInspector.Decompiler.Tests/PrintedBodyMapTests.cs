@@ -167,7 +167,7 @@ public class PrintedBodyMapTests
             [],
             container);
 
-        CSharpPrinter.Print(function, out var ranges);
+        DecidedPrint.Print(function, out var ranges);
         var map = PrintedBodyMap.Create(ranges);
         var awaitNodes = map.Nodes
             .Where(node => node.Kind == AnnotatedSourceNodeKinds.AwaitExpression)
@@ -231,7 +231,7 @@ public class PrintedBodyMapTests
             [],
             container);
 
-        CSharpPrinter.Print(function, out var ranges);
+        DecidedPrint.Print(function, out var ranges);
 
         Assert.True(ranges.TryGetRange(node, out var range));
         Assert.Equal(expectedText, ranges.Output[range]);
@@ -293,7 +293,7 @@ public class PrintedBodyMapTests
             [],
             container);
 
-        CSharpPrinter.Print(function, out var ranges);
+        DecidedPrint.Print(function, out var ranges);
         var map = PrintedBodyMap.Create(
             ranges,
             new Dictionary<IrNode, IReadOnlyList<IAnnotation>>
@@ -332,7 +332,7 @@ public class PrintedBodyMapTests
             [],
             container);
 
-        CSharpPrinter.Print(function, out var ranges);
+        DecidedPrint.Print(function.BindResidualSlots(), out var ranges);
         var map = PrintedBodyMap.Create(ranges);
 
         Assert.Contains(
@@ -366,7 +366,7 @@ public class PrintedBodyMapTests
             [],
             container);
 
-        CSharpPrinter.Print(function, out var ranges);
+        DecidedPrint.Print(function, out var ranges);
 
         AssertSurfaceKind(ranges, constant, expectedText, "MemberAccessExpression");
     }
@@ -471,7 +471,7 @@ public class PrintedBodyMapTests
             [],
             container);
 
-        CSharpPrinter.Print(function, out var ranges);
+        DecidedPrint.Print(function.BindResidualSlots(), out var ranges);
 
         AssertSurfaceKind(ranges, load, "a.Get(S_0, S_0)", "InvocationExpression");
         var map = PrintedBodyMap.Create(ranges);
@@ -542,7 +542,7 @@ public class PrintedBodyMapTests
             [intType],
             container);
 
-        CSharpPrinter.Print(function, out var ranges);
+        DecidedPrint.Print(function, out var ranges);
         var map = PrintedBodyMap.Create(
             ranges,
             new Dictionary<IrNode, IReadOnlyList<IAnnotation>>
@@ -637,7 +637,7 @@ public class PrintedBodyMapTests
             [],
             container);
 
-        CSharpPrinter.Print(function, out var ranges);
+        DecidedPrint.Print(function, out var ranges);
         var map = PrintedBodyMap.Create(ranges);
 
         Assert.Contains(
@@ -675,7 +675,7 @@ public class PrintedBodyMapTests
             [],
             container);
 
-        CSharpPrinter.Print(function, out var ranges);
+        DecidedPrint.Print(function, out var ranges);
 
         AssertSurfaceKind(
             ranges,
@@ -717,7 +717,7 @@ public class PrintedBodyMapTests
             [intType],
             container);
 
-        var result = CSharpPrinter.Print(function, out var ranges);
+        var result = DecidedPrint.Print(function, out var ranges);
         var map = PrintedBodyMap.Create(
             ranges,
             new Dictionary<IrNode, IReadOnlyList<IAnnotation>>
@@ -772,7 +772,7 @@ public class PrintedBodyMapTests
             [],
             container);
 
-        CSharpPrinter.Print(function, out var ranges);
+        DecidedPrint.Print(function, out var ranges);
         var map = PrintedBodyMap.Create(
             ranges,
             new Dictionary<IrNode, IReadOnlyList<IAnnotation>>
@@ -856,7 +856,7 @@ public class PrintedBodyMapTests
             [],
             container);
 
-        CSharpPrinter.Print(function, out var ranges);
+        DecidedPrint.Print(function, out var ranges);
         var map = PrintedBodyMap.Create(
             ranges,
             new Dictionary<IrNode, IReadOnlyList<IAnnotation>>
@@ -1030,7 +1030,7 @@ public class PrintedBodyMapTests
             [],
             container);
 
-        CSharpPrinter.Print(function, out var ranges);
+        DecidedPrint.Print(function, out var ranges);
         var map = PrintedBodyMap.Create(
             ranges,
             new Dictionary<IrNode, IReadOnlyList<IAnnotation>>
@@ -1129,7 +1129,7 @@ public class PrintedBodyMapTests
             [],
             container);
 
-        var result = CSharpPrinter.Print(function, out var ranges);
+        var result = DecidedPrint.Print(function, out var ranges);
 
         Assert.NotNull(result.Output);
         Assert.True(ranges.TryGetRange(negated, out var range));
@@ -1364,7 +1364,7 @@ public class PrintedBodyMapTests
         };
 
         new ScalarSelfUpdatePass().Run(function, PassContext.None);
-        var result = CSharpPrinter.Print(function, out var ranges);
+        var result = DecidedPrint.Print(function, out var ranges);
 
         Assert.NotNull(result.Output);
         AssertSurfaceKind(ranges, boxed, "value", "NameExpression");
@@ -1450,7 +1450,14 @@ public class PrintedBodyMapTests
             materialized ? [pointerType] : [],
             container);
 
-        var result = CSharpPrinter.Print(function, out var ranges);
+        if (!materialized)
+        {
+            // Residual storage binding replaces the slot store with a plan-owned
+            // local store before printing; track the replacement node.
+            function.BindResidualSlots();
+            store = function.Descendants.OfType<StoreLocal>().Single();
+        }
+        var result = DecidedPrint.Print(function, out var ranges);
 
         Assert.NotNull(result.Output);
         Assert.True(ranges.TryGetRange(store, out var storeRange));

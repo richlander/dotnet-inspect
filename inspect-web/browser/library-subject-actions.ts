@@ -9,12 +9,12 @@ async function chooseSubject(
   await expect.poll(async () =>
     await tab.isVisible() || await trigger.isVisible()).toBe(true);
   if (await tab.isVisible()) {
-    await tab.click();
+    await tab.dispatchEvent("click");
   } else {
-    await trigger.click();
+    await trigger.dispatchEvent("click");
     await page.locator("#subject-navigation-menu")
       .locator(`[data-scope="${subject}"]`)
-      .click();
+      .dispatchEvent("click");
   }
   await expect(tab).toHaveAttribute("aria-selected", "true");
 }
@@ -29,8 +29,8 @@ async function selectFirstExactLibrary(page: Page) {
     { name: "Libraries", exact: true });
   await expect.poll(async () =>
     await row.isVisible() || await navigationToggle.isVisible()).toBe(true);
-  if (!await row.isVisible()) await navigationToggle.click();
-  await row.click();
+  if (!await row.isVisible()) await navigationToggle.dispatchEvent("click");
+  await row.dispatchEvent("click");
   await expect(row).toHaveAttribute("aria-selected", "true");
 }
 

@@ -456,11 +456,20 @@ internal static class WorkspaceTopLevelInventoryQuery
                 _ => throw new InvalidOperationException(
                     "Unknown Workspace registration arm."),
             };
-            entries.Add(new(
-                entry,
-                new WorkspaceTopLevelInventorySelection.Registration(
-                    entry.Kind,
-                    index)));
+            WorkspaceTopLevelInventorySelection selection =
+                registration is WorkspaceRegistration.Ecosystem
+                    ecosystemRegistration
+                    ? new WorkspaceTopLevelInventorySelection.Ecosystem(
+                        definition.Registrations.EcosystemContributions
+                            .Single(contribution => ReferenceEquals(
+                                contribution.Ecosystem.Declaration,
+                                ecosystemRegistration.Declaration))
+                            .Ecosystem,
+                        index)
+                    : new WorkspaceTopLevelInventorySelection.Registration(
+                        entry.Kind,
+                        index);
+            entries.Add(new(entry, selection));
         }
 
         return entries.MoveToImmutable();

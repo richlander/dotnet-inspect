@@ -213,7 +213,7 @@ version-local MethodDef token, IL offset, occurrence ordinal, operation, and
 operand token. `Provenance` distinguishes `exact`, `aggregate`, and `unmatched`
 rows rather than relying on empty fields as an implicit signal. `Candidate` is
 therefore useful for a runtime/static join within one build, while
-`diff --finding` and `timeline --finding` remain the cross-version
+`diff --analysis` and `diff --history --finding` remain the cross-version
 correspondence paths. Aggregate judgments such as `allocation-hotspot`
 deliberately have no exact source Finding. A composite repeated-scan judgment
 can retain one native `analysis.call-site` observation in the separately typed

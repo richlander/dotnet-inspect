@@ -38,7 +38,7 @@ public class AllocationOccurrenceFactTests
         var annotations = Classify(nameof(AllocSampleClass.BoxInt));
 
         var box = Assert.Single(annotations, a => a.Descriptor.Id == "alloc.box");
-        Assert.Equal("int; alloc=boxed System.Int32; path=straight-line; path-confidence=dominates-return; post-dominance=return-post-dominates; escape=escapes; escape-kind=escapes-return; multiplicity=once", box.Detail);
+        Assert.Equal("int; alloc=boxed System.Int32; path=straight-line; path-confidence=dominates-return; post-dominance=return-post-dominates; escape=escapes; escape-kind=escapes-return; lifetime-uses=IL_0006:return; multiplicity=once", box.Detail);
         Assert.True(box.SourceOffset >= 0, "the annotation should carry IL provenance");
         Assert.Equal(AnnotationCategory.Allocation, box.Descriptor.Category);
     }
@@ -77,7 +77,7 @@ public class AllocationOccurrenceFactTests
         var annotations = Classify(nameof(AllocSampleClass.MakeRectangularArray));
 
         var array = Assert.Single(annotations, a => a.Descriptor.Id == "alloc.array");
-        Assert.Equal("int[,]; alloc=System.Int32[,]; path=straight-line; path-confidence=dominates-return; post-dominance=return-post-dominates; escape=escapes; escape-kind=escapes-return; multiplicity=once", array.Detail);
+        Assert.Equal("int[,]; alloc=System.Int32[,]; path=straight-line; path-confidence=dominates-return; post-dominance=return-post-dominates; escape=escapes; escape-kind=escapes-return; lifetime-uses=IL_0007:return; multiplicity=once", array.Detail);
         Assert.DoesNotContain(annotations, a => a.Descriptor.Id == "alloc.new");
     }
 

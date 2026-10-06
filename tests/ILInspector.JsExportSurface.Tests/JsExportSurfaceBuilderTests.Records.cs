@@ -308,6 +308,27 @@ public sealed partial class JsExportSurfaceBuilderTests
     }
 
     [Fact]
+    public void Extract_RejectsUnmodeledUnmappedMemberHandling()
+    {
+        using FileStream stream = File.OpenRead(
+            typeof(UnsupportedUnmappedMembersJsonContext)
+                .Assembly.Location);
+        using var peReader = new PEReader(stream);
+        ApiSurface apiSurface = ApiSurfaceExtractor.Extract(
+            peReader,
+            includeAll: true);
+
+        ApiType context = Assert.Single(
+            apiSurface.Types,
+            type => type.Name
+                == nameof(UnsupportedUnmappedMembersJsonContext));
+
+        Assert.Equal(
+            JsonWireNamingPolicy.Unsupported,
+            context.JsonPropertyNamingPolicy);
+    }
+
+    [Fact]
     public void Extract_CapturesJsonConverterAndEnumWireNameFacts()
     {
         using FileStream stream = File.OpenRead(

@@ -1,6 +1,7 @@
 using DotnetInspector.Packages;
 using DotnetInspector.Platforms;
 using DotnetInspector.Platforms.Packages;
+using NuGetFetch;
 
 namespace DotnetInspector.PlatformHouse.Packages.Tests;
 
@@ -34,6 +35,7 @@ public sealed class PackageImplementationPlatformSourceTests
                     await environment.CreateSource()
                         .RealizeImplementationAsync(
                             Coordinate(PlatformFamily.DotNetRuntime),
+                            Complete(),
                             Work(),
                             environment.IssueOperation(
                                 TestContext.Current.CancellationToken)));
@@ -104,6 +106,7 @@ public sealed class PackageImplementationPlatformSourceTests
                     await environment.CreateSource()
                         .RealizeImplementationAsync(
                             Coordinate(PlatformFamily.AspNetCore),
+                            Complete(),
                             Work(),
                             environment.IssueOperation(
                                 TestContext.Current.CancellationToken)));
@@ -192,6 +195,7 @@ public sealed class PackageImplementationPlatformSourceTests
                     await environment.CreateSource()
                         .RealizeImplementationAsync(
                             coordinate,
+                            Complete(),
                             Work(),
                             environment.IssueOperation(
                                 TestContext.Current.CancellationToken)));
@@ -268,6 +272,7 @@ public sealed class PackageImplementationPlatformSourceTests
                                 maxCandidates: 1))
                         .RealizeImplementationAsync(
                             coordinate,
+                            Complete(),
                             Work(),
                             environment.IssueOperation(
                                 TestContext.Current.CancellationToken)));
@@ -313,6 +318,7 @@ public sealed class PackageImplementationPlatformSourceTests
                     await environment.CreateSource()
                         .RealizeImplementationAsync(
                             Coordinate(PlatformFamily.DotNetRuntime),
+                            Complete(),
                             Work(),
                             environment.IssueOperation(
                                 TestContext.Current.CancellationToken)));
@@ -327,6 +333,310 @@ public sealed class PackageImplementationPlatformSourceTests
         Assert.Equal(
             runtime,
             await PackagePlatformTestData.ReadAllAsync(library));
+    }
+
+    [Fact]
+    public async Task ExactAssemblyDemandReadsOnlyItsManifestManagedBody()
+    {
+        byte[] runtime =
+            PackagePlatformTestData.Assembly("System.Runtime");
+        byte[] json =
+            PackagePlatformTestData.Assembly("System.Text.Json");
+        byte[] runtimeConfiguration =
+            PackagePlatformTestData.RuntimeConfiguration();
+        byte[] dependencyManifest =
+            PackagePlatformTestData.DependencyManifest(
+                "System.Runtime.dll",
+                "System.Text.Json.dll");
+        IReadOnlyList<KeyValuePair<string, byte[]>> entries =
+            PackagePlatformTestData.RuntimePackEntries(
+                "Microsoft.NETCore.App",
+                runtimeConfiguration,
+                dependencyManifest,
+                ("System.Runtime.dll", runtime),
+                ("System.Text.Json.dll", json));
+        await using PackagePlatformTestEnvironment environment =
+            PackagePlatformTestEnvironment.Create(
+            [
+                TestSourceBehavior.Create(
+                    PackagePlatformTestEnvironment
+                        .RuntimeImplementationPackageId),
+            ]);
+        var content = new TrackingPackageContent(
+            environment.Clients[0].Source.Producer.Key,
+            entries,
+            throwOnOpen:
+            [
+                "runtimes/linux-x64/lib/net11.0/System.Runtime.dll",
+            ]);
+        environment.Store = new StaticPackageStore(content);
+
+        var succeeded = Assert.IsType<
+            PackagePlatformSourceOutcome<
+                PackageImplementationRealization>.Succeeded>(
+                    await environment.CreateSource()
+                        .RealizeImplementationAsync(
+                            Coordinate(PlatformFamily.DotNetRuntime),
+                            new PackageImplementationPopulationDemand
+                                .Assembly(
+                                    PackagePlatformTestData.Identity(json)),
+                            Work(),
+                            environment.IssueOperation(
+                                TestContext.Current.CancellationToken)));
+
+        PackageImplementationLibrary library =
+            Assert.Single(succeeded.Value.Libraries);
+        Assert.Equal("System.Text.Json", library.Identity.Name);
+        Assert.DoesNotContain(
+            "runtimes/linux-x64/lib/net11.0/System.Runtime.dll",
+            content.OpenedEntries);
+        Assert.Equal(
+            json.LongLength
+                + runtimeConfiguration.LongLength
+                + dependencyManifest.LongLength,
+            succeeded.Value.ConsumedBytes);
+        await environment.AssertSettledAsync();
+    }
+
+    [Fact]
+    public async Task ExactAssemblyDemandRejectsSameNameIdentityMismatch()
+    {
+        byte[] selected =
+            PackagePlatformTestData.Assembly(
+                "System.Text.Json",
+                new Version(1, 0, 0, 0));
+        byte[] demanded =
+            PackagePlatformTestData.Assembly(
+                "System.Text.Json",
+                new Version(2, 0, 0, 0));
+        IReadOnlyList<KeyValuePair<string, byte[]>> entries =
+            PackagePlatformTestData.RuntimePackEntries(
+                "Microsoft.NETCore.App",
+                PackagePlatformTestData.RuntimeConfiguration(),
+                PackagePlatformTestData.DependencyManifest(
+                    "System.Text.Json.dll"),
+                ("System.Text.Json.dll", selected));
+        await using PackagePlatformTestEnvironment environment =
+            PackagePlatformTestEnvironment.Create(
+            [
+                TestSourceBehavior.Create(
+                    PackagePlatformTestEnvironment
+                        .RuntimeImplementationPackageId,
+                    entries: entries),
+            ]);
+
+        var rejected = Assert.IsType<
+            PackagePlatformSourceOutcome<
+                PackageImplementationRealization>.Rejected>(
+                    await environment.CreateSource()
+                        .RealizeImplementationAsync(
+                            Coordinate(PlatformFamily.DotNetRuntime),
+                            new PackageImplementationPopulationDemand
+                                .Assembly(
+                                    PackagePlatformTestData.Identity(
+                                        demanded)),
+                            Work(),
+                            environment.IssueOperation(
+                                TestContext.Current.CancellationToken)));
+
+        Assert.Equal(
+            PackagePlatformSourceDiagnosticKind.AssemblyIdentityMismatch,
+            rejected.Diagnostic.Kind);
+        Assert.Null(rejected.SourceWork);
+        await environment.AssertSettledAsync();
+    }
+
+    [Fact]
+    public async Task ExactAssemblyDemandRejectsDuplicateLogicalCoordinates()
+    {
+        byte[] demanded =
+            PackagePlatformTestData.Assembly("System.Text.Json");
+        IReadOnlyList<KeyValuePair<string, byte[]>> entries =
+            PackagePlatformTestData.RuntimePackEntries(
+                "Microsoft.NETCore.App",
+                PackagePlatformTestData.RuntimeConfiguration(),
+                PackagePlatformTestData.DependencyManifest(
+                    "a/System.Text.Json.dll",
+                    "b/System.Text.Json.dll"));
+        await using PackagePlatformTestEnvironment environment =
+            PackagePlatformTestEnvironment.Create(
+            [
+                TestSourceBehavior.Create(
+                    PackagePlatformTestEnvironment
+                        .RuntimeImplementationPackageId,
+                    entries: entries),
+            ]);
+
+        var rejected = Assert.IsType<
+            PackagePlatformSourceOutcome<
+                PackageImplementationRealization>.Rejected>(
+                    await environment.CreateSource()
+                        .RealizeImplementationAsync(
+                            Coordinate(PlatformFamily.DotNetRuntime),
+                            new PackageImplementationPopulationDemand
+                                .Assembly(
+                                    PackagePlatformTestData.Identity(
+                                        demanded)),
+                            Work(),
+                            environment.IssueOperation(
+                                TestContext.Current.CancellationToken)));
+
+        Assert.Equal(
+            PackagePlatformSourceDiagnosticKind
+                .DuplicateLogicalCoordinate,
+            rejected.Diagnostic.Kind);
+        await environment.AssertSettledAsync();
+    }
+
+    [Fact]
+    public async Task AspNetExactRuntimeDemandReadsSupportPackBodyOnly()
+    {
+        byte[] core =
+            PackagePlatformTestData.Assembly("System.Runtime");
+        byte[] aspnet = PackagePlatformTestData.Assembly(
+            "Microsoft.AspNetCore.Hosting");
+        IReadOnlyList<KeyValuePair<string, byte[]>> coreEntries =
+            PackagePlatformTestData.RuntimePackEntries(
+                "Microsoft.NETCore.App",
+                PackagePlatformTestData.RuntimeConfiguration(),
+                PackagePlatformTestData.DependencyManifest(
+                    "System.Runtime.dll"),
+                ("System.Runtime.dll", core));
+        IReadOnlyList<KeyValuePair<string, byte[]>> aspnetEntries =
+            PackagePlatformTestData.RuntimePackEntries(
+                "Microsoft.AspNetCore.App",
+                PackagePlatformTestData.RuntimeConfiguration(
+                    (
+                        "Microsoft.NETCore.App",
+                        PackagePlatformTestEnvironment.Version,
+                        "Disable")),
+                PackagePlatformTestData.DependencyManifest(
+                    "Microsoft.AspNetCore.Hosting.dll"),
+                ("Microsoft.AspNetCore.Hosting.dll", aspnet));
+        await using PackagePlatformTestEnvironment environment =
+            PackagePlatformTestEnvironment.Create(
+            [
+                TestSourceBehavior.CreatePackages(
+                    (
+                        PackagePlatformTestEnvironment
+                            .AspNetImplementationPackageId,
+                        PackagePlatformTestEnvironment.Version,
+                        aspnetEntries),
+                    (
+                        PackagePlatformTestEnvironment
+                            .RuntimeImplementationPackageId,
+                        PackagePlatformTestEnvironment.Version,
+                        coreEntries)),
+            ]);
+
+        var succeeded = Assert.IsType<
+            PackagePlatformSourceOutcome<
+                PackageImplementationRealization>.Succeeded>(
+                    await environment.CreateSource()
+                        .RealizeImplementationAsync(
+                            Coordinate(PlatformFamily.AspNetCore),
+                            new PackageImplementationPopulationDemand
+                                .Assembly(
+                                    PackagePlatformTestData.Identity(core)),
+                            Work(),
+                            environment.IssueOperation(
+                                TestContext.Current.CancellationToken)));
+
+        PackageImplementationLibrary library =
+            Assert.Single(succeeded.Value.Libraries);
+        Assert.Equal("System.Runtime", library.Identity.Name);
+        Assert.Equal(
+            PlatformFamily.DotNetRuntime,
+            library.Framework.Family);
+        Assert.Equal(2, environment.Clients[0].PayloadRequests);
+        await environment.AssertSettledAsync();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RangedCapableFeedSelectsAccessByPopulation(
+        bool exact)
+    {
+        byte[] runtime =
+            PackagePlatformTestData.Assembly("System.Runtime");
+        byte[] json =
+            PackagePlatformTestData.Assembly("System.Text.Json");
+        IReadOnlyList<KeyValuePair<string, byte[]>> entries =
+            PackagePlatformTestData.RuntimePackEntries(
+                "Microsoft.NETCore.App",
+                PackagePlatformTestData.RuntimeConfiguration(),
+                PackagePlatformTestData.DependencyManifest(
+                    "System.Runtime.dll",
+                    "System.Text.Json.dll"),
+                ("System.Runtime.dll", runtime),
+                ("System.Text.Json.dll", json));
+        byte[] archive = PackagePlatformTestData.Archive(entries);
+        var feed = new PackagePlatformRangeFeed(
+            PackagePlatformTestEnvironment
+                .RuntimeImplementationPackageId,
+            PackagePlatformTestEnvironment.Version,
+            archive);
+        PackageSourceAuthorization sources =
+            PackageSourceAuthorization.Authorize(
+                [PackageSource.NuGetOrg]);
+        using IPackageSourceClient client =
+            PackageSourceClientFactory.CreateGallery(
+                sources.Authorities[0].Association,
+                feed);
+        await using PackageSourceSettlementLease root =
+            PackageSourceSettlementService.IssueLease(_ => client);
+        var store = new InMemoryPackageStore();
+        var source = new PackagePlatformSource(
+            new TestAuthorization(sources),
+            new PackagePayloadAcquisitionPlan(
+                (_, _) => store,
+                rangedSizeCut: 0));
+
+        PackageImplementationPopulationDemand population =
+            exact
+                ? new PackageImplementationPopulationDemand.Assembly(
+                    PackagePlatformTestData.Identity(json))
+                : new PackageImplementationPopulationDemand
+                    .CompletePopulation();
+        var succeeded = Assert.IsType<
+            PackagePlatformSourceOutcome<
+                PackageImplementationRealization>.Succeeded>(
+                    await source.RealizeImplementationAsync(
+                        Coordinate(PlatformFamily.DotNetRuntime),
+                        population,
+                        Work(),
+                        root.IssueOperationLease(
+                            TestContext.Current.CancellationToken,
+                            TimeSpan.FromSeconds(30),
+                            TimeSpan.FromSeconds(30))));
+
+        Assert.Equal(
+            exact
+                ? PackagePayloadOrigin.Ranged
+                : PackagePayloadOrigin.Download,
+            Assert.Single(succeeded.Value.Frameworks).Origin);
+        Assert.Equal(
+            exact ? 1 : 2,
+            succeeded.Value.Libraries.Length);
+        Assert.Equal(1, feed.FullRequests);
+        if (exact)
+        {
+            Assert.Equal(
+                "System.Text.Json",
+                Assert.Single(succeeded.Value.Libraries).Identity.Name);
+            Assert.True(feed.RangedRequests >= 1);
+            Assert.Null(
+                store.TryGetCached(
+                    PackagePlatformTestEnvironment
+                        .RuntimeImplementationPackageId,
+                    PackagePlatformTestEnvironment.Version,
+                    null));
+        }
+        else
+        {
+            Assert.Equal(0, feed.RangedRequests);
+        }
     }
 
     [Theory]
@@ -382,6 +692,7 @@ public sealed class PackageImplementationPlatformSourceTests
                     await environment.CreateSource()
                         .RealizeImplementationAsync(
                             Coordinate(PlatformFamily.DotNetRuntime),
+                            Complete(),
                             Work(),
                             environment.IssueOperation(
                                 TestContext.Current.CancellationToken)));
@@ -422,6 +733,7 @@ public sealed class PackageImplementationPlatformSourceTests
                     await environment.CreateSource()
                         .RealizeImplementationAsync(
                             Coordinate(PlatformFamily.AspNetCore),
+                            Complete(),
                             Work(),
                             environment.IssueOperation(
                                 TestContext.Current.CancellationToken)));
@@ -462,6 +774,7 @@ public sealed class PackageImplementationPlatformSourceTests
                 cancelled.CreateSource()
                     .RealizeImplementationAsync(
                         Coordinate(PlatformFamily.DotNetRuntime),
+                        Complete(),
                         Work(),
                         cancelled.IssueOperation(cancellation.Token));
         cancellation.Cancel();
@@ -488,6 +801,7 @@ public sealed class PackageImplementationPlatformSourceTests
                     await timedOut.CreateSource()
                         .RealizeImplementationAsync(
                             Coordinate(PlatformFamily.DotNetRuntime),
+                            Complete(),
                             Work(),
                             timedOut.IssueOperation(
                                 TestContext.Current.CancellationToken,
@@ -543,6 +857,7 @@ public sealed class PackageImplementationPlatformSourceTests
                     await environment.CreateSource()
                         .RealizeImplementationAsync(
                             Coordinate(PlatformFamily.AspNetCore),
+                            Complete(),
                             Work(),
                             environment.IssueOperation(
                                 TestContext.Current.CancellationToken)));
@@ -597,6 +912,7 @@ public sealed class PackageImplementationPlatformSourceTests
                         await environment.CreateSource()
                             .RealizeImplementationAsync(
                                 Coordinate(PlatformFamily.DotNetRuntime),
+                                Complete(),
                                 work,
                                 environment.IssueOperation(
                                     TestContext.Current.CancellationToken)));
@@ -661,6 +977,7 @@ public sealed class PackageImplementationPlatformSourceTests
                     await environment.CreateSource()
                         .RealizeImplementationAsync(
                             Coordinate(PlatformFamily.AspNetCore),
+                            Complete(),
                             work,
                             environment.IssueOperation(
                                 TestContext.Current.CancellationToken)));
@@ -704,4 +1021,7 @@ public sealed class PackageImplementationPlatformSourceTests
             maxManifestAssets: 512,
             maxAssemblies: 512,
             maxBytes: 64 * 1024 * 1024);
+
+    private static PackageImplementationPopulationDemand Complete() =>
+        new PackageImplementationPopulationDemand.CompletePopulation();
 }

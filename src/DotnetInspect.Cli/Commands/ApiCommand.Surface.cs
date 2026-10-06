@@ -3,7 +3,6 @@ using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 using System.Net;
 using DotnetInspect.Cli.CommandLine;
-using CSharpText.MemberSlicing;
 using DotnetInspect.Cli.Inspectors;
 using ILInspector.Metadata;
 using DotnetInspect.Cli.Models;

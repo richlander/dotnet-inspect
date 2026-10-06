@@ -284,16 +284,16 @@ Research can retain typed allocation comparisons, including exact comparisons,
 when a consumer requests them, and derives its compatibility count/hotness
 projection from the same comparison path; there is no separate count-only
 allocation diff path. The CLI selects and retains the native comparison with
-`diff --finding analysis.allocation`.
+`diff --analysis allocation`.
 
 Direct calls are the second end-to-end Analysis proof. Research's call-site
-fact producers and `diff --finding analysis.call-site` consume the same
+fact producers and `diff --analysis call-site` consume the same
 IL-ordered `Finding<DirectCall>` census. Research retains the complete native
 comparison only when requested, so `Present` remains observable without
 increasing the ordinary Body Signals result.
 
 Definite unsafe IL operations are the third end-to-end Analysis proof.
-`diff --finding analysis.unsafety` consumes the same IL-ordered
+`diff --analysis unsafety` consumes the same IL-ordered
 `Finding<UnsafetyOccurrence>` census used by Research's safety projection.
 Allocation, call-site, and unsafety comparisons share one descriptor-keyed
 retention container; new descriptors do not add parallel flags, lists,
@@ -310,19 +310,16 @@ untrusted-actionable assessments, and maps their typed judgments to prose.
 `Complete([])` and `Failed` remain distinct, and the corpus harness consumes the
 same assessments rather than resolving tokens or classifying boundaries itself.
 
-Resource lifecycle acquisition is an opt-in producer in `LibraryBodyIndex`.
-Library commands union the features required by their selected sections and
-materialize one lazy `MethodBodyInspectionSession`. When body features are
-selected, the command prefetches its existing `PdbContext` PE image. AppContext
-scanning and member-drill projection use context capabilities, while
-`LibraryBodyIndex` consumes immutable content from that prefetched image;
-Resource Triage therefore adds no target-file open. The
-standalone Leak Triage API delegates to a leak-only index rather than reopening
-and walking the assembly itself.
-This is one acquisition pass, not one analysis algorithm: Leak Triage still owns
-its instruction interpretation, control-flow, and reaching-definitions work.
-Because its result is a whole-assembly census, scoped body-index requests reject
-the feature instead of returning a success-shaped partial result.
+Resource lifecycle acquisition is an explicit
+`LibraryBodyAnalysisRequest.CreateResourceLifecycle` request. Library commands
+union the analyses required by their selected sections and materialize one
+lazy `MethodBodyInspectionSession`. When body analysis is selected, the command
+prefetches its existing `PdbContext` PE image. AppContext scanning and
+member-drill projection use context capabilities, while
+`LibraryBodyAnalysisService` consumes immutable content from that prefetched
+image; Resource Triage therefore adds no target-file open. The generic result
+retains explicit scope and completeness receipts instead of returning a
+success-shaped partial census.
 
 The same three Analysis censuses now compose with the N-address correlation
 tier. `timeline --member M --finding analysis.*` uses Metadata only to resolve

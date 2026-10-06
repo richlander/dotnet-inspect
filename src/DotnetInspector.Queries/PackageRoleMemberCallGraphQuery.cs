@@ -65,7 +65,13 @@ public abstract record PackageRoleMemberCallGraphOutcome
 
     public sealed record Available(
         InspectionGraphDocument Document,
-        ImmutableArray<PackageRoleMemberCallGraphNodePackage> NodePackages)
+        ImmutableArray<PackageRoleMemberCallGraphNodePackage> NodePackages,
+        PackageIntrinsicCoreLibraryIneligibilityReceipt?
+            IntrinsicCoreLibraryIneligibility,
+        ImmutableArray<PackageIntrinsicCoreLibraryCallOccurrenceEvidence>
+            IntrinsicCoreLibraryOccurrences,
+        ImmutableArray<PackageAssemblyReferenceCallOccurrenceEvidence>
+            AssemblyReferenceOccurrences)
         : PackageRoleMemberCallGraphOutcome;
 
     public sealed record Unavailable(
@@ -79,6 +85,96 @@ public abstract record PackageRoleMemberCallGraphOutcome
 public sealed record PackageRoleMemberCallGraphNodePackage(
     int NodeId,
     PackageRootIdentity Package);
+
+/// <summary>
+/// Owner-issued evidence that one physical intrinsic CoreLib call occurrence
+/// belongs to an exact CoreLib-ineligible package context.
+/// </summary>
+public sealed class PackageIntrinsicCoreLibraryCallOccurrenceEvidence
+{
+    internal PackageIntrinsicCoreLibraryCallOccurrenceEvidence(
+        int occurrenceId,
+        CallGraphCallSiteEvidence callSite,
+        Analysis.MemberCorrespondenceEvidence.UnresolvedBinding
+            correspondence,
+        PackageIntrinsicCoreLibraryParticipantEvidence origin,
+        PackageIntrinsicCoreLibraryIneligibilityReceipt context)
+    {
+        OccurrenceId = occurrenceId;
+        CallSite = callSite;
+        Correspondence = correspondence;
+        Origin = origin;
+        Context = context;
+    }
+
+    public int OccurrenceId { get; }
+
+    public CallGraphCallSiteEvidence CallSite { get; }
+
+    public Analysis.MemberCorrespondenceEvidence.UnresolvedBinding
+        Correspondence { get; }
+
+    public PackageIntrinsicCoreLibraryParticipantEvidence Origin { get; }
+
+    public PackageIntrinsicCoreLibraryIneligibilityReceipt Context { get; }
+}
+
+/// <summary>
+/// Owner-issued evidence for one ordinary AssemblyRef call occurrence from
+/// an exact package participant and binding-policy state.
+/// </summary>
+public class PackageAssemblyReferenceBindingEvidence
+{
+    internal PackageAssemblyReferenceBindingEvidence(
+        CallGraphCallSiteEvidence callSite,
+        PackageAssemblyRoleParticipant origin,
+        AssemblyBindingRequest request,
+        AssemblyBindingSelectionSnapshot context)
+    {
+        CallSite = callSite;
+        Origin = origin;
+        Request = request;
+        Context = context;
+    }
+
+    public CallGraphCallSiteEvidence CallSite { get; }
+
+    public PackageAssemblyRoleParticipant Origin { get; }
+
+    public AssemblyBindingRequest Request { get; }
+
+    public AssemblyBindingSelectionSnapshot Context { get; }
+
+    public AssemblyBindingPolicyVersion BindingPolicyVersion =>
+        Context.Version;
+}
+
+/// <summary>
+/// Owner-issued evidence for one unresolved ordinary AssemblyRef call
+/// occurrence.
+/// </summary>
+public sealed class PackageAssemblyReferenceCallOccurrenceEvidence :
+    PackageAssemblyReferenceBindingEvidence
+{
+    internal PackageAssemblyReferenceCallOccurrenceEvidence(
+        int occurrenceId,
+        CallGraphCallSiteEvidence callSite,
+        Analysis.MemberCorrespondenceEvidence.UnresolvedBinding
+            correspondence,
+        PackageAssemblyRoleParticipant origin,
+        AssemblyBindingRequest request,
+        AssemblyBindingSelectionSnapshot context)
+        : base(callSite, origin, request, context)
+    {
+        OccurrenceId = occurrenceId;
+        Correspondence = correspondence;
+    }
+
+    public int OccurrenceId { get; }
+
+    public Analysis.MemberCorrespondenceEvidence.UnresolvedBinding
+        Correspondence { get; }
+}
 
 /// <summary>
 /// Projects one exact implementation MethodDef through an existing
@@ -131,6 +227,63 @@ public static class PackageRoleMemberCallGraphQuery
             baseline,
             cancellationToken);
 
+    public static PackageAssemblyReferenceBindingEvidence
+        CreateContinuationEvidence(
+        PackageAssemblyContextProjection projection,
+        InspectionGraphDocument document,
+        PackageAssemblyReferenceCallOccurrenceEvidence predecessor)
+    {
+        ArgumentNullException.ThrowIfNull(projection);
+        ArgumentNullException.ThrowIfNull(document);
+        ArgumentNullException.ThrowIfNull(predecessor);
+
+        CallGraphCallSiteEvidence[] callSites =
+        [
+            .. document.Occurrences
+                .Select(static occurrence => occurrence.Evidence)
+                .OfType<CallGraphCallSiteEvidence>()
+                .Where(candidate =>
+                    SamePhysicalOccurrence(
+                        candidate,
+                        predecessor.CallSite)),
+        ];
+        if (callSites.Length != 1
+            || callSites[0].Identity.SourceRegistration
+                is not { } source)
+        {
+            throw new InvalidOperationException(
+                "The successor graph does not retain one exact physical call occurrence.");
+        }
+
+        PackageAssemblyContextRoleProjection role =
+            projection.ImplementationRole
+            ?? projection.SurfaceRole;
+        PackageAssemblyRoleParticipant[] origins =
+        [
+            .. role.Participants.Where(
+                participant => ReferenceEquals(
+                    participant.Participant.Assembly.Registration,
+                    source)),
+        ];
+        if (origins.Length != 1)
+        {
+            throw new InvalidOperationException(
+                "The successor call occurrence does not identify one exact package participant.");
+        }
+
+        PackageAssemblyRoleParticipant origin = origins[0];
+        var request = new AssemblyBindingRequest(
+            predecessor.Request.Target,
+            AssemblyBindingOrigin.FromAssembly(
+                origin.Participant.Assembly),
+            predecessor.Request.Scope);
+        return new(
+            callSites[0],
+            origin,
+            request,
+            origin.Participant.BindingPolicy.Select(request));
+    }
+
     private static PackageRoleMemberCallGraphOutcome ExecuteCore(
         PackageAssemblyContextProjection projection,
         PackageRoleMemberCallGraphFocus focus,
@@ -157,6 +310,11 @@ public static class PackageRoleMemberCallGraphQuery
             ?? projection.SurfaceRole;
         ImmutableArray<PackageAssemblyRoleParticipant> participants =
             role.Participants;
+        ImmutableArray<PackageAssemblyContextPlatformParticipant>
+            platformParticipants = role.PlatformParticipants;
+        PackageIntrinsicCoreLibraryIneligibilityReceipt?
+            intrinsicCoreLibraryIneligibility =
+                role.IntrinsicCoreLibraryIneligibility;
 
         return role.Use<PackageRoleMemberCallGraphOutcome>(group =>
         {
@@ -164,7 +322,7 @@ public static class PackageRoleMemberCallGraphQuery
                 ImmutableArray.CreateBuilder<
                     PackageAssemblyRoleParticipant>();
             foreach (PackageAssemblyRoleParticipant participant
-                in role.Participants)
+                in participants)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 if (!ReferenceEquals(
@@ -247,9 +405,10 @@ public static class PackageRoleMemberCallGraphQuery
                     request,
                     node =>
                     {
-                        MemberCallGraphExternalFocusMembership membership =
+                        GraphScopeMembership membership =
                             ClassifyPackageMembership(
                                 participants,
+                                platformParticipants,
                                 node,
                                 baseline,
                                 out PackageRootIdentity? package);
@@ -260,9 +419,189 @@ public static class PackageRoleMemberCallGraphQuery
                     cancellationToken);
             return new PackageRoleMemberCallGraphOutcome.Available(
                 document,
-                NodePackages(document, nodePackages));
+                NodePackages(document, nodePackages),
+                intrinsicCoreLibraryIneligibility,
+                IntrinsicCoreLibraryOccurrences(
+                    document,
+                    intrinsicCoreLibraryIneligibility),
+                AssemblyReferenceOccurrences(
+                    document,
+                    participants));
         });
     }
+
+    static ImmutableArray<PackageIntrinsicCoreLibraryCallOccurrenceEvidence>
+        IntrinsicCoreLibraryOccurrences(
+        InspectionGraphDocument document,
+        PackageIntrinsicCoreLibraryIneligibilityReceipt? context)
+    {
+        if (context is null)
+            return [];
+
+        var result =
+            ImmutableArray.CreateBuilder<
+                PackageIntrinsicCoreLibraryCallOccurrenceEvidence>();
+        foreach (InspectionGraphOccurrence occurrence
+            in document.Occurrences)
+        {
+            if (occurrence.Evidence
+                    is not CallGraphCallSiteEvidence callSite)
+            {
+                continue;
+            }
+
+            AssemblyAcquisitionRegistration? source =
+                callSite.Identity.SourceRegistration;
+            if (source is null)
+                continue;
+
+            PackageIntrinsicCoreLibraryParticipantEvidence[] evidenceOrigins =
+                [
+                    .. context.Participants.Where(
+                        participant =>
+                            ReferenceEquals(
+                                participant.Registration,
+                                source)),
+                ];
+            if (evidenceOrigins.Length != 1)
+            {
+                throw new InvalidOperationException(
+                    "A physical intrinsic CoreLib call occurrence does not identify exactly one participant in its package-role context.");
+            }
+
+            if (callSite.TargetEvidence?.Correspondence
+                    is not Analysis.CatalogMemberJoinProjection.Issued issued)
+            {
+                continue;
+            }
+
+            foreach (Analysis.MemberCorrespondenceEvidence.UnresolvedBinding
+                correspondence in issued.Evidence.OfType<
+                    Analysis.MemberCorrespondenceEvidence
+                        .UnresolvedBinding>())
+            {
+                if (correspondence.Outcome
+                        is not TypeResolutionOutcome.Unavailable
+                        {
+                            Target:
+                                AssemblyBindingTarget
+                                    .IntrinsicCoreLibrary,
+                            Origin:
+                                AssemblyBindingOrigin
+                                    .RequestingAssembly origin,
+                        })
+                {
+                    continue;
+                }
+                if (!ReferenceEquals(origin.Registration, source))
+                {
+                    throw new InvalidOperationException(
+                        "An intrinsic CoreLib request does not retain its physical call occurrence origin.");
+                }
+
+                result.Add(
+                    new PackageIntrinsicCoreLibraryCallOccurrenceEvidence(
+                        occurrence.Id,
+                        callSite,
+                        correspondence,
+                        evidenceOrigins[0],
+                        context));
+            }
+        }
+
+        return result.ToImmutable();
+    }
+
+    static ImmutableArray<PackageAssemblyReferenceCallOccurrenceEvidence>
+        AssemblyReferenceOccurrences(
+        InspectionGraphDocument document,
+        ImmutableArray<PackageAssemblyRoleParticipant> participants)
+    {
+        var result =
+            ImmutableArray.CreateBuilder<
+                PackageAssemblyReferenceCallOccurrenceEvidence>();
+        foreach (InspectionGraphOccurrence occurrence
+            in document.Occurrences)
+        {
+            if (occurrence.Evidence
+                    is not CallGraphCallSiteEvidence callSite
+                || callSite.Identity.SourceRegistration
+                    is not { } source
+                || callSite.TargetEvidence?.Correspondence
+                    is not Analysis.CatalogMemberJoinProjection.Issued
+                        issued)
+            {
+                continue;
+            }
+
+            PackageAssemblyRoleParticipant[] origins =
+            [
+                .. participants.Where(
+                    participant =>
+                        ReferenceEquals(
+                            participant.Participant.Assembly.Registration,
+                            source)),
+            ];
+            if (origins.Length != 1)
+                continue;
+
+            PackageAssemblyRoleParticipant originParticipant =
+                origins[0];
+            foreach (Analysis.MemberCorrespondenceEvidence.UnresolvedBinding
+                correspondence in issued.Evidence.OfType<
+                    Analysis.MemberCorrespondenceEvidence
+                        .UnresolvedBinding>())
+            {
+                if (correspondence.Outcome
+                        is not TypeResolutionOutcome.Unavailable
+                        {
+                            Target:
+                                AssemblyBindingTarget
+                                    .AssemblyReference target,
+                            Origin:
+                                AssemblyBindingOrigin
+                                    .RequestingAssembly origin,
+                            Scope: var scope,
+                        })
+                {
+                    continue;
+                }
+                if (!ReferenceEquals(origin.Registration, source))
+                {
+                    throw new InvalidOperationException(
+                        "An AssemblyRef request does not retain its physical call occurrence origin.");
+                }
+
+                var request = new AssemblyBindingRequest(
+                    target,
+                    origin,
+                    scope);
+                AssemblyBindingSelectionSnapshot context =
+                    originParticipant.Participant.BindingPolicy.Select(
+                        request);
+                result.Add(
+                    new PackageAssemblyReferenceCallOccurrenceEvidence(
+                        occurrence.Id,
+                        callSite,
+                        correspondence,
+                        originParticipant,
+                        request,
+                        context));
+            }
+        }
+
+        return result.ToImmutable();
+    }
+
+    static bool SamePhysicalOccurrence(
+        CallGraphCallSiteEvidence candidate,
+        CallGraphCallSiteEvidence expected) =>
+        candidate.CallerModuleVersionId
+            == expected.CallerModuleVersionId
+        && candidate.CallerMethodToken
+            == expected.CallerMethodToken
+        && candidate.ILOffset == expected.ILOffset
+        && candidate.OperandToken == expected.OperandToken;
 
     static ImmutableArray<PackageRoleMemberCallGraphNodePackage>
         NodePackages(
@@ -278,10 +617,10 @@ public static class PackageRoleMemberCallGraphQuery
         {
             Analysis.GraphNodeIdentity identity = node.Subject
                 is InspectionGraphSubject.MemberSubject
-                {
-                    Identity:
+            {
+                Identity:
                         InspectionGraphMemberIdentity.CallGraph callGraph,
-                }
+            }
                     ? callGraph.Identity
                     : throw new InvalidOperationException(
                         "A package-role member call graph contained a non-member node.");
@@ -299,9 +638,24 @@ public static class PackageRoleMemberCallGraphQuery
         return result.ToImmutable();
     }
 
-    internal static MemberCallGraphExternalFocusMembership
+    internal static GraphScopeMembership
         ClassifyPackageMembership(
         ImmutableArray<PackageAssemblyRoleParticipant> participants,
+        CallGraphNode node,
+        PackageSupplyChainBaselinePolicy baseline,
+        out PackageRootIdentity? package) =>
+        ClassifyPackageMembership(
+            participants,
+            [],
+            node,
+            baseline,
+            out package);
+
+    internal static GraphScopeMembership
+        ClassifyPackageMembership(
+        ImmutableArray<PackageAssemblyRoleParticipant> participants,
+        ImmutableArray<PackageAssemblyContextPlatformParticipant>
+            platformParticipants,
         CallGraphNode node,
         PackageSupplyChainBaselinePolicy baseline,
         out PackageRootIdentity? package)
@@ -319,7 +673,7 @@ public static class PackageRoleMemberCallGraphQuery
                 || !reference.IsEquivalentTo(resolution))
             {
                 package = null;
-                return MemberCallGraphExternalFocusMembership.Unknown;
+                return GraphScopeMembership.Unknown;
             }
             identity = reference;
         }
@@ -331,14 +685,28 @@ public static class PackageRoleMemberCallGraphQuery
         if (package is null || ambiguous)
         {
             package = null;
-            return MemberCallGraphExternalFocusMembership.Unknown;
+            return MatchPlatform(platformParticipants, identity)
+                ? baseline.Kind
+                    is PackageSupplyChainBaseline
+                        .SelfAndRegisteredEcosystems
+                    ? GraphScopeMembership.Inside
+                    : GraphScopeMembership.Outside
+                : GraphScopeMembership.Unknown;
         }
 
         return baseline.Classify(package.PackageId)
                 is PackageSupplyChainClassification.Baseline
-            ? MemberCallGraphExternalFocusMembership.Hub
-            : MemberCallGraphExternalFocusMembership.External;
+            ? GraphScopeMembership.Inside
+            : GraphScopeMembership.Outside;
     }
+
+    static bool MatchPlatform(
+        ImmutableArray<PackageAssemblyContextPlatformParticipant>
+            participants,
+        AssemblyReferenceIdentity definitionIdentity) =>
+        participants.Any(participant =>
+            participant.Participant.Assembly.Identity
+                .IsEquivalentTo(definitionIdentity));
 
     internal static (PackageRootIdentity? Package, bool Ambiguous)
         MatchPackage(

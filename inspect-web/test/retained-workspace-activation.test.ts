@@ -168,6 +168,19 @@ function preparedPosting(
 }
 
 class ActivationClient implements RetainedWorkspaceActivationClient {
+  readonly ecosystemRequests: Array<{
+    retainedDefinitionId: string;
+    label: string;
+    canonicalLocation: string;
+    ecosystemId: string;
+  }> = [];
+  readonly packageQueryRequests: Array<{
+    retainedDefinitionId: string;
+    label: string;
+    canonicalLocation: string;
+    packageId: string;
+    version: string;
+  }> = [];
   readonly packageSourceCredentialPayloads: Array<
     Readonly<Record<string, BrowserRetainedWorkspacePackageSourceCredential>>
   > = [];
@@ -280,6 +293,38 @@ class ActivationClient implements RetainedWorkspaceActivationClient {
           throw new Error(`Unexpected activation status: ${result.status}`);
       }
     });
+  }
+
+  preparePackageQueryWorkspaceDefinition(
+    retainedDefinitionId: string,
+    label: string,
+    canonicalLocation: string,
+    packageId: string,
+    version: string,
+  ): Promise<BrowserRetainedWorkspacePreparationResult> {
+    this.packageQueryRequests.push({
+      retainedDefinitionId,
+      label,
+      canonicalLocation,
+      packageId,
+      version,
+    });
+    return this.prepareRetainedWorkspaceDefinition();
+  }
+
+  prepareEcosystemWorkspaceDefinition(
+    retainedDefinitionId: string,
+    label: string,
+    canonicalLocation: string,
+    ecosystemId: string,
+  ): Promise<BrowserRetainedWorkspacePreparationResult> {
+    this.ecosystemRequests.push({
+      retainedDefinitionId,
+      label,
+      canonicalLocation,
+      ecosystemId,
+    });
+    return this.prepareRetainedWorkspaceDefinition();
   }
 
   prepareRetainedWorkspaceDefinitionWithCredentials(
@@ -496,6 +541,60 @@ test("posting records and acknowledges exact authority in order", async () => {
     "complete:realization-1",
     "acknowledge:realization-1",
   ]);
+});
+
+test("package-query definitions use their owner-issued preparation path", async () => {
+  const fixture = createFixture();
+  const definition = fixture.controller.retain({
+    label: "System.Text.Json@10.0.0",
+    canonicalLocation: "/packages/System.Text.Json/10.0.0#package",
+    packageQuery: {
+      packageId: "System.Text.Json",
+      version: "10.0.0",
+    },
+  });
+
+  const activation = fixture.controller.activate(definition.id);
+  fixture.client.activations[0]!.resolve({
+    status: "activated",
+    posting: posting(definition.id, "realization-query"),
+    failure: null,
+  });
+  await activation;
+
+  assert.deepEqual(fixture.client.packageQueryRequests, [{
+    retainedDefinitionId: definition.id,
+    label: "System.Text.Json@10.0.0",
+    canonicalLocation: "/packages/System.Text.Json/10.0.0#package",
+    packageId: "System.Text.Json",
+    version: "10.0.0",
+  }]);
+});
+
+test("Ecosystem definitions use their owner-issued preparation path", async () => {
+  const fixture = createFixture();
+  const definition = fixture.controller.retain({
+    label: "Aspire",
+    canonicalLocation: "/ecosystems/ecosystem.aspire",
+    ecosystem: {
+      id: "ecosystem.aspire",
+    },
+  });
+
+  const activation = fixture.controller.activate(definition.id);
+  fixture.client.activations[0]!.resolve({
+    status: "activated",
+    posting: posting(definition.id, "realization-ecosystem"),
+    failure: null,
+  });
+  await activation;
+
+  assert.deepEqual(fixture.client.ecosystemRequests, [{
+    retainedDefinitionId: definition.id,
+    label: "Aspire",
+    canonicalLocation: "/ecosystems/ecosystem.aspire",
+    ecosystemId: "ecosystem.aspire",
+  }]);
 });
 
 test("committed activation retains posting without replacing a newer route", async () => {

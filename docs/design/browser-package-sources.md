@@ -59,7 +59,8 @@ Package resolution and provenance
     |
     +-- NuGet v3 source client
     +-- NuGet Gallery source client
-    +-- Local-folder source client (future)
+    +-- Local-folder source client
+    +-- Exact-archive source client
 ```
 
 A source client supplies operations rather than exposing its transport shape:
@@ -107,6 +108,70 @@ endpoint, when the kind requires one
 
 Credentials, resolved resources, response caches, and runtime health are not
 descriptor fields.
+
+### Exact archive source
+
+An explicit `.nupkg` is one immutable package payload, not a feed. NuGetFetch
+admits it as an operation-scoped exact-archive source rather than asking
+PackageHouse to parse archives or asking a host to emulate a persistent local
+feed.
+
+The owner consumes:
+
+- one caller-supplied byte sequence;
+- one `PackageSourceAssociation`;
+- finite archive, central-directory, entry-count, and manifest bounds; and
+- caller cancellation.
+
+Before publishing a client, it snapshots the bytes, validates the bounded ZIP
+directory, selects exactly one root `.nuspec`, expands that manifest within its
+bound, parses it with DTD and external resolution prohibited, and derives one
+normalized `PackageSourceCoordinate` from the embedded ID and version. An empty,
+over-bound, malformed, manifest-less, ambiguously manifested, or
+coordinate-invalid archive produces a typed admission rejection. No source
+client exists after rejection.
+
+The source's producer key is:
+
+```text
+nfs-exact-archive-1.<64 lowercase hexadecimal SHA-256 digits>
+```
+
+The digest covers the complete admitted snapshot. Its inert display is
+`package archive sha256:<digest>`. Filename, local path, upload name, page
+origin, and host storage are not producer or package identity. Equal bytes
+therefore issue equal producer identities while distinct caller associations
+remain distinct configured-authority evidence.
+
+The client advertises only `Manifest` and `PackagePayload`. Those operations
+succeed only for the embedded exact coordinate and return `NotFound` for
+another coordinate. Search, prefix search, version enumeration, and symbol
+payload are `Unsupported`. Every package success returns a fresh caller-owned,
+read-only stream over the same admitted snapshot; manifest content is the
+bounded immutable copy selected during admission.
+
+The source is a leaf capability:
+
+```text
+PackageHouse -> Package Source operation -> exact-archive client -> snapshot
+```
+
+After publication, its runtime inputs are only the retained snapshot and the
+supplied operation context. A host may read a desktop file or Browser `File`
+into the input bytes, but source admission and operations are shared. The
+source is not a portable `PackageSourceDescriptor`, does not enter the
+browser's persistent source registry, does not participate in search or source
+precedence, and does not define package-source mapping or
+configured-authority composition.
+
+The published `PCLStorage` 1.0.2 fixture gates ordinary real-package admission;
+focused synthetic archives gate empty and malformed input, missing and
+duplicate root manifests, configured bounds, exact-coordinate mismatch,
+unsupported capabilities, snapshot identity, and fresh payload ownership.
+They also gate typed deadline outcomes and cancellation through payload
+consumption. PackageHouse, Library Address, CLI, and Browser adoption are
+separately owned by #8672 and begin with the exact-source implementation
+tracked by #8673.
 
 ## NuGetFetch typed source-result identity
 

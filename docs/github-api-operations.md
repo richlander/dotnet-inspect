@@ -1,8 +1,8 @@
 # GitHub API operations
 
-Practical notes for using `gh` and `gh api` correctly when administering PRs
-and issues. [PR and CI discipline](../AGENTS.md#pr-and-ci-discipline) states
-the binding summary; this document owns the exact commands.
+This document owns the repository's exact `gh` and `gh api` rules for
+administering pull requests and issues. [Repository workflow](repository-workflow.md#pull-requests)
+routes publication through these operations.
 
 ## Passing file content as a field
 
@@ -61,4 +61,6 @@ gh api -X PUT "repos/{owner}/{repo}/pulls/$pr_number/merge-async" \
 When using GraphQL directly, set `expectedHeadOid` on `MergePullRequestInput`;
 never omit it. Treat a mismatch as head movement and return to candidate
 formation. If an auto-merge request exists from earlier workflow state, disable
-it before a recovery mutation or head-moving push.
+it before a recovery mutation or head-moving push; a conflict-recovery push
+made while the API cannot be read proceeds anyway and names the request, per
+[Probe the live base locally, first](github-status-queries.md#probe-the-live-base-locally-first).

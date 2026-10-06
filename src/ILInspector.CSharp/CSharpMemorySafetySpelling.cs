@@ -438,76 +438,42 @@ internal static class CSharpMemorySafetySpelling
 
     static bool PropertyAccessibilityIsRepresentable(
         string? propertyAccessibility,
-        IReadOnlyList<ApiAccessor> accessors)
-    {
-        string property = propertyAccessibility ?? "public";
-        if (!IsCSharpAccessibility(property))
-            return false;
-
-        ApiAccessor[] modified =
-        [
-            .. accessors.Where(
-                static accessor => accessor.Accessibility is not null),
-        ];
-        if (modified.Length == 0)
-            return true;
-        if (accessors.Count != 2 || modified.Length != 1)
-            return false;
-
-        return IsStrictlyMoreRestrictive(
-            modified[0].Accessibility!,
-            property);
-    }
+        IReadOnlyList<ApiAccessor> accessors) =>
+        CSharpAccessorDeclarationPolicy
+            .PropertyAccessibilityIsRepresentable(
+                propertyAccessibility,
+                accessors.Select(
+                        static accessor => accessor.Accessibility)
+                    .ToArray());
 
     static bool PropertyDeclarationModifiersAreRepresentable(
         ApiType type,
         ApiMember member)
     {
-        if (type.Kind is not ("class" or "struct" or "interface"))
+        CSharpContainingDeclarationKind? containingKind =
+            type.Kind switch
+            {
+                "class" => CSharpContainingDeclarationKind.Class,
+                "struct" => CSharpContainingDeclarationKind.Struct,
+                "interface" => CSharpContainingDeclarationKind.Interface,
+                _ => null,
+            };
+        if (containingKind is null)
             return false;
-        if (member.Accessibility == "private"
-            && (member.IsVirtual
-                || member.IsAbstract
-                || member.IsOverride))
-        {
-            return false;
-        }
 
-        if (member.IsStatic)
-        {
-            if (member.IsOverride || member.IsSealed)
-                return false;
-            if (type.Kind == "interface")
-                return member.IsVirtual && member.IsAbstract;
-            return !member.IsVirtual && !member.IsAbstract;
-        }
-
-        if (member.IsAbstract && !member.IsVirtual
-            || member.IsOverride && !member.IsVirtual
-            || member.IsSealed && (!member.IsOverride || member.IsAbstract))
-        {
-            return false;
-        }
-
-        return type.Kind switch
-        {
-            "struct" =>
-                !member.IsVirtual
-                && !member.IsAbstract
-                && !member.IsOverride
-                && !member.IsSealed,
-            "interface" =>
-                member.IsVirtual
-                && member.IsAbstract
-                && !member.IsOverride
-                && !member.IsSealed,
-            _ =>
-                !(type.IsStatic || type.IsAbstract && type.IsSealed)
-                && (!member.IsAbstract || type.IsAbstract)
-                && (!type.IsSealed
-                    || !member.IsVirtual
-                    || member.IsOverride),
-        };
+        return CSharpAccessorDeclarationPolicy
+            .DeclarationModifiersAreRepresentable(
+                containingKind.Value,
+                type.IsStatic || type.IsAbstract && type.IsSealed,
+                type.IsAbstract,
+                type.IsSealed,
+                member.Accessibility,
+                new(
+                    member.IsStatic,
+                    member.IsVirtual,
+                    member.IsAbstract,
+                    member.IsOverride,
+                    member.IsSealed));
     }
 
     static bool PropertyTypeShapeIsRepresentable(ApiTypeShape shape)
@@ -583,41 +549,9 @@ internal static class CSharpMemorySafetySpelling
     static bool IsAtLeastAsAccessibleAs(
         string candidate,
         string required) =>
-        IsCSharpAccessibility(candidate)
-        && IsCSharpAccessibility(required)
-        && (candidate == required
-            || IsStrictlyMoreRestrictive(required, candidate));
-
-    static bool IsCSharpAccessibility(string accessibility) =>
-        accessibility is
-            "public"
-            or "protected internal"
-            or "protected"
-            or "internal"
-            or "private protected"
-            or "private";
-
-    static bool IsStrictlyMoreRestrictive(
-        string accessor,
-        string property) =>
-        property switch
-        {
-            "public" => accessor is
-                "protected internal"
-                or "protected"
-                or "internal"
-                or "private protected"
-                or "private",
-            "protected internal" => accessor is
-                "protected"
-                or "internal"
-                or "private protected"
-                or "private",
-            "protected" => accessor is "private protected" or "private",
-            "internal" => accessor is "private protected" or "private",
-            "private protected" => accessor is "private",
-            _ => false,
-        };
+        CSharpAccessorDeclarationPolicy.IsAtLeastAsAccessibleAs(
+            candidate,
+            required);
 
     internal static bool IsStandaloneEnumMember(
         ApiType type,

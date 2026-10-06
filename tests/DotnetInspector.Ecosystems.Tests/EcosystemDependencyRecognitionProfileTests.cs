@@ -1,3 +1,6 @@
+using DotnetInspector.Packages;
+using ILInspector.Metadata;
+
 namespace DotnetInspector.Ecosystems.Tests;
 
 public sealed class EcosystemDependencyRecognitionProfileTests
@@ -8,9 +11,10 @@ public sealed class EcosystemDependencyRecognitionProfileTests
         EcosystemDependencyRecognitionProfile profile =
             EcosystemPackCatalog.DependencyRecognitionProfile;
 
-        Assert.Equal(8, profile.Entries.Length);
-        Assert.Equal(18, profile.PackageAssociationCount);
-        Assert.Equal(23, profile.AssemblyAssociationCount);
+        Assert.Equal(7, profile.Entries.Length);
+        Assert.Equal(15, profile.PackageAssociationCount);
+        Assert.Equal(20, profile.AssemblyAssociationCount);
+        Assert.Equal(15, profile.AssemblyEvidenceCount);
         Assert.Equal(
             [
                 EcosystemPackIds.Runtime,
@@ -18,7 +22,6 @@ public sealed class EcosystemDependencyRecognitionProfileTests
                 EcosystemPackIds.AspNetCore,
                 EcosystemPackIds.Aspire,
                 EcosystemPackIds.AI,
-                EcosystemPackIds.Azure,
                 EcosystemPackIds.Blazor,
                 EcosystemPackIds.Maui,
             ],
@@ -41,6 +44,37 @@ public sealed class EcosystemDependencyRecognitionProfileTests
                 && association.Kind
                     == EcosystemDependencyAssociationKind.Exact
                 && association.Value == "netstandard");
+        Assert.Contains(
+            runtime.AssemblyEvidence,
+            evidence =>
+                evidence.Package.PackageId == "Microsoft.NETCore.App.Ref"
+                && evidence.Package.Version == "10.0.0"
+                && evidence.AssetPath == "ref/net10.0/System.Net.Http.dll"
+                && evidence.Assembly.Name == "System.Net.Http");
+
+        // AI recognizes its lab-published roots exactly, so community
+        // packages such as Anthropic.SDK stay unrecognized.
+        EcosystemDependencyProfileEntry ai = Assert.Single(
+            profile.Entries,
+            entry => entry.Ecosystem.Id == EcosystemPackIds.AI);
+        Assert.Equal(
+            [
+                "PackageId Family Microsoft.Extensions.AI",
+                "AssemblyName Family Microsoft.Extensions.AI",
+                "PackageId Exact OpenAI",
+                "PackageId Exact Anthropic",
+                "PackageId Exact Google.GenAI",
+                "PackageId Exact ModelContextProtocol",
+                "PackageId Exact Microsoft.Agents.AI",
+                "AssemblyName Exact OpenAI",
+                "AssemblyName Exact Anthropic",
+                "AssemblyName Exact Google.GenAI",
+                "AssemblyName Exact ModelContextProtocol",
+                "AssemblyName Exact Microsoft.Agents.AI",
+            ],
+            ai.Associations.Select(
+                association =>
+                    $"{association.Domain} {association.Kind} {association.Value}"));
     }
 
     [Fact]
@@ -53,17 +87,18 @@ public sealed class EcosystemDependencyRecognitionProfileTests
         var profile = new EcosystemDependencyRecognitionProfile(
             EcosystemPackCatalog.Discover(),
             [
-                new(EcosystemPackIds.Azure, mutable),
+                new(EcosystemPackIds.Blazor, mutable, []),
                 new(
                     EcosystemPackIds.Runtime,
-                    [EcosystemDependencyAssociation.ExactAssemblyName("mscorlib")]),
+                    [EcosystemDependencyAssociation.ExactAssemblyName("mscorlib")],
+                    []),
             ]);
 
         mutable[0] =
             EcosystemDependencyAssociation.PackageIdFamily("Replacement");
 
         Assert.Equal(EcosystemPackIds.Runtime, profile.Entries[0].Ecosystem.Id);
-        Assert.Equal(EcosystemPackIds.Azure, profile.Entries[1].Ecosystem.Id);
+        Assert.Equal(EcosystemPackIds.Blazor, profile.Entries[1].Ecosystem.Id);
         Assert.Equal("Contoso", profile.Entries[1].Associations[0].Value);
     }
 
@@ -79,7 +114,8 @@ public sealed class EcosystemDependencyRecognitionProfileTests
                 [
                     new(
                         unknown,
-                        [EcosystemDependencyAssociation.PackageIdFamily("Contoso")]),
+                        [EcosystemDependencyAssociation.PackageIdFamily("Contoso")],
+                        []),
                 ]));
 
         Assert.Throws<ArgumentException>(() =>
@@ -87,11 +123,13 @@ public sealed class EcosystemDependencyRecognitionProfileTests
                 EcosystemPackCatalog.Discover(),
                 [
                     new(
-                        EcosystemPackIds.Azure,
-                        [EcosystemDependencyAssociation.PackageIdFamily("Azure")]),
+                        EcosystemPackIds.Blazor,
+                        [EcosystemDependencyAssociation.PackageIdFamily("Azure")],
+                        []),
                     new(
-                        EcosystemPackIds.Azure,
-                        [EcosystemDependencyAssociation.AssemblyNameFamily("Azure")]),
+                        EcosystemPackIds.Blazor,
+                        [EcosystemDependencyAssociation.AssemblyNameFamily("Azure")],
+                        []),
                 ]));
 
         Assert.Throws<ArgumentException>(() =>
@@ -99,13 +137,14 @@ public sealed class EcosystemDependencyRecognitionProfileTests
                 EcosystemPackCatalog.Discover(),
                 [
                     new(
-                        EcosystemPackIds.Azure,
+                        EcosystemPackIds.Blazor,
                         [
                             EcosystemDependencyAssociation.PackageIdFamily(
                                 "Azure"),
                             EcosystemDependencyAssociation.PackageIdFamily(
                                 "azure"),
-                        ]),
+                        ],
+                        []),
                 ]));
 
         Assert.Throws<ArgumentException>(() =>
@@ -113,4 +152,85 @@ public sealed class EcosystemDependencyRecognitionProfileTests
         Assert.Throws<ArgumentException>(() =>
             EcosystemDependencyAssociation.ExactAssemblyName(" "));
     }
+
+    [Fact]
+    public void AssemblyEvidenceRequiresAnExactUnqualifiedPackageAndAssetPath()
+    {
+        Assert.Throws<ArgumentNullException>(() => Evidence(
+            new PackageCoordinate("Contoso.Widget"),
+            "lib/net10.0/Contoso.Widget.dll"));
+        Assert.Throws<ArgumentException>(() => Evidence(
+            new PackageCoordinate("Contoso.Widget", "[1.0.0]"),
+            "lib/net10.0/Contoso.Widget.dll"));
+        Assert.Throws<ArgumentException>(() => Evidence(
+            new PackageCoordinate(
+                "Contoso.Widget",
+                "1.0.0",
+                Framework: "net10.0"),
+            "lib/net10.0/Contoso.Widget.dll"));
+        Assert.Throws<ArgumentException>(() => Evidence(
+            new PackageCoordinate(
+                "Contoso.Widget",
+                "1.0.0",
+                RuntimeIdentifier: "linux-x64"),
+            "lib/net10.0/Contoso.Widget.dll"));
+        Assert.Throws<ArgumentException>(() => Evidence(
+            new PackageCoordinate("Contoso.Widget", "1.0.0"),
+            "/lib/net10.0/Contoso.Widget.dll"));
+        Assert.Throws<ArgumentException>(() => Evidence(
+            new PackageCoordinate("Contoso.Widget", "1.0.0"),
+            "lib\\net10.0\\Contoso.Widget.dll"));
+        Assert.Throws<ArgumentException>(() => Evidence(
+            new PackageCoordinate("Contoso.Widget", "1.0.0"),
+            "lib/../Contoso.Widget.dll"));
+        Assert.Throws<ArgumentException>(() => Evidence(
+            new PackageCoordinate("Contoso.Widget", "1.0.0"),
+            "lib/net10.0/Contoso.Other.dll"));
+    }
+
+    [Fact]
+    public void ProfileRejectsUnassociatedAndDuplicateAssemblyEvidence()
+    {
+        EcosystemAssemblyDefinitionEvidence evidence = Evidence(
+            new PackageCoordinate("Contoso.Widget", "1.0.0"),
+            "lib/net10.0/Contoso.Widget.dll");
+
+        Assert.Throws<ArgumentException>(() =>
+            new EcosystemDependencyRecognitionProfile(
+                EcosystemPackCatalog.Discover(),
+                [
+                    new(
+                        EcosystemPackIds.Blazor,
+                        [
+                            EcosystemDependencyAssociation.ExactAssemblyName(
+                                "Contoso.Other"),
+                        ],
+                        [evidence]),
+                ]));
+
+        Assert.Throws<ArgumentException>(() =>
+            new EcosystemDependencyRecognitionProfile(
+                EcosystemPackCatalog.Discover(),
+                [
+                    new(
+                        EcosystemPackIds.Blazor,
+                        [
+                            EcosystemDependencyAssociation.ExactAssemblyName(
+                                "Contoso.Widget"),
+                        ],
+                        [evidence, evidence]),
+                ]));
+    }
+
+    private static EcosystemAssemblyDefinitionEvidence Evidence(
+        PackageCoordinate package,
+        string assetPath) =>
+        new(
+            package,
+            assetPath,
+            new AssemblyReferenceIdentity(
+                "Contoso.Widget",
+                new Version(1, 0, 0, 0),
+                null,
+                "0011223344556677"));
 }

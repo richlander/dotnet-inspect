@@ -34,27 +34,6 @@ public static class OptionParsers
         };
     }
 
-    public static TipLevel ParseTipLevel(string? value, bool optionPresent)
-    {
-        // Bare -T (no value) means quiet
-        if (optionPresent && string.IsNullOrEmpty(value))
-            return TipLevel.Quiet;
-
-        // --tips flag takes precedence, then DOTNET_INSPECT_TIPS env var, then default
-        if (string.IsNullOrEmpty(value))
-            value = Environment.GetEnvironmentVariable("DOTNET_INSPECT_TIPS");
-        if (string.IsNullOrEmpty(value)) return TipLevel.Minimal;
-
-        var v = value.TrimStart(':').ToLowerInvariant();
-        return v switch
-        {
-            "q" or "quiet" => TipLevel.Quiet,
-            "m" or "minimal" => TipLevel.Minimal,
-            "d" or "detailed" => TipLevel.Detailed,
-            _ => TipLevel.Minimal
-        };
-    }
-
     public static HashSet<string>? ParseSectionList(string? value)
     {
         if (string.IsNullOrEmpty(value)) return null;

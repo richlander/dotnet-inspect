@@ -21,6 +21,18 @@ public sealed class RealizedPackageDependencySubject
     public PackageContentGenerationIdentity ContentGeneration { get; }
 
     public PackageRootSelectionIdentity Selection { get; }
+
+    /// <summary>
+    /// Tests whether one exact compile-selection receipt produced this
+    /// realized Package dependency root.
+    /// </summary>
+    public bool MatchesCompileSelection(
+        PackageCompileAssetSelectionReceipt receipt)
+    {
+        ArgumentNullException.ThrowIfNull(receipt);
+        return ReferenceEquals(ContentGeneration, receipt.Generation)
+            && RootRequest.MatchesCompileSelectionRequest(receipt);
+    }
 }
 
 /// <summary>

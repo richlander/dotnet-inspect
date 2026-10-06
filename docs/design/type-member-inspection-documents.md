@@ -116,7 +116,7 @@ static class System.Text.Json.JsonSerializer
 │  └─ System.Object
 ├─ Properties (1)
 │  └─ bool IsReflectionEnabledByDefault { get; }
-└─ Methods (10 logical, 107 overloads)
+└─ Methods (107)
    ├─ Deserialize (40 overloads)
    ├─ DeserializeAsync (10 overloads)
    ├─ DeserializeAsyncEnumerable (8 overloads)
@@ -182,7 +182,7 @@ The design composes established repository contracts:
 | [DocumentationHouse](documentation-house.md) | Each documentation outcome has one exact library-scoped subject; multi-subject execution is only a bounded optimization over independent exact requests. |
 | [SourceHouse](source-house.md) | Authored and decompiled source remain typed producer attempts under explicit source and PDB policy. |
 | [Inspection operation composition](inspection-operation-composition.md) | Hosts lower gestures to typed requests and consume one completed host-neutral envelope. |
-| [Selective implementation metric Analysis](library-body-analysis-service.md) | Requested evidence, effective evidence, executable prerequisites, and actual producer participation remain distinct. |
+| [Selective implementation metric Analysis](library-body-analysis-service.md) | Requested metrics, required canonical facts, executable work stages, and actual producer participation remain distinct. |
 
 PR
 [#8411](https://github.com/richlander/dotnet-inspect/pull/8411)
@@ -278,21 +278,35 @@ documents.
 
 ### TypeDocument
 
-A `TypeDocument` describes one exact resolved Type. Its child Rows are
-lightweight Member-group shapes, not embedded `MemberGroupDocument` or
-`MemberDocument` values.
+A `TypeDocument` describes one exact resolved Type. Its declaration child Rows
+are lightweight Member-group shapes, not embedded `MemberGroupDocument` or
+`MemberDocument` values. That declaration population contains only members
+physically owned by the Type.
 
-One Member-group row binds a canonical name and member category to one
+The subject's detached declaration signature retains each generic parameter's
+inert name, metadata index, attributes, and the declaring-name segment that
+introduces it. This lets hosts present exact shapes such as
+`Outer<T>.Inner<U>` without reopening Metadata or retaining the eager rich API
+surface. Base/interface constraint type identities remain separate Metadata
+views rather than implicit Type-document population.
+
+One declared Member-group row binds a canonical name and member category to one
 non-empty exact declaration population. The grouping key must retain every
-owner-issued distinction needed for unambiguous drill-down. It must not merge
-ordinary declared Members with attached extensions merely because their
-display names match. Receiver classification is not part of Member-group
-identity: one declared family may contain both ordinary static and extension
-declarations.
+owner-issued distinction needed for unambiguous drill-down. Receiver
+classification is not part of Member-group identity: one declared family may
+contain both ordinary static and extension declarations.
 
 The row may carry requested nested measurements such as exact-overload Count.
 Those measurements describe its child population without constructing child
 Rows.
+
+Receiver-targeted extensions are a separately requested contextual population,
+not declarations of the Type. A host may request declaration and extension
+populations concurrently and present them together, but their completion and
+failure evidence remain independent. Inspect Web paints the completed
+declaration population without waiting for workspace-wide extension discovery;
+a late, incomplete, or failed extension result does not revise the declaration
+result.
 
 ### MemberGroupDocument
 
@@ -590,6 +604,92 @@ The parent population binding and each child population binding remain
 explicit. An aggregate such as "107 overloads" states which returned
 Member-group rows it covers and does not substitute for any child's Count.
 
+### Composition Count
+
+A `TypeDocument` request may ask for its composition: a set of exact Counts of
+declarations (actual members, so each overload counts). A composition reports
+no Member-group Count. An intent's declaration Count is the total of the
+nested exact-overload Counts across its completely drained Member-group Rows,
+with a single-declaration row counting 1. The request's
+[spelling](api-population-scope.md#spelling-within-api-visibility-scope)
+decides what one declaration is: a composed C# declaration, or one metadata
+record. Rows and every Count of one request use the same spelling. Under
+metadata spelling, Member-group rows group records by their metadata name, so
+an accessor method such as `get_Current` forms its own row.
+
+- **Accessibility Counts** cover every bucket, whatever `accessibility` or
+  `receiver` term the request itself carries. The picker therefore stays
+  truthful after the reader selects another bucket. Each bucket's Count is
+  the declaration Count of `accessibility = <bucket>` under the request's
+  hidden admission: hidden
+  declarations are counted only when the request admits them, as `--all`
+  does. A bucket with no declarations is published as 0.
+- **Receiver Counts** cover the declarations the request's own `accessibility`
+  term admits, one per `receiver` form (`static`, `this`, and `extension`),
+  with an empty form published as 0. Each is the declaration Count of that
+  intent plus the `receiver` value.
+
+The exact Type Member population also issues selector facet Counts for the
+request's selected accessibility population. **Kind Counts** publish every
+present logical Member kind and its exact declaration Count. **Trait Counts**
+publish `all`, `static`, `instance`, `virtual`, `interface`, and `extensions`;
+unavailable traits are published as 0. Traits may overlap: a virtual explicit
+interface declaration contributes to both `virtual` and `interface`.
+`interface` means explicit interface implementations only, including composed
+property and event declarations whose accessors carry explicit MethodImpl
+evidence. The retained fact requires a private MethodImpl body; public
+MethodImpl bodies used for class overrides or implicit static-interface
+implementations do not qualify. It does not claim implicit interface
+correspondence. Extensions take precedence over metadata-static, so `static`,
+`instance`, and `extensions` partition the selected population while the other
+traits remain orthogonal. These facets are owner-issued from the exact
+population before the Browser boundary; the Browser does not derive an exact
+facet Count from loaded rows. While the exact population is unavailable, a
+host may retain the active Kind and show a degraded count from applicable
+loaded declarations. When the requested spelling or accessibility has no such
+fallback, the host omits the numeric value rather than converting unavailable
+to zero. Selecting a Trait narrows declarations within each retained Member
+group: a mixed overload family presents only its matching declarations, so the
+visible declaration Count agrees with the selected Trait Count.
+
+For example, System.Text.Json 10.0.0 `JsonDocument` has:
+
+| Projection | Declarations |
+| --- | ---: |
+| `accessibility = public` | 16 |
+| `accessibility = protected` | 0 |
+| `accessibility = internal` | 44 |
+| `accessibility = private` | 27 |
+
+Each Count is an ordinary Count request with its own population binding. The
+producer computes the whole composition in one pass over compact metadata,
+like nested Count. It must not run one Rows or Count operation per projection
+value, or construct rows to count them.
+
+Accessibility Counts partition the declaration population: `JsonDocument`'s
+82 declarations are 11 + 0 + 44 + 27. Its five same-image receiver-targeted
+extensions belong to the separate contextual population. A family whose
+declarations span buckets,
+such as `Parse`, contributes to each of those buckets' Counts.
+
+The two spellings count the same Type differently. System.Text.Json 10.0.0
+`JsonElement.ArrayEnumerator` has:
+
+| Projection | C# spelling | Metadata spelling |
+| --- | ---: | ---: |
+| `accessibility = public` | 8 | 6 |
+| `accessibility = protected` | 0 | 0 |
+| `accessibility = internal` | 1 | 1 |
+| `accessibility = private` | 3 | 7 |
+| every bucket | 12 | 14 |
+
+Under C# spelling, the explicit `IEnumerator.Current` is one `public`
+declaration, and the explicit `IEnumerable.GetEnumerator` implementations are
+`public`. Under metadata spelling, the private `IEnumerator.Current` property
+record, its private `IEnumerator.get_Current` method, and the two private
+`GetEnumerator` implementations count in `private`, while the public
+`get_Current` accessor of `Current` is its own `public` record.
+
 ## Type Members row space
 
 `TypeDocument` may expose several declared Member-group row sets, such as
@@ -600,8 +700,7 @@ A Member-group key includes enough typed information to preserve:
 
 - canonical Member name;
 - Member category;
-- exact containing or receiver Type context;
-- declared versus attached-extension role; and
+- exact containing Type context; and
 - the exact child-population identity.
 
 Receiver classification belongs to the exact child declarations. A
@@ -624,11 +723,27 @@ row intents with different child-population bindings and nested Counts.
 Unqualified `JsonSerializer.Deserialize` has 40 overloads;
 `receiver = extension` has 15, and `receiver != extension` has 25.
 
+The Type query binds `accessibility` the same way: as a membership projection
+over exact child declarations before Member-group formation. The owner-issued
+bucket of each declaration is defined in
+[API and implementation population scope](api-population-scope.md#accessibility-within-api-visibility-scope).
+The default projection is `accessibility = public`. For example, in
+System.Text.Json 10.0.0:
+
+- `JsonDocument.Parse` has 5 overloads under `accessibility = public` and 2
+  under `accessibility = private`;
+- the family has 7 overloads with every bucket selected; and
+- it is one Member-group row under each of those intents.
+
+A family whose declarations fall in several buckets is therefore a row in
+each of those buckets.
+
 Other distinctions needed for exact drill-down remain in the owner-issued
 Member-group key. A renderer may visually group distinct Member-group rows
 only as an additional projection.
 
-Attached extension Member-group rows:
+An independently requested contextual extension row space may be presented
+beside the declared rows. Its Member-group rows:
 
 - count as children of the receiver Type;
 - retain a distinct owner-issued attached-extension role;
@@ -638,7 +753,8 @@ Attached extension Member-group rows:
 
 An attached-extension family may itself contain only extension declarations,
 but that follows from its exact children rather than from a special scalar
-receiver field on Member-group identity.
+receiver field on Member-group identity. Its Count, Rows, continuation,
+completion, and failure evidence remain separate from every declared row set.
 
 ## Member Overloads row space
 
@@ -662,9 +778,88 @@ Receiver classification is exhaustive:
 
 Extension takes precedence because extension methods are Metadata-static.
 
+One exact-overload row intent filters accessibility and receiver before either
+terminal runs. Accessibility uses the product buckets `public`, `protected`,
+`internal`, `private`, or `all`; composite protected forms belong to the
+`protected` bucket. Receiver uses `this`, `static`, `extension`, or `all`.
+Hidden admission is independent of accessibility: the default excludes hidden
+declarations, explicit hidden admission includes them, and accessibility
+`all` alone does not include them. The default intent is `public`
+accessibility with all receiver forms and without hidden declarations.
+Count and Rows over one request share that intent, and continuation binding
+includes accessibility, receiver, and hidden admission so a later segment
+cannot silently change membership.
+The binding also carries the exact declaring assembly identity and MVID so a
+later segment cannot continue against a different assembly or generation.
+
 Exact overload Rows are the join currency for optional documentation
 attachments and overload-scoped metrics. Those producers may not add, remove,
 reorder, or replace rows.
+
+### Exact-overload analysis model
+
+Metadata owns one exact-overload analysis model. LINQ, NLinq, QuerySpace
+Planner, and any future executor are projections of that model; they do not
+define separate populations and compare only their final cardinality.
+
+The model guarantees declaration fidelity for assemblies produced by Roslyn
+and bounded containment for every admitted assembly. Containment does not
+invent C# semantics for arbitrary IL. A non-Roslyn or malformed shape that
+cannot satisfy the model returns a typed unsupported, incomplete, or failed
+outcome rather than a plausible partial population.
+
+One execution has three phases:
+
+1. **Prepare.** Resolve one structured Type-definition name to one exact
+   TypeDef. Validate and index MethodSemantics and other cross-table
+   relationships that touch that Type. Preparation is bounded, generation-
+   specific, and reusable by every terminal in the execution. A single-subject
+   request does not construct a whole-image Type-definition index; such an
+   index is justified only when one generation will answer multiple Type
+   subjects.
+2. **Select.** Enumerate only the resolved TypeDef's MethodDefs in metadata
+   order. Apply exact metadata name and ordinary-method membership, validated
+   accessor exclusion, effective accessibility, receiver classification, and
+   hidden admission. Cheap in-place metadata comparisons precede attribute or
+   signature work, but no optimization may skip validation required to settle
+   the population.
+3. **Close.** Count folds selected units without constructing result rows.
+   Rows retains only the requested handle window and then projects display
+   signature, canonical identity, fingerprint, accessibility, and receiver.
+   Combined Count and Rows share one selection pass.
+
+The Roslyn fidelity contract includes:
+
+- structured declaring-Type and exact metadata-name identity;
+- ordinary methods distinct from constructors, operators, accessors, and
+  explicit-interface declarations;
+- MethodSemantics validation before accessor exclusion;
+- effective accessibility, including interface implementation evidence;
+- exhaustive `this`, `static`, and `extension` classification, with extension
+  taking precedence over metadata-static;
+- hidden-declaration admission independent of accessibility;
+- stable metadata order; and
+- the same canonical signature, fingerprint, and row identity used by exact
+  Member inspection.
+
+The arbitrary-assembly containment contract includes:
+
+- SRM-only inspection with no inspected-assembly loading or execution;
+- bounded metadata, relationship, candidate, signature, and retained-text
+  work;
+- validation before trusting cross-table ownership or role claims;
+- visible typed failure for malformed or exhausted work; and
+- diagnostics that do not reproduce hostile artifact text.
+
+A performance scorecard first constructs this owner-issued model, then
+projects it into idiomatic LINQ, NLinq, and Planner executions. Every column
+receives the same prepared source, predicate, row projector, bounds, and
+terminal. The scorecard reports shared preparation, terminal-kernel, and
+composed costs separately. When the QuerySpace enablement scorecard adds an
+Old column, that column is the exact pre-QuerySpace production path being
+replaced, not eager whole-API extraction or another historical
+implementation. Answer equivalence covers outcome kind, completion, Count,
+ordered row identity, and failure, not only cardinality.
 
 ## Documentation attachment
 
@@ -719,6 +914,41 @@ Source remains an explicit exact-subject attachment owned by SourceHouse.
 `TypeDocument` or `MemberDocument` may request source for its exact subject.
 Returned exact-overload Rows may request independently settled source
 attachments under an explicit row-attachment policy.
+
+An exact Member source request uses the `MemberAnchor` and MethodDef token
+issued by the Metadata population row. The document retains that identity;
+hosts do not reconstruct it from display signatures, names, or digests.
+Composition validates that the SourceHouse result corresponds to the same
+request and Library assembly identity.
+
+The CLI resolves its API-projected `Name:N` or `Name~digest` through the
+selected API Member and passes its Metadata-issued MethodDef token to the
+document selector. Display-order overload ordinals are never reinterpreted as
+Metadata baseline ordinals. The exact detail displays that selected Member's
+API digest so copying it round-trips through the CLI selector; it is not a
+Metadata fingerprint. An explicit `--row` for an exact Member source part
+still selects the single Source Locations row and rejects any other row
+number. A source-only request neither requests nor materializes compiled
+documentation; the two attachments settle independently.
+
+When a Browser package view is backed by a reference assembly, the host sends
+the Metadata-issued baseline ordinal from that surface population. Web Core
+resolves the corresponding Metadata fingerprint on the surface Library, then
+selects the implementation `MemberDocument` by that fingerprint. This preserves
+exact declaration identity when reference and implementation MethodDef tokens
+differ without treating the API-projected anchor digest as Metadata identity.
+Platform views whose population and source share one participant may select by
+the same Metadata-issued ordinal directly.
+
+Source non-success remains an attached typed SourceHouse outcome. Rejection or
+unavailability does not become null source and does not turn an otherwise
+available Member document into a success-shaped empty attachment.
+The completed inspection envelope remains intact across host adaptation:
+cleanup and other owner-issued diagnostics are projected into the Browser
+source contract and reported through the host diagnostic channel.
+If surface selection or attached source fails, the Browser returns an explicit
+failed source result with the completed envelope diagnostics; it does not
+materialize the implementation after failed surface selection.
 
 Type-level or Member-group source aggregation requires its own focused owner;
 this design does not infer one source document from several declarations or
@@ -798,7 +1028,7 @@ contract as follows:
   population;
 - it does not expose QuerySpace Rows or Count, mirror the overload population,
   or repeat inherited Member predicates and ordering;
-- an unqualified request is rejected because no metric evidence was requested,
+- an unqualified request is rejected because no metric was requested,
   not because a metric Count lacks a predicate; and
 - hosts join results to settled overload Rows by exact identity, family
   binding, and generation, suppressing stale publication.
@@ -812,11 +1042,11 @@ population queries.
 
 The selective Analysis owner remains responsible for:
 
-- requested versus effective evidence;
+- requested metrics versus required canonical facts;
 - semantic and executable prerequisites;
 - physical-body scope and logical/physical correspondence;
 - work bounds;
-- per-evidence completion; and
+- per-metric completion; and
 - actual producer-participation receipts.
 
 Its sibling-relationship result must identify exact Member endpoints and state
@@ -921,6 +1151,63 @@ Share projects the subject and portable semantic request under its owner. It
 does not serialize acquired source, House receipts, live Workspace state,
 credentials, or source continuations.
 
+## QuerySpace host boundary
+
+[Query Space Composition](query-space-composition.md#owner-and-exact-claim)
+owns the closed host-neutral query space, structural request lowering,
+owner-issued plans, terminal semantics, and optional generated consumer API.
+[Inspection operation
+composition](inspection-operation-composition.md#host-agreement-and-divergence)
+owns the sequence from host gesture through one subject-specific semantic
+request to a completed typed result. This design adopts those contracts for the
+Type/Member document family; it does not redefine them.
+
+QuerySpace reaches each host as a typed capability and request boundary, not as
+host-owned query logic:
+
+```text
+CLI option / Browser gesture
+  -> host-owned syntax, disclosure, and normalization
+  -> owner-issued Type or Member request construction
+  -> QuerySpace-backed host-neutral document operation
+  -> InspectionEnvelope<TContent>
+  -> host-owned interaction and presentation
+```
+
+The host may choose which admitted controls to expose and which explicit values
+to request. Omission of a Browser control lowers through the same owner-issued
+factory to the declared empty or default semantic intent; it does not create a
+Browser-specific population. CLI aliases, implicit routing, and display
+defaults likewise settle before execution as explicit semantic request values.
+
+The host-neutral operation owns:
+
+- QuerySpace identities, row-set identities, facets, operators, result
+  contracts, and request validation;
+- Rows, Count, ordering, semantic row selection, continuation, and completion;
+- nested composition such as Type Member-group Rows carrying requested
+  exact-overload Counts without constructing exact-overload Rows;
+- delegation or specialization that lets the question reach acquisition and
+  producer work; and
+- the typed Content, Share, diagnostics, and failure states returned in the
+  completed envelope.
+
+CLI and Browser adapters own Workspace lifetime, capability binding, transport
+mechanics, scheduling, navigation, and rendering. They do not independently
+enumerate, filter, order, count, limit, or regroup a declaration population
+that the shared request assigns to QuerySpace. Browser DTOs may mechanically
+carry admitted request values and completed results, but TypeScript does not
+resolve QuerySpace vocabulary or reconstruct a semantic plan. A rendered-line
+or host-chrome limit remains presentation after the typed result; it is not a
+QuerySpace row limit.
+
+The preferred production surface is subject-specific rather than a raw
+general-purpose QuerySpace API. A Type or Member request exposes the admitted
+semantic controls and lowers them through owner-issued factories or generated
+wiring. Both hosts call the same operation and consume the same envelope. The
+underlying descriptor remains available for discovery and explanation without
+requiring either host to duplicate its vocabulary.
+
 ## Sections and presentation
 
 Sections project completed documents; they do not invoke another House,
@@ -998,15 +1285,16 @@ The implementation must preserve at least:
   DocumentationHouse;
 - a bounded overload Rows request attaches documentation only to returned
   exact rows;
-- same-named ordinary and attached-extension families remain distinct;
+- same-named ordinary and attached-extension families remain distinct when a
+  host presents the independently completed populations together;
 - `JsonSerializer.Deserialize` remains one declared MemberGroup containing
   25 ordinary static and 15 extension overloads;
 - `receiver = extension` preserves that Member-group identity with nested
   Count 15, while `receiver != extension` preserves it with nested Count 25;
 - ordinary static, instance, and extension exact rows are classified
   respectively as `static`, `this`, and `extension`;
-- an attached extension row retains receiver context and exact declaring
-  identity;
+- a contextual extension row retains receiver context and exact declaring
+  identity without delaying or changing the declaration result;
 - an ambiguous MemberGroup runs no exact-Member documentation, source, or
   metrics work;
 - bare-name `DeserializeAsync` remains a `MemberGroupDocument` even when a
@@ -1051,8 +1339,10 @@ owns the revised counted path:
 5. Compose independently scoped Member-subject and returned
    exact-row DocumentationHouse attachments.
 6. Compose exact Member SourceHouse attachments.
-7. Add the compact Type Member-group population and terminal-specific
-   QuerySpace execution, including nested exact-overload Count.
+7. Add the compact declared Type Member-group population and terminal-specific
+   QuerySpace execution under the [QuerySpace host
+   boundary](#queryspace-host-boundary), including nested exact-overload Count,
+   the `accessibility` projection, and Composition Count.
 8. Implement `TypeDocument` over that population without the eager rich
    exact-Type/API-surface path.
 9. Bind the native Type Tree and section inventories to the shared route in
@@ -1069,6 +1359,36 @@ owns the revised counted path:
 Each implementation or adoption remains a focused owner change. This design
 and tracker connect them without approving one broad implementation PR.
 
+Workspace-wide contextual extension population follows the discrete-population
+adoption tracked by #9183. Cross-assembly receiver indexing waits for the
+prepared reverse-index substrate from #9163 and #9175; the compact declaration
+producer neither performs a same-image attachment scan nor blocks its result on
+that later population.
+
+Steps 1 through 6 are implemented. CLI exact declaration source-parts and
+Inspect Web ordinary-method declaration source now compose through the shared
+`MemberDocument` attachment. Physical accessor and other body-target source
+remain on their existing body-resolution path because those targets are not
+additional declaration documents.
+
+Step 7's Metadata-owned compact declaration kernel is implemented by
+[#9209](https://github.com/richlander/dotnet-inspect/pull/9209). The shared
+Sections QuerySpace route now carries producer-directed spelling,
+accessibility, receiver, and hidden-admission terms through a Library lease
+adapter, with portable parent and row bindings, bounded Rows continuation,
+nested exact-member Counts, Composition Count, selector Counts, and typed
+incomplete or failed outcomes.
+
+Step 8's initial host-neutral composition landed in
+[#9298](https://github.com/richlander/dotnet-inspect/pull/9298).
+[#9306](https://github.com/richlander/dotnet-inspect/pull/9306) completes the
+declaration-document contract over that route: one Metadata declaration
+session establishes the detached exact-Type subject and optionally executes
+declared Member-group population. Subject-only requests issue no population
+demand, and requested population rejection, incompleteness, or failure remains
+independently typed without discarding the available Type subject. CLI and
+Browser adoption remains step 9; no production host uses this route yet.
+
 ## Required evidence
 
 The implementation sequence must add Release gates proving:
@@ -1083,11 +1403,18 @@ The implementation sequence must add Release gates proving:
   retaining continuation and binding;
 - Count executes a compact producer-owned kernel and allocates materially less
   than the superseded eager exact-Type path;
+- CLI and Browser Type population call sites lower through the same
+  subject-specific host-neutral request construction and consume the same
+  envelope contract, while Browser transport remains mechanical;
+- a host with no control for one admitted QuerySpace dimension forms the
+  owner-issued empty or default intent and observes the same population result
+  as an explicit equivalent request from the other host;
+- Type Member-group filtering, ordering, bounded Rows, nested overload Count,
+  and Composition Count reach shared QuerySpace execution rather than
+  post-materialization host processing;
 - NativeAOT production before/after measurement is performed only after a
   production caller adopts the route, following #8411's interleaved,
   output-guarded method;
-- attached extensions retain receiver and declaring correspondence and never
-  merge with same-named ordinary families;
 - `JsonSerializer.Deserialize` remains one Member-group row over 25 ordinary
   static and 15 extension declarations; receiver filtering selects exact
   children before grouping and produces nested Counts 25 or 15 without
@@ -1095,6 +1422,33 @@ The implementation sequence must add Release gates proving:
 - `receiver = static | this | extension` is exhaustive for exact-overload rows,
   and source-applicable receiver predicates affect producer work before
   Member-group formation or row materialization;
+- `JsonDocument`'s declaration Composition Count reports 11, 0, 44, and 27
+  declarations
+  for `public`, `protected`, `internal`, and `private`, whatever bucket the
+  request selects. Each Count equals the total of nested exact-overload
+  Counts across the completely drained Member-group Rows of the same intent
+  (public rows total 11 declarations). One metadata pass produces the whole
+  composition without constructing rows. Its five same-image contextual
+  extension declarations are not part of these Counts;
+- the private bucket includes ordinary private fields such as `s_nullLiteral`,
+  which a name heuristic must not exclude;
+- `JsonElement.ArrayEnumerator` reports 8, 0, 1, and 3 declarations under C#
+  spelling and 6, 0, 1, and 7 records under metadata spelling. Under C#
+  spelling, `IEnumerator.Current` is one `public` row in every view, never also
+  a `private` row;
+- `Utf8JsonWriter.BytesPending` is one `public` declaration under C# spelling.
+  Its `private set` accessor appears only in views that select both `public`
+  and `private`, such as every bucket, and never counts as a separate member;
+- `JsonConverter.RequiresReadAhead { internal get; private protected set; }`
+  and the eight other System.Text.Json 10.0.0 properties with that shape count
+  in `internal` under C# spelling, and their property records count in
+  `internal` under metadata spelling;
+- `JsonSerializerContext`'s explicit implementation of the internal
+  `IBuiltInJsonTypeInfoResolver.IsCompatibleWithOptions` counts in `internal`
+  under C# spelling, never in `public`, while explicit implementations of
+  public interfaces such as `IEnumerator.Current` count in `public`;
+- `JsonDocument.Parse` is one Member-group row under `accessibility = public`
+  with 5 overloads and one under `accessibility = private` with 2;
 - Type-subject documentation can complete without Member-group-row
   documentation;
 - Count and default views invoke neither DocumentationHouse nor SourceHouse;
@@ -1116,7 +1470,7 @@ The implementation sequence must add Release gates proving:
 - sibling-relationship decoration consumes the settled exact-overload roster,
   returns exact endpoints, and changes neither membership nor order;
 - body-size-only and sibling-relationship metric requests execute only their
-  #8450/#8455 effective evidence and work prerequisites;
+  #8450/#8455 required facts and work stages;
 - Type and Member metrics routes expose no declaration Rows or Count;
 - CLI and Browser execute the same host-neutral document routes and preserve
   Content, Share, and diagnostics;
@@ -1124,6 +1478,12 @@ The implementation sequence must add Release gates proving:
   artifact-authored string; and
 - superseded eager API-surface projection and host-local joins are unreachable
   after their adoption slices retire them.
+
+The separately requested contextual-extension adoption must additionally prove
+that attached extensions retain receiver and declaring correspondence, remain
+distinct from same-named declared families, preserve independent completion and
+failure evidence, and can include declarations from multiple admitted workspace
+assemblies without delaying the declaration population.
 
 The production assets are `System.Text.Json.JsonSerializer`,
 `JsonSerializer.Deserialize`, and

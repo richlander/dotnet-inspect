@@ -6,6 +6,7 @@ namespace ILInspector.Decompiler.Tests;
 public class CfgSampleClass
 {
     internal static bool s_finalized;
+    int _localFunctionState;
 
     // A C# destructor lowers to a Finalize override whose body is
     // try { s_finalized = true; } finally { base.Finalize(); }. DestructorRecoveryPass
@@ -689,6 +690,26 @@ public class CfgSampleClass
     {
         int z = n + 1;
         return x => { int y = x + z; return y * y; };
+    }
+
+    public static System.Func<string, IEnumerable<int>> CapturingParameterWithNestedLambda(
+        int offset)
+        => text => text.Select(character => character + 1).Append(offset);
+
+    public static int CapturingLocalWithNestedLambdaInBranch(
+        IReadOnlyList<string> items,
+        int maxWidth)
+    {
+        int firstColumnMaxWidth = maxWidth / 2;
+        if (items.Count > firstColumnMaxWidth)
+        {
+            return items
+                .SelectMany(text => text
+                    .Select(character => character + 1)
+                    .Append(firstColumnMaxWidth))
+                .Max();
+        }
+        return firstColumnMaxWidth;
     }
 
     // Multi-statement lambda block body returned from inside a nested `if`, so
@@ -2381,6 +2402,345 @@ public class CfgSampleClass
         int Add(int v) => v + n;
     }
 
+    // The local function captures both the containing instance and a local. Roslyn
+    // lowers it to an instance synthesized method whose final explicit parameter is
+    // the by-ref display-class environment, matching the published
+    // ControlFlowGraphBuilder.VisitConditionalAccess shape.
+    public void InstanceAndEnvironmentCapturingLocalFunction(int next)
+    {
+        int previous = _localFunctionState;
+        _localFunctionState = next;
+        Restore();
+
+        void Restore()
+        {
+            _localFunctionState = previous;
+        }
+    }
+
+    // The environment field snapshots the argument before the argument changes.
+    // Replacing that field read with the later argument read changes behavior.
+    public int InstanceLocalFunctionWithMutatedArgumentSnapshot(int value)
+    {
+        int previous = value;
+        value++;
+        return Read() + value;
+
+        int Read() => _localFunctionState + previous;
+    }
+
+    // The same snapshot boundary with a host local instead of a parameter.
+    public int InstanceLocalFunctionWithMutatedLocalSnapshot(int value)
+    {
+        int source = value;
+        int previous = source;
+        source++;
+        return Read() + source;
+
+        int Read() => _localFunctionState + previous;
+    }
+
+    // NullCoalescingAssignmentPass raises the later write before local-function
+    // recovery, but the earlier environment-field snapshot must remain distinct.
+    public string InstanceLocalFunctionWithNullCoalescingSnapshot(string? input)
+    {
+        string? source = input;
+        string? previous = source;
+        source ??= "after";
+        return Read() + "/" + source;
+
+        string Read() => _localFunctionState + previous;
+    }
+
+    int Read(int value) => value + 10;
+    int _read = 10;
+    int Result { get; set; } = 10;
+
+    // The authored `this.Read` must not become a recursive call to the recovered
+    // local declaration after the printer removes an otherwise optional `this.`.
+    public int InstanceLocalFunctionShadowingInstanceMember(int value)
+    {
+        return Read(value);
+
+        int Read(int current)
+            => current == 0 ? 0 : this.Read(current - 1) + 1;
+    }
+
+    // The local declaration shadows the member throughout the containing block,
+    // including member calls that sit outside the imported local-function body.
+    public int InstanceLocalFunctionShadowingHostInstanceMember(int value)
+    {
+        return this.Read(value) + Read(value);
+
+        int Read(int current) => current + _localFunctionState;
+    }
+
+    // Environment elimination would replace the host's `self.Read` receiver with
+    // `this`. The binding proof must account for that planned substitution before
+    // recovering the shadowing declaration, while still raising safe siblings.
+    public int InstanceLocalFunctionShadowingHostAliasMember(int value)
+    {
+        var self = this;
+        int result = self.Read(value) + Read(value);
+        {
+            result += Other(value);
+            static int Other(int current) => current + 1;
+        }
+        return result;
+
+        int Read(int current) => self._read + current + _localFunctionState;
+    }
+
+    public int InstanceLocalFunctionShadowingHostAliasMemberGroup(int value)
+    {
+        var self = this;
+        Func<int, int> callback = self.Read;
+        int result = callback(value) + Read(value);
+        {
+            result += Other(value);
+            static int Other(int current) => current + 1;
+        }
+        return result;
+
+        int Read(int current) => self._read + current + _localFunctionState;
+    }
+
+    public int InstanceLocalFunctionShadowingHostAliasField(int value)
+    {
+        var self = this;
+        int result = self._read + _read(value);
+        {
+            result += Other(value);
+            static int Other(int current) => current + 1;
+        }
+        return result;
+
+        int _read(int current) => self._read + current + _localFunctionState;
+    }
+
+    public int InstanceLocalFunctionShadowingHostAliasProperty(int value)
+    {
+        var self = this;
+        int result = self.Result + Result(value);
+        {
+            result += Other(value);
+            static int Other(int current) => current + 1;
+        }
+        return result;
+
+        int Result(int current) => self.Result + current + _localFunctionState;
+    }
+
+    // Other owns the environment that will rewrite the host's `self.Read` to
+    // exact `this`. The sibling Read declaration must account for that planned
+    // substitution even though Read does not own the environment.
+    public int SiblingInstanceLocalFunctionShadowingHostAliasMember(int value)
+    {
+        int result = Read(value);
+        {
+            var self = this;
+            result += self.Read(value) + Other(value);
+
+            int Other(int current) => self._read + current;
+        }
+        return result;
+
+        int Read(int current) => current + _localFunctionState;
+    }
+
+    public int SiblingInstanceLocalFunctionShadowingHostAliasMemberGroup(int value)
+    {
+        int result = Read(value);
+        {
+            var self = this;
+            Func<int, int> callback = self.Read;
+            result += callback(value) + Other(value);
+
+            int Other(int current) => self._read + current;
+        }
+        return result;
+
+        int Read(int current) => current + _localFunctionState;
+    }
+
+    public int SiblingInstanceLocalFunctionShadowingHostAliasField(int value)
+    {
+        int result = _read(value);
+        {
+            var self = this;
+            result += self._read + Other(value);
+
+            int Other(int current) => self.Result + current;
+        }
+        return result;
+
+        int _read(int current) => current + _localFunctionState;
+    }
+
+    public int SiblingInstanceLocalFunctionShadowingHostAliasProperty(int value)
+    {
+        int result = Result(value);
+        {
+            var self = this;
+            result += self.Result + Other(value);
+
+            int Other(int current) => self._read + current;
+        }
+        return result;
+
+        int Result(int current) => current + _localFunctionState;
+    }
+
+    // Method-group spelling drops the exact-this receiver too, so the recovered
+    // declaration would otherwise redirect this delegate to the local function.
+    public int InstanceLocalFunctionShadowingInstanceMemberGroup(int value)
+    {
+        return Read(value);
+
+        int Read(int current)
+        {
+            Func<int, int> callback = this.Read;
+            return callback(current) + _localFunctionState;
+        }
+    }
+
+    // Field spelling drops the exact-this receiver too, so the recovered
+    // declaration would otherwise turn the field read into a method group.
+    public int InstanceLocalFunctionShadowingInstanceField(int value)
+    {
+        return _read(value);
+
+        int _read(int current) => this._read + current;
+    }
+
+    // Property spelling has the same declaration-scope binding requirement.
+    public int InstanceLocalFunctionShadowingInstanceProperty(int value)
+    {
+        return Result(value);
+
+        int Result(int current) => this.Result + current;
+    }
+
+    // Environment substitution carries the exact enclosing receiver binder into
+    // the imported body. The binding proof must still recognize the authored
+    // member call after `self` is replaced with that receiver.
+    public int InstanceLocalFunctionShadowingAliasMember(int value)
+    {
+        var self = this;
+        return Read(value);
+
+        int Read(int current) => self.Read(current) + _localFunctionState;
+    }
+
+    public int InstanceLocalFunctionShadowingAliasMemberGroup(int value)
+    {
+        var self = this;
+        return Read(value);
+
+        int Read(int current)
+        {
+            Func<int, int> callback = self.Read;
+            return callback(current) + _localFunctionState;
+        }
+    }
+
+    public int InstanceLocalFunctionShadowingAliasField(int value)
+    {
+        var self = this;
+        return _read(value);
+
+        int _read(int current) => self._read + current + _localFunctionState;
+    }
+
+    public int InstanceLocalFunctionShadowingAliasProperty(int value)
+    {
+        var self = this;
+        return Result(value);
+
+        int Result(int current) => self.Result + current + _localFunctionState;
+    }
+
+    // Both local functions flatten into one declaration scope. The authored
+    // member call in Other must not bind to the sibling local declaration.
+    public int SiblingInstanceLocalFunctionShadowingMember(int value)
+    {
+        return Read(value) + Other(value);
+
+        int Read(int current) => current + _localFunctionState;
+        int Other(int current) => this.Read(current);
+    }
+
+    // The same cross-body binding hazard applies to method groups.
+    public int SiblingInstanceLocalFunctionShadowingMemberGroup(int value)
+    {
+        return Read(value) + Other(value);
+
+        int Read(int current) => current + _localFunctionState;
+        int Other(int current)
+        {
+            Func<int, int> callback = this.Read;
+            return callback(current);
+        }
+    }
+
+    // The sibling proof must recognize an enclosing receiver introduced by
+    // environment substitution in the independently prepared Other body.
+    public int SiblingInstanceLocalFunctionShadowingAliasMember(int value)
+    {
+        int result = Read(value);
+        {
+            var self = this;
+            result += Other(value);
+
+            int Other(int current) => self.Read(current);
+        }
+        return result;
+        int Read(int current) => current + _localFunctionState;
+    }
+
+    public int SiblingInstanceLocalFunctionShadowingAliasMemberGroup(int value)
+    {
+        int result = Read(value);
+        {
+            var self = this;
+            result += Other(value);
+
+            int Other(int current)
+            {
+                Func<int, int> callback = self.Read;
+                return callback(current);
+            }
+        }
+        return result;
+        int Read(int current) => current + _localFunctionState;
+    }
+
+    public int SiblingInstanceLocalFunctionShadowingAliasField(int value)
+    {
+        int result = _read(value);
+        {
+            var self = this;
+            result += Other(value);
+
+            int Other(int current) => self._read + current;
+        }
+        return result;
+        int _read(int current) => current + _localFunctionState;
+    }
+
+    public int SiblingInstanceLocalFunctionShadowingAliasProperty(int value)
+    {
+        int result = Result(value);
+        {
+            var self = this;
+            result += Other(value);
+
+            int Other(int current) => self.Result + current;
+        }
+        return result;
+        int Result(int current) => current + _localFunctionState;
+    }
+
     // Adversarial breadth: one capturing local function called twice. Both calls
     // pass `ref env` for the same environment local; the pass must drop the ref-env
     // argument from each and recover a single declaration.
@@ -2466,13 +2826,34 @@ public class CfgSampleClass
         int Mul(int v) => v * n;
     }
 
-    // Adversarial negative: a recursive local function (its body calls itself), which
-    // keeps the import non-recursive — must stay lowered.
+    // Self recursion is a one-member dependency component.
     public static int RecursiveLocalFunction(int n)
     {
         return Fact(n);
 
         int Fact(int v) => v <= 1 ? 1 : v * Fact(v - 1);
+    }
+
+    public static int MutuallyRecursiveStaticLocalFunctions(int value)
+    {
+        return IsEven(value) ? 1 : 0;
+
+        static bool IsEven(int current)
+            => current == 0 || IsOdd(current - 1);
+
+        static bool IsOdd(int current)
+            => current != 0 && IsEven(current - 1);
+    }
+
+    public static int RecursiveLocalFunctionWithHelper(int value)
+    {
+        return Sum(value);
+
+        static int Sum(int current)
+            => current <= 0 ? 0 : Normalize(current) + Sum(current - 1);
+
+        static int Normalize(int current)
+            => current > 10 ? 10 : current;
     }
 
     // Adversarial negative: the captured variable `n` is reassigned AFTER the only
@@ -4727,6 +5108,69 @@ public class CfgSampleClass
     // raised to a null-conditional invocation node?.Shape().
     public static string NullConditionalCall(JoinBase node) => node?.Shape() ?? "none";
 
+    static readonly System.Text.UTF8Encoding s_strictUtf8 = new(false, true);
+
+    // A reference-type stack join whose arms are both defined in another
+    // assembly: Encoding.UTF8 (Encoding) and a UTF8Encoding field. The merge
+    // must walk UTF8Encoding's base chain through the metadata context to
+    // Encoding and publish the UTF8Encoding -> Encoding widening it proved, so
+    // the slot types Encoding and materializes as one local that both arms
+    // may store to.
+    public static string MergedCrossAssemblyBaseSlot(bool strict, byte[] bytes)
+        => (strict ? s_strictUtf8 : System.Text.Encoding.UTF8).GetString(bytes);
+
+    // A guarded type cascade over a facade-forwarded pair: XmlTextReader derives
+    // from XmlReader, both referenced through System.Xml.ReaderWriter and defined
+    // in System.Private.Xml. A guard-failing XmlTextReader (Depth <= min) must
+    // return -1 and never reach the XmlReader arm, so the disjointness oracle
+    // must keep saying "not provably disjoint" and the cascade must stay an if.
+    public static int GuardedXmlReaderCascade(object o, int min)
+    {
+        object v = o;
+        System.Xml.XmlTextReader? t = v as System.Xml.XmlTextReader;
+        if (t is null)
+        {
+            if (v is System.Xml.XmlReader r) return r.Depth + 100;
+            if (v is string s) return s.Length;
+        }
+        else
+        {
+            if (t.Depth > min) return t.Depth;
+        }
+        return -1;
+    }
+
+    // Sibling arms from another assembly whose common ancestor this module
+    // references (NextNode is declared on XNode, so the callvirt is a TypeRef
+    // row for XNode): the join types XNode under the module's own reference
+    // identity and proves both widenings. NodeType would not do: it is
+    // declared on XObject, which must stay unreferenced for the sample below.
+    public static bool SiblingXNodeJoin(bool c, System.Xml.Linq.XElement element, System.Xml.Linq.XComment comment)
+    {
+        System.Xml.Linq.XNode node = c ? element : comment;
+        return node.NextNode is null;
+    }
+
+    // Sibling arms whose common ancestor (XObject) this module never
+    // references: the join stays an honest unknown rather than entering the
+    // IR under an identity none of the function's rows share.
+    public static string UnreferencedAncestorJoin(bool c, System.Xml.Linq.XAttribute attribute, System.Xml.Linq.XComment comment)
+        => (c ? (object)attribute : comment).ToString()!;
+
+    // A null-literal arm adopts the other arm's type; it proves nothing about
+    // System.Object, so no widening may be published for it. The conditional
+    // feeds a call argument so the ldnull/string join stays on the evaluation
+    // stack: returned directly, Roslyn duplicates the `ret` into both arms and
+    // no join is ever merged.
+    public static bool NullArmJoin(bool c, string s) => string.IsNullOrEmpty(c ? null : s);
+
+    // A ?? join whose arms are a cross-assembly interface and a cross-assembly
+    // class that implements it: IEqualityComparer<string> and
+    // EqualityComparer<string>. The merge resolves to the interface through the
+    // metadata context's implementation walk.
+    public static bool CoalescedCrossAssemblyInterface(IEqualityComparer<string>? comparer, string left, string right)
+        => (comparer ?? EqualityComparer<string>.Default).Equals(left, right);
+
     // A null-conditional property whose result type is a cross-assembly reference
     // type outside the primitive/string stack-family table. The null arm must
     // adopt the property type at the join, not conflict as object vs Type.
@@ -5095,6 +5539,17 @@ public class CfgSampleClass
     // the state scaffolding and the disposal, then recover the foreach).
     public static System.Collections.Generic.IEnumerable<int> YieldEach(System.Collections.Generic.IEnumerable<int> source)
     {
+        foreach (var x in source)
+            yield return x;
+    }
+
+    public static System.Collections.Generic.IEnumerable<int> YieldEachUnless(
+        bool stop,
+        System.Collections.Generic.IEnumerable<int> source)
+    {
+        if (stop)
+            yield break;
+
         foreach (var x in source)
             yield return x;
     }
@@ -5634,6 +6089,35 @@ public class CfgSampleClass
     }
 }
 
+public static class StaticLocalFunctionDependencyClosureSamples
+{
+    public static int DependencyExposedByIteratorMember(
+        bool stop,
+        System.Collections.Generic.IEnumerable<int> source)
+    {
+        return Root(stop, source);
+
+        static int Root(
+            bool shouldStop,
+            System.Collections.Generic.IEnumerable<int> values)
+            => System.Linq.Enumerable.Sum(Iterator(shouldStop, values));
+
+        static System.Collections.Generic.IEnumerable<int> Iterator(
+            bool shouldStop,
+            System.Collections.Generic.IEnumerable<int> values)
+        {
+            if (shouldStop)
+                yield break;
+
+            foreach (int item in values)
+                yield return Leaf(item);
+        }
+
+        static int Leaf(int value)
+            => value + 1;
+    }
+}
+
 public static class StructuringRegionExitSamples
 {
     public static int PrefixedRegionExitWithExternalEntry(int a)
@@ -5855,6 +6339,24 @@ public sealed class CfgGenericNestedEnumSink<T>
             CompletionPart.Complete => 3,
             _ => 0,
         };
+    }
+}
+
+public static class GenericLocalFunctionComponentSamples<T>
+{
+    public static T Cycle(T value, int count)
+    {
+        return First(value, count);
+
+        static T First(T item, int remaining)
+            => remaining == 0
+                ? item
+                : Second(item, remaining - 1);
+
+        static T Second(T item, int remaining)
+            => remaining == 0
+                ? item
+                : First(item, remaining - 1);
     }
 }
 

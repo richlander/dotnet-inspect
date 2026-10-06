@@ -31,7 +31,11 @@ internal sealed class LibraryInspectionTestLibrary : IAsyncDisposable
     public static Task<LibraryInspectionTestLibrary> CreateAsync(
         byte[] content,
         ManagedMetadataIdentity.Assembly identity) =>
-        CreateAsync(content, identity, implementation: content);
+        CreateAsync(
+            content,
+            identity,
+            implementation: content,
+            portablePdb: null);
 
     /// <summary>
     /// Creates a Library whose API and implementation roles are separate
@@ -41,14 +45,23 @@ internal sealed class LibraryInspectionTestLibrary : IAsyncDisposable
     public static async Task<LibraryInspectionTestLibrary> CreateAsync(
         byte[] api,
         ManagedMetadataIdentity.Assembly apiIdentity,
-        byte[]? implementation)
+        byte[]? implementation,
+        byte[]? portablePdb = null)
     {
+        if (implementation is null && portablePdb is not null)
+        {
+            throw new ArgumentException(
+                "A Portable PDB requires implementation content.",
+                nameof(portablePdb));
+        }
+
         var session = new ArtifactSetSession();
         try
         {
             bool shared = ReferenceEquals(api, implementation);
             ArtifactContribution? apiContribution = null;
             ArtifactContribution? implementationContribution = null;
+            ArtifactContribution? portablePdbContribution = null;
             await session.AddRequiredAcquisitionAsync(
                 (scope, cancellationToken) =>
                 {
@@ -57,12 +70,22 @@ internal sealed class LibraryInspectionTestLibrary : IAsyncDisposable
                         implementation is null || shared
                             ? null
                             : Register(scope, implementation, "implementation");
+                    portablePdbContribution =
+                        portablePdb is null
+                            ? null
+                            : Register(scope, portablePdb, "portable-pdb");
+                    var contributions = new List<ArtifactContribution>
+                    {
+                        apiContribution,
+                    };
+                    if (implementationContribution is not null)
+                        contributions.Add(implementationContribution);
+                    if (portablePdbContribution is not null)
+                        contributions.Add(portablePdbContribution);
                     return ValueTask.FromResult<
                         ArtifactAcquisitionOutcome>(
                             new ArtifactAcquisitionOutcome.Acquired(
-                                implementationContribution is null
-                                    ? [apiContribution]
-                                    : [apiContribution, implementationContribution],
+                                contributions,
                                 ArtifactAcquisitionLeases.None));
                 },
                 cancellationToken:
@@ -102,13 +125,32 @@ internal sealed class LibraryInspectionTestLibrary : IAsyncDisposable
                             queryLease));
                 }
 
+                ArtifactContentReference? portablePdbReference = null;
+                if (portablePdbContribution is not null)
+                {
+                    portablePdbReference =
+                        session.GetContentReference(
+                            portablePdbContribution.Descriptor.Identity,
+                            queryLease);
+                    contentLeases.Add(
+                        session.IssueContentLease(
+                            portablePdbReference,
+                            queryLease));
+                }
+
                 LibraryReference library =
                     LibraryReference.CreateDirect(
                         new LibraryAssemblyCorrespondence(
                             apiReference,
                             apiIdentity,
                             implementationReference,
-                            implementationIdentity));
+                            implementationIdentity),
+                        portablePdbReference is null
+                            ? null
+                            : [new LibraryCompanionCorrespondence(
+                                portablePdbReference,
+                                LibraryContentRole.PortablePdb,
+                                implementationReference!)]);
                 var owner = new LibraryContentOwner(
                     library,
                     [.. contentLeases]);
@@ -229,7 +271,9 @@ internal sealed class LibraryInspectionTestLibrary : IAsyncDisposable
         bool malformedPublicType = false,
         bool includeModuleExport = false,
         bool includeGlobalType = false,
-        string metadataVersion = "v4.0.30319")
+        bool duplicatePublicType = false,
+        string metadataVersion = "v4.0.30319",
+        bool undecodableCompany = false)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -242,13 +286,42 @@ internal sealed class LibraryInspectionTestLibrary : IAsyncDisposable
             default);
         if (includeAssembly)
         {
-            metadata.AddAssembly(
+            AssemblyDefinitionHandle assembly = metadata.AddAssembly(
                 metadata.GetOrAddString("Probe"),
                 new Version(1, 0, 0, 0),
                 default,
                 default,
                 default,
                 default);
+            if (undecodableCompany)
+            {
+                // An AssemblyCompanyAttribute whose string claims more bytes
+                // than the blob holds; C# cannot emit this shape.
+                TypeReferenceHandle company = metadata.AddTypeReference(
+                    metadata.AddAssemblyReference(
+                        metadata.GetOrAddString("System.Runtime"),
+                        new Version(11, 0, 0, 0),
+                        default,
+                        default,
+                        default,
+                        default),
+                    metadata.GetOrAddString("System.Reflection"),
+                    metadata.GetOrAddString("AssemblyCompanyAttribute"));
+                var signature = new BlobBuilder();
+                new BlobEncoder(signature)
+                    .MethodSignature(isInstanceMethod: true)
+                    .Parameters(
+                        1,
+                        returnType => returnType.Void(),
+                        parameters => parameters.AddParameter().Type().String());
+                metadata.AddCustomAttribute(
+                    assembly,
+                    metadata.AddMemberReference(
+                        company,
+                        metadata.GetOrAddString(".ctor"),
+                        metadata.GetOrAddBlob(signature)),
+                    metadata.GetOrAddBlob(new byte[] { 0x01, 0x00, 0x05, 0x41 }));
+            }
         }
 
         metadata.AddTypeDefinition(
@@ -269,6 +342,19 @@ internal sealed class LibraryInspectionTestLibrary : IAsyncDisposable
                 default,
                 MetadataTokens.FieldDefinitionHandle(1),
                 MetadataTokens.MethodDefinitionHandle(1));
+        }
+        if (duplicatePublicType)
+        {
+            for (int i = 0; i < 2; i++)
+            {
+                metadata.AddTypeDefinition(
+                    TypeAttributes.Public,
+                    metadata.GetOrAddString("N"),
+                    metadata.GetOrAddString("C"),
+                    default,
+                    MetadataTokens.FieldDefinitionHandle(1),
+                    MetadataTokens.MethodDefinitionHandle(1));
+            }
         }
         if (malformedPublicType)
         {

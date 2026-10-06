@@ -13,10 +13,12 @@ The normative claim is:
 
 > Explicitly opening Compare for one selected Gallery Package Library uses
 > that retained Package model's effective Diff target to publish one
-> request-associated, complete public-API changed-Type inventory from the
-> shared Library API diff document and its complete service envelope,
-> preserving exact endpoint, Type, and Type-local changed-Member identity and
-> every typed non-success outcome.
+> request-associated generic Diff document and its complete service envelope.
+> Public API is the default Library content; an explicit string-literal choice
+> instead projects complete matching literal Transitions from the same
+> host-neutral operation. The owner-issued Library API presentation inside that
+> document preserves exact endpoint, Type, and Type-local changed-Member
+> identity and every typed non-success outcome.
 
 This document owns only the Browser request, operation association, bounded
 wire projection, and Library-root presentation. It does not own package
@@ -31,9 +33,10 @@ drill-down lists, and Member is the first detail boundary.
 
 ## Consumer and basis
 
-The consumer is a person inspecting one Library from a Gallery Package who
-wants to see how its complete public API differs from the Package-owned
-baseline without leaving the Library context or acquiring Source.
+The The consumer is a person inspecting one Library from a Gallery Package who
+wants to see how its complete public API or selected decoded string literals
+differ from the Package-owned baseline without leaving the Library context or
+acquiring Source.
 
 This is the final adopter in the delivery path defined by
 [Library API Diff Presentation](library-api-diff-presentation.md):
@@ -55,6 +58,7 @@ slice does not create a host-neutral abstraction waiting for a future adopter.
 | [Compare experience](inspect-web-compare-experience.md) | Package owns targets; Library Diff is one quiet flat changed-Type inventory. |
 | [Diff targets](inspect-web-diff-targets.md) | Previous/exact target intent and authoritative Gallery version ordering. |
 | [Selected-Library query](../inspection-space.md#selected-library-api-comparison) | Independently projected Before and After endpoints and Metadata-owned API comparison. |
+| [Generic Diff](command-transition-model.md#content-and-failure) | One validated analysis set, ordered per-analysis outcomes, selected views, host-resolved unavailability, and `InspectionEnvelope<DiffAnalysisDocument>`. |
 | [Library API Diff Presentation](library-api-diff-presentation.md) | Complete Library-root document, exact Type identities, aggregate counts, and typed Available/Unavailable/Rejected outcomes. |
 | [Inspection envelope](inspection-envelope.md#same-baseline-broader-clients) | One shared baseline containing Content, Share, and ordered diagnostics; lossless Browser transport projection is permitted. |
 | Browser package Workspace | Exact Gallery package, framework, compile-asset identity, acquisition, and protected scope lifetime. |
@@ -108,7 +112,10 @@ One immutable request contains:
 - current package version;
 - resolved target version;
 - target framework; and
-- the exact acquisition-issued compile-asset ID of the selected Library.
+- the exact acquisition-issued compile-asset ID of the selected Library;
+- Diff surface, ordered analysis identities, and selected views; and
+- exact Type names and Member target identities required by that surface; and
+- an optional typed predicate consumed only by an analysis that declares one.
 
 The selected asset ID applies independently at both package versions. Managed
 code resolves that exact ID in each acquired scope. It never falls back to
@@ -135,35 +142,64 @@ arms.
 The Metadata facade owns the operation because the result is API/metadata
 projection. No eighth facade is introduced.
 
-For each endpoint, managed code:
+Managed code first validates the analysis set, surface, target cardinality,
+and semantic view combination through the shared generic Diff catalog and view
+admission. Only an admitted request proceeds. For each endpoint, it then:
 
 1. opens the requested Gallery package and framework through
    `BrowserPackageWorkspace`;
 2. resolves the exact compile asset;
 3. projects `ApiSurfaceScope.Public` with the fixed
    `BrowserApiSurfacePolicy.Limits`; and
-4. passes both participants to `LibraryApiDiffInspection.Execute`, the shared
-   query-and-presentation terminal.
+4. passes both participants to `DiffAnalysisLibraryInspection.Execute`, the
+   shared generic-Diff and Library-presentation terminal.
 
 Before is the target version and After is the current version. Each scope is
 released after the shared comparison and wire projection complete.
 
-Both hosts call the same host-neutral
-`LibraryApiDiffInspection.Execute(...)`, returning
-`InspectionEnvelope<LibraryApiDiffOutcome>`. The Browser's request-associated
-result contains that complete baseline as `inspection`, alongside its existing
-changed-Type view. It neither introduces another comparison service nor makes
-the displayed inventory stand in for Content.
+Both hosts consume the same host-neutral `DiffAnalysisInspection` operation.
+The selected-Library composition returns
+`InspectionEnvelope<DiffAnalysisDocument>` and derives its generic API outcome
+and `LibraryApiDiffOutcome` from one `AssemblyContextApiComparisonResult`.
+The Browser's request-associated result contains that complete baseline as
+`inspection`, alongside its existing changed-Type view. It neither introduces
+another comparison service nor makes the displayed inventory stand in for
+Content.
 
-Content crosses the Browser JSON boundary through its owner-issued
-`LibraryApiDiffJsonContext` serializer. The transport uses
-`InspectionEnvelope<JsonElement>`: Content retains that serializer's complete
-JSON value, while Share and ordered diagnostics retain their service-issued
-values. This is serialization lowering, not an alternate domain model. In
-particular, the nested ComparisonDocument keeps its canonical snake_case
-schema rather than acquiring the CLR model's property shape. Browser envelope
-properties remain camelCase and diagnostic severities numeric; CLI framing
-remains governed by [Output Shapes](output-shapes.md).
+Content crosses the Browser JSON boundary through
+`DiffAnalysisInspectionJsonContext`. The transport uses
+`InspectionEnvelope<JsonElement>`: Content retains the complete generic Diff
+document, while Share and ordered diagnostics retain their service-issued
+values. The nested `libraryApi` property retains
+`LibraryApiDiffJsonContext`'s owner-issued schema, including the canonical
+snake_case `ComparisonDocument`; no TypeScript or Browser wire projection
+reconstructs correspondence. Browser envelope properties remain camelCase and
+diagnostic severities numeric; CLI framing remains governed by
+[Output Shapes](output-shapes.md).
+
+The Browser request contract is schema version 3. The production Compare call
+defaults to Library surface, `api`, and Changes. The Library content picker can
+instead select `string-literals`, Transitions, and one exact `Literal`
+`Contains` or `StartsWith` predicate. All eight Diff analyses remain in the
+Browser-visible catalog at their declared surfaces:
+
+- `api` executes at Library, Type, or Member;
+- `api-attribute` executes at Type; and
+- `string-literals` executes at Library from the retained endpoint snapshots;
+  and
+- `allocation`, `call-site`, `unsafety`, `csharp`, and `il` validate at Member
+  but return typed `Unavailable` because Browser/Wasm does not construct their
+  method-body comparison inputs.
+
+The literal producer is independent of API projection completeness. An
+incomplete API surface remains typed endpoint evidence but does not suppress a
+successful string-literal comparison over the retained assembly participants.
+
+Host-resolved unavailability is decided before dispatch. An unavailable
+analysis does not execute its producer or participate in shared body
+preparation. An unknown analysis, an analysis selected at an undeclared
+surface, or target cardinality that does not match the selected surface is a
+request rejection rather than an unavailable or successful-empty outcome.
 
 The existing facade mapping exposes `InspectionEnvelope<unknown>` because
 `JsonElement` explicitly represents JSON whose internal shape the generator
@@ -218,7 +254,13 @@ diagnostics add no persistent UI.
 
 ## Library presentation
 
-The Library surface uses one quiet Compare frame:
+The Library surface uses one quiet Compare frame. This owner supplies Public
+API and String Literal to the compact content picker in the right side of the
+frame header. The separately owned
+[Member Body Diff](inspect-web-member-body-diff.md) extends that same picker
+without changing either operation defined here. The literal choice exposes
+only its operator and bounded value; content remains nearly full-width below
+the header.
 
 ```text
 Compare Example.Library                              Diff
@@ -240,6 +282,14 @@ The frame renders:
 - Type-definition change status when present;
 - changed-member count; and
 - compact breaking, additive, and potentially-breaking counts.
+
+For String literals, the frame renders one row per owner-issued Transition:
+
+- the complete decoded literal, never an extracted matching substring;
+- one value for Present, Added, or Removed rows and both values only when they
+  differ;
+- one row when a literal contains multiple matching positions; and
+- separate rows for separate physical `ldstr` occurrences.
 
 Rows retain exact Before and After Type identifiers in the DOM projection.
 This first Library adopter does not make them interactive because Type Compare
@@ -276,16 +326,20 @@ The published Browser demo uses the deterministic `LibraryApiDiff.V1` and
 3. open Library Compare;
 4. show the complete changed-Type inventory and aggregate compatibility
    counts;
-5. select the same version as a neighboring target and show a successful empty
+5. choose String literals, search for values containing `https://`, and show
+   complete matching literals as rows;
+6. switch to `starts-with` and exclude an embedded-only fixture literal;
+7. select the same version as a neighboring target and show a successful empty
    comparison; and
-6. show a missing or incomplete target as unavailable rather than equal.
+8. show a missing or incomplete API target while retaining an independently
+   successful literal presentation.
 
 | Gate | Adoption evidence |
 | --- | --- |
-| Release `BrowserLibraryApiDiffOperationTests` | Real V1-to-V2 and same-version results, exact Type-local changed-Member identities and moved-member roles, exact asset mismatch, typed non-success, member-heavy bounds, cancellation, and generated JSON shape. |
-| Release `BrowserLibraryApiDiffEnvelopeParityTests` (Slow) | Authentic System.Text.Json 9.0.0-to-10.0.0 Library comparison: Browser Content, Share, and diagnostics agree with the shared terminal. |
+| Release `BrowserLibraryApiDiffOperationTests` | Real V1-to-V2 and same-version results, exact Type-local changed-Member identities and moved-member roles, `api-attribute` and `string-literals` execution, typed body-analysis unavailability, pre-acquisition predicate rejection, exact asset mismatch, typed non-success, member-heavy bounds, cancellation, and generated JSON shape. |
+| Release `BrowserLibraryApiDiffEnvelopeParityTests` (Slow) | Authentic System.Text.Json 9.0.0-to-10.0.0 Library comparison: Browser generic Diff Content, Share, and diagnostics agree with the shared terminal. |
 | Release `ProductionFacadeContextTests`, `generated-facade-contract.test.ts`, and `generate-inspect-web-engine-facade.sh --check` | Existing Metadata facade exports and compiler-derived TypeScript transport. |
-| Node Library API Diff tests | Target resolution, request association, complete row rendering, exact identities, non-success, and stale completion suppression. |
+| Node Library API Diff tests | Target resolution, predicate request association, complete API and string-literal row rendering, API-independent literal presentation, exact identities, non-success, and stale completion suppression. |
 | Node ordinary Worker tests | Closed operation catalog, argument forwarding, cancellation forwarding, and bounded result transport. |
 | Published Firefox package-adoption gate | Real Gallery fixture acquisition through the generated facade and WebAssembly engine. |
 
@@ -303,7 +357,9 @@ and the heavy-inspection multi-part-document work in
 the existing portable Library document and request-associated live Package
 context.
 
-It does not add Type or Member Compare, selected-Type detail inside Library,
-Source comparison, Clone execution, platform/local package comparison,
-portable comparison settings, a second live Workspace, a new Worker, a new
-facade, a new matching algorithm, or a generalized comparison session.
+It adds one closed Library content choice, not a generalized analysis selector.
+It does not add Source comparison, new Clone execution, platform/local package
+comparison, portable comparison settings, a second live Workspace, a new
+Worker, a new facade, a new matching algorithm, or a generalized comparison
+session. Type and Member Compare continue to project from the one complete
+Library-root presentation retained in `DiffAnalysisDocument.LibraryApi`.

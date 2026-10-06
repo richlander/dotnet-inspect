@@ -202,6 +202,17 @@ internal static class CliRowSelectionCommandRegistry
     {
         ArgumentNullException.ThrowIfNull(parseResult);
 
+        if (parseResult.Errors.Count > 0
+            && !HasRegisteredRowRequest(parseResult, arguments))
+        {
+            return CliRowSelectionPreparation.Inactive(parseResult) with
+            {
+                IsAdopted = Adoptions.TryGetValue(
+                    parseResult.CommandResult.Command,
+                    out _)
+            };
+        }
+
         if (!TryGetActiveAdoption(
                 parseResult,
                 out CliRowSelectionCommandAdoption? adoption))
@@ -218,6 +229,17 @@ internal static class CliRowSelectionCommandRegistry
             arguments is null
                 ? [.. parseResult.Tokens.Select(static token => token.Value)]
                 : arguments;
+        if (!HasRowRequest(
+                parseResult,
+                effectiveArguments,
+                adoption!.Bindings))
+        {
+            return PrepareWithoutRowRequest(
+                parseResult,
+                effectiveArguments,
+                adoption);
+        }
+
         Command rootCommand = GetRootCommand(parseResult);
         CliRowSelectionArgumentResult result =
             CliRowSelectionArgumentAdapter.LowerExplicit(
@@ -254,6 +276,98 @@ internal static class CliRowSelectionCommandRegistry
             ]
         };
     }
+
+    private static CliRowSelectionPreparation PrepareWithoutRowRequest(
+        ParseResult parseResult,
+        IReadOnlyList<string> arguments,
+        CliRowSelectionCommandAdoption adoption)
+    {
+        CliRowSelectionLowering<string> lowering =
+            CliRowSelectionLowerer.Lower(
+                Array.Empty<CliRowSelectionOccurrence<string>>(),
+                adoption.Capabilities,
+                adoption.DefaultUnit).Value!;
+        if (adoption.ValidateLowering?.Invoke(
+                parseResult,
+                lowering) is { } error)
+        {
+            return CliRowSelectionPreparation.Failed(
+                parseResult,
+                error,
+                int.MaxValue,
+                CliSelectionFailureCategory.Resolution) with
+            {
+                Arguments = arguments,
+                ArgumentPositions = Enumerable.Range(
+                    0,
+                    arguments.Count).ToArray(),
+                IsAdopted = true,
+                HasCompatibilityError = true
+            };
+        }
+
+        int[] positions =
+            Enumerable.Range(0, arguments.Count).ToArray();
+        Lowerings.Add(
+            parseResult,
+            new(lowering, arguments, positions));
+        return CliRowSelectionPreparation.Success(
+            parseResult,
+            lowering) with
+        {
+            Arguments = arguments,
+            ArgumentPositions = positions,
+            IsAdopted = true,
+            PresenceOptions =
+            [
+                adoption.Bindings.Head,
+                adoption.Bindings.Tail,
+                adoption.Bindings.Lines,
+                adoption.Bindings.TailLines
+            ]
+        };
+    }
+
+    internal static bool HasRegisteredRowRequest(
+        ParseResult parseResult,
+        string[]? arguments)
+    {
+        if (!Adoptions.TryGetValue(
+                parseResult.CommandResult.Command,
+                out CliRowSelectionCommandAdoption? adoption))
+        {
+            return false;
+        }
+
+        IReadOnlyList<string> effectiveArguments =
+            arguments
+            ?? [.. parseResult.Tokens.Select(static token => token.Value)];
+        while (adoption is not null)
+        {
+            if (HasRowRequest(
+                    parseResult,
+                    effectiveArguments,
+                    adoption.Bindings))
+            {
+                return true;
+            }
+
+            adoption = adoption.Fallback;
+        }
+
+        return false;
+    }
+
+    private static bool HasRowRequest(
+        ParseResult parseResult,
+        IReadOnlyList<string> arguments,
+        CliRowSelectionOptionBindings bindings) =>
+        CliRowSelectionArgumentAdapter.HasExplicitRowSelection(
+            parseResult,
+            bindings)
+        || CliRowSelectionArgumentAdapter.HasShortLimitAlias(bindings)
+            && arguments.Any(
+                CliRowSelectionArgumentAdapter.IsBareLimitShorthand);
 
     private static CliRowSelectionPreparation PrepareLowering(
         CliRowSelectionArgumentResult result,

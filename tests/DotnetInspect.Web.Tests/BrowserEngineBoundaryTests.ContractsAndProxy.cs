@@ -10,6 +10,7 @@ using System.Text;
 using System.Xml;
 using System.Text.Json;
 using DotnetInspector.Ecosystems;
+using DotnetInspector.Fixtures;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Platforms;
@@ -55,6 +56,81 @@ namespace DotnetInspect.Web.Tests;
 
 public sealed partial class BrowserEngineBoundaryTests
 {
+    [Fact]
+    public void TypeFacetProjectionCarriesProductOwnedIdentityAndMembership()
+    {
+        var surface = new ApiSurface
+        {
+            Types =
+            [
+                new ApiType
+                {
+                    Name = "Concrete",
+                    Namespace = "Example",
+                    Kind = "class",
+                },
+                new ApiType
+                {
+                    Name = "Abstract",
+                    Namespace = "Example",
+                    Kind = "class",
+                    IsAbstract = true,
+                },
+                new ApiType
+                {
+                    Name = "Static",
+                    Namespace = "Example",
+                    Kind = "class",
+                    IsAbstract = true,
+                    IsSealed = true,
+                    IsStatic = true,
+                },
+                new ApiType
+                {
+                    Name = "Contract",
+                    Namespace = "Example",
+                    Kind = "interface",
+                    IsAbstract = true,
+                },
+            ],
+        };
+
+        BrowserSurfaceProjection.Surface projected =
+            BrowserSurfaceProjection.Project(
+                surface,
+                [],
+                new AssemblyReferenceIdentity(
+                    "Example",
+                    new Version(1, 0, 0, 0),
+                    Culture: null,
+                    PublicKeyToken: null),
+                "Example",
+                "example",
+                "Example.dll",
+                []);
+
+        Assert.Equal(
+            [
+                ("api.type-kind.class", 3),
+                ("api.type-kind.interface", 1),
+            ],
+            projected.TypeKinds.Select(facet => (facet.Id, facet.Count)));
+        Assert.Equal(
+            [
+                ("api.type-trait.abstract", 1),
+                ("api.type-trait.static", 1),
+                ("api.type-trait.object", 1),
+            ],
+            projected.TypeTraits.Select(facet => (facet.Id, facet.Count)));
+        Assert.Equal(
+            ["api.type-trait.object"],
+            Assert.Single(projected.Types, type => type.Name == "Concrete")
+                .TraitFacetIds);
+        Assert.Empty(
+            Assert.Single(projected.Types, type => type.Name == "Contract")
+                .TraitFacetIds);
+    }
+
 
     [Fact]
     public void PackageManifestFacts_FromInMemoryBytesRemainBrowserCompatible()
@@ -305,6 +381,9 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.False(ordinary.IsStatic);
         Assert.False(ordinary.IsObsolete);
 
+        // The projection carries the Metadata owner's effective
+        // accessibility: an explicit implementation of a public interface is
+        // public, of an internal interface internal, and a finalizer protected.
         BrowserMemberSurfaceInfo explicitImplementation = BrowserSurfaceProjection.Member(
             type,
             new ApiMember
@@ -314,7 +393,19 @@ public sealed partial class BrowserEngineBoundaryTests
                 Signature = "void IDisposable.Dispose()",
             });
 
-        Assert.Equal("private", explicitImplementation.Accessibility);
+        Assert.Equal("public", explicitImplementation.Accessibility);
+
+        BrowserMemberSurfaceInfo internalImplementation = BrowserSurfaceProjection.Member(
+            type,
+            new ApiMember
+            {
+                Name = "IInternalContract.Hidden",
+                Kind = "explicit-interface-implementation",
+                Signature = "void IInternalContract.Hidden()",
+                Accessibility = "internal",
+            });
+
+        Assert.Equal("internal", internalImplementation.Accessibility);
 
         BrowserMemberSurfaceInfo finalizer = BrowserSurfaceProjection.Member(
             type,
@@ -323,9 +414,81 @@ public sealed partial class BrowserEngineBoundaryTests
                 Name = "Finalize",
                 Kind = "finalizer",
                 Signature = "~Widget()",
+                Accessibility = "protected",
             });
 
         Assert.Equal("protected", finalizer.Accessibility);
+    }
+
+    [Fact]
+    public void MemberProjection_CarriesExactExtensionDeclarerDistinctFromReceiver()
+    {
+        using AssemblyInspectionSession session = AssemblyInspectionSession.Open(
+            FixtureCatalog.AnalysisCallerLoop.AssemblyPath());
+        ApiSurface surface =
+            session.CompatibilityApiSurface(includeAll: true);
+        ApiType receiver = Assert.Single(
+            surface.Types,
+            type => type.FullName
+                == "ILInspector.Analysis.ImplementationProfileFixtures"
+                    + ".ImplementationHeatWidget");
+        BrowserMemberSurfaceInfo[] projected =
+        [
+            .. receiver.Members
+                .Where(member => member.Kind == "extension-method"
+                    && member.Name == "Shift")
+                .Select(member => BrowserSurfaceProjection.Member(receiver, member)),
+        ];
+
+        Assert.Equal(2, projected.Length);
+        Assert.All(
+            projected,
+            member => Assert.Equal(receiver.FullName, member.AnchorTypeFullName));
+        Assert.Equal(
+            [
+                "ILInspector.Analysis.ImplementationProfileFixtures"
+                    + ".ImplementationHeatWidgetExtensions",
+                "ILInspector.Analysis.ImplementationProfileFixtures"
+                    + ".OtherImplementationHeatWidgetExtensions",
+            ],
+            projected
+                .Select(member => member.DeclaringTypeDefinitionId)
+                .Order(StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public void MemberProjection_CarriesPrivateCoreLibExtensionScope()
+    {
+        using AssemblyInspectionSession session = AssemblyInspectionSession.Open(
+            Path.Combine(
+                AppContext.BaseDirectory,
+                "RealAssets",
+                "PlatformDemo",
+                "System.Private.CoreLib.dll"));
+        ApiSurface surface = session.CompatibilityApiSurface(
+            ApiSurfaceExtractionScope.PublicWithNonPublicTypes);
+        ApiType receiver = Assert.Single(
+            surface.Types,
+            type => type.FullName == "System.Type");
+        BrowserMemberSurfaceInfo[] projected =
+        [
+            .. receiver.Members
+                .Where(member => member.Kind == "extension-method"
+                    && member.Name == "TryMakeArrayType")
+                .Select(member => BrowserSurfaceProjection.Member(receiver, member)),
+        ];
+
+        Assert.Equal(2, projected.Length);
+        Assert.All(
+            projected,
+            member =>
+            {
+                Assert.Equal("private", member.Accessibility);
+                Assert.Equal("System.Type", member.AnchorTypeFullName);
+                Assert.Equal(
+                    "System.Reflection.SignatureTypeExtensions",
+                    member.DeclaringTypeDefinitionId);
+            });
     }
 
     [Fact]
@@ -503,7 +666,7 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
-    public void SourceContexts_UseFreshMemoryOnlyPdbStores()
+    public void SourceContexts_UseSharedMemoryOnlyPdbStoreAndSettlement()
     {
         AssemblyContextSourceQueryContext first =
             DotnetInspect.Web.Interop.Source.SourceExports.CreateSourceContext();
@@ -513,8 +676,12 @@ public sealed partial class BrowserEngineBoundaryTests
         var firstStore =
             Assert.IsType<InMemoryPdbStore>(first.PdbStore);
         Assert.IsType<InMemoryPdbStore>(second.PdbStore);
-        Assert.NotSame(first.PdbStore, second.PdbStore);
+        Assert.Same(first.PdbStore, second.PdbStore);
         Assert.Equal(24L * MiB, firstStore.MaxRetainedBytes);
+        Assert.Same(
+            first.PortablePdbSettlementCapability,
+            second.PortablePdbSettlementCapability);
+        Assert.NotNull(first.PortablePdbSettlementCapability);
         Assert.False(first.AllowLocalSourceReads);
         Assert.Null(first.RepositoryPaths);
         Assert.NotNull(first.SymbolAcquisitionLimits);

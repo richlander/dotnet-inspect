@@ -17,6 +17,37 @@ public abstract record ResourceTriageResult
         ImmutableArray<ResourceTriageAssessment> Assessments)
         : ResourceTriageResult;
 
+    /// <summary>Sound candidates are available, but the whole-assembly census is incomplete.</summary>
+    public sealed record Incomplete : ResourceTriageResult
+    {
+        public Incomplete(
+            FindingInspection<ResourceLifecycleOccurrence>.Complete inspection,
+            ImmutableArray<ResourceTriageAssessment> assessments,
+            ImmutableArray<ResourceLifecycleLimitation> limitations)
+        {
+            ArgumentNullException.ThrowIfNull(inspection);
+            if (assessments.IsDefault)
+                throw new ArgumentException(
+                    "Assessments must be initialized.",
+                    nameof(assessments));
+            if (limitations.IsDefaultOrEmpty)
+            {
+                throw new ArgumentException(
+                    "Incomplete Resource Triage requires a limitation.",
+                    nameof(limitations));
+            }
+
+            Inspection = inspection;
+            Assessments = assessments;
+            Limitations = limitations;
+        }
+
+        public FindingInspection<ResourceLifecycleOccurrence>.Complete
+            Inspection { get; }
+        public ImmutableArray<ResourceTriageAssessment> Assessments { get; }
+        public ImmutableArray<ResourceLifecycleLimitation> Limitations { get; }
+    }
+
     /// <summary>The image contains no managed metadata and therefore has no method bodies.</summary>
     public sealed record NoMetadata : ResourceTriageResult;
 
@@ -37,18 +68,23 @@ public static class ResourceTriageQuery
         ArgumentNullException.ThrowIfNull(lifecycle);
         ArgumentNullException.ThrowIfNull(subject);
 
-        FindingInspection<ResourceLifecycleOccurrence> inspection =
+        ResourceLifecycleFindingInspection inspection =
             ResourceLifecycleAnalysis.Inspect(lifecycle, subject);
-        return inspection.Value switch
+        return inspection switch
         {
-            FindingInspection<ResourceLifecycleOccurrence>.Complete complete =>
+            ResourceLifecycleFindingInspection.Complete complete =>
                 new ResourceTriageResult.Available(
-                    complete,
-                    ResourceTriageAnalysis.Assess(complete)),
-            FindingInspection<ResourceLifecycleOccurrence>.Failed failed =>
+                    complete.Inspection,
+                    ResourceTriageAnalysis.Assess(complete.Inspection)),
+            ResourceLifecycleFindingInspection.Incomplete incomplete =>
+                new ResourceTriageResult.Incomplete(
+                    incomplete.Inspection,
+                    ResourceTriageAnalysis.Assess(incomplete.Inspection),
+                    incomplete.Limitations),
+            ResourceLifecycleFindingInspection.Failed failed =>
                 new ResourceTriageResult.Failed(failed.Error),
             _ => throw new InvalidOperationException(
-                $"Unknown resource lifecycle inspection '{inspection.Value.GetType().Name}'."),
+                $"Unknown resource lifecycle inspection '{inspection.GetType().Name}'."),
         };
     }
 }

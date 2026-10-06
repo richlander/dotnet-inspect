@@ -21,7 +21,9 @@ exact package and terminal-star prefix input, product-issued inspection terms,
 streaming Browser engine source,
 explicitly bounded package-content acquisition, cancellation, honest partial
 and bounded completion states, package-grain decoded library-literal
-qualification, and typed Workspace handoff. The controller,
+qualification, typed Workspace handoff, and the active Ecosystem Overview's
+curated 24/48/96 package-discovery consumer with explicit current-Workspace
+Package admission. The controller,
 adapter, route, renderer, and engine projection are enforced by the
 package-query frontend and Browser engine test suites. Visualization,
 persistence, sharing, outcome caching, and additional assembly-pattern
@@ -418,6 +420,60 @@ operation deadlines are unchanged. A request containing `library-literal`
 uses a 25-second source-and-semantic deadline inside the Browser's 30-second
 package-operation deadline, leaving time to serialize a typed deadline-expired
 Package Query Document.
+
+### Active Ecosystem Overview consumer
+
+An exact active Ecosystem Overview is a curated Package Query consumer, not a
+second query surface. It submits the active catalog-issued Ecosystem identity
+through `PackageQuery.PlanEcosystemInput`, keeps the resulting Portable Query
+Intent and managed operation identity stable, and requests at most 96 matches.
+The Browser initially grants 24 durable-match credits and presents cumulative
+capacity as **Show: 24 | 48 | 96**. Selecting 48 grants only the missing 24
+credits; selecting 96 after 48 grants 48, while selecting 96 directly from 24
+grants 72. A repeated selection, rerender, viewport change, or scroll pressure
+grants no credit.
+
+The active capacity is text and only larger available capacities are actions.
+When the producer completes below the active capacity, the Overview reports the
+exact observed package count and removes larger capacities because they cannot
+reveal another row. Leaving the active Ecosystem cancels that operation;
+returning starts a new operation for the newly selected Browser entry rather
+than reviving hidden work. Each row exposes separate **Open** and
+**Add to workspace** actions. Open uses the existing exact package-ID/version
+subject handoff and does not mutate the active Workspace.
+
+Every Ecosystem result row carries typed admission evidence naming the exact
+Ecosystem identity, membership basis (`ExactPackage` or `PackagePrefix`), and
+authored registration that admitted it. **Add to workspace** is valid only
+while that exact Ecosystem registration and retained realization remain
+active. The managed host validates the row's Package ID against the exact
+core-Package declaration or prefix declaration before acquisition; display
+text and generic evidence strings are not admission authority.
+
+Successful admission acquires the explicitly selected Package ID and version
+for the Workspace traversal target, submits one publication-base-guarded
+targetless Scope Add, and preserves the active Ecosystem subject. The admitted
+Package then uses the ordinary Package evaluation and detached inventory path,
+is appended to the same retained realization, and participates in existing
+Workspace-scope consumers such as call-graph traversal without an
+Ecosystem-specific graph path. The Browser installs the returned posting and
+settles the exact Navigation effect authority before enabling later mutations.
+
+An already projected exact Package ID/version is a no-effect result and does
+not reacquire content. A stale realization or changed Ecosystem registration
+is superseded. Acquisition, Scope, Navigation, and Package-projection failures
+remain explicit; they do not become an empty or successful posting. Row-local
+presentation distinguishes Adding, Added, and visible failure while discovery
+progress and 24/48/96 capacity remain unchanged.
+
+The generic `/query` surface retains its 20-initial/10-near-end-scroll policy.
+The Ecosystem consumer changes only work authorization and presentation: it
+does not alter result order, admission evidence, progress, partial failure,
+cancellation, or completion semantics. By operator choice, the composition
+claim that this Overview performs no package-archive or Library acquisition has
+no dedicated gate and remains unverified here; Package Query's owner-level
+acquisition tests remain unchanged.
+
 The shared profile now consumes
 [incremental prefix pages](package-prefix-candidate-stream.md):
 each page's manifests are evaluated before
@@ -442,6 +498,21 @@ publishing it.
 Cancellation and unexpected execution failure settle outside the envelope;
 expected source or item failure can still produce a valid Document whose
 Summary reports failed completion.
+
+The explicit compact route defined by
+[Progressive JSONL Delivery](progressive-jsonl-delivery.md) preserves those
+semantic checks without returning the full Browser Document a second time.
+Its callbacks carry positional row batches plus the existing typed non-row
+events. Before terminal settlement, the managed Package Query adapter uses
+owner-issued typed outcome identity and multiplicity to publish any failure or
+assessment present only in the completed Document. This includes the
+operation-deadline `NotEvaluated` outcome that can occur before the semantic
+sink exists. Terminal settlement follows those exactly-once handoffs and
+returns an envelope containing Summary, descriptor-bound transport accounting,
+Share, and diagnostics. The Browser settles its page state from the streamed
+rows, failures, and assessments plus that terminal content. The existing
+object route retains the complete `BrowserPackageQueryDocument` during
+comparison.
 
 This direct callback is the shared stream contract's transitional first-adopter
 path. The Package Query controller's feature-owned generation guard suppresses

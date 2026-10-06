@@ -1,0 +1,674 @@
+using System.Collections.Immutable;
+
+namespace Inspector.Graph;
+
+public sealed class GraphComponentAnalysisPlan
+{
+    public GraphComponentAnalysisPlan(
+        GraphDocumentIdentity sourceDocument,
+        IReadOnlyList<int> sourceGroupIds)
+    {
+        ArgumentNullException.ThrowIfNull(sourceDocument);
+        SourceDocument = sourceDocument;
+        SourceGroupIds = GraphExecutionCollections.SnapshotDistinctIds(
+            sourceGroupIds,
+            nameof(sourceGroupIds));
+    }
+
+    public GraphDocumentIdentity SourceDocument { get; }
+    public ImmutableArray<int> SourceGroupIds { get; }
+}
+
+public sealed class GraphStrongComponent
+{
+    internal GraphStrongComponent(
+        int id,
+        ImmutableArray<int> sourceGroupIds,
+        int level)
+    {
+        Id = id;
+        SourceGroupIds = sourceGroupIds;
+        Level = level;
+    }
+
+    public int Id { get; }
+    public ImmutableArray<int> SourceGroupIds { get; }
+    public int Level { get; }
+}
+
+public readonly record struct GraphComponentMembership
+{
+    internal GraphComponentMembership(int sourceGroupId, int componentId)
+    {
+        SourceGroupId = sourceGroupId;
+        ComponentId = componentId;
+    }
+
+    public int SourceGroupId { get; }
+    public int ComponentId { get; }
+}
+
+public sealed class GraphCondensationEdge
+{
+    internal GraphCondensationEdge(
+        int id,
+        int fromComponentId,
+        int toComponentId,
+        ImmutableArray<int> sourceEdgeIds)
+    {
+        Id = id;
+        FromComponentId = fromComponentId;
+        ToComponentId = toComponentId;
+        SourceEdgeIds = sourceEdgeIds;
+    }
+
+    public int Id { get; }
+    public int FromComponentId { get; }
+    public int ToComponentId { get; }
+    public ImmutableArray<int> SourceEdgeIds { get; }
+}
+
+public sealed record GraphComponentAnalysisWorkReceipt
+{
+    internal GraphComponentAnalysisWorkReceipt(
+        GraphDocumentIdentity sourceDocument,
+        int projectedNodesExamined,
+        int selectedSourceGroupsAdmitted,
+        int projectedEdgesExamined,
+        int inducedProjectedEdgesAdmitted,
+        int distinctStructuralArcsIndexed,
+        int stronglyConnectedComponentsIssued,
+        int membershipRowsIssued,
+        int intraComponentProjectedEdgesAdmitted,
+        int crossComponentProjectedEdgesAdmitted,
+        int condensationEdgesIssued,
+        int distinctCanonicalSourceEdgeContributorsRetained,
+        int componentsWithLevelsSettled,
+        bool terminalSettled)
+    {
+        ArgumentNullException.ThrowIfNull(sourceDocument);
+        ArgumentOutOfRangeException.ThrowIfNegative(
+            projectedNodesExamined);
+        ArgumentOutOfRangeException.ThrowIfNegative(
+            selectedSourceGroupsAdmitted);
+        ArgumentOutOfRangeException.ThrowIfNegative(
+            projectedEdgesExamined);
+        ArgumentOutOfRangeException.ThrowIfNegative(
+            inducedProjectedEdgesAdmitted);
+        ArgumentOutOfRangeException.ThrowIfNegative(
+            distinctStructuralArcsIndexed);
+        ArgumentOutOfRangeException.ThrowIfNegative(
+            stronglyConnectedComponentsIssued);
+        ArgumentOutOfRangeException.ThrowIfNegative(
+            membershipRowsIssued);
+        ArgumentOutOfRangeException.ThrowIfNegative(
+            intraComponentProjectedEdgesAdmitted);
+        ArgumentOutOfRangeException.ThrowIfNegative(
+            crossComponentProjectedEdgesAdmitted);
+        ArgumentOutOfRangeException.ThrowIfNegative(
+            condensationEdgesIssued);
+        ArgumentOutOfRangeException.ThrowIfNegative(
+            distinctCanonicalSourceEdgeContributorsRetained);
+        ArgumentOutOfRangeException.ThrowIfNegative(
+            componentsWithLevelsSettled);
+
+        SourceDocument = sourceDocument;
+        ProjectedNodesExamined = projectedNodesExamined;
+        SelectedSourceGroupsAdmitted = selectedSourceGroupsAdmitted;
+        ProjectedEdgesExamined = projectedEdgesExamined;
+        InducedProjectedEdgesAdmitted = inducedProjectedEdgesAdmitted;
+        DistinctStructuralArcsIndexed = distinctStructuralArcsIndexed;
+        StronglyConnectedComponentsIssued =
+            stronglyConnectedComponentsIssued;
+        MembershipRowsIssued = membershipRowsIssued;
+        IntraComponentProjectedEdgesAdmitted =
+            intraComponentProjectedEdgesAdmitted;
+        CrossComponentProjectedEdgesAdmitted =
+            crossComponentProjectedEdgesAdmitted;
+        CondensationEdgesIssued = condensationEdgesIssued;
+        DistinctCanonicalSourceEdgeContributorsRetained =
+            distinctCanonicalSourceEdgeContributorsRetained;
+        ComponentsWithLevelsSettled = componentsWithLevelsSettled;
+        TerminalSettled = terminalSettled;
+    }
+
+    public GraphDocumentIdentity SourceDocument { get; }
+    public int ProjectedNodesExamined { get; }
+    public int SelectedSourceGroupsAdmitted { get; }
+    public int ProjectedEdgesExamined { get; }
+    public int InducedProjectedEdgesAdmitted { get; }
+    public int DistinctStructuralArcsIndexed { get; }
+    public int StronglyConnectedComponentsIssued { get; }
+    public int MembershipRowsIssued { get; }
+    public int IntraComponentProjectedEdgesAdmitted { get; }
+    public int CrossComponentProjectedEdgesAdmitted { get; }
+    public int CondensationEdgesIssued { get; }
+    public int DistinctCanonicalSourceEdgeContributorsRetained { get; }
+    public int ComponentsWithLevelsSettled { get; }
+    public bool TerminalSettled { get; }
+}
+
+public sealed class GraphComponentAnalysisResult
+{
+    internal GraphComponentAnalysisResult(
+        ImmutableArray<GraphStrongComponent> components,
+        ImmutableArray<GraphComponentMembership> memberships,
+        ImmutableArray<GraphCondensationEdge> condensationEdges,
+        GraphComponentAnalysisWorkReceipt receipt)
+    {
+        Components = components;
+        Memberships = memberships;
+        CondensationEdges = condensationEdges;
+        Receipt = receipt;
+    }
+
+    public ImmutableArray<GraphStrongComponent> Components { get; }
+    public ImmutableArray<GraphComponentMembership> Memberships { get; }
+    public ImmutableArray<GraphCondensationEdge> CondensationEdges { get; }
+    public GraphStructuralCompletion Completion =>
+        GraphStructuralCompletion.Exhausted;
+    public GraphComponentAnalysisWorkReceipt Receipt { get; }
+}
+
+public static partial class GraphDocumentExecution
+{
+    public static GraphComponentAnalysisResult ComponentAnalysis<
+        TRelationship>(
+        GraphGroupProjectionResult<TRelationship> projection,
+        GraphComponentAnalysisPlan plan)
+        where TRelationship : notnull
+    {
+        ArgumentNullException.ThrowIfNull(projection);
+        ArgumentNullException.ThrowIfNull(plan);
+        if (!ReferenceEquals(
+            projection.Receipt.SourceDocument,
+            plan.SourceDocument))
+        {
+            throw new ArgumentException(
+                "The component plan belongs to another graph document.",
+                nameof(plan));
+        }
+
+        if (plan.SourceGroupIds.IsEmpty)
+            return EmptyComponentAnalysis(plan.SourceDocument);
+
+        var selectedSourceGroupIds =
+            new HashSet<int>(plan.SourceGroupIds);
+        var sourceGroupIds = new List<int>(plan.SourceGroupIds.Length);
+
+        var vertexByProjectedNodeId = new Dictionary<int, int>(
+            plan.SourceGroupIds.Length);
+        foreach (GraphProjectedGroupNode node in projection.Nodes)
+        {
+            if (!selectedSourceGroupIds.Contains(node.SourceGroupId))
+                continue;
+
+            int vertex = sourceGroupIds.Count;
+            sourceGroupIds.Add(node.SourceGroupId);
+            vertexByProjectedNodeId.Add(node.Id, vertex);
+        }
+        if (sourceGroupIds.Count != plan.SourceGroupIds.Length)
+        {
+            throw new ArgumentException(
+                "Every selected source group must occur in the projection.",
+                nameof(plan));
+        }
+
+        List<int>[] forward = CreateAdjacency(sourceGroupIds.Count);
+        List<int>[] reverse = CreateAdjacency(sourceGroupIds.Count);
+        var structuralTargets = new HashSet<int>?[sourceGroupIds.Count];
+        var structuralArcCount = 0;
+        var inducedEdges =
+            new List<GraphProjectedEdge<TRelationship>>();
+        foreach (GraphProjectedEdge<TRelationship> edge in projection.Edges)
+        {
+            if (!vertexByProjectedNodeId.TryGetValue(
+                edge.FromProjectedNodeId,
+                out int fromVertex)
+                || !vertexByProjectedNodeId.TryGetValue(
+                    edge.ToProjectedNodeId,
+                    out int toVertex))
+            {
+                continue;
+            }
+
+            inducedEdges.Add(edge);
+            HashSet<int> targets =
+                structuralTargets[fromVertex] ??= [];
+            if (!targets.Add(toVertex))
+                continue;
+
+            structuralArcCount++;
+            forward[fromVertex].Add(toVertex);
+            reverse[toVertex].Add(fromVertex);
+        }
+
+        int[] discoveredComponentByVertex;
+        int discoveredComponentCount;
+        (discoveredComponentByVertex, discoveredComponentCount) =
+            DiscoverStrongComponents(forward, reverse);
+        int[] componentByVertex = OrderComponents(
+            discoveredComponentByVertex,
+            discoveredComponentCount);
+
+        var contributorsByTargetByComponent =
+            new Dictionary<int, List<int>>?[discoveredComponentCount];
+        var componentPairs = new List<long>();
+        var retainedSourceEdgeCount = 0;
+        var intraComponentProjectedEdges = 0;
+        var crossComponentProjectedEdges = 0;
+        foreach (GraphProjectedEdge<TRelationship> edge in inducedEdges)
+        {
+            int fromVertex =
+                vertexByProjectedNodeId[edge.FromProjectedNodeId];
+            int toVertex =
+                vertexByProjectedNodeId[edge.ToProjectedNodeId];
+            int fromComponentId = componentByVertex[fromVertex];
+            int toComponentId = componentByVertex[toVertex];
+            if (fromComponentId == toComponentId)
+            {
+                intraComponentProjectedEdges++;
+                continue;
+            }
+
+            crossComponentProjectedEdges++;
+            Dictionary<int, List<int>> contributorsByTarget =
+                contributorsByTargetByComponent[fromComponentId] ??= [];
+            if (!contributorsByTarget.TryGetValue(
+                toComponentId,
+                out List<int>? sourceEdgeIds))
+            {
+                sourceEdgeIds = [];
+                contributorsByTarget.Add(toComponentId, sourceEdgeIds);
+                componentPairs.Add(Pair(
+                    fromComponentId,
+                    toComponentId));
+            }
+            foreach (int sourceEdgeId in edge.SourceEdgeIds)
+            {
+                sourceEdgeIds.Add(sourceEdgeId);
+                retainedSourceEdgeCount++;
+            }
+        }
+
+        long[] orderedComponentPairs = OrderComponentPairs(
+            componentPairs,
+            discoveredComponentCount);
+        var condensationEdges =
+            ImmutableArray.CreateBuilder<GraphCondensationEdge>(
+                orderedComponentPairs.Length);
+        foreach (long pair in orderedComponentPairs)
+        {
+            condensationEdges.Add(
+                new(
+                    condensationEdges.Count,
+                    PairFirst(pair),
+                    PairSecond(pair),
+                    OrderSourceEdgeIds(
+                        contributorsByTargetByComponent[
+                            PairFirst(pair)]![PairSecond(pair)])));
+        }
+
+        int[] levels = SettleLevels(
+            discoveredComponentCount,
+            orderedComponentPairs);
+        int[] orderedSourceGroupIds = [.. sourceGroupIds];
+        ImmutableArray<GraphStrongComponent> components =
+            CreateComponents(
+                orderedSourceGroupIds,
+                componentByVertex,
+                levels);
+        ImmutableArray<GraphComponentMembership> memberships =
+            CreateMemberships(
+                orderedSourceGroupIds,
+                componentByVertex);
+        var receipt = new GraphComponentAnalysisWorkReceipt(
+            plan.SourceDocument,
+            projection.Nodes.Length,
+            sourceGroupIds.Count,
+            projection.Edges.Length,
+            inducedEdges.Count,
+            structuralArcCount,
+            components.Length,
+            memberships.Length,
+            intraComponentProjectedEdges,
+            crossComponentProjectedEdges,
+            condensationEdges.Count,
+            retainedSourceEdgeCount,
+            levels.Length,
+            terminalSettled: true);
+        return new(
+            components,
+            memberships,
+            condensationEdges.MoveToImmutable(),
+            receipt);
+    }
+
+    static GraphComponentAnalysisResult EmptyComponentAnalysis(
+        GraphDocumentIdentity sourceDocument) =>
+        new(
+            [],
+            [],
+            [],
+            new(
+                sourceDocument,
+                projectedNodesExamined: 0,
+                selectedSourceGroupsAdmitted: 0,
+                projectedEdgesExamined: 0,
+                inducedProjectedEdgesAdmitted: 0,
+                distinctStructuralArcsIndexed: 0,
+                stronglyConnectedComponentsIssued: 0,
+                membershipRowsIssued: 0,
+                intraComponentProjectedEdgesAdmitted: 0,
+                crossComponentProjectedEdgesAdmitted: 0,
+                condensationEdgesIssued: 0,
+                distinctCanonicalSourceEdgeContributorsRetained: 0,
+                componentsWithLevelsSettled: 0,
+                terminalSettled: true));
+
+    static List<int>[] CreateAdjacency(int count)
+    {
+        var adjacency = new List<int>[count];
+        for (var index = 0; index < count; index++)
+            adjacency[index] = [];
+        return adjacency;
+    }
+
+    static (int[] ComponentByVertex, int ComponentCount)
+        DiscoverStrongComponents(
+            List<int>[] forward,
+            List<int>[] reverse)
+    {
+        List<int> finishingOrder = FinishingOrder(forward);
+        var componentByVertex = new int[forward.Length];
+        Array.Fill(componentByVertex, -1);
+        var stack = new Stack<int>();
+        var componentCount = 0;
+        for (var index = finishingOrder.Count - 1; index >= 0; index--)
+        {
+            int root = finishingOrder[index];
+            if (componentByVertex[root] >= 0)
+                continue;
+
+            int componentId = componentCount;
+            componentCount++;
+            componentByVertex[root] = componentId;
+            stack.Push(root);
+            while (stack.Count > 0)
+            {
+                int vertex = stack.Pop();
+                foreach (int neighbor in reverse[vertex])
+                {
+                    if (componentByVertex[neighbor] >= 0)
+                        continue;
+                    componentByVertex[neighbor] = componentId;
+                    stack.Push(neighbor);
+                }
+            }
+        }
+        return (componentByVertex, componentCount);
+    }
+
+    static List<int> FinishingOrder(List<int>[] adjacency)
+    {
+        var visited = new bool[adjacency.Length];
+        var finishingOrder = new List<int>(adjacency.Length);
+        var stack = new Stack<DepthFirstFrame>();
+        for (var root = 0; root < adjacency.Length; root++)
+        {
+            if (visited[root])
+                continue;
+
+            visited[root] = true;
+            stack.Push(new(root, 0));
+            while (stack.Count > 0)
+            {
+                DepthFirstFrame frame = stack.Pop();
+                if (frame.NextNeighborIndex
+                    == adjacency[frame.Vertex].Count)
+                {
+                    finishingOrder.Add(frame.Vertex);
+                    continue;
+                }
+
+                int neighbor =
+                    adjacency[frame.Vertex][frame.NextNeighborIndex];
+                stack.Push(
+                    new(
+                        frame.Vertex,
+                        frame.NextNeighborIndex + 1));
+                if (visited[neighbor])
+                    continue;
+                visited[neighbor] = true;
+                stack.Push(new(neighbor, 0));
+            }
+        }
+        return finishingOrder;
+    }
+
+    static int[] OrderComponents(
+        int[] discoveredComponentByVertex,
+        int discoveredComponentCount)
+    {
+        var orderedComponentByDiscoveredComponent =
+            new int[discoveredComponentCount];
+        Array.Fill(orderedComponentByDiscoveredComponent, -1);
+        var componentCount = 0;
+        for (var vertex = 0;
+            vertex < discoveredComponentByVertex.Length;
+            vertex++)
+        {
+            int discoveredComponentId =
+                discoveredComponentByVertex[vertex];
+            if (orderedComponentByDiscoveredComponent[
+                discoveredComponentId] >= 0)
+            {
+                continue;
+            }
+            orderedComponentByDiscoveredComponent[
+                discoveredComponentId] = componentCount;
+            componentCount++;
+        }
+
+        var componentByVertex =
+            new int[discoveredComponentByVertex.Length];
+        for (var vertex = 0;
+            vertex < discoveredComponentByVertex.Length;
+            vertex++)
+        {
+            componentByVertex[vertex] =
+                orderedComponentByDiscoveredComponent[
+                    discoveredComponentByVertex[vertex]];
+        }
+        return componentByVertex;
+    }
+
+    static int[] SettleLevels(
+        int componentCount,
+        IReadOnlyList<long> orderedComponentPairs)
+    {
+        List<int>[] predecessors = CreateAdjacency(componentCount);
+        var remainingOutgoingEdges = new int[componentCount];
+        foreach (long pair in orderedComponentPairs)
+        {
+            int fromComponentId = PairFirst(pair);
+            int toComponentId = PairSecond(pair);
+            remainingOutgoingEdges[fromComponentId]++;
+            predecessors[toComponentId].Add(fromComponentId);
+        }
+
+        var levels = new int[componentCount];
+        var ready = new Queue<int>();
+        for (var componentId = 0;
+            componentId < remainingOutgoingEdges.Length;
+            componentId++)
+        {
+            if (remainingOutgoingEdges[componentId] == 0)
+                ready.Enqueue(componentId);
+        }
+
+        var settled = 0;
+        while (ready.Count > 0)
+        {
+            int targetComponentId = ready.Dequeue();
+            settled++;
+            foreach (int predecessorId
+                in predecessors[targetComponentId])
+            {
+                levels[predecessorId] = Math.Max(
+                    levels[predecessorId],
+                    levels[targetComponentId] + 1);
+                remainingOutgoingEdges[predecessorId]--;
+                if (remainingOutgoingEdges[predecessorId] == 0)
+                    ready.Enqueue(predecessorId);
+            }
+        }
+        if (settled != componentCount)
+        {
+            throw new InvalidOperationException(
+                "Strong-component condensation must be acyclic.");
+        }
+        return levels;
+    }
+
+    static long[] OrderComponentPairs(
+        IEnumerable<long> componentPairs,
+        int componentCount)
+    {
+        long[] ordered = [.. componentPairs];
+        CountingSortPairs(
+            ordered,
+            componentCount,
+            sortByFirst: false);
+        CountingSortPairs(
+            ordered,
+            componentCount,
+            sortByFirst: true);
+        return ordered;
+    }
+
+    static void CountingSortPairs(
+        long[] values,
+        int componentCount,
+        bool sortByFirst)
+    {
+        var positions = new int[componentCount];
+        foreach (long value in values)
+        {
+            int key = sortByFirst
+                ? PairFirst(value)
+                : PairSecond(value);
+            positions[key]++;
+        }
+
+        var position = 0;
+        for (var key = 0; key < positions.Length; key++)
+        {
+            int count = positions[key];
+            positions[key] = position;
+            position += count;
+        }
+
+        var ordered = new long[values.Length];
+        foreach (long value in values)
+        {
+            int key = sortByFirst
+                ? PairFirst(value)
+                : PairSecond(value);
+            ordered[positions[key]] = value;
+            positions[key]++;
+        }
+        ordered.CopyTo(values, 0);
+    }
+
+    static ImmutableArray<int> OrderSourceEdgeIds(List<int> sourceEdgeIds)
+    {
+        int[] ordered = [.. sourceEdgeIds];
+        var buffer = new int[ordered.Length];
+        for (var shift = 0; shift < 32; shift += 8)
+        {
+            var positions = new int[256];
+            foreach (int sourceEdgeId in ordered)
+                positions[(sourceEdgeId >> shift) & 0xff]++;
+
+            var position = 0;
+            for (var bucket = 0; bucket < positions.Length; bucket++)
+            {
+                int count = positions[bucket];
+                positions[bucket] = position;
+                position += count;
+            }
+
+            foreach (int sourceEdgeId in ordered)
+            {
+                int bucket = (sourceEdgeId >> shift) & 0xff;
+                buffer[positions[bucket]] = sourceEdgeId;
+                positions[bucket]++;
+            }
+            (ordered, buffer) = (buffer, ordered);
+        }
+        return [.. ordered];
+    }
+
+    static ImmutableArray<GraphStrongComponent> CreateComponents(
+        int[] sourceGroupIds,
+        int[] componentByVertex,
+        int[] levels)
+    {
+        var memberIds = new List<int>[levels.Length];
+        for (var componentId = 0;
+            componentId < memberIds.Length;
+            componentId++)
+        {
+            memberIds[componentId] = [];
+        }
+        for (var vertex = 0; vertex < sourceGroupIds.Length; vertex++)
+        {
+            memberIds[componentByVertex[vertex]].Add(
+                sourceGroupIds[vertex]);
+        }
+
+        var components =
+            ImmutableArray.CreateBuilder<GraphStrongComponent>(
+                levels.Length);
+        for (var componentId = 0;
+            componentId < memberIds.Length;
+            componentId++)
+        {
+            components.Add(
+                new(
+                    componentId,
+                    [.. memberIds[componentId]],
+                    levels[componentId]));
+        }
+        return components.MoveToImmutable();
+    }
+
+    static ImmutableArray<GraphComponentMembership> CreateMemberships(
+        int[] sourceGroupIds,
+        int[] componentByVertex)
+    {
+        var memberships =
+            ImmutableArray.CreateBuilder<GraphComponentMembership>(
+                sourceGroupIds.Length);
+        for (var vertex = 0; vertex < sourceGroupIds.Length; vertex++)
+        {
+            memberships.Add(
+                new(
+                    sourceGroupIds[vertex],
+                    componentByVertex[vertex]));
+        }
+        return memberships.MoveToImmutable();
+    }
+
+    static long Pair(int first, int second) =>
+        ((long)first << 32) | (uint)second;
+
+    static int PairFirst(long pair) => (int)(pair >> 32);
+
+    static int PairSecond(long pair) => (int)pair;
+
+    readonly record struct DepthFirstFrame(
+        int Vertex,
+        int NextNeighborIndex);
+}

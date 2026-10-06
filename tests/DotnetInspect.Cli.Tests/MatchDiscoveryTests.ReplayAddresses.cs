@@ -139,13 +139,15 @@ public partial class MatchDiscoveryTests
     [Fact]
     public void Disclosure_ForADirectlyNamedLibrary_KeepsThePathAndNamesNoPackage()
     {
-        var request = new MatchDiscoveryRequest(
-            "A.Type.Member",
-            "A.Type",
-            "/images/Target.dll",
-            new ILInspector.Analysis.StructuralCloneRetrievalLimits(1, 1));
+        var request = new MatchDiscoveryReplayRequest(
+            CandidateAssembly: "/images/Target.dll",
+            CandidatePackage: null,
+            CandidateTfm: null,
+            ReplayLibrary: null,
+            ReplaySources: null,
+            IncludeAll: false);
 
-        string disclosure = MatchDiscoveryFormatter.DisclosureFor(request);
+        string disclosure = MatchDiscoveryReplay.DisclosureFor(request);
 
         Assert.Contains("`--library '/images/Target.dll'`", disclosure);
         Assert.DoesNotContain("--package", disclosure);
@@ -309,15 +311,15 @@ public partial class MatchDiscoveryTests
     [Fact]
     public void Disclosure_ShellQuotesPackageAssetAndTfm()
     {
-        var request = new MatchDiscoveryRequest(
-            "A.Type.Member",
-            "A.Type",
-            "lib/net10.0/Target's build.dll",
-            new ILInspector.Analysis.StructuralCloneRetrievalLimits(1, 1),
+        var request = new MatchDiscoveryReplayRequest(
+            CandidateAssembly: "lib/net10.0/Target's build.dll",
             CandidatePackage: "/packages/Fixture's build.nupkg",
-            CandidateTfm: "net10.0");
+            CandidateTfm: "net10.0",
+            ReplayLibrary: null,
+            ReplaySources: null,
+            IncludeAll: false);
 
-        string disclosure = MatchDiscoveryFormatter.DisclosureFor(request);
+        string disclosure = MatchDiscoveryReplay.DisclosureFor(request);
 
         Assert.Contains(
             "--package "
@@ -352,20 +354,19 @@ public partial class MatchDiscoveryTests
     [Fact]
     public void Disclosure_PackageReplayRetainsSourceSelection()
     {
-        var request = new MatchDiscoveryRequest(
-            "A.Type.Member",
-            "A.Type",
-            "lib/net10.0/Target.dll",
-            new ILInspector.Analysis.StructuralCloneRetrievalLimits(1, 1),
+        var request = new MatchDiscoveryReplayRequest(
+            CandidateAssembly: "lib/net10.0/Target.dll",
             CandidatePackage: "Fixture@1.0.0",
             CandidateTfm: "net10.0",
+            ReplayLibrary: null,
             ReplaySources: new PackageReplaySources(
                 ["https://feed-a.invalid/v3/index.json"],
                 ["https://feed-b.invalid/v3/index.json"],
                 "/configs/NuGet Config",
-                null));
+                null),
+            IncludeAll: false);
 
-        string disclosure = MatchDiscoveryFormatter.DisclosureFor(request);
+        string disclosure = MatchDiscoveryReplay.DisclosureFor(request);
 
         Assert.Contains(
             "--source 'https://feed-a.invalid/v3/index.json' "

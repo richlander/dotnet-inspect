@@ -444,13 +444,14 @@ public static class EcosystemCommand
         new(
             EcosystemsSection,
             "Ecosystem packs configured into this product build.",
-            ["ID", "Ecosystem", "Summary", "Scanner", "Integration Bindings", "Demos"],
-            ["id", "ecosystem", "summary", "scanner", "integration_bindings", "demos"],
+            ["ID", "Ecosystem", "Depends On", "Summary", "Scanner", "Integration Bindings", "Demos"],
+            ["id", "ecosystem", "depends_on", "summary", "scanner", "integration_bindings", "demos"],
             [
                 .. packs.Select(pack => new[]
                 {
                     pack.Id.Value,
                     pack.Title,
+                    pack.DependsOn?.Value ?? "none",
                     pack.Summary,
                     pack.HasScanner ? "configured" : "none",
                     KnownConcepts(pack.Id).Length.ToString(),
@@ -468,6 +469,8 @@ public static class EcosystemCommand
             ["field", "value"],
             [
                 ["ID", pack.Id.Value],
+                ["Depends On", pack.DependsOn?.Value ?? "none"],
+                ["Lineage", string.Join(" → ", pack.Lineage.Select(id => id.Value))],
                 ["Package Set", pack.PackageSet?.ToString() ?? "none"],
                 ["Integration Scanner", pack.HasScanner ? "configured" : "none"],
                 ["Namespace Hints", pack.NamespaceRoots.Length.ToString()],

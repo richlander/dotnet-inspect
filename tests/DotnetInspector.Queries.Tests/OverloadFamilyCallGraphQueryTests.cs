@@ -175,21 +175,21 @@ public sealed class OverloadFamilyCallGraphQueryTests
             2,
             document.Limits.Count(limit =>
                 ReferenceEquals(
-                    limit.Descriptor,
+                    limit.Payload.Descriptor,
                     InspectionGraphNeighborhoodCatalog.DepthBound)));
         CallGraphTraversalNodeBoundEvidence nodeBound = Assert.IsType<
             CallGraphTraversalNodeBoundEvidence>(
                 Assert.Single(
                     document.Limits,
                     limit => ReferenceEquals(
-                        limit.Descriptor,
+                        limit.Payload.Descriptor,
                         CallGraphInspectionGraphCatalog
-                            .TraversalNodeBound)).Evidence);
+                            .TraversalNodeBound)).Payload.Evidence);
         Assert.Equal(2, nodeBound.MaxNodes);
         Assert.Contains(
             document.Limits,
             limit => ReferenceEquals(
-                limit.Descriptor,
+                limit.Payload.Descriptor,
                 CallGraphInspectionGraphCatalog
                     .TraversalIncomplete));
     }

@@ -113,7 +113,12 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
     internal IMethodCallResolver CreateCallResolver(
         GenericScope scope,
         MethodIdentity caller) =>
-        new CallResolver(this, scope, caller);
+        new CallResolver(this, scope, caller.MetadataToken);
+
+    internal IMethodCallResolver CreateCallResolver(
+        GenericScope scope,
+        MethodDefinitionHandle caller) =>
+        new CallResolver(this, scope, MetadataTokens.GetToken(caller));
 
     internal CallerUnsafeMode? ResolveSameImageCallerUnsafeMode(
         int operandToken,
@@ -622,6 +627,13 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
         public TypeRef ResolveType(int token)
             => owner.ResolveTypeToken(token, scope);
 
+        public bool TokenTypeMatchesSignature(
+            TypeRef tokenType,
+            TypeRef signatureType) =>
+            owner._signatureComparer.TokenMatchesSignature(
+                tokenType,
+                signatureType);
+
         public MemberRef ResolveMember(int token)
             => owner.ResolveMethod(
                 token,
@@ -680,7 +692,7 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
     sealed class CallResolver(
         LibraryBodyPrimaryMetadataResolver owner,
         GenericScope scope,
-        MethodIdentity caller)
+        int callerToken)
         : IMethodCallResolver
     {
         public MemberRef ResolveMember(int token)
@@ -689,7 +701,7 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
                 scope,
                 (MethodDefinitionHandle)
                     MetadataTokens.EntityHandle(
-                        caller.MetadataToken));
+                        callerToken));
 
         public MemberRef ResolveIndirectCall(int signatureToken)
             => owner.ResolveCalliMember(signatureToken, scope);
@@ -771,9 +783,17 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
                         TypeRefDecoder.Instance.GetTypeFromDefinition(_reader, field.GetDeclaringType(), 0),
                         _reader.GetString(field.Name));
                 case HandleKind.MemberReference:
+                    MemberReference member =
+                        _reader.GetMemberReference(
+                            (MemberReferenceHandle)handle);
+                    if (member.GetKind()
+                        != MemberReferenceKind.Field)
+                    {
+                        return (null, null);
+                    }
                     return (
                         ResolveMemberReferenceParentType(handle, callerScope),
-                        _reader.GetString(_reader.GetMemberReference((MemberReferenceHandle)handle).Name));
+                        _reader.GetString(member.Name));
                 default:
                     return (null, null);
             }
@@ -880,7 +900,7 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
         };
     }
 
-    bool CanCanonicalizeCurrentModuleReference(TypeRef type)
+    internal bool CanCanonicalizeCurrentModuleReference(TypeRef type)
     {
         TypeRef definition = type.Kind == TypeRefKind.GenericInstance
             ? type.ElementType ?? type
@@ -911,14 +931,15 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
             handle);
     }
 
-    bool TryResolveLocalTypeDefinition(
+    internal bool TryResolveLocalTypeDefinition(
         TypeRef type,
         out TypeDefinitionHandle handle)
     {
         TypeRef definition = type.Kind == TypeRefKind.GenericInstance
             ? type.ElementType ?? type
             : type;
-        if (definition.Resolution is not { Type: var name }
+        if (!CanCanonicalizeCurrentModuleReference(definition)
+            || definition.Resolution is not { Type: var name }
             || !_localTypeDefinitions.Value.TryGetValue(
                 name,
                 out handle)

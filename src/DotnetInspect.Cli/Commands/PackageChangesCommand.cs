@@ -21,7 +21,7 @@ internal static class PackageChangesCommand
         EcosystemChangeReportDocument> JsonContract =
             new(
                 "ecosystem-change-report",
-                1,
+                EcosystemChangeReportDocument.CurrentSchemaVersion,
                 EcosystemChangeReportJsonContext.Default
                     .EcosystemChangeReportDocument);
 
@@ -50,8 +50,6 @@ internal static class PackageChangesCommand
             fetchOptions.RequestTimeout,
             fetchOptions.OperationTimeout,
             cancellationToken);
-        using IDisposable advisoryAccess =
-            NetworkTelemetry.Allow(NetworkTrafficKind.VulnerabilityData);
         return await ExecuteAsync(
             options,
             catalog,
@@ -116,18 +114,12 @@ internal static class PackageChangesCommand
             return 1;
         }
 
-        if (ecosystem.PackageSet is not { } packageSetId)
+        if (EcosystemPackCatalog.SelectPackageActivity(ecosystem)
+            is not { } selection)
         {
             CommandError.Write(
-                $"Ecosystem '{options.Ecosystem}' does not define an exact package set for change reporting.");
+                $"Ecosystem '{options.Ecosystem}' records no package prefix for package activity.");
             return 1;
-        }
-
-        if (PackageSetCatalog.Lookup(packageSetId)
-            is not PackageSetLookupResult.Known known)
-        {
-            throw new InvalidOperationException(
-                $"Shipped package set '{packageSetId}' is not registered.");
         }
 
         NuGetCatalogRequest? interval =
@@ -136,9 +128,7 @@ internal static class PackageChangesCommand
                 ? new NuGetCatalogRequest(from, through)
                 : null;
         var request = new EcosystemChangeReportRequest(
-            new EcosystemChangePackageSelection.PackageSet(
-                known.Descriptor.Id.Value,
-                known.Descriptor.Members),
+            selection,
             interval,
             options.SecurityOnly
                 ? EcosystemChangeSecuritySelection.SecurityRelevant

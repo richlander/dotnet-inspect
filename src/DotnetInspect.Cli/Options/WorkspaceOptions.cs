@@ -38,6 +38,11 @@ public sealed record WorkspaceOptions
     /// </summary>
     public int? ActivePackage { get; init; }
 
+    /// <summary>
+    /// One exact registered Ecosystem selected through the Workspace inventory.
+    /// </summary>
+    public string? ActiveEcosystem { get; init; }
+
     /// <summary>The exact owner-issued compile asset id for a Library.</summary>
     public string? Library { get; init; }
 

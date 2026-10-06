@@ -273,6 +273,45 @@ public class ApiTypeLookupServiceTests
     }
 
     [Fact]
+    public void ValidateMemberFilters_AcceptsProjectedAccessorMethodsWhenRequested()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Sample",
+            Name = "Implementation",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Sample.IValue.Value",
+                    Kind = "property",
+                    GetterToken = 0x06000001,
+                    SignatureModel = new ApiSignature
+                    {
+                        ReturnType = "int",
+                        Accessors =
+                        [
+                            new ApiAccessor
+                            {
+                                Kind = "get",
+                                Name = "Sample.IValue.get_Value",
+                                IsExplicitInterfaceImplementation = true,
+                            },
+                        ],
+                    },
+                },
+            ],
+        };
+
+        var result = ApiTypeLookupService.ValidateMemberFilters(
+            type,
+            ["Sample.IValue.get_Value"],
+            includeAccessorMethods: true);
+
+        Assert.True(result.IsValid);
+    }
+
+    [Fact]
     public void FindNonPublicMatches_IdentifiesMembersThatExistOnlyInFullSet()
     {
         var matches = ApiTypeLookupService.FindNonPublicMatches(

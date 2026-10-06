@@ -6,6 +6,8 @@ using ILInspector.DecompilerHarness;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
 
+using ILInspector.ILDiff;
+
 namespace ILInspector.Decompiler.Tests;
 
 public class CapturingLambdaCoupledBodyTests

@@ -6,7 +6,6 @@ using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Sections;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
-using DotnetInspector.Vocabulary;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
 
@@ -18,9 +17,9 @@ public sealed class VocabularyCommandTests
     [Fact]
     public void JsonSerialization_PreservesWireShapeAcrossIndentationModes()
     {
-        string indented = VocabularyJson.Serialize(VocabularyCatalog.Document);
+        string indented = VocabularyJson.Serialize(CliVocabularyDocument.Document);
         string compact = VocabularyJson.Serialize(
-            VocabularyCatalog.Document,
+            CliVocabularyDocument.Document,
             indented: false);
         using JsonDocument indentedDocument = JsonDocument.Parse(indented);
         using JsonDocument compactDocument = JsonDocument.Parse(compact);
@@ -36,35 +35,35 @@ public sealed class VocabularyCommandTests
     public void Catalog_ProjectsOwnerValuesWithoutChangingIdentityOrOrder()
     {
         VocabularySection index =
-            VocabularyCatalog.GetById("vocabulary.sections");
+            CliVocabularyDocument.GetById("vocabulary.sections");
         Assert.Equal(
-            VocabularyCatalog.Document.Sections.Skip(1).Select(section => section.Id),
+            CliVocabularyDocument.Document.Sections.Skip(1).Select(section => section.Id),
             index.Values.Select(ValueId));
         Assert.Equal(
-            VocabularyCatalog.Document.Sections.Length - 1,
+            CliVocabularyDocument.Document.Sections.Length - 1,
             index.Values.Length);
         Assert.DoesNotContain(index.Fields, field => field.Id == "categories");
 
         VocabularySection accessibility =
-            VocabularyCatalog.GetById("api.accessibility");
+            CliVocabularyDocument.GetById("api.accessibility");
         Assert.Equal(
             ApiAccessibility.Values.Select(value => value.Id),
             accessibility.Values.Select(ValueId));
 
         VocabularySection tiers =
-            VocabularyCatalog.GetById("csharp.style-tiers");
+            CliVocabularyDocument.GetById("csharp.style-tiers");
         Assert.Equal(
             StyleOptionCatalog.Tiers.Select(value => value.Id.ToString()),
             tiers.Values.Select(ValueId));
 
         VocabularySection choices =
-            VocabularyCatalog.GetById("csharp.style-choices");
+            CliVocabularyDocument.GetById("csharp.style-choices");
         Assert.Equal(
             StyleOptionCatalog.Choices.Select(value => value.Id),
             choices.Values.Select(ValueId));
 
         VocabularySection bodyKinds =
-            VocabularyCatalog.GetById("csharp.body-kinds");
+            CliVocabularyDocument.GetById("csharp.body-kinds");
         Assert.Equal(
             BodyShapeSearch.SupportedKinds,
             bodyKinds.Values.Select(ValueId));
@@ -89,7 +88,7 @@ public sealed class VocabularyCommandTests
         Assert.Contains("# Vocabulary", result.Output);
         Assert.Contains("## Vocabulary Sections", result.Output);
         Assert.Contains(
-            VocabularyCatalog.GetById("vocabulary.sections").Summary,
+            CliVocabularyDocument.GetById("vocabulary.sections").Summary,
             result.Output);
         Assert.Contains("| Section | Summary | Values |", result.Output);
         Assert.Contains("| C# Style Choices |", result.Output);
@@ -124,7 +123,7 @@ public sealed class VocabularyCommandTests
             | C# Style Tiers | section |
             | Vocabulary Sections | section |
             """,
-            result.Output.Trim());
+            result.Output.ReplaceLineEndings("\n").Trim());
     }
 
     [Theory]
@@ -175,7 +174,7 @@ public sealed class VocabularyCommandTests
                 "C# Style Choices",
                 "C# Style Tiers",
             ],
-            result.Output.Split('\n')
+            result.Output.ReplaceLineEndings("\n").Split('\n')
                 .Where(line => line.StartsWith("## ", StringComparison.Ordinal))
                 .Select(line => line[3..]));
         Assert.DoesNotContain("## Accessibility", result.Output);
@@ -233,7 +232,7 @@ public sealed class VocabularyCommandTests
         var result = await ConsoleCapture.RunAsync(() => Task.FromResult(
             VocabularyCommand.Execute(new VocabularyOptions
             {
-                Select = [VocabularyCatalog.AccessibilitySection],
+                Select = [ApiAccessibilityVocabulary.AccessibilityLabel],
                 JsonOutput = true,
             })));
 
@@ -265,7 +264,7 @@ public sealed class VocabularyCommandTests
         var projected = await ConsoleCapture.RunAsync(() => Task.FromResult(
             VocabularyCommand.Execute(new VocabularyOptions
             {
-                Select = [VocabularyCatalog.StyleChoicesSection],
+                Select = [StyleOptionVocabularies.StyleChoicesLabel],
                 Tabular = true,
                 Tsv = true,
                 Columns = ["ID", "Tier"],
@@ -275,7 +274,7 @@ public sealed class VocabularyCommandTests
         var counted = await ConsoleCapture.RunAsync(() => Task.FromResult(
             VocabularyCommand.Execute(new VocabularyOptions
             {
-                Select = [VocabularyCatalog.AccessibilitySection],
+                Select = [ApiAccessibilityVocabulary.AccessibilityLabel],
                 Count = true,
             })));
 
@@ -299,7 +298,7 @@ public sealed class VocabularyCommandTests
         var result = await ConsoleCapture.RunAsync(() => Task.FromResult(
             VocabularyCommand.Execute(new VocabularyOptions
             {
-                Select = [VocabularyCatalog.StyleChoicesSection],
+                Select = [StyleOptionVocabularies.StyleChoicesLabel],
                 Tabular = true,
                 Tsv = true,
                 Fields = ["ID", "Tier"],
@@ -326,9 +325,9 @@ public sealed class VocabularyCommandTests
                 Select = ["C#*"],
                 Count = true,
             })));
-        VocabularySection tiers = VocabularyCatalog.GetById("csharp.style-tiers");
-        VocabularySection choices = VocabularyCatalog.GetById("csharp.style-choices");
-        VocabularySection bodyKinds = VocabularyCatalog.GetById("csharp.body-kinds");
+        VocabularySection tiers = CliVocabularyDocument.GetById("csharp.style-tiers");
+        VocabularySection choices = CliVocabularyDocument.GetById("csharp.style-choices");
+        VocabularySection bodyKinds = CliVocabularyDocument.GetById("csharp.body-kinds");
 
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
@@ -385,7 +384,7 @@ public sealed class VocabularyCommandTests
 
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
-        foreach (VocabularySection section in VocabularyCatalog.Document.Sections)
+        foreach (VocabularySection section in CliVocabularyDocument.Document.Sections)
             Assert.Contains($"| {section.Name} | {section.Values.Length} |", result.Output);
     }
 
@@ -397,8 +396,8 @@ public sealed class VocabularyCommandTests
             {
                 Select =
                 [
-                    VocabularyCatalog.AccessibilitySection,
-                    VocabularyCatalog.StyleTiersSection,
+                    ApiAccessibilityVocabulary.AccessibilityLabel,
+                    StyleOptionVocabularies.StyleTiersLabel,
                 ],
                 JsonOutput = true,
                 Columns = ["byte_divergent"],
@@ -408,8 +407,8 @@ public sealed class VocabularyCommandTests
             {
                 Select =
                 [
-                    VocabularyCatalog.AccessibilitySection,
-                    VocabularyCatalog.StyleTiersSection,
+                    ApiAccessibilityVocabulary.AccessibilityLabel,
+                    StyleOptionVocabularies.StyleTiersLabel,
                 ],
                 Columns = ["byte_divergent"],
             })));
@@ -435,7 +434,7 @@ public sealed class VocabularyCommandTests
         var result = await ConsoleCapture.RunAsync(() => Task.FromResult(
             VocabularyCommand.Execute(new VocabularyOptions
             {
-                Select = [VocabularyCatalog.AccessibilitySection],
+                Select = [ApiAccessibilityVocabulary.AccessibilityLabel],
                 PlainText = true,
             })));
 
@@ -444,7 +443,7 @@ public sealed class VocabularyCommandTests
         Assert.Contains("Vocabulary", result.Output);
         Assert.Contains("Accessibility", result.Output);
         Assert.Contains(
-            VocabularyCatalog.GetById("api.accessibility").Summary,
+            CliVocabularyDocument.GetById("api.accessibility").Summary,
             result.Output);
         Assert.DoesNotContain("# Vocabulary", result.Output);
         Assert.DoesNotContain("| ID |", result.Output);
@@ -535,14 +534,14 @@ public sealed class VocabularyCommandTests
             {
                 Select =
                 [
-                    VocabularyCatalog.AccessibilitySection,
-                    VocabularyCatalog.StyleTiersSection,
+                    ApiAccessibilityVocabulary.AccessibilityLabel,
+                    StyleOptionVocabularies.StyleTiersLabel,
                 ],
                 Count = true,
                 Columns = ["byte_divergent"],
             })));
         VocabularySection tiers =
-            VocabularyCatalog.GetById("csharp.style-tiers");
+            CliVocabularyDocument.GetById("csharp.style-tiers");
 
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
@@ -599,7 +598,7 @@ public sealed class VocabularyCommandTests
             "--tsv");
         string[] expectedIds =
         [
-            .. VocabularyCatalog.GetById("api.accessibility")
+            .. CliVocabularyDocument.GetById("api.accessibility")
                 .Values.Select(ValueId),
         ];
 
@@ -669,7 +668,7 @@ public sealed class VocabularyCommandTests
             "--tsv");
         string[] expectedIds =
         [
-            .. VocabularyCatalog.GetById("api.accessibility")
+            .. CliVocabularyDocument.GetById("api.accessibility")
                 .Values.Select(ValueId),
         ];
 
@@ -686,8 +685,8 @@ public sealed class VocabularyCommandTests
             {
                 Select =
                 [
-                    VocabularyCatalog.StyleChoicesSection,
-                    VocabularyCatalog.AccessibilitySection,
+                    StyleOptionVocabularies.StyleChoicesLabel,
+                    ApiAccessibilityVocabulary.AccessibilityLabel,
                 ],
                 RowSelection = Select(
                     RowSelectionIntentOperation<string>.Window(5, null)),
@@ -714,7 +713,7 @@ public sealed class VocabularyCommandTests
 
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
-        foreach (VocabularySection section in VocabularyCatalog.Document.Sections
+        foreach (VocabularySection section in CliVocabularyDocument.Document.Sections
             .Where(section => section.Name.StartsWith("C#", StringComparison.Ordinal)))
         {
             Assert.Contains(

@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import {
   subjectTab,
   inspectorTab,
+  chooseInspector,
   chooseSubject,
   library,
   run,
@@ -10,8 +11,10 @@ import {
   other,
   surface,
   platformVersion,
+  alternatePlatformVersion,
   openProductDestination,
   installFacades,
+  releaseFacade,
   type BrowserAssemblySurface,
   type BrowserPackageSurface,
   type BrowserTypeSurface,
@@ -174,6 +177,11 @@ async function installHomeDemo(
   page: Page,
   section: "Methods" | "Call Graph",
   focusKind: "package" | "platform",
+  ecosystemAdmission?: {
+    holdAdmission?: boolean;
+    holdPostingRecord?: boolean;
+    holdAcknowledgement?: boolean;
+  },
 ): Promise<string> {
   const id = `${focusKind}-${section === "Methods" ? "methods" : "graph"}`;
   await installFacades(
@@ -192,7 +200,12 @@ async function installHomeDemo(
         summary: "Typed product demo",
       }],
       results: { [id]: homeDemoResult(section, focusKind) },
-    });
+    },
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    ecosystemAdmission);
   return id;
 }
 
@@ -215,6 +228,336 @@ async function openHomeDemo(
   const share: unknown = JSON.parse(json);
   return share;
 }
+
+test("Ecosystem Adds stay serialized across a route visit", async ({
+  page,
+}) => {
+  await installHomeDemo(page, "Methods", "package", {
+    holdAdmission: true,
+  });
+  await page.goto("/");
+  await openProductDestination(page, "ecosystems");
+  await page.locator(
+    '[data-ecosystem="ecosystem.fixture-package"] [data-ecosystem-open]',
+  ).click();
+  const additions = page.locator("[data-ecosystem-package-add]");
+  await expect(additions).toHaveCount(24);
+  const initialAcknowledgements = Number(
+    await page.locator("html").getAttribute(
+      "data-ecosystem-package-acknowledgement-count") ?? "0");
+  await additions.first().click();
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-ecosystem-package-admission-pending",
+    "true",
+  );
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-ecosystem-package-admission-count",
+    "1",
+  );
+
+  await page.locator("[data-product-navigation-button]").click();
+  await page.locator('[data-product-destination="query"]').click();
+  await expect(page).toHaveURL("/query");
+  await page.goBack();
+  await expect(additions).toHaveCount(24);
+  await expect(additions.first()).toHaveText("Adding\u2026");
+  await expect(additions.first()).toBeDisabled();
+  await expect(additions.nth(1)).toBeDisabled();
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-ecosystem-package-admission-count",
+    "1",
+  );
+
+  await releaseFacade(page, "finish-ecosystem-package-admission");
+  await expect(additions.first()).toHaveText("Added");
+  await expect(additions.nth(1)).toBeEnabled();
+  await expect(page.locator(".workspace-card.active"))
+    .toContainText("1 loaded coordinate");
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-ecosystem-package-acknowledgement-count",
+    String(initialAcknowledgements + 1),
+  );
+});
+
+test("Ecosystem posting survives navigation during Scope record", async ({
+  page,
+}) => {
+  await installHomeDemo(page, "Methods", "package", {
+    holdPostingRecord: true,
+  });
+  await page.goto("/");
+  await openProductDestination(page, "ecosystems");
+  await page.locator(
+    '[data-ecosystem="ecosystem.fixture-package"] [data-ecosystem-open]',
+  ).click();
+  const additions = page.locator("[data-ecosystem-package-add]");
+  await expect(additions).toHaveCount(24);
+  const initialAcknowledgements = Number(
+    await page.locator("html").getAttribute(
+      "data-ecosystem-package-acknowledgement-count") ?? "0");
+  await additions.first().click();
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-ecosystem-package-posting-pending",
+    "true",
+  );
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-ecosystem-package-admission-count",
+    "1",
+  );
+
+  await page.locator("[data-product-navigation-button]").click();
+  await page.locator('[data-product-destination="query"]').click();
+  await expect(page).toHaveURL("/query");
+  await releaseFacade(page, "finish-ecosystem-package-posting");
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-ecosystem-package-acknowledgement-count",
+    String(initialAcknowledgements + 1),
+  );
+  await page.goBack();
+  await expect(page.locator(".workspace-card.active"))
+    .toContainText("1 loaded coordinate");
+  await expect(additions).toHaveCount(24);
+});
+
+for (const staleAt of ["admission", "posting record"] as const) {
+  test(`A stale Ecosystem ${staleAt} cannot replace a newer Workspace`, async ({
+    page,
+  }) => {
+    await installHomeDemo(page, "Methods", "package", {
+      holdAdmission: staleAt === "admission",
+      holdPostingRecord: staleAt === "posting record",
+      holdAcknowledgement: true,
+    });
+    await page.goto("/");
+    await openProductDestination(page, "ecosystems");
+    await page.locator(
+      '[data-ecosystem="ecosystem.fixture-package"] [data-ecosystem-open]',
+    ).click();
+    const additions = page.locator("[data-ecosystem-package-add]");
+    const activeWorkspace = page.locator(".workspace-card.active");
+    const html = page.locator("html");
+    await expect(additions).toHaveCount(24);
+    await expect(activeWorkspace.locator("small")).toHaveText("Active");
+    const initialAcknowledgements = Number(
+      await html.getAttribute(
+        "data-ecosystem-package-acknowledgement-count") ?? "0");
+    const originalUrl = page.url();
+    await additions.first().click();
+
+    if (staleAt === "admission") {
+      await expect(html).toHaveAttribute(
+        "data-ecosystem-package-admission-pending",
+        "true",
+      );
+      await openProductDestination(page, "query");
+      await expect(page).toHaveURL("/query");
+      await releaseFacade(page, "finish-ecosystem-package-admission");
+    } else {
+      await expect(html).toHaveAttribute(
+        "data-ecosystem-package-posting-pending",
+        "true",
+      );
+      await activeWorkspace.click();
+      await expect(page).toHaveURL(originalUrl);
+      await releaseFacade(page, "finish-ecosystem-package-posting");
+    }
+    await expect(html).toHaveAttribute(
+      "data-ecosystem-package-acknowledgement-pending",
+      "true",
+    );
+    await expect(html).toHaveAttribute(
+      "data-ecosystem-package-acknowledgement-count",
+      String(initialAcknowledgements + 1),
+    );
+
+    await openProductDestination(page, "ecosystems");
+    await page.locator(
+      '[data-ecosystem="ecosystem.fixture-platform"] [data-ecosystem-open]',
+    ).click();
+    await expect(page).toHaveURL("/ecosystems/ecosystem.fixture-platform");
+    await expect(activeWorkspace).toContainText("Platform fixture");
+    await expect(activeWorkspace).toContainText("0 loaded coordinates");
+    await expect(activeWorkspace.locator("small")).toHaveText("Active");
+    await expect(html).toHaveAttribute(
+      "data-ecosystem-package-acknowledgement-count",
+      String(initialAcknowledgements + 2),
+    );
+    await expect(html).toHaveAttribute(
+      "data-ecosystem-package-acknowledgement-pending",
+      "true",
+    );
+
+    await releaseFacade(page, "finish-ecosystem-package-acknowledgement");
+    await expect(html).toHaveAttribute(
+      "data-ecosystem-package-acknowledgement-pending",
+      "false",
+    );
+    await expect(activeWorkspace).toContainText("Platform fixture");
+    await expect(activeWorkspace).toContainText("0 loaded coordinates");
+
+    await expect(additions).toHaveCount(24);
+    await expect(additions.first()).toBeEnabled();
+    await additions.first().click();
+    await expect(html).toHaveAttribute(
+      "data-ecosystem-package-admission-count",
+      "2",
+    );
+    await expect(additions.first()).toHaveText("Added");
+    await expect(activeWorkspace).toContainText("Platform fixture");
+    await expect(activeWorkspace).toContainText("1 loaded coordinate");
+    await expect(html).toHaveAttribute(
+      "data-ecosystem-package-admissions",
+      /"ecosystem\.fixture-platform"/u,
+    );
+  });
+}
+
+test("Ecosystems is a first-class product catalog destination", async ({
+  page,
+}, testInfo) => {
+  await installHomeDemo(page, "Methods", "package");
+  await page.goto("/");
+  await openProductDestination(page, "ecosystems");
+  await expect(page).toHaveURL("/ecosystems");
+  await expect(page.getByRole("heading", { name: "Ecosystems", exact: true }))
+    .toBeFocused();
+  await expect(page.locator(
+    "[data-ecosystem='ecosystem.fixture-platform']"
+      + " + [data-ecosystem='ecosystem.fixture-package']",
+  )).toBeVisible();
+  await expect(page.locator("[data-ecosystem='ecosystem.fixture-package']"))
+    .toContainText("3 core packages");
+  await expect(page.locator("[data-ecosystem='ecosystem.fixture-package']"))
+    .toContainText("Integration scanner");
+  const workspaceReadyRows = page.locator(
+    ".ecosystem-catalog-row",
+  ).filter({ hasText: "Workspace-ready" });
+  const openActions = page.locator("[data-ecosystem-open]");
+  expect(await openActions.count()).toBe(await workspaceReadyRows.count());
+  expect(await openActions.count()).toBeGreaterThan(0);
+  await page.locator("[data-product-navigation-button]").click();
+  await expect(page.locator(
+    "[data-product-destination][aria-current='page']",
+  )).toHaveText(["Ecosystems"]);
+  await page.keyboard.press("Escape");
+  await page.screenshot({ path: testInfo.outputPath("ecosystems-wide.png") });
+
+  const firstReady = workspaceReadyRows.first();
+  const ecosystemId = await firstReady.getAttribute("data-ecosystem");
+  if (ecosystemId === null) {
+    throw new Error("The Workspace-ready Ecosystem omitted its catalog ID.");
+  }
+  const ecosystemTitle = await firstReady.locator("strong").innerText();
+  await firstReady.locator("[data-ecosystem-open]").click();
+  await expect(page).toHaveURL(`/ecosystems/${ecosystemId}`);
+  await expect(page.locator(
+    '[data-navigation-group="subject"][data-navigation-current="true"]'
+      + '[data-navigation-item="tab"]',
+  )).toContainText(ecosystemTitle);
+  await expect(page.getByRole("heading", {
+    name: ecosystemTitle,
+    exact: true,
+  })).toBeVisible();
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-ecosystem-package-query",
+    /"ecosystem\.fixture-[^"]+",200,96,false,24/u,
+  );
+  const discoveredPackages = page.locator(
+    "[data-ecosystem-package-open]");
+  const packageAdmissions = page.locator(
+    "[data-ecosystem-package-add]");
+  await expect(discoveredPackages).toHaveCount(24);
+  await expect(packageAdmissions).toHaveCount(24);
+  await expect(page.getByText("Show: 24 | 48 | 96")).toBeVisible();
+  const initialOperation = await page.locator("html").getAttribute(
+    "data-ecosystem-package-query");
+  await packageAdmissions.first().click();
+  await expect(packageAdmissions.first()).toHaveText("Added");
+  await expect(page).toHaveURL(`/ecosystems/${ecosystemId}`);
+  await expect(page.getByRole("heading", {
+    name: ecosystemTitle,
+    exact: true,
+  })).toBeVisible();
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-ecosystem-package-admissions",
+    /"Aspire\.Hosting","9\.0\.0","ecosystem\.fixture-[^"]+","ExactPackage","Aspire\.Hosting"/u,
+  );
+  await expect(discoveredPackages).toHaveCount(24);
+  await expect(page.getByText("Show: 24 | 48 | 96")).toBeVisible();
+  await discoveredPackages.first().click();
+  await expect(page.locator(".query-error")).toHaveText(
+    "Fixture package activation failed.");
+  await expect(discoveredPackages).toHaveCount(24);
+  await expect(page.getByText("Show: 24 | 48 | 96")).toBeVisible();
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-ecosystem-package-query",
+    initialOperation ?? "",
+  );
+  await page.locator(
+    '[data-ecosystem-package-capacity="48"]',
+  ).click();
+  await expect(discoveredPackages).toHaveCount(48);
+  await page.locator(
+    '[data-ecosystem-package-capacity="96"]',
+  ).click();
+  await expect(discoveredPackages).toHaveCount(60);
+  await expect(page.locator(
+    '[data-ecosystem-package-capacity="96"]',
+  )).toHaveCount(0);
+  await expect(page.getByText("All matching packages are shown."))
+    .toBeVisible();
+  await expect(page.locator(
+    "[data-product-package-action],"
+      + " [data-workspace-platform],"
+      + " [data-workspace-framework-library]",
+  )).toHaveCount(0);
+  const ecosystemLocation = page.url();
+  await openProductDestination(page, "home");
+  await expect(page).toHaveURL("/");
+  await page.goBack();
+  await expect(page).toHaveURL(ecosystemLocation);
+  await expect(page.getByRole("heading", {
+    name: ecosystemTitle,
+    exact: true,
+  })).toBeVisible();
+  await expect(discoveredPackages).toHaveCount(24);
+  await expect(page.locator("html")).not.toHaveAttribute(
+    "data-ecosystem-package-query",
+    initialOperation ?? "",
+  );
+  await page.goForward();
+  await expect(page).toHaveURL("/");
+  await page.goBack();
+  await expect(page.getByRole("heading", {
+    name: ecosystemTitle,
+    exact: true,
+  })).toBeVisible();
+  await expect(discoveredPackages).toHaveCount(24);
+  await page.locator("[data-product-navigation-button]").click();
+  await page.locator('[data-product-destination="query"]').click();
+  await expect(page).toHaveURL("/query");
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-ecosystem-package-query-cancellations",
+    "1",
+  );
+
+  await page.goto("/");
+  await page.getByRole("link", { name: "Ecosystems", exact: true }).click();
+  await expect(page).toHaveURL("/ecosystems");
+  await page.reload();
+  await expect(page.locator(
+    "[data-ecosystem='ecosystem.fixture-platform']")).toBeVisible();
+  await page.getByRole("link", { name: "Home", exact: true }).click();
+  await page.goBack();
+  await expect(page).toHaveURL("/ecosystems");
+  await expect(page.getByRole("heading", { name: "Ecosystems", exact: true }))
+    .toBeFocused();
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() =>
+    document.documentElement.scrollWidth <= document.documentElement.clientWidth))
+    .toBe(true);
+  await page.screenshot({ path: testInfo.outputPath("ecosystems-narrow.png") });
+});
 
 test("Demos is a dedicated page reached from Home and the data bar", async ({
   page,
@@ -287,6 +630,8 @@ test("Package navigation retains the shared System.Text.Json packet and Workspac
   };
   await installFacades(page, jsonSurface);
   await page.goto(`/?package=System.Text.Json&version=${platformVersion}&framework=netstandard2.0`);
+  await expect(subjectTab(page, "package")).toHaveAttribute("aria-selected", "true");
+  await chooseSubject(page, "library", "Library");
   await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
   await page.waitForFunction(() => new URL(location.href).searchParams.has("w"));
   const sharedLibraryUrl = page.url();
@@ -376,10 +721,16 @@ test("package Call Graph demo applies the returned member and graph", async ({
   });
 });
 
-test("Platform Methods demo uses its non-first engine surface without reloading it", async ({
+test("Platform Methods demo retains its non-first engine surface while loading forwarders", async ({
   page,
 }) => {
   const share = await openHomeDemo(page, "Methods", "platform");
+  const publishedUrl = page.url();
+  await expect(page.locator("html"))
+    .toHaveAttribute("data-forwarder-view", /.+/);
+  await expect(page.getByText("Loading forwarded Types...", { exact: true }))
+    .toHaveCount(0);
+  await expect(page).toHaveURL(publishedUrl);
   await expect(subjectTab(page, "type"))
     .toHaveAttribute("aria-selected", "true");
   await expect(page.locator(".inspected-target"))
@@ -387,8 +738,6 @@ test("Platform Methods demo uses its non-first engine surface without reloading 
   await expect(page.locator(
     `[data-type="${platformFocusType.id}"]`,
   )).toBeVisible();
-  await expect(page.locator("html"))
-    .not.toHaveAttribute("data-platform-library-request", /.+/);
   expect(share).toMatchObject({
     tabs: [{
       kind: "group",
@@ -403,19 +752,34 @@ test("Platform Methods demo uses its non-first engine surface without reloading 
       libraries: [JSON.stringify(["netcore.app", "System.Text.Json.dll"])],
     },
   });
+
 });
 
 test("Platform Call Graph demo publishes the exact Library and member", async ({
   page,
 }) => {
   const share = await openHomeDemo(page, "Call Graph", "platform");
+  const publishedUrl = page.url();
+  await expect(page.locator("html"))
+    .toHaveAttribute("data-forwarder-view", /.+/);
+  await expect(page.getByText("Loading forwarded Types...", { exact: true }))
+    .toHaveCount(0);
+  await expect(page).toHaveURL(publishedUrl);
   await expect(subjectTab(page, "member"))
     .toHaveAttribute("aria-selected", "true");
   await expect(inspectorTab(page, "data-member-section", "call-graph"))
     .toHaveAttribute("aria-selected", "true");
   await expect(page.locator("#call-graph-diagram svg")).toBeVisible();
-  await expect(page.locator("html"))
-    .not.toHaveAttribute("data-platform-library-request", /.+/);
+  await expect(page.locator(".inspected-target"))
+    .toContainText("Example.Widget");
+  await chooseInspector(page, "data-member-section", "source", "Source");
+  await expect(page.locator(".source-result")).toContainText(
+    "public void Run() {}",
+  );
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-platform-member-source-request",
+    /platform-demo-context/,
+  );
   expect(share).toMatchObject({
     view: {
       type: platformFocusType.id,
@@ -424,6 +788,34 @@ test("Platform Call Graph demo publishes the exact Library and member", async ({
       libraries: [JSON.stringify(["netcore.app", "System.Text.Json.dll"])],
     },
   });
+
+  await openProductDestination(page, "workspace");
+  await page.locator("[data-workspace-platform]").click();
+  await expect(subjectTab(page, "platform"))
+    .toHaveAttribute("aria-selected", "true");
+  await page.getByLabel("Platform version", { exact: true })
+    .selectOption(alternatePlatformVersion);
+  await expect(page.locator("#platform-version"))
+    .toHaveValue(alternatePlatformVersion);
+  await page.getByRole(
+    "button",
+    { name: /System.Text.Json Implementation/ },
+  ).click();
+  await chooseSubject(page, "type", "Type");
+  await page.locator("#type-list [data-type]").first().click();
+  await chooseSubject(page, "member", "Member");
+  await chooseInspector(page, "data-member-section", "source", "Source");
+  await expect(page.locator(".source-result")).toContainText(
+    "public void Run() {}",
+  );
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-platform-member-source-request",
+    new RegExp(alternatePlatformVersion.replaceAll(".", "\\.")),
+  );
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-platform-member-source-request",
+    /,null\]$/,
+  );
 });
 
 test("home demo history failure restores the catalog without publication", async ({
@@ -487,7 +879,7 @@ test("Activity catalog failure focuses the visible route heading", async ({
 
   await expect(page.locator(".query-navigation-error"))
     .toContainText("Package Activity catalog offline");
-  await expect(page.locator("#package-changes-package-set")).toBeDisabled();
+  await expect(page.locator("#package-changes-ecosystem")).toBeDisabled();
   await expect(page.getByRole("heading", {
     name: "Package Activity",
     exact: true,

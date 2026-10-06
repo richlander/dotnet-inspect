@@ -307,8 +307,8 @@ manufacture the missing proofs.
 
 `TrackedHistory_VerifiesUnchangedWithoutRequiringADeepCheckout` runs the typed
 verifier over the tracked bytes with repository provenance supplied by a
-pinned test double. The `Check EVIL history provenance` workflow step supplies
-full Git history and is the gate for real commit resolution, `origin/main`
+pinned test double. The parallel `provenance` CI job supplies full Git history
+and is the gate for real commit resolution, `origin/main`
 ancestry, and methodology-source agreement.
 `EVIL_PROVENANCE_RUN_SHA256` makes a workflow edit visibly refresh its
 change-detection acknowledgement.

@@ -104,7 +104,10 @@ Render A/B and corpus evidence remain population checks. Report stable
 changed-method loss/gain identities and classify every changed method; aggregate
 improvements cannot offset one newly invalid or behavior-changing method. The
 PR template at [templates/decompiler-pr.md](templates/decompiler-pr.md) is the
-required review shape.
+required change-description shape; append
+[the decompiler adversarial-review
+appendix](templates/decompiler-adversarial-review-appendix.md) to the canonical
+review prompt so evidence construction receives its own ownership audit.
 
 ## Evidence
 
@@ -130,7 +133,7 @@ required review shape.
 - **Trace every card verdict.** "Regressions; review before merging" from the
   corpus sensor is frequently a sampling-cap artifact (PR-recipe caps vs the
   daily baseline's); state the artifact in the PR rather than papering over
-  the verdict — and never re-key card numbers by hand (AGENTS.md).
+  the verdict — and never re-key card numbers by hand.
 - **A false positive in a sensor is still a lead.** The #2157 render-A/B
   surrogate false positive, byte-audited instead of waved off, exposed one
   real product bug (raw lone-surrogate literals) and one real sensor bug

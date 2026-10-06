@@ -414,15 +414,25 @@ a complete occurrence Count unavailable.
 The host completes population selection before invoking this query and
 transfers the still-live candidate-authorizing `PackageSourceOperationLease`,
 authority-scoped store factory, operation cancellation token, and deadline
-policy. The query and evaluator carry cancellation through payload acquisition,
-sparse projection, Metadata admission, Analysis traversal, and terminal
-publication. Population discovery and selection have their own preceding
-cancellation and failure contract.
+policy. The query and evaluator observe cancellation before payload
+acquisition, after each asynchronous acquisition settles, between bounded
+candidate or selected-assembly evaluations, after required candidate cleanup,
+and before terminal publication. Asynchronous acquisition and lifetime
+operations may carry the token under their owning contracts. The token does
+not enter the bounded Analysis producer or its decoder. Population discovery
+and selection have their own preceding cancellation and failure contract.
 
 Cancellation is neither an item failure nor successful partial completion.
+An Analysis invocation already in progress completes under its explicit work
+budget; a following orchestration observation discards that provisional
+outcome and prevents later work or normal terminal publication.
 Already published candidate outcomes may be retained by a streaming host, but
 the operation has no completed query result. The host reports cancellation
 according to its operation contract.
+
+The current one-candidate evaluator still forwards cancellation through
+Analysis traversal. Moving that observation to the coarse boundaries above is
+unverified until the production migration and replacement gates land.
 
 Unexpected exceptions preserve their type, message, stack, and data after
 cleanup. Typed inspected-content, source, admission, or producer failures
@@ -552,8 +562,8 @@ The implementation must name Release gates for:
 - occurrence ordering and `-n` selection after complete candidate evaluation;
 - Count success for a complete bounded population and refusal for incomplete
   source or candidate evaluation;
-- cancellation before acquisition, during producer work, and after candidate
-  cleanup without normal completion;
+- cancellation before acquisition, between bounded evaluations, and after
+  producer completion and candidate cleanup without normal completion;
 - resource-free public result closure;
 - separate matched-candidate and occurrence counts;
 - shared-query execution without CLI or Browser dependencies; and

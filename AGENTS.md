@@ -2,121 +2,63 @@
 
 ## Start here
 
-`dotnet-inspect` is a general .NET inspection tool spanning packages, restored
-projects, platform libraries, metadata, APIs, dependencies, source provenance,
-analysis, Findings, implementation diffs, and decompilation.
+`dotnet-inspect` builds robust, capable .NET inspection features that provide
+foundational capabilities or compelling experiences and are conventionally
+sound, delightfully new or unique, or both.
 
-Read this file before doing work, then read only the entry documents below that
-are relevant to your change.
+Read [`docs/README.md`](docs/README.md), then only the focused guidance relevant
+to the task. Focused documents own their contracts and mechanics; this file is
+the launch constitution and router.
 
-This file is the source of truth for repository-wide engineering and workflow
-rules. Detailed design, subsystem mechanics, version requirements, and
-historical context belong with their owning code, workflow, or focused
-documentation.
+## Repository contract
 
-### How work runs on this repo
+- Start from convention and the simplest sufficient design. Before changing
+  behavior, state one normative owner and exact claim; follow
+  [Development practices](docs/development-practices.md) and
+  [Design scope](docs/design-scope.md).
+- Follow the engineering, documentation, worktree, history, and platform rules
+  in [Repository workflow](docs/repository-workflow.md). Never develop in the
+  primary checkout, amend, or rewrite published history except while restacking
+  your own stack under [Stacked PRs](docs/stacked-prs.md).
+- Use the SDK, Release build, and focused `dotnet run` test commands in
+  [Local development](docs/dev-environment.md); `dotnet test` runs no tests
+  here. Match claims to gates using
+  [Evidence and validation](docs/evidence-and-validation.md).
+- Keep failures visible, defaults safe, expensive or network work explicit,
+  product paths NativeAOT- and Browser/Wasm-compatible, and inspected
+  assemblies unloaded. Approved exceptions belong in their owning design.
+- Use repo-local contributor skills from `.github/skills/` or
+  `.claude/skills/`; `skills/` contains product guidance shipped to users.
+- Before any coding or review agent dispatch, follow
+  [Agent model mapping](docs/agent-models.md).
+- When you open or drive a PR, invoke the `steward` skill at publication,
+  resume, and every CI, review, conflict, base-movement, check-in, merge, or
+  close event.
+- Never merge without explicit authorization for that PR. A label, clean
+  review, green CI, or readiness comment is not authorization.
+- All changed Markdown must pass `npx markdownlint-cli <files>`.
 
-These practices serve one purpose: build robust, capable features that provide
-foundational capabilities or compelling user experiences. The result should be
-recognizable as conventionally sound, delightfully new or unique, or both.
+## Session visibility
 
-[`docs/development-practices.md`](docs/development-practices.md) owns the full
-development model and rationale. The binding summary:
-
-- **Start from convention and best practice.** Name and justify any deliberate
-  divergence, whether stricter or looser, and document its scope.
-- **Prefer the simplest sufficient design.** Add complexity only when robust
-  reliability or correctness requires it, or when it enables a compelling
-  user-observable experience.
-- **Design first and state the basis.** Name one normative owner and exact
-  claim, then supporting designs, models, constraints, and evidence by role.
-- **Plan every feature through production adoption.** Each feature, architecture,
-  capability, or substrate links an overall plan with a direct path to CLI or
-  website use. A sliced or stacked plan includes a production-consumer adoption
-  slice. Test infrastructure may treat its harness as the production host.
-  Alternatives track retirement; shared substrate plans both CLI and
-  browser/Wasm adoption, while narrower scope requires explicit user approval.
-- **Keep hosts thin and substrate singular.** Put reusable concepts,
-  algorithms, and declarations such as row vocabularies in host-neutral code
-  beside their data owner; hosts bind and present them. Reuse or extend the
-  owning substrate instead of copying its logic, and review duplicated logic
-  for a shared abstraction that would also benefit another host. Adopting
-  QuerySpace means the question reaches the work: building every row and then
-  filtering, counting, or limiting it is LINQ in QuerySpace clothing unless the
-  owning design names that as a reference slice.
-- **Modernization must satisfy intent, not only structure.** Wiring modern
-  substrate while retaining legacy work or cost is incomplete adoption. Report exact
-  base/head NativeAOT performance for every supported terminal, like Count; follow [the evidence contract](docs/evidence-and-validation.md#nativeaot-beforeafter-for-modernization).
-- **Choose rendering strategy deliberately.** Use Markout as the default
-  host-neutral substrate for centralized, multi-format rendering, and call out
-  host-specific rendering that bypasses it. Broad information domains such as
-  call graphs and diffs require a documented structured-typing and format-
-  lowering strategy, whether it uses Markout or another approach.
-- **Demonstrate the pathological case.** Build boundary and failure fixtures;
-  run contract-defining cases in CI and preserve valuable non-CI probes as
-  reproducible design evidence.
-- **Survey analogous implementations.** Use their behavior, omissions, and
-  boundaries as evidence, not authority; transfer code or architecture only
-  when license, provenance, assumptions, and architectural fit all transfer.
-- **Bias toward progress and low carrying cost.** Land independently coherent
-  slices; never present unfinished behavior as supported or preserve CLI flags
-  solely for compatibility. Shipped product skills must match current behavior.
-- **Lead with a demo.** Every PR demonstrates the real production-host scenario;
-  shared CLI and Browser/Wasm work shows both C# and TypeScript call sites.
-- **Treat critical review feedback as a design question first.** Ask whether
-  the owning design addresses it before repairing code; keep paired design
-  work moving quickly when the contract needs clarification.
-- **Ground behavior in real assets.** Features and significant fixes cite a
-  motivating nuget.org package or real repository in their design and normally
-  preserve it in tests; synthetic-only work requires user/operator approval.
-- **Use only approved OpenAI GPT configurations.** In agent harnesses that
-  advertise GPT models, never start non-GPT, `Fast`, or extra-high (`xhigh`)
-  configurations. This launch prohibition does not invalidate work: observe and
-  use results from agents mistakenly started with a prohibited configuration.
-  Default to GPT-6 Sol. Prefer GPT-6 Luna for well-bounded work with clear
-  acceptance criteria; use GPT-6 Astra for complex reviews.
-- **Hot-start requested work through PR and review.** Agents may branch,
-  commit, push, open the PR, and dispatch eligible rounds without separate
-  approval; merge remains separately authorized.
-- **Use the Markdown fast path.** For Markdown-only PRs at non-boundary rounds,
-  `markdownlint` replaces `ci-required` as the pre-review and per-round gate.
-- **Use bounded adversarial review to find design and implementation gaps.**
-  Every non-trivial change gets one GPT reviewer; repeated findings are
-  evidence to revisit design, and six rounds ends the current review block.
-- **Keep security work inside the repository threat model.** Focus on
-  untrusted internet-origin data and construction-time containment, not local
-  or intra-repository actors unless an owning design explicitly opts in.
-
-> A change spanning Markout and this repo is rare and uses a separate
-> co-development loop: read
-> [`docs/markout-co-development.md`](docs/markout-co-development.md) before
-> touching either repository.
-
-## Session theme and resume
-
-Every session has a theme: use one supplied by the user or infer a concise
-purpose from the work. State it at the start and after every resume, and carry
-it in session-status templates. After a PR merges, restate the theme in one or
-two sentences and propose the next work within it; if none remains, say so and
-ask whether to find a new theme or take on ad-hoc work. Follow
-[Agent session state](docs/agent-session-state.md) for the full lifecycle.
-
-At the start, after every resume, and after completing each meaningful block of
-work, emit this visible operator reminder before continuing:
+At start, resume, and every meaningful completed block, emit:
 
 ```text
 Theme: <stable session theme>. <completed block and current status>.
 <Next action or tool-evaluable waiting condition>.
 ```
 
-Do not replace it with tool output or omit it because the theme is unchanged.
-The merge handoff remains the more specific final form.
+After merge, replace PR history with:
 
-## Making your work findable
+```text
+Theme: <stable session theme>
+Tracking issue: #<overall theme issue>
+Next slice: <next independently mergeable work, or none>
+Completed: <merged>/<currently planned> slices
+Focus: [<short domains>]
+```
 
-Inside tmux only (`[ -n "$TMUX" ]`), use this operator template at work start,
-after every resume, and at each meaningful phase or state change. Replace the
-placeholders and issue each `tmux` command separately:
+Follow [Agent session state](docs/agent-session-state.md). Inside tmux only,
+run each command separately at start, resume, and meaningful state changes:
 
 ```sh
 tmux rename-window -t "${TMUX_PANE:?}" \
@@ -128,389 +70,17 @@ tmux set -w -t "${TMUX_PANE:?}" @agent_state \
   "theme=<theme> pr=<number> head=<sha> round=<n> candidates=<n> usable=<n> findings=<n> reviews=<clean>/<required> rec=<action>"
 ```
 
-Before a PR exists, replace `PR <number>` with `Issue <number>` in the window
-and `@agent` values, and use `issue=<number>` instead of `pr` in
-`@agent_state`; add `blocked`, `waiting`, and status-wait fields when
-applicable. Put `HELP` in `@agent` while awaiting a human decision and clear it
-immediately when answered; clear both options only when the window no longer
-owns work. At start, resume, and each round start, announce the current Issue
-or PR number plus branch or expected head. Emit supporting status before
-opening a concise approval prompt. This command block, its cadence, and its
-required fields must remain directly in `AGENTS.md`; [Agent session
-state](docs/agent-session-state.md) owns full naming, field, and lifecycle
-mechanics.
+Before a PR, substitute `Issue` and `issue=<number>`. Add `blocked`, `waiting`,
+and status-wait fields when applicable; use `HELP` while awaiting a decision.
+Clear both options when ownership ends. Announce the issue or PR and branch or
+expected head at start, resume, and each round start.
 
-### Keep the review-clean label current
+## Review checkpoint
 
-`review-clean` is live, advisory state — it records that reviews are clean as
-of a head SHA, not that the PR is mergeable right now. Reconcile it after every
-resume and whenever the head or review result changes; never infer merge
-readiness from its presence (see [Forming a candidate](#forming-a-candidate)).
-
-- **Add it** when every required review at the current head is review-clean,
-  recording the reviewed head SHA in the same comment or update.
-- **Base movement alone does not remove it.** Classify the landed range per
-  [Clean reviews are not spent by main
-  moving](#clean-reviews-are-not-spent-by-main-moving); a no-interaction
-  classification keeps the label on the unchanged reviewed head.
-- **Remove it and expire recorded merge authorization** before a new round,
-  author change, conflict recovery, restack, base-ref retarget, unresolved
-  finding, or draft transition — anything that spends the clean reviews.
-
-## User-directed workflow adjustments
-
-Record each adjustment's scope and consequence. It cannot make failed validation green, make an unmergeable PR ready, or transfer fixed-head evidence; follow [the standing mechanics](docs/round-orchestration.md#user-directed-workflow-adjustments).
-
-## Before changing files
-
-- Keep the primary checkout attached to protected `main`; never develop or
-  detach HEAD there.
-- From the primary checkout, run `git fetch origin main`, then create a
-  descriptive branch and linked worktree:
-  `git worktree add -b <branch> <repo>/.worktrees/<slug> origin/main`. A
-  stacked slice branches from its parent; during a GitHub outage, use the
-  recorded last-known base allowed by
-  [the stack rules](#stacked-prs-for-multi-slice-issues).
-- Use one development worktree per PR and one temporary worktree per reviewer,
-  under `.worktrees/` or (for reviewers) an OS temporary directory — never
-  directly under the home directory.
-- For an open PR, apply [Canonical round flow](#canonical-round-flow) before
-  other work. Conflict recovery has first priority.
-- Never amend. Rebase only before the first push. After publication, merge the
-  effective base; never rebase or force-push reviewed history except when
-  restacking your own slices under the stack rules.
-- After integrating or resolving conflicts, re-read this file and the relevant
-  focused docs. Do not include unrelated or another contributor's changes.
-- Remove reviewer worktrees after review and reproduction finish. Remove a
-  development worktree after merge, or once the pushed head is unlocked, all
-  concurrent gates pass, and every required review is review-clean — recreate
-  it later if needed.
-
-## Task-specific guidance
-
-Documentation entry points have distinct roles: root `README.md` is a bounded product landing page; `docs/cli-reference.md` owns detailed CLI behavior and examples; `docs/README.md` immediate acquisition and curated navigation; `docs/overview.md` subsystem topology; and `docs/architecture.md` the curated current-code map.
-Ordinary feature and fix agents do not edit the **release-managed central files** — `AGENTS.md`, root `README.md`, `docs/overview.md`, `docs/architecture.md`, or any `SKILL.md`. Edit them only for an explicitly approved or authorized request; otherwise add a concise suggestion with the implementing PR or stack link to the current release tracker for release-time reconciliation.
-Update other documentation only when its owned claim changes; read the relevant entry below, while [`docs/README.md`](docs/README.md) owns detailed boundaries and curated routes.
-
-| Area | Read first |
-| --- | --- |
-| User-visible daily drivers and demos; detailed CLI behavior | `README.md`; `docs/cli-reference.md` |
-| Core workspace, query, cache, or safety architecture | `docs/inspection-space.md` |
-| A change crossing subsystem ownership boundaries | `docs/overview.md` |
-| Implementation structure | the relevant section of `docs/architecture.md` |
-| Layering, consumers, and project families | `docs/design/inspection-layers.md`, `docs/design/library-family-boundaries.md` |
-| Command defaults and disclosure | `docs/design/progressive-disclosure.md` |
-| Output data shapes and style | `docs/design/output-shapes.md`, `docs/design/style-guide.md` |
-| Metadata and API inspection | `docs/design/assembly-inspection-query.md` |
-| PDB and source acquisition | `docs/pdb-acquisition.md` |
-| Security and untrusted input | `docs/design/untrusted-data-threat-model.md` |
-| Decompiler raising, structuring, typing, or printer behavior | `docs/decompiler-correctness-pipeline.md`, then `docs/decompiler-raise-discipline.md`; use `docs/templates/decompiler-pr.md` for the PR body |
-| Everything else — design docs, contributor workflow, PR templates, skills | `docs/README.md` |
-
-Some files under `docs/design/` record proposals or design history. Prefer
-current product behavior and tests over design history. When current sources
-disagree, stop and resolve which owner is authoritative rather than silently
-choosing one.
-
-Keep user-facing product skills (`skills/`, shipped in the binary) separate
-from repo-local contributor skills (`.github/skills/`, `.claude/skills/`); do
-not select a product skill merely because an agent is maintaining this
-repository. See
-[User-facing vs. repo-local skills](taste/skill-guidance.md#user-facing-vs-repo-local-skills)
-for the registration mechanics.
-
-For routine development, use production dotnet-inspect
-(`dnx dotnet-inspect -y -- <command>`) — normally current and much faster to
-start than `dotnet run --project src/DotnetInspect.Cli -c Release -- <command>`,
-which is required only when evidence depends on an unmerged change. Full
-rationale:
-[`docs/dev-environment.md`](docs/dev-environment.md#which-dotnet-inspect-to-run).
-
-## Design scope and composition
-
-Full mechanics, the composition-document rules, TLA+ modeling guidance, and the
-over-broad-design recovery procedure live in
-[`docs/design-scope.md`](docs/design-scope.md). The binding rules:
-
-- Default every design effort to one named architectural owner. A focused design
-  may reference adjacent owner-issued types but must not redefine another
-  owner's contract; beyond the single-claim transfer exception, cross-owner
-  normative changes need focused efforts joined by a thin composition map.
-- State boundaries and contracts as simply as possible. Never translate current
-  or planned implementation into prose; code implements the contract.
-- When product correctness joins facts across components, model the same
-  owner-issued join currency — version, generation, identity, receipt, handle,
-  or composite key — and preserve the association, freshness, and replacement
-  semantics that make the product join sound. The model may abstract the
-  currency's concrete representation.
-- Let TLA+ module dependencies mirror product dependencies: consume stable
-  owner-issued definitions and behaviors through named instances instead of
-  copying them, and recheck the imported properties in each composition. A
-  bounded result for one instance is evidence, not a proof transferred to
-  another. Put contract-defining configurations in
-  `eng/tla-expected-exit-codes.txt` so CI enforces their exact semantic
-  verdict; see
-  [TLA+ methodology](docs/tla-plus-methodology.md#compose-models-along-product-boundaries).
-- A **broad design** normatively specifies multiple independently owned
-  components (outside that one exception) or sweeps an end-to-end lifecycle.
-  Do not start or broaden into one without the user's explicit request or
-  approval; a large issue, cross-cutting motivation, or reviewer suggestion is
-  not approval.
-- If review keeps discovering new component-internal contracts, stop and apply
-  the [scope-violation recovery transition](#recovery-transitions).
-- Lock a new cross-cutting pattern as its own focused design document — defining
-  only the pattern's contract, not other owners' internals — then have each
-  owner adopt it one at a time rather than one PR sweeping every owner; see
-  [Stage implementation after locking the design](docs/design-scope.md#stage-implementation-after-locking-the-design).
-
-## Repository-wide engineering constraints
-
-- Keep product paths SRM-only, NativeAOT-friendly, Roslyn-free, and free of
-  inspected-assembly loading.
-- Preserve layer ownership. Metadata owns metadata facts, Analysis owns IL-body
-  evidence, CSharpText owns model-free textual grammars and layout, CSharp owns
-  model-bound C# spelling and type views, Research composes evidence, and the CLI
-  owns command and presentation concerns.
-- Use applicable baseline substrate: clearing houses and services; `InertString`, ownership,
-  borrowing, and snapshots; `QuerySpace` queries, rows, and limits; host-neutral APIs, `InspectionEnvelope<TContent>`, and host-specific sinks.
-  Route most host functionality through applicable parts; every low-level substrate
-  capability must have a production caller. Remove superseded models and parallel
-  paths; preserve Content, Share, and diagnostics.
-- Preserve behavior-safe defaults and progressive disclosure. Network,
-  source-content, exhaustive, or otherwise expensive work must remain explicit
-  or capability-gated.
-- Keep failure visible. Do not turn decode, acquisition, analysis, or rendering
-  failures into success-shaped empty output.
-- Treat identifiers, provenance, local evidence, correspondence, and
-  presentation as separate concerns. Do not infer one from display text when a
-  typed identity exists.
-- Put independently compiled inspected test inputs under `fixtures/<owner>/`;
-  keep test executables and infrastructure under `tests/`, and production code
-  under `src/`. Follow [`docs/fixture-governance.md`](docs/fixture-governance.md).
-- Use inclusive terminology: "allow list"/"deny list", never
-  "whitelist"/"blacklist" (match casing and word form, e.g. `allowList`,
-  "deny-listed").
-
-### Keep design and adversarial review within scope
-
-Unless an owning design explicitly opts in, do not add design requirements or
-adversarial-review findings for symlinks/reparse points, same-machine users or
-agents, or files mutating during inspection. Existing explicit controls remain
-governed by their owning designs.
-nuget.org content is immutable; local files may change freely between
-operations rather than provide stable snapshots. The primary threat is
-untrusted internet data; the tool never executes inspected code. Additional
-trust-boundary and containment guidance:
-[`docs/design/untrusted-data-threat-model.md`](docs/design/untrusted-data-threat-model.md#trust-boundaries).
-For a credible external-input threat, first define its actor, input path,
-boundary, containment invariant, and enforcement gate in the owning design.
-Prefer typed construction-time containment such as `InertText.InertString`;
-when that shape is unavailable, a centralized entry point such as
-`HardenedJson` is weaker but still auditable.
-
-### Platform compatibility
-
-- Treat cross-platform operation as the default requirement for product
-  libraries and reusable feature paths. Browser/Wasm compatibility is a design target.
-- Windows Metadata (`.winmd`, including `MetadataKind.WindowsMetadata` and
-  `MetadataKind.ManagedWindowsMetadata`) is not a supported input format.
-  Adding WinMD support requires separately approved project scope; do not add
-  compatibility paths incidentally while changing ordinary ECMA-335 inspection.
-- Before introducing a dependency, API, or design that cannot run on a
-  supported platform -- especially single-threaded Browser/Wasm -- stop and
-  obtain explicit user approval for that specific exception.
-- Document every approved exception in the owning design or architecture
-  document and in the PR. Name the supported and unsupported platforms, the
-  rationale, the affected surface, the visible failure or degradation mode, and
-  the validation used for supported hosts. Do not let a broad catch, silent
-  fallback, or generic diagnostic stand in for that documentation.
-
-### Output contract
-
-Commands follow the verbosity and section-selection model owned by
-[`docs/design/progressive-disclosure.md`](docs/design/progressive-disclosure.md).
-The binding rule for new work: a new section must not enter the default
-`-v:m` view unless it is the command's single high-value section.
-
-## Building and testing
-
-Use the SDK selected by repository configuration and CI; inspect the current
-selection (`command -v dotnet`, `dotnet --version`) before installing one or
-changing `PATH`. If `dotnet` is centrally installed, stop and ask before
-replacing or shadowing it. Follow `docs/cli-reference.md#repository-development-sdk`.
-
-The primary dependencies are the .NET SDK, `Microsoft.CodeAnalysis.CSharp`,
-and Markout. For major dependency updates, check all three; update the .NET SDK
-and `Microsoft.CodeAnalysis.CSharp` together.
-
-Build the normal graph with `dotnet build dotnet-inspect.slnx -c Release`.
-
-Tests are xUnit executables. **Use `dotnet run`, not `dotnet test`**;
-`dotnet test` silently executes no tests here. Always use Release because
-compiler-generated IL shapes differ in Debug.
-
-Classify every new or materially expanded test as PR-fast or
-`[Trait("Speed", "Slow")]`. Tag exhaustive or whole-assembly tests slow;
-otherwise measure suspected slow tests in isolation. Exclude slow tests from
-PR CI only when daily Deep Inspect or a focused pre-merge gate owns them. See
-[Classifying test cost](docs/testing-cost-classification.md) for details.
-
-| Area | Command |
-| --- | --- |
-| CLI and product output | `dotnet run --project tests/DotnetInspect.Cli.Tests -c Release` |
-| Artifact contracts | `dotnet run --project tests/Inspector.Artifacts.Tests -c Release` |
-| Portable query codec | `dotnet run --project tests/DotnetInspector.PortableQueries.Tests -c Release` |
-| Row selection | `dotnet run --project tests/DotnetInspector.RowSelection.Tests -c Release` |
-| Section-row shaping | `dotnet run --project tests/DotnetInspector.Sections.Tests -c Release` |
-| Analysis | `dotnet run --project tests/ILInspector.Analysis.Tests -c Release` |
-| Decompiler | `dotnet run --project tests/ILInspector.Decompiler.Tests -c Release` |
-| C# text | `dotnet run --project tests/CSharpText.Tests -c Release` |
-| Additional library and host suites | See [focused test commands](docs/dev-environment.md#additional-library-suites). |
-| Inspection queries | `dotnet run --project tests/DotnetInspector.Queries.Tests -c Release` |
-| Shared services | `dotnet run --project tests/DotnetInspector.Services.Tests -c Release` |
-| Metadata and SourceLink | `dotnet run --project tests/ILInspector.Metadata.Tests -c Release` |
-| Metadata rendering and `mdi` | `dotnet run --project tests/DotnetInspector.MetadataRendering.Tests -c Release` |
-
-A .NET correctness gate must run in Release. Do not use
-`[Conditional("DEBUG")]`; use a runtime opt-in such as `IrInvariants`. The host
-contract lives in `docs/decompiler-correctness-pipeline.md`.
-
-Test-tool activation (`ilasm`/`ildasm`/`mdv`), the IL round-trip commands, and
-the `IsPackable`/`VersionPrefix` release rules live in
-[`docs/dev-environment.md`](docs/dev-environment.md#test-tooling-activation).
-
-## Evidence and validation
-
-Use the smallest sufficient set of claims and gates: state only what the user
-goal or an owned boundary or contract requires, and add only evidence that
-proves it. Inherit existing platform contracts unless a new dependency, API,
-or design calls one into question. Detailed practices live in
-[`docs/evidence-and-validation.md`](docs/evidence-and-validation.md). During
-command development, expose typed evidence envelopes only through Debug hosts
-and only for supplemental facts that answer a named diagnosis or validation question;
-never treat static data or one-run timing as runtime proof. Three rules are load-bearing everywhere:
-
-- **Asserted properties name their gate.** A safety, soundness, or faithfulness
-  claim must name its enforcing gate or say `unverified`. A gate counts only
-  when it runs in the suite's Release configuration; use runtime opt-ins, not
-  `[Conditional("DEBUG")]`.
-- **Composition absence-claim coverage is a user choice.** Before asserting
-  that a product or repository boundary contains no dependency, runtime, API
-  family, prohibited construct, or unsupported platform capability, propose
-  full, partial, or no gate coverage. Negatively phrased algorithmic correctness
-  properties use ordinary contract gates. The
-  [evidence guide](docs/evidence-and-validation.md#absence-claims-choose-their-coverage)
-  owns the detailed rules.
-- **Harnesses don't manufacture the evidence they check.** They own
-  orchestration, fixtures, oracles, and reporting, but must exercise
-  product-owned artifact construction — never construct, normalize, or repair
-  C# that is later compiled as product evidence. If a test needs that
-  compensation, stop and fix the product gap instead.
-
-All changed Markdown must pass `markdownlint` before commit (`npx markdownlint-cli <file>`).
-
-## Adversarial review
-
-Review is a locked-head feedback loop: freeze and push one exact head, review
-that head, reconcile the feedback publicly, make any resulting fixes, and freeze
-the replacement head. These are the binding invariants; the rest of this
-section and [round orchestration](docs/round-orchestration.md) explain them.
-
-1. **One frozen head per review attempt.** The lock begins at the push and ends
-   only when the round closes or applicable recovery supersedes the candidate.
-   Do not edit a locked head; fixes belong to the next candidate.
-2. **A candidate includes its effective base.** Integrate twice before pushing
-   — once before fixing, once after — because the fix window is long enough for
-   `main` to move.
-3. **Base movement alone never invalidates a pushed candidate**, and never
-   justifies another round.
-4. **Every usable fixed-head review spends its round.** A finding-producing round
-   is not review-clean; fixes form the next numbered round.
-5. **Never claim merge readiness from label state alone.** Confirm current-head
-   CI and GitHub's live mergeability immediately before every merge attempt.
-6. **A round closes only after reconciliation and its applicable gate result.**
-   Green closes normally; a post-review author-change failure closes as failed
-   and advances its repair. Pre-review failure retries the pending round.
-   Pending status follows [Bounded status
-   waiting](docs/round-orchestration.md#bounded-status-waiting); non-boundary
-   Markdown-only rounds substitute pre-commit `markdownlint`.
-7. **Six rounds, then stop** and ask for another block.
-8. **Never merge without explicit user authorization** for that specific PR.
-   A recorded exact-head merge authorization satisfies this rule; see the
-   [user-directed workflow adjustments](docs/round-orchestration.md#user-directed-workflow-adjustments).
-
-### Canonical round flow
-
-Full round-cycle steps, the eligibility table, and the `review-clean`
-definition live in
-[Candidate lifecycle](docs/round-orchestration.md#candidate-lifecycle). The
-essentials: integrate the effective base, make the change, run the focused
-gate, integrate again, push to lock the head, satisfy the eligibility row,
-dispatch reviewers, reconcile publicly, and close under the applicable
-gate-result transition.
-
-### Recovery transitions
-
-Applied without waiting for CI; full conditions live in
-[Candidate lifecycle](docs/round-orchestration.md#candidate-lifecycle).
-
-- **Conflict:** before a usable review result, supersede and retry the pending
-  round; afterward, recover in the next numbered round — or take the
-  exact-head trivial-interaction waiver when eligible.
-- **Scope violation:** keep the locked head unchanged while the user chooses
-  split, abandonment, or an approved broad exception (see
-  [Recovering from an over-broad design](docs/design-scope.md#recovering-from-an-over-broad-design)).
-- **Failure requiring an author change:** pre-review failures retry the pending
-  round; review-driven fixes form the next numbered round.
-- **Cancelled or evidenced transient failure:** keep the lock and retry the
-  unchanged head with concrete transient evidence; otherwise treat it as an
-  author change.
-
-A candidate superseded before its required review returns a usable result spends
-no round. Once it does, the round is spent; carry every finding forward.
-
-### Forming a candidate
-
-Spend review only on a pushed, settled head formed by the canonical cycle.
-Record the exact head and effective base. If a conflict, author change,
-finding, restack, or base-ref retarget changes the candidate, form a replacement
-through the cycle unless the user approves the exact-head waiver below. While a
-candidate is locked, do not push or integrate other than for recovery; a
-non-mutating fetch is allowed for resume and carry-forward analysis. Before
-merge, confirm live GitHub readiness — see [Merge preflight](docs/round-orchestration.md#merge-preflight).
-
-### Clean reviews are not spent by main moving
-
-For a `main`-targeting PR with clean reviews or a pending/approved
-trivial-interaction waiver, base movement alone does not spend that evidence or
-justify integration. Before an agent-driven merge or mutation, classify the
-landed range as no interaction, trivial interaction, significant interaction,
-or conflict; report and apply that outcome before changing labels or
-dispatching reviewers. Upper stack slices follow their parent and must restack.
-The full procedure lives in
-[Carry-forward after clean reviews](docs/round-orchestration.md#carry-forward-after-clean-reviews).
-
-### How many reviewers, and from which models
-
-Trivial changes need no review; state why. Everything else gets one GPT seat:
-GPT-6 Sol by default, GPT-6 Astra for complex work, or GPT-6 Luna for
-well-bounded work. Selection, substitution, and dispatch rules live in
-[Reviewer roster](docs/round-orchestration.md#reviewer-roster).
-
-### Running the round
-
-Start every reviewer prompt with the complete canonical
-[adversarial-review prompt](docs/adversarial-review-prompt.md); do not omit,
-paraphrase, reorder, or precede it with domain instructions. Append the
-self-contained candidate instructions for the seat, directly or with the
-optional [fill-in template](docs/templates/adversarial-review-prompt.md). Follow
-[running a round](docs/round-orchestration.md#running-a-round) for mechanics
-and reporting.
-
-After every completed round and before any next round or approval prompt, emit
-this complete visible report as the assistant response. Fill every field,
-choose one feedback classification and recommendation, omit only empty
-`Blocked`/`Waiting` lines, and never replace it with a shorter summary:
+[Round orchestration](docs/round-orchestration.md) owns candidate locks,
+eligibility, recovery, labels, review, status waits, and merge preflight. After
+every completed round and before any next round or approval prompt, emit this
+complete visible report; omit only empty `Blocked` and `Waiting` lines:
 
 ```text
 Round <n> is complete for PR <number>.
@@ -533,67 +103,3 @@ approve next rounds, stop (reason)]
 
 Resolution: <completed changes or accepted next-round resolution plan>.
 ```
-
-The detailed classification and recommendation rules remain in
-[The round report](docs/round-orchestration.md#the-round-report).
-
-### Keep review proportional to the contract
-
-The canonical prompt's finding-admission and trust-boundary rules are binding;
-anything outside them is a scope proposal unless the operator approves it.
-
-### Stop after six rounds
-
-Review blocks hot-start. Rounds 1-6 begin automatically, and every fix-producing
-replacement within an authorized block dispatches without asking, setting
-`HELP`, or waiting for user input. Approval is required only before rounds 7,
-13, 19, and so on; each approval authorizes at most six more rounds.
-
-At each block boundary, reviewer dispatch waits for approval after fresh green
-current-head CI and positive mergeability; round 12 and later presume splitting
-unless the checkpoint establishes a strong reason and the user explicitly
-approves keeping the PR intact. Full checkpoint mechanics:
-[Block boundaries and splitting](docs/round-orchestration.md#block-boundaries-and-splitting).
-
-## PR and CI discipline
-
-- Before merging a user-observable change, record it and its PR or stack link on [the 0.27.0 release tracker](https://github.com/richlander/dotnet-inspect/issues/8151); outside release preparation, do not edit
-  `src/DotnetInspect.Cli/release-notes.md`.
-- Keep concurrent agents modest and avoid unnecessary churn in central files.
-  Label a Markdown-only PR (every changed file is `*.md`) `documentation`.
-- Use REST endpoints via `gh api`, not `gh pr edit`, for PR/issue metadata
-  changes; see [GitHub API operations](docs/github-api-operations.md) for the
-  exact commands and the `-F`/`-f` distinction that matters for PR bodies.
-- For non-Markdown-only PRs, run the focused gate, push promptly, and start
-  eligible local suites and CI concurrently. Reviewer dispatch waits for green
-  `ci-required` unless parallel review is approved or conflict recovery applies.
-  Query GitHub status only when the round cadence requires it; follow
-  [GitHub status queries](docs/github-status-queries.md)'s bounded waiting
-  instead of polling. During a bounded wait, fetch the live base and locally
-  test each new tip for conflicts; never report budget exhaustion without
-  checking the final tip. If an hour passes without an authored change while
-  an independent gate hasn't started, fix the sequencing or record the blocker.
-- `ci-required` is this repository's aggregate merge gate
-  (`.github/workflows/ci.yml`): it passes only when the aggregate itself
-  concludes `success`, and a missing aggregate is not green. Never require a
-  path-gated job directly, and do not broaden CI without measured need.
-- Keep PR summaries conclusion-first: claim, evidence, compatibility or
-  non-action boundary, and exact validation.
-- `review-clean` is advisory, not a merge-eligibility claim (see
-  [Keep the review-clean label current](#keep-the-review-clean-label-current)).
-  Confirm current-head CI and GitHub's live mergeability for every agent-driven
-  merge attempt or readiness statement.
-- Never merge without explicit authorization for that PR. A clean review,
-  green CI, or readiness comment is not authorization. A recorded merge
-  authorization applies only to its exact head/base ref and valid evidence.
-
-### Stacked PRs for multi-slice issues
-
-When an issue is too large for one coherent PR, prefer a **stack** — a sequence
-of PRs targeting their predecessors — over one unreviewable PR or parallel PRs
-that race in the same files. Each slice lands independently, branches and
-targets from its parent, and is merged bottom-up; only the bottom open slice
-targets `main`. Restack only your own slices with `--force-with-lease`, publish
-a `range-diff`, and re-review moved heads without retiring findings. Stop when
-another slice would exist only to continue the stack.
-[Stacked PRs](docs/stacked-prs.md) owns all mechanics.

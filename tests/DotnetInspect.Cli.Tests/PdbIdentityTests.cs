@@ -104,6 +104,9 @@ public class PdbIdentityTests
             context.LoadPdbFromStream(stream);
 
             Assert.False(context.HasPdb);
+            Assert.Equal(
+                PdbLoadStatus.IdentityMismatch,
+                context.LastPdbLoadStatus);
             Assert.Null(context.PortablePdbPath);
             Assert.True(stream.IsDisposed);
         }
@@ -133,6 +136,9 @@ public class PdbIdentityTests
                 new MemoryStream(pdbBytes, writable: false));
 
             Assert.False(context.HasPdb);
+            Assert.Equal(
+                PdbLoadStatus.IdentityMismatch,
+                context.LastPdbLoadStatus);
             Assert.Null(context.PortablePdbPath);
         }
         finally

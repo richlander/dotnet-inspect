@@ -1222,4 +1222,78 @@ public partial class SectionPipelineTests
             ],
             categories[SectionCategoryNames.Source]);
     }
+
+    [Fact]
+    public void ApiSections_DeclareAShape_ExceptTheCallGraph()
+    {
+        // Type and member adopt Section shapes (docs/design/section-shapes.md,
+        // adoption items 3 and 4): every section in the type listing and the
+        // three member catalogs declares Table or Text. Call Graph is the one
+        // exception by design: it is a Graph, which the design leaves with
+        // its Graph owners, so it declares no shape and keeps its own formats.
+        (string Catalog, string[] Names, IReadOnlyDictionary<string, SectionShape> Shapes)[] catalogs =
+        [
+            Describe("type", ApiTypeSectionDescriptors.CreatePipeline()),
+            Describe("member", ApiMemberSectionDescriptors.CreatePipeline()),
+            Describe("member-overload", ApiMemberOverloadSectionDescriptors.CreatePipeline()),
+            Describe("member-detail", ApiMemberDetailSectionDescriptors.CreatePipeline()),
+        ];
+
+        foreach ((string catalog, string[] names, var shapes) in catalogs)
+        {
+            string[] undeclared = names
+                .Where(name => !shapes.ContainsKey(name))
+                .ToArray();
+            Assert.True(
+                undeclared.SequenceEqual(
+                    names.Where(name => name == SectionNames.CallGraph)),
+                $"{catalog}: sections without a declared shape: {string.Join(", ", undeclared)}");
+        }
+
+        // Text payloads are exactly the source and decompiler documents; the
+        // same name declares the same shape in every catalog it appears in.
+        var detail = ApiMemberDetailSectionDescriptors.CreatePipeline().SectionShapes;
+        Assert.Equal(SectionShape.Text, detail[SectionNames.Source]);
+        Assert.Equal(SectionShape.Text, detail[SectionNames.IL]);
+        Assert.Equal(SectionShape.Text, detail[SectionNames.FindingCensus]);
+        Assert.Equal(SectionShape.Table, detail[SectionNames.Signature]);
+        Assert.Equal(SectionShape.Table, detail[SectionNames.Calls]);
+        Assert.Equal(
+            SectionShape.Table,
+            ApiMemberSectionDescriptors.CreatePipeline().SectionShapes[SectionNames.TypeInfo]);
+        Assert.Equal(
+            SectionShape.Text,
+            ApiMemberSectionDescriptors.CreatePipeline().SectionShapes[SectionNames.DecompiledSource]);
+
+        static (string, string[], IReadOnlyDictionary<string, SectionShape>) Describe<TModel>(
+            string catalog,
+            SectionPipeline<TModel> pipeline) =>
+            (catalog, pipeline.AllSectionNames, pipeline.SectionShapes);
+    }
+
+    [Fact]
+    public void ApiMemberSectionCardinality_ScalarsAreFieldSetsAndInventorylessTexts()
+    {
+        // Member cardinality: Type Info, Summary, and Signature are field sets;
+        // every Text payload declares no inventory and is scalar, Source
+        // included until Source document cardinality's Lines inventory is
+        // executed by the CLI (today Count and the row formats do not observe
+        // lines, so advertising rows/count would be a false contract);
+        // listings are inventories.
+        var declarations = ApiMemberSectionCardinality.Declarations;
+
+        Assert.Equal(SectionCardinalityKind.Scalar, declarations[SectionNames.TypeInfo].Kind);
+        // Signature is a one-row Table of the resolved member: Count = 1 is a real answer.
+        Assert.Equal(SectionCardinalityKind.Inventory, declarations[SectionNames.Signature].Kind);
+        Assert.Equal(SectionCardinalityKind.Scalar, declarations[SectionNames.DecompiledSource].Kind);
+        Assert.Equal(SectionCardinalityKind.Scalar, declarations[SectionNames.Source].Kind);
+        Assert.Equal(SectionCardinalityKind.Inventory, declarations[SectionNames.Methods].Kind);
+        Assert.Equal(SectionCardinalityKind.Inventory, declarations[SectionNames.CallGraph].Kind);
+
+        // Each catalog receives only the declarations for sections it carries.
+        string[] detailSections = ApiMemberDetailSectionDescriptors.CreatePipeline().AllSectionNames;
+        var scoped = ApiMemberSectionCardinality.For(detailSections);
+        Assert.All(scoped.Keys, key => Assert.Contains(key, detailSections));
+        Assert.Equal(detailSections.Length, scoped.Count);
+    }
 }

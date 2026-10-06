@@ -8,10 +8,10 @@ namespace ILInspector.Decompiler.Pipeline;
 /// rest declare bare because their initializer is a dead store the IL never
 /// carried (locals lean on <c>.locals init</c>). This is the same definite
 /// assignment the C# compiler itself runs, lifted out of <see cref="CSharpPrinter"/>
-/// into its own unit: the printer consumes the fact (a read-before-assign set)
-/// rather than computing it inline. It is fact-producing, not tree-rewriting, so
-/// it is an analyzer the printer calls — not an <see cref="IIrPass"/>, whose
-/// contract is to rewrite the tree and never side-channel state.
+/// into its own unit. <see cref="DefiniteAssignmentPass"/> runs it before
+/// printing and issues the decided zero-initialized set on the function and
+/// each nested body; the printer only spells that set
+/// (value-typed-emission.md, Instance 3).
 ///
 /// A conservative structured walk: it gives up — marking every local
 /// read-before-assign — on any control flow it does not fully model
@@ -40,6 +40,14 @@ static class DefiniteAssignment
     /// redundant <c>= default</c>, never drop a required one.
     /// </summary>
     public static HashSet<int> Compute(IrFunction function, IReadOnlySet<int> labelTargets, DataflowFacts? facts)
+        => Compute(function.Body, function.Locals.Length, labelTargets, facts);
+
+    /// <summary>
+    /// The same analysis over one body and its local table size: the host
+    /// function's body, or a raised lambda or local function body, which owns
+    /// its own local table (<see cref="DefiniteAssignmentPass"/>).
+    /// </summary>
+    public static HashSet<int> Compute(BlockContainer body, int localCount, IReadOnlySet<int> labelTargets, DataflowFacts? facts)
     {
         var readEarly = new HashSet<int>();
         bool bailed = false;
@@ -52,7 +60,7 @@ static class DefiniteAssignment
             bailed = true;
             if (facts is not null)
                 facts.Bailed = true;
-            for (int i = 0; i < function.Locals.Length; i++)
+            for (int i = 0; i < localCount; i++)
                 readEarly.Add(i);
         }
 
@@ -486,7 +494,7 @@ static class DefiniteAssignment
                 edges,
                 transfers,
                 entryAssigned,
-                new HashSet<int>(Enumerable.Range(0, function.Locals.Length)),
+                new HashSet<int>(Enumerable.Range(0, localCount)),
                 DataflowMerge.Intersection);
 
             // With the assignment-on-entry known per block, check reads in
@@ -815,7 +823,7 @@ static class DefiniteAssignment
             return DefiniteFlow.FallThrough;
         }
 
-        Container(function.Body, []);
+        Container(body, []);
 
         if (facts is not null)
             facts.ReadBeforeAssign = [.. readEarly.Order()];

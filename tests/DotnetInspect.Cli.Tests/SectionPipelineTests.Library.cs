@@ -103,7 +103,7 @@ public partial class SectionPipelineTests
         // trips this. The @Metadata family is derived from MetadataTableProjector.ProjectedTables
         // (see MetadataSectionNames), so it is counted by derivation rather than re-pinned here —
         // otherwise adding a table to the projector would fail an unrelated test.
-        Assert.Equal(52 + MetadataSectionNames.All.Length, pipeline.AllSectionNames.Length);
+        Assert.Equal(56 + MetadataSectionNames.All.Length, pipeline.AllSectionNames.Length);
         Assert.Contains(SectionNames.CloneCandidates, pipeline.AllSectionNames);
         Assert.Contains(IntegrationSectionNames.Integrations, pipeline.AllSectionNames);
         Assert.Contains("Context: Callsite", pipeline.AllSectionNames);
@@ -124,6 +124,11 @@ public partial class SectionPipelineTests
         Assert.Contains("Switches", pipeline.AllSectionNames);
         Assert.Contains("Top Leverage", pipeline.AllSectionNames);
         Assert.Contains("Library Metrics", pipeline.AllSectionNames);
+        Assert.Contains("Name Families", pipeline.AllSectionNames);
+        Assert.Contains("Architectural Families", pipeline.AllSectionNames);
+        Assert.Contains("Architectural Family Types", pipeline.AllSectionNames);
+        Assert.DoesNotContain("Name Family Roles", pipeline.AllSectionNames);
+        Assert.DoesNotContain("Name Family Role Types", pipeline.AllSectionNames);
         Assert.Contains("Performance: Boxing", pipeline.AllSectionNames);
         Assert.Contains("Performance: Arrays", pipeline.AllSectionNames);
         Assert.Contains("Performance: Closures and Delegates", pipeline.AllSectionNames);
@@ -207,6 +212,14 @@ public partial class SectionPipelineTests
                 LibrarySections.MemberMetrics.SizeClass),
             (LibrarySections.LibraryMetrics.Name,
                 LibrarySections.LibraryMetrics.SizeClass),
+            (LibrarySections.NameFamilies.Name,
+                LibrarySections.NameFamilies.SizeClass),
+            (LibrarySections.ArchitecturalFamilies.Name,
+                LibrarySections.ArchitecturalFamilies.SizeClass),
+            (LibrarySections.ArchitecturalFamilyTypes.Name,
+                LibrarySections.ArchitecturalFamilyTypes.SizeClass),
+            (LibrarySections.DependencyStructure.Name,
+                LibrarySections.DependencyStructure.SizeClass),
             (LibrarySections.BodyShapes.Name,
                 LibrarySections.BodyShapes.SizeClass),
             (LibrarySections.BodyShapeSummary.Name,
@@ -611,6 +624,10 @@ public partial class SectionPipelineTests
                 SectionNames.UnsafeMembers,
                 SectionNames.MemberMetrics,
                 SectionNames.LibraryMetrics,
+                SectionNames.NameFamilies,
+                SectionNames.ArchitecturalFamilies,
+                SectionNames.ArchitecturalFamilyTypes,
+                SectionNames.DependencyStructure,
                 SectionNames.BodyShapes,
                 SectionNames.BodyShapeSummary,
                 SectionNames.CloneCandidates,
@@ -768,6 +785,38 @@ public partial class SectionPipelineTests
             noMetadataDocument.RootElement.TryGetProperty(
                 "resource_triage",
                 out _));
+    }
+
+    [Fact]
+    public void ResourceTriageQuery_IncompletePreservesEvidenceWithoutFailureProjection()
+    {
+        var inspection = new LibraryInspection();
+        var complete =
+            new FindingInspection<Analysis.ResourceLifecycleOccurrence>.Complete([]);
+        var limitation = new Analysis.ResourceLifecycleLimitation(
+            Analysis.ResourceLifecycleLimitationKind.UnsupportedFlow,
+            "Address-taken resource flow is unsupported.");
+
+        LibraryMetadataService.ApplyResourceTriageResult(
+            inspection,
+            new ResourceTriageResult.Incomplete(
+                complete,
+                [],
+                [limitation]),
+            () => new Dictionary<
+                int,
+                (string? Stable, string Visibility, string Selector)>());
+
+        var incomplete =
+            Assert.IsType<ResourceTriageResult.Incomplete>(
+                inspection.ResourceTriageQueryResult);
+        Assert.Same(complete, incomplete.Inspection);
+        Assert.Same(limitation, Assert.Single(incomplete.Limitations));
+        Assert.Same(
+            complete,
+            inspection.ResourceLifecycleInspection!.Value);
+        Assert.Null(inspection.InspectionFailures);
+        Assert.Empty(inspection.ResourceTriage!);
     }
 
     [Fact]
@@ -1465,12 +1514,12 @@ public partial class SectionPipelineTests
 
         Assert.Equal(
             [
-                ClassifiedMethodsQuery.Definition,
+                MethodClassificationDemand.PInvokeMethods,
                 TopLeverageQuery.Definition,
             ],
             pipeline.GetRequiredQueries(Verbosity.Detailed, include));
         Assert.Equal(
-            [ClassifiedMethodsQuery.Definition],
+            [MethodClassificationDemand.PInvokeMethods],
             pipeline.GetRequiredQueries(
                 Verbosity.Detailed,
                 include,
@@ -1485,7 +1534,7 @@ public partial class SectionPipelineTests
 
         Assert.Equal(
             [
-                ClassifiedMethodsQuery.Definition,
+                MethodClassificationDemand.PInvokeMethods,
                 UnsafeEvidenceQuery.Definition,
             ],
             pipeline.GetRequiredQueries(Verbosity.Minimal, include));
@@ -1591,22 +1640,16 @@ public partial class SectionPipelineTests
             PackageFileFamily.SectionNames.OrderBy(n => n, StringComparer.Ordinal),
             sections.OrderBy(n => n, StringComparer.Ordinal));
 
-        var namedAsFiles = pipeline.AllSectionNames
-            .Where(n => n.EndsWith(" file", StringComparison.OrdinalIgnoreCase)
-                        || n.EndsWith(" files", StringComparison.OrdinalIgnoreCase))
-            // A "Group: Leaf" prefix claims the section for that group's door instead:
-            // "SourceLink: Files" is SourceLink data, not a package file listing.
-            .Where(n => !n.Contains(':'))
-            .ToArray();
-        Assert.NotEmpty(namedAsFiles);
+        // The family names are concise nouns (Section shapes adoption), so the
+        // door's membership comes from the declared family, not a noun suffix.
+        Assert.Equal(
+            ["Licenses", "Nuspec", "README", "Skills"],
+            sections.OrderBy(n => n, StringComparer.Ordinal));
+        Assert.Contains("SourceLink: Files", pipeline.AllSectionNames);
+        Assert.DoesNotContain("SourceLink: Files", sections);
 
-        var expected = namedAsFiles
-            .Where(n => !n.Equals(PackageSections.Files, StringComparison.Ordinal))
-            .OrderBy(n => n, StringComparer.Ordinal);
-        Assert.Equal(expected, sections.OrderBy(n => n, StringComparer.Ordinal));
-
-        // The superset is named like the family but is deliberately outside the door.
-        Assert.Contains(PackageSections.Files, namedAsFiles);
+        // The whole-package superset is registered but deliberately outside the door.
+        Assert.Contains(PackageSections.Files, pipeline.AllSectionNames);
         Assert.DoesNotContain(PackageSections.Files, sections);
     }
 
@@ -1763,7 +1806,13 @@ public partial class SectionPipelineTests
 
         var queries = pipeline.GetRequiredQueries(Verbosity.Minimal, include);
 
-        Assert.Equal([ClassifiedMethodsQuery.Definition], queries);
+        Assert.Equal(
+            [
+                section == SectionNames.AsyncMethods
+                    ? MethodClassificationDemand.AsyncMethods
+                    : MethodClassificationDemand.PInvokeMethods,
+            ],
+            queries);
     }
 
     [Fact]
@@ -1776,7 +1825,7 @@ public partial class SectionPipelineTests
             [
                 AssemblyReferencesQuery.Definition,
                 AuditMetadataQuery.Definition,
-                ClassifiedMethodsQuery.Definition,
+                MethodClassificationDemand.Signals,
             ],
             pipeline.GetRequiredQueries(Verbosity.Minimal, include)
                 .OrderBy(query => query.Name, StringComparer.Ordinal));
@@ -1801,6 +1850,7 @@ public partial class SectionPipelineTests
         [
             .. LibraryCommand.DiscoveryQueries.Select(demand => demand.Query),
             .. LibraryCommand.BareDiscoveryQueries.Select(demand => demand.Query),
+            LibraryCommand.ModelDumpCountsDemand.Query,
         ];
         perAssemblyQueries.UnionWith(commandQueries);
         HashSet<InspectionQueryDefinition> closure =
@@ -1833,12 +1883,18 @@ public partial class SectionPipelineTests
                 AssemblyReferencesQuery.Definition,
                 AuditMetadataQuery.Definition,
                 BodyShapesQuery.Definition,
-                ClassifiedMethodsQuery.Definition,
                 CustomAttributesQuery.Definition,
                 ExtensionMethodsQuery.Definition,
                 ImplementationProfilesQuery.Definition,
+                LibraryArchitecturalFamilyQuery.Definition,
+                LibraryDependencyStructureQuery.Definition,
                 LibraryMetricsQuery.Definition,
+                LibraryNameFamilyQuery.Definition,
                 MetadataImageQuery.Definition,
+                MethodClassificationDemand.AsyncMethods,
+                MethodClassificationDemand.LibraryInfo,
+                MethodClassificationDemand.PInvokeMethods,
+                MethodClassificationDemand.Signals,
                 OptimizationOpportunitiesQuery.Definition,
                 ReadyToRunImageQuery.Definition,
                 ResourceTriageQuery.Definition,

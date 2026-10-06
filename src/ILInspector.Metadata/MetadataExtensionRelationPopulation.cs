@@ -402,46 +402,14 @@ internal static partial class MetadataRelationInspection
     internal static MetadataExtensionRelationPopulationOutcome
         ExecuteExtensionPopulation(
             PEReader image,
+            MetadataReader reader,
             MetadataExtensionRelationPopulationRequest request,
             CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(image);
+        ArgumentNullException.ThrowIfNull(reader);
         ArgumentNullException.ThrowIfNull(request);
         cancellationToken.ThrowIfCancellationRequested();
-
-        MetadataImageFormatResult format =
-            MetadataImageFormatClassifier.Classify(image);
-        if (format is not MetadataImageFormatResult.SupportedEcma335)
-        {
-            return new MetadataExtensionRelationPopulationOutcome.Rejected(
-                format,
-                format switch
-                {
-                    MetadataImageFormatResult.NoMetadata =>
-                        "The selected image contains no managed metadata.",
-                    MetadataImageFormatResult.UnsupportedWindowsMetadata =>
-                        "Windows Metadata is not a supported relation input.",
-                    MetadataImageFormatResult.MalformedRoot =>
-                        "The selected image has a malformed metadata root.",
-                    _ => "The selected image format is unavailable.",
-                });
-        }
-
-        MetadataReader reader;
-        try
-        {
-            reader = image.GetMetadataReader(MetadataReaderOptions.None);
-        }
-        catch (Exception exception)
-            when (exception is BadImageFormatException
-                or OverflowException)
-        {
-            return new MetadataExtensionRelationPopulationOutcome.Rejected(
-                new MetadataImageFormatResult.MalformedRoot(
-                    MetadataRootMalformedReason
-                        .UnmappableMetadataDirectory),
-                exception.Message);
-        }
 
         using var operation =
             new MetadataOperationContext(request.Policy);
@@ -544,7 +512,6 @@ internal static partial class MetadataRelationInspection
         }
 
         return ScanExtensionPopulation(
-            image,
             reader,
             receiptIdentity,
             request,
@@ -554,7 +521,6 @@ internal static partial class MetadataRelationInspection
 
     private static MetadataExtensionRelationPopulationOutcome
         ScanExtensionPopulation(
-            PEReader image,
             MetadataReader reader,
             MetadataRelationReceiptIdentity receiptIdentity,
             MetadataExtensionRelationPopulationRequest request,
@@ -575,8 +541,9 @@ internal static partial class MetadataRelationInspection
             ImmutableArray.CreateBuilder<MetadataRelationDiagnostic>();
         ExtensionCandidatePopulation? population = null;
         var admittedDeclarations = new HashSet<int>();
+        var propertySignatures = new HashSet<string>(
+            StringComparer.Ordinal);
         int receiverExcluded = 0;
-        bool scanCompleted = false;
         bool limited = false;
         bool failed = false;
 
@@ -586,19 +553,17 @@ internal static partial class MetadataRelationInspection
                 reader,
                 request.IncludeNonPublic,
                 cancellationToken);
-            foreach (ExtensionMethodInfo extension
-                in ExtensionMethodScanner.FindAllExtensions(
-                    image,
-                    request.IncludeNonPublic))
+            foreach (ExtensionDeclarationCandidate candidate
+                in population.Candidates)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 operation.Charge(
                     MetadataOperationDimension.DeclarationCandidates);
-                if (!TryReadExtensionDeclaration(
+                if (!TryDecodeExtensionPopulationCandidate(
                         reader,
-                        extension,
+                        candidate,
                         operation,
-                        out DecodedExtensionDeclaration? declaration,
+                        out DecodedExtensionPopulationCandidate? decoded,
                         out MetadataRelationDiagnostic? diagnostic))
                 {
                     diagnostics.Add(diagnostic!);
@@ -606,18 +571,42 @@ internal static partial class MetadataRelationInspection
                 }
 
                 admittedDeclarations.Add(
-                    extension.DeclarationMetadataToken);
+                    candidate.MetadataToken);
                 if (!MatchesReceiver(
                         receiptIdentity.Assembly!,
-                        declaration!.Receiver,
+                        decoded!.Receiver,
                         request.Receiver))
                 {
                     receiverExcluded++;
                     continue;
                 }
+                if (!TryCreateExtensionPopulationDeclaration(
+                        reader,
+                        decoded,
+                        out DecodedExtensionDeclaration? declaration,
+                        out diagnostic))
+                {
+                    admittedDeclarations.Remove(
+                        candidate.MetadataToken);
+                    diagnostics.Add(diagnostic!);
+                    continue;
+                }
+                if (candidate.IsProperty
+                    && !propertySignatures.Add(
+                        declaration!.Member.CanonicalSignature))
+                {
+                    admittedDeclarations.Remove(
+                        candidate.MetadataToken);
+                    diagnostics.Add(
+                        UnsupportedDiagnostic(
+                            MetadataRelationFamily.Extensions,
+                            candidate.MetadataToken,
+                            "An extension property repeats a canonical declaration identity."));
+                    continue;
+                }
 
                 ExtensionRowIdentity identity =
-                    ExtensionRowIdentity.From(declaration);
+                    ExtensionRowIdentity.From(declaration!);
                 if (!ordinals.TryGetValue(identity, out int ordinal))
                 {
                     ordinal = ordinals.Count;
@@ -627,7 +616,7 @@ internal static partial class MetadataRelationInspection
                         && ordinal < endOrdinal)
                     {
                         var accumulator =
-                            new ExtensionRowAccumulator(ordinal);
+                            new ExtensionRowAccumulator();
                         selected.Add(accumulator);
                         selectedByIdentity.Add(identity, accumulator);
                     }
@@ -638,10 +627,9 @@ internal static partial class MetadataRelationInspection
                         out ExtensionRowAccumulator? selectedRow))
                 {
                     selectedRow.Occurrences.Add(
-                        declaration.ToEvidence());
+                        declaration!.ToEvidence());
                 }
             }
-            scanCompleted = true;
         }
         catch (MetadataOperationBudgetExceededException exception)
         {
@@ -659,22 +647,6 @@ internal static partial class MetadataRelationInspection
                     MetadataRelationFamily.Extensions,
                     null,
                     exception.Message));
-        }
-
-        if (scanCompleted)
-        {
-            var auditDiagnostics =
-                ImmutableArray.CreateBuilder<MetadataRelationDiagnostic>();
-            AuditRejectedExtensionCandidates(
-                reader,
-                new MetadataRelationInspectionRequest(
-                    [MetadataRelationFamily.Extensions],
-                    request.Policy,
-                    includeNonPublic: request.IncludeNonPublic),
-                admittedDeclarations,
-                auditDiagnostics,
-                cancellationToken);
-            diagnostics.AddRange(auditDiagnostics);
         }
 
         if (population is null)
@@ -770,7 +742,6 @@ internal static partial class MetadataRelationInspection
                 rows =
                     new MetadataExtensionRelationPopulationRowsOutcome.Read(
                         selected
-                            .OrderBy(static row => row.Ordinal)
                             .Select(static row =>
                                 new MetadataExtensionRelationPopulationRow(
                                     row.Occurrences)),
@@ -788,6 +759,211 @@ internal static partial class MetadataRelationInspection
             rows,
             diagnostics);
     }
+
+    private static bool TryDecodeExtensionPopulationCandidate(
+        MetadataReader reader,
+        ExtensionDeclarationCandidate candidate,
+        MetadataOperationContext operation,
+        out DecodedExtensionPopulationCandidate? decoded,
+        out MetadataRelationDiagnostic? diagnostic)
+    {
+        TypeDefinitionHandle receiverContextHandle;
+        MethodDefinitionHandle receiverMethodHandle;
+        if (candidate.IsProperty)
+        {
+            if (!TryResolveExtensionPropertyReceiver(
+                    reader,
+                    candidate,
+                    out receiverContextHandle,
+                    out receiverMethodHandle))
+            {
+                decoded = null;
+                diagnostic = UnsupportedDiagnostic(
+                    MetadataRelationFamily.Extensions,
+                    candidate.MetadataToken,
+                    "An extension property lacks an exact receiver marker.");
+                return false;
+            }
+        }
+        else
+        {
+            receiverContextHandle = candidate.DeclaringType;
+            receiverMethodHandle = candidate.Method;
+        }
+
+        TypeDefinition receiverContext =
+            reader.GetTypeDefinition(receiverContextHandle);
+        MethodDefinition receiverMethod =
+            reader.GetMethodDefinition(receiverMethodHandle);
+        MetadataMethodSignatureDecodeResult signature =
+            MetadataTypeIdentityDecoder.DecodeMethod(
+                reader,
+                receiverContext,
+                receiverMethod,
+                operation);
+        if (signature
+            is MetadataMethodSignatureDecodeResult.Rejected rejected)
+        {
+            decoded = null;
+            diagnostic = UnsupportedDiagnostic(
+                MetadataRelationFamily.Extensions,
+                candidate.MetadataToken,
+                rejected.Detail);
+            return false;
+        }
+
+        MetadataMethodSignatureIdentity identity =
+            ((MetadataMethodSignatureDecodeResult.Decoded)signature)
+                .Signature;
+        if ((candidate.IsProperty
+                && identity.ParameterTypes.Length != 1)
+            || identity.ParameterTypes.IsEmpty)
+        {
+            decoded = null;
+            diagnostic = UnsupportedDiagnostic(
+                MetadataRelationFamily.Extensions,
+                candidate.MetadataToken,
+                "An extension declaration has no exact receiver parameter.");
+            return false;
+        }
+
+        operation.Charge(
+            MetadataOperationDimension.RelationshipEdges);
+        decoded = new(
+            candidate,
+            receiverContextHandle,
+            receiverMethodHandle,
+            identity.ParameterTypes[0]);
+        diagnostic = null;
+        return true;
+    }
+
+    private static bool TryCreateExtensionPopulationDeclaration(
+        MetadataReader reader,
+        DecodedExtensionPopulationCandidate decoded,
+        out DecodedExtensionDeclaration? declaration,
+        out MetadataRelationDiagnostic? diagnostic)
+    {
+        ExtensionDeclarationCandidate candidate = decoded.Candidate;
+        if (MetadataTypeDefinitionNameReader.Read(
+                reader,
+                candidate.DeclaringType)
+            is not MetadataTypeDefinitionNameReadResult.Read declaringType)
+        {
+            declaration = null;
+            diagnostic = UnsupportedDiagnostic(
+                MetadataRelationFamily.Extensions,
+                candidate.MetadataToken,
+                "An extension declaration lacks an exact declaring Type identity.");
+            return false;
+        }
+
+        MemberAnchor anchor;
+        if (candidate.IsProperty)
+        {
+            anchor =
+                ApiMemberIdentity
+                    .CreateExtensionPropertyDeclarationAnchorInfo(
+                        reader,
+                        candidate.DeclaringType,
+                        reader.GetTypeDefinition(
+                            decoded.ReceiverContext),
+                        reader.GetMethodDefinition(
+                            decoded.ReceiverMethod),
+                        reader.GetPropertyDefinition(
+                            candidate.Property))
+                    .Anchor;
+        }
+        else
+        {
+            anchor =
+                ApiMemberIdentity.CreateExtensionMethodAnchorInfo(
+                    reader,
+                    candidate.DeclaringType,
+                    reader.GetMethodDefinition(candidate.Method))
+                .Anchor;
+        }
+
+        declaration = new(
+            MetadataTypeDefinitionAddress.FromHandle(
+                reader,
+                candidate.DeclaringType),
+            declaringType.Name,
+            MetadataTypeDefinitionAddress.FromHandle(
+                reader,
+                decoded.ReceiverContext),
+            candidate.MetadataToken,
+            MetadataMethodAddress.Create(
+                reader,
+                decoded.ReceiverMethod),
+            anchor,
+            decoded.Receiver);
+        diagnostic = null;
+        return true;
+    }
+
+    private static bool TryResolveExtensionPropertyReceiver(
+        MetadataReader reader,
+        ExtensionDeclarationCandidate candidate,
+        out TypeDefinitionHandle receiverContext,
+        out MethodDefinitionHandle receiverMethod)
+    {
+        PropertyDefinition property =
+            reader.GetPropertyDefinition(candidate.Property);
+        PropertyAccessors accessors = property.GetAccessors();
+        if (!TryGetExtensionMarkerName(
+                reader,
+                property,
+                accessors,
+                out string? markerName))
+        {
+            receiverContext = default;
+            receiverMethod = default;
+            return false;
+        }
+
+        TypeDefinition grouping =
+            reader.GetTypeDefinition(candidate.GroupingType);
+        receiverContext = grouping.GetNestedTypes().FirstOrDefault(
+            handle => reader.StringComparer.Equals(
+                reader.GetTypeDefinition(handle).Name,
+                markerName!));
+        if (receiverContext.IsNil)
+        {
+            receiverMethod = default;
+            return false;
+        }
+
+        TypeDefinition markerType =
+            reader.GetTypeDefinition(receiverContext);
+        receiverMethod = markerType.GetMethods().FirstOrDefault(
+            handle => reader.StringComparer.Equals(
+                reader.GetMethodDefinition(handle).Name,
+                "<Extension>$"));
+        return !receiverMethod.IsNil;
+    }
+
+    private static bool TryGetExtensionMarkerName(
+        MetadataReader reader,
+        PropertyDefinition property,
+        PropertyAccessors accessors,
+        out string? markerName) =>
+        AttributeReader.TryGetExtensionMarkerName(
+                reader,
+                property.GetCustomAttributes(),
+                out markerName)
+            || !accessors.Getter.IsNil
+            && AttributeReader.TryGetExtensionMarkerName(
+                reader,
+                reader.GetMethodDefinition(accessors.Getter)
+                    .GetCustomAttributes(),
+                out markerName)
+            || !accessors.Setter.IsNil
+            && AttributeReader.TryGetExtensionMarkerName(
+                reader,
+                reader.GetMethodDefinition(accessors.Setter)
+                    .GetCustomAttributes(),
+                out markerName);
 
     private static bool MatchesReceiver(
         AssemblyReferenceIdentity sourceAssembly,
@@ -934,13 +1110,17 @@ internal static partial class MetadataRelationInspection
             ? null
             : new MetadataExtensionRelationPopulationRowsOutcome.Failed();
 
-    private sealed class ExtensionRowAccumulator(int ordinal)
+    private sealed class ExtensionRowAccumulator
     {
-        public int Ordinal { get; } = ordinal;
-
         public List<MetadataExtensionRelationEvidence> Occurrences
         { get; } = [];
     }
+
+    private sealed record DecodedExtensionPopulationCandidate(
+        ExtensionDeclarationCandidate Candidate,
+        TypeDefinitionHandle ReceiverContext,
+        MethodDefinitionHandle ReceiverMethod,
+        MetadataTypeIdentity Receiver);
 }
 
 internal sealed record ExtensionRowIdentity(

@@ -5,6 +5,7 @@ using DotnetInspector.Packages;
 using DotnetInspector.Sections;
 using DotnetInspect.Cli.Sections;
 using ILInspector.Metadata;
+using ILInspector.Research;
 
 namespace DotnetInspect.Cli.Options;
 
@@ -108,6 +109,18 @@ public record InspectionOptions : IProjectionOptions
     public MetadataRootKind MetadataRoot { get; init; } = MetadataRootKind.Cli;
 
     public RowSelectionIntent<string>? ReferenceRowSelection { get; init; }
+
+    public LibraryNameFamilyPopulationKind NameFamilyPopulation
+    { get; init; } =
+        LibraryNameFamilyPopulationKind.AllTypes;
+
+    public RowSelectionIntent<string>? NameFamilyRowSelection
+    { get; init; }
+
+    public bool ArchitecturalFamilyTypeRows { get; init; }
+
+    public RowSelectionIntent<string>? DependencyStructureRowSelection
+    { get; init; }
 
     public PerformanceTriageOptions PerformanceTriage { get; init; } =
         PerformanceTriageOptions.Default;
@@ -215,7 +228,7 @@ public record InspectionOptions : IProjectionOptions
 
     /// <summary>
     /// Project top-level package roots represented by selected
-    /// <c>Package files</c> rows.
+    /// <c>Files</c> rows.
     /// </summary>
     public bool Roots { get; init; }
 
@@ -274,7 +287,8 @@ public record InspectionOptions : IProjectionOptions
     /// Semantic row selection for one Package's ecosystem-dependency pairs.
     /// </summary>
     public RowSelectionIntent<string>?
-        EcosystemDependencyRowSelection { get; init; }
+        EcosystemDependencyRowSelection
+    { get; init; }
 
     /// <summary>
     /// Semantic row selection for Clone Candidates on a delegated Library route.
@@ -307,9 +321,9 @@ public record InspectionOptions : IProjectionOptions
     public Verbosity Verbosity { get; init; } = Verbosity.Minimal;
 
     /// <summary>
-    /// Tip verbosity level.
+    /// Whether the explicit tip projection was requested.
     /// </summary>
-    public TipLevel TipLevel { get; init; } = TipLevel.Minimal;
+    public CompanionOutput CompanionOutput { get; init; } = CompanionOutput.None;
 
     /// <summary>
     /// Bare <c>-S</c> mode: render the network-free <b>fixed</b> overview — only sections whose

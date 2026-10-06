@@ -4,18 +4,32 @@ using InertText;
 namespace ILInspector.Analysis;
 
 /// <summary>
-/// Validated exact text matched against decoded <c>ldstr</c> values.
+/// The ordinal relation applied to one complete decoded <c>ldstr</c> value.
 /// </summary>
-public sealed record StringLiteralUseOperand
+public enum StringLiteralUsePredicateKind
 {
-    /// <summary>Largest accepted operand length, measured in UTF-16 code units.</summary>
+    Contains,
+    StartsWith,
+}
+
+/// <summary>
+/// Validated ordinal predicate applied to complete decoded <c>ldstr</c> values.
+/// </summary>
+public sealed record StringLiteralUsePredicate
+{
+    /// <summary>Largest accepted value length, measured in UTF-16 code units.</summary>
     public const int MaximumLength = 1_024;
 
-    StringLiteralUseOperand(string value)
+    StringLiteralUsePredicate(
+        StringLiteralUsePredicateKind kind,
+        string value)
     {
+        Kind = kind;
         RawValue = value;
         DisplayText = new InertString(TextPolicy.Field, value);
     }
+
+    public StringLiteralUsePredicateKind Kind { get; }
 
     internal string RawValue { get; }
 
@@ -23,13 +37,17 @@ public sealed record StringLiteralUseOperand
 
     public InertString DisplayText { get; }
 
-    public static StringLiteralUseOperand Create(string value)
+    public static StringLiteralUsePredicate Create(
+        StringLiteralUsePredicateKind kind,
+        string value)
     {
+        if (!Enum.IsDefined(kind))
+            throw new ArgumentOutOfRangeException(nameof(kind));
         ArgumentNullException.ThrowIfNull(value);
         if (value.Length == 0)
         {
             throw new ArgumentException(
-                "The string-literal operand cannot be empty.",
+                "The string-literal predicate value cannot be empty.",
                 nameof(value));
         }
         if (value.Length > MaximumLength)
@@ -37,11 +55,22 @@ public sealed record StringLiteralUseOperand
             throw new ArgumentOutOfRangeException(
                 nameof(value),
                 value.Length,
-                $"The string-literal operand cannot exceed {MaximumLength} UTF-16 characters.");
+                $"The string-literal predicate value cannot exceed {MaximumLength} UTF-16 characters.");
         }
 
-        return new StringLiteralUseOperand(value);
+        return new StringLiteralUsePredicate(kind, value);
     }
+
+    internal bool Matches(string literal) =>
+        Kind switch
+        {
+            StringLiteralUsePredicateKind.Contains =>
+                literal.Contains(RawValue, StringComparison.Ordinal),
+            StringLiteralUsePredicateKind.StartsWith =>
+                literal.StartsWith(RawValue, StringComparison.Ordinal),
+            _ => throw new InvalidOperationException(
+                "Unknown string-literal predicate kind."),
+        };
 }
 
 /// <summary>Finite work and retention bounds for one assembly scan.</summary>
@@ -138,7 +167,8 @@ public sealed record StringLiteralUseOccurrence
         StringLiteralInstructionAddress address,
         int userStringToken,
         int literalCharacterCount,
-        InertString literalText)
+        InertString literalText,
+        StringLiteralUseIdentity literalIdentity)
     {
         if ((userStringToken & unchecked((int)0xFF000000)) != 0x70000000
             || (userStringToken & 0x00FFFFFF) == 0)
@@ -148,11 +178,18 @@ public sealed record StringLiteralUseOccurrence
                 nameof(userStringToken));
         }
         ArgumentOutOfRangeException.ThrowIfNegative(literalCharacterCount);
+        if (!literalIdentity.IsInitialized)
+        {
+            throw new ArgumentException(
+                "The literal identity must be initialized.",
+                nameof(literalIdentity));
+        }
 
         Address = address;
         UserStringToken = userStringToken;
         LiteralCharacterCount = literalCharacterCount;
         LiteralText = literalText;
+        LiteralIdentity = literalIdentity;
     }
 
     public StringLiteralInstructionAddress Address { get; }
@@ -162,6 +199,8 @@ public sealed record StringLiteralUseOccurrence
     public int LiteralCharacterCount { get; }
 
     public InertString LiteralText { get; }
+
+    internal StringLiteralUseIdentity LiteralIdentity { get; }
 }
 
 /// <summary>Completed charged work for one producer attempt.</summary>

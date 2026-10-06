@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Runtime.Versioning;
 using System.Text.Json;
+using DotnetInspector.Queries;
 using CSharpText;
 using DotnetInspect.Web.Interop.Source;
 using DotnetInspector.Sections;
@@ -11,6 +12,80 @@ namespace DotnetInspect.Web.Tests;
 [SupportedOSPlatform("browser")]
 public sealed class BrowserMemberSourceTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void FailedExactSourceKeepsEnvelopeDiagnostics(
+        bool rejected)
+    {
+        var inspection =
+            new InspectionEnvelope<MemberDocumentInspectionOutcome>(
+                rejected
+                    ? new MemberDocumentInspectionOutcome.Rejected(
+                        MemberDocumentInspectionRejection
+                            .BaselineOrdinalOutOfRange)
+                    : new MemberDocumentInspectionOutcome.Failed(
+                        MemberDocumentInspectionFailure.MalformedMetadata),
+                new InspectionShare.NonProjectable(
+                    "member-document/share",
+                    "Source selection failed."),
+                [
+                    new InspectionDiagnostic(
+                        "member-document.library-retirement",
+                        InspectionDiagnosticSeverity.Warning,
+                        "Library retirement failed.",
+                        "Example.Package"),
+                ]);
+        BrowserMemberSourceResult result =
+            SourceExports.AdaptAttachedMemberSource(
+                inspection,
+                _ => throw new InvalidOperationException(
+                    "A failed document must not project source."));
+
+        Assert.Null(result.Value);
+        Assert.Contains(
+            rejected ? "BaselineOrdinalOutOfRange" : "MalformedMetadata",
+            result.Error);
+        Assert.Equal(
+            "member-document.library-retirement",
+            Assert.Single(result.Diagnostics).Code);
+        string json = JsonSerializer.Serialize(
+            result,
+            BrowserSourceJsonContext.Default.BrowserMemberSourceResult);
+        using JsonDocument wire = JsonDocument.Parse(json);
+        Assert.Equal(
+            "member-document.library-retirement",
+            wire.RootElement.GetProperty("diagnostics")[0]
+                .GetProperty("code").GetString());
+        Assert.Equal(
+            JsonValueKind.Null,
+            wire.RootElement.GetProperty("value").ValueKind);
+    }
+
+    [Fact]
+    public void MemberSourceDiagnosticsPreserveLibraryRetirementFailure()
+    {
+        BrowserMemberSourceDiagnostic diagnostic =
+            Assert.Single(
+                SourceExports.ProjectMemberSourceDiagnostics(
+                    [
+                        new InspectionDiagnostic(
+                            "member-document.library-retirement",
+                            InspectionDiagnosticSeverity.Warning,
+                            "Library retirement failed.",
+                            "Example.Package"),
+                    ]));
+
+        Assert.Equal(
+            "member-document.library-retirement",
+            diagnostic.Code);
+        Assert.Equal("Warning", diagnostic.Severity);
+        Assert.Equal(
+            "Library retirement failed.",
+            diagnostic.Summary);
+        Assert.Equal("Example.Package", diagnostic.Correspondence);
+    }
+
     [Fact]
     public void RealRepositoryMemberParts_RebaseAgainstExactMemberText()
     {
@@ -65,6 +140,22 @@ public sealed class BrowserMemberSourceTests
             StringComparison.Ordinal);
         Assert.Collection(
             browser.Parts,
+            declaration =>
+            {
+                Assert.Equal(
+                    BrowserMemberSourcePartKind.Declaration,
+                    declaration.Kind);
+                BrowserMemberSourceSpan span = Assert.Single(declaration.Spans);
+                Assert.Contains(
+                    "public static string? ExtractMemberText(",
+                    memberText.Substring(span.Start, span.Length),
+                    StringComparison.Ordinal);
+                Assert.DoesNotContain(
+                    "/// <summary>",
+                    memberText.Substring(span.Start, span.Length),
+                    StringComparison.Ordinal);
+                Assert.Equal("    ", span.LeadingIndentation);
+            },
             member =>
             {
                 Assert.Equal(BrowserMemberSourcePartKind.Member, member.Kind);
@@ -116,7 +207,7 @@ public sealed class BrowserMemberSourceTests
             memberText,
             root.GetProperty("source").GetProperty("text").GetString());
         Assert.False(root.GetProperty("source").TryGetProperty("parts", out _));
-        JsonElement memberSpan = root.GetProperty("parts")[0]
+        JsonElement memberSpan = root.GetProperty("parts")[1]
             .GetProperty("spans")[0];
         Assert.Equal(0, memberSpan.GetProperty("start").GetInt32());
         Assert.Equal(memberText.Length, memberSpan.GetProperty("end").GetInt32());
@@ -176,6 +267,18 @@ public sealed class BrowserMemberSourceTests
         Assert.Equal(memberText.Length, memberSpan.Length);
         Assert.Equal("    ", memberSpan.LeadingIndentation);
 
+        BrowserMemberSourcePart declaration = Assert.Single(
+            browser.Parts,
+            part => part.Kind == BrowserMemberSourcePartKind.Declaration);
+        BrowserMemberSourceSpan declarationSpan =
+            Assert.Single(declaration.Spans);
+        Assert.StartsWith(
+            "public bool WriteHeading(",
+            memberText.Substring(
+                declarationSpan.Start,
+                declarationSpan.Length),
+            StringComparison.Ordinal);
+
         BrowserMemberSourcePart documentation = Assert.Single(
             browser.Parts,
             part => part.Kind == BrowserMemberSourcePartKind.XmlDocumentation);
@@ -193,16 +296,38 @@ public sealed class BrowserMemberSourceTests
     }
 
     [Fact]
-    public void DecompiledMemberSource_HasNoAuthoredPartCatalog()
+    public void DecompiledMemberSource_UsesTheSharedAvailablePartCatalog()
     {
+        const string document =
+            "    [System.Diagnostics.DebuggerStepThrough]\n"
+            + "    public string Value\n"
+            + "    {\n"
+            + "        get => \"decompiled\";\n"
+            + "    }";
         BrowserMemberSource browser = new(
             BrowserSource(
-                "public string Value => \"decompiled\";",
+                document,
                 provider: "decompiled"),
+            SourceExports.ProjectDecompiledMemberParts(document),
             []);
 
         Assert.Equal("decompiled", browser.Source.Provider);
-        Assert.Empty(browser.Parts);
+        Assert.DoesNotContain(
+            browser.Parts,
+            part => part.Kind
+                is BrowserMemberSourcePartKind.XmlDocumentation
+                or BrowserMemberSourcePartKind.Declaration);
+        Assert.Equal(
+            [
+                BrowserMemberSourcePartKind.Member,
+                BrowserMemberSourcePartKind.Attributes,
+                BrowserMemberSourcePartKind.Signature,
+                BrowserMemberSourcePartKind.Body,
+            ],
+            browser.Parts.Select(part => part.Kind));
+        Assert.All(
+            browser.Parts.SelectMany(part => part.Spans),
+            span => Assert.InRange(span.End, 1, document.Length));
     }
 
     [Fact]
@@ -261,6 +386,11 @@ public sealed class BrowserMemberSourceTests
             native);
 
         Assert.Equal(member, browser.Source.Text);
+        AssertExactFragments(
+            document,
+            member,
+            [native.Declaration],
+            BrowserPart(BrowserMemberSourcePartKind.Declaration));
         AssertExactFragments(
             document,
             member,
@@ -369,7 +499,8 @@ public sealed class BrowserMemberSourceTests
         MemberTextParts parts) =>
         new(
             BrowserSource(member),
-            SourceExports.ProjectMemberParts(document, parts, member.Length));
+            SourceExports.ProjectMemberParts(document, parts, member.Length),
+            []);
 
     static string RepositoryRoot()
     {

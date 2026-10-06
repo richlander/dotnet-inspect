@@ -280,6 +280,12 @@ function cacheCardHtml(
       ${factHtml("Workspace slots", formatCapacity(cache.stats.workspaces, cache.stats.maxWorkspaces, formatInteger), escapeHtml)}
       ${factHtml("Workspace assembly budget", `${formatInteger(cache.stats.maxWorkspaceAssembliesPerRole)} per role`, escapeHtml)}
       ${factHtml("Workspace image budget", `${formatBytes(cache.stats.maxWorkspaceRetainedImageBytes)} each`, escapeHtml)}
+      ${factHtml("Ranged-entry storage", cache.stats.entryStoreDurability, escapeHtml)}
+      ${factHtml("Ranged-entry hits", formatInteger(cache.stats.entryStoreHits), escapeHtml)}
+      ${factHtml("Ranged-entry writes", formatInteger(cache.stats.entryStoreWrites), escapeHtml)}
+      ${cache.stats.entryStoreError
+        ? factHtml("Ranged-entry error", cache.stats.entryStoreError, escapeHtml)
+        : ""}
     </dl>`;
   } else if (cache.kind === "failed") {
     body = `<div class="diagnostics-inline-state diagnostics-inline-failed">

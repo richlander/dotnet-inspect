@@ -5,6 +5,21 @@ using DotnetInspector.Queries;
 
 namespace DotnetInspect.Web;
 
+internal abstract record BrowserNavigationScopeOperationResult
+{
+    private protected BrowserNavigationScopeOperationResult() { }
+
+    internal sealed record Completed(
+        NavigationOperationResult Result,
+        WorkspaceScopeOperationResult Settlement)
+        : BrowserNavigationScopeOperationResult;
+
+    internal sealed record Refused(NavigationAdmissionRefusal Refusal)
+        : BrowserNavigationScopeOperationResult;
+
+    internal sealed record Retired : BrowserNavigationScopeOperationResult;
+}
+
 /// <summary>
 /// Browser-owned scheduling around one product-issued Navigation state slot.
 /// The active Workspace owner supplies fresh preparation for each operation;
@@ -85,6 +100,23 @@ internal sealed class BrowserNavigationStateSlot
             ValueTask<NavigationPreparation>> prepare,
         CancellationToken cancellationToken = default)
     {
+        NavigationOperationResult? result =
+            await ExecuteOperationAsync(
+                    action,
+                    prepare,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        return result is null ? null : Publish(result);
+    }
+
+    internal async ValueTask<NavigationOperationResult?> ExecuteOperationAsync(
+        NavigationAction action,
+        Func<
+            NavigationEvaluationRequest,
+            CancellationToken,
+            ValueTask<NavigationPreparation>> prepare,
+        CancellationToken cancellationToken = default)
+    {
         ArgumentNullException.ThrowIfNull(action);
         ArgumentNullException.ThrowIfNull(prepare);
 
@@ -98,7 +130,7 @@ internal sealed class BrowserNavigationStateSlot
             TrackAuthority(beginning.Result);
         }
         if (beginning.Result is { } immediate)
-            return Publish(immediate);
+            return immediate;
 
         NavigationEvaluationRequest work = beginning.Work!;
         using var operation = CancellationTokenSource.CreateLinkedTokenSource(
@@ -155,9 +187,110 @@ internal sealed class BrowserNavigationStateSlot
                 throw new InvalidOperationException(
                     $"Browser Navigation completion was rejected: {rejection}.");
             }
-            return completion.Result is { } result
-                ? Publish(result)
-                : null;
+            return completion.Result;
+        }
+        catch
+        {
+            lock (_gate)
+                Cancel(work.Identity);
+            Pump();
+            throw;
+        }
+    }
+
+    internal async ValueTask<BrowserNavigationScopeOperationResult>
+        ExecuteScopeOperationAsync(
+            WorkspaceScopeRequest request,
+            Func<
+                WorkspaceScopeRequest,
+                CancellationToken,
+                ValueTask<WorkspaceScopeOperationResult>> submit,
+            Func<
+                NavigationScopeEvaluationRequest,
+                WorkspaceScopeOperationResult,
+                CancellationToken,
+                ValueTask<NavigationScopePreparation>> prepare,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(submit);
+        ArgumentNullException.ThrowIfNull(prepare);
+
+        NavigationTransition beginning;
+        lock (_gate)
+        {
+            if (_retired)
+                return new BrowserNavigationScopeOperationResult.Retired();
+            beginning = Commit(
+                NavigationTransitions.AcceptScopeOperation(
+                    _state,
+                    request.Association));
+            if (beginning.AdmissionRefusal is { } refusal)
+            {
+                return new BrowserNavigationScopeOperationResult.Refused(
+                    refusal);
+            }
+            _publishedAuthority = null;
+        }
+
+        NavigationScopeEvaluationRequest work = beginning.ScopeWork
+            ?? throw new InvalidOperationException(
+                "Accepted Browser Scope operation returned no evaluation request.");
+        using var operation = CancellationTokenSource.CreateLinkedTokenSource(
+            cancellationToken,
+            _retirement.Token);
+        try
+        {
+            WorkspaceScopeOperationResult settlement =
+                await submit(request, operation.Token)
+                    .AsTask()
+                    .WaitAsync(operation.Token)
+                    .ConfigureAwait(false);
+            NavigationScopePreparation preparation =
+                await prepare(work, settlement, operation.Token)
+                    .AsTask()
+                    .WaitAsync(operation.Token)
+                    .ConfigureAwait(false);
+            NavigationScopeEvaluationResult evaluation =
+                NavigationTransitions.EvaluateScopeOperation(
+                    work,
+                    settlement,
+                    preparation,
+                    _registry);
+            NavigationTransition completion;
+            lock (_gate)
+            {
+                if (_retired)
+                {
+                    Cancel(work.Identity);
+                    return new BrowserNavigationScopeOperationResult.Retired();
+                }
+                completion = Commit(
+                    NavigationTransitions.CompleteScopeOperation(
+                        _state,
+                        work,
+                        evaluation));
+                TrackAuthority(completion.Result);
+            }
+            Pump();
+            if (completion.Rejection is { } rejection)
+            {
+                throw new InvalidOperationException(
+                    $"Browser Navigation Scope completion was rejected: "
+                        + $"{rejection}.");
+            }
+            return new BrowserNavigationScopeOperationResult.Completed(
+                completion.Result
+                ?? throw new InvalidOperationException(
+                "Browser Navigation Scope completion returned no result."),
+                settlement);
+        }
+        catch (OperationCanceledException)
+            when (_retirement.IsCancellationRequested)
+        {
+            lock (_gate)
+                Cancel(work.Identity);
+            return new BrowserNavigationScopeOperationResult.Retired();
         }
         catch
         {

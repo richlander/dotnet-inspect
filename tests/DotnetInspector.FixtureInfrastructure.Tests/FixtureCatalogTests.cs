@@ -231,6 +231,17 @@ public class FixtureCatalogTests
     }
 
     [Fact]
+    public void IntrinsicCoreLibraryCallFixture_PreservesCrossAssemblyBoundary()
+    {
+        AssertBoundary(
+            FixtureCatalog.QueriesIntrinsicCoreLibraryCalls,
+            FixtureBoundary.CrossAssemblyBoundary);
+        AssertAssemblyReferences(
+            FixtureCatalog.QueriesIntrinsicCoreLibraryCalls,
+            "ILInspector.Analysis.CallerGraphTarget");
+    }
+
+    [Fact]
     public void ForwardedFieldFixtures_PreserveReferenceAndDeploymentSignatures()
     {
         AssertBoundary(

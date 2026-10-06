@@ -514,7 +514,7 @@ compatibility-only view previously hid.
 
 This selected-Library route does not complete the Workspace lifecycle or
 top-level Diff and subject-section migration. Existing aggregate-package,
-member-filter, Analysis Diff, Implementation Diff, Finding Transitions, and
+member-filter, Analysis Diff, Implementation Diff, analysis-set view, and
 mixed-section routes remain until their own shared terminals cover their
 different populations and outputs. Realization-coordinator/House acquisition
 adoption remains separate; the CLI does not add a second coordinator or

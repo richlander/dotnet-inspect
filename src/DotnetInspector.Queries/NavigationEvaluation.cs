@@ -49,6 +49,25 @@ internal static class NavigationEvaluation
         ArgumentNullException.ThrowIfNull(facts.Availability);
         if (facts.Scope.Revision.Workspace != workspace)
             throw new ArgumentException("Navigation facts require the exact Workspace.", nameof(facts));
+        if (facts.Ecosystem is { } ecosystem)
+        {
+            if (facts.Package is not null
+                || facts.NonReadyPackage is not null)
+            {
+                throw new ArgumentException(
+                    "Ecosystem facts cannot be combined with ready or "
+                        + "non-ready Package facts.",
+                    nameof(facts));
+            }
+            if (!ReferenceEquals(
+                    ecosystem.Occurrence.WorkspaceIdentity,
+                    workspace))
+            {
+                throw new ArgumentException(
+                    "Ecosystem facts require the exact Workspace.",
+                    nameof(facts));
+            }
+        }
         if (facts.NonReadyPackage is { } nonReady)
         {
             bool retainedType =
@@ -82,7 +101,13 @@ internal static class NavigationEvaluation
         NavigationEvaluationRequest request, NavigationEvaluationFacts facts, ViewFacetRegistry registry)
     {
         NavigationWorkspaceRefreshResult refreshed = NavigationWorkspaceSnapshotEvaluation.Refresh(
-            request.Basis, facts.Scope, facts.Package, registry, facts.Availability, facts.NonReadyPackage);
+            request.Basis,
+            facts.Scope,
+            facts.Package,
+            registry,
+            facts.Availability,
+            facts.NonReadyPackage,
+            facts.Ecosystem);
         return new(request, refreshed.Snapshot,
             refreshed.IncompleteInventory is not null ? IncompleteInventoryOutcome() : SnapshotOutcome(refreshed.Snapshot),
             incompleteInventory: refreshed.IncompleteInventory is { } incomplete
@@ -105,7 +130,13 @@ internal static class NavigationEvaluation
             return new(request, selected, SnapshotOutcome(selected));
         }
         NavigationWorkspaceRefreshResult refresh = NavigationWorkspaceSnapshotEvaluation.Refresh(
-            basis, facts.Scope, facts.Package, registry, facts.Availability, facts.NonReadyPackage);
+            basis,
+            facts.Scope,
+            facts.Package,
+            registry,
+            facts.Availability,
+            facts.NonReadyPackage,
+            facts.Ecosystem);
         if (refresh.IncompleteInventory is { } incomplete)
             return new(request, basis, IncompleteInventoryOutcome(), incompleteInventory: NavigationSnapshotDetachment.Detach(incomplete));
         NavigationWorkspaceSnapshot current = refresh.Snapshot;

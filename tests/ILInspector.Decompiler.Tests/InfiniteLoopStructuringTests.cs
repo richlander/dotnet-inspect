@@ -61,7 +61,7 @@ public class InfiniteLoopStructuringTests
     [Fact]
     public void WhileTrueWithReturns_PrintsWhileTrueAndGuards()
     {
-        var output = CSharpPrinter.Print(Raised(nameof(CfgSampleClass.WhileTrueWithReturns))).Output;
+        var output = DecidedPrint.Print(Raised(nameof(CfgSampleClass.WhileTrueWithReturns))).Output;
 
         Assert.Contains("while (true)", output);
         Assert.Contains("return", output);
@@ -71,7 +71,7 @@ public class InfiniteLoopStructuringTests
     [Fact]
     public void WhileTrueWithBreak_PrintsBreak()
     {
-        var output = CSharpPrinter.Print(Raised(nameof(CfgSampleClass.WhileTrueWithBreak))).Output;
+        var output = DecidedPrint.Print(Raised(nameof(CfgSampleClass.WhileTrueWithBreak))).Output;
 
         Assert.Contains("while (true)", output);
         Assert.Contains("break;", output);
@@ -99,7 +99,7 @@ public class InfiniteLoopStructuringTests
         var loop = Assert.Single(function.Descendants.OfType<WhileLoop>());
         Assert.True(IsWhileTrue(loop), "the for(;;) back-edge loop must raise to while (true)");
         Assert.Empty(function.Descendants.OfType<Branch>());
-        var output = CSharpPrinter.Print(function).Output;
+        var output = DecidedPrint.Print(function).Output;
         Assert.Contains("while (true)", output);
         Assert.DoesNotContain("goto", output);
     }
@@ -115,7 +115,7 @@ public class InfiniteLoopStructuringTests
         var loop = Assert.Single(function.Descendants.OfType<WhileLoop>());
         Assert.True(IsWhileTrue(loop));
         Assert.Empty(function.Descendants.OfType<Branch>());
-        Assert.DoesNotContain("goto", CSharpPrinter.Print(function).Output);
+        Assert.DoesNotContain("goto", DecidedPrint.Print(function).Output);
     }
 
     [Fact]
@@ -129,7 +129,7 @@ public class InfiniteLoopStructuringTests
         Assert.Single(loop.Body.Descendants.OfType<Continue>());
         Assert.Empty(function.Descendants.OfType<Leave>());
 
-        var output = CSharpPrinter.Print(function).Output!;
+        var output = DecidedPrint.Print(function).Output!;
         Assert.Contains("while (true)", output);
         Assert.Contains("continue;", output);
         Assert.Contains("finally", output);
@@ -207,7 +207,7 @@ public class InfiniteLoopStructuringTests
         Assert.Equal(2, function.Descendants.OfType<WhileLoop>().Count());
         Assert.Contains(function.Descendants.OfType<Leave>(), leave => leave.TargetOffset == 0);
 
-        var output = CSharpPrinter.Print(function).Output!;
+        var output = DecidedPrint.Print(function).Output!;
         Assert.Contains("IL_0000:", output);
         Assert.Contains("goto IL_0000; // leave", output);
     }
@@ -252,7 +252,7 @@ public class InfiniteLoopStructuringTests
             tryCatch.Clauses.Any(clause => clause.Body.Descendants.OfType<Continue>().Any()));
         Assert.Empty(function.Descendants.OfType<Leave>());
 
-        var output = CSharpPrinter.Print(function).Output!;
+        var output = DecidedPrint.Print(function).Output!;
         Assert.Contains("catch", output);
         Assert.Contains("continue;", output);
         Assert.DoesNotContain("goto IL_", output);
@@ -267,7 +267,7 @@ public class InfiniteLoopStructuringTests
             tryCatch.Clauses.Any(clause => clause.Body.Descendants.OfType<Break>().Any()));
         Assert.Empty(function.Descendants.OfType<Leave>());
 
-        var output = CSharpPrinter.Print(function).Output!;
+        var output = DecidedPrint.Print(function).Output!;
         Assert.Contains("catch", output);
         Assert.Contains("break;", output);
         Assert.DoesNotContain("goto IL_", output);
@@ -280,7 +280,7 @@ public class InfiniteLoopStructuringTests
 
         Assert.Empty(function.Descendants.OfType<WhileLoop>());
 
-        var output = CSharpPrinter.Print(function).Output!;
+        var output = DecidedPrint.Print(function).Output!;
         Assert.Contains("goto IL_", output);
         Assert.Contains("throw new FormatException();", output);
     }
@@ -518,7 +518,7 @@ public class InfiniteLoopStructuringTests
             function.DescendantsOutsideNestedFunctions.OfType<Branch>(),
             branch => branch.TargetOffset == 0x0A);
 
-        string output = CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n");
+        string output = DecidedPrint.Print(function).Output!.ReplaceLineEndings("\n");
         Assert.Contains("IL_000A:", output);
         Assert.Contains("goto IL_000A;", output);
         Assert.DoesNotContain("while (true)", output);

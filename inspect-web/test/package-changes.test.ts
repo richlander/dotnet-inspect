@@ -34,7 +34,7 @@ test("controller preserves progressive order and reconciles the terminal documen
   const state = initialPackageChangesState();
   const controller = createPackageChangesController(state, source, () => {});
 
-  await controller.run(createPackageChangesRequest("package-set.example"));
+  await controller.run(createPackageChangesRequest("ecosystem.example"));
 
   assert.deepEqual(state.rows, [first, second]);
   assert.deepEqual(state.failures, [failure]);
@@ -72,7 +72,7 @@ test("terminal reconciliation retains only the latest UI progress per phase", as
     },
     () => {});
 
-  await controller.run(createPackageChangesRequest("package-set.example"));
+  await controller.run(createPackageChangesRequest("ecosystem.example"));
 
   assert.deepEqual(state.progress, [lastCatalog, advisory]);
   assert.equal(state.settlement.kind, "succeeded");
@@ -97,7 +97,7 @@ test("explicit cancellation retains rows while awaiting physical cancellation", 
   const state = initialPackageChangesState();
   const controller = createPackageChangesController(state, source, () => {});
   const running = controller.run(
-    createPackageChangesRequest("package-set.example"));
+    createPackageChangesRequest("ecosystem.example"));
 
   controller.cancel("user");
 
@@ -124,7 +124,7 @@ test("a cancellation race preserves authoritative success", async () => {
   const state = initialPackageChangesState();
   const controller = createPackageChangesController(state, source, () => {});
   const running = controller.run(
-    createPackageChangesRequest("package-set.example"));
+    createPackageChangesRequest("ecosystem.example"));
 
   controller.cancel("user");
   pending.resolve({
@@ -147,7 +147,7 @@ test("a cancellation race preserves authoritative failure", async () => {
   const state = initialPackageChangesState();
   const controller = createPackageChangesController(state, source, () => {});
   const running = controller.run(
-    createPackageChangesRequest("package-set.example"));
+    createPackageChangesRequest("ecosystem.example"));
 
   controller.cancel("disposed");
   pending.resolve({
@@ -178,7 +178,7 @@ test("fresh reset retires a canceled generation before delayed settlement", asyn
   const state = initialPackageChangesState();
   const controller = createPackageChangesController(state, source, () => {});
   const running = controller.run(
-    createPackageChangesRequest("package-set.prior"));
+    createPackageChangesRequest("ecosystem.prior"));
 
   controller.cancel("disposed");
   controller.reset();
@@ -207,8 +207,8 @@ test("replacement suppresses stale callbacks and terminal settlement", async () 
   };
   const state = initialPackageChangesState();
   const controller = createPackageChangesController(state, source, () => {});
-  const oldRun = controller.run(createPackageChangesRequest("package-set.old"));
-  const newRun = controller.run(createPackageChangesRequest("package-set.new"));
+  const oldRun = controller.run(createPackageChangesRequest("ecosystem.old"));
+  const newRun = controller.run(createPackageChangesRequest("ecosystem.new"));
 
   runs[0]!.publish(changeRow("Stale.Package"));
   runs[0]!.finish({
@@ -222,7 +222,7 @@ test("replacement suppresses stale callbacks and terminal settlement", async () 
   });
   await Promise.all([oldRun, newRun]);
 
-  assert.equal(state.request?.packageSetId, "package-set.new");
+  assert.equal(state.request?.ecosystemId, "ecosystem.new");
   assert.deepEqual(
     state.rows.map(row => row.catalogActivity.packageId),
     ["Current.Package"]);
@@ -242,7 +242,7 @@ test("physical failure remains distinct from semantic failed completion", async 
       },
     },
     () => {});
-  await physical.run(createPackageChangesRequest("package-set.example"));
+  await physical.run(createPackageChangesRequest("ecosystem.example"));
   assert.deepEqual(state.settlement, {
     kind: "failed",
     error: "Worker operation failed.",
@@ -260,7 +260,7 @@ test("physical failure remains distinct from semantic failed completion", async 
       },
     },
     () => {});
-  await semantic.run(createPackageChangesRequest("package-set.example"));
+  await semantic.run(createPackageChangesRequest("ecosystem.example"));
   assert.equal(state.settlement.kind, "succeeded");
   assert.equal(
     state.settlement.kind === "succeeded"

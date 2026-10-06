@@ -5,6 +5,8 @@ using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using Inspector.Artifacts.Workspaces;
+using InspectionGraphFailure = Inspector.Graph.GraphFailure<DotnetInspector.Queries.InspectionGraphFailurePayload>;
+using InspectionGraphLimit = Inspector.Graph.GraphLimit<DotnetInspector.Queries.InspectionGraphLimitPayload>;
 using NuGetFetch;
 
 namespace DotnetInspector.Sections;
@@ -155,7 +157,7 @@ public sealed class PackageDependencyMemberCallGraphInspectionSource
 
     public PackageHouse House { get; }
 
-    internal PackageSourceOperationLease IssueOperation(
+    public PackageSourceOperationLease IssueOperation(
         PackageHouseOperation operation,
         CancellationToken cancellationToken)
     {
@@ -176,11 +178,34 @@ public sealed class PackageDependencyMemberCallGraphInspectionSource
     }
 }
 
+public sealed record PackageDependencyMemberCallGraphInspectionPreparation(
+    PackageDependencyMemberCallGraphInspectionRequest Request,
+    PackageDependencyMemberCallGraphInspectionSource Source,
+    PackageDependencyTraversalOutcome Traversal,
+    ImmutableArray<PackageDependencyEdgeRealizationExecution>
+        EdgeExecutions);
+
+public abstract class
+    PackageDependencyMemberCallGraphInspectionContinuation
+{
+    public abstract ValueTask<
+        InspectionEnvelope<
+            PackageDependencyMemberCallGraphInspectionOutcome>>
+        ExecuteAsync(
+            PackageDependencyMemberCallGraphInspectionPreparation
+                preparation,
+            CancellationToken cancellationToken);
+}
+
 public sealed record PackageDependencyMemberCallGraphDocument(
     TraversalTargetFrameworkPolicy TraversalTargetPolicy,
     PackageDependencyTraversalSummary TraversalSummary,
     ImmutableArray<PackageDependencyMemberCallGraphInspectionRoute> Routes,
     PackageSupplyChainBaselineEvidence Baseline,
+    MemberCallGraphFocalScopeReceipt FocalScope,
+    ImmutableArray<
+        PackageDependencyIntrinsicCoreLibraryContextNonParticipationReceipt>
+        IntrinsicCoreLibraryContextNonParticipation,
     ImmutableArray<PackageDependencyMemberCallGraphPackageSubject>
         PackageSubjects,
     InspectionGraphDocument Graph);
@@ -237,6 +262,12 @@ public enum PackageDependencyMemberCallGraphInspectionUnavailableReason
     DependencyWorkspaceNotCommitted,
     FocusUnavailable,
     PackageContextCleanupFailed,
+    AssemblyReferenceResolutionUnavailable,
+    AssemblyReferenceResolutionRejected,
+    AssemblyReferenceResolutionIncomplete,
+    AssemblyReferenceContinuationRejected,
+    AssemblyReferenceContinuationIncomplete,
+    AssemblyReferenceContinuationFailed,
 }
 
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
@@ -273,6 +304,22 @@ public static class PackageDependencyMemberCallGraphInspection
         ExecuteAsync(
             PackageDependencyMemberCallGraphInspectionRequest request,
             PackageDependencyMemberCallGraphInspectionSource source,
+            CancellationToken cancellationToken = default)
+        => await ExecuteAsync(
+                request,
+                source,
+                continuation: null,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+    public static async ValueTask<
+        InspectionEnvelope<
+            PackageDependencyMemberCallGraphInspectionOutcome>>
+        ExecuteAsync(
+            PackageDependencyMemberCallGraphInspectionRequest request,
+            PackageDependencyMemberCallGraphInspectionSource source,
+            PackageDependencyMemberCallGraphInspectionContinuation?
+                continuation,
             CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -334,6 +381,17 @@ public static class PackageDependencyMemberCallGraphInspection
                 .ConfigureAwait(false);
         ImmutableArray<PackageDependencyEdgeRealizationExecution>
             executions = PrepareExecutions(request, traversal);
+        if (continuation is not null)
+        {
+            return await continuation.ExecuteAsync(
+                    new(
+                        request,
+                        source,
+                        traversal,
+                        executions),
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
 
         await using var workspace =
             new InspectionWorkspace(request.WorkspacePlan);
@@ -419,8 +477,17 @@ public static class PackageDependencyMemberCallGraphInspection
                     sourceOperation)
                 .ConfigureAwait(false);
 
+        return ProjectEnvelope(lowerOutcome);
+    }
+
+    public static InspectionEnvelope<
+        PackageDependencyMemberCallGraphInspectionOutcome>
+        ProjectEnvelope(
+        PackageDependencyMemberCallGraphOutcome outcome)
+    {
+        ArgumentNullException.ThrowIfNull(outcome);
         PackageDependencyMemberCallGraphInspectionOutcome content =
-            Project(lowerOutcome);
+            Project(outcome);
         return Envelope(
             content,
             content
@@ -429,6 +496,13 @@ public static class PackageDependencyMemberCallGraphInspection
                 ? Diagnostics(completed.Document)
                 : []);
     }
+
+    public static InspectionEnvelope<
+        PackageDependencyMemberCallGraphInspectionOutcome>
+        ProjectUnavailable(
+        PackageDependencyMemberCallGraphInspectionUnavailableReason reason,
+        string detail) =>
+        Envelope(Unavailable(reason, detail));
 
     static ImmutableArray<PackageDependencyEdgeRealizationExecution>
         PrepareExecutions(
@@ -487,6 +561,9 @@ public static class PackageDependencyMemberCallGraphInspection
                                 .. completed.Routes.Select(Project),
                             ],
                             completed.Baseline,
+                            completed.FocalScope,
+                            completed
+                                .IntrinsicCoreLibraryContextNonParticipation,
                             [
                                 .. completed.NodePackages.Select(
                                     static nodePackage =>
@@ -592,7 +669,7 @@ public static class PackageDependencyMemberCallGraphInspection
 
         foreach (InspectionGraphLimit limit in document.Graph.Limits
             .Where(static limit =>
-                limit.Descriptor.Id
+                limit.Payload.Descriptor.Id
                     is not ("queries.neighborhood-depth-bound"
                         or "call.traversal-node-bound")))
         {
@@ -600,8 +677,8 @@ public static class PackageDependencyMemberCallGraphInspection
                 new InspectionDiagnostic(
                     "package-dependency-member-call-graph.graph-limit",
                     InspectionDiagnosticSeverity.Warning,
-                    $"Call-graph analysis reached limit {limit.Descriptor.Id}.",
-                    limit.Descriptor.Id));
+                    $"Call-graph analysis reached limit {limit.Payload.Descriptor.Id}.",
+                    limit.Payload.Descriptor.Id));
         }
 
         foreach (InspectionGraphFailure failure in document.Graph.Failures)
@@ -610,14 +687,14 @@ public static class PackageDependencyMemberCallGraphInspection
                 new InspectionDiagnostic(
                     "package-dependency-member-call-graph.graph-failure",
                     InspectionDiagnosticSeverity.Error,
-                    $"Call-graph analysis reported failure {failure.Descriptor.Id}.",
-                    failure.Descriptor.Id));
+                    $"Call-graph analysis reported failure {failure.Payload.Descriptor.Id}.",
+                    failure.Payload.Descriptor.Id));
         }
 
         return diagnostics.ToImmutable();
     }
 
-    static string DescribeScopeOperation(
+    public static string DescribeScopeOperation(
         WorkspaceScopeOperationResult result) =>
         result switch
         {

@@ -616,7 +616,25 @@ public sealed class TypeRef : IEquatable<TypeRef>
 
     internal static bool ExactSignatureEquals(
         TypeRef left,
-        TypeRef right)
+        TypeRef right) =>
+        ExactSignatureEquals(
+            left,
+            right,
+            allowUnspecifiedLeftRawTypeKind: false);
+
+    internal static bool
+        ExactSignatureEqualsWithUnspecifiedLeftRawTypeKind(
+            TypeRef left,
+            TypeRef right) =>
+        ExactSignatureEquals(
+            left,
+            right,
+            allowUnspecifiedLeftRawTypeKind: true);
+
+    static bool ExactSignatureEquals(
+        TypeRef left,
+        TypeRef right,
+        bool allowUnspecifiedLeftRawTypeKind)
     {
         ArgumentNullException.ThrowIfNull(left);
         ArgumentNullException.ThrowIfNull(right);
@@ -646,6 +664,8 @@ public sealed class TypeRef : IEquatable<TypeRef>
                     != currentRight.GenericParameterIndex
                 || currentLeft.RawTypeKind
                     != currentRight.RawTypeKind
+                    && (!allowUnspecifiedLeftRawTypeKind
+                        || currentLeft.RawTypeKind != 0)
                 || currentLeft.UnsupportedReason
                     != currentRight.UnsupportedReason
                 || !currentLeft.ArraySizes.AsSpan()

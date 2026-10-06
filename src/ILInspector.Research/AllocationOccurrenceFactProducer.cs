@@ -101,6 +101,42 @@ sealed class AllocationOccurrenceFactProducer : IResearchFactProducer
             parts.Add($"escape={FormatEscape(occurrence.Escape)}");
         if (FormatEscapeKind(occurrence.EscapeKind) is { } escapeKind)
             parts.Add($"escape-kind={escapeKind}");
+        if (!occurrence.LifetimeEvidence.Uses.IsDefaultOrEmpty)
+        {
+            parts.Add(
+                "lifetime-uses="
+                + string.Join(
+                    ",",
+                    occurrence.LifetimeEvidence.Uses.Select(
+                        use =>
+                            $"IL_{use.ILOffset:X4}:"
+                            + SemanticFactProjection
+                                .FormatLifetimeUseKind(use.Kind))));
+        }
+        if (!occurrence.LifetimeEvidence.Limitations.IsDefaultOrEmpty)
+        {
+            parts.Add(
+                "lifetime-limitations="
+                + string.Join(
+                    ",",
+                    occurrence.LifetimeEvidence.Limitations.Select(
+                        limitation =>
+                        {
+                            string location =
+                                limitation.ILOffset is { } offset
+                                    ? $"IL_{offset:X4}:"
+                                    : "";
+                            string operation =
+                                limitation.Operation is { } opcode
+                                    ? $":{opcode}"
+                                    : "";
+                            return location
+                                + SemanticFactProjection
+                                    .FormatLifetimeLimitationKind(
+                                        limitation.Kind)
+                                + operation;
+                        })));
+        }
         if (FormatMultiplicity(occurrence.Multiplicity) is { } multiplicity)
             parts.Add($"multiplicity={multiplicity}");
         if (occurrence.ChurnedType is { Length: > 0 } churned)

@@ -10,7 +10,7 @@ public sealed class RowSelectionPlan<TOrder>
     }
 
     public static RowSelectionPlan<TOrder> Empty { get; } =
-        new(RowSelectionSnapshot.Empty<RowSelectionStage<TOrder>>());
+        new(QuerySpaceSnapshot.Empty<RowSelectionStage<TOrder>>());
 
     public IReadOnlyList<RowSelectionStage<TOrder>> Stages { get; }
 
@@ -30,7 +30,7 @@ public sealed class RowSelectionPlan<TOrder>
 
         return copy.Length == 0
             ? Empty
-            : new(RowSelectionSnapshot.Own(copy));
+            : new(QuerySpaceSnapshot.Own(copy));
     }
 
     public RowSelectionPlan<TOrder> Append(
@@ -43,6 +43,6 @@ public sealed class RowSelectionPlan<TOrder>
         for (int index = 0; index < Stages.Count; index++)
             copy[index] = Stages[index];
         copy[^1] = stage;
-        return new(RowSelectionSnapshot.Own(copy));
+        return new(QuerySpaceSnapshot.Own(copy));
     }
 }

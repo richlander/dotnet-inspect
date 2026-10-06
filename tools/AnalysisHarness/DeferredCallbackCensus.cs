@@ -109,13 +109,17 @@ public static class DeferredCallbackCensus
         {
             try
             {
-                var index = LibraryBodyIndex.Open(path);
+                LibraryBodyAnalysisExecution execution =
+                    LibraryBodyAnalysisService.ExecutePath(
+                        path,
+                        LibraryBodyAnalysisRequest.Create(
+                            LibraryBodyAnalysisFeatures.Default));
                 var result = Analyze(
                     Path.GetFileName(path),
-                    index.Methods,
-                    index.DirectCalls,
-                    index.GetAllocationOccurrences(),
-                    index.OptimizationOpportunities,
+                    execution.CallGraph.Methods,
+                    execution.CallGraph.DirectCalls,
+                    execution.Allocations.Occurrences,
+                    execution.Optimization.Opportunities,
                     maxDepth);
                 sites.AddRange(result.Sites);
                 rows.AddRange(result.Rows);

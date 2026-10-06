@@ -120,17 +120,78 @@ internal sealed class SignatureOccurrenceProvider(
         var specification = reader.GetTypeSpecification(handle);
         int length = reader.GetBlobReader(specification.Signature).Length;
         if (length > TypeSpecGuard.MaxCumulativeBytes)
-            throw new SignatureOccurrenceRejectedException(SignatureOccurrenceRejectionReason.TypeSpecificationBudget);
-        budget.Work(SignatureOccurrenceMetric.TypeSpecificationBytes, length);
-        if (!SignatureBlobGuard.IsSafeAndCompleteToDecode(
-            reader, specification.Signature, SignatureBlobGuard.Kind.TypeSpecification, out var measurements))
         {
-            budget.ObserveGuard(measurements);
-            throw new SignatureOccurrenceRejectedException(SignatureOccurrenceRejectionReason.UnsafeSignature);
+            throw new SignatureOccurrenceRejectedException(
+                SignatureOccurrenceRejectionReason.TypeSpecificationBudget,
+                MetadataOperationDimension.SignatureBytes,
+                TypeSpecGuard.MaxCumulativeBytes,
+                length);
         }
+        budget.Work(SignatureOccurrenceMetric.TypeSpecificationBytes, length);
+        SignatureBlobGuard.CompleteValidationResult validation =
+            SignatureBlobGuard.ValidateCompleteDetailed(
+                reader,
+                specification.Signature,
+                SignatureBlobGuard.Kind.TypeSpecification,
+                out SignatureBlobGuardMeasurements measurements);
         budget.ObserveGuard(measurements);
-        if (!TypeSpecGuard.TryEnter(reader, handle, out var scope))
-            throw new SignatureOccurrenceRejectedException(SignatureOccurrenceRejectionReason.TypeSpecificationBudget);
+        if (validation.Kind
+            == SignatureBlobGuard.CompleteValidationKind
+                .DepthBudgetExceeded)
+        {
+            throw new SignatureOccurrenceRejectedException(
+                SignatureOccurrenceRejectionReason.TypeSpecificationBudget,
+                MetadataOperationDimension.StructuredNodes,
+                validation.BudgetLimit,
+                validation.AttemptedCharge);
+        }
+        if (validation.Kind
+            == SignatureBlobGuard.CompleteValidationKind
+                .NodeBudgetExceeded)
+        {
+            throw new SignatureOccurrenceRejectedException(
+                SignatureOccurrenceRejectionReason.NodeBudget,
+                MetadataOperationDimension.StructuredNodes,
+                validation.BudgetLimit,
+                validation.AttemptedCharge);
+        }
+        if (validation.Kind
+            != SignatureBlobGuard.CompleteValidationKind.Valid)
+        {
+            throw new SignatureOccurrenceRejectedException(
+                SignatureOccurrenceRejectionReason.UnsafeSignature);
+        }
+        if (!TypeSpecGuard.TryEnterDetailed(
+                reader,
+                handle,
+                out var scope,
+                out TypeSpecGuard.EntryFailure failure))
+        {
+            throw failure.LimitKind switch
+            {
+                TypeSpecGuard.LimitKind.Depth =>
+                    new SignatureOccurrenceRejectedException(
+                        SignatureOccurrenceRejectionReason
+                            .TypeSpecificationBudget,
+                        MetadataOperationDimension.StructuredNodes,
+                        failure.Limit,
+                        failure.AttemptedCharge),
+                TypeSpecGuard.LimitKind.CumulativeBytes =>
+                    new SignatureOccurrenceRejectedException(
+                        SignatureOccurrenceRejectionReason
+                            .TypeSpecificationBudget,
+                        MetadataOperationDimension.SignatureBytes,
+                        failure.Limit,
+                        failure.AttemptedCharge),
+                _ => new SignatureOccurrenceRejectedException(
+                    failure.RejectionKind
+                        == SignatureDecodeRejectionKind.UnsafeStructure
+                            ? SignatureOccurrenceRejectionReason
+                                .UnsafeSignature
+                            : SignatureOccurrenceRejectionReason
+                                .TypeSpecificationBudget),
+            };
+        }
         using (scope)
         {
             return reader.GetTypeSpecification(handle).DecodeSignature(this, genericContext);
@@ -246,9 +307,30 @@ internal sealed class SignatureOccurrenceProvider(
         if (result is MetadataTypeDefinitionNameReadResult.Read read)
             return read.Name;
         var rejected = (MetadataTypeDefinitionNameReadResult.Rejected)result;
+        if (rejected.Failure.RelationshipKind
+            == RelationshipTraversalRejectionKind.NameBudget)
+        {
+            MetadataTypeNameBudgetFailure? budget =
+                rejected.Failure.Budget;
+            throw new SignatureOccurrenceRejectedException(
+                SignatureOccurrenceRejectionReason.TypeNameBudget,
+                budget is null
+                    ? null
+                    : MetadataOperationDimension.RetainedText,
+                budget?.Limit,
+                budget?.AttemptedCharge);
+        }
+        if (rejected.Failure.RelationshipKind
+            == RelationshipTraversalRejectionKind.NodeBudget)
+        {
+            throw new SignatureOccurrenceRejectedException(
+                SignatureOccurrenceRejectionReason.RelationshipTraversal,
+                MetadataOperationDimension.StructuredNodes,
+                MetadataSafetyPolicy.MaxRelationshipNodes,
+                rejected.Failure.ConsumedNodes + 1L);
+        }
         throw new SignatureOccurrenceRejectedException(rejected.Failure.RelationshipKind switch
         {
-            RelationshipTraversalRejectionKind.NameBudget => SignatureOccurrenceRejectionReason.TypeNameBudget,
             RelationshipTraversalRejectionKind.NodeBudget or RelationshipTraversalRejectionKind.Cycle =>
                 SignatureOccurrenceRejectionReason.RelationshipTraversal,
             RelationshipTraversalRejectionKind.MalformedMetadata => SignatureOccurrenceRejectionReason.MalformedMetadata,

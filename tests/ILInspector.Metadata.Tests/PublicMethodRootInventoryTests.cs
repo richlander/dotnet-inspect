@@ -48,6 +48,8 @@ public sealed class PublicMethodRootInventoryTests
                 "PublicTopLevel.CompilerGeneratedPublic",
                 "PublicTopLevel.HiddenByPresentation",
                 "PublicTopLevel.PublicMethod",
+                "PublicTopLevel.VisibilityOverload",
+                "PublicTopLevel.VisibilityOverload",
                 "PublicTopLevel.add_Changed",
                 "PublicTopLevel.get_Value",
                 "PublicTopLevel.op_Addition",

@@ -76,7 +76,11 @@ if [[ ! "$candidate_sha" =~ ^[0-9a-fA-F]{40}$ ]]; then
   exit 1
 fi
 gh api \
-  "repos/$GITHUB_REPOSITORY/commits/$candidate_sha/check-runs?check_name=ci-required&filter=latest&per_page=100" \
+  --method GET \
+  -f check_name='ci / ci-required' \
+  -f filter=latest \
+  -F per_page=100 \
+  "repos/$GITHUB_REPOSITORY/commits/$candidate_sha/check-runs" \
   > "$checks_json"
 
 dotnet run eng/validate-release-candidate.cs -- \

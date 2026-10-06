@@ -6,8 +6,10 @@ using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Cache;
 using DotnetInspector.Ecosystems;
+using DotnetInspector.Platforms;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
+using DotnetInspector.SourceSelection;
 using ILInspector.Metadata;
 using DotnetInspector.Queries;
 
@@ -51,7 +53,7 @@ public class TypeSearchServiceTests
     }
 
     [Fact]
-    public async Task FindWorkspacePlan_PreservesExplicitEcosystemOrder()
+    public async Task FindWorkspacePlan_RegistersSelectedLineages()
     {
         Assert.True(
             EcosystemPackId.TryCreate(
@@ -74,13 +76,131 @@ public class TypeSearchServiceTests
             Assert.IsType<WorkspaceRegistrationReadResult.Available>(
                 workspace.GetRegistrationSnapshot());
         Assert.Equal(
-            ["ecosystem.aspire", "ecosystem.ai"],
+            ["ecosystem.runtime", "ecosystem.microsoft-extensions",
+                "ecosystem.aspnetcore", "ecosystem.aspire", "ecosystem.ai"],
             snapshot.Revision.Registrations
                 .Cast<WorkspaceRegistration.Ecosystem>()
                 .Select(
                     static registration =>
                         registration.Declaration.Id.Value)
                 .ToArray());
+    }
+
+    [Fact]
+    public void FindWorkspacePlan_ExplicitSourcesStartEmpty()
+    {
+        var options = new FindOptions
+        {
+            Packages = ["System.Text.Json@10.0.0"],
+        };
+
+        Assert.Same(
+            WorkspacePlan.Empty,
+            FindSourceCollector.CreateWorkspacePlan(options));
+    }
+
+    [Fact]
+    public async Task ExplicitWorkspace_AcquiresSourcesLazilyAndOnce()
+    {
+        var options = new FindOptions
+        {
+            Packages = ["Example.Package@1.0.0"],
+            Assemblies = ["Example.dll"],
+            Projects = ["Example.csproj"],
+            BinPaths = ["bin"],
+        };
+        var acquisitions = new List<AssemblySetRequest>();
+        bool stop = false;
+        await using var workspace = new ExplicitFindSearchWorkspace(
+            options,
+            request =>
+            {
+                acquisitions.Add(request);
+                stop = acquisitions.Count == 1;
+                return Task.FromResult(
+                    new AssemblySet([], [], []));
+            });
+
+        await ScanAsync(workspace, () => stop);
+        stop = false;
+        await ScanAsync(workspace, stop: null);
+        await ScanAsync(workspace, stop: null);
+
+        Assert.Collection(
+            acquisitions,
+            request => Assert.Equal(
+                ["Example.Package@1.0.0"],
+                request.Packages),
+            request => Assert.Equal(
+                ["Example.dll"],
+                request.Assemblies),
+            request => Assert.Equal(
+                ["Example.csproj"],
+                request.Projects),
+            request => Assert.Equal(
+                ["bin"],
+                request.Directories));
+
+        static Task ScanAsync(
+            ExplicitFindSearchWorkspace workspace,
+            Func<bool>? stop) =>
+            workspace.RunPerAssemblyAsync(
+                AssemblyContextTypeInventoryQuery.Definition,
+                static _ => throw new InvalidOperationException(
+                    "The synthetic source has no assemblies."),
+                static (_, _) => { },
+                static (_, _) => { },
+                static () => { },
+                stop);
+    }
+
+    [Fact]
+    public void FindWorkspacePlan_RejectsExplicitEmptyEcosystemScope()
+    {
+        var options = new FindOptions
+        {
+            Ecosystems = [],
+        };
+
+        Assert.Throws<ArgumentException>(
+            () => FindSourceCollector.CreateWorkspacePlan(options));
+    }
+
+    [Fact]
+    public void FindPlatformPopulations_FollowWorkspacePlanDeclarationOrder()
+    {
+        var aspNetCore = new PlatformLibraryPopulationDeclaration(
+            PlatformFamily.AspNetCore);
+        var runtime = new PlatformLibraryPopulationDeclaration(
+            PlatformFamily.DotNetRuntime);
+        Assert.Equal(
+            [runtime, aspNetCore],
+            PlatformFindSearchWorkspace.GetPlatformPopulations(
+                EcosystemPackCatalog.CreatePlatformWorkspacePlan()));
+
+        WorkspacePlan plan = new(
+        [
+            Registration("ecosystem.test-aspnetcore", aspNetCore),
+            Registration("ecosystem.test-runtime", runtime),
+        ]);
+
+        Assert.Equal(
+            [aspNetCore, runtime],
+            PlatformFindSearchWorkspace.GetPlatformPopulations(plan));
+
+        static WorkspaceRegistration Registration(
+            string id,
+            PlatformLibraryPopulationDeclaration population) =>
+            new WorkspaceRegistration.Ecosystem(
+                new WorkspaceEcosystemRegistrationDeclaration(
+                    WorkspaceEcosystemRegistrationId.Create(id),
+                    namespaceRoots: [],
+                    corePackages: [],
+                    populations:
+                    [
+                        new WorkspaceEcosystemPopulationDeclaration.Platform(
+                            population),
+                    ]));
     }
 
     [Fact]
@@ -105,9 +225,12 @@ public class TypeSearchServiceTests
                 TestContext.Current.CancellationToken);
 
         Assert.False(result.HasFailures);
-        Assert.Single(result.Rows);
-        Assert.Equal("class", result.Rows[0].Kind);
-        Assert.Equal("System.Text.Json", result.Rows[0].Source);
+        TypeFindResult package = Assert.Single(
+            result.Rows,
+            static row =>
+                row.Match == TypeFindMatchKind.Exact);
+        Assert.Equal("class", package.Kind);
+        Assert.Equal("System.Text.Json", package.Source);
         InspectionEnvelope<TypeDeclarationLocatorSectionResult> inspection =
             Assert.Single(result.LocatorInspections);
         TypeDeclarationLocatorSectionResult.Evaluated section =
@@ -117,14 +240,13 @@ public class TypeSearchServiceTests
         Assert.Empty(inspection.Diagnostics);
         TypeDeclarationLocatorSectionAnswer answer =
             Assert.Single(section.Answers);
-        Assert.Equal(1, answer.AvailableCandidateCount);
-        Assert.Single(answer.Candidates);
+        Assert.True(answer.AvailableCandidateCount > 1);
+        Assert.True(answer.Candidates.Length > 1);
         Assert.All(result.Rows, row =>
         {
             Assert.NotNull(row.Location);
         });
 
-        TypeFindResult package = Assert.Single(result.Rows);
         Assert.IsType<
             TypeDeclarationLocatorSectionCoordinate.PackageCoordinate>(
                 package.Location?.Coordinate);
@@ -234,9 +356,15 @@ public class TypeSearchServiceTests
                 TestContext.Current.CancellationToken);
 
         Assert.False(result.HasFailures);
-        Assert.Equal(2, result.Rows.Count);
+        TypeFindResult[] direct =
+        [
+            .. result.Rows.Where(
+                static row =>
+                    row.Match == TypeFindMatchKind.Exact),
+        ];
+        Assert.Equal(2, direct.Length);
         Assert.All(
-            result.Rows,
+            direct,
             static row =>
             {
                 Assert.Equal(
@@ -268,7 +396,10 @@ public class TypeSearchServiceTests
                 TestContext.Current.CancellationToken);
 
         Assert.False(result.HasFailures);
-        TypeFindResult row = Assert.Single(result.Rows);
+        TypeFindResult row = Assert.Single(
+            result.Rows,
+            static row =>
+                row.Match == TypeFindMatchKind.Exact);
         TypeDeclarationLocatorSelection.PackageSelection selection =
             Assert.IsType<
                 TypeDeclarationLocatorSelection.PackageSelection>(
@@ -293,7 +424,7 @@ public class TypeSearchServiceTests
 
     [Fact]
     [Trait("Speed", "Slow")]
-    public async Task FindTypesAsync_PrefixMatchDoesNotRetainWildcardCensus()
+    public async Task FindTypesAsync_NaturalClassificationUsesOneCensus()
     {
         using var httpClient = new HttpClient();
         var options = new FindOptions
@@ -313,25 +444,9 @@ public class TypeSearchServiceTests
 
         Assert.False(result.HasFailures);
         Assert.NotEmpty(result.Rows);
-        Assert.All(
-            result.Rows,
-            static row =>
-                Assert.StartsWith(
-                    "System.Text",
-                    row.FullName,
-                    StringComparison.Ordinal));
-        Assert.Collection(
-            result.LocatorSections,
-            section => Assert.Equal(
-                "System.Text",
-                SinglePatternRequest(section)),
-            section => Assert.Equal(
-                "System.Text*",
-                SinglePatternRequest(section)));
-        Assert.DoesNotContain(
-            result.LocatorSections,
-            static section =>
-                SinglePatternRequest(section) == "*");
+        TypeDeclarationLocatorSectionResult section =
+            Assert.Single(result.LocatorSections);
+        Assert.Equal("*", SinglePatternRequest(section));
     }
 
     [Fact]
@@ -361,7 +476,7 @@ public class TypeSearchServiceTests
 
     [Fact]
     [Trait("Speed", "Slow")]
-    public async Task FindTypesAsync_LimitDoesNotBoundLocatorInventory()
+    public async Task FindTypesAsync_LimitSelectsNaturalLocatorHead()
     {
         using var httpClient = new HttpClient();
         var options = new FindOptions

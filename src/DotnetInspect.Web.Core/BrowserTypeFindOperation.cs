@@ -59,6 +59,11 @@ internal abstract record BrowserTypeFindExecutionResult
 
 internal sealed class BrowserTypeFindPackageRequest;
 internal sealed class BrowserTypeFindLibraryIntent;
+internal sealed class BrowserTypeFindPackageFailure;
+
+internal sealed record BrowserTypeFindSelection(
+    string DefinitionId,
+    string AssemblyName);
 
 internal abstract record BrowserTypeFindCapturedDestination
 {
@@ -69,7 +74,8 @@ internal abstract record BrowserTypeFindCapturedDestination
             BrowserTypeFindPackageRequest,
             NavigationAction,
             BrowserFrameworkDeclarationAction,
-            BrowserTypeFindLibraryIntent> Descriptor)
+            BrowserTypeFindLibraryIntent> Descriptor,
+        BrowserTypeFindSelection Selection)
         : BrowserTypeFindCapturedDestination;
 
     internal sealed record Framework(
@@ -79,6 +85,56 @@ internal abstract record BrowserTypeFindCapturedDestination
             BrowserFrameworkDeclarationAction,
             BrowserTypeFindLibraryIntent> Descriptor)
         : BrowserTypeFindCapturedDestination;
+}
+
+internal abstract record BrowserTypeFindActionAdmission
+{
+    private protected BrowserTypeFindActionAdmission() { }
+
+    internal sealed record Package(
+        string RetainedDefinitionId,
+        BrowserSpotlightDestinationDescriptor<
+            BrowserTypeFindPackageRequest,
+            NavigationAction,
+            BrowserFrameworkDeclarationAction,
+            BrowserTypeFindLibraryIntent> Descriptor,
+        BrowserNavigationStateSlot Navigation,
+        BrowserRetainedNavigationPreparation Preparation,
+        BrowserTypeFindSelection Selection) :
+        BrowserTypeFindActionAdmission;
+
+    internal sealed record Framework(
+        BrowserSpotlightDestinationDescriptor<
+            BrowserTypeFindPackageRequest,
+            NavigationAction,
+            BrowserFrameworkDeclarationAction,
+            BrowserTypeFindLibraryIntent> Descriptor,
+        BrowserFrameworkDeclarationActivationAdmission Admission) :
+        BrowserTypeFindActionAdmission;
+
+    internal sealed record Blocked(
+        BrowserTypeFindActivationStatus Status,
+        string Reason) :
+        BrowserTypeFindActionAdmission;
+}
+
+internal abstract record BrowserTypeFindActivationResult
+{
+    private protected BrowserTypeFindActivationResult() { }
+
+    internal sealed record Navigation(
+        NavigationOperationResult Result,
+        BrowserTypeFindSelection Selection) :
+        BrowserTypeFindActivationResult;
+
+    internal sealed record Framework(
+        BrowserFrameworkDeclarationEffect Effect) :
+        BrowserTypeFindActivationResult;
+
+    internal sealed record Blocked(
+        BrowserTypeFindActivationStatus Status,
+        string Reason) :
+        BrowserTypeFindActivationResult;
 }
 
 [SupportedOSPlatform("browser")]
@@ -99,12 +155,16 @@ internal sealed class BrowserTypeFindOperation : IDisposable
     internal async ValueTask<BrowserTypeFindExecutionResult> ExecuteAsync(
         WorkspaceRealizationOperationLease operation,
         BrowserNavigationStateSlot navigation,
+        BrowserRetainedNavigationPreparation preparation,
+        string retainedDefinitionId,
         string text,
         long resultGeneration,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(operation);
         ArgumentNullException.ThrowIfNull(navigation);
+        ArgumentNullException.ThrowIfNull(preparation);
+        ArgumentException.ThrowIfNullOrWhiteSpace(retainedDefinitionId);
         ArgumentOutOfRangeException.ThrowIfNegative(resultGeneration);
 
         BrowserFrameworkDeclarationResultAuthority frameworkAuthority;
@@ -134,7 +194,12 @@ internal sealed class BrowserTypeFindOperation : IDisposable
             }
 
             _latestGeneration = resultGeneration;
-            publication = new(resultGeneration, navigation);
+            publication =
+                new(
+                    resultGeneration,
+                    navigation,
+                    preparation,
+                    retainedDefinitionId);
             superseded = _current;
             _current = publication;
             frameworkAuthority = admitted.Authority;
@@ -321,7 +386,10 @@ internal sealed class BrowserTypeFindOperation : IDisposable
                     capturedActions.Add(new(
                         actionId,
                         new BrowserTypeFindCapturedDestination.Package(
-                            selected.Descriptor)));
+                            selected.Descriptor,
+                            new(
+                                candidate.Name.ToEscapedFullName(),
+                                candidate.Observation.AssemblyIdentity.Name))));
                     activations.Add(new(
                         reference,
                         BrowserTypeFindActivationSource.Package,
@@ -460,6 +528,207 @@ internal sealed class BrowserTypeFindOperation : IDisposable
                 return null;
             return current.Actions.GetValueOrDefault(action);
         }
+    }
+
+    internal BrowserTypeFindActionAdmission AdmitAction(string action)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(action);
+            lock (_gate)
+            {
+                if (_disposed
+                    || _current is not { } current
+                    || !current.Actions.TryGetValue(
+                        action,
+                        out BrowserTypeFindCapturedDestination? destination))
+                {
+                    return new BrowserTypeFindActionAdmission.Blocked(
+                        BrowserTypeFindActivationStatus.Stale,
+                        "The Type Find action is no longer current.");
+                }
+
+                switch (destination)
+                {
+                    case BrowserTypeFindCapturedDestination.Package package:
+                        if (package.Descriptor.Plan
+                            is not BrowserSpotlightDestinationActivationPlan<
+                                BrowserTypeFindPackageRequest,
+                                NavigationAction,
+                                BrowserFrameworkDeclarationAction,
+                                BrowserTypeFindLibraryIntent>.NavigateCurrent
+                                navigation)
+                        {
+                            return new BrowserTypeFindActionAdmission.Blocked(
+                                BrowserTypeFindActivationStatus.Refused,
+                                "The Type Find Package action has an unsupported activation plan.");
+                        }
+
+                        current.Actions = current.Actions.Remove(action);
+                        current.NavigationActions =
+                            current.NavigationActions.Remove(navigation.Action);
+                        return new BrowserTypeFindActionAdmission.Package(
+                            current.RetainedDefinitionId,
+                            package.Descriptor,
+                            current.Navigation,
+                            current.Preparation,
+                            package.Selection);
+
+                    case BrowserTypeFindCapturedDestination.Framework framework:
+                        if (framework.Descriptor.Destination
+                            is not BrowserSpotlightDestination<
+                                BrowserTypeFindPackageRequest,
+                                NavigationAction,
+                                BrowserFrameworkDeclarationAction,
+                                BrowserTypeFindLibraryIntent>.PlatformDescendant
+                                platform)
+                        {
+                            return new BrowserTypeFindActionAdmission.Blocked(
+                                BrowserTypeFindActivationStatus.Refused,
+                                "The Type Find framework action has an unsupported destination.");
+                        }
+
+                        BrowserFrameworkDeclarationActivationAdmission?
+                            frameworkAdmission = _framework.Admit(
+                                platform.Action.Action,
+                                out BrowserFrameworkDeclarationActivationBlock?
+                                    frameworkBlock);
+                        if (frameworkAdmission is null)
+                        {
+                            BrowserFrameworkDeclarationActivationBlock
+                                admittedBlock = frameworkBlock
+                                ?? throw new InvalidOperationException(
+                                    "Framework activation admission returned no result.");
+                            return new BrowserTypeFindActionAdmission.Blocked(
+                                FromFramework(admittedBlock),
+                                FrameworkReason(admittedBlock));
+                        }
+
+                        current.Actions = current.Actions.Remove(action);
+                        return new BrowserTypeFindActionAdmission.Framework(
+                            framework.Descriptor,
+                            frameworkAdmission);
+
+                    default:
+                        throw new InvalidOperationException(
+                            "Type Find returned an unsupported captured destination.");
+                }
+            }
+        }
+
+    internal async ValueTask<BrowserTypeFindActivationResult> ActivateAsync(
+        BrowserRetainedWorkspaceActivationOwner owner,
+        string action,
+        CancellationToken cancellationToken = default)
+        {
+            ArgumentNullException.ThrowIfNull(owner);
+            BrowserTypeFindActionAdmission admission = AdmitAction(action);
+            switch (admission)
+            {
+                case BrowserTypeFindActionAdmission.Blocked blocked:
+                    return new BrowserTypeFindActivationResult.Blocked(
+                        blocked.Status,
+                        blocked.Reason);
+
+                case BrowserTypeFindActionAdmission.Framework framework:
+                    BrowserFrameworkDeclarationActivationResult frameworkResult =
+                        await _framework.ActivateAsync(
+                                framework.Admission,
+                                cancellationToken)
+                            .ConfigureAwait(false);
+                    return frameworkResult switch
+                    {
+                        BrowserFrameworkDeclarationActivationResult.Settled
+                                settled =>
+                            new BrowserTypeFindActivationResult.Framework(
+                                settled.Effect),
+                        BrowserFrameworkDeclarationActivationResult.Blocked
+                                frameworkBlocked =>
+                            new BrowserTypeFindActivationResult.Blocked(
+                                FromFramework(frameworkBlocked.Block),
+                                FrameworkReason(frameworkBlocked.Block)),
+                        _ => throw new InvalidOperationException(
+                            "Framework activation returned an unsupported result."),
+                    };
+
+                case BrowserTypeFindActionAdmission.Package package:
+                    BrowserSpotlightRetainedCurrentActivationResult<
+                        BrowserTypeFindPackageRequest,
+                        NavigationAction,
+                        BrowserFrameworkDeclarationAction,
+                        BrowserTypeFindLibraryIntent,
+                        BrowserTypeFindPackageFailure> current =
+                            await BrowserSpotlightRetainedCurrentActivation
+                                .ExecuteAsync<
+                                    BrowserTypeFindPackageRequest,
+                                    NavigationAction,
+                                    BrowserFrameworkDeclarationAction,
+                                    BrowserTypeFindLibraryIntent,
+                                    BrowserTypeFindPackageFailure>(
+                                    owner,
+                                    package.RetainedDefinitionId,
+                                    package.Descriptor,
+                                    (operation, navigationAction, token) =>
+                                        package.Navigation.ExecuteOperationAsync(
+                                            navigationAction,
+                                            (request, prepareToken) =>
+                                                package.Preparation.PrepareAsync(
+                                                    operation,
+                                                    request,
+                                                    prepareToken),
+                                            token),
+                                    static (_, _) =>
+                                        throw new InvalidOperationException(
+                                            "A retained Type action must not acquire a Package."),
+                                    static (_, _) =>
+                                        throw new InvalidOperationException(
+                                            "A retained Type action must not focus a Package."),
+                                    DateTimeOffset.UtcNow,
+                                    cancellationToken)
+                                .ConfigureAwait(false);
+                    return current switch
+                    {
+                        BrowserSpotlightRetainedCurrentActivationResult<
+                            BrowserTypeFindPackageRequest,
+                            NavigationAction,
+                            BrowserFrameworkDeclarationAction,
+                            BrowserTypeFindLibraryIntent,
+                            BrowserTypeFindPackageFailure>.Navigated navigated =>
+                            new BrowserTypeFindActivationResult.Navigation(
+                                navigated.Result,
+                                package.Selection),
+                        BrowserSpotlightRetainedCurrentActivationResult<
+                            BrowserTypeFindPackageRequest,
+                            NavigationAction,
+                            BrowserFrameworkDeclarationAction,
+                            BrowserTypeFindLibraryIntent,
+                            BrowserTypeFindPackageFailure>.NotAdmitted unavailable =>
+                            new BrowserTypeFindActivationResult.Blocked(
+                                BrowserTypeFindActivationStatus.Unavailable,
+                                unavailable.Admission.Reason.ToString()),
+                        BrowserSpotlightRetainedCurrentActivationResult<
+                            BrowserTypeFindPackageRequest,
+                            NavigationAction,
+                            BrowserFrameworkDeclarationAction,
+                            BrowserTypeFindLibraryIntent,
+                            BrowserTypeFindPackageFailure>.Blocked currentBlocked =>
+                            new BrowserTypeFindActivationResult.Blocked(
+                                BrowserTypeFindActivationStatus.Stale,
+                                CurrentReason(currentBlocked.Reason)),
+                        BrowserSpotlightRetainedCurrentActivationResult<
+                            BrowserTypeFindPackageRequest,
+                            NavigationAction,
+                            BrowserFrameworkDeclarationAction,
+                            BrowserTypeFindLibraryIntent,
+                            BrowserTypeFindPackageFailure>.PackageOperation =>
+                            throw new InvalidOperationException(
+                                "A retained Type action selected a Package activation plan."),
+                        _ => throw new InvalidOperationException(
+                            "Type Find Navigation returned an unsupported result."),
+                    };
+
+                default:
+                    throw new InvalidOperationException(
+                        "Type Find returned an unsupported action admission.");
+            }
     }
 
     public void Dispose()
@@ -1027,13 +1296,36 @@ internal sealed class BrowserTypeFindOperation : IDisposable
                 "Unknown framework declaration activation block."),
         };
 
+    static string CurrentReason(BrowserSpotlightActivationBlock block) =>
+        block switch
+        {
+            BrowserSpotlightActivationBlock.Stale stale =>
+                stale.Reason.ToString(),
+            BrowserSpotlightActivationBlock.RegistrationUnavailable
+                    unavailable =>
+                unavailable.Result.ToString()
+                ?? "The Workspace registration revision is unavailable.",
+            BrowserSpotlightActivationBlock.ScopeUnavailable unavailable =>
+                unavailable.Result.ToString()
+                ?? "The Workspace Scope is unavailable.",
+            _ => throw new InvalidOperationException(
+                "Unknown current Spotlight activation block."),
+        };
+
     sealed class PublicationState(
         long generation,
-        BrowserNavigationStateSlot navigation)
+        BrowserNavigationStateSlot navigation,
+        BrowserRetainedNavigationPreparation preparation,
+        string retainedDefinitionId)
     {
         internal long Generation { get; } = generation;
 
         internal BrowserNavigationStateSlot Navigation { get; } = navigation;
+
+        internal BrowserRetainedNavigationPreparation Preparation { get; } =
+            preparation;
+
+        internal string RetainedDefinitionId { get; } = retainedDefinitionId;
 
         internal ImmutableDictionary<
             string,
@@ -1129,10 +1421,23 @@ internal sealed partial class BrowserRetainedWorkspaceActivationOwner
         return await typeFind.ExecuteAsync(
                 operation,
                 posting.NavigationState,
+                posting.NavigationPreparation,
+                posting.RetainedDefinitionId,
                 text,
                 resultGeneration,
                 cancellationToken)
             .ConfigureAwait(false);
+    }
+
+    internal ValueTask<BrowserTypeFindActivationResult>
+        ActivateTypeFindActionAsync(
+            string action,
+            CancellationToken cancellationToken = default)
+    {
+        BrowserTypeFindOperation typeFind;
+        lock (_gate)
+            typeFind = _typeFind;
+        return typeFind.ActivateAsync(this, action, cancellationToken);
     }
 
     internal BrowserTypeFindCapturedDestination? ResolveTypeFindAction(

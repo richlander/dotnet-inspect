@@ -16,6 +16,7 @@
         "Inspector.Findings",
         "ILInspector.MetadataPrimitives",
         "InertText",
+        "QuerySpace.Primitives",
         "TsJsExport.Contracts"
       ],
       "allowOnly": [
@@ -35,6 +36,296 @@
       "allowOnly": [
         "$platform",
         "Inspector.Resources"
+      ]
+    },
+    {
+      "id": "inspect-web-executable-stays-at-host-boundary",
+      "source": "docs/design/inspect-web-jsexport-partitioning.md#decision",
+      "graphs": [
+        "project",
+        "assembly"
+      ],
+      "targets": [
+        "DotnetInspect.Web"
+      ],
+      "projectPaths": [
+        "src/DotnetInspect.Web/DotnetInspect.Web.csproj"
+      ],
+      "allowOnly": [
+        "$platform",
+        "TsJsExport.Contracts",
+        "DotnetInspect.Web.Core",
+        "DotnetInspect.Web.Interop.Package",
+        "DotnetInspect.Web.Interop.Library",
+        "DotnetInspect.Web.Interop.Metadata",
+        "DotnetInspect.Web.Interop.Analysis",
+        "DotnetInspect.Web.Interop.Source",
+        "DotnetInspect.Web.Interop.CallGraph",
+        "DotnetInspect.Web.Interop.Catalog"
+      ]
+    },
+    {
+      "id": "inspect-web-call-graph-facade-stays-at-capability-boundary",
+      "source": "docs/design/inspect-web-jsexport-partitioning.md#call-graph-facade-2-exports",
+      "graphs": [
+        "project",
+        "assembly"
+      ],
+      "targets": [
+        "DotnetInspect.Web.Interop.CallGraph"
+      ],
+      "projectPaths": [
+        "src/DotnetInspect.Web.Interop.CallGraph/DotnetInspect.Web.Interop.CallGraph.csproj"
+      ],
+      "allowOnly": [
+        "$platform",
+        "DotnetInspect.Web.Core",
+        "DotnetInspector.Queries",
+        "DotnetInspector.Sections"
+      ]
+    },
+    {
+      "id": "inspect-web-library-facade-project-dependencies-stay-within-capability-ratchet",
+      "source": "docs/design/library-inspection-document.md#browser-request-lowering; docs/design/artifact-acquisition-and-workspaces.md#embedded-managed-library-inspection; composition tracker #8779",
+      "graphs": [
+        "project"
+      ],
+      "targets": [
+        "DotnetInspect.Web.Interop.Library"
+      ],
+      "projectPaths": [
+        "src/DotnetInspect.Web.Interop.Library/DotnetInspect.Web.Interop.Library.csproj"
+      ],
+      "allowOnly": [
+        "DotnetInspect.Web.Core",
+        "DotnetInspector.Queries",
+        "DotnetInspector.Sections",
+        "ILInspector.Metadata",
+        "TsJsExport.Contracts"
+      ]
+    },
+    {
+      "id": "inspect-web-library-facade-assembly-dependencies-stay-within-capability-ratchet",
+      "source": "docs/design/library-inspection-document.md#browser-request-lowering; docs/design/artifact-acquisition-and-workspaces.md#embedded-managed-library-inspection; composition tracker #8779",
+      "graphs": [
+        "assembly"
+      ],
+      "targets": [
+        "DotnetInspect.Web.Interop.Library"
+      ],
+      "projectPaths": [
+        "src/DotnetInspect.Web.Interop.Library/DotnetInspect.Web.Interop.Library.csproj"
+      ],
+      "allowOnly": [
+        "$platform",
+        "DotnetInspect.Web.Core",
+        "DotnetInspector.Libraries",
+        "DotnetInspector.LibraryMetadata",
+        "DotnetInspector.Packages",
+        "DotnetInspector.Queries",
+        "DotnetInspector.Sections",
+        "ILInspector.Metadata",
+        "ILInspector.MetadataPrimitives",
+        "InertText",
+        "TsJsExport.Contracts"
+      ]
+    },
+    {
+      "id": "inspect-web-catalog-facade-project-dependencies-stay-within-capability-ratchet",
+      "source": "docs/design/inspect-web-jsexport-partitioning.md#catalog-facade-6-exports; composition tracker #8779",
+      "graphs": [
+        "project"
+      ],
+      "targets": [
+        "DotnetInspect.Web.Interop.Catalog"
+      ],
+      "projectPaths": [
+        "src/DotnetInspect.Web.Interop.Catalog/DotnetInspect.Web.Interop.Catalog.csproj"
+      ],
+      "allowOnly": [
+        "DotnetInspect.Web.Core",
+        "DotnetInspector.Ecosystems",
+        "DotnetInspector.Queries",
+        "DotnetInspector.Sections",
+        "ILInspector.Metadata"
+      ]
+    },
+    {
+      "id": "inspect-web-catalog-facade-assembly-dependencies-stay-within-capability-ratchet",
+      "source": "docs/design/inspect-web-jsexport-partitioning.md#catalog-facade-6-exports; composition tracker #8779",
+      "graphs": [
+        "assembly"
+      ],
+      "targets": [
+        "DotnetInspect.Web.Interop.Catalog"
+      ],
+      "projectPaths": [
+        "src/DotnetInspect.Web.Interop.Catalog/DotnetInspect.Web.Interop.Catalog.csproj"
+      ],
+      "allowOnly": [
+        "$platform",
+        "DotnetInspect.Web.Core",
+        "DotnetInspector.Ecosystems",
+        "DotnetInspector.Packages",
+        "DotnetInspector.Platforms",
+        "DotnetInspector.Queries",
+        "DotnetInspector.Sections",
+        "DotnetInspector.SourceSelection",
+        "ILInspector.Decompiler",
+        "ILInspector.Metadata",
+        "InertText",
+        "NuGetFetch",
+        "QuerySpace.Primitives"
+      ]
+    },
+    {
+      "id": "browser-hosts-never-reference-local-adapters",
+      "source": "docs/design/platform-house-reference-processing.md#assembly-reference-processing; consolidation tracker #9240 slice 3",
+      "graphs": [
+        "project",
+        "assembly"
+      ],
+      "targets": [
+        "DotnetInspect.Web*"
+      ],
+      "projectPaths": [
+        "src/DotnetInspect.Web*/*.csproj"
+      ],
+      "deny": [
+        "DotnetInspector.PlatformHouse.Local",
+        "DotnetInspector.Sections.Local"
+      ]
+    },
+    {
+      "id": "dotnet-inspect-cli-project-dependencies-stay-within-host-ratchet",
+      "source": "docs/design/inspection-layers.md#the-layers; composition tracker #8843",
+      "graphs": [
+        "project"
+      ],
+      "targets": [
+        "DotnetInspect.Cli"
+      ],
+      "projectPaths": [
+        "src/DotnetInspect.Cli/DotnetInspect.Cli.csproj"
+      ],
+      "allowOnly": [
+        "CSharpText",
+        "DotnetInspector.Cache",
+        "DotnetInspector.Ecosystems",
+        "DotnetInspector.Libraries",
+        "DotnetInspector.LibraryMetadata",
+        "DotnetInspector.MetadataRendering",
+        "DotnetInspector.Networking",
+        "DotnetInspector.PackageQueries",
+        "DotnetInspector.Packages",
+        "DotnetInspector.PlatformHouse",
+        "DotnetInspector.PlatformHouse.Local",
+        "DotnetInspector.PlatformHouse.Packages",
+        "DotnetInspector.PlatformQueries",
+        "DotnetInspector.Platforms",
+        "DotnetInspector.Presentation",
+        "DotnetInspector.Queries",
+        "DotnetInspector.ResearchQueries",
+        "DotnetInspector.ResearchSections",
+        "DotnetInspector.Sections",
+        "DotnetInspector.Sections.Local",
+        "DotnetInspector.Services",
+        "DotnetInspector.SourceSelection",
+        "ILInspector.Analysis",
+        "ILInspector.CallGraph",
+        "ILInspector.CSharp",
+        "ILInspector.Decompiler",
+        "ILInspector.ILDiff",
+        "ILInspector.Instructions",
+        "ILInspector.Metadata",
+        "ILInspector.Research",
+        "ILInspector.SourceLink",
+        "InertText",
+        "Inspector.Artifacts.Local",
+        "Inspector.Artifacts.Workspaces",
+        "Inspector.Findings",
+        "Inspector.Text",
+        "QuerySpace",
+        "QuerySpace.Primitives"
+      ]
+    },
+    {
+      "id": "dotnet-inspect-cli-assembly-dependencies-stay-within-host-ratchet",
+      "source": "docs/design/inspection-layers.md#the-layers; composition tracker #8843",
+      "graphs": [
+        "assembly"
+      ],
+      "targets": [
+        "DotnetInspect.Cli"
+      ],
+      "projectPaths": [
+        "src/DotnetInspect.Cli/DotnetInspect.Cli.csproj"
+      ],
+      "allowOnly": [
+        "$platform",
+        "CSharpText",
+        "DotnetInspector.Cache",
+        "DotnetInspector.DocumentationHouse.Contracts",
+        "DotnetInspector.Ecosystems",
+        "DotnetInspector.Libraries",
+        "DotnetInspector.LibraryMetadata",
+        "DotnetInspector.MetadataRendering",
+        "DotnetInspector.Networking",
+        "DotnetInspector.PackageQueries",
+        "DotnetInspector.Packages",
+        "DotnetInspector.PlatformHouse",
+        "DotnetInspector.PlatformHouse.Local",
+        "DotnetInspector.PlatformHouse.Packages",
+        "DotnetInspector.PlatformQueries",
+        "DotnetInspector.Platforms",
+        "DotnetInspector.Presentation",
+        "DotnetInspector.Queries",
+        "DotnetInspector.ResearchQueries",
+        "DotnetInspector.ResearchSections",
+        "DotnetInspector.Sections",
+        "DotnetInspector.Sections.Local",
+        "DotnetInspector.Services",
+        "DotnetInspector.SourceHouse",
+        "DotnetInspector.SourceSelection",
+        "ILInspector.Analysis",
+        "ILInspector.CSharp",
+        "ILInspector.CallGraph",
+        "ILInspector.Decompiler",
+        "ILInspector.ILDiff",
+        "ILInspector.Instructions",
+        "ILInspector.Metadata",
+        "ILInspector.MetadataPrimitives",
+        "ILInspector.Research",
+        "ILInspector.SourceLink",
+        "InertText",
+        "Inspector.Artifacts",
+        "Inspector.Artifacts.Local",
+        "Inspector.Artifacts.Workspaces",
+        "Inspector.Findings",
+        "Inspector.Graph",
+        "Inspector.Resources",
+        "Inspector.Text",
+        "Markout",
+        "NuGet.Frameworks",
+        "NuGet.Versioning",
+        "NuGetFetch",
+        "QuerySpace",
+        "QuerySpace.Primitives",
+        "System.CommandLine"
+      ]
+    },
+    {
+      "id": "inspector-graph-stays-independent",
+      "source": "docs/design/inspector-graph-library-boundary.md#dependency-boundary",
+      "graphs": [
+        "project",
+        "assembly"
+      ],
+      "targets": [
+        "Inspector.Graph"
+      ],
+      "allowOnly": [
+        "$platform"
       ]
     },
     {
@@ -456,7 +747,9 @@
         "ILInspector.Instructions",
         "ILInspector.Metadata",
         "ILInspector.MetadataPrimitives",
-        "InertText"
+        "InertText",
+        "QuerySpace",
+        "QuerySpace.Primitives"
       ]
     },
     {
@@ -477,7 +770,7 @@
     },
     {
       "id": "decompiler-dependencies",
-      "source": "docs/architecture.md",
+      "source": "docs/architecture.md; docs/design/implementation-diff.md#structural-body-comparison",
       "graphs": [
         "project",
         "assembly"
@@ -488,6 +781,7 @@
       "allowOnly": [
         "$platform",
         "CSharpText",
+        "ILInspector.Analysis",
         "ILInspector.ControlFlow",
         "ILInspector.CSharp",
         "Inspector.Findings",
@@ -495,7 +789,8 @@
         "ILInspector.Instructions",
         "ILInspector.Metadata",
         "ILInspector.MetadataPrimitives",
-        "Inspector.Text"
+        "Inspector.Text",
+        "QuerySpace.Primitives"
       ]
     },
     {
@@ -531,6 +826,7 @@
         "ILInspector.Analysis",
         "ILInspector.Decompiler",
         "Inspector.Findings",
+        "Inspector.Graph",
         "ILInspector.ILDiff",
         "ILInspector.Instructions",
         "ILInspector.Metadata",

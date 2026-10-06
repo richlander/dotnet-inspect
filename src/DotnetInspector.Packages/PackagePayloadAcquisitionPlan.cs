@@ -29,6 +29,25 @@ public sealed class PackagePayloadAcquisitionPlan
         Action<string>? log = null,
         PackagePayloadAccess access = PackagePayloadAccess.Complete,
         long rangedSizeCut = PackageRangedRead.DefaultSizeCut)
+        : this(
+            getStore,
+            limits,
+            transferPolicy,
+            log,
+            access,
+            rangedSizeCut,
+            houseOwnsAccess: false)
+    {
+    }
+
+    private PackagePayloadAcquisitionPlan(
+        PackageStoreProvider getStore,
+        PackagePayloadLimits? limits,
+        IPackagePayloadTransferPolicy? transferPolicy,
+        Action<string>? log,
+        PackagePayloadAccess access,
+        long rangedSizeCut,
+        bool houseOwnsAccess)
     {
         ArgumentNullException.ThrowIfNull(getStore);
         if (!Enum.IsDefined(access))
@@ -38,9 +57,30 @@ public sealed class PackagePayloadAcquisitionPlan
         TransferPolicy = transferPolicy;
         Log = log;
         Access = access;
+        HouseOwnsAccess = houseOwnsAccess;
         ArgumentOutOfRangeException.ThrowIfNegative(rangedSizeCut);
         RangedSizeCut = rangedSizeCut;
     }
+
+    /// <summary>
+    /// Creates host capability and policy for semantic content queries.
+    /// PackageHouse chooses cache, size-first range access, and complete
+    /// fallback from the query; the caller supplies no access mode.
+    /// </summary>
+    public static PackagePayloadAcquisitionPlan ForContentQueries(
+        PackageStoreProvider getStore,
+        PackagePayloadLimits? limits = null,
+        IPackagePayloadTransferPolicy? transferPolicy = null,
+        Action<string>? log = null,
+        long rangedSizeCut = PackageRangedRead.DefaultSizeCut) =>
+        new(
+            getStore,
+            limits,
+            transferPolicy,
+            log,
+            PackagePayloadAccess.Ranged,
+            rangedSizeCut,
+            houseOwnsAccess: true);
 
     public PackagePayloadLimits? Limits { get; }
 
@@ -51,9 +91,11 @@ public sealed class PackagePayloadAcquisitionPlan
     /// <summary>
     /// How an uncached payload is transferred. <see cref="PackagePayloadAccess.Ranged"/>
     /// requires a Realize operation, whose selection bounds the read, or an
-    /// Acquire operation carrying a <see cref="PackageDocumentDemand"/>.
+    /// Acquire operation carrying a <see cref="PackageFileDemand"/>.
     /// </summary>
     public PackagePayloadAccess Access { get; }
+
+    internal bool HouseOwnsAccess { get; }
 
     /// <summary>
     /// Under ranged access, archives at or under this advertised length are

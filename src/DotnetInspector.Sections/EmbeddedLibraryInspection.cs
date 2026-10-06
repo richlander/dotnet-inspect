@@ -70,99 +70,20 @@ public static class EmbeddedLibraryInspection
         ArgumentNullException.ThrowIfNull(limits);
         ArgumentOutOfRangeException.ThrowIfLessThan(maximumImageBytes, 1);
 
-        if (string.IsNullOrWhiteSpace(declaredName))
-        {
-            return Rejected(
-                InertString.Empty,
-                content.IsDefault ? 0 : content.Length,
-                digest: "",
-                EmbeddedLibraryInspectionFailureKind.InvalidDeclaredName,
-                "The uploaded image has no declared file name.");
-        }
+        EmbeddedLibraryPreparation preparation =
+            Prepare(
+                declaredName,
+                content,
+                maximumImageBytes,
+                cancellationToken);
+        if (preparation is EmbeddedLibraryPreparation.Rejected rejected)
+            return rejected.Inspection;
 
-        var safeName = new InertString(
-            TextPolicy.Field,
-            declaredName,
-            maxLength: 260);
-        if (safeName.IsTruncated)
-        {
-            return Rejected(
-                safeName,
-                content.IsDefault ? 0 : content.Length,
-                digest: "",
-                EmbeddedLibraryInspectionFailureKind.InvalidDeclaredName,
-                "The uploaded image file name exceeds the 260-character display limit.");
-        }
-        if (content.IsDefaultOrEmpty)
-        {
-            return Rejected(
-                safeName,
-                content.IsDefault ? 0 : content.Length,
-                digest: "",
-                EmbeddedLibraryInspectionFailureKind.EmptyImage,
-                "The uploaded image is empty.");
-        }
-        if (content.Length > maximumImageBytes)
-        {
-            return Rejected(
-                safeName,
-                content.Length,
-                digest: "",
-                EmbeddedLibraryInspectionFailureKind.ResourceBudget,
-                $"The uploaded image exceeds the {maximumImageBytes}-byte limit.");
-        }
-
-        cancellationToken.ThrowIfCancellationRequested();
-        byte[] bytes = ImmutableCollectionsMarshal.AsArray(content)!;
-        string digest = Convert.ToHexString(
-                SHA256.HashData(bytes))
-            .ToLowerInvariant();
-        AssemblyResolutionProvenance provenance =
-            AssemblyResolutionProvenance.Embedded(
-                "browser-upload",
-                $"sha256:{digest}",
-                safeName.ToString());
-        if (UsesUnsupportedMetadataFormat(bytes))
-        {
-            return Rejected(
-                safeName,
-                content.Length,
-                digest,
-                EmbeddedLibraryInspectionFailureKind.UnsupportedMetadataFormat,
-                "The uploaded image uses unsupported Windows Metadata.");
-        }
-        AssemblyDescriptorSelectionResult selection =
-            ResolvedAssemblyReference.SelectFromStream(
-                () => new MemoryStream(bytes, writable: false),
-                provenance,
-                lastWriteTimeUtc: null,
-                assetFileName: safeName.ToString());
-        if (selection is AssemblyDescriptorSelectionResult.Descriptorless)
-        {
-            bool isModule = IsMetadataModule(bytes);
-            return Rejected(
-                safeName,
-                content.Length,
-                digest,
-                isModule
-                    ? EmbeddedLibraryInspectionFailureKind.NotAssembly
-                    : EmbeddedLibraryInspectionFailureKind.DescriptorUnavailable,
-                isModule
-                    ? "The uploaded managed image is a module, not an assembly."
-                    : "The uploaded file is not a managed assembly.");
-        }
-        if (selection is AssemblyDescriptorSelectionResult.Rejected rejected)
-        {
-            return Rejected(
-                safeName,
-                content.Length,
-                digest,
-                FailureKind(rejected.Failure.Kind),
-                rejected.Failure.Detail);
-        }
-
-        ResolvedAssemblyReference assembly =
-            ((AssemblyDescriptorSelectionResult.Ready)selection).Reference;
+        var ready = (EmbeddedLibraryPreparation.Ready)preparation;
+        InertString safeName = ready.DeclaredName;
+        string digest = ready.Digest;
+        AssemblyResolutionProvenance provenance = ready.Provenance;
+        ResolvedAssemblyReference assembly = ready.Assembly;
         await using var workspace = new InspectionWorkspace();
         RetainedAssemblyContextGroup retained =
             RetainedAssemblyContextGroup.Create(
@@ -252,6 +173,200 @@ public static class EmbeddedLibraryInspection
                     InspectionDiagnosticSeverity.Warning,
                     $"{failure.Operation}: {failure.Kind}: {failure.Detail}",
                     assembly.Identity.ToString())));
+    }
+
+    /// <summary>
+    /// Materializes one immutable embedded image as an owned direct Library.
+    /// The caller must settle the returned adapter result.
+    /// </summary>
+    public static async ValueTask<AssemblyContextLibraryAdapterResult>
+        MaterializeAsync(
+            string declaredName,
+            ImmutableArray<byte> content,
+            AssemblyContextLibraryRole role,
+            AssemblyContextLibraryMaterializationLimits limits,
+            int maximumImageBytes = DefaultMaximumImageBytes,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(limits);
+        ArgumentOutOfRangeException.ThrowIfLessThan(maximumImageBytes, 1);
+
+        EmbeddedLibraryPreparation preparation =
+            Prepare(
+                declaredName,
+                content,
+                maximumImageBytes,
+                cancellationToken);
+        if (preparation is EmbeddedLibraryPreparation.Rejected rejected)
+        {
+            EmbeddedLibraryInspectionFailure failure =
+                rejected.Inspection.Content.Failure
+                ?? throw new InvalidOperationException(
+                    "A rejected embedded Library has no failure.");
+            throw new InvalidOperationException(
+                $"The uploaded Library could not be materialized "
+                    + $"({failure.Kind}): {failure.Detail}");
+        }
+
+        ResolvedAssemblyReference assembly =
+            ((EmbeddedLibraryPreparation.Ready)preparation).Assembly;
+        await using var workspace = new InspectionWorkspace();
+        RetainedAssemblyContextGroup retained =
+            RetainedAssemblyContextGroup.Create(
+                workspace,
+                [assembly],
+                new AssemblyContextGroupOptions
+                {
+                    MaxRetainedImageBytes = maximumImageBytes,
+                },
+                cancellationToken);
+        if (retained is RetainedAssemblyContextGroup.Rejected imageRejected)
+        {
+            throw new InvalidOperationException(
+                "The uploaded Library image could not be retained "
+                    + $"({FailureKind(imageRejected.Failure.Kind)}): "
+                    + imageRejected.Failure.Detail);
+        }
+
+        AssemblyContextGroup group =
+            ((RetainedAssemblyContextGroup.Ready)retained).Group;
+        return await AssemblyContextLibraryAdapter.MaterializeAsync(
+                group,
+                group.Participants[0],
+                role,
+                limits,
+                cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    private static EmbeddedLibraryPreparation Prepare(
+        string declaredName,
+        ImmutableArray<byte> content,
+        int maximumImageBytes,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(declaredName))
+        {
+            return new EmbeddedLibraryPreparation.Rejected(
+                Rejected(
+                    InertString.Empty,
+                    content.IsDefault ? 0 : content.Length,
+                    digest: "",
+                    EmbeddedLibraryInspectionFailureKind.InvalidDeclaredName,
+                    "The uploaded image has no declared file name."));
+        }
+
+        var safeName = new InertString(
+            TextPolicy.Field,
+            declaredName,
+            maxLength: 260);
+        if (safeName.IsTruncated)
+        {
+            return new EmbeddedLibraryPreparation.Rejected(
+                Rejected(
+                    safeName,
+                    content.IsDefault ? 0 : content.Length,
+                    digest: "",
+                    EmbeddedLibraryInspectionFailureKind.InvalidDeclaredName,
+                    "The uploaded image file name exceeds the 260-character display limit."));
+        }
+        if (content.IsDefaultOrEmpty)
+        {
+            return new EmbeddedLibraryPreparation.Rejected(
+                Rejected(
+                    safeName,
+                    content.IsDefault ? 0 : content.Length,
+                    digest: "",
+                    EmbeddedLibraryInspectionFailureKind.EmptyImage,
+                    "The uploaded image is empty."));
+        }
+        if (content.Length > maximumImageBytes)
+        {
+            return new EmbeddedLibraryPreparation.Rejected(
+                Rejected(
+                    safeName,
+                    content.Length,
+                    digest: "",
+                    EmbeddedLibraryInspectionFailureKind.ResourceBudget,
+                    $"The uploaded image exceeds the {maximumImageBytes}-byte limit."));
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        byte[] bytes = ImmutableCollectionsMarshal.AsArray(content)!;
+        string digest = Convert.ToHexString(
+                SHA256.HashData(bytes))
+            .ToLowerInvariant();
+        AssemblyResolutionProvenance provenance =
+            AssemblyResolutionProvenance.Embedded(
+                "browser-upload",
+                $"sha256:{digest}",
+                safeName.ToString());
+        if (UsesUnsupportedMetadataFormat(bytes))
+        {
+            return new EmbeddedLibraryPreparation.Rejected(
+                Rejected(
+                    safeName,
+                    content.Length,
+                    digest,
+                    EmbeddedLibraryInspectionFailureKind.UnsupportedMetadataFormat,
+                    "The uploaded image uses unsupported Windows Metadata."));
+        }
+
+        AssemblyDescriptorSelectionResult selection =
+            ResolvedAssemblyReference.SelectFromStream(
+                () => new MemoryStream(bytes, writable: false),
+                provenance,
+                lastWriteTimeUtc: null,
+                assetFileName: safeName.ToString());
+        if (selection is AssemblyDescriptorSelectionResult.Descriptorless)
+        {
+            bool isModule = IsMetadataModule(bytes);
+            return new EmbeddedLibraryPreparation.Rejected(
+                Rejected(
+                    safeName,
+                    content.Length,
+                    digest,
+                    isModule
+                        ? EmbeddedLibraryInspectionFailureKind.NotAssembly
+                        : EmbeddedLibraryInspectionFailureKind.DescriptorUnavailable,
+                    isModule
+                        ? "The uploaded managed image is a module, not an assembly."
+                        : "The uploaded file is not a managed assembly."));
+        }
+        if (selection is AssemblyDescriptorSelectionResult.Rejected rejected)
+        {
+            return new EmbeddedLibraryPreparation.Rejected(
+                Rejected(
+                    safeName,
+                    content.Length,
+                    digest,
+                    FailureKind(rejected.Failure.Kind),
+                    rejected.Failure.Detail));
+        }
+
+        return new EmbeddedLibraryPreparation.Ready(
+            safeName,
+            digest,
+            provenance,
+            ((AssemblyDescriptorSelectionResult.Ready)selection).Reference);
+    }
+
+    private abstract record EmbeddedLibraryPreparation
+    {
+        private EmbeddedLibraryPreparation()
+        {
+        }
+
+        public sealed record Ready(
+            InertString DeclaredName,
+            string Digest,
+            AssemblyResolutionProvenance Provenance,
+            ResolvedAssemblyReference Assembly)
+            : EmbeddedLibraryPreparation;
+
+        public sealed record Rejected(
+            InspectionEnvelope<EmbeddedLibraryInspectionResult> Inspection)
+            : EmbeddedLibraryPreparation;
     }
 
     private static InspectionEnvelope<EmbeddedLibraryInspectionResult>

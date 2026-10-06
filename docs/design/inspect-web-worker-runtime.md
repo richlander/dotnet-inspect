@@ -712,6 +712,12 @@ checkpoints under the async event-stream contract. A singleton batch is valid.
 The Worker does not wait for a batch to fill or for managed settlement before
 posting it.
 
+[Progressive JSONL Delivery](progressive-jsonl-delivery.md) may carry several
+row records inside one durable entry's string payload. Its record count and
+UTF-16 code-unit limit are feature payload currencies, not this protocol's
+64-entry batch count. The Worker validates and forwards that string without
+reframing or reserializing its records.
+
 All operation messages use the same ordered Worker channel. `Accepted`
 precedes the first event; every posted event batch precedes that invocation's
 `Settled`, including canceled or failed settlement. A boundary failure remains

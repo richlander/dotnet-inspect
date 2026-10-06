@@ -30,6 +30,15 @@ public class PublicTopLevel
     {
     }
 
+    public void VisibilityOverload()
+    {
+    }
+
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    public void VisibilityOverload(int value)
+    {
+    }
+
     [CompilerGenerated]
     public void CompilerGeneratedPublic()
     {

@@ -1,3 +1,6 @@
+using System.Collections.Immutable;
+using System.Reflection.Metadata;
+
 namespace ILInspector.Analysis;
 
 public enum AllocationKind
@@ -40,6 +43,117 @@ public enum AllocationEscapeKind
     Static,
     Collection,
     Capture,
+}
+
+/// <summary>
+/// A terminal use or sink accepted by the allocation lifetime proof.
+/// </summary>
+public enum AllocationLifetimeUseKind
+{
+    ElementRead,
+    ElementWrite,
+    LengthRead,
+    Drop,
+    Unbox,
+    TrustedNonCapturingCall,
+    Return,
+    Throw,
+    FieldStore,
+    StaticStore,
+    CollectionStore,
+    Capture,
+    ByReferenceTransfer,
+}
+
+/// <summary>
+/// A typed reason why an allocation lifetime proof could not complete.
+/// </summary>
+public enum AllocationLifetimeLimitationKind
+{
+    ReachingDefinitionsUnavailable,
+    ReachingDefinitionsIncomplete,
+    DefinitionUnavailable,
+    AliasCycle,
+    UnsupportedInstruction,
+    UnsupportedStackShape,
+    UnsupportedByReferenceFlow,
+    UnsupportedCall,
+    MetadataResolution,
+    AnalysisFailure,
+}
+
+/// <summary>
+/// An exact terminal-use coordinate for one allocation occurrence.
+/// </summary>
+public readonly record struct AllocationLifetimeUse(
+    int ILOffset,
+    AllocationLifetimeUseKind Kind);
+
+/// <summary>
+/// A proof-stopping limitation, with its exact instruction when available.
+/// </summary>
+public readonly record struct AllocationLifetimeLimitation(
+    AllocationLifetimeLimitationKind Kind,
+    int? ILOffset = null,
+    ILOpCode? Operation = null);
+
+/// <summary>
+/// Owner-issued lifetime evidence for one exact allocation occurrence.
+/// </summary>
+public sealed class AllocationLifetimeEvidence
+    : IEquatable<AllocationLifetimeEvidence>
+{
+    public static AllocationLifetimeEvidence Empty { get; } =
+        new([], []);
+
+    public AllocationLifetimeEvidence(
+        ImmutableArray<AllocationLifetimeUse> uses,
+        ImmutableArray<AllocationLifetimeLimitation> limitations)
+    {
+        Uses = NormalizeUses(uses);
+        Limitations = NormalizeLimitations(limitations);
+    }
+
+    public ImmutableArray<AllocationLifetimeUse> Uses { get; }
+
+    public ImmutableArray<AllocationLifetimeLimitation> Limitations { get; }
+
+    public bool Equals(AllocationLifetimeEvidence? other) =>
+        other is not null
+        && Uses.SequenceEqual(other.Uses)
+        && Limitations.SequenceEqual(other.Limitations);
+
+    public override bool Equals(object? obj) =>
+        obj is AllocationLifetimeEvidence other && Equals(other);
+
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        foreach (AllocationLifetimeUse use in Uses)
+            hash.Add(use);
+        foreach (AllocationLifetimeLimitation limitation in Limitations)
+            hash.Add(limitation);
+        return hash.ToHashCode();
+    }
+
+    static ImmutableArray<AllocationLifetimeUse> NormalizeUses(
+        ImmutableArray<AllocationLifetimeUse> values) =>
+        values.IsDefaultOrEmpty
+            ? []
+            : [.. values
+                .Distinct()
+                .OrderBy(value => value.ILOffset)
+                .ThenBy(value => value.Kind)];
+
+    static ImmutableArray<AllocationLifetimeLimitation> NormalizeLimitations(
+        ImmutableArray<AllocationLifetimeLimitation> values) =>
+        values.IsDefaultOrEmpty
+            ? []
+            : [.. values
+                .Distinct()
+                .OrderBy(value => value.ILOffset)
+                .ThenBy(value => value.Kind)
+                .ThenBy(value => value.Operation)];
 }
 
 public enum AllocationFactSource
@@ -121,6 +235,12 @@ public sealed record AllocationOccurrence(
     public AllocationPostDominance PostDominance { get; init; }
 
     public AllocationEscapeKind EscapeKind { get; init; }
+
+    /// <summary>
+    /// Exact terminal uses and proof-stopping limitations for this occurrence.
+    /// </summary>
+    public AllocationLifetimeEvidence LifetimeEvidence { get; init; } =
+        AllocationLifetimeEvidence.Empty;
 
     public AllocationMultiplicity Multiplicity { get; init; }
 

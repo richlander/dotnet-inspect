@@ -208,14 +208,25 @@ public sealed partial class PackageSourceClientTests
         var handler = new RecordingHandler { [ServiceIndex] = ServiceIndexWithFlatContainer };
         handler.SetResponse(Package, server.Respond);
         using IPackageSourceClient runtime = PackageSourceClientFactory.Create(new PackageSource("feed", ServiceIndex), handler);
+        var requestLog = new PackageArchiveRequestLog();
 
         await using PackageArchiveReader reader = await Opened(
             await Ranged(runtime).OpenArchiveAsync(
-                "contoso", "1.0.0", ZipReadLimits.Default, TestContext.Current.CancellationToken));
+                "contoso",
+                "1.0.0",
+                ZipReadLimits.Default,
+                TestContext.Current.CancellationToken,
+                requestLog: requestLog));
 
         // The first 503 was retried inside the send; the open still succeeded.
         Assert.Equal(2, server.Requests);
         Assert.Single(reader.Directory.Entries);
+        Assert.Equal(
+            [
+                PackageArchiveRequestPurpose.DirectoryTail,
+                PackageArchiveRequestPurpose.DirectoryTail,
+            ],
+            requestLog.Snapshot().Select(request => request.Purpose));
     }
 
     [Theory]

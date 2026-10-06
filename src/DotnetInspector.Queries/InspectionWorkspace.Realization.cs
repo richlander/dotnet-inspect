@@ -4,6 +4,37 @@ public sealed partial class InspectionWorkspace
 {
     WorkspaceDefinitionSnapshot? _definitionSnapshot;
 
+    /// <summary>
+    /// Executes one branch while holding the Workspace gate so a matching
+    /// definition cannot change before the guarded action linearizes.
+    /// </summary>
+    internal TResult ExecuteIfCurrentDefinition<TResult>(
+        WorkspaceDefinitionSnapshot expected,
+        Func<TResult> whenCurrent,
+        Func<TResult> whenChanged)
+    {
+        ArgumentNullException.ThrowIfNull(expected);
+        ArgumentNullException.ThrowIfNull(whenCurrent);
+        ArgumentNullException.ThrowIfNull(whenChanged);
+
+        lock (_gate)
+        {
+            bool current =
+                RootWorkspaceFailure(_identity) is null
+                && ReferenceEquals(expected.Workspace, _identity)
+                && ReferenceEquals(
+                    expected.Registrations.Identity,
+                    _registrationRevision.Identity)
+                && _scopeSnapshot is not null
+                && ReferenceEquals(
+                    expected.Scope.Identity,
+                    _scopeSnapshot.Revision.Identity);
+            return current
+                ? whenCurrent()
+                : whenChanged();
+        }
+    }
+
     internal async ValueTask<
         ArtifactRootResult<WorkspaceRealizationOperationSnapshot>>
         CaptureRealizationOperationSnapshotAsync(

@@ -18,6 +18,8 @@ using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 
+using ILInspector.ILDiff;
+
 namespace ILInspector.Decompiler.Tests;
 
 [Trait("Speed", "Slow")]

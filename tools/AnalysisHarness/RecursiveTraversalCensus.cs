@@ -88,12 +88,16 @@ public static class RecursiveTraversalCensus
         {
             try
             {
-                var index = LibraryBodyIndex.Open(path);
+                LibraryBodyAnalysisExecution execution =
+                    LibraryBodyAnalysisService.ExecutePath(
+                        path,
+                        LibraryBodyAnalysisRequest.Create(
+                            LibraryBodyAnalysisFeatures.Default));
                 var result = Analyze(
                     Path.GetFileName(path),
-                    index.Methods,
-                    index.DirectCalls,
-                    index.OptimizationOpportunities,
+                    execution.CallGraph.Methods,
+                    execution.CallGraph.DirectCalls,
+                    execution.Optimization.Opportunities,
                     maxDepth);
                 roots.AddRange(result.Roots);
                 rows.AddRange(result.Rows);

@@ -1,4 +1,5 @@
 using DotnetInspector.Fixtures;
+using DotnetInspector.ResearchQueries;
 using DotnetInspector.Services;
 using ILInspector.CSharp;
 using ILInspector.Decompiler.Pipeline;
@@ -181,7 +182,7 @@ public class FidelityCheckGeneratedFilterTests
                 FidelityCheck.SelectReturnToSenderTargetPlan(
                 [assemblyPath],
                 cap: int.MaxValue);
-            IReadOnlyList<FidelityCheck.CompileBackTarget> selected =
+            IReadOnlyList<ReturnToSenderTarget> selected =
                 selection.Targets;
 
             Assert.Equal(2, selected.Count);
@@ -196,12 +197,12 @@ public class FidelityCheckGeneratedFilterTests
             Assert.Contains(
                 selection.Exclusions,
                 exclusion => exclusion.Producer ==
-                        FidelityCheck.ReturnToSenderDeclarationProducer
+                        ReturnToSenderDeclarationProducer
                             .OrdinaryTypeArtifact
                     && exclusion.Reason is
-                        FidelityCheck.ReturnToSenderTargetExclusionReason
+                        ReturnToSenderTargetExclusionReason
                             .OrdinaryDeclarationUnrepresentable
-                        or FidelityCheck.ReturnToSenderTargetExclusionReason
+                        or ReturnToSenderTargetExclusionReason
                             .ProductMemberUnavailable);
         }
         finally
@@ -268,7 +269,7 @@ public class FidelityCheckGeneratedFilterTests
             Assert.Equal("Pick", target.Method);
             Assert.Equal("mss1:4(0:)n", target.Signature);
             Assert.IsType<
-                FidelityCheck.ReturnToSenderDeclarationSelection
+                ReturnToSenderDeclarationSelection
                     .OrdinaryMethod>(target.Declaration);
         }
         finally
@@ -285,12 +286,12 @@ public class FidelityCheckGeneratedFilterTests
             cap: int.MaxValue,
             typeFilter: "System.Int32");
 
-        FidelityCheck.CompileBackTarget[] exactTargets =
+        ReturnToSenderTarget[] exactTargets =
         [
             .. selection.Targets.Where(
                 target => target.Type == "System.Int32"
                     && target.Declaration is
-                        FidelityCheck.ReturnToSenderDeclarationSelection
+                        ReturnToSenderDeclarationSelection
                             .ExactMethod),
         ];
         Assert.True(
@@ -302,10 +303,10 @@ public class FidelityCheckGeneratedFilterTests
                     .Select(exclusion =>
                         $"{exclusion.Method}: {exclusion.Reason}: "
                         + $"{exclusion.ExactOutcome}")));
-        FidelityCheck.CompileBackTarget target =
+        ReturnToSenderTarget target =
             Assert.Single(exactTargets);
         var exact = Assert.IsType<
-            FidelityCheck.ReturnToSenderDeclarationSelection.ExactMethod>(
+            ReturnToSenderDeclarationSelection.ExactMethod>(
                 target.Declaration);
 
         Assert.Equal(
@@ -328,15 +329,15 @@ public class FidelityCheckGeneratedFilterTests
                 languageProfile: new(
                     CSharpLanguageVersion.CSharp10));
 
-        FidelityCheck.ReturnToSenderTargetExclusion exclusion =
+        ReturnToSenderTargetExclusion exclusion =
             Assert.Single(
                 selection.Exclusions,
                 exclusion => exclusion.Type == "System.Int32"
                     && exclusion.Reason ==
-                        FidelityCheck.ReturnToSenderTargetExclusionReason
+                        ReturnToSenderTargetExclusionReason
                             .ExactDeclarationUnrepresentable);
         Assert.Equal(
-            FidelityCheck.ReturnToSenderDeclarationProducer
+            ReturnToSenderDeclarationProducer
                 .ExactMethodDeclaration,
             exclusion.Producer);
         var refusal = Assert.IsType<
@@ -498,7 +499,50 @@ public class FidelityCheckGeneratedFilterTests
     }
 
     [Fact]
-    public void Evaluate_UsesProductWholeMemberForOrdinaryConstructors()
+    public void Evaluate_RoundTripsAutoPropertyDeclarationInitializer()
+    {
+        var assemblyPath = CompileFixture("""
+            public class AutoPropertyInitializerFixture
+            {
+                int Value { get; set; } = 42;
+            }
+            """);
+        try
+        {
+            var results = FidelityCheck.Evaluate(assemblyPath);
+            var ctor = Assert.Single(
+                results,
+                result => result.Type == "AutoPropertyInitializerFixture"
+                    && result.Method == ".ctor");
+            var accessors = results
+                .Where(result => result.Type == "AutoPropertyInitializerFixture"
+                    && result.Method is "get_Value" or "set_Value")
+                .ToArray();
+
+            Assert.True(
+                ctor.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"Status: {ctor.Status}; product member: {ctor.UsedProductWholeMember}; "
+                + $"original: {ctor.OriginalOpcodes}; recompiled: {ctor.RecompiledOpcodes}; "
+                + $"detail: {ctor.Detail}");
+            Assert.Equal(2, accessors.Length);
+            Assert.All(accessors, accessor =>
+            {
+                Assert.Equal(FidelityCheck.CompileBackStatus.Exact, accessor.Status);
+                Assert.True(
+                    accessor.UsedProductWholeMember,
+                    $"{accessor.Method} status: {accessor.Status}; "
+                    + $"product member: {accessor.UsedProductWholeMember}; "
+                    + $"detail: {accessor.Detail}");
+            });
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void Evaluate_PreservesPrivateConstructorArtifactAndReportsContextFailure()
     {
         var assemblyPath = CompileFixture("""
             using System;
@@ -596,7 +640,8 @@ public class FidelityCheckGeneratedFilterTests
                         && method.Overload == constructorOverload));
 
             Assert.True(result.UsedProductWholeMember);
-            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Equal(FidelityCheck.CompileBackStatus.RecompileFail, result.Status);
+            Assert.Contains("CS0122", result.Detail, StringComparison.Ordinal);
         }
         finally
         {
@@ -935,6 +980,18 @@ public class FidelityCheckGeneratedFilterTests
             Assert.True(targetedRemover.UsedProductWholeMember);
             Assert.Equal(FidelityCheck.CompileBackStatus.Exact, targetedRemover.Status);
 
+            var explicitResults = FidelityCheck.Evaluate(
+                    assemblyPath,
+                    typeName => typeName == "ExplicitEventFixture")
+                .Where(result => result.Method.Contains("Changed", StringComparison.Ordinal))
+                .ToList();
+            Assert.Equal(2, explicitResults.Count);
+            foreach (var result in explicitResults)
+            {
+                Assert.False(result.UsedProductWholeMember, result.Method);
+                Assert.Equal(FidelityCheck.CompileBackStatus.RecompileFail, result.Status);
+            }
+
             var overrideResults = FidelityCheck.Evaluate(
                     assemblyPath,
                     typeName => typeName == "OverrideEventFixture",
@@ -1186,24 +1243,6 @@ public class FidelityCheckGeneratedFilterTests
         {
             DeleteFixture(assemblyPath);
         }
-    }
-
-    [Fact]
-    public void ConstructorShellAccessibility_PreservesBodySyntaxDiagnostics()
-    {
-        const string member = """
-                private Fixture()
-                {
-                    Consume(,);
-                }
-            """;
-
-        Assert.True(
-            FidelityCheck.TryForcePublicConstructorAccessibility(
-                member,
-                out string normalized));
-        Assert.Contains("public Fixture()", normalized, StringComparison.Ordinal);
-        Assert.Contains("Consume(,);", normalized, StringComparison.Ordinal);
     }
 
     [Fact]

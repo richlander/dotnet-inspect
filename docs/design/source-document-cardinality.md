@@ -19,6 +19,11 @@ The default CLI result remains the complete selected Source view. Inspect Web
 progressively requests line segments instead of receiving the complete view
 before the viewer can open.
 
+The current implementation publishes the complete `SourceView.Lines`
+inventory. The progressive operation, adaptive physical execution, and host
+adoptions below are target contracts whose unverified gates remain listed in
+[Required evidence](#required-evidence).
+
 ## Authority and exact claim
 
 A successful exact type or member Source operation publishes one immutable
@@ -42,12 +47,14 @@ remains successful when type-document mapping evidence says the type itself is
 partial; that partiality is a scalar view fact, not incomplete content.
 
 This owner defines the view/artifact distinction, view/line association, line
-identity, view binding, exact Count requirement, and Source-owned continuation
-compatibility.
+identity, view binding, exact Count requirement, Source-owned continuation
+compatibility, and the physical execution policy that selects complete or cold
+pull production after one view has settled.
 It does not redefine:
 
-- the shared decoded-text document, segment, pull, long-line fragmentation, or
-  continuation mechanics tracked by
+- the shared decoded-text document, segment, pull, line-limit failure, or
+  continuation mechanics owned by
+  [Decoded text document](decoded-text-document.md) and tracked through
   [issue #8319](https://github.com/richlander/dotnet-inspect/issues/8319);
 - authored preference, decompiled fallback, checksum verification, or
   acquisition failure, which remain owned by
@@ -58,7 +65,8 @@ It does not redefine:
 - semantic selection, terminal resolution, and opaque continuation
   composition, owned by
   [Query-space composition](query-space-composition.md); or
-- CLI and Browser presentation policy.
+- CLI and Browser presentation, delivery credit, buffering, and cancellation
+  policy.
 
 ## Conventional basis and deliberate boundary
 
@@ -191,11 +199,10 @@ when unusually long lines make the row limit ineffective.
 
 The complete next row is included only when all applicable bounds remain
 satisfied. If one untrusted line exceeds a content bound by itself, the shared
-substrate may split that line into execution-only fragments. A fragment is not
-a Source row, line identity, Count unit, semantic selection result, or
-coordinate-space replacement. Fragmentation does not split a UTF-16 surrogate
-pair, and the exact terminator remains associated with the completed line.
-Ordinary segments otherwise contain only complete semantic rows.
+substrate fails visibly without returning a partial row or advancing the
+source position. Source reports that typed failure instead of weakening its
+execution policy. Every successful segment contains only complete semantic
+rows.
 
 One Rows execution may return its bounded segment plus a Source-compatible
 continuation. The continuation is an opaque receipt bound to:
@@ -226,6 +233,135 @@ continuation format or independently implement generic segment accounting.
 Pull-driven Rows does not imply that checksum verification, source acquisition,
 or decompilation can publish an unsettled view; those operations may complete
 before the first row becomes available.
+
+## Adaptive physical execution
+
+Source has two physical strategies for the same settled view and resolved
+query:
+
+- **Complete** scans the decoded document into the complete line inventory
+  before the host consumes the result. It remains the low-fixed-cost path for
+  small documents and hosts that cannot preserve pull demand.
+- **Cold Pull** retains the decoded document and the minimum Source execution
+  state needed to produce bounded result frames. Construction scans no line,
+  projects no row, and creates no result frame. The first positive delivery
+  credit starts production.
+
+The strategy is physical execution policy, not query meaning. Both strategies
+observe the same view binding, line population, selection, terminal, exact
+Count rules, execution bounds, failures, envelope, and output contract. A host
+cannot request a strategy through portable query syntax, and a continuation
+does not encode which strategy produced it.
+
+Adaptive execution applies only to the new House-backed Source path and only
+after acquisition, checksum verification, decoding, provider selection, and
+view settlement have completed. Legacy Source paths remain on their existing
+complete behavior. A House host that cannot maintain demand-aware delivery
+also uses Complete; it does not receive a pull result that it must immediately
+buffer in full.
+
+### Selection inputs and policy
+
+Before any line scan, Source deterministically selects a strategy from three
+typed facts:
+
+1. the exact UTF-16 length of the settled `DecodedTextDocument`;
+2. the resolved Source demand derived from QuerySpace's closed terminal and
+   preceding semantic selection; and
+3. one Source-recognized production delivery profile supplied by a host that
+   can preserve cold bounded pulls.
+
+The settled decoded length is the size of the representation execution
+actually scans. HTTP `Content-Length`, compressed transfer length, SourceLink
+metadata, cache entry size, and PDB source byte observations are not substitutes
+for it. They may inform their owning acquisition or capacity policies, but do
+not select Source execution. If an exact settled length or a supported delivery
+profile is unavailable, selection falls back to Complete.
+
+Source classifies closed demand only as much as physical selection requires:
+
+| Demand | Work Cold Pull can avoid |
+| --- | --- |
+| Exact Count | Row string materialization and row serialization; the line population must still be exhausted unless Source receives an accepted exact Count witness. |
+| Bounded Rows, such as `Head(N)` | Scanning, projection, serialization, and transfer after the semantic result closes. A filter before Head may require more than N source rows. |
+| Unbounded Rows | Complete line-inventory retention and complete-result buffering; every selected row still has to be scanned, projected, serialized, and consumed. |
+
+The Source owner issues the threshold policy and its generation. Thresholds may
+differ between measured production delivery profiles because Browser
+interop and a direct in-process consumer have different fixed costs, but a
+host does not choose ad hoc values per request. For one policy generation,
+equal selection inputs produce the same strategy.
+
+Thresholds are calibration, not this contract. A product threshold lands only
+with exact base/head production measurements for its delivery profile and every
+supported demand class. A changed threshold requires the same focused
+scorecard, not a query-schema or continuation change.
+
+### Cold Pull boundary
+
+Cold Pull is single-use execution state. Positive delivery credit permits work
+toward the next bounded frame, subject to Source's independent row and content
+bounds; only bytes that fit the credit are transferred. Between pulls, Source
+may retain:
+
+- the immutable decoded document and current document-bound position;
+- closed selection and terminal state;
+- scalar view facts and the existing envelope;
+- one bounded encoded frame that was only partly delivered; and
+- bounded host reader storage owned by the host.
+
+It does not retain a complete `SourceView.Lines`, complete serialized result,
+or complete-result `byte[]`. Disposal, cancellation, supersession, or an
+expired Source receipt stops further production and releases the retained
+execution state under the host's existing lifetime contract.
+
+A semantically complete bounded result does not inspect an unrequested tail.
+For example, after `Head(10)` has accepted ten rows, a later oversized line is
+not observed. Complete must publish the same answer even if its physical scan
+already encountered that irrelevant tail; strategy choice cannot change
+success into failure. Rows and Count still surface a line-limit failure when
+that line prevents their semantic completion.
+
+### Measured basis
+
+The standalone
+[`richlander/convenience` Source pull prototype](https://github.com/richlander/convenience/pull/8)
+tested Complete, a direct specialized oracle, managed Pull, and a WHATWG
+`ReadableStream` wrapper over the same line and framing semantics. It is
+design evidence, not a production gate.
+
+For its approximately 524-KiB synthetic document under Browser NativeAOT, the
+Web stream was about 8x faster than Complete for Count, about 50x faster for
+`Head(10)`, about 44x faster for filtered `Head(10)`, and about 6% faster for
+complete Rows. Managed Pull stayed within about 2-9% of the specialized oracle
+in the reported large cases. The measured Browser NativeAOT crossover was
+approximately 5-13 KiB for Count and bounded Head and 26-51 KiB for complete
+Rows. NativeAOT Complete remained faster for the smallest inputs.
+
+This evidence rejects both universal Complete and universal Pull. It supports
+the conventional two-path model used by streaming parsers, buffered HTTP APIs,
+database iterators, and pull-based streams: keep an eager small-input path,
+then pay fixed pull and interop costs only when size and closed demand can avoid
+enough work or retained memory. The prototype's crossover ranges do not
+authorize product thresholds; production hosts must supply the scorecard below.
+
+The production scorecard keeps four roles distinct:
+
+- **Before** is the current complete `SourceView.Lines` projection and complete
+  host transport.
+- **Naive** adds bounded delivery after constructing the complete line
+  inventory. It shows whether transport has changed while producer work has
+  not.
+- **Specialized Oracle** is one allocation-conscious direct loop over the same
+  decoded document, closed demand, line rules, framing, and sink. It omits the
+  reusable Source operation and host protocol, so it is a practical comparator
+  rather than a production design or theoretical lower bound.
+- **After** is the production adaptive selector and selected Complete or Cold
+  Pull path.
+
+Every column returns the same semantic answer and visible failure. Kernel
+measurements explain execution cost; exact production-host measurements decide
+whether a threshold may ship.
 
 ## Acquisition, provider, and failure preservation
 
@@ -259,10 +395,12 @@ CLI adoption:
 
 1. `type ... -S Source` and `member ... -S Source` consume the shared view
    operation.
-2. Ordinary output repeatedly executes Rows until the line population is
-   exhausted, then concatenates exact content and terminators. Native output
-   remains the default; explicit Markdown continues through the existing
-   Markout code-document lowering.
+2. The Source selector keeps small or non-demand-aware operations on Complete.
+   When Cold Pull is selected, ordinary output repeatedly requests Rows until
+   the line population is exhausted and writes each bounded result without
+   first constructing a complete line inventory or complete encoded result.
+   Native output remains the default; explicit Markdown continues through the
+   existing Markout code-document lowering.
 3. `--count` reports exact line Count. Semantic `--rows` selects line rows;
    rendered `-n` remains a separate presentation limit.
 4. The current host-local `CliSourceDocument` projection retires after existing
@@ -271,8 +409,10 @@ CLI adoption:
 Inspect Web adoption:
 
 1. Type and member Source use the same shared view operation and envelope.
-2. The Worker returns scalar view facts and the first bounded line segment;
-   the viewer requests later segments with the Source-owned continuation.
+2. The Source selector keeps small documents on Complete. For Cold Pull, the
+   Worker exposes one cold operation; the viewer's first positive read starts
+   line production and later reads request bounded segments with the
+   Source-owned continuation.
 3. The Browser never treats callback credit, mounted DOM rows, or received
    segments as exact Count or completion.
 4. Authored Source and Decompiled Source remain independently selectable and
@@ -315,9 +455,10 @@ bytes.
 At the selected 256-row, 32,768-UTF-16, and 65,536-JSON-byte bounds, 855 of
 3,334 documents required continuation. The population produced 5,935 total
 segments; p95 was four segments per document and the maximum was 153. No
-observed line required fragmentation. Doubling both content bounds saved one
-segment across the population, so the 256-row bound dominates ordinary files
-while the content bounds contain pathological lines.
+observed line exceeded either content bound. Doubling both content bounds
+saved one segment across the population, so the 256-row bound dominates
+ordinary files while the content bounds reject unsupported pathological
+lines.
 
 A separate exact PDB census reproduced the pinned 104-assembly broad package
 pool. Seventy-seven assemblies supplied Portable PDBs and 76 supplied
@@ -346,22 +487,23 @@ continuation, and incompatible-request cases.
 
 Implementation proceeds through focused slices:
 
-1. Lock this Source view, physical-artifact association, line identity,
-   view-binding, execution-policy, and host-adoption contract, with a
-   reproducible observational census.
-2. Issue #8319 adds the shared immutable decoded-text document, bounded pull,
-   execution-only long-line fragments, and opaque continuation substrate.
-3. Compose the existing host-neutral Source view/artifact model and completed
-   type and member Source envelopes with that shared substrate. Gate exact
-   reconstruction, Source request compatibility, and failure preservation
-   without changing hosts.
-4. Adopt the composed operation in CLI type and member `Source`, preserve complete
-   default output, and retire the host-local source projection.
+1. Lock the Source view, physical-artifact association, line identity,
+   view-binding, and bounded host-adoption contract, with a reproducible
+   observational census. Completed under #8281.
+2. [Decoded text document](decoded-text-document.md) adds the shared immutable
+   decoded-text document, bounded pull, source-local position, and visible
+   line-limit failure under #8319. Completed under #8640.
+3. Under #8766, lock and then implement Source's House-only adaptive selector,
+   cold single-use execution, work observations, and semantic-equivalence
+   gates. Keep Complete as the small-input control.
+4. Adopt the composed operation in CLI type and member `Source`, preserve
+   complete default output, and retire the host-local source projection.
 5. Adopt the same operation in Inspect Web's type and member Source viewer,
    preserve the shared envelope and independent Decompiled Source selection,
    and retire the full-text Browser transport.
-6. Preserve the real Npgsql asset in CLI and published Browser/Wasm gates, each
-   requiring at least one continuation resume.
+6. Calibrate the production policy with the real Npgsql asset and zero, small,
+   crossover, and large synthetic documents in exact CoreCLR, NativeAOT, and
+   published Browser/Wasm hosts.
 
 Each slice remains independently coherent and keeps the direct path to both
 production hosts. This sequence does not authorize a broad rewrite of Source
@@ -375,11 +517,16 @@ acquisition, Query Space, or the viewer.
 | `SourceViewProjectionDistinguishesArtifactsAndPreservesEvidence` | The four view kinds are explicit; authored origins retain their physical artifact and member mapping; decompiled origins have no artifact; a declaration excerpt does not masquerade as its physical file; PDB/decompiled success and non-success preserve facts, Share, diagnostics, mapping, and typed failures. | Verified in Release by `SourceViewInspectionTests`. |
 | `SourceLineCountMatchesCompletelyDrainedRows` | Exact Count equals the completely drained ordered line population under one content binding. | Unverified until slice 3. |
 | `SourceLineSegmentSizeDoesNotChangeMeaning` | Different execution bounds preserve lines, order, Count, completion, reconstruction, and continuation meaning. | Unverified until slice 3. |
-| `SourceLineSegmentsRespectExecutionBounds` | Normal pulls stay within 256 rows, 32,768 UTF-16 row-text units, and 65,536 JSON-encoded row-text bytes; an individually over-bound line uses non-row fragments without splitting a surrogate pair or changing exact reconstruction. | Unverified until slices 2 and 3. |
+| `SourceLineSegmentsRespectExecutionBounds` | Successful pulls stay within 256 rows, 32,768 UTF-16 row-text units, and 65,536 JSON-encoded row-text bytes; an individually over-bound line fails visibly without returning a partial row or advancing its position. | Unverified until slices 2 and 3. |
 | `SourceLineContinuationRejectsIncompatibleBinding` | Stale, expired, different-document, different-request, and different-selection receipts fail without restarting. | Unverified until slice 3. |
+| `AdaptiveSelectionPreservesSourceMeaning` | Complete and Cold Pull produce the same rows, exact Count, completion, visible failure, envelope, and stable content check for every supported demand class and accepted policy threshold. | Unverified until slice 3. |
+| `ColdSourceExecutionStartsOnPositiveDemand` | Constructing a Cold Pull scans no line, projects no row, creates no result frame, and serializes no result bytes; the first positive delivery credit starts work. | Unverified until slice 3. |
+| `ColdSourceExecutionRetainsBoundedState` | Cold Pull retains the decoded document, execution position, closed plan, scalar facts, at most one partial bounded frame, and host-owned bounded reader storage, but no complete line inventory or complete encoded result. | Unverified until slice 3. |
+| `ClosedHeadDoesNotProcessUnrequestedTail` | Once bounded Head closes, a later line is not scanned, projected, serialized, or transferred, and a failure confined to that tail does not replace the successful answer. | Unverified until slice 3. |
 | `CliSourceDrainsContinuationWithoutChangingOutput` | CLI default output equals the pre-adoption decoded document, while Count and Rows observe source lines. | Unverified until slice 4. |
 | `BrowserSourceRequestsContinuedLines` | Published Browser/Wasm obtains the same envelope and document facts, requests later line segments instead of receiving complete text first, and keeps authored and decompiled views independently selectable and lazy. | Unverified until slice 5. |
 | `NpgsqlConnectionSourceRequiresContinuation` | The real checksum-verified Npgsql document requires and resumes at least one continuation in both production hosts. | Unverified until slice 6. |
+| Production execution scorecard | Exact base/head CoreCLR, NativeAOT, and published Browser/Wasm measurements cover Complete Rows, Count, `Head(1)`, `Head(10)`, `Head(100)`, and filtered Head across zero, small, crossover, Npgsql, and large inputs. Report Before, Naive, Specialized Oracle, and After; stable answers; median and p95; scans, projections, snapshots, serialized and transferred bytes, cancellation point, allocation, retained memory, and published Browser/Wasm code size. Every selected threshold stays within its explicitly recorded operator-approved small-input range and demonstrates the intended large or selective win. | Unverified until slice 6. |
 
 All correctness gates run in Release. A source-fetch measurement or one-shot
 timing is design evidence, not a runtime performance proof.
@@ -393,6 +540,11 @@ This contract does not claim:
 - that exact line Count is known before complete decoded-view exhaustion;
 - random line seeking or portable continuation receipts;
 - that exact Count is cheaper than splitting the complete decoded text;
+- that HTTP or SourceLink byte length selects physical execution;
+- one threshold across different production delivery profiles;
+- that Cold Pull is always faster than Complete;
+- that every House consumer supports Cold Pull;
+- adaptive execution on a legacy Source path;
 - that every Source view is a physical source artifact;
 - an exact physical-artifact span for the normalized authored member excerpt;
 - concatenation of partial-type documents into one Source view;

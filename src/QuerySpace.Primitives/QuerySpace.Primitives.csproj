@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>preview</LangVersion>
+    <RootNamespace>QuerySpace</RootNamespace>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <Authors>Richard Lander</Authors>
+    <Description>Dependency-free QuerySpace declaration and portable-request types: descriptors, identities, intents, requests, and delegate-free capability declarations</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="QuerySpace" />
+  </ItemGroup>
+
+  <!-- Contract floor by design: no project or package references. See docs/design/query-space-library.md#two-assemblies-and-two-participation-tiers. -->
+
+</Project>

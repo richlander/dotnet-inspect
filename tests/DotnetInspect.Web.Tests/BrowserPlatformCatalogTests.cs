@@ -266,6 +266,7 @@ public sealed partial class BrowserEngineBoundaryTests
 
     [Theory]
     [InlineData("net10.0", "11.0.0")]
+    [InlineData("net11.0", "12.0.0")]
     [InlineData("net11.0", "latest")]
     [InlineData("netstandard2.1", "2.1.0")]
     public async Task PlatformCatalog_InvalidTargetIsRejectedBeforeNetwork(string tfm, string version)

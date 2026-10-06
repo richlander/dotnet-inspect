@@ -1,7 +1,35 @@
 # Local development environment
 
-Supplementary notes for [Building and testing](../AGENTS.md#building-and-testing)
-that most contributors won't need but should be able to find.
+This document owns repository SDK selection, build and test commands, package
+acquisition, and local tool activation. Start with the
+[repository workflow](repository-workflow.md#building-testing-and-evidence).
+
+## SDK and normal build
+
+Before any other `dotnet` command, inspect the available and selected SDK:
+
+```bash
+command -v dotnet
+dotnet --list-sdks
+dotnet --version
+```
+
+Use the SDK selected by repository configuration and CI, following
+[Repository development SDK](cli-reference.md#repository-development-sdk).
+Never replace or shadow a centrally installed `dotnet`; when the required SDK
+is absent, install it only under the current worktree as the repository
+instructions specify.
+
+Build the normal graph with:
+
+```bash
+dotnet build dotnet-inspect.slnx -c Release
+```
+
+The primary dependencies are the .NET SDK,
+`Microsoft.CodeAnalysis.CSharp`, and Markout. For a major dependency update,
+check all three and update the .NET SDK and `Microsoft.CodeAnalysis.CSharp`
+together.
 
 ## Which dotnet-inspect to run
 
@@ -166,17 +194,17 @@ This Microsoft Testing Platform executable owns semantic row shaping and the
 cross-host completed-inspection envelope, portable-share, contained-diagnostic,
 and JSON round-trip contracts.
 
-### QueryOverflow tests
+### Graph substrate tests
 
-Run the resumable QuerySpace execution suite from the repository root:
+Run the domain-neutral graph carrier suite from the repository root:
 
 ```bash
-dotnet run --project tests/QueryOverflow.Tests -c Release
+dotnet run --project tests/Inspector.Graph.Tests -c Release
 ```
 
-This Microsoft Testing Platform executable owns QueryOverflow plan admission,
-bounded candidate demand, cross-batch Rows and Count equivalence, terminal
-state, detached output, and the independent-consumer boundary.
+This Microsoft Testing Platform executable owns structural invariants, the
+independently compiled direct-consumer proof, and the project plus assembly
+dependency boundary.
 
 ### Persistent-cache tests
 

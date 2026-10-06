@@ -431,6 +431,10 @@ public static class ILOffsetProjectionProducer
             Frequency = fact.Frequency,
             Escape = fact.Escape,
             EscapeKind = fact.EscapeKind,
+            LifetimeUses = FormatLifetimeUses(
+                fact.LifetimeEvidence.Uses),
+            LifetimeLimitations = FormatLifetimeLimitations(
+                fact.LifetimeEvidence.Limitations),
             EstimatedSizeBytes = fact.EstimatedSizeBytes,
             SizeTier = fact.SizeTier,
             InLoop = fact.InLoop ? "Yes" : "No",
@@ -441,4 +445,36 @@ public static class ILOffsetProjectionProducer
             Multiplicity = fact.Multiplicity,
             ChurnedType = fact.ChurnedType
         };
+
+    static string? FormatLifetimeUses(
+        ImmutableArray<Analysis.AllocationLifetimeUse> uses) =>
+        uses.IsDefaultOrEmpty
+            ? null
+            : string.Join(
+                ", ",
+                uses.Select(use =>
+                    $"{FormatILOffset(use.ILOffset)}: "
+                    + Analysis.SemanticFactProjection
+                        .FormatLifetimeUseKind(use.Kind)));
+
+    static string? FormatLifetimeLimitations(
+        ImmutableArray<Analysis.AllocationLifetimeLimitation> limitations) =>
+        limitations.IsDefaultOrEmpty
+            ? null
+            : string.Join(
+                ", ",
+                limitations.Select(limitation =>
+                {
+                    string location = limitation.ILOffset is { } offset
+                        ? $"{FormatILOffset(offset)}: "
+                        : "";
+                    string operation = limitation.Operation is { } opcode
+                        ? $" ({opcode})"
+                        : "";
+                    return location
+                        + Analysis.SemanticFactProjection
+                            .FormatLifetimeLimitationKind(
+                                limitation.Kind)
+                        + operation;
+                }));
 }

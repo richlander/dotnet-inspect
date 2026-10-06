@@ -5,6 +5,11 @@
     "purpose": "Current Workspace scope, ordered packages, and realization status."
   },
   {
+    "id": "ecosystem.overview",
+    "kind": "Ecosystem",
+    "purpose": "Registered Ecosystem identity, declarations, and population capabilities."
+  },
+  {
     "id": "package.overview",
     "kind": "Package",
     "purpose": "Package identity, selected target, assets, and summary facts."
@@ -23,6 +28,11 @@
     "id": "library.references",
     "kind": "Library",
     "purpose": "Direct assembly references for the active Library."
+  },
+  {
+    "id": "library.ecosystem-dependencies",
+    "kind": "Library",
+    "purpose": "Product-relative ecosystem recognition and candidate evidence for direct assembly references in the active Library."
   },
   {
     "id": "library.reference-hierarchy",

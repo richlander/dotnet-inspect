@@ -19,9 +19,89 @@ public sealed class StackSlotLiveRangePass : IIrPass
     {
         bool hasStructuredEh = function.Descendants.Any(node => node is TryCatch or TryFinally or CatchClause);
         while (SplitOnce(function, context.Stepper, hasStructuredEh)
+            || SplitBlockContainedOnce(function, context.Stepper)
             || SplitCrossBlockOnce(function, context.Stepper, hasStructuredEh))
         {
         }
+    }
+
+    static bool SplitBlockContainedOnce(IrFunction function, Stepper stepper)
+    {
+        var scopeNodes = CoercionSinks.ScopeNodes(function.Body).ToList();
+        foreach (var referencesBySlot in scopeNodes
+            .Where(node => node is StoreStackSlot or LoadStackSlot)
+            .GroupBy(node => node is StoreStackSlot store ? store.Slot : ((LoadStackSlot)node).Slot))
+        {
+            int slot = referencesBySlot.Key;
+            var references = referencesBySlot.ToList();
+            var blocks = references.Select(EnclosingBlock).ToList();
+            if (blocks.Any(block => block is null)
+                || blocks.Select(block => block!).Distinct().Count() < 2)
+            {
+                continue;
+            }
+
+            var ranges = new List<(
+                StoreStackSlot Store,
+                List<LoadStackSlot> Loads,
+                TypeRef ValueType,
+                TypeRef RangeType)>();
+            bool allRangesAreBlockContained = true;
+            foreach (var block in blocks.Select(block => block!).Distinct())
+            {
+                var blockReferences = references
+                    .Where(reference => ReferenceEquals(EnclosingBlock(reference), block))
+                    .ToList();
+                var stores = blockReferences.OfType<StoreStackSlot>().ToList();
+                var loads = blockReferences.OfType<LoadStackSlot>().ToList();
+                if (stores.Count != 1
+                    || loads.Count == 0
+                    || stores[0].Value.ResultType is not { } valueType
+                    || !ReferenceEquals(stores[0].Parent, block)
+                    || stores[0].Value.Descendants.Prepend(stores[0].Value)
+                        .OfType<LoadStackSlot>()
+                        .Any(load => load.Slot == slot)
+                    || loads.Any(load => EnclosingStatement(load)?.ChildIndex <= stores[0].ChildIndex)
+                    || block.Children
+                        .Skip(stores[0].ChildIndex)
+                        .Take(loads.Max(load => EnclosingStatement(load)!.ChildIndex)
+                            - stores[0].ChildIndex + 1)
+                        .SelectMany(statement => ScopeDescendants(statement).Prepend(statement))
+                        .Any(node => node is Block or BlockContainer or LabelAnchor
+                            || IsControlTransfer(node)))
+                {
+                    allRangesAreBlockContained = false;
+                    break;
+                }
+
+                var store = stores[0];
+                ranges.Add((store, loads, valueType, RangeType(function, store.Value, loads)!));
+            }
+            var rangesByType = ranges
+                .GroupBy(range => range.RangeType)
+                .OrderBy(group => group.Count())
+                .ToList();
+            if (!allRangesAreBlockContained || rangesByType.Count < 2)
+                continue;
+
+            var candidates = rangesByType[0].ToList();
+            int newSlot = FreshStackSlot(function);
+            stepper.StepOver(
+                $"split stack slot {slot} direct-block ranges to S_{newSlot}",
+                candidates[0].Store);
+            foreach (var candidate in candidates)
+            {
+                foreach (var load in candidate.Loads)
+                    load.ReplaceWith(new LoadStackSlot(newSlot, load.Type ?? candidate.ValueType));
+
+                var value = (IrExpression)candidate.Store.DetachChildren()[0];
+                var replacement = new StoreStackSlot(newSlot, value);
+                replacement.InheritSourceOffset(candidate.Store);
+                candidate.Store.ReplaceWith(replacement);
+            }
+            return true;
+        }
+        return false;
     }
 
     static bool SplitOnce(IrFunction function, Stepper stepper, bool hasStructuredEh)
@@ -31,10 +111,6 @@ public sealed class StackSlotLiveRangePass : IIrPass
             for (int i = 0; i < block.Children.Count; i++)
             {
                 if (block.Children[i] is not StoreStackSlot store || store.Value.ResultType is not { } valueType)
-                    continue;
-
-                var previousType = PreviousSlotType(block, i, store.Slot);
-                if (previousType is null || previousType.Equals(valueType))
                     continue;
 
                 // LiveLoads stops at the next store statement. A load in that
@@ -47,17 +123,28 @@ public sealed class StackSlotLiveRangePass : IIrPass
                 if (liveLoads.Count == 0)
                     continue;
 
+                var previousType = PreviousSlotType(function, block, i, store.Slot);
+                var currentType = RangeType(function, store.Value, liveLoads);
+                if (previousType is null || previousType.Equals(currentType))
+                    continue;
+
                 // The split only renumbers the loads reached by LiveLoads. A read
                 // from another block may be live-out and would be left on the old
                 // slot. Structured EH needs the stronger proof: later rewrites can
                 // reshape its regions, so every reference must belong to a top-level
                 // statement in one top-level try-body block, with no read-before-write
                 // hidden under a same-slot store.
+                bool hasLoopContainedEntryReset = HasLoopContainedEntryReset(
+                    function,
+                    block,
+                    store.Slot);
                 if (hasStructuredEh
-                    ? !ReferencesAreStraightLineInBlock(function, store.Slot, block)
+                    ? !hasLoopContainedEntryReset
+                        && !ReferencesAreStraightLineInBlock(function, store.Slot, block)
                     : function.Descendants.OfType<LoadStackSlot>()
                             .Any(load => load.Slot == store.Slot && !IsDescendantOf(load, block))
-                        || HasLoopCarriedLoadBeforeStore(function, block, i, store))
+                        || (!hasLoopContainedEntryReset
+                            && HasLoopCarriedLoadBeforeStore(function, block, i, store)))
                     continue;
 
                 int newSlot = FreshStackSlot(function);
@@ -367,6 +454,53 @@ public sealed class StackSlotLiveRangePass : IIrPass
         return false;
     }
 
+    static bool HasLoopContainedEntryReset(IrFunction function, Block block, int slot)
+    {
+        if (!IsWithinStructuredLoop(block))
+            return false;
+
+        var references = CoercionSinks.ScopeNodes(function.Body)
+            .Where(node => node is StoreStackSlot store && store.Slot == slot
+                || node is LoadStackSlot load && load.Slot == slot)
+            .ToList();
+        if (references.Count == 0
+            || references.Any(reference => !ReferenceEquals(EnclosingBlock(reference), block)))
+        {
+            return false;
+        }
+
+        if (block.Children
+            .SelectMany(statement => ScopeDescendants(statement).Prepend(statement))
+            .Any(node => node is LabelAnchor || IsControlTransfer(node)))
+        {
+            return false;
+        }
+
+        foreach (var statement in block.Children)
+        {
+            foreach (var node in ScopeDescendants(statement).Prepend(statement))
+            {
+                bool isReference = node switch
+                {
+                    StoreStackSlot store => store.Slot == slot,
+                    LoadStackSlot load => load.Slot == slot,
+                    _ => false,
+                };
+                if (!isReference)
+                    continue;
+
+                return node is StoreStackSlot entryStore
+                    && ReferenceEquals(entryStore, statement)
+                    && !ScopeDescendants(entryStore.Value)
+                        .Prepend(entryStore.Value)
+                        .OfType<LoadStackSlot>()
+                        .Any(load => load.Slot == slot);
+            }
+        }
+
+        return false;
+    }
+
     static Block? EnclosingFunctionBodyBlock(Block block, BlockContainer functionBody)
     {
         for (IrNode? current = block; current is not null; current = current.Parent)
@@ -389,23 +523,52 @@ public sealed class StackSlotLiveRangePass : IIrPass
         return false;
     }
 
-    static TypeRef? PreviousSlotType(Block block, int beforeChild, int slot)
+    static TypeRef? PreviousSlotType(IrFunction function, Block block, int beforeChild, int slot)
     {
         TypeRef? previous = null;
+        bool hasStore = false;
+        bool hasLoad = false;
+        bool allStoresAreBoolean = true;
+        bool allLoadsAreBoolean = true;
         for (int i = 0; i < beforeChild; i++)
         {
             foreach (var node in block.Children[i].Descendants.Prepend(block.Children[i]))
             {
-                previous = node switch
+                switch (node)
                 {
-                    StoreStackSlot store when store.Slot == slot => store.Value.ResultType ?? previous,
-                    LoadStackSlot load when load.Slot == slot => load.Type ?? previous,
-                    _ => previous,
-                };
+                    case StoreStackSlot store when store.Slot == slot:
+                        hasStore = true;
+                        allStoresAreBoolean &= CoercionSinks.IsBooleanSlotStoreValue(store.Value);
+                        previous = store.Value.ResultType ?? previous;
+                        break;
+                    case LoadStackSlot load when load.Slot == slot:
+                        hasLoad = true;
+                        var booleanType = CoercionSinks.BooleanSlotLoadType(
+                            load,
+                            function.Signature.ReturnType,
+                            function.TypeShapes);
+                        allLoadsAreBoolean &= booleanType is not null;
+                        previous = load.Type ?? previous;
+                        break;
+                }
             }
         }
-        return previous;
+        return hasStore && hasLoad && allStoresAreBoolean && allLoadsAreBoolean
+            ? TypeRef.CoreLib("System", "Boolean")
+            : previous;
     }
+
+    static TypeRef? RangeType(
+        IrFunction function,
+        IrExpression value,
+        IReadOnlyList<LoadStackSlot> loads)
+        => CoercionSinks.IsBooleanSlotStoreValue(value)
+            && loads.All(load => CoercionSinks.BooleanSlotLoadType(
+                load,
+                function.Signature.ReturnType,
+                function.TypeShapes) is not null)
+            ? TypeRef.CoreLib("System", "Boolean")
+            : value.ResultType;
 
     static bool NextStoreBoundaryHasUnprovenLoad(Block block, int storeChild, int slot)
     {

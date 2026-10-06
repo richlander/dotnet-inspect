@@ -3,8 +3,9 @@ using DotnetInspector.Queries;
 
 namespace DotnetInspect.Web;
 
-internal delegate ValueTask<NavigationOperationResult>
+internal delegate ValueTask<NavigationOperationResult?>
     BrowserSpotlightCurrentNavigationOperation<TNavigationAction>(
+        WorkspaceRealizationOperationLease operation,
         TNavigationAction action,
         CancellationToken cancellationToken)
     where TNavigationAction : class;
@@ -267,11 +268,27 @@ internal static class BrowserSpotlightRetainedCurrentActivation
                         block);
             }
 
-            NavigationOperationResult result =
+            NavigationOperationResult? result =
                 await navigate(
+                        operation,
                         navigation.Action,
                         cancellationToken)
                     .ConfigureAwait(false);
+            if (result is null)
+            {
+                return new BrowserSpotlightRetainedCurrentActivationResult<
+                    TPackageRequest,
+                    TNavigationAction,
+                    TPlatformAction,
+                    TLibraryIntent,
+                    TPackageFailure>.Blocked(
+                        descriptor,
+                        new BrowserSpotlightActivationBlock.Stale(
+                            BrowserSpotlightActivationStaleReason
+                                .WorkspaceIdentity,
+                            CurrentScope: null,
+                            CurrentRegistrations: null));
+            }
             return new BrowserSpotlightRetainedCurrentActivationResult<
                 TPackageRequest,
                 TNavigationAction,

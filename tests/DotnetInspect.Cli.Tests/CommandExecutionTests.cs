@@ -64,6 +64,16 @@ public partial class CommandExecutionTests
     private static readonly string TestAssemblyPath =
         typeof(CommandExecutionTests).Assembly.Location;
 
+    private static readonly string LibraryFixedOverviewSelection =
+        string.Join(
+            ';',
+            LibrarySections.CreatePipeline().FixedOverviewSectionNames);
+
+    private static readonly string PackageFixedOverviewSelection =
+        string.Join(
+            ';',
+            PackageSectionDescriptors.CreatePipeline().FixedOverviewSectionNames);
+
     private static void AssertLibraryAsset(string output, string assemblyName)
     {
         string field = Assert.Single(
@@ -174,7 +184,7 @@ public partial class CommandExecutionTests
         File.WriteAllBytes(path, image.ToArray());
     }
 
-    private static void WriteModuleConstraintAssembly(string path)
+    private static void WriteUnresolvedConstraintAssembly(string path)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -190,12 +200,17 @@ public partial class CommandExecutionTests
             default,
             default,
             default);
-        ModuleReferenceHandle module =
-            metadata.AddModuleReference(
-                metadata.GetOrAddString("Other.netmodule"));
+        AssemblyReferenceHandle assembly =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("Missing.Constraint.Assembly"),
+                new Version(1, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
         TypeReferenceHandle constraint =
             metadata.AddTypeReference(
-                module,
+                assembly,
                 metadata.GetOrAddString("N"),
                 metadata.GetOrAddString("Constraint"));
         metadata.AddTypeDefinition(
@@ -1113,9 +1128,10 @@ public partial class CommandExecutionTests
     }
 
     private static (string AssemblyPath, string SourcePath, string FixtureDir)
-        CreateNoSourceLinkDiscoveryAssembly()
+        CreateNoSourceLinkDiscoveryAssembly(
+            bool stringOverloadFirst = false)
     {
-        const string source =
+        const string integerFirstSource =
             """
             namespace DiscoveryFixtures;
 
@@ -1125,6 +1141,20 @@ public partial class CommandExecutionTests
                 public static string Overloaded(string value) => value;
             }
             """;
+        const string stringFirstSource =
+            """
+            namespace DiscoveryFixtures;
+
+            public static class NoSourceLink
+            {
+                public static string Overloaded(string value) => value;
+                public static int Overloaded(int value) => value;
+            }
+            """;
+        string source =
+            stringOverloadFirst
+                ? stringFirstSource
+                : integerFirstSource;
 
         var fixtureDir = Path.Combine(
             AppContext.BaseDirectory,
@@ -1964,7 +1994,8 @@ public partial class CommandExecutionTests
         {
             PlatformAssembly = assembly,
             TypeName = typeName,
-            Select = [SectionNames.TypeInfo]
+            Select = [SectionNames.TypeInfo],
+            FormatExplicitlySet = true,
         };
 
         var (exit, output, _) = await ConsoleCapture.RunAsync(
@@ -2066,8 +2097,8 @@ public partial class CommandExecutionTests
     {
         List<string> args = [.. command];
         args.AddRange(section == SectionNames.FindingCensus
-            ? ["-S", section, "--tips", "q"]
-            : ["-S", section, "--table", "--tips", "q", "-n", "40"]);
+            ? ["-S", section]
+            : ["-S", section, "--table", "-n", "40"]);
         return [.. args];
     }
 

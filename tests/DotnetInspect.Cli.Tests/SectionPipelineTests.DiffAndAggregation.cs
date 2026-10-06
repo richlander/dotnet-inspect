@@ -74,7 +74,11 @@ public partial class SectionPipelineTests
             category.Value);
         Assert.Equal(category.Value, pipeline.BaseSectionNames);
         Assert.DoesNotContain(
-            DiffSections.FindingTransitions.Name,
+            DiffSections.Summary.Name,
+            category.Value,
+            StringComparer.OrdinalIgnoreCase);
+        Assert.DoesNotContain(
+            DiffSections.Transitions.Name,
             category.Value,
             StringComparer.OrdinalIgnoreCase);
         Assert.DoesNotContain(
@@ -87,7 +91,8 @@ public partial class SectionPipelineTests
             StringComparer.OrdinalIgnoreCase);
         Assert.Equal(
             [
-                DiffSections.FindingTransitions.Name,
+                DiffSections.Summary.Name,
+                DiffSections.Transitions.Name,
                 DiffSections.ComplexityContext.Name,
                 DiffSections.StructuralContext.Name,
             ],
@@ -415,7 +420,7 @@ public partial class SectionPipelineTests
                         },
                     },
                     workspaceImplementation: true);
-        CompiledInspectionPlan<DiffQueryContext> findingTransitionsOnly =
+        CompiledInspectionPlan<DiffQueryContext> transitionsOnly =
             DiffCommand.GetRequestedQueryPlan(
                 catalog,
                 new DiffOptions
@@ -423,7 +428,7 @@ public partial class SectionPipelineTests
                     IncludeSections = new HashSet<string>(
                         StringComparer.OrdinalIgnoreCase)
                     {
-                        DiffSections.FindingTransitions.Name,
+                        DiffSections.Transitions.Name,
                     },
                 });
         CompiledInspectionPlan<DiffQueryContext> complexityContextOnly =
@@ -458,8 +463,8 @@ public partial class SectionPipelineTests
         Assert.Equal(
             [ApiComparisonQuery.Definition],
             workspaceComposedDocument.QueryPlan.Queries);
-        Assert.Empty(findingTransitionsOnly.RequestedQueries);
-        Assert.Empty(findingTransitionsOnly.QueryPlan.Queries);
+        Assert.Empty(transitionsOnly.RequestedQueries);
+        Assert.Empty(transitionsOnly.QueryPlan.Queries);
         Assert.Equal(
             [ImplementationComparisonQuery.Definition],
             complexityContextOnly.QueryPlan.Queries);

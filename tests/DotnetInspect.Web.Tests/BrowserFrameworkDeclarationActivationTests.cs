@@ -255,6 +255,55 @@ public sealed class BrowserFrameworkDeclarationActivationTests
     }
 
     [Fact]
+    public async Task AdmittedActionSurvivesNewPublication()
+    {
+        await using Scenario scenario = await CreateScenarioAsync();
+        using WorkspaceRealizationOperationLease operation =
+            await EnterAsync(scenario.Host);
+        TypeDeclarationLocatorResult.Evaluated result =
+            await LocateAsync(
+                operation.Workspace,
+                Name("System.Text.Json", "JsonSerializer"));
+        TypeDeclarationLocatorCandidate framework =
+            Assert.Single(
+                Assert.Single(result.Answers).Candidates,
+                candidate => candidate.Coordinate
+                    is ExactLibrarySourceCoordinate.Platform);
+        var destination =
+            new BrowserFrameworkDeclarationDestination.Type(framework);
+        BrowserFrameworkDeclarationAction action =
+            Assert.IsType<
+                BrowserFrameworkDeclarationActionPublication.Published>(
+                    Assert.Single(
+                        (await scenario.Activation.PublishAsync(
+                            Authority(scenario.Activation, 1),
+                            operation,
+                            Basis(operation, 1),
+                            result,
+                            [destination],
+                            [scenario.PlatformContext])).Actions)).Action;
+        BrowserFrameworkDeclarationActivationAdmission admission =
+            Assert.IsType<BrowserFrameworkDeclarationActivationAdmission>(
+                scenario.Activation.Admit(
+                    action,
+                    out BrowserFrameworkDeclarationActivationBlock? block));
+        Assert.Null(block);
+
+        _ = await scenario.Activation.PublishAsync(
+            Authority(scenario.Activation, 2),
+            operation,
+            Basis(operation, 2),
+            result,
+            [destination],
+            [scenario.PlatformContext]);
+
+        Assert.IsType<BrowserFrameworkDeclarationActivationResult.Settled>(
+            await scenario.Activation.ActivateAsync(
+                admission,
+                TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
     public async Task NewResultPreventsOlderGenerationPublication()
     {
         await using Scenario scenario = await CreateScenarioAsync();

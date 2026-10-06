@@ -60,11 +60,11 @@ public class CatalogDirectCallerQueryTests
     [Fact]
     public void ConstructedGenericCallJoinsOpenDefinition()
     {
-        LibraryBodyIndex target = LibraryBodyIndex.Open(
+        LibraryBodyAnalysisExecution target = BodyAnalysisTestExecution.Open(
             FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
-        LibraryBodyIndex source = LibraryBodyIndex.Open(
+        LibraryBodyAnalysisExecution source = BodyAnalysisTestExecution.Open(
             FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
-        MethodIdentity store = target.DeclaredMethods.Single(method =>
+        MethodIdentity store = target.CallGraph.DeclaredMethods.Single(method =>
             method.DeclaringType.Name == "Box`1"
             && method.Name == "Store"
             && method.ParameterTypes is [{ Kind: TypeRefKind.GenericParameter }]);
@@ -74,9 +74,9 @@ public class CatalogDirectCallerQueryTests
             store.MetadataToken,
             source,
             new AssemblyDependencyResolver(
-                new AssemblyDependencyResolutionOptions(target.Path)),
+                new AssemblyDependencyResolutionOptions(target.Receipt.SourceName)),
             new AssemblyDependencyResolver(
-                new AssemblyDependencyResolutionOptions(source.Path)));
+                new AssemblyDependencyResolutionOptions(source.Receipt.SourceName)));
 
         Assert.Contains(
             callers,
@@ -89,11 +89,11 @@ public class CatalogDirectCallerQueryTests
     [Fact]
     public void UnavailableCorrespondenceDoesNotFabricateCaller()
     {
-        LibraryBodyIndex target = LibraryBodyIndex.Open(
+        LibraryBodyAnalysisExecution target = BodyAnalysisTestExecution.Open(
             FixtureCatalog.AnalysisCallerGraphTargetV2.AssemblyPath());
-        LibraryBodyIndex source = LibraryBodyIndex.Open(
+        LibraryBodyAnalysisExecution source = BodyAnalysisTestExecution.Open(
             FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
-        MethodIdentity ping = target.DeclaredMethods.Single(method =>
+        MethodIdentity ping = target.CallGraph.DeclaredMethods.Single(method =>
             method.DeclaringType.Name == "Api"
             && method.Name == "Ping"
             && method.ParameterTypes.IsEmpty);
@@ -113,9 +113,9 @@ public class CatalogDirectCallerQueryTests
     [Fact]
     public void MatchingUnresolvedParameterContractsRetainCaller()
     {
-        LibraryBodyIndex target = LibraryBodyIndex.Open(
+        LibraryBodyAnalysisExecution target = BodyAnalysisTestExecution.Open(
             FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
-        LibraryBodyIndex source = LibraryBodyIndex.Open(
+        LibraryBodyAnalysisExecution source = BodyAnalysisTestExecution.Open(
             FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
         MethodIdentity ping = StringPing(target);
 
@@ -137,9 +137,9 @@ public class CatalogDirectCallerQueryTests
     [Fact]
     public void ResolvedAndUnresolvedMatchingParameterContractsRetainCaller()
     {
-        LibraryBodyIndex target = LibraryBodyIndex.Open(
+        LibraryBodyAnalysisExecution target = BodyAnalysisTestExecution.Open(
             FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
-        LibraryBodyIndex source = LibraryBodyIndex.Open(
+        LibraryBodyAnalysisExecution source = BodyAnalysisTestExecution.Open(
             FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
         MethodIdentity ping = StringPing(target);
         var sourcePolicy = new CountingPolicy(new FrameworkPolicy());
@@ -183,9 +183,9 @@ public class CatalogDirectCallerQueryTests
                 directory,
                 "Caller.dll",
                 callerImage);
-            LibraryBodyIndex target = LibraryBodyIndex.Open(targetPath);
-            LibraryBodyIndex caller = LibraryBodyIndex.Open(callerPath);
-            MethodIdentity echo = target.DeclaredMethods.Single(
+            LibraryBodyAnalysisExecution target = BodyAnalysisTestExecution.Open(targetPath);
+            LibraryBodyAnalysisExecution caller = BodyAnalysisTestExecution.Open(callerPath);
+            MethodIdentity echo = target.CallGraph.DeclaredMethods.Single(
                 method => method.Name == "Echo");
             ResolvedAssemblyReference targetAssembly =
                 Descriptor(target);
@@ -212,10 +212,10 @@ public class CatalogDirectCallerQueryTests
                                 UnavailablePolicy.Instance),
                     ]);
             var targetParticipant = new CatalogCallGraphParticipant(
-                target,
+                target.CallGraph,
                 targetAssembly);
             var callerParticipant = new CatalogCallGraphParticipant(
-                caller,
+                caller.CallGraph,
                 callerAssembly);
 
             Assert.Empty(
@@ -243,10 +243,10 @@ public class CatalogDirectCallerQueryTests
         string targetPath,
         params string[] parameterTypes)
     {
-        LibraryBodyIndex target = LibraryBodyIndex.Open(targetPath);
-        LibraryBodyIndex source = LibraryBodyIndex.Open(
+        LibraryBodyAnalysisExecution target = BodyAnalysisTestExecution.Open(targetPath);
+        LibraryBodyAnalysisExecution source = BodyAnalysisTestExecution.Open(
             typeof(CatalogDirectCallerQueryTests).Assembly.Location);
-        MethodIdentity create = target.DeclaredMethods.Single(method =>
+        MethodIdentity create = target.CallGraph.DeclaredMethods.Single(method =>
             method.DeclaringType.Name == "XmlReader"
             && method.Name == "Create"
             && method.ParameterTypes
@@ -261,9 +261,9 @@ public class CatalogDirectCallerQueryTests
     }
 
     static ImmutableArray<CatalogDirectCaller> Find(
-        LibraryBodyIndex target,
+        LibraryBodyAnalysisExecution target,
         int targetMethodToken,
-        LibraryBodyIndex source,
+        LibraryBodyAnalysisExecution source,
         IAssemblyBindingPolicy targetPolicy,
         IAssemblyBindingPolicy sourcePolicy)
     {
@@ -276,20 +276,20 @@ public class CatalogDirectCallerQueryTests
             ]);
         return CatalogDirectCallerQuery.Find(
             policy,
-            new CatalogCallGraphParticipant(target, targetAssembly),
+            new CatalogCallGraphParticipant(target.CallGraph, targetAssembly),
             targetMethodToken,
-            [new CatalogCallGraphParticipant(source, sourceAssembly)]);
+            [new CatalogCallGraphParticipant(source.CallGraph, sourceAssembly)]);
     }
 
-    static MethodIdentity StringPing(LibraryBodyIndex target) =>
-        target.DeclaredMethods.Single(method =>
+    static MethodIdentity StringPing(LibraryBodyAnalysisExecution target) =>
+        target.CallGraph.DeclaredMethods.Single(method =>
             method.DeclaringType.Name == "Api"
             && method.Name == "Ping"
             && method.ParameterTypes is [{ Name: "String" }]);
 
-    static ResolvedAssemblyReference Descriptor(LibraryBodyIndex index) =>
+    static ResolvedAssemblyReference Descriptor(LibraryBodyAnalysisExecution index) =>
         ResolvedAssemblyReference.CreateFromPath(
-            index.Path,
+            index.Receipt.SourceName,
             AssemblyResolutionProvenance.Local(
                 "catalog direct-caller test"));
 

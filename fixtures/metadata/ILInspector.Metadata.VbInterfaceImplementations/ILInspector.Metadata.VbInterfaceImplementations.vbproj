@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    VB.NET fixture for effective member access. VB spells an interface
+    implementation as an ordinarily named body of any accessibility with an
+    `Implements` clause, which compiles to a MethodImpl. C# emits MethodImpl
+    bodies only as private explicit implementations, so this compiler-produced
+    fixture carries the non-private shapes. Consumed by path through
+    FixtureCatalog (id `metadata.vb-interface-implementations`); never
+    referenced for compilation. RootNamespace is cleared so the fixture types
+    are plain `VbImplementations` and friends.
+  -->
+  <PropertyGroup>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <OutputType>Library</OutputType>
+    <RootNamespace></RootNamespace>
+    <IsPackable>false</IsPackable>
+    <IsAotCompatible>false</IsAotCompatible>
+    <!-- EnablePreviewFeatures (repo root) sets LangVersion=Preview, which vbc rejects. -->
+    <LangVersion>latest</LangVersion>
+    <EnablePreviewFeatures>false</EnablePreviewFeatures>
+  </PropertyGroup>
+
+</Project>

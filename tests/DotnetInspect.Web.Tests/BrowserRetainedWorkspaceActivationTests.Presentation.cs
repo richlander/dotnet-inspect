@@ -2,8 +2,10 @@ using System.Text.Json;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
+using DotnetInspector.Ecosystems;
 using NuGetFetch;
 using Catalog = DotnetInspect.Web.Interop.Catalog;
+using Source = DotnetInspect.Web.Interop.Source;
 using PackageAdmission = DotnetInspect.Web.BrowserRetainedWorkspaceAdmissionResult<DotnetInspect.Web.BrowserRetainedWorkspacePackagePresentation>;
 using PlatformAdmission = DotnetInspect.Web.BrowserRetainedWorkspaceAdmissionResult<DotnetInspect.Web.BrowserRetainedWorkspacePlatformPresentation>;
 
@@ -28,12 +30,15 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
 
         BrowserRetainedWorkspacePackagePresentation package =
             Assert.Single(installation.Packages);
+        CommittedScenarioDefinitionSet definition =
+            Assert.IsType<CommittedScenarioDefinitionSet>(
+                installation.Definition);
         Assert.Equal(0, package.ContextIndex);
         Assert.Empty(installation.Platforms);
         Assert.Equal("t0", Assert.Single(
-            installation.Definition.Navigation!.Tabs).Id);
+            definition.Navigation!.Tabs).Id);
         Assert.Equal("g0", Assert.Single(
-            installation.Definition.Workspace!.Contexts).Name);
+            definition.Workspace!.Contexts).Name);
         AssertPackagePresentation(package.Surface, "net9.0");
     }
 
@@ -50,11 +55,14 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
             new BrowserRetainedWorkspaceActivationOwner(() => options);
         BrowserRetainedWorkspacePosting installation =
             await ActivateAsync(owner, "mixed", MixedInventoryPacket(reverseContexts));
+        CommittedScenarioDefinitionSet definition =
+            Assert.IsType<CommittedScenarioDefinitionSet>(
+                installation.Definition);
         int mixedIndex = reverseContexts ? 1 : 0;
-        Assert.Equal("t1", installation.Definition.Navigation!.Focus);
-        Assert.Equal($"g{mixedIndex}", installation.Definition.Scenario.Context);
-        Assert.Equal(3, installation.Definition.Navigation.Tabs.Count);
-        Assert.Equal(2, installation.Definition.Workspace!.Contexts.Count);
+        Assert.Equal("t1", definition.Navigation!.Focus);
+        Assert.Equal($"g{mixedIndex}", definition.Scenario.Context);
+        Assert.Equal(3, definition.Navigation.Tabs.Count);
+        Assert.Equal(2, definition.Workspace!.Contexts.Count);
         Assert.Collection(
             installation.Packages,
             package =>
@@ -88,7 +96,10 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
                 "mixed", installation.RealizationId, "t1",
                 TestContext.Current.CancellationToken));
         Assert.Same(installation, owner.Active);
-        Assert.Equal("t1", owner.Active?.Definition.Navigation?.Focus);
+        Assert.Equal(
+            "t1",
+            Assert.IsType<CommittedScenarioDefinitionSet>(
+                owner.Active?.Definition).Navigation?.Focus);
         await owner.DisposeAsync();
         AssertPlatformPresentation(platform);
     }
@@ -105,9 +116,12 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
                 """
                 {"f":3,"t":[[":Platform","10.0.10","net10.0",null]],"g":[[0]],"r":[],"a":null,"x":0,"v":[{"t":null,"u":{"k":"workspace"}},{"t":0}]}
                 """));
+        CommittedScenarioDefinitionSet definition =
+            Assert.IsType<CommittedScenarioDefinitionSet>(
+                installation.Definition);
         Assert.Empty(installation.Packages);
-        Assert.Null(installation.Definition.Navigation!.Focus);
-        Assert.Equal("g0", installation.Definition.Scenario.Context);
+        Assert.Null(definition.Navigation!.Focus);
+        Assert.Equal("g0", definition.Scenario.Context);
         BrowserRetainedWorkspacePlatformPresentation platform =
             Assert.Single(installation.Platforms);
         Assert.Null(platform.RuntimeIdentifier);
@@ -127,13 +141,133 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
                 """
                 {"f":3,"t":[],"g":[],"r":[["p","Microsoft.Extensions."]],"a":null,"x":null,"v":[{"t":null,"u":{"k":"workspace"}}]}
                 """));
+        CommittedScenarioDefinitionSet definition =
+            Assert.IsType<CommittedScenarioDefinitionSet>(
+                installation.Definition);
         Assert.Empty(installation.Packages);
         Assert.Empty(installation.Platforms);
-        Assert.Empty(installation.Definition.Navigation!.Tabs);
-        Assert.Empty(installation.Definition.Workspace!.Contexts);
-        Assert.Single(installation.Definition.Workspace.Registrations);
-        Assert.Null(installation.Definition.Navigation.Focus);
-        Assert.Null(installation.Definition.Scenario.Context);
+        Assert.Empty(definition.Navigation!.Tabs);
+        Assert.Empty(definition.Workspace!.Contexts);
+        Assert.Single(definition.Workspace.Registrations);
+        Assert.Null(definition.Navigation.Focus);
+        Assert.Null(definition.Scenario.Context);
+    }
+
+    [Fact]
+    public async Task EcosystemPackageAdmission_PreservesSubjectAndAddsExactScopePackages()
+    {
+        CompleteRestorationExecutionOptions options =
+            await EcosystemAdmissionOptionsAsync();
+        await using var owner =
+            new BrowserRetainedWorkspaceActivationOwner(() => options);
+        WorkspacePlan plan = EcosystemPackCatalog.CreateWorkspacePlan(
+            [EcosystemPackIds.Aspire]);
+        WorkspaceRegistration.Ecosystem registration =
+            Assert.Single(
+                plan.Registrations.OfType<WorkspaceRegistration.Ecosystem>(),
+                candidate =>
+                    candidate.Declaration.Id.Value
+                        == EcosystemPackIds.Aspire.Value);
+        var request = new BrowserRetainedWorkspaceActivationRequest(
+            "aspire",
+            "Aspire",
+            "/ecosystems/ecosystem.aspire",
+            new CompleteRestorationRequestBasis
+                .RegistrationOnlyEcosystemInput(
+                    plan,
+                    registration.Declaration.Id,
+                    new ViewFacetId("ecosystem.overview")));
+        BrowserRetainedWorkspacePosting initial =
+            Assert.IsType<BrowserRetainedWorkspaceActivationResult.Activated>(
+                await owner.ActivateAsync(
+                    request,
+                    TestContext.Current.CancellationToken)).Posting;
+        SettleNavigation(initial.NavigationState, initial.Navigation);
+
+        var invalid = Assert.IsType<
+            BrowserEcosystemPackageAdmissionResult.Failed>(
+                await owner.AdmitEcosystemPackageAsync(
+                    "aspire",
+                    initial.RealizationId,
+                    "Aspire.Hosting",
+                    "9.0.0",
+                    new(
+                        WorkspaceEcosystemRegistrationId.Create(
+                            EcosystemPackIds.Runtime.Value),
+                        PackageQueryEcosystemMembershipBasis.ExactPackage,
+                        "Aspire.Hosting"),
+                    TestContext.Current.CancellationToken));
+        Assert.Contains(
+            "instead of",
+            invalid.Message,
+            StringComparison.Ordinal);
+        Assert.Empty(initial.Packages);
+
+        var exact = Assert.IsType<
+            BrowserEcosystemPackageAdmissionResult.Admitted>(
+                await owner.AdmitEcosystemPackageAsync(
+                    "aspire",
+                    initial.RealizationId,
+                    "Aspire.Hosting",
+                    "9.0.0",
+                    new(
+                        registration.Declaration.Id,
+                        PackageQueryEcosystemMembershipBasis.ExactPackage,
+                        "Aspire.Hosting"),
+                    TestContext.Current.CancellationToken));
+        Assert.Equal(
+            StructuralSubjectKind.Ecosystem,
+            exact.Posting.Navigation.Snapshot.ActiveSubject.Kind);
+        Assert.Equal(
+            registration.Declaration.Id.Value,
+            exact.Posting.Navigation.Snapshot.ActiveSubject.Label);
+        SettleNavigation(
+            exact.Posting.NavigationState,
+            exact.Navigation.Consumer);
+
+        var prefix = Assert.IsType<
+            BrowserEcosystemPackageAdmissionResult.Admitted>(
+                await owner.AdmitEcosystemPackageAsync(
+                    "aspire",
+                    initial.RealizationId,
+                    "Aspire.Example",
+                    "9.0.0",
+                    new(
+                        registration.Declaration.Id,
+                        PackageQueryEcosystemMembershipBasis.PackagePrefix,
+                        "Aspire."),
+                    TestContext.Current.CancellationToken));
+        SettleNavigation(
+            prefix.Posting.NavigationState,
+            prefix.Navigation.Consumer);
+
+        Assert.Equal(
+            ["Aspire.Example", "Aspire.Hosting"],
+            [.. prefix.Posting.Packages
+                .Select(package => package.Inventory.Package.PackageId)
+                .Order(StringComparer.Ordinal)]);
+        using WorkspaceRealizationOperationLease operation =
+            await EnterAsync(owner, "aspire");
+        Assert.Equal(
+            ["Aspire.Example", "Aspire.Hosting"],
+            [.. operation.Scope.Packages
+                .Select(package =>
+                    package.Occurrence.Package.PackageId)
+                .Order(StringComparer.Ordinal)]);
+
+        var duplicate = Assert.IsType<
+            BrowserEcosystemPackageAdmissionResult.NoEffect>(
+                await owner.AdmitEcosystemPackageAsync(
+                    "aspire",
+                    initial.RealizationId,
+                    "Aspire.Hosting",
+                    "9.0.0",
+                    new(
+                        registration.Declaration.Id,
+                        PackageQueryEcosystemMembershipBasis.ExactPackage,
+                        "Aspire.Hosting"),
+                    TestContext.Current.CancellationToken));
+        Assert.Same(prefix.Posting, duplicate.Posting);
     }
 
     [Fact]
@@ -177,6 +311,151 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
             await owner.AdmitPackageAsync(
                 "a", replacement.RealizationId, "t0",
                 TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task RetainedMethodBodyOperation_IgnoresAmbiguousLegacyScopes()
+    {
+        _ = await OptionsAsync();
+        BrowserPackageRealization realization = Assert.IsType<
+            BrowserPackageRealizationResult.Realized>(
+                await BrowserPackageWorkspace.RealizeWithSettlementAsync(
+                    "System.Text.Json",
+                    "9.0.4",
+                    "net9.0",
+                    TestContext.Current.CancellationToken))
+            .Realization;
+        await using BrowserScopeLease<BrowserInspectionScope> bound =
+            await BrowserPackageWorkspace.OpenScopeAsync(
+                realization,
+                TestContext.Current.CancellationToken);
+        await using BrowserScopeLease<BrowserInspectionScope> unbound =
+            await BrowserPackageWorkspace.OpenScopeAsync(
+                "System.Text.Json",
+                "9.0.4",
+                "net9.0",
+                TestContext.Current.CancellationToken);
+        Assert.NotSame(bound.Scope, unbound.Scope);
+        Assert.Throws<InvalidOperationException>(() =>
+            BrowserPackageWorkspace.LeaseRetainedPackageScope(
+                "System.Text.Json",
+                "9.0.4",
+                "net9.0"));
+
+        await Catalog.BrowserRetainedWorkspaceActivationService
+            .ResetForTestsAsync();
+        try
+        {
+            string activationJson =
+                await Catalog.CatalogExports
+                    .ActivateRetainedWorkspaceDefinition(
+                        "method-body",
+                        "Method body",
+                        "/workspace/method-body",
+                        Packet());
+            Catalog.BrowserRetainedWorkspaceActivationResult activation =
+                JsonSerializer.Deserialize(
+                    activationJson,
+                    Catalog.BrowserCatalogJsonContext.Default
+                        .BrowserRetainedWorkspaceActivationResult)!;
+            Assert.Equal("activated", activation.Status);
+            BrowserRetainedWorkspacePosting posting =
+                Assert.IsType<BrowserRetainedWorkspacePosting>(
+                    Catalog.BrowserRetainedWorkspaceActivationService
+                        .Owner.Active);
+            BrowserRetainedWorkspacePackagePresentation package =
+                Assert.Single(posting.Packages);
+            (BrowserTypeSurfaceInfo type,
+                BrowserMemberSurfaceInfo member,
+                BrowserMemberBodySelectorInfo body) =
+                package.Surface.Types
+                    .SelectMany(type => type.Api.SelectMany(
+                        member => member.BodySelectors.Select(
+                            body => (type, member, body))))
+                    .First(candidate =>
+                        candidate.member.MetadataToken
+                            == candidate.body.Token);
+
+            Source.BrowserMethodBodyTargetsResult targets =
+                JsonSerializer.Deserialize(
+                    await Source.SourceExports
+                        .QueryRetainedMethodBodyComparisonTargets(
+                            Guid.NewGuid().ToString(),
+                            posting.RetainedDefinitionId,
+                            posting.RealizationId,
+                            package.NavigationId,
+                            package.Surface.Package,
+                            package.Surface.Version,
+                            package.Surface.ActiveFramework,
+                            type.AssemblyId,
+                            type.DefinitionId,
+                            body.MemberName,
+                            body.SelectorKey,
+                            body.Token),
+                    Source.BrowserSourceJsonContext.Default
+                        .BrowserMethodBodyTargetsResult)!;
+            Assert.True(
+                targets.Kind
+                    == Source.BrowserMethodBodyResultKind.Succeeded,
+                $"{targets.Error}{Environment.NewLine}{targets.Diagnostic}");
+            Source.BrowserMethodBodyTargets inventory =
+                Assert.IsType<Source.BrowserMethodBodyTargets>(
+                    targets.Value);
+            var request = new Source.BrowserMethodBodyComparisonRequest(
+                inventory.PackageId,
+                inventory.Version,
+                inventory.Framework,
+                inventory.Assembly,
+                inventory.ModuleVersionId,
+                inventory.Before,
+                inventory.Before);
+            Source.BrowserMethodBodyComparisonResult comparison =
+                JsonSerializer.Deserialize(
+                    await Source.SourceExports
+                        .QueryRetainedMethodBodyComparison(
+                            Guid.NewGuid().ToString(),
+                            posting.RetainedDefinitionId,
+                            posting.RealizationId,
+                            package.NavigationId,
+                            JsonSerializer.Serialize(
+                                request,
+                                Source.BrowserSourceJsonContext.Default
+                                    .BrowserMethodBodyComparisonRequest)),
+                    Source.BrowserSourceJsonContext.Default
+                        .BrowserMethodBodyComparisonResult)!;
+            Assert.Equal(
+                Source.BrowserMethodBodyResultKind.Succeeded,
+                comparison.Kind);
+            Assert.Equal("Completed", comparison.Value?.Outcome);
+
+            Source.BrowserMethodBodyComparisonResult stale =
+                JsonSerializer.Deserialize(
+                    await Source.SourceExports
+                        .QueryRetainedMethodBodyComparison(
+                            Guid.NewGuid().ToString(),
+                            posting.RetainedDefinitionId,
+                            "stale-realization",
+                            package.NavigationId,
+                            JsonSerializer.Serialize(
+                                request,
+                                Source.BrowserSourceJsonContext.Default
+                                    .BrowserMethodBodyComparisonRequest)),
+                    Source.BrowserSourceJsonContext.Default
+                        .BrowserMethodBodyComparisonResult)!;
+            Assert.Equal(
+                Source.BrowserMethodBodyResultKind.Failed,
+                stale.Kind);
+            Assert.Contains("ContextUnavailable", stale.Error);
+        }
+        finally
+        {
+            await Catalog.BrowserRetainedWorkspaceActivationService
+                .ResetForTestsAsync();
+            await bound.DisposeAsync();
+            await unbound.DisposeAsync();
+            await BrowserPackageWorkspace.RemoveScopeAsync(bound.Scope);
+            await BrowserPackageWorkspace.RemoveScopeAsync(unbound.Scope);
+        }
     }
 
     [Fact]
@@ -386,6 +665,161 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
         }
     }
 
+    [Fact]
+    public async Task CatalogFacade_PackageQueryPreparesProductDefinition()
+    {
+        _ = await OptionsAsync();
+        Catalog.BrowserProductWorkspacePlans.ConfigurePlatform();
+        await Catalog.BrowserRetainedWorkspaceActivationService
+            .ResetForTestsAsync();
+        try
+        {
+            string preparationJson =
+                await Catalog.CatalogExports
+                    .PreparePackageQueryWorkspaceDefinition(
+                        "package-query",
+                        "System.Text.Json@9.0.4",
+                        "/packages/System.Text.Json/9.0.4#package",
+                        "System.Text.Json",
+                        "9.0.4");
+            Catalog.BrowserRetainedWorkspacePreparationResult preparation =
+                Assert.IsType<
+                    Catalog.BrowserRetainedWorkspacePreparationResult>(
+                        JsonSerializer.Deserialize(
+                            preparationJson,
+                            Catalog.BrowserCatalogJsonContext.Default
+                                .BrowserRetainedWorkspacePreparationResult));
+            Assert.Equal("prepared", preparation.Status);
+            Catalog.BrowserRetainedWorkspacePreparedPosting prepared =
+                Assert.IsType<Catalog.BrowserRetainedWorkspacePreparedPosting>(
+                    preparation.Preparation);
+            Assert.Equal("package-query", prepared.RetainedDefinitionId);
+            Assert.Null(prepared.CanonicalPacket);
+            Catalog.BrowserWorkspaceShareTab tab =
+                Assert.Single(prepared.Definition.Tabs);
+            Assert.Equal("System.Text.Json", tab.Source, ignoreCase: true);
+            Assert.Equal("9.0.4", tab.Version);
+            Assert.NotEmpty(prepared.Definition.Registrations);
+
+            string cancellationJson =
+                await Catalog.CatalogExports.CancelRetainedWorkspaceActivation(
+                    Assert.IsType<string>(preparation.Receipt));
+            Catalog.BrowserRetainedWorkspaceActivationResult cancellation =
+                Assert.IsType<Catalog.BrowserRetainedWorkspaceActivationResult>(
+                    JsonSerializer.Deserialize(
+                        cancellationJson,
+                        Catalog.BrowserCatalogJsonContext.Default
+                            .BrowserRetainedWorkspaceActivationResult));
+            Assert.NotEqual("failed", cancellation.Status);
+        }
+        finally
+        {
+            await Catalog.BrowserRetainedWorkspaceActivationService
+                .ResetForTestsAsync();
+        }
+    }
+
+    [Theory]
+    [InlineData("ecosystem.microsoft-extensions", "Microsoft.Extensions")]
+    [InlineData("ecosystem.aspire", "Aspire")]
+    public async Task CatalogFacade_EcosystemPreparesExactEmptySubject(
+        string ecosystemId,
+        string title)
+    {
+        _ = await OptionsAsync();
+        Catalog.BrowserProductWorkspacePlans.ConfigurePlatform();
+        await Catalog.BrowserRetainedWorkspaceActivationService
+            .ResetForTestsAsync();
+        try
+        {
+            string preparationJson =
+                await Catalog.CatalogExports
+                    .PrepareEcosystemWorkspaceDefinition(
+                        $"ecosystem-{ecosystemId}",
+                        title,
+                        $"/ecosystems/{ecosystemId}",
+                        ecosystemId);
+            Catalog.BrowserRetainedWorkspacePreparationResult preparation =
+                Assert.IsType<
+                    Catalog.BrowserRetainedWorkspacePreparationResult>(
+                        JsonSerializer.Deserialize(
+                            preparationJson,
+                            Catalog.BrowserCatalogJsonContext.Default
+                                .BrowserRetainedWorkspacePreparationResult));
+
+            Assert.Equal("prepared", preparation.Status);
+            Catalog.BrowserRetainedWorkspacePreparedPosting prepared =
+                Assert.IsType<Catalog.BrowserRetainedWorkspacePreparedPosting>(
+                    preparation.Preparation);
+            Assert.Null(prepared.CanonicalPacket);
+            Assert.Empty(prepared.Definition.Tabs);
+            Assert.Empty(prepared.Definition.Contexts);
+            Assert.Null(prepared.Definition.ActiveTabId);
+            Assert.Null(prepared.Definition.SelectedContextId);
+            Assert.Contains(
+                prepared.Definition.Registrations,
+                registration =>
+                    registration.Ecosystem?.Id == ecosystemId);
+            Assert.Equal(
+                "Ecosystem",
+                prepared.Navigation.Snapshot.ActiveSubject.Kind);
+            Assert.Equal(
+                ecosystemId,
+                prepared.Navigation.Snapshot.ActiveSubject.Label);
+            Assert.NotEmpty(prepared.Navigation.Snapshot.ActiveSubject.Id);
+            Assert.Contains(
+                prepared.Navigation.Snapshot.Hierarchy,
+                descriptor =>
+                    descriptor.IsActive
+                    && descriptor.Kind == "Ecosystem"
+                    && descriptor.Subject?.Id
+                        == prepared.Navigation.Snapshot.ActiveSubject.Id);
+            Assert.Equal(title, prepared.Label);
+            Assert.Empty(prepared.Packages);
+            Assert.Empty(prepared.Platforms);
+
+            string cancellationJson =
+                await Catalog.CatalogExports.CancelRetainedWorkspaceActivation(
+                    Assert.IsType<string>(preparation.Receipt));
+            Catalog.BrowserRetainedWorkspaceActivationResult cancellation =
+                Assert.IsType<Catalog.BrowserRetainedWorkspaceActivationResult>(
+                    JsonSerializer.Deserialize(
+                        cancellationJson,
+                        Catalog.BrowserCatalogJsonContext.Default
+                            .BrowserRetainedWorkspaceActivationResult));
+            Assert.NotEqual("failed", cancellation.Status);
+        }
+        finally
+        {
+            await Catalog.BrowserRetainedWorkspaceActivationService
+                .ResetForTestsAsync();
+        }
+    }
+
+    [Fact]
+    public async Task CatalogFacade_UnknownEcosystemFailsVisibly()
+    {
+        string preparationJson =
+            await Catalog.CatalogExports.PrepareEcosystemWorkspaceDefinition(
+                "ecosystem-unknown",
+                "Unknown",
+                "/ecosystems/ecosystem.unknown",
+                "ecosystem.unknown");
+        Catalog.BrowserRetainedWorkspacePreparationResult preparation =
+            Assert.IsType<Catalog.BrowserRetainedWorkspacePreparationResult>(
+                JsonSerializer.Deserialize(
+                    preparationJson,
+                    Catalog.BrowserCatalogJsonContext.Default
+                        .BrowserRetainedWorkspacePreparationResult));
+
+        Assert.Equal("failed", preparation.Status);
+        Assert.Equal("UnknownEcosystem", preparation.Failure?.Kind);
+        Assert.Contains(
+            "not in the product catalog",
+            preparation.Failure?.Message,
+            StringComparison.Ordinal);
+    }
+
     static async Task AssertCatalogFacadeAsync(
         bool includePlatform)
     {
@@ -554,6 +988,55 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
         {
             await Catalog.BrowserRetainedWorkspaceActivationService.ResetForTestsAsync();
         }
+    }
+
+    static void SettleNavigation(
+        BrowserNavigationStateSlot state,
+        NavigationConsumerResult result)
+    {
+        NavigationEffectAuthority authority =
+            Assert.IsType<NavigationEffectAuthority>(result.Authority);
+        Assert.Equal(
+            NavigationAuthorityResult.Accepted,
+            state.RecordConsumerPosting(authority));
+        Assert.Equal(
+            NavigationAuthorityResult.Accepted,
+            state.Acknowledge(authority));
+    }
+
+    static async Task<CompleteRestorationExecutionOptions>
+        EcosystemAdmissionOptionsAsync()
+    {
+        CompleteRestorationExecutionOptions options = await OptionsAsync();
+        const string sourceUrl = "https://api.nuget.org/v3/index.json";
+        string framework =
+            TraversalTargetFrameworkPolicy.ProductDefault.TargetFramework;
+        (string PackageId, string AssemblyPath)[] packages =
+        [
+            (
+                "Aspire.Hosting",
+                typeof(BrowserRetainedWorkspaceActivationTests)
+                    .Assembly.Location),
+            (
+                "Aspire.Example",
+                typeof(BrowserPackageWorkspace).Assembly.Location),
+        ];
+        foreach ((string packageId, string assemblyPath) in packages)
+        {
+            byte[] assembly = await File.ReadAllBytesAsync(
+                assemblyPath,
+                TestContext.Current.CancellationToken);
+            string assemblyName = Path.GetFileName(assemblyPath);
+            await BrowserPackageWorkspace.RegisterGalleryPackageAsync(
+                new BrowserPackage(
+                    packageId,
+                    "9.0.0",
+                    Archive(
+                        ($"lib/{framework}/{assemblyName}.dll", assembly)),
+                    fromCache: false,
+                    producerKey: NuGetCache.GetSourceKey(sourceUrl)));
+        }
+        return options;
     }
 
     static void AssertPackagePresentation(

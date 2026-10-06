@@ -131,8 +131,8 @@ Every Package Query condition is a `QuerySpace.PortableQueryTerm`. The shared
 planner authors
 one complete `PortableQueryIntent` containing:
 
-- exactly one population term: `package=<id>` or
-  `prefix=<literal-prefix>`;
+- exactly one population term: `package=<id>`,
+  `prefix=<literal-prefix>`, or `ecosystem=<ecosystem-id>`;
 - exactly one version-policy term: `prerelease=stable|include`;
 - the required `candidates` bound and optional `matches` bound;
 - retained Head, Tail, or Window stages; and
@@ -269,9 +269,11 @@ previews. The term does not resolve ranges or traverse dependencies.
 `depends-ecosystem` accepts one canonical, case-sensitive
 `ecosystem.<name>` identity and matches a direct dependency against the
 Ecosystems owner's resource-free package-population declaration. Membership is
-the union of exact package-set members and registered package-ID prefixes,
-using NuGet package-ID comparison semantics; an exact registration takes
-evidence precedence when both rules match. Repeated ecosystem terms are
+the union of the ecosystem's core packages, matched exactly, and its
+registered package-ID prefixes, using NuGet package-ID comparison semantics;
+an exact core match takes evidence precedence when both rules match. Curated
+package sets are not consulted (see
+[package set retirement](package-set-retirement.md)). Repeated ecosystem terms are
 independent conjunctions, so each named ecosystem must match at least one
 direct dependency in the selected scope.
 
@@ -571,6 +573,60 @@ package-content terms retain their explicit provider requirement and
 20-candidate ceiling. Match limits, candidate limits, source page limits,
 failures, and cancellation retain the visible query-event contract. The
 retired Gallery browse/order substrate is not a CLI adoption path.
+
+### Ecosystem population
+
+An Ecosystem population lists the packages that belong to one Ecosystem: its
+core packages, matched exactly, and every package under each of its recorded
+package-ID prefixes. It uses the same resource-free
+`PackageQueryEcosystemMembershipDeclaration` that `depends-ecosystem=` binds,
+so the two terms cannot disagree about membership.
+
+It is spelled either as the `--ecosystem <id>` option or as the
+`ecosystem=<id>` term in `--where`; both produce the same `ecosystem`
+population term. An identity may be canonical (`ecosystem.aspire`) or the
+short name (`aspire`), case-insensitive; the short name canonicalizes before
+binding, so a plan and its portable intent always carry the canonical
+identity. `ecosystem=` is the only population term `--where` admits;
+`package=` and `prefix=` remain positional-only. An Ecosystem population
+cannot be combined with a positional package ID or prefix, and a malformed,
+unknown, or population-less Ecosystem is rejected before package-source work,
+as `depends-ecosystem=` already does.
+
+Execution admits candidates in a fixed order under one shared candidate
+limit:
+
+1. core packages in authored order, each through exact input (authoritative
+   version and listing evidence, never a search fallback);
+2. then each recorded prefix in recorded order, through the prefix page
+   stream.
+
+A package already admitted by an earlier source is not admitted again, so a
+core package that also matches a prefix appears once, at its core position.
+Admission stops when the shared candidate limit is reached. The completion
+is the most limiting outcome across the sources that ran: a source-wide
+failure, then `SourcePageLimitReached` or `ClientPageLimitReached` from any
+prefix, then `CandidateLimitReached`, and otherwise `Exhausted`. An Ecosystem
+with no prefixes completes as `Exhausted` after its core. Sources after the
+limit do not run; `CandidateLimitReached` is the visible signal that the
+population was not exhausted.
+
+A core package with no eligible version (for example a prerelease-only root
+without prerelease enabled) contributes no candidate and is not a failure;
+failures are transport or resolution errors. A core package that fails that
+way fails as that one candidate: the failure names the package, counts against
+the shared limit, and the other roots and prefixes still answer. A failed prefix search is source-wide and
+completes the query as `Failed`, although later sources still run.
+
+Every match carries a `package.query.scope.ecosystem` scope evidence naming
+the Ecosystem and the basis that admitted the package (`exact package <id>`
+or `package prefix <prefix>`). The summary and CLI title name the canonical
+Ecosystem identity.
+
+The CLI adopts the population through `--ecosystem` and `--where ecosystem=`.
+The Browser package-query engine will adopt it in a follow-up slice through an
+Ecosystem selection beside its free-text input, reusing the same planner,
+execution, and evidence; until then the Browser has no Ecosystem population.
 
 ### Existing layering
 

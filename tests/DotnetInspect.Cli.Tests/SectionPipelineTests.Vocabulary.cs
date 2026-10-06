@@ -1,5 +1,8 @@
 using DotnetInspect.Cli.Sections;
-using DotnetInspector.Vocabulary;
+using DotnetInspector.Queries;
+using DotnetInspector.Sections;
+using ILInspector.Decompiler;
+using ILInspector.Decompiler.Pipeline;
 
 namespace DotnetInspect.Cli.Tests;
 
@@ -22,28 +25,28 @@ public partial class SectionPipelineTests
             categories.Keys.Order(StringComparer.Ordinal));
         Assert.Equal(
             [
-                VocabularyCatalog.SectionsSection,
-                VocabularyCatalog.AccessibilitySection,
-                VocabularyCatalog.StyleTiersSection,
-                VocabularyCatalog.StyleChoicesSection,
-                VocabularyCatalog.BodyKindsSection,
+                ProductVocabularyComposition.SectionsLabel,
+                ApiAccessibilityVocabulary.AccessibilityLabel,
+                StyleOptionVocabularies.StyleTiersLabel,
+                StyleOptionVocabularies.StyleChoicesLabel,
+                BodyShapeVocabulary.BodyKindsLabel,
             ],
             categories[SectionCategoryNames.Vocabulary]);
         Assert.Equal(
-            [VocabularyCatalog.AccessibilitySection],
+            [ApiAccessibilityVocabulary.AccessibilityLabel],
             categories[SectionCategoryNames.Api]);
         Assert.Equal(
             [
-                VocabularyCatalog.BodyKindsSection,
-                VocabularyCatalog.StyleChoicesSection,
-                VocabularyCatalog.StyleTiersSection,
+                BodyShapeVocabulary.BodyKindsLabel,
+                StyleOptionVocabularies.StyleChoicesLabel,
+                StyleOptionVocabularies.StyleTiersLabel,
             ],
             categories[SectionCategoryNames.Decompiler]);
         Assert.Equal(
             pipeline.SelectableSectionNames,
             pipeline.BaseSectionNames);
         Assert.Equal(
-            [VocabularyCatalog.SectionsSection],
+            [ProductVocabularyComposition.SectionsLabel],
             pipeline.InfoSectionNames);
         Assert.Empty(pipeline.GetCatalogHiddenSections());
     }
@@ -55,18 +58,18 @@ public partial class SectionPipelineTests
             VocabularySections.CreatePipeline();
 
         Assert.Equal(
-            VocabularyCatalog.Document.Sections
+            CliVocabularyDocument.Document.Sections
                 .Select(section => section.Name)
                 .Order(StringComparer.OrdinalIgnoreCase),
             pipeline.SelectableSectionNames
                 .Order(StringComparer.OrdinalIgnoreCase));
         Assert.Equal(
             [
-                VocabularyCatalog.AccessibilitySection,
-                VocabularyCatalog.BodyKindsSection,
-                VocabularyCatalog.StyleChoicesSection,
-                VocabularyCatalog.StyleTiersSection,
-                VocabularyCatalog.SectionsSection,
+                ApiAccessibilityVocabulary.AccessibilityLabel,
+                BodyShapeVocabulary.BodyKindsLabel,
+                StyleOptionVocabularies.StyleChoicesLabel,
+                StyleOptionVocabularies.StyleTiersLabel,
+                ProductVocabularyComposition.SectionsLabel,
             ],
             pipeline.AlphabeticalSectionOrder);
     }

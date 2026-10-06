@@ -23,8 +23,10 @@ those owner-issued facts; it does not redefine them.
 
 The motivating production evidence remains the pinned ArrayPool-heavy
 community corpus, including MessagePack 2.5.192, Npgsql 8.0.4, and
-Pipelines.Sockets.Unofficial 2.2.8. Their existing ArrayPool lifecycle and
-Research paths remain independent fidelity oracles during this migration.
+Pipelines.Sockets.Unofficial 2.2.8. The generic lifecycle and Research paths
+were certified against the former ArrayPool-specific implementations before
+those implementations were retired; the durable comparison is recorded in
+[ArrayPool ownership retirement](../evidence/arraypool-ownership-retirement.md).
 
 ## Analysis summary contract
 
@@ -203,15 +205,15 @@ The focused gates establish:
 - witness and path budgets preserve positive evidence while reporting their
   limits.
 
-The legacy `ArrayPoolOwnershipFlow` and
-`ArrayPoolOwnershipPathFindings` remain independently executable. They are not
-adapters, inputs, or fallback results for the generic path.
+The focused retirement comparison established that the former
+`ArrayPoolOwnershipFlow` and `ArrayPoolOwnershipPathFindings` implementations
+were not inputs, adapters, or fallback results for this generic path. They were
+removed after the comparison reached zero classified defects.
 
 ## Non-claims
 
 This design does not:
 
-- retire or rewrite the legacy ArrayPool Analysis or Research path;
 - redefine resource declarations, effect resolution, Resource Occurrence, or
   Resource Lifecycle policy;
 - infer a resource kind for an incoming parameter before a caller supplies an

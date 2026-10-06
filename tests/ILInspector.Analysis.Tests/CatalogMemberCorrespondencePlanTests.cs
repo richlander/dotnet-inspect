@@ -969,9 +969,9 @@ public class CatalogMemberCorrespondencePlanTests
                 nameof(VarargFixture),
                 BindingFlags.NonPublic | BindingFlags.Static)!
             .MetadataToken;
-        LibraryBodyIndex index = LibraryBodyIndex.Open(assemblyPath);
+        LibraryBodyAnalysisExecution index = BodyAnalysisTestExecution.Open(assemblyPath);
         MethodIdentity member = Assert.Single(
-            index.Methods,
+            index.CallGraph.Methods,
             candidate => candidate.MetadataToken == token);
         byte[] image = File.ReadAllBytes(assemblyPath);
         ResolvedAssemblyReference source = Descriptor(image);
@@ -1007,20 +1007,20 @@ public class CatalogMemberCorrespondencePlanTests
             FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath();
         string callerPath =
             FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath();
-        LibraryBodyIndex targetIndex = LibraryBodyIndex.Open(targetPath);
-        LibraryBodyIndex callerIndex = LibraryBodyIndex.Open(callerPath);
+        LibraryBodyAnalysisExecution targetIndex = BodyAnalysisTestExecution.Open(targetPath);
+        LibraryBodyAnalysisExecution callerIndex = BodyAnalysisTestExecution.Open(callerPath);
         MethodIdentity oneRequired = Assert.Single(
-            targetIndex.Methods,
+            targetIndex.CallGraph.Methods,
             member => member.DeclaringType.Name == "VarargApi"
                 && member.Name == "Sink"
                 && member.ParameterTypes.Length == 1);
         MethodIdentity threeRequired = Assert.Single(
-            targetIndex.Methods,
+            targetIndex.CallGraph.Methods,
             member => member.DeclaringType.Name == "VarargApi"
                 && member.Name == "Sink"
                 && member.ParameterTypes.Length == 3);
         MemberRef callSite = Assert.Single(
-            callerIndex.DirectCalls,
+            callerIndex.CallGraph.DirectCalls,
             call => call.Caller.Name == "UseVararg"
                 && call.Callee.Name == "Sink").Callee;
         ResolvedAssemblyReference target =

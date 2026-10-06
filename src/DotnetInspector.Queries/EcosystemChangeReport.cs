@@ -14,91 +14,85 @@ public abstract record EcosystemChangePackageSelection
     {
     }
 
-    /// <summary>One exact, named package set.</summary>
-    public sealed record PackageSet : EcosystemChangePackageSelection
+    /// <summary>
+    /// An ordered set of literal package-ID prefixes, optionally identified by
+    /// the owner-issued selection (such as an Ecosystem) that recorded them.
+    /// </summary>
+    public sealed record PackagePrefix : EcosystemChangePackageSelection
     {
-        private const int MaximumPackageIds =
-            GitHubNuGetAdvisoryOptions.MaximumCoordinates;
-        private readonly ImmutableHashSet<string> _packageIdLookup;
+        /// <summary>The most prefixes one report may select.</summary>
+        public const int MaximumPrefixes = 16;
 
-        public PackageSet(
-            string selectionId,
-            IEnumerable<PackageCoordinate> packages)
+        public PackagePrefix(PackagePrefixDeclaration prefix)
+            : this(selectionId: null, [prefix])
         {
-            ArgumentException.ThrowIfNullOrWhiteSpace(selectionId);
-            ArgumentNullException.ThrowIfNull(packages);
-            if (selectionId.Length > 128
-                || !InertString.IsPermitted(TextPolicy.Field, selectionId))
+        }
+
+        public PackagePrefix(
+            string? selectionId,
+            IEnumerable<PackagePrefixDeclaration> prefixes)
+        {
+            ArgumentNullException.ThrowIfNull(prefixes);
+            if (selectionId is not null
+                && (selectionId.Length is 0 or > 128
+                    || !InertString.IsPermitted(TextPolicy.Field, selectionId)))
             {
                 throw new ArgumentException(
-                    "A package-set selection identity must be a permitted field of at most 128 characters.",
+                    "A package-prefix selection identity must be a permitted field of at most 128 characters.",
                     nameof(selectionId));
             }
 
-            var packageIds = ImmutableArray.CreateBuilder<string>();
+            var builder = ImmutableArray.CreateBuilder<PackagePrefixDeclaration>();
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (PackageCoordinate package in packages)
+            foreach (PackagePrefixDeclaration prefix in prefixes)
             {
-                ArgumentNullException.ThrowIfNull(package);
-                if (package.Version is not null
-                    || package.Framework is not null
-                    || package.RuntimeIdentifier is not null)
+                ArgumentNullException.ThrowIfNull(prefix);
+                if (!seen.Add(prefix.Prefix))
                 {
                     throw new ArgumentException(
-                        "An ecosystem package set contains package IDs, not resolved package coordinates.",
-                        nameof(packages));
+                        $"Package prefix '{prefix.Prefix}' is selected more than once.",
+                        nameof(prefixes));
                 }
-                if (!PackageCoordinateResolver.IsCanonicalPackageId(
-                        package.PackageId))
-                {
-                    throw new ArgumentException(
-                        "An ecosystem package set contains an invalid package ID.",
-                        nameof(packages));
-                }
-                if (!seen.Add(package.PackageId))
-                    continue;
-                if (packageIds.Count == MaximumPackageIds)
+                if (builder.Count == MaximumPrefixes)
                 {
                     throw new ArgumentOutOfRangeException(
-                        nameof(packages),
-                        $"An ecosystem package set cannot exceed {MaximumPackageIds} package IDs.");
+                        nameof(prefixes),
+                        $"A package-prefix selection cannot exceed {MaximumPrefixes} prefixes.");
                 }
-                packageIds.Add(package.PackageId);
+                builder.Add(prefix);
             }
 
-            if (packageIds.Count == 0)
+            if (builder.Count == 0)
             {
                 throw new ArgumentException(
-                    "An ecosystem package set must contain at least one package ID.",
-                    nameof(packages));
+                    "A package-prefix selection must contain at least one prefix.",
+                    nameof(prefixes));
             }
 
             SelectionId = selectionId;
-            PackageIds = packageIds.ToImmutable();
-            _packageIdLookup = PackageIds.ToImmutableHashSet(
-                StringComparer.OrdinalIgnoreCase);
+            Prefixes = builder.ToImmutable();
         }
 
-        /// <summary>Gets the owner-issued identity of the selected package set.</summary>
-        public string SelectionId { get; }
+        /// <summary>Gets the owner-issued selection identity, when one recorded the prefixes.</summary>
+        public string? SelectionId { get; }
 
-        /// <summary>Gets exact package IDs in stable declaration order.</summary>
-        public IReadOnlyList<string> PackageIds { get; }
+        /// <summary>Gets the literal prefixes in recorded order.</summary>
+        public ImmutableArray<PackagePrefixDeclaration> Prefixes { get; }
 
-        internal bool Contains(string packageId) =>
-            _packageIdLookup.Contains(packageId);
-    }
-
-    /// <summary>One literal package-ID prefix.</summary>
-    public sealed record PackagePrefix : EcosystemChangePackageSelection
-    {
-        public PackagePrefix(PackagePrefixDeclaration prefix)
+        internal bool Matches(string packageId)
         {
-            ArgumentNullException.ThrowIfNull(prefix);
-            Prefix = prefix;
-        }
+            foreach (PackagePrefixDeclaration prefix in Prefixes)
+            {
+                if (packageId.StartsWith(
+                        prefix.Prefix,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
 
-        public PackagePrefixDeclaration Prefix { get; }
+            return false;
+        }
     }
 }
 

@@ -13,15 +13,6 @@ namespace ILInspector.Analysis;
 /// </summary>
 public static class LibraryBodyAnalysisService
 {
-    public static LibraryBodyIndex AnalyzePath(
-        string path,
-        LibraryBodyAnalysisRequest request,
-        IAssemblyReferenceResolver? resolver = null)
-    {
-        RequireCompatibilityRequest(request);
-        return ExecutePath(path, request, resolver).CompatibilityIndex();
-    }
-
     /// <summary>
     /// Executes Analysis over an exact path and publishes independently typed
     /// focused results from one body walk.
@@ -66,24 +57,6 @@ public static class LibraryBodyAnalysisService
             resolver,
             rootSnapshot: null,
             bindingPolicy: null);
-    }
-
-    /// <summary>
-    /// Executes Analysis over caller-provided immutable PE image content
-    /// without reopening <paramref name="sourceName"/> as a path.
-    /// </summary>
-    public static LibraryBodyIndex AnalyzeImage(
-        string sourceName,
-        ImmutableArray<byte> image,
-        LibraryBodyAnalysisRequest request,
-        IAssemblyReferenceResolver? resolver = null)
-    {
-        RequireCompatibilityRequest(request);
-        return ExecuteImage(
-            sourceName,
-            image,
-            request,
-            resolver).CompatibilityIndex();
     }
 
     /// <summary>
@@ -233,22 +206,7 @@ public static class LibraryBodyAnalysisService
         || plan.Includes(
             LibraryBodyAnalysisFeatures.AsyncSiblingOpportunities)
         || plan.Includes(
-            LibraryBodyAnalysisFeatures.OwnershipFlow)
-        || plan.Includes(
             LibraryBodyAnalysisFeatures.LocalThrows);
-
-    private static void RequireCompatibilityRequest(
-        LibraryBodyAnalysisRequest request)
-    {
-        ArgumentNullException.ThrowIfNull(request);
-        if (request.ResourceEffects is not null)
-        {
-            throw new ArgumentException(
-                "Resource Occurrence Analysis publishes a focused result. "
-                + "Use ExecutePath or ExecuteImage.",
-                nameof(request));
-        }
-    }
 
     private static LibraryBodyRootSnapshot? AcquireRootSnapshot(
         string path)
@@ -283,7 +241,7 @@ public static class LibraryBodyAnalysisService
             fullPath,
             () => File.OpenRead(fullPath),
             AssemblyResolutionProvenance.Local(
-                "LibraryBodyIndex"),
+                nameof(LibraryBodyAnalysisService)),
             lastWriteTimeUtc);
         AssemblyImageSnapshotResult result =
             AssemblyImageSnapshot.Open(
@@ -323,7 +281,7 @@ public static class LibraryBodyAnalysisService
             path: null,
             openRead: () => new MemoryStream(bytes, writable: false),
             provenance: AssemblyResolutionProvenance.Local(
-                "LibraryBodyIndex"));
+                nameof(LibraryBodyAnalysisService)));
         AssemblyImageSnapshotResult result =
             AssemblyImageSnapshot.FromRetainedContent(
                 assembly,

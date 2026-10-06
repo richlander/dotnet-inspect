@@ -34,13 +34,13 @@ namespace ILInspector.Decompiler.Pipeline;
 /// </summary>
 internal static class ClosureCoverage
 {
-    [Completeness(CompletenessLevel.Partial, "value- and void-expression bodies, simple blocks, non-capturing local-bound bodies, and parameter-capturing local-bound bodies; outer-local capturing local-bound bodies still owed")]
+    [Completeness(CompletenessLevel.Partial, "value- and void-expression bodies, nested lambda bodies, simple blocks, non-capturing local-bound bodies, and parameter-capturing local-bound bodies; outer-local capturing bodies with their own local storage still owed")]
     public static LambdaRaisingPass Lambda => new();
 
     [Completeness(CompletenessLevel.Partial, "static local functions with expression/simple block/local-bodied forms, plus capturing (ref struct display-class env, substituted back) zero-local local functions, declared back into the host method and called by their source name; capturing local-bodied, recursive, nested, and shared-environment local functions still owed")]
     public static LocalFunctionRaisingPass LocalFunction => new();
 
-    [Completeness(CompletenessLevel.Partial, "a lambda's captured variables, substituted back from its <>c__DisplayClass environment — folded onto the delegate, or a local set up and shared across statements (allocation/stores elided); a class captured by a local function, or nested environments, still owed")]
+    [Completeness(CompletenessLevel.Partial, "a lambda's captured variables, substituted back from its <>c__DisplayClass environment — folded onto the delegate, or a local set up and shared across statements (capture-defining expressions rematerialized as source locals; environment allocation/stores elided); a class captured by a local function, or nested environments, still owed")]
     public static LambdaRaisingPass CapturedClosure => new();
 
     [Completeness(CompletenessLevel.Partial, "the canonical homogeneous-Int32 arithmetic expression lambda (parameters + Add/Subtract/Multiply/Divide/Remainder over Expression.Constant/parameter refs), whose fully-owned Expression.Parameter/Add/…/Lambda<Func<int,…,int>> factory graph is rewritten back to its source `p => e`; captured, member-token, method-call, comparison, and non-Int32/multi-type graphs stay in their honest factory-call form (still owed, #2864)")]

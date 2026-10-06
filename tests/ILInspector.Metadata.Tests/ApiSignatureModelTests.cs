@@ -175,18 +175,17 @@ public sealed class ApiSignatureModelTests
             getter.Name,
             StringComparison.Ordinal);
 
+        // The accessor composes into its property row, so the property's
+        // accessor view is the accessor's only member.
         ApiMember accessor = Assert.Single(
             ApiMemberAccessors.Create(member, type));
-        ApiMember physical = Assert.Single(
+        Assert.DoesNotContain(
             type.Members,
             candidate => candidate.MetadataToken == accessor.MetadataToken);
         Assert.Equal(getter.Name, accessor.Name);
         Assert.Equal(
             "explicit-interface-implementation",
             accessor.Kind);
-        Assert.Equal(
-            ApiMemberIdentity.GetMemberAnchor(type, physical),
-            ApiMemberIdentity.GetMemberAnchor(type, accessor));
     }
 
     [Theory]

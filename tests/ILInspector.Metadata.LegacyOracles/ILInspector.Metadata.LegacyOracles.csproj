@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Dated legacy oracles: product paths retired by a modernization, frozen
+    verbatim so their replacements keep an equivalence oracle. Test
+    infrastructure only; nothing in src/ references it.
+  -->
+  <PropertyGroup>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>preview</LangVersion>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\ILInspector.Metadata\ILInspector.Metadata.csproj" />
+    <ProjectReference Include="..\..\src\ILInspector.MetadataPrimitives\ILInspector.MetadataPrimitives.csproj" />
+  </ItemGroup>
+
+</Project>

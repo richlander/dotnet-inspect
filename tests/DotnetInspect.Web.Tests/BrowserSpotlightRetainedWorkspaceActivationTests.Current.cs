@@ -69,7 +69,7 @@ public sealed partial class BrowserSpotlightRetainedWorkspaceActivationTests
                 (requested, _) =>
                 {
                     Assert.Same(action, requested);
-                    return ValueTask.FromResult(
+                    return ValueTask.FromResult<NavigationOperationResult?>(
                         CurrentNavigationResult(
                             workspace,
                             descriptor.Basis.Scope));
@@ -441,8 +441,10 @@ public sealed partial class BrowserSpotlightRetainedWorkspaceActivationTests
         BrowserRetainedWorkspaceActivationOwner owner,
         string sourceRetainedDefinitionId,
         CurrentDescriptor descriptor,
-        BrowserSpotlightCurrentNavigationOperation<TestNavigationAction>
-            navigate,
+        Func<
+            TestNavigationAction,
+            CancellationToken,
+            ValueTask<NavigationOperationResult?>> navigate,
         BrowserSpotlightPackageAcquisitionOperation<
             BrowserSpotlightExternalPackageWorkspaceRequest,
             TestPackageFailure> acquirePackage,
@@ -458,7 +460,8 @@ public sealed partial class BrowserSpotlightRetainedWorkspaceActivationTests
                 owner,
                 sourceRetainedDefinitionId,
                 descriptor,
-                navigate,
+                (_, action, cancellationToken) =>
+                    navigate(action, cancellationToken),
                 acquirePackage,
                 focusPackage,
                 DateTimeOffset.UtcNow.AddMinutes(2),

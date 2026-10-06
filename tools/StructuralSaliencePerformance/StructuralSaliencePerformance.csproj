@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <LangVersion>preview</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <IsPackable>false</IsPackable>
+    <IsPublishable>true</IsPublishable>
+    <PublishAot>true</PublishAot>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <OptimizationPreference>Speed</OptimizationPreference>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/ILInspector.Metadata/ILInspector.Metadata.csproj" />
+    <ProjectReference Include="../../src/ILInspector.Research/ILInspector.Research.csproj" />
+  </ItemGroup>
+
+</Project>

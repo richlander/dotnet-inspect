@@ -35,6 +35,10 @@ public class MemorySafetyDeclarationFixtures
     public int* PointerField;
     public unsafe int ContractField;
     public int Property { get; set; }
+    public virtual int VirtualPrivateSetter { get; private set; }
+    public virtual int VirtualPrivateGetter { private get; set; }
+    public int InitProperty { get; init; }
+    public int this[int index] { get => index; set { } }
     public static int StaticProperty { get; set; }
     public int CustomProperty { get => 1; set { } }
     public event Action? Event;

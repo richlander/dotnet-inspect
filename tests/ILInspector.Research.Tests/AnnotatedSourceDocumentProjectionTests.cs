@@ -460,7 +460,7 @@ public class AnnotatedSourceDocumentProjectionTests
         var ilLines = IlProjection.RenderIlBodyLines(
             source,
             typeof(AnnotatedTasteFixture).FullName!,
-            nameof(AnnotatedTasteFixture.GuardBothVariable),
+            nameof(AnnotatedTasteFixture.Noop),
             overloadIndex: 0,
             publicOnly: false);
         var markers = ilLines
@@ -471,7 +471,7 @@ public class AnnotatedSourceDocumentProjectionTests
         var projection = MemberProjectionProducer.Produce(new MemberProjectionRequest(
             source,
             typeof(AnnotatedTasteFixture).FullName!,
-            nameof(AnnotatedTasteFixture.GuardBothVariable),
+            nameof(AnnotatedTasteFixture.Noop),
             Registry: new ResearchFactRegistry(new MarkersProducer(markers)),
             SourceDocument: true));
         var document = Assert.IsType<AnnotatedSourceDocument>(projection.SourceDocument);

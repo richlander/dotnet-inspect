@@ -59,6 +59,8 @@ public class ReferenceConditionalBindingTests
         var conditional = Assert.Single(function.Descendants.OfType<Conditional>());
         Assert.Equal(ObjectType, conditional.ResultType);
         Assert.True(conditional.CanAssignReferenceArmsTo(StringType, function.TypeShapes));
+        Assert.Empty(function.Descendants.OfType<StoreStackSlot>());
+        Assert.Empty(function.Descendants.OfType<LoadStackSlot>());
         string output = CSharpPrinter.Print(function).Output!;
         Assert.Contains("string S_1 = ", output);
         Assert.Contains("_dateTimeFormat = S_1;", output);
@@ -154,20 +156,92 @@ public class ReferenceConditionalBindingTests
     }
 
     [Fact]
-    public void FinalBindingDoesNotChangeStorageAdmission()
+    public void SlotTargetBindingAdmitsReferenceConditionalStorage()
     {
-        var conditional = Choose(new Constant(null, ObjectType), new LoadArgument(1, "value", StringType));
+        var conditional = Choose(new Constant(null, ObjectType), new LoadArgument(1, "value", ObjectType));
         conditional.MergedType = ObjectType;
+        conditional.WhenFalse.ReplaceWith(new LoadArgument(1, "value", StringType));
         var function = Function(StringType, new StoreStackSlot(0, conditional),
             new Return(new LoadStackSlot(0, StringType)));
         var before = Assert.Single(SlotMaterializationPass.Analyze(function));
-        new ReferenceConditionalBindingPass().Run(function, PassContext.None);
+        Assert.Equal(SlotMaterializationVeto.OutsideCoercionDomain
+        | SlotMaterializationVeto.UnrenderableStoreType, before.Vetoes);
+
+        new ReferenceSlotTargetBindingPass().Run(function, PassContext.None);
         var after = Assert.Single(SlotMaterializationPass.Analyze(function));
-        Assert.Equal(before.WillMaterialize, after.WillMaterialize);
-        Assert.Equal(before.Vetoes, after.Vetoes);
+        Assert.True(after.WillMaterialize);
         Assert.Equal(before.Type, after.Type);
         Assert.Equal(ObjectType, conditional.AssignmentType);
+
+        new SlotMaterializationPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<StoreStackSlot>());
+        Assert.Empty(function.Descendants.OfType<LoadStackSlot>());
         Assert.Contains("string S_0", CSharpPrinter.Print(function).Output);
+        function.CheckInvariant(includeSemantics: true);
+    }
+
+    [Fact]
+    public void SlotTargetBindingRefreshesCoalesceBeforeConditional()
+    {
+        var referenceType = TypeRef.Definition("Example", "Models", "Reference");
+        var coalesce = new Coalesce(
+            new LoadArgument(1, "value", referenceType),
+            new Constant(null, ObjectType));
+        var conditional = Choose(coalesce, new Constant(null, ObjectType));
+        conditional.MergedType = ObjectType;
+        var function = Function(referenceType, new StoreStackSlot(0, conditional),
+            new Return(new LoadStackSlot(0, referenceType)));
+        function.TypeShapes = new Dictionary<TypeRef, TypeShape>
+        {
+            [referenceType] = TypeShape.Reference,
+        };
+        Assert.False(conditional.CanAssignReferenceArmsTo(referenceType, function.TypeShapes));
+
+        new ReferenceSlotTargetBindingPass().Run(function, PassContext.None);
+
+        Assert.True(conditional.CanAssignReferenceArmsTo(referenceType, function.TypeShapes));
+        Assert.True(Assert.Single(SlotMaterializationPass.Analyze(function)).WillMaterialize);
+    }
+
+    [Fact]
+    public void SlotTargetBindingRejectsIncompatibleReferenceArms()
+    {
+        var conditional = Choose(
+            new LoadArgument(1, "value", StringType),
+            new LoadArgument(2, "fallback", ObjectType));
+        conditional.MergedType = ObjectType;
+        var function = Function(StringType, new StoreStackSlot(0, conditional),
+            new Return(new LoadStackSlot(0, StringType)));
+
+        new ReferenceSlotTargetBindingPass().Run(function, PassContext.None);
+
+        var decision = Assert.Single(SlotMaterializationPass.Analyze(function));
+        Assert.Equal(SlotMaterializationVeto.OutsideCoercionDomain
+            | SlotMaterializationVeto.UnrenderableStoreType, decision.Vetoes);
+        AssertRetained(function);
+    }
+
+    [Fact]
+    public void ReferenceConditionalStorageUnlocksCompleteCopyComponent()
+    {
+        var conditional = Choose(
+            new Constant(null, ObjectType),
+            new LoadArgument(1, "value", StringType));
+        conditional.MergedType = ObjectType;
+        var function = Function(StringType,
+            new StoreStackSlot(0, conditional),
+            new StoreStackSlot(1, new LoadStackSlot(0, StringType)),
+            new Return(new LoadStackSlot(1, StringType)));
+
+        new ReferenceSlotTargetBindingPass().Run(function, PassContext.None);
+
+        Assert.All(SlotMaterializationPass.Analyze(function),
+            decision => Assert.True(decision.WillMaterialize));
+        new SlotMaterializationPass().Run(function, PassContext.None);
+        Assert.Empty(function.Descendants.OfType<StoreStackSlot>());
+        Assert.Empty(function.Descendants.OfType<LoadStackSlot>());
+        function.CheckInvariant(includeSemantics: true);
     }
 
     [Theory]

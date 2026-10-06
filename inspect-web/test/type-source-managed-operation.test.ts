@@ -45,6 +45,8 @@ function fixture() {
       allocation: { createId: () => `managed-source-${nextId++}` },
     }),
     queryTypeSource: (id, request) => {
+      if (request.kind === "platform")
+        throw new Error("Unexpected Platform Type Source request.");
       assert.equal(request.packageId, "Example");
       const query = deferred<BrowserTypeSourceResult>();
       queries.set(id, query);
@@ -62,6 +64,7 @@ function fixture() {
       diagnostics.push(diagnostic);
       return undefined;
     },
+    reportMemberSourceDiagnostic: () => undefined,
     describeError: error => error instanceof Error ? error.message : String(error),
     render: () => {},
     renderPreservingMemberFocus: () => ({

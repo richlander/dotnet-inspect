@@ -11,7 +11,7 @@ import {
   renderBrand,
   type ProductNavigationActions,
 } from "../src/brand.ts";
-import { renderAnnotatedSourcePageActions } from "../src/annotated-source.ts";
+import { renderCodeEvidenceViewer } from "../src/code-evidence-viewer.ts";
 import type {
   LibraryLens,
   MemberSection,
@@ -119,7 +119,6 @@ const scopeBarState = createScopeBarState();
 let scopeBarBinding: ScopeBarBinding | null = null;
 let workbenchShellBinding: WorkbenchShellBinding | null = null;
 let applicationDialog: "settings" | "keyboard-help" | null = null;
-let applicationDialogReturn: "application" | "source" = "application";
 const params = new URL(location.href).searchParams;
 const longDataBarMode = params.has("long-data-bar");
 const workspaceMode = params.has("workspace");
@@ -143,7 +142,6 @@ const findingFactsMode = params.get("finding-facts");
 const memberDocumentationMode = params.get("member-docs") ?? "missing";
 const longSignatureMode = params.has("long-signature");
 const emptyMode = params.has("empty");
-const annotatedMode = params.has("annotated");
 const sourceMode = params.has("source");
 const metadataMode = params.has("metadata");
 const graphMode = params.has("graph");
@@ -332,7 +330,7 @@ const libraryStrip: readonly (
 )[] = [
   ["overview", "Overview"],
   ["references", "References"],
-  ["integrations", "Integrations"],
+  ["compare", "Compare"],
   ["analysis", "Analysis"],
   ["metadata", "Metadata"],
 ];
@@ -350,7 +348,6 @@ const memberStrip: readonly (
   ["call-graph", "Call graph"],
   ["facts", "Facts"],
   ["source", "Source"],
-  ["annotated", "Annotated source"],
 ];
 
 function scopeBarHtml() {
@@ -401,6 +398,9 @@ const navigationHtml = workspaceMode
     ? renderPackageNav({
         frameworks: ["net10.0", "net10.0-windows10.0.19041.0"],
         activeFramework: "net10.0",
+        versionFieldHtml: packageOverviewMode
+          ? '<label class="version-select"><span>Version</span><select id="package-version"><option>10.0.0</option><option>9.0.0</option></select></label>'
+          : "",
         escapeHtml,
       })
   : activeScope === "library"
@@ -548,11 +548,11 @@ function detailHtml() {
       activeFramework: "net10.0",
       totalTypes: emptyMode ? 0 : libraryOverviewMode && !longMode ? 81 : 32,
       totalMembers: emptyMode ? 0 : libraryOverviewMode && !longMode ? 932 : 1234,
-      coordinateFieldsHtml: packageOverviewMode ? `
-        <label class="version-select"><span>Version</span><select id="package-version"><option>10.0.0</option><option>9.0.0</option></select></label>` : "",
       contentHtml: packageOverviewMode
         ? renderPackageOverviewContent({
             packageInfoHtml,
+            packageChildrenHtml:
+              '<section class="document-section"><div class="section-title"><h2>Libraries</h2><span>1</span></div></section>',
             comparisonHtml,
             documentsHtml,
           })
@@ -940,18 +940,15 @@ const harnessKeyboardHelpBindings = [
 app.innerHTML = `
   <div class="workbench">
     ${workbenchShellHtml({
-      contextualActionsHtml: annotatedMode || sourceMode
-        ? `<div class="working-surface-actions" role="group" aria-label="${annotatedMode ? "Annotated Source actions" : "Source actions"}">
-            ${annotatedMode ? renderAnnotatedSourcePageActions(true) : ""}
-            ${sourceMode
-              ? renderSourcePageActions({
-                  source,
-                  copyButtonId: memberMode
-                    ? "copy-source"
-                    : "copy-type-source",
-                  escapeHtml,
-                })
-              : ""}
+      contextualActionsHtml: sourceMode
+        ? `<div class="working-surface-actions" role="group" aria-label="Source actions">
+            ${renderSourcePageActions({
+              source,
+              copyButtonId: memberMode
+                ? "copy-source"
+                : "copy-type-source",
+              escapeHtml,
+            })}
           </div>`
         : "",
       inspectedTargetHtml: `
@@ -992,7 +989,7 @@ app.innerHTML = `
           ? " content-navigation-separated"
           : " content-navigation-integrated"}">
         ${workspaceMode ? "" : renderContentNavigationBar(contentNavigationLabel)}
-        <article id="inspector-panel" class="detail-scroll${annotatedMode ? " annotated-working-surface" : ""}${sourceMode ? " source-working-surface" : ""}${metadataMode ? " metadata-working-surface" : ""}${overviewMode ? " overview-working-surface" : ""}${packageDependenciesMode ? " package-dependencies-working-surface" : ""}${packageMetadataMode ? " package-metadata-working-surface" : ""}${memberMode && !sourceMode ? " member-working-surface" : ""}${!workspaceMode && !packageMode && !memberMode && !sourceMode && !metadataMode ? " api-working-surface" : ""}">
+        <article id="inspector-panel" class="detail-scroll${sourceMode ? " source-working-surface" : ""}${metadataMode ? " metadata-working-surface" : ""}${overviewMode ? " overview-working-surface" : ""}${packageDependenciesMode ? " package-dependencies-working-surface" : ""}${packageMetadataMode ? " package-metadata-working-surface" : ""}${memberMode && !sourceMode ? " member-working-surface" : ""}${!workspaceMode && !packageMode && !memberMode && !sourceMode && !metadataMode ? " api-working-surface" : ""}">
           ${detailHtml()}
         </article>
       </section>
@@ -1017,8 +1014,7 @@ app.innerHTML = `
     theme: "dark",
     settingsReturn: "workbench",
     styleCatalog: {
-      styleTiers: [],
-      styleOptions: [],
+      styleCatalog: null,
       styleCatalogError: "",
       taste: [],
     },
@@ -1030,7 +1026,37 @@ app.innerHTML = `
   ${renderKeyboardHelpDialog(harnessKeyboardHelpBindings).replace(
     'id="keyboard-help-backdrop" class="modal-backdrop"',
     'id="keyboard-help-backdrop" class="modal-backdrop" hidden',
-  )}`;
+  )}
+  ${renderCodeEvidenceViewer({
+    backdropId: "annotated-source-backdrop",
+    backdropClassName: "annotated-modal-backdrop",
+    viewerId: "annotated-source-modal",
+    viewerClassName: "annotated-modal",
+    labelledBy: "annotated-modal-title",
+    headerClassName: "annotated-modal-head",
+    header: `
+      <div>
+        <p class="section-eyebrow">Explore Annotated Source</p>
+        <h2 id="annotated-modal-title" tabindex="-1">Source evidence and structure</h2>
+      </div>
+      <div class="annotated-modal-head-actions">
+        <button id="annotated-modal-close" type="button">Close</button>
+      </div>`,
+    body: {
+      kind: "workspace",
+      content: {
+        html: `<pre tabindex="0"><code>${escapeHtml(source.text)}</code></pre>`,
+        label: "Annotated source document",
+      },
+    },
+    escapeHtml,
+  })}`;
+const annotatedSourceBackdrop =
+  document.querySelector<HTMLElement>("#annotated-source-backdrop");
+if (annotatedSourceBackdrop) {
+  annotatedSourceBackdrop.hidden = true;
+  annotatedSourceBackdrop.style.display = "none";
+}
 const productNavigationActions: ProductNavigationActions = {
   currentDestination: () => workspaceMode ? "workspace" : null,
   onAction: action => {
@@ -1058,19 +1084,11 @@ function setApplicationDialog(
   if (settings) settings.hidden = next !== "settings";
   if (help) help.hidden = next !== "keyboard-help";
   if (next === "settings") {
-    document.querySelector<HTMLElement>(
-      applicationDialogReturn === "source"
-        ? "#settings-decompiler-title"
-        : "#settings-title",
-    )?.focus();
+    document.querySelector<HTMLElement>("#settings-title")?.focus();
   } else if (next === "keyboard-help") {
     document.querySelector<HTMLElement>("#keyboard-help-title")?.focus();
   } else {
-    document.querySelector<HTMLElement>(
-      applicationDialogReturn === "source"
-        ? "#explore-source"
-        : "#application-menu-button",
-    )?.focus();
+    document.querySelector<HTMLElement>("#application-menu-button")?.focus();
   }
 }
 
@@ -1083,7 +1101,6 @@ function handleApplicationAction(action: ApplicationAction): void {
     }, 50);
     return;
   }
-  applicationDialogReturn = "application";
   setApplicationDialog(applicationDialog === action ? null : action);
 }
 
@@ -1130,8 +1147,27 @@ const workbenchShellActions: WorkbenchShellBindingActions = {
 workbenchShellBinding =
   bindWorkbenchShell(document, workbenchShellActions);
 document.querySelector("#explore-source")?.addEventListener("click", () => {
-  applicationDialogReturn = "source";
-  setApplicationDialog("settings");
+  const workbench = document.querySelector<HTMLElement>(".workbench");
+  const backdrop =
+    document.querySelector<HTMLElement>("#annotated-source-backdrop");
+  if (workbench) workbench.inert = true;
+  if (backdrop) {
+    backdrop.hidden = false;
+    backdrop.style.removeProperty("display");
+  }
+  document.querySelector<HTMLElement>("#annotated-modal-title")?.focus();
+});
+document.querySelector("#annotated-modal-close")?.addEventListener("click", () => {
+  const workbench = document.querySelector<HTMLElement>(".workbench");
+  const backdrop =
+    document.querySelector<HTMLElement>("#annotated-source-backdrop");
+  if (workbench) workbench.inert = false;
+  if (backdrop) {
+    backdrop.hidden = true;
+    backdrop.style.display = "none";
+  }
+  document.querySelector<HTMLElement>("#explore-source")
+    ?.focus({ preventScroll: true });
 });
 bindSettingsPanel(document, {
   onClose: () => setApplicationDialog(null),
@@ -1369,27 +1405,11 @@ window.rerenderProductNavigationProbe = () => {
     "[data-product-navigation-button]");
   const menu = document.querySelector<HTMLElement>(
     "[data-product-navigation-menu]");
-  const productNavigationHadFocus =
-    document.activeElement === button
-    || (document.activeElement instanceof Node
-      && menu?.contains(document.activeElement) === true);
   menu?.remove();
   if (!button)
     throw new Error("The product-navigation shell is unavailable.");
   button.outerHTML = renderBrand();
   productNavigationBinding.afterRender();
-  const replacementButton = document.querySelector<HTMLElement>(
-    "[data-product-navigation-button]");
-  const replacementMenu = document.querySelector<HTMLElement>(
-    "[data-product-navigation-menu]");
-  const activeElement = document.activeElement;
-  const replacementOwnsFocus =
-    activeElement === replacementButton
-    || (activeElement instanceof Node
-      && replacementMenu?.contains(activeElement) === true);
-  if (productNavigationHadFocus && !replacementOwnsFocus) {
-    replacementButton?.focus();
-  }
 };
 window.rerenderScopeBarProbe = renderHarnessScopeBar;
 window.beginContentFrameReplacementProbe = () => {

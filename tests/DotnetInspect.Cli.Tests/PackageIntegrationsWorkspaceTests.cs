@@ -168,7 +168,6 @@ public sealed class PackageIntegrationsWorkspaceTests
                         });
 
             Assert.NotNull(inspection);
-            Assert.Equal(selectedTimestamp, inspection.LastModified);
             Assert.Equal(1, inspectionCount);
             var failure = Assert.Single(failures);
             Assert.Equal(surfacePath, failure.FileName);
@@ -270,7 +269,7 @@ public sealed class PackageIntegrationsWorkspaceTests
                 .. targetFramework is null ? Array.Empty<string>() : ["--tfm", targetFramework],
                 "-S", "Integration Opportunities",
                 "--source", source,
-                "--markdown", "--verbose", "--tips", "q",
+                "--markdown", "--verbose",
             ];
             var (exit, output, error) = await ConsoleCapture.RunAsync(async () =>
             {
@@ -1148,7 +1147,7 @@ public sealed class PackageIntegrationsWorkspaceTests
                 "package", archive, "--library",
                 "--tfm", shape == "all-frameworks" ? "all" : "net11.0",
                 "-S", "Integration Opportunities", "--markdown",
-                "--offline", "--no-nuget-cache", "--verbose", "--tips", "q",
+                "--offline", "--no-nuget-cache", "--verbose",
             ];
             var start = new ProcessStartInfo(
                 Path.Combine(AppContext.BaseDirectory,

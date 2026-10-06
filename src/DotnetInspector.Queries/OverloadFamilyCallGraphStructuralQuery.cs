@@ -174,9 +174,9 @@ public sealed class OverloadFamilyCallGraphStructuralDocument
     public InspectionGraphDocument Graph { get; }
     public OverloadFamilyStructuralFactStatus Status { get; }
     public ImmutableArray<OverloadFamilyComponent> FamilyComponents
-        { get; }
+    { get; }
     public ImmutableArray<OverloadFamilyNodeStructuralFact> NodeFacts
-        { get; }
+    { get; }
     public IEnumerable<OverloadFamilyComponent> EntryComponents =>
         FamilyComponents.Where(static component => component.IsEntry);
     public IEnumerable<OverloadFamilyNodeStructuralFact>
@@ -198,7 +198,8 @@ public sealed class OverloadFamilyCallGraphStructuralDocument
 public static class OverloadFamilyCallGraphStructuralQuery
 {
     public static InspectionQuery<
-        OverloadFamilyCallGraphStructuralDocument> Definition { get; } =
+        OverloadFamilyCallGraphStructuralDocument> Definition
+    { get; } =
         new(
             "Overload-family call graph structure",
             InspectionCost.Unbounded);
@@ -350,7 +351,7 @@ internal static class OverloadFamilyCallGraphStructuralAdapter
             || graph.NeighborhoodRequest is not
             {
                 Direction:
-                    InspectionGraphTraversalDirection.Outgoing,
+                    GraphTraversalDirection.Outgoing,
             } request
             || request.Relationships.Length != 1
             || !ReferenceEquals(
@@ -422,9 +423,9 @@ internal static class OverloadFamilyCallGraphStructuralAdapter
         return edge.OccurrenceIds.Any(occurrenceId =>
             graph.Occurrences[occurrenceId].Evidence
                 is CallGraphCallSiteEvidence
-                {
-                    CallKind: CallKind.Call,
-                });
+            {
+                CallKind: CallKind.Call,
+            });
     }
 
     static IReadOnlyList<int>[] BuildFamilyOutgoing(
@@ -574,18 +575,18 @@ internal static class OverloadFamilyCallGraphStructuralAdapter
         InspectionGraphDocument graph) =>
         !graph.Limits.Any(limit =>
             ReferenceEquals(
-                limit.Descriptor,
+                limit.Payload.Descriptor,
                 CallGraphInspectionGraphCatalog.TraversalIncomplete)
             || ReferenceEquals(
-                limit.Descriptor,
+                limit.Payload.Descriptor,
                 CallGraphInspectionGraphCatalog
                     .CorrespondenceIncomplete)
             || ReferenceEquals(
-                limit.Descriptor,
+                limit.Payload.Descriptor,
                 CallGraphInspectionGraphCatalog
                     .PhysicalOccurrencesUnavailable))
         && !graph.Failures.Any(failure =>
             ReferenceEquals(
-                failure.Descriptor,
+                failure.Payload.Descriptor,
                 CallGraphInspectionGraphCatalog.AnalysisIncomplete));
 }

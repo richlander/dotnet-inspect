@@ -1,10 +1,16 @@
 using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Models;
+using DotnetInspect.Cli.Options;
 using DotnetInspector.Ecosystems;
 using DotnetInspector.Queries;
+using DotnetInspector.ResearchSections;
+using ILInspector.Analysis;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Metadata;
+using ILInspector.Research;
 using Inspector.Findings;
+using QuerySpace.Composition;
+using QuerySpace.Rows;
 
 namespace DotnetInspect.Cli.Sections;
 
@@ -23,6 +29,17 @@ public sealed record LibrarySectionCatalog(
 /// </summary>
 public static class LibrarySections
 {
+    private static readonly MetadataOperationPolicy
+        s_libraryMetricsSignatureUsePolicy =
+            new(
+                maxMetadataRows: 10_000_000,
+                maxDeclarationCandidates: 1_000_000,
+                maxRelationshipEdges: 10_000_000,
+                maxSignatureBytes: 256_000_000,
+                maxGenericSubstitutionNodes: 10_000_000,
+                maxStructuredNodes: 10_000_000,
+                maxRetainedText: 16_000_000);
+
     /// <summary>The reusable fixed-domain catalog for per-assembly library queries.</summary>
     public static InspectionQueryCatalog<InspectionQueryContext> QueryCatalog { get; } =
         BuildQueryCatalog();
@@ -76,9 +93,8 @@ public static class LibrarySections
             .Add<LibraryInfo>(
                 [
                     AssemblyReferencesQuery.Definition,
-                    ClassifiedMethodsQuery.Definition,
+                    MethodClassificationDemand.LibraryInfo,
                     CustomAttributesQuery.Definition,
-                    ExtensionMethodsQuery.Definition,
                     ResourcesQuery.Definition,
                     TypeForwardersQuery.Definition,
                 ])
@@ -108,7 +124,7 @@ public static class LibrarySections
                 [
                     AssemblyReferencesQuery.Definition,
                     AuditMetadataQuery.Definition,
-                    ClassifiedMethodsQuery.Definition,
+                    MethodClassificationDemand.Signals,
                 ],
                 HasAssemblyInfo)
             .Add<IdentifierConfusion>(AssemblyReferencesQuery.Definition)
@@ -132,6 +148,15 @@ public static class LibrarySections
                 HasMethodBodies)
             .Add<LibraryMetrics>(
                 LibraryMetricsQuery.Definition,
+                HasMethodBodies)
+            .Add<NameFamilies>(
+                LibraryNameFamilyQuery.Definition)
+            .Add<ArchitecturalFamilies>(
+                LibraryArchitecturalFamilyQuery.Definition)
+            .Add<ArchitecturalFamilyTypes>(
+                LibraryArchitecturalFamilyQuery.Definition)
+            .Add<DependencyStructure>(
+                LibraryDependencyStructureQuery.Definition,
                 HasMethodBodies)
             .Add<BodyShapes>(
                 BodyShapesQuery.Definition,
@@ -170,8 +195,8 @@ public static class LibrarySections
             .Add<ArrayPoolEscapes>(
                 ResourceTriageQuery.Definition,
                 HasMethodBodies)
-            .Add<PInvokeMethods>(ClassifiedMethodsQuery.Definition)
-            .Add<AsyncMethods>(ClassifiedMethodsQuery.Definition)
+            .Add<PInvokeMethods>(MethodClassificationDemand.PInvokeMethods)
+            .Add<AsyncMethods>(MethodClassificationDemand.AsyncMethods)
             .Add<Resources>(ResourcesQuery.Definition)
             .Add<CustomAttributes>(CustomAttributesQuery.Definition)
             .Add<UnionTypes>(UnionTypesQuery.Definition)
@@ -292,10 +317,16 @@ public static class LibrarySections
                 ctx.Query(
                     AuditMetadataQuery.Execute,
                     ex => new AuditMetadataResult.Failed(ex)))
-            .Add(ClassifiedMethodsQuery.Definition, ctx =>
-                ctx.Query(
-                    ClassifiedMethodsQuery.Execute,
-                    ex => new ClassifiedMethodsResult.Failed(ex)))
+            .Add(MethodClassificationDemand.LibraryInfo, static ctx =>
+                ctx.MethodClassification(MethodClassificationDemand.LibraryInfo))
+            .Add(MethodClassificationDemand.Signals, static ctx =>
+                ctx.MethodClassification(MethodClassificationDemand.Signals))
+            .Add(MethodClassificationDemand.AsyncMethods, static ctx =>
+                ctx.MethodClassification(MethodClassificationDemand.AsyncMethods))
+            .Add(MethodClassificationDemand.PInvokeMethods, static ctx =>
+                ctx.MethodClassification(MethodClassificationDemand.PInvokeMethods))
+            .Add(MethodClassificationDemand.ModelCounts, static ctx =>
+                ctx.MethodClassification(MethodClassificationDemand.ModelCounts))
             .Add(CustomAttributesQuery.Definition, ctx =>
                 ctx.Scan(
                     CustomAttributesQuery.Execute,
@@ -380,6 +411,15 @@ public static class LibrarySections
             .Add(
                 LibraryMetricsQuery.Definition,
                 ExecuteLibraryMetricsQuery)
+            .Add(
+                LibraryNameFamilyQuery.Definition,
+                ExecuteLibraryNameFamilyQuery)
+            .Add(
+                LibraryArchitecturalFamilyQuery.Definition,
+                ExecuteLibraryArchitecturalFamilyQuery)
+            .Add(
+                LibraryDependencyStructureQuery.Definition,
+                ExecuteLibraryDependencyStructureQuery)
             .AddSourceLinkQueries(RequireSourceLinkContext)
             .Compile();
     }
@@ -417,7 +457,9 @@ public static class LibrarySections
             new Inspector.Findings.FindingSubject(
                 Path.GetFullPath(context.AssemblyPath),
                 Path.GetFileName(context.AssemblyPath)));
-        if (result is ResourceTriageResult.Available)
+        if (result
+            is ResourceTriageResult.Available
+                or ResourceTriageResult.Incomplete)
             _ = context.DrillMap();
         return result;
     }
@@ -482,23 +524,249 @@ public static class LibrarySections
     internal static LibraryMetricsResult
         ExecuteLibraryMetricsQuery(
             InspectionQueryContext context)
-        => ExecuteLibraryMetricsQuery(
-            context.MetadataContext?.HasMetadata != false,
-            context.BodyAnalysis);
+    {
+        if (context.MetadataContext?.HasMetadata == false)
+            return new LibraryMetricsResult.NoMetadata();
+
+        try
+        {
+            LibraryBodyAnalysisExecution analysis =
+                context.BodyAnalysis();
+            MetadataLibrarySignatureUseOutcome signatureOutcome =
+                context.Query(
+                    session => session.LibrarySignatureUses(
+                        new(s_libraryMetricsSignatureUsePolicy)),
+                    error => throw new InvalidOperationException(
+                        "Library Metrics could not acquire its exact metadata "
+                            + "session.",
+                        error));
+            MetadataLibrarySignatureUseResult signatureUse =
+                signatureOutcome switch
+                {
+                    MetadataLibrarySignatureUseOutcome.Available available =>
+                        available.Result,
+                    MetadataLibrarySignatureUseOutcome.Rejected rejected =>
+                        throw new InvalidOperationException(
+                            "Library Metrics signature-use acquisition was "
+                                + $"rejected ({rejected.Kind}): "
+                                + rejected.Detail),
+                    _ => throw new InvalidOperationException(
+                        "Unknown Library Metrics signature-use outcome."),
+                };
+            LibraryStructuralNamespaceLeverageIndex namespaceIndex =
+                LibraryStructuralReport.CreateNamespaceLeverageIndex(
+                    signatureUse);
+            var typeLeverageShards =
+                new List<LibraryStructuralTypeLeverageShard>(
+                    namespaceIndex.Rows.Length);
+            foreach (LibraryStructuralNamespaceLeverageRow row
+                in namespaceIndex.Rows)
+            {
+                MetadataLibrarySignatureUseOutcome shardOutcome =
+                    context.Query(
+                        session => session.LibrarySignatureUses(
+                            new(
+                                s_libraryMetricsSignatureUsePolicy,
+                                row.Namespace)),
+                        error => throw new InvalidOperationException(
+                            "Library Metrics could not acquire its exact "
+                                + "namespace metadata session.",
+                            error));
+                MetadataLibrarySignatureUseResult shard =
+                    shardOutcome switch
+                    {
+                        MetadataLibrarySignatureUseOutcome.Available
+                            available => available.Result,
+                        MetadataLibrarySignatureUseOutcome.Rejected
+                            rejected =>
+                            throw new InvalidOperationException(
+                                "Library Metrics namespace signature-use "
+                                    + "acquisition was rejected "
+                                    + $"({rejected.Kind}): "
+                                    + rejected.Detail),
+                        _ => throw new InvalidOperationException(
+                            "Unknown Library Metrics namespace "
+                                + "signature-use outcome."),
+                    };
+                typeLeverageShards.Add(
+                    LibraryStructuralReport.CreateTypeLeverageShard(
+                        shard));
+            }
+            LibraryStructuralSalienceDocument structuralSalience =
+                LibraryStructuralReport.CreateStructuralSalience(
+                    namespaceIndex,
+                    typeLeverageShards);
+            return LibraryMetricsQuery.Execute(
+                analysis,
+                structuralSalience);
+        }
+
+        catch (CostDeclarationException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            return new LibraryMetricsResult.Failed(ex);
+        }
+    }
+
+    internal static LibraryNameFamilyQueryResult
+        ExecuteLibraryNameFamilyQuery(
+            InspectionQueryContext context)
+    {
+        if (context.AssemblyReference is not { } assembly)
+        {
+            return new LibraryNameFamilyQueryResult.Failed(
+                new InvalidOperationException(
+                    "Library name families require an artifact-backed "
+                        + "assembly descriptor."));
+        }
+
+        try
+        {
+            LibraryNameFamilyQueryPlan operation =
+                LibraryNameFamilyQuery.CreatePlan(
+                    context.NameFamilyPopulation);
+            RowSelectionIntent<string> rows =
+                context.NameFamilyRowSelection
+                ?? RowSelectionIntent<string>.Create([]);
+            QuerySpaceRequest request =
+                LibraryNameFamilyQuery.CreateFamilyRequest(
+                    operation,
+                    rows,
+                    context.CountOnly
+                        ? QuerySpaceTerminalRequirement.Count
+                        : QuerySpaceTerminalRequirement.Rows);
+            return context.Query(
+                session => LibraryNameFamilyInspection.Execute(
+                    assembly,
+                    session,
+                    context.MetadataContext?
+                        .InspectSourceProvenance(),
+                    operation,
+                    request),
+                static error =>
+                    new LibraryNameFamilyQueryResult.Failed(error));
+        }
+        catch (CostDeclarationException)
+        {
+            throw;
+        }
+        catch (Exception error)
+        {
+            return new LibraryNameFamilyQueryResult.Failed(error);
+        }
+    }
+
+    internal static LibraryArchitecturalFamilyQueryResult
+        ExecuteLibraryArchitecturalFamilyQuery(
+            InspectionQueryContext context)
+    {
+        if (context.AssemblyReference is not { } assembly)
+        {
+            return new LibraryArchitecturalFamilyQueryResult.Failed(
+                new InvalidOperationException(
+                    "Library architectural families require an artifact-backed "
+                        + "assembly descriptor."));
+        }
+
+        try
+        {
+            LibraryArchitecturalFamilyQueryPlan operation =
+                LibraryArchitecturalFamilyQuery.CreatePlan(
+                    context.NameFamilyPopulation);
+            RowSelectionIntent<string> rows =
+                context.NameFamilyRowSelection
+                ?? RowSelectionIntent<string>.Create([]);
+            QuerySpaceRequest request =
+                context.ArchitecturalFamilyTypeRows
+                    ? LibraryArchitecturalFamilyQuery.CreateTypeRequest(
+                        operation,
+                        rows,
+                        context.CountOnly
+                            ? QuerySpaceTerminalRequirement.Count
+                            : QuerySpaceTerminalRequirement.Rows)
+                    : LibraryArchitecturalFamilyQuery.CreateFamilyRequest(
+                        operation,
+                        rows,
+                        context.CountOnly
+                            ? QuerySpaceTerminalRequirement.Count
+                            : QuerySpaceTerminalRequirement.Rows);
+            return context.Query(
+                session => LibraryArchitecturalFamilyInspection.Execute(
+                    assembly,
+                    session,
+                    context.MetadataContext?
+                        .InspectSourceProvenance(),
+                    operation,
+                    request),
+                static error =>
+                    new LibraryArchitecturalFamilyQueryResult.Failed(error));
+        }
+        catch (CostDeclarationException)
+        {
+            throw;
+        }
+        catch (Exception error)
+        {
+            return new LibraryArchitecturalFamilyQueryResult.Failed(error);
+        }
+    }
+
+    internal static LibraryDependencyStructureQueryResult
+        ExecuteLibraryDependencyStructureQuery(
+            InspectionQueryContext context)
+    {
+        if (context.MetadataContext?.HasMetadata == false)
+        {
+            return new LibraryDependencyStructureQueryResult.Failed(
+                new InvalidOperationException(
+                    "Library Dependency Structure requires managed "
+                        + "metadata."));
+        }
+
+        try
+        {
+            QuerySpaceRequest request =
+                LibraryDependencyStructureQuery.CreateRequest(
+                    LibraryDependencyStructureQuery.NamespaceEdgesRowSet,
+                    context.DependencyStructureRowSelection
+                        ?? RowSelectionIntent<string>.Create([]),
+                    context.CountOnly
+                        ? QuerySpaceTerminalRequirement.Count
+                        : QuerySpaceTerminalRequirement.Rows);
+            return LibraryDependencyStructureInspection.Execute(
+                context.BodyAnalysis(),
+                request);
+        }
+        catch (CostDeclarationException)
+        {
+            throw;
+        }
+        catch (Exception error)
+        {
+            return new LibraryDependencyStructureQueryResult.Failed(error);
+        }
+    }
 
     internal static OptimizationOpportunitiesResult
         ExecuteOptimizationOpportunitiesQuery(InspectionQueryContext context)
         => ExecuteOptimizationOpportunitiesQuery(
             context.MetadataContext?.HasMetadata != false,
             () => context.BodyAnalysis().Optimization,
-            context.Model.PerformanceTriageOptions.IncludesAllocationFanout);
+            context.Model.PerformanceTriageOptions.IncludesAllocationFanout,
+            countOnly:
+                context.CountOnly
+                && !context.Model.PerformanceTriageOptions.HasFilters);
 
     internal static OptimizationOpportunitiesResult
         ExecuteOptimizationOpportunitiesQuery(
             bool hasMetadata,
             Func<ILInspector.Analysis.LibraryOptimizationAnalysisResult>
                 acquireAnalysis,
-            bool includeAllocationFanout)
+            bool includeAllocationFanout,
+            bool countOnly = false)
     {
         ArgumentNullException.ThrowIfNull(acquireAnalysis);
 
@@ -507,9 +775,13 @@ public static class LibrarySections
 
         try
         {
-            return OptimizationOpportunitiesQuery.Execute(
-                acquireAnalysis(),
-                includeAllocationFanout);
+            ILInspector.Analysis.LibraryOptimizationAnalysisResult analysis =
+                acquireAnalysis();
+            return countOnly
+                ? OptimizationOpportunitiesQuery.ExecuteCount(analysis)
+                : OptimizationOpportunitiesQuery.Execute(
+                    analysis,
+                    includeAllocationFanout);
         }
         catch (CostDeclarationException)
         {
@@ -547,7 +819,7 @@ public static class LibrarySections
             {
                 case OptimizationOpportunitiesResult.Available available:
                     methodTokens = LibraryMetadataService.PerformanceSourceMethods(
-                            LibraryMetadataService.SelectPerformanceTriageOpportunities(
+                            PerformanceTriageRowQuery.Select(
                                 available,
                                 context.Model.PerformanceTriageOptions))
                         .Select(static method => method.MetadataToken)
@@ -943,13 +1215,13 @@ public static class LibrarySections
         public static bool CanRender(LibraryInspection model) =>
             model.EcosystemDependencyRecognitionInspection?.Content
                 is EcosystemDependencyRecognitionOutcome.Complete
-                    {
-                        Document.Classification.Recognized.Length: > 0,
-                    }
+                {
+                    Document.Classification.Matches.Length: > 0,
+                }
                 or EcosystemDependencyRecognitionOutcome.Incomplete
-                    {
-                        Document.Classification.Recognized.Length: > 0,
-                    };
+                {
+                    Document.Classification.Matches.Length: > 0,
+                };
     }
 
     public sealed class ReferenceHierarchy :
@@ -995,7 +1267,7 @@ public static class LibrarySections
         public static SectionCost Cost => SectionCost.Unbounded;
         public static bool CanRender(LibraryInspection model)
             => model.TopLeverageQueryResult is TopLeverageResult.Available
-                { Methods.IsEmpty: false };
+            { Methods.IsEmpty: false };
     }
 
     public sealed class MemberMetrics
@@ -1010,7 +1282,7 @@ public static class LibrarySections
         public static bool CanRender(LibraryInspection model)
             => model.ImplementationProfilesQueryResult
                 is ImplementationProfilesResult.Available
-                { Profiles.IsEmpty: false };
+            { Profiles.IsEmpty: false };
     }
 
     public sealed class LibraryMetrics
@@ -1026,6 +1298,65 @@ public static class LibrarySections
             => model.LibraryMetricsQueryResult
                 is LibraryMetricsResult.Available
                     or LibraryMetricsResult.Unavailable;
+    }
+
+    public sealed class NameFamilies
+        : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => SectionNames.NameFamilies;
+        public static bool IsExpensive => true;
+        public static bool ExplicitOnly => true;
+        public static bool ProbeEffectiveness => false;
+        public static SectionCapabilities Capabilities =>
+            SectionCapabilities.MayDownloadPdb;
+        public static SectionSizeClass SizeClass =>
+            SectionSizeClass.Verbose;
+        public static SectionCost Cost => SectionCost.Unbounded;
+        public static bool CanRender(LibraryInspection model) => true;
+    }
+
+    public sealed class ArchitecturalFamilies
+        : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => SectionNames.ArchitecturalFamilies;
+        public static bool IsExpensive => true;
+        public static bool ExplicitOnly => true;
+        public static bool ProbeEffectiveness => false;
+        public static SectionCapabilities Capabilities =>
+            SectionCapabilities.MayDownloadPdb;
+        public static SectionSizeClass SizeClass =>
+            SectionSizeClass.Verbose;
+        public static SectionCost Cost => SectionCost.Unbounded;
+        public static bool CanRender(LibraryInspection model) => true;
+    }
+
+    public sealed class ArchitecturalFamilyTypes
+        : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => SectionNames.ArchitecturalFamilyTypes;
+        public static bool IsExpensive => true;
+        public static bool ExplicitOnly => true;
+        public static bool ProbeEffectiveness => false;
+        public static SectionCapabilities Capabilities =>
+            SectionCapabilities.MayDownloadPdb;
+        public static SectionSizeClass SizeClass =>
+            SectionSizeClass.Verbose;
+        public static SectionCost Cost => SectionCost.Unbounded;
+        public static bool CanRender(LibraryInspection model) => true;
+    }
+
+    public sealed class DependencyStructure
+        : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => SectionNames.DependencyStructure;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static SectionSizeClass SizeClass =>
+            SectionSizeClass.Verbose;
+        public static SectionCost Cost => SectionCost.Unbounded;
+        public static bool CanRender(LibraryInspection model) =>
+            model.DependencyStructureQueryResult
+                is LibraryDependencyStructureQueryResult.Available;
     }
 
     public sealed class BodyShapes : ISectionDescriptor<LibraryInspection>
@@ -1055,9 +1386,12 @@ public static class LibrarySections
     // Registration supplies the pre-scan method-body applicability gate; these predicates report
     // actual post-scan row effectiveness.
     private static bool HasPerformanceKind(LibraryInspection model, string section)
-        => model.PerformanceTriageOpportunities.Any(
-            opportunity =>
-                PerformanceKinds.SectionForShape(opportunity.Shape) == section);
+        => model.PerformanceTriageCounts is { } counts
+            ? counts.Count(
+                PerformanceKinds.KindForSection(section)) > 0
+            : PerformanceKinds.Any(
+                section,
+                model.PerformanceTriageOpportunities);
 
     public sealed class PerformanceBoxing : ISectionDescriptor<LibraryInspection>
     {
@@ -1156,8 +1490,10 @@ public static class LibrarySections
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(LibraryInspection model)
-            => model.ClassifiedMethodInspection.Failure() is null
-               && (model.PInvokeMethodCount > 0 || model.HasPInvokeImports);
+            => model.MethodClassificationFailureOf(MethodClassificationAnalyzer.PInvoke) is null
+               && (model.PInvokeMethodPresence
+                   ?? (model.HasPInvokeMethods
+                       || model.HasPInvokeImports));
     }
 
     public sealed class AsyncMethods : ISectionDescriptor<LibraryInspection>
@@ -1166,9 +1502,11 @@ public static class LibrarySections
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(LibraryInspection model)
-            => model.ClassifiedMethodInspection.Failure() is null
-               && (model.AsyncMethodCount > 0
-                   || model.HasRuntimeAsync || model.HasStateMachineAsync);
+            => model.MethodClassificationFailureOf(MethodClassificationDemand.AsyncAnalyzer) is null
+               && (model.AsyncMethodPresence
+                   ?? (model.HasAsyncMethods
+                       || model.HasRuntimeAsync
+                       || model.HasStateMachineAsync));
     }
 
     public sealed class Resources : ISectionDescriptor<LibraryInspection>

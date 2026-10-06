@@ -47,6 +47,74 @@ public sealed class BrowserPackageQueryOperationsTests
     }
 
     [Fact]
+    public void CapabilitySearch_UsesTheRegisteredBrowserBinding()
+    {
+        InspectionEnvelope<CapabilityCatalogSearchDocument> envelope =
+            BrowserCapabilityCatalogSearch.Search(
+                "literal",
+                CapabilityCatalogSearchRequest.DefaultMaximumResults);
+
+        CapabilityCatalogSearchResult result =
+            envelope.Content.Results[0];
+        Assert.Equal(
+            "package-query/query/facets/library-literal",
+            result.ResourcePath);
+        CapabilityCatalogSearchBinding binding =
+            Assert.Single(result.ProductionBindings);
+        Assert.Equal(
+            PackageQueryCapabilityBinding.Binding.Descriptor.Identity,
+            binding.Identity);
+        Assert.Equal(InspectionConsumerKind.Browser, binding.ConsumerKind);
+        Assert.Equal(
+            PackageQueryCapabilityBinding.Binding.Descriptor.Gesture,
+            binding.Gesture);
+    }
+
+    [Fact]
+    public void CapabilitySearchExport_ReturnsTheSharedInspectionEnvelope()
+    {
+        string json = PackageExports.SearchCapabilities(
+            "https://",
+            maximumResults: 1);
+
+        using JsonDocument document = JsonDocument.Parse(json);
+        JsonElement content =
+            document.RootElement.GetProperty("content");
+        Assert.Equal("https://", content.GetProperty("query").GetString());
+        Assert.Equal(
+            1,
+            content.GetProperty("returnedCount").GetInt32());
+        Assert.Equal(
+            "package-query/query/facets/library-literal",
+            content.GetProperty("results")[0]
+                .GetProperty("resourcePath")
+                .GetString());
+        Assert.Equal(
+            "ExampleValue",
+            content.GetProperty("results")[0]
+                .GetProperty("matchSource")
+                .GetString());
+        Assert.Equal(
+            "QueryFacet",
+            content.GetProperty("results")[0]
+                .GetProperty("resourceIdentity")
+                .GetProperty("kind")
+                .GetString());
+        Assert.Equal(
+            "Browser",
+            content.GetProperty("results")[0]
+                .GetProperty("productionBindings")[0]
+                .GetProperty("consumerKind")
+                .GetString());
+        Assert.Equal(
+            "nonProjectable",
+            document.RootElement
+                .GetProperty("share")
+                .GetProperty("kind")
+                .GetString());
+    }
+
+    [Fact]
     public void LibraryLiteralPlan_UsesNormalPlanAndComposesWithOrdinaryTerms()
     {
         const string literal = " \r\nmarker ";
@@ -89,6 +157,25 @@ public sealed class BrowserPackageQueryOperationsTests
         Assert.Equal(
             [PackageQuery.LicenseTermKey],
             prequalification.Terms.Select(term => term.Key));
+    }
+
+    [Fact]
+    public void EcosystemPlan_UsesTheProductMembershipCatalogAndSharedBounds()
+    {
+        var accepted = Assert.IsType<PackageQueryPlanResult.Accepted>(
+            BrowserPackageQueryOperations.PlanEcosystem(
+                "ecosystem.aspire",
+                maximumCandidates: 200,
+                maximumMatches: 96,
+                includePrerelease: false));
+
+        Assert.Equal("ecosystem.aspire", accepted.Plan.Ecosystem?.Value);
+        Assert.Equal(200, accepted.Plan.MaximumCandidates);
+        Assert.Equal(96, accepted.Plan.MaximumMatches);
+        Assert.Contains(
+            accepted.Plan.Intent.Terms,
+            term => term.Key == PackageQuery.EcosystemTermKey
+                && term.Value == "ecosystem.aspire");
     }
 
     [Fact]

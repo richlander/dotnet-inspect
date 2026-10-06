@@ -34,6 +34,14 @@ internal interface IMethodAllocationResolver
     TypeRef ResolveType(int token);
 
     /// <summary>
+    /// True only when both types have complete signature identity and denote
+    /// the same type in the current metadata image.
+    /// </summary>
+    bool TokenTypeMatchesSignature(
+        TypeRef tokenType,
+        TypeRef signatureType);
+
+    /// <summary>
     /// Resolves a method/constructor operand token using the shared member
     /// resolver, including its unsupported-member result for unknown shapes.
     /// </summary>
@@ -748,31 +756,81 @@ internal sealed class MethodAllocationFacts
                 occurrence.Kind,
                 occurrence.AllocatedType);
 
-            builder.Add(escape.Escape == AllocationEscape.Unknown
-                ? occurrence
-                : occurrence with
-                {
-                    Escape = escape.Escape,
-                    EscapeKind = escape.Escape == AllocationEscape.Escapes ? escape.Kind : AllocationEscapeKind.None,
-                    PathContext = escape.Escape == AllocationEscape.ThrowPath ? AllocationPathContext.ErrorPath : occurrence.PathContext,
-                    PathConfidence = escape.Escape == AllocationEscape.ThrowPath ? AllocationPathConfidence.Unknown : occurrence.PathConfidence,
-                    PostDominance = escape.Escape == AllocationEscape.ThrowPath ? AllocationPostDominance.Unknown : occurrence.PostDominance,
-                    Multiplicity = escape.Escape == AllocationEscape.ThrowPath
-                        ? (occurrence.Multiplicity == AllocationMultiplicity.Loop ? AllocationMultiplicity.Unknown : AllocationMultiplicity.Conditional)
-                        : occurrence.Multiplicity,
-                });
+            builder.Add(occurrence with
+            {
+                Escape = escape.Escape,
+                EscapeKind = escape.Escape == AllocationEscape.Escapes ? escape.Kind : AllocationEscapeKind.None,
+                LifetimeEvidence = new AllocationLifetimeEvidence(
+                    escape.Uses,
+                    escape.Limitations),
+                PathContext = escape.Escape == AllocationEscape.ThrowPath ? AllocationPathContext.ErrorPath : occurrence.PathContext,
+                PathConfidence = escape.Escape == AllocationEscape.ThrowPath ? AllocationPathConfidence.Unknown : occurrence.PathConfidence,
+                PostDominance = escape.Escape == AllocationEscape.ThrowPath ? AllocationPostDominance.Unknown : occurrence.PostDominance,
+                Multiplicity = escape.Escape == AllocationEscape.ThrowPath
+                    ? (occurrence.Multiplicity == AllocationMultiplicity.Loop ? AllocationMultiplicity.Unknown : AllocationMultiplicity.Conditional)
+                    : occurrence.Multiplicity,
+            });
         }
         return builder.MoveToImmutable();
     }
 
-    // Verdict plus the objective refinement of WHERE an Escapes value escapes.
-    // Kind is only meaningful when Escape == Escapes; otherwise it stays None.
-    readonly record struct EscapeClassification(AllocationEscape Escape, AllocationEscapeKind Kind)
+    // Verdict plus owner-issued coordinates and proof-stopping limitations.
+    readonly record struct EscapeClassification(
+        AllocationEscape Escape,
+        AllocationEscapeKind Kind,
+        ImmutableArray<AllocationLifetimeUse> Uses,
+        ImmutableArray<AllocationLifetimeLimitation> Limitations)
     {
-        public static readonly EscapeClassification Unknown = new(AllocationEscape.Unknown, AllocationEscapeKind.None);
-        public static readonly EscapeClassification LocalOnly = new(AllocationEscape.LocalOnly, AllocationEscapeKind.None);
-        public static readonly EscapeClassification ThrowPath = new(AllocationEscape.ThrowPath, AllocationEscapeKind.None);
-        public static EscapeClassification Escapes(AllocationEscapeKind kind) => new(AllocationEscape.Escapes, kind);
+        public static readonly EscapeClassification LocalOnly =
+            new(AllocationEscape.LocalOnly, AllocationEscapeKind.None, [], []);
+
+        public static EscapeClassification LocalUse(
+            int ilOffset,
+            AllocationLifetimeUseKind kind) =>
+            new(
+                AllocationEscape.LocalOnly,
+                AllocationEscapeKind.None,
+                [new(ilOffset, kind)],
+                []);
+
+        public static EscapeClassification Unknown(
+            AllocationLifetimeLimitationKind kind,
+            int? ilOffset = null,
+            ILOpCode? operation = null) =>
+            new(
+                AllocationEscape.Unknown,
+                AllocationEscapeKind.None,
+                [],
+                [new(kind, ilOffset, operation)]);
+
+        public static EscapeClassification ThrowPath(int ilOffset) =>
+            new(
+                AllocationEscape.ThrowPath,
+                AllocationEscapeKind.None,
+                [new(ilOffset, AllocationLifetimeUseKind.Throw)],
+                []);
+
+        public static EscapeClassification Escapes(
+            AllocationEscapeKind kind,
+            int ilOffset,
+            AllocationLifetimeUseKind useKind) =>
+            new(
+                AllocationEscape.Escapes,
+                kind,
+                [new(ilOffset, useKind)],
+                []);
+
+        public EscapeClassification WithUses(
+            ImmutableArray<AllocationLifetimeUse> uses) =>
+            this with { Uses = MergeDistinct(uses, Uses) };
+    }
+
+    sealed class DefinitionEscapeTraversal
+    {
+        public Dictionary<int, EscapeClassification> Completed
+            { get; } = [];
+
+        public HashSet<int> Visiting { get; } = [];
     }
 
     EscapeClassification ClassifyProducedValueEscape(
@@ -781,7 +839,13 @@ internal sealed class MethodAllocationFacts
         int positionAfterValue,
         AllocationKind kind,
         TypeRef? allocatedType)
-        => ClassifyStackValueUse(reachingDefinitionsProvider, resolver, positionAfterValue, kind, allocatedType, []);
+        => ClassifyStackValueUse(
+            reachingDefinitionsProvider,
+            resolver,
+            positionAfterValue,
+            kind,
+            allocatedType,
+            new());
 
     EscapeClassification ClassifyDefinitionEscape(
         ReachingDefinitionsResult reachingDefinitions,
@@ -790,12 +854,26 @@ internal sealed class MethodAllocationFacts
         LocalDefinition definition,
         AllocationKind kind,
         TypeRef? allocatedType,
-        HashSet<int> visitingDefinitions)
+        DefinitionEscapeTraversal traversal)
     {
         if (!reachingDefinitions.IsComplete)
-            return EscapeClassification.Unknown;
-        if (!visitingDefinitions.Add(definition.Id))
-            return EscapeClassification.Unknown;
+        {
+            return EscapeClassification.Unknown(
+                AllocationLifetimeLimitationKind.ReachingDefinitionsIncomplete,
+                definition.Offset);
+        }
+        if (traversal.Completed.TryGetValue(
+                definition.Id,
+                out EscapeClassification completed))
+        {
+            return completed;
+        }
+        if (!traversal.Visiting.Add(definition.Id))
+        {
+            return EscapeClassification.Unknown(
+                AllocationLifetimeLimitationKind.AliasCycle,
+                definition.Offset);
+        }
 
         var verdict = EscapeClassification.LocalOnly;
         foreach (var use in reachingDefinitions.UsesOf(definition))
@@ -803,7 +881,13 @@ internal sealed class MethodAllocationFacts
             EscapeClassification useEscape;
             if (use.Address)
             {
-                useEscape = EscapeClassification.Escapes(AllocationEscapeKind.None);
+                useEscape = ClassifyAddressUse(
+                    reachingDefinitionsProvider,
+                    resolver,
+                    use.Offset,
+                    kind,
+                    allocatedType,
+                    traversal);
             }
             else if (TryPositionAfterLoadSlot(use.Offset, use.Slot, use.IsArgument, out int positionAfterLoad))
             {
@@ -813,24 +897,168 @@ internal sealed class MethodAllocationFacts
                     positionAfterLoad,
                     kind,
                     allocatedType,
-                    visitingDefinitions);
+                    traversal);
             }
             else
             {
-                useEscape = EscapeClassification.Unknown;
+                useEscape = EscapeClassification.Unknown(
+                    AllocationLifetimeLimitationKind.DefinitionUnavailable,
+                    use.Offset);
             }
 
             verdict = JoinEscape(verdict, useEscape);
-            // Escapes(None) is absorbing under JoinEscape (further merges keep it
-            // Escapes/None), so we can stop. A single-kind Escapes must keep scanning
-            // the remaining uses so a conflicting sink can fail honest to None — the
-            // verdict stays Escapes either way, only the kind can degrade.
-            if (verdict.Escape == AllocationEscape.Escapes && verdict.Kind == AllocationEscapeKind.None)
-                break;
         }
 
-        visitingDefinitions.Remove(definition.Id);
+        traversal.Visiting.Remove(definition.Id);
+        traversal.Completed.Add(definition.Id, verdict);
         return verdict;
+    }
+
+    EscapeClassification ClassifyAddressUse(
+        Func<ReachingDefinitionsResult?> reachingDefinitionsProvider,
+        IMethodAllocationResolver resolver,
+        int addressOffset,
+        AllocationKind kind,
+        TypeRef? allocatedType,
+        DefinitionEscapeTraversal traversal)
+    {
+        if (_context.InstructionAt(addressOffset) is not { } addressLoad)
+        {
+            return EscapeClassification.Unknown(
+                AllocationLifetimeLimitationKind.DefinitionUnavailable,
+                addressOffset);
+        }
+
+        var instructions = _context.Instructions.Instructions;
+        int index = _context.NextNonNopIndexAtOrAfter(
+            addressLoad.NextOffset);
+        if (index >= instructions.Length)
+        {
+            return EscapeClassification.Unknown(
+                AllocationLifetimeLimitationKind
+                    .UnsupportedByReferenceFlow,
+                addressOffset,
+                addressLoad.OpCode);
+        }
+
+        DecodedInstruction consumer = instructions[index];
+        return consumer.OpCode switch
+        {
+            ILOpCode.Ldind_ref =>
+                ClassifyStackValueUse(
+                    reachingDefinitionsProvider,
+                    resolver,
+                    consumer.NextOffset,
+                    kind,
+                    allocatedType,
+                    traversal),
+            ILOpCode.Ldobj =>
+                ClassifyObjectReferenceRead(
+                    reachingDefinitionsProvider,
+                    resolver,
+                    consumer,
+                    kind,
+                    allocatedType,
+                    traversal),
+            ILOpCode.Call or ILOpCode.Callvirt =>
+                ClassifyByReferenceCall(resolver, consumer),
+            _ => EscapeClassification.Unknown(
+                AllocationLifetimeLimitationKind
+                    .UnsupportedByReferenceFlow,
+                consumer.Offset,
+                consumer.OpCode),
+        };
+    }
+
+    EscapeClassification ClassifyObjectReferenceRead(
+        Func<ReachingDefinitionsResult?> reachingDefinitionsProvider,
+        IMethodAllocationResolver resolver,
+        DecodedInstruction instruction,
+        AllocationKind kind,
+        TypeRef? allocatedType,
+        DefinitionEscapeTraversal traversal)
+    {
+        TypeRef loadedType;
+        try
+        {
+            loadedType = resolver.ResolveType(
+                MethodInstructionFacts.OperandInt32(instruction));
+        }
+        catch (Exception ex) when (ex is
+            BadImageFormatException
+            or InvalidOperationException
+            or ArgumentException
+            or OverflowException
+            or IndexOutOfRangeException)
+        {
+            return EscapeClassification.Unknown(
+                AllocationLifetimeLimitationKind.MetadataResolution,
+                instruction.Offset,
+                instruction.OpCode);
+        }
+
+        if (allocatedType is null
+            || !SignatureTypeFacts.HasCompleteIdentity(loadedType)
+            || !SignatureTypeFacts.HasCompleteIdentity(allocatedType))
+        {
+            return EscapeClassification.Unknown(
+                AllocationLifetimeLimitationKind.MetadataResolution,
+                instruction.Offset,
+                instruction.OpCode);
+        }
+        if (!resolver.TokenTypeMatchesSignature(
+                allocatedType,
+                loadedType))
+        {
+            return EscapeClassification.Unknown(
+                AllocationLifetimeLimitationKind
+                    .UnsupportedByReferenceFlow,
+                instruction.Offset,
+                instruction.OpCode);
+        }
+
+        return ClassifyStackValueUse(
+            reachingDefinitionsProvider,
+            resolver,
+            instruction.NextOffset,
+            kind,
+            allocatedType,
+            traversal);
+    }
+
+    static EscapeClassification ClassifyByReferenceCall(
+        IMethodAllocationResolver resolver,
+        DecodedInstruction instruction)
+    {
+        MemberRef callee;
+        try
+        {
+            callee = resolver.ResolveMember(
+                MethodInstructionFacts.OperandInt32(instruction));
+        }
+        catch (Exception ex) when (ex is
+            BadImageFormatException
+            or InvalidOperationException
+            or ArgumentException
+            or OverflowException
+            or IndexOutOfRangeException)
+        {
+            return EscapeClassification.Unknown(
+                AllocationLifetimeLimitationKind.MetadataResolution,
+                instruction.Offset,
+                instruction.OpCode);
+        }
+
+        return callee.ParameterTypes is [.., { Kind: TypeRefKind.ByRef }]
+            ? EscapeClassification.Escapes(
+                AllocationEscapeKind.None,
+                instruction.Offset,
+                AllocationLifetimeUseKind.ByReferenceTransfer)
+            : EscapeClassification.Unknown(
+                AllocationLifetimeLimitationKind
+                    .UnsupportedByReferenceFlow,
+                instruction.Offset,
+                instruction.OpCode);
     }
 
     EscapeClassification ClassifyStackValueUse(
@@ -839,8 +1067,10 @@ internal sealed class MethodAllocationFacts
         int position,
         AllocationKind kind,
         TypeRef? allocatedType,
-        HashSet<int> visitingDefinitions)
+        DefinitionEscapeTraversal traversal)
     {
+        int? failureOffset = null;
+        ILOpCode? failureOperation = null;
         try
         {
             var instructions = _context.Instructions.Instructions;
@@ -849,17 +1079,34 @@ internal sealed class MethodAllocationFacts
                 return EscapeClassification.LocalOnly;
 
             var instruction = instructions[index];
+            failureOffset = instruction.Offset;
+            failureOperation = instruction.OpCode;
             if (TryReadStoreSlotDefinition(instruction, out var storeAccess))
             {
                 var reachingDefinitions = reachingDefinitionsProvider();
-                if (reachingDefinitions is null || !reachingDefinitions.IsComplete)
-                    return EscapeClassification.Unknown;
+                if (reachingDefinitions is null)
+                {
+                    return EscapeClassification.Unknown(
+                        AllocationLifetimeLimitationKind.ReachingDefinitionsUnavailable,
+                        instruction.Offset,
+                        instruction.OpCode);
+                }
+                if (!reachingDefinitions.IsComplete)
+                {
+                    return EscapeClassification.Unknown(
+                        AllocationLifetimeLimitationKind.ReachingDefinitionsIncomplete,
+                        instruction.Offset,
+                        instruction.OpCode);
+                }
                 var definition = reachingDefinitions.Definitions.FirstOrDefault(def =>
                     def.IsArgument == storeAccess.IsArgument
                     && def.Slot == storeAccess.Slot
                     && def.Offset == instruction.Offset);
                 return definition is null
-                    ? EscapeClassification.Unknown
+                    ? EscapeClassification.Unknown(
+                        AllocationLifetimeLimitationKind.DefinitionUnavailable,
+                        instruction.Offset,
+                        instruction.OpCode)
                     : ClassifyDefinitionEscape(
                         reachingDefinitions,
                         reachingDefinitionsProvider,
@@ -867,7 +1114,7 @@ internal sealed class MethodAllocationFacts
                         definition,
                         kind,
                         allocatedType,
-                        visitingDefinitions);
+                        traversal);
             }
 
             if (kind == AllocationKind.Array)
@@ -877,7 +1124,10 @@ internal sealed class MethodAllocationFacts
         }
         catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException or OverflowException or IndexOutOfRangeException)
         {
-            return EscapeClassification.Unknown;
+            return EscapeClassification.Unknown(
+                AllocationLifetimeLimitationKind.AnalysisFailure,
+                failureOffset,
+                failureOperation);
         }
     }
 
@@ -887,7 +1137,21 @@ internal sealed class MethodAllocationFacts
         TypeRef? allocatedType)
     {
         var instructions = _context.Instructions.Instructions;
+        var uses = ImmutableArray.CreateBuilder<AllocationLifetimeUse>();
         int stackValuesAbove = 0;
+        int trackedCopies = 1;
+
+        EscapeClassification WithUses(EscapeClassification classification) =>
+            classification.WithUses(uses.ToImmutable());
+
+        EscapeClassification Unsupported(
+            DecodedInstruction instruction,
+            AllocationLifetimeLimitationKind limitationKind) =>
+            WithUses(EscapeClassification.Unknown(
+                limitationKind,
+                instruction.Offset,
+                instruction.OpCode));
+
         for (int index = startIndex; index < instructions.Length; index++)
         {
             var instruction = instructions[index];
@@ -895,6 +1159,15 @@ internal sealed class MethodAllocationFacts
             switch (opcode)
             {
                 case ILOpCode.Nop:
+                    continue;
+                case ILOpCode.Dup:
+                    if (stackValuesAbove != 0)
+                    {
+                        return Unsupported(
+                            instruction,
+                            AllocationLifetimeLimitationKind.UnsupportedStackShape);
+                    }
+                    trackedCopies++;
                     continue;
                 case ILOpCode.Ldc_i4_m1 or ILOpCode.Ldc_i4_0 or ILOpCode.Ldc_i4_1 or ILOpCode.Ldc_i4_2
                     or ILOpCode.Ldc_i4_3 or ILOpCode.Ldc_i4_4 or ILOpCode.Ldc_i4_5 or ILOpCode.Ldc_i4_6
@@ -907,31 +1180,113 @@ internal sealed class MethodAllocationFacts
                     or ILOpCode.Ldarg_s or ILOpCode.Ldarg or ILOpCode.Ldarga_s or ILOpCode.Ldarga:
                     stackValuesAbove++;
                     continue;
+                case ILOpCode.Conv_i1 or ILOpCode.Conv_i2 or ILOpCode.Conv_i4 or ILOpCode.Conv_i8
+                    or ILOpCode.Conv_r4 or ILOpCode.Conv_r8 or ILOpCode.Conv_u4 or ILOpCode.Conv_u8
+                    or ILOpCode.Conv_u2 or ILOpCode.Conv_u1 or ILOpCode.Conv_i or ILOpCode.Conv_u
+                    or ILOpCode.Conv_r_un or ILOpCode.Neg or ILOpCode.Not:
+                    if (stackValuesAbove < 1)
+                    {
+                        return Unsupported(
+                            instruction,
+                            AllocationLifetimeLimitationKind.UnsupportedStackShape);
+                    }
+                    continue;
+                case ILOpCode.Add or ILOpCode.Sub or ILOpCode.Mul or ILOpCode.Div
+                    or ILOpCode.Div_un or ILOpCode.Rem or ILOpCode.Rem_un or ILOpCode.And
+                    or ILOpCode.Or or ILOpCode.Xor or ILOpCode.Shl or ILOpCode.Shr
+                    or ILOpCode.Shr_un or ILOpCode.Ceq or ILOpCode.Cgt or ILOpCode.Cgt_un
+                    or ILOpCode.Clt or ILOpCode.Clt_un:
+                    if (stackValuesAbove < 2)
+                    {
+                        return Unsupported(
+                            instruction,
+                            AllocationLifetimeLimitationKind.UnsupportedStackShape);
+                    }
+                    stackValuesAbove--;
+                    continue;
                 case ILOpCode.Pop:
                     if (stackValuesAbove == 0)
-                        return EscapeClassification.LocalOnly;
+                    {
+                        if (trackedCopies != 1)
+                        {
+                            return Unsupported(
+                                instruction,
+                                AllocationLifetimeLimitationKind.UnsupportedStackShape);
+                        }
+                        uses.Add(new(
+                            instruction.Offset,
+                            AllocationLifetimeUseKind.Drop));
+                        return WithUses(EscapeClassification.LocalOnly);
+                    }
                     stackValuesAbove--;
                     continue;
                 case ILOpCode.Ldlen:
-                    return stackValuesAbove == 0 ? EscapeClassification.LocalOnly : EscapeClassification.Unknown;
+                    if (stackValuesAbove != 0 || trackedCopies != 1)
+                    {
+                        return Unsupported(
+                            instruction,
+                            AllocationLifetimeLimitationKind.UnsupportedStackShape);
+                    }
+                    uses.Add(new(
+                        instruction.Offset,
+                        AllocationLifetimeUseKind.LengthRead));
+                    return WithUses(EscapeClassification.LocalOnly);
                 case ILOpCode.Ldelem or ILOpCode.Ldelem_i or ILOpCode.Ldelem_i1 or ILOpCode.Ldelem_i2
                     or ILOpCode.Ldelem_i4 or ILOpCode.Ldelem_i8 or ILOpCode.Ldelem_r4 or ILOpCode.Ldelem_r8
                     or ILOpCode.Ldelem_u1 or ILOpCode.Ldelem_u2 or ILOpCode.Ldelem_u4 or ILOpCode.Ldelem_ref:
-                    return stackValuesAbove == 1 ? EscapeClassification.LocalOnly : EscapeClassification.Unknown;
+                    if (stackValuesAbove != 1 || trackedCopies != 1)
+                    {
+                        return Unsupported(
+                            instruction,
+                            AllocationLifetimeLimitationKind.UnsupportedStackShape);
+                    }
+                    uses.Add(new(
+                        instruction.Offset,
+                        AllocationLifetimeUseKind.ElementRead));
+                    return WithUses(EscapeClassification.LocalOnly);
                 case ILOpCode.Stelem or ILOpCode.Stelem_i or ILOpCode.Stelem_i1 or ILOpCode.Stelem_i2
                     or ILOpCode.Stelem_i4 or ILOpCode.Stelem_i8 or ILOpCode.Stelem_r4 or ILOpCode.Stelem_r8
                     or ILOpCode.Stelem_ref:
-                    return stackValuesAbove switch
+                    if (stackValuesAbove == 2
+                        && trackedCopies > 1)
                     {
-                        0 => EscapeClassification.Escapes(AllocationEscapeKind.Collection),
-                        2 => EscapeClassification.LocalOnly,
-                        _ => EscapeClassification.Unknown,
+                        trackedCopies--;
+                        stackValuesAbove = 0;
+                        uses.Add(new(
+                            instruction.Offset,
+                            AllocationLifetimeUseKind.ElementWrite));
+                        continue;
+                    }
+                    EscapeClassification storeClassification = stackValuesAbove switch
+                    {
+                        0 => EscapeClassification.Escapes(
+                            AllocationEscapeKind.Collection,
+                            instruction.Offset,
+                            AllocationLifetimeUseKind.CollectionStore),
+                        2 => EscapeClassification.LocalUse(
+                            instruction.Offset,
+                            AllocationLifetimeUseKind.ElementWrite),
+                        _ => EscapeClassification.Unknown(
+                            AllocationLifetimeLimitationKind.UnsupportedStackShape,
+                            instruction.Offset,
+                            instruction.OpCode),
                     };
+                    return WithUses(storeClassification);
                 default:
-                    return ClassifyImmediateConsumer(resolver, instruction, AllocationKind.Array, allocatedType, stackValuesAbove);
+                    return trackedCopies == 1
+                        ? WithUses(ClassifyImmediateConsumer(
+                            resolver,
+                            instruction,
+                            AllocationKind.Array,
+                            allocatedType,
+                            stackValuesAbove))
+                        : Unsupported(
+                            instruction,
+                            AllocationLifetimeLimitationKind.UnsupportedStackShape);
             }
         }
-        return EscapeClassification.Unknown;
+        return WithUses(EscapeClassification.Unknown(
+            AllocationLifetimeLimitationKind.UnsupportedInstruction));
     }
 
     EscapeClassification ClassifyImmediateConsumer(
@@ -942,7 +1297,12 @@ internal sealed class MethodAllocationFacts
         int stackValuesAbove)
     {
         if (stackValuesAbove != 0)
-            return EscapeClassification.Unknown;
+        {
+            return EscapeClassification.Unknown(
+                AllocationLifetimeLimitationKind.UnsupportedStackShape,
+                instruction.Offset,
+                instruction.OpCode);
+        }
 
         if (CompilerGeneratedNames.IsDisplayClass(allocatedType)
             && TryClassifyDisplayClassDelegateTarget(resolver, instruction.Offset, out var displayClassEscape))
@@ -953,15 +1313,32 @@ internal sealed class MethodAllocationFacts
         switch (instruction.OpCode)
         {
             case ILOpCode.Pop:
-                return EscapeClassification.LocalOnly;
+                return EscapeClassification.LocalUse(
+                    instruction.Offset,
+                    AllocationLifetimeUseKind.Drop);
             case ILOpCode.Ret:
-                return EscapeClassification.Escapes(AllocationEscapeKind.Return);
+                return EscapeClassification.Escapes(
+                    AllocationEscapeKind.Return,
+                    instruction.Offset,
+                    AllocationLifetimeUseKind.Return);
             case ILOpCode.Throw:
-                return EscapeClassification.ThrowPath;
+                return EscapeClassification.ThrowPath(instruction.Offset);
             case ILOpCode.Stfld:
-                return EscapeClassification.Escapes(ClassifyFieldStoreEscapeKind(resolver, instruction));
+            {
+                AllocationEscapeKind escapeKind =
+                    ClassifyFieldStoreEscapeKind(resolver, instruction);
+                return EscapeClassification.Escapes(
+                    escapeKind,
+                    instruction.Offset,
+                    escapeKind == AllocationEscapeKind.Capture
+                        ? AllocationLifetimeUseKind.Capture
+                        : AllocationLifetimeUseKind.FieldStore);
+            }
             case ILOpCode.Stsfld:
-                return EscapeClassification.Escapes(AllocationEscapeKind.Static);
+                return EscapeClassification.Escapes(
+                    AllocationEscapeKind.Static,
+                    instruction.Offset,
+                    AllocationLifetimeUseKind.StaticStore);
             case ILOpCode.Stelem:
             case ILOpCode.Stelem_i:
             case ILOpCode.Stelem_i1:
@@ -975,7 +1352,10 @@ internal sealed class MethodAllocationFacts
                 // List<T>.Add / multidim Set(...) are calls (fall through to Unknown),
                 // and span element stores lower to stobj/stind (Escapes(None) below):
                 // those stay fail-honest rather than being labelled Collection.
-                return EscapeClassification.Escapes(AllocationEscapeKind.Collection);
+                return EscapeClassification.Escapes(
+                    AllocationEscapeKind.Collection,
+                    instruction.Offset,
+                    AllocationLifetimeUseKind.CollectionStore);
             case ILOpCode.Stobj:
             case ILOpCode.Stind_i:
             case ILOpCode.Stind_i1:
@@ -985,21 +1365,56 @@ internal sealed class MethodAllocationFacts
             case ILOpCode.Stind_r4:
             case ILOpCode.Stind_r8:
             case ILOpCode.Stind_ref:
-                return EscapeClassification.Escapes(AllocationEscapeKind.None);
+                return EscapeClassification.Escapes(
+                    AllocationEscapeKind.None,
+                    instruction.Offset,
+                    AllocationLifetimeUseKind.ByReferenceTransfer);
             case ILOpCode.Unbox_any:
-                return kind == AllocationKind.Box ? EscapeClassification.LocalOnly : EscapeClassification.Unknown;
+                return kind == AllocationKind.Box
+                    ? EscapeClassification.LocalUse(
+                        instruction.Offset,
+                        AllocationLifetimeUseKind.Unbox)
+                    : EscapeClassification.Unknown(
+                        AllocationLifetimeLimitationKind.UnsupportedInstruction,
+                        instruction.Offset,
+                        instruction.OpCode);
             case ILOpCode.Call:
             case ILOpCode.Callvirt:
             case ILOpCode.Newobj:
             {
                 int token = MethodInstructionFacts.OperandInt32(instruction);
-                var callee = resolver.ResolveMember(token);
-                return IsSpanSafeLocalSink(callee, allocatedType)
-                    ? EscapeClassification.LocalOnly
-                    : EscapeClassification.Unknown;
+                MemberRef callee;
+                try
+                {
+                    callee = resolver.ResolveMember(token);
+                }
+                catch (Exception ex) when (ex is
+                    BadImageFormatException
+                    or InvalidOperationException
+                    or ArgumentException
+                    or OverflowException
+                    or IndexOutOfRangeException)
+                {
+                    return EscapeClassification.Unknown(
+                        AllocationLifetimeLimitationKind
+                            .MetadataResolution,
+                        instruction.Offset,
+                        instruction.OpCode);
+                }
+                return IsNonCapturingLocalSink(callee, allocatedType)
+                    ? EscapeClassification.LocalUse(
+                        instruction.Offset,
+                        AllocationLifetimeUseKind.TrustedNonCapturingCall)
+                    : EscapeClassification.Unknown(
+                        AllocationLifetimeLimitationKind.UnsupportedCall,
+                        instruction.Offset,
+                        instruction.OpCode);
             }
             default:
-                return EscapeClassification.Unknown;
+                return EscapeClassification.Unknown(
+                    AllocationLifetimeLimitationKind.UnsupportedInstruction,
+                    instruction.Offset,
+                    instruction.OpCode);
         }
     }
 
@@ -1008,7 +1423,7 @@ internal sealed class MethodAllocationFacts
         int position,
         out EscapeClassification classification)
     {
-        classification = EscapeClassification.Unknown;
+        classification = default;
         var instructions = _context.Instructions.Instructions;
         int index = _context.NextNonNopIndexAtOrAfter(position);
         if (index >= instructions.Length)
@@ -1050,7 +1465,10 @@ internal sealed class MethodAllocationFacts
                     if (StackTopIsDelegateTarget(stack)
                         && NextNonNopIsDelegateConstructor(resolver, instruction.NextOffset))
                     {
-                        classification = EscapeClassification.Escapes(AllocationEscapeKind.Capture);
+                        classification = EscapeClassification.Escapes(
+                            AllocationEscapeKind.Capture,
+                            instruction.Offset,
+                            AllocationLifetimeUseKind.Capture);
                         return true;
                     }
                     return false;
@@ -1061,7 +1479,10 @@ internal sealed class MethodAllocationFacts
                     if (StackTopIsDelegateTarget(stack)
                         && NextNonNopIsDelegateConstructor(resolver, instruction.NextOffset))
                     {
-                        classification = EscapeClassification.Escapes(AllocationEscapeKind.Capture);
+                        classification = EscapeClassification.Escapes(
+                            AllocationEscapeKind.Capture,
+                            instruction.Offset,
+                            AllocationLifetimeUseKind.Capture);
                         return true;
                     }
                     return false;
@@ -1190,17 +1611,71 @@ internal sealed class MethodAllocationFacts
 
     static EscapeClassification JoinEscape(EscapeClassification left, EscapeClassification right)
     {
+        AllocationEscape escape;
+        AllocationEscapeKind kind = AllocationEscapeKind.None;
         if (left.Escape == AllocationEscape.Escapes && right.Escape == AllocationEscape.Escapes)
-            return EscapeClassification.Escapes(left.Kind == right.Kind ? left.Kind : AllocationEscapeKind.None);
-        if (left.Escape == AllocationEscape.Escapes)
+        {
+            escape = AllocationEscape.Escapes;
+            kind = left.Kind == right.Kind
+                ? left.Kind
+                : AllocationEscapeKind.None;
+        }
+        else if (left.Escape == AllocationEscape.Escapes)
+        {
+            escape = AllocationEscape.Escapes;
+            kind = left.Kind;
+        }
+        else if (right.Escape == AllocationEscape.Escapes)
+        {
+            escape = AllocationEscape.Escapes;
+            kind = right.Kind;
+        }
+        else if (left.Escape == AllocationEscape.Unknown
+            || right.Escape == AllocationEscape.Unknown)
+        {
+            escape = AllocationEscape.Unknown;
+        }
+        else if (left.Escape == AllocationEscape.ThrowPath
+            || right.Escape == AllocationEscape.ThrowPath)
+        {
+            escape = AllocationEscape.ThrowPath;
+        }
+        else
+        {
+            escape = AllocationEscape.LocalOnly;
+        }
+
+        return new(
+            escape,
+            kind,
+            MergeDistinct(left.Uses, right.Uses),
+            MergeDistinct(left.Limitations, right.Limitations));
+    }
+
+    static ImmutableArray<T> MergeDistinct<T>(
+        ImmutableArray<T> left,
+        ImmutableArray<T> right)
+        where T : notnull
+    {
+        if (left.IsDefaultOrEmpty)
+            return right.IsDefault ? [] : right;
+        if (right.IsDefaultOrEmpty)
             return left;
-        if (right.Escape == AllocationEscape.Escapes)
-            return right;
-        if (left.Escape == AllocationEscape.Unknown || right.Escape == AllocationEscape.Unknown)
-            return EscapeClassification.Unknown;
-        if (left.Escape == AllocationEscape.ThrowPath || right.Escape == AllocationEscape.ThrowPath)
-            return EscapeClassification.ThrowPath;
-        return EscapeClassification.LocalOnly;
+
+        var seen = new HashSet<T>();
+        var builder = ImmutableArray.CreateBuilder<T>(
+            left.Length + right.Length);
+        foreach (T value in left)
+        {
+            if (seen.Add(value))
+                builder.Add(value);
+        }
+        foreach (T value in right)
+        {
+            if (seen.Add(value))
+                builder.Add(value);
+        }
+        return builder.ToImmutable();
     }
 
     static bool TryReadStoreSlotDefinition(DecodedInstruction instruction, out LocalSlotAccess access)
@@ -1230,10 +1705,24 @@ internal sealed class MethodAllocationFacts
         return true;
     }
 
-    static bool IsSpanSafeLocalSink(MemberRef member, TypeRef? allocatedType)
+    static bool IsNonCapturingLocalSink(
+        MemberRef member,
+        TypeRef? allocatedType)
     {
         if (member.Kind == MemberKind.Unsupported)
             return false;
+
+        if (allocatedType is not null
+            && member.Name == ".ctor"
+            && FrameworkIdentity.IsCoreLibraryType(
+                member.DeclaringType,
+                "System",
+                "String")
+            && member.ParameterTypes is [var parameter]
+            && SameTypeIgnoringByRef(parameter, allocatedType))
+        {
+            return true;
+        }
 
         if (FrameworkIdentity.IsKnownFrameworkType(member.DeclaringType, "System.Text", "System.Text", "StringBuilder")
             && member.Name is "Append" or "AppendLine")

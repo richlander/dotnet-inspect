@@ -45,14 +45,18 @@ public static partial class EcosystemPackCatalog
         ProductEcosystemPacks.AllKnownWorkspacePlan;
 
     /// <summary>
-    /// Returns a resource-free plan registering exactly the selected ecosystems
-    /// in caller order.
+    /// Returns a resource-free plan registering selected lineages root first.
     /// </summary>
     public static WorkspacePlan CreateWorkspacePlan(
         IEnumerable<EcosystemPackId> ecosystems) =>
         EcosystemWorkspacePlanFactory.Create(
             ProductEcosystemPacks.Registry,
-            ecosystems);
+            ProductEcosystemPacks.Registry.ExpandLineages(ecosystems));
+
+    /// <summary>Orders selected lineages nearest first, breaking unrelated ties by selection and product order.</summary>
+    public static ImmutableArray<EcosystemPackId> OrderLayeredFind(
+        IEnumerable<EcosystemPackId> ecosystems) =>
+        ProductEcosystemPacks.Registry.OrderLayeredFind(ecosystems);
 
     /// <summary>Returns a resource-free plan with platform-curated registrations.</summary>
     public static WorkspacePlan CreatePlatformWorkspacePlan() =>

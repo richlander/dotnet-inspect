@@ -10,6 +10,7 @@ import {
   core,
   other,
   empty,
+  run,
   surface,
   platformVersion,
   installFacades,
@@ -26,26 +27,104 @@ async function openIntegrations(page: Page, location = root) {
   await chooseInspector(
     page,
     "data-library-lens",
-    "integrations",
-    "Integrations",
+    "analysis",
+    "Analysis",
   );
-  await expect(inspectorTab(page, "data-library-lens", "integrations"))
+  await page.locator('[data-analysis-mode="integrations"]').click();
+  await expect(inspectorTab(page, "data-library-lens", "analysis"))
     .toHaveAttribute("aria-selected", "true");
 }
 
-async function openOpportunities(page: Page, location = root) {
-  await openIntegrations(page, location);
-  await page.locator('[data-integration-mode="opportunities"]').click();
-  await expect(page.locator('[data-integration-mode="opportunities"]'))
+test("Analysis opens on Relationships as its first tab", async ({ page }) => {
+  await installFacades(page);
+  await page.goto(root);
+  await selectLibrary(page, core.id);
+  await chooseInspector(
+    page,
+    "data-library-lens",
+    "analysis",
+    "Analysis",
+  );
+
+  const tabs = page.getByRole("tablist", { name: "Analysis views" })
+    .getByRole("tab");
+  await expect(tabs).toHaveText([
+    "Relationships",
+    "Dependencies",
+    "Complexity",
+    "Performance",
+    "Integrations",
+  ]);
+  await expect(tabs.first()).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator('[data-analysis-mode="relationships"]'))
     .toHaveAttribute("aria-selected", "true");
+});
+
+test("Dependencies stays on demand and reveals one selected relationship", async ({
+  page,
+}) => {
+  await installFacades(page);
+  await page.goto(root);
+  await selectLibrary(page, core.id);
+  await chooseInspector(
+    page,
+    "data-library-lens",
+    "analysis",
+    "Analysis",
+  );
+  await page.getByRole("tab", { name: "Dependencies", exact: true }).click();
+
+  const frame = page.locator(".analysis-inspector");
+  await expect(frame.getByRole("button", {
+    name: "Load dependency structure",
+  })).toBeVisible();
+  expect(await page.locator("html")
+    .getAttribute("data-dependency-structure-request")).toBeNull();
+
+  await frame.getByRole("button", {
+    name: "Load dependency structure",
+  }).click();
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-dependency-structure-request",
+    core.id,
+  );
+  await expect(frame.locator("path.metrics-dependency-edge")).toHaveCount(1);
+  await expect(frame.getByRole("checkbox", {
+    name: "Include global namespace",
+  })).not.toBeChecked();
+  await expect(frame.locator(".metrics-dependency-node-label")
+    .filter({ hasText: "(global)" })).toHaveCount(0);
+
+  const edge = frame.locator("path.metrics-dependency-edge");
+  await edge.focus();
+  await edge.press("Enter");
+  await expect(edge).toHaveAttribute("aria-pressed", "true");
+  await expect(frame.locator("[data-dependency-edge-detail]:visible"))
+    .toHaveCount(1);
+  await expect(frame.locator("[data-dependency-edge-detail]:visible"))
+    .toContainText("Example.Api");
+  await expect(frame.locator("[data-dependency-edge-detail]:visible"))
+    .toContainText("Example.Core");
+});
+
+async function selectPerformanceAnalysis(page: Page) {
+  const performance = page.locator('[data-analysis-mode="performance"]');
+  await performance.click();
+  await expect(performance).toHaveAttribute("aria-selected", "true");
 }
 
-async function expectCompactIntegrationHeader(page: Page) {
-  const frame = page.locator(".integration-inspector");
+async function expectCompactAnalysisHeader(page: Page) {
+  const frame = page.locator(".analysis-inspector");
   const header = frame.locator("header");
-  const tabs = header.getByRole("tablist", { name: "Integration views" });
+  const tabs = header.getByRole("tablist", { name: "Analysis views" });
   await expect(tabs).toBeVisible();
-  for (const name of ["Integrations", "Opportunities"]) {
+  for (const name of [
+    "Relationships",
+    "Dependencies",
+    "Complexity",
+    "Performance",
+    "Integrations",
+  ]) {
     const tab = tabs.getByRole("tab", { name, exact: true });
     await expect(tab).toBeInViewport({ ratio: 1 });
     expect(await tab.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
@@ -53,8 +132,13 @@ async function expectCompactIntegrationHeader(page: Page) {
   const headerBox = await header.boundingBox();
   const tabsBox = await tabs.boundingBox();
   const resultsBox = await frame.getByRole("tabpanel").boundingBox();
-  expect(headerBox!.height).toBe(40);
-  expect(Math.abs(tabsBox!.y - headerBox!.y)).toBeLessThanOrEqual(1);
+  const narrow = (page.viewportSize()?.width ?? 0) <= 600;
+  expect(headerBox!.height).toBe(narrow ? 104 : 40);
+  if (narrow) {
+    expect(tabsBox!.y - headerBox!.y).toBeGreaterThanOrEqual(20);
+  } else {
+    expect(Math.abs(tabsBox!.y - headerBox!.y)).toBeLessThanOrEqual(1);
+  }
   expect(tabsBox!.y + tabsBox!.height).toBeLessThanOrEqual(headerBox!.y + headerBox!.height);
   expect(headerBox!.x + headerBox!.width - tabsBox!.x - tabsBox!.width).toBeLessThanOrEqual(16);
   expect(Math.abs(resultsBox!.y - headerBox!.y - headerBox!.height)).toBeLessThanOrEqual(1);
@@ -64,79 +148,66 @@ async function expectCompactIntegrationHeader(page: Page) {
 }
 
 for (const width of [1440, 390, 320]) {
-  test(`Integration tabs preserve the Library and use manual keyboard activation at ${width}px`, async ({ page }, testInfo) => {
+  test(`Analysis tabs preserve the Library and use manual keyboard activation at ${width}px`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height: 900 });
     await installFacades(page);
     await openIntegrations(page);
-    const frame = page.locator(".integration-inspector");
+    const frame = page.locator(".analysis-inspector");
     const integrations = frame.getByRole("tab", { name: "Integrations", exact: true });
-    const opportunities = frame.getByRole("tab", { name: "Opportunities", exact: true });
+    const performance = frame.getByRole("tab", { name: "Performance", exact: true });
     await expect(page.locator('[data-library-lens="opportunities"]')).toHaveCount(0);
+    await expect(frame.getByRole("tab", { name: "Opportunities", exact: true }))
+      .toHaveCount(0);
     await expect(integrations).toHaveAttribute("aria-selected", "true");
-    await expect(opportunities).toBeInViewport({ ratio: 1 });
     await expect(frame.locator(".signal-row")).toHaveCount(3);
-    await expectCompactIntegrationHeader(page);
-    expect(await page.locator("html").getAttribute("data-opportunity-request")).toBeNull();
-    await integrations.focus();
-    await integrations.press("ArrowRight");
-    await expect(opportunities).toBeFocused();
-    await expect(integrations).toHaveAttribute("aria-selected", "true");
-    expect(await page.locator("html").getAttribute("data-opportunity-request")).toBeNull();
-    await opportunities.press("Enter");
-    await expect(opportunities).toHaveAttribute("aria-selected", "true");
-    await expect(opportunities).toBeFocused();
     await expect(frame.locator(".opp-row")).toHaveCount(3);
-    await expect(frame.locator("h1")).toHaveText("Integrations");
+    await expectCompactAnalysisHeader(page);
+    await integrations.focus();
+    await integrations.press("ArrowLeft");
+    await expect(performance).toBeFocused();
+    await expect(integrations).toHaveAttribute("aria-selected", "true");
+    await performance.press("Enter");
+    await expect(performance).toHaveAttribute("aria-selected", "true");
+    await expect(frame.locator("h1")).toHaveText("Analysis");
     await expect(frame.locator("footer")).toContainText(core.asset);
-    await expect(inspectorTab(page, "data-library-lens", "integrations"))
+    await expect(inspectorTab(page, "data-library-lens", "analysis"))
       .toHaveAttribute("aria-selected", "true");
-    await expectCompactIntegrationHeader(page);
-    await page.screenshot({ path: testInfo.outputPath("integration-tabs-opportunities.png") });
+    await expectCompactAnalysisHeader(page);
+    await page.screenshot({ path: testInfo.outputPath("analysis-tabs-performance.png") });
 
-    await opportunities.press("Home");
+    await performance.press("ArrowRight");
     await expect(integrations).toBeFocused();
-    await expect(opportunities).toHaveAttribute("aria-selected", "true");
     await integrations.press("Space");
     await expect(integrations).toHaveAttribute("aria-selected", "true");
     await expect(frame.locator(".signal-row")).toHaveCount(3);
+    await expect(frame.locator(".opp-row")).toHaveCount(3);
     await expect(frame.locator("footer")).toContainText(core.asset);
     await page.screenshot({ path: testInfo.outputPath("integration-tabs-integrations.png") });
-    await integrations.press("End");
-    await opportunities.press("Space");
-    await expect(frame.locator(".opp-row")).toHaveCount(3);
 
     await frame.locator("[data-opp-type]").first().click();
     await expect(subjectTab(page, "type")).toHaveAttribute("aria-selected", "true");
     await page.getByRole("button", { name: "Application menu", exact: true }).press("Alt+ArrowLeft");
-    await expect(opportunities).toHaveAttribute("aria-selected", "true");
+    await expect(integrations).toHaveAttribute("aria-selected", "true");
     await page.getByRole("button", { name: "Application menu", exact: true }).press("Alt+ArrowRight");
     await expect(subjectTab(page, "type")).toHaveAttribute("aria-selected", "true");
     await chooseSubject(page, "library", "Library");
-    await expect(opportunities).toHaveAttribute("aria-selected", "true");
+    await expect(integrations).toHaveAttribute("aria-selected", "true");
     await expect(frame.locator(".opp-row")).toHaveCount(3);
   });
 }
 
-test("Integration tabs retain selected mode and focus when an inactive scan settles", async ({ page }) => {
+test("Analysis tabs retain selected mode and focus when an inactive scan settles", async ({ page }) => {
   await installFacades(page, surface, [], "ready", "deferred", undefined, "deferred");
   await openIntegrations(page);
-  const frame = page.locator(".integration-inspector");
+  const frame = page.locator(".analysis-inspector");
   const integrations = frame.getByRole("tab", { name: "Integrations", exact: true });
-  const opportunities = frame.getByRole("tab", { name: "Opportunities", exact: true });
   await expect(frame).toContainText("Scanning integrations");
-  await opportunities.click();
-  await expect(frame).toContainText("Scanning opportunities");
-  await opportunities.press("ArrowLeft");
-  await expect(integrations).toBeFocused();
   await releaseFacade(page, "fixture-integrations-ready:asset:core");
-  await expect(frame).toContainText("Scanning opportunities");
-  await expect(opportunities).toHaveAttribute("aria-selected", "true");
-  await expect(integrations).toBeFocused();
+  await expect(frame.locator(".signal-row")).toHaveCount(3);
+  await expect(frame.locator("header")).toContainText("scanning");
+  await expect(integrations).toHaveAttribute("aria-selected", "true");
   await releaseFacade(page, "fixture-opportunities-ready:asset:core");
   await expect(frame.locator(".opp-row")).toHaveCount(3);
-  await expect(integrations).toBeFocused();
-  await expect(opportunities).toHaveAttribute("aria-selected", "true");
-  await integrations.press("Enter");
   await expect(frame.locator(".signal-row")).toHaveCount(3);
 });
 
@@ -146,6 +217,7 @@ async function openAnalysis(page: Page, location = root) {
   await chooseInspector(page, "data-library-lens", "analysis", "Analysis");
   await expect(inspectorTab(page, "data-library-lens", "analysis"))
     .toHaveAttribute("aria-selected", "true");
+  await selectPerformanceAnalysis(page);
 }
 
 for (const width of [1440, 390]) {
@@ -243,6 +315,7 @@ for (const width of [1440, 390]) {
     await openPlatform(page, { mismatchedFile: true });
     await page.getByTitle("Inspect System.Text.Json", { exact: true }).click();
     await chooseInspector(page, "data-library-lens", "analysis", "Analysis");
+    await selectPerformanceAnalysis(page);
     const frame = page.locator(".library-analysis-surface");
     await expect(frame.locator(".perf-row")).toHaveCount(2);
     const picker = frame.locator(".library-analysis-controls select");
@@ -264,6 +337,247 @@ test("production Analysis rows open the exact ranked member", async ({ page }) =
   await expect(subjectTab(page, "member"))
     .toHaveAttribute("aria-selected", "true");
   await expect(page.locator("#inspector-panel")).toContainText("Runs the widget.");
+
+  await page.locator("[data-nav-member]").filter({ hasText: "Run" }).click();
+  await expect(page.locator("#member-surface-title")).toHaveText("Run");
+  await expect(page.locator(".member-surface-head"))
+    .toContainText("method · 1 of 1");
+  await expect(page.locator(".member-surface-list .overload-row"))
+    .toHaveCount(0);
+  expect(await page.locator("html").getAttribute(
+    "data-member-group-document-request",
+  )).toBeNull();
+  await expect(page.locator("#inspector-panel")).toContainText(
+    "Runs the widget.");
+});
+
+test("ranked Analysis members replace sticky private Type population intent", async ({
+  page,
+}) => {
+  await installFacades(page);
+  await page.goto(root);
+  await selectLibrary(page, core.id);
+  await chooseSubject(page, "type", "Type");
+  await page.locator(
+    '#type-list [data-type="asset:core:Example.Widget"]',
+  ).click();
+  await page.locator("#member-filter-summary").click();
+  const accessibility = page.locator("[data-member-access-filter]");
+  await expect(accessibility.locator('option[value="public"]'))
+    .toContainText("·");
+  await accessibility.selectOption("private");
+  await expect(accessibility).toHaveValue("private");
+
+  await chooseSubject(page, "library", "Library");
+  await chooseInspector(page, "data-library-lens", "analysis", "Analysis");
+  await selectPerformanceAnalysis(page);
+  await page.locator(".library-analysis-surface .perf-row").first().click();
+
+  await expect(subjectTab(page, "member"))
+    .toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("[data-member-access-filter]"))
+    .toHaveValue("public");
+  await expect(page.locator("#inspector-panel")).toContainText(
+    "Runs the widget.",
+  );
+});
+
+test("ranked Analysis activation does not outlive newer metadata spelling", async ({
+  page,
+}) => {
+  await installFacades(
+    page,
+    surface,
+    [],
+    "ready",
+    "ready",
+    undefined,
+    "ready",
+    "ready",
+    undefined,
+    { deferTypeMemberPopulation: true },
+  );
+  await openAnalysis(page);
+
+  await page.locator(".library-analysis-surface .perf-row").first().click();
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-type-member-population-request",
+    /"csharp","public"\]$/,
+  );
+  await page.locator("#member-filter-summary").click();
+  await page.locator("[data-member-spelling]").selectOption("metadata");
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-type-member-population-request",
+    /"metadata","public"\]$/,
+  );
+
+  await releaseFacade(page, "finish-type-member-population");
+
+  await expect(page.locator("[data-member-spelling]"))
+    .toHaveValue("metadata");
+  await expect(subjectTab(page, "type"))
+    .toHaveAttribute("aria-selected", "true");
+  await expect(subjectTab(page, "member"))
+    .toHaveAttribute("aria-selected", "false");
+});
+
+test("ranked Analysis activation does not outlive A to B to A Type navigation", async ({
+  page,
+}) => {
+  const secondNeighbor = type("Example.SecondNeighbor", other);
+  await installFacades(
+    page,
+    {
+      ...surface,
+      types: [...surface.types, secondNeighbor],
+      accessibility: surface.accessibility.map(bucket =>
+        bucket.id === "public" ? { ...bucket, count: 3 } : bucket),
+      totalMembers: 3,
+    },
+    [],
+    "ready",
+    "ready",
+    undefined,
+    "ready",
+    "ready",
+    undefined,
+    { deferTypeMemberPopulation: true },
+  );
+  await page.goto(root);
+  await selectLibrary(page, other.id);
+  await chooseInspector(page, "data-library-lens", "analysis", "Analysis");
+  await expect(inspectorTab(page, "data-library-lens", "analysis"))
+    .toHaveAttribute("aria-selected", "true");
+  await selectPerformanceAnalysis(page);
+
+  await page.locator(".library-analysis-surface .perf-row").first().click();
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-type-member-population-request",
+    /"Example.Neighbor","csharp","public"\]$/,
+  );
+  await expect(subjectTab(page, "type"))
+    .toHaveAttribute("aria-selected", "true");
+
+  await page.locator(
+    '#type-list [data-type="asset:other:Example.SecondNeighbor"]',
+  ).click();
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-type-member-population-request",
+    /"Example.SecondNeighbor","csharp","public"\]$/,
+  );
+  await page.locator(
+    '#type-list [data-type="asset:other:Example.Neighbor"]',
+  ).click();
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-type-member-population-request",
+    /"Example.Neighbor","csharp","public"\]$/,
+  );
+
+  await releaseFacade(page, "finish-type-member-population");
+
+  await expect(subjectTab(page, "type"))
+    .toHaveAttribute("aria-selected", "true");
+  await expect(subjectTab(page, "member"))
+    .toHaveAttribute("aria-selected", "false");
+});
+
+test("different family navigation leaves exact Facts for the shared document", async ({
+  page,
+}) => {
+  const widget = surface.types.find(
+    candidate => candidate.definitionId === "Example.Widget",
+  );
+  if (!widget) throw new Error("The Analysis fixture has no Widget Type.");
+  const secondRun = {
+    ...run,
+    signature: "public void Run(int value)",
+    metadataToken: 0x06000002,
+    declarationMetadataToken: 0x06000002,
+    stableSelector: "Run:2",
+    anchorDigest: "widget-run-two",
+    canonicalSignature: "M:Example.Widget.Run(System.Int32)",
+    graphSelectorKey: "Run:2",
+    bodySelectors: [{
+      token: 0x06000002,
+      memberName: "Run",
+      selectorKey: "Run:2",
+    }],
+  };
+  const stop = {
+    ...run,
+    name: "Stop",
+    signature: "public void Stop()",
+    metadataToken: 0x06000003,
+    declarationMetadataToken: 0x06000003,
+    documentationId: "M:Example.Widget.Stop",
+    stableSelector: "Stop:1",
+    anchorDigest: "widget-stop-one",
+    canonicalSignature: "M:Example.Widget.Stop",
+    graphSelectorKey: "Stop:1",
+    bodySelectors: [{
+      token: 0x06000003,
+      memberName: "Stop",
+      selectorKey: "Stop:1",
+    }],
+  };
+  const secondStop = {
+    ...stop,
+    signature: "public void Stop(int code)",
+    metadataToken: 0x06000004,
+    declarationMetadataToken: 0x06000004,
+    stableSelector: "Stop:2",
+    anchorDigest: "widget-stop-two",
+    canonicalSignature: "M:Example.Widget.Stop(System.Int32)",
+    graphSelectorKey: "Stop:2",
+    bodySelectors: [{
+      token: 0x06000004,
+      memberName: "Stop",
+      selectorKey: "Stop:2",
+    }],
+  };
+  await installFacades(page, {
+    ...surface,
+    assemblies: surface.assemblies.map(assembly =>
+      assembly.id === core.id
+        ? { ...assembly, publicMembers: 4 }
+        : assembly),
+    types: surface.types.map(candidate =>
+      candidate.id === widget.id
+        ? {
+            ...candidate,
+            members: 4,
+            api: [run, secondRun, stop, secondStop],
+          }
+        : candidate),
+    accessibility: surface.accessibility.map(bucket =>
+      bucket.id === "public" ? { ...bucket, count: 5 } : bucket),
+    totalMembers: 5,
+  });
+  await openAnalysis(page);
+  await page.locator(".library-analysis-surface .perf-row").first().click();
+  await chooseInspector(
+    page,
+    "data-member-section",
+    "facts",
+    "Facts",
+  );
+
+  await page.locator("[data-nav-member]").filter({ hasText: "Stop" }).click();
+
+  await expect(page.locator("#member-surface-title")).toHaveText("Stop");
+  await expect(page.locator(".member-surface-head"))
+    .toContainText("2 overloads");
+  await expect(page.locator(".member-surface-list .overload-row"))
+    .toHaveCount(2);
+  expect(await page.locator("html").getAttribute(
+    "data-member-group-document-request",
+  )).toBeNull();
+
+  await page.locator(".member-surface-list .overload-row").first().click();
+  await page.keyboard.press("Backspace");
+  await expect(page.locator("#member-surface-title")).toHaveText("Stop");
+  await expect(page.locator(".member-surface-list .overload-row"))
+    .toHaveCount(2);
 });
 
 test("production Analysis keeps deferred Library results out of the incoming analysis", async ({ page }) => {
@@ -284,6 +598,7 @@ test("production Analysis keeps deferred Library results out of the incoming ana
   await chooseSubject(page, "package", "Package");
   await selectLibrary(page, other.id);
   await chooseInspector(page, "data-library-lens", "analysis", "Analysis");
+  await selectPerformanceAnalysis(page);
   await expect(page.locator(".library-analysis-surface")).toContainText("Analyzing allocations");
   await expect(page.locator(".library-analysis-surface footer")).toContainText(other.asset);
   await expect(page.locator(".library-analysis-surface")).not.toContainText(core.name);
@@ -293,14 +608,15 @@ test("production Analysis keeps deferred Library results out of the incoming ana
 });
 
 for (const width of [1440, 390]) {
-  test(`production Opportunities retains selected Library results at ${width}px`, async ({ page }, testInfo) => {
+  test(`production Integrations retains suggested entries at ${width}px`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height: 900 });
     await installFacades(page);
-    await openOpportunities(page);
-    const frame = page.locator(".library-opportunities-surface");
+    await openIntegrations(page);
+    const frame = page.locator(".library-integrations-surface");
     await expect(frame.locator(".opp-row")).toHaveCount(3);
-    await expect(frame.locator("header")).toContainText("2 areas");
-    await expect(frame.locator("header")).toContainText("3 suggestions");
+    await expect(frame.locator("header")).toContainText("4 categories");
+    await expect(frame.locator("header")).toContainText("3 detected");
+    await expect(frame.locator("header")).toContainText("3 suggested");
     await expect(frame.locator("footer")).toContainText(core.asset);
     await expect(frame.locator("footer")).toContainText("Example.Core, Version=1.0.0.0");
     await expect(frame.locator("[data-opp-type]")).toHaveCount(3);
@@ -315,7 +631,7 @@ for (const width of [1440, 390]) {
     expect(Math.abs(frameBox!.width - panelBox!.width)).toBeLessThanOrEqual(2);
     expect(Math.abs(rowBox!.width - frameBox!.width)).toBeLessThanOrEqual(2);
     expect(Math.abs(rowBox!.x - frameBox!.x)).toBeLessThanOrEqual(1);
-    await page.screenshot({ path: testInfo.outputPath("opportunities.png") });
+    await page.screenshot({ path: testInfo.outputPath("suggested-integrations.png") });
     if (width === 390) {
       const back = page.getByRole("button", { name: "Libraries", exact: true });
       await back.click();
@@ -326,18 +642,18 @@ for (const width of [1440, 390]) {
     }
   });
 
-  test(`production Opportunities contains long fields and keeps its frame while scrolling at ${width}px`, async ({ page }) => {
+  test(`production Integrations contains long suggested fields and keeps its frame while scrolling at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
     const longCore = library(core.id, "Example." + "LongLibraryName".repeat(25), 1);
     await installFacades(page, {
       ...surface, assemblies: [longCore], types: [type("Example.Widget", longCore)], totalMembers: 1,
     }, [], "ready", "ready", undefined, "long");
-    await openOpportunities(page);
-    const frame = page.locator(".library-opportunities-surface");
+    await openIntegrations(page);
+    const frame = page.locator(".library-integrations-surface");
     await expect(frame.locator(".opp-row")).toHaveCount(81);
     const header = await frame.locator("header").boundingBox();
     const footer = await frame.locator("footer").boundingBox();
-    const scroll = frame.locator(".library-opportunities-scroll");
+    const scroll = frame.locator(".library-integrations-scroll");
     const geometry = await scroll.evaluate(element => ({
       width: element.clientWidth, scrollWidth: element.scrollWidth,
       height: element.clientHeight, scrollHeight: element.scrollHeight,
@@ -354,42 +670,47 @@ for (const width of [1440, 390]) {
   });
 
   for (const scenario of ["empty", "partial", "partial-empty", "query-error"] as const) {
-    test(`production Opportunities retains its ${scenario} state at ${width}px`, async ({ page }) => {
+    test(`production Integrations retains its suggested ${scenario} state at ${width}px`, async ({ page }) => {
       await page.setViewportSize({ width, height: 900 });
       await installFacades(page, surface, [], "ready", "ready", undefined, scenario);
-      await openOpportunities(page);
-      const frame = page.locator(".library-opportunities-surface");
+      await openIntegrations(page);
+      const frame = page.locator(".library-integrations-surface");
       if (scenario === "partial") {
         await expect(frame.locator(".opp-row")).toHaveCount(3);
         await expect(frame.locator("header")).toContainText("partial");
       } else {
-        await expect(frame.locator("h2")).toHaveText(scenario === "empty"
-          ? "No integration opportunities" : scenario === "partial-empty"
-            ? "Opportunity scan incomplete" : "Opportunity scan failed");
         await expect(frame.locator(".opp-row")).toHaveCount(0);
+        await expect(frame.locator(".signal-row")).toHaveCount(3);
+        if (scenario === "empty") {
+          await expect(frame.locator("header")).toContainText("0 suggested");
+          await expect(frame.locator(".metadata-warning")).toHaveCount(0);
+        } else {
+          await expect(frame.locator(".metadata-warning")).toBeVisible();
+        }
       }
       if (scenario.startsWith("partial")) {
         await expect(frame).toContainText("A library participant could not be inspected.");
-        await expect(frame).not.toContainText("No integration opportunities");
+      } else if (scenario === "query-error") {
+        await expect(frame).toContainText("Suggested integrations: Opportunity query unavailable.");
       }
       await expect(frame.locator("footer")).toBeInViewport();
     });
   }
 
-  test(`production Opportunities keeps Platform Library selection outside the scroller at ${width}px`, async ({ page }) => {
+  test(`production Integrations follows Platform Library navigation at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
     await openPlatform(page, { mismatchedFile: true });
     await page.getByTitle("Inspect System.Facade", { exact: true }).click();
     await chooseInspector(
       page,
       "data-library-lens",
-      "integrations",
-      "Integrations",
+      "analysis",
+      "Analysis",
     );
-    await page.locator('[data-integration-mode="opportunities"]').click();
-    const frame = page.locator(".library-opportunities-surface");
+    await page.locator('[data-analysis-mode="integrations"]').click();
+    const frame = page.locator(".library-integrations-surface");
     await expect(frame.locator(".opp-row")).toHaveCount(3);
-    const picker = frame.locator(".library-opportunities-controls select");
+    const picker = frame.locator(".library-integrations-controls select");
     await expect(picker).toBeVisible();
     await expect(picker).toHaveValue("System.Facade");
     await picker.selectOption("System.Text.Json");
@@ -408,12 +729,12 @@ for (const width of [1440, 390]) {
     await expect(page.locator("html"))
       .toHaveAttribute("data-platform-opportunity-request", "System.Text.Json.dll:netcore.app");
     const header = await frame.locator("header").boundingBox();
-    const content = await frame.locator(".library-opportunities-scroll").boundingBox();
+    const content = await frame.locator(".library-integrations-scroll").boundingBox();
     expect(header!.y + header!.height).toBeLessThanOrEqual(content!.y + 1);
   });
 }
 
-test("stale Platform Opportunities acquisition cannot replace a newer family selection", async ({ page }) => {
+test("stale Platform suggested integration acquisition cannot replace a newer family selection", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await openPlatform(page, {
     duplicateLibrary: true,
@@ -427,12 +748,12 @@ test("stale Platform Opportunities acquisition cannot replace a newer family sel
   await chooseInspector(
     page,
     "data-library-lens",
-    "integrations",
-    "Integrations",
+    "analysis",
+    "Analysis",
   );
-  await page.locator('[data-integration-mode="opportunities"]').click();
+  await page.locator('[data-analysis-mode="integrations"]').click();
   const picker = page.locator(
-    ".library-opportunities-controls .platform-library-select",
+    ".library-integrations-controls .platform-library-select",
   );
   await picker
     .locator('option[data-pack="aspnetcore.app"]')
@@ -483,27 +804,27 @@ test("stale Platform Opportunities acquisition cannot replace a newer family sel
   );
 });
 
-test("production Opportunities keeps deferred Library results out of the incoming scan", async ({ page }) => {
+test("production Integrations keeps deferred suggested results out of the incoming scan", async ({ page }) => {
   await installFacades(page, surface, [], "ready", "ready", undefined, "deferred");
-  await openOpportunities(page);
-  await expect(page.locator(".library-opportunities-surface")).toContainText("Scanning opportunities");
-  await expect(page.locator(".library-opportunities-surface footer")).toContainText(core.asset);
+  await openIntegrations(page);
+  await expect(page.locator(".library-integrations-surface header")).toContainText("scanning");
+  await expect(page.locator(".library-integrations-surface footer")).toContainText(core.asset);
   await releaseFacade(page, "fixture-opportunities-ready:asset:core");
-  await expect(page.locator(".library-opportunities-scroll .opp-row")).toHaveCount(3);
+  await expect(page.locator(".library-integrations-scroll .opp-row")).toHaveCount(3);
   await chooseSubject(page, "package", "Package");
   await selectLibrary(page, other.id);
   await chooseInspector(
     page,
     "data-library-lens",
-    "integrations",
-    "Integrations",
+    "analysis",
+    "Analysis",
   );
-  await page.locator('[data-integration-mode="opportunities"]').click();
-  await expect(page.locator(".library-opportunities-surface")).toContainText("Scanning opportunities");
-  await expect(page.locator(".library-opportunities-surface footer")).toContainText(other.asset);
-  await expect(page.locator(".library-opportunities-surface")).not.toContainText(core.name);
+  await page.locator('[data-analysis-mode="integrations"]').click();
+  await expect(page.locator(".library-integrations-surface header")).toContainText("scanning");
+  await expect(page.locator(".library-integrations-surface footer")).toContainText(other.asset);
+  await expect(page.locator(".library-integrations-surface")).not.toContainText(core.name);
   await releaseFacade(page, "fixture-opportunities-ready:asset:other");
-  await expect(page.locator(".library-opportunities-scroll .opp-type-ns").nth(1)).toContainText(other.name);
+  await expect(page.locator(".library-integrations-scroll .opp-type-ns").nth(1)).toContainText(other.name);
 });
 
 for (const width of [1440, 390]) {
@@ -517,8 +838,10 @@ for (const width of [1440, 390]) {
     await expect(page.locator("#inspector-panel")).toContainText("Logging");
     await expect(page.locator("html")).toHaveAttribute("data-integration-request", "asset:core");
     const frame = page.locator(".library-integrations-surface");
-    await expect(frame.locator("header")).toContainText("2 categories");
-    await expect(frame.locator("header")).toContainText("3 signals");
+    await expect(frame.locator("header")).toContainText("4 categories");
+    await expect(frame.locator("header")).toContainText("3 detected");
+    await expect(frame.locator("header")).toContainText("3 suggested");
+    await expect(frame.locator(".opp-row")).toHaveCount(3);
     await expect(frame.locator("footer")).toContainText(core.asset);
     await expect(frame.locator("footer")).toContainText("Example.Core, Version=1.0.0.0");
     await expect(page.locator("#inspector-panel > .type-heading")).toHaveCount(0);
@@ -561,7 +884,7 @@ for (const width of [1440, 390]) {
     expect(geometry.pageScrollWidth).toBeLessThanOrEqual(geometry.pageWidth + 1);
     expect(geometry.scrollHeight).toBeGreaterThan(geometry.height);
     await scroll.evaluate(element => { element.scrollTop = element.scrollHeight; });
-    await expect(frame.locator(".signal-row").last()).toBeInViewport();
+    await expect(frame.locator('[role="listitem"]').last()).toBeInViewport();
     expect(await frame.locator("header").boundingBox()).toEqual(header);
     expect(await frame.locator("footer").boundingBox()).toEqual(footer);
   });
@@ -576,41 +899,50 @@ for (const width of [1440, 390]) {
         await expect(frame.locator(".signal-row")).toHaveCount(3);
         await expect(frame.locator("header")).toContainText("partial");
       } else {
-        await expect(frame.locator("h2")).toHaveText(scenario === "empty"
-          ? "No ecosystem integrations detected" : scenario === "partial-empty"
-            ? "Integration scan incomplete" : "Integration scan failed");
         await expect(frame.locator(".signal-row")).toHaveCount(0);
+        await expect(frame.locator(".opp-row")).toHaveCount(3);
+        if (scenario === "empty") {
+          await expect(frame.locator("header")).toContainText("0 detected");
+          await expect(frame.locator(".metadata-warning")).toHaveCount(0);
+        } else {
+          await expect(frame.locator(".metadata-warning")).toBeVisible();
+        }
       }
       if (scenario.startsWith("partial")) {
         await expect(frame).toContainText("A library participant could not be inspected.");
-        await expect(frame).not.toContainText("No ecosystem integrations detected");
+      } else if (scenario === "query-error") {
+        await expect(frame).toContainText("Detected integrations: Integration query unavailable.");
       }
       await expect(frame.locator("footer")).toBeInViewport();
     });
   }
 
-  test(`production Integrations uses Platform navigation without a second library picker at ${width}px`, async ({ page }) => {
+  test(`production Integrations keeps Platform Library selection outside the scroller at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
     await openPlatform(page);
     await page.getByTitle("Inspect System.Text.Json", { exact: true }).click();
     await chooseInspector(
       page,
       "data-library-lens",
-      "integrations",
-      "Integrations",
+      "analysis",
+      "Analysis",
     );
+    await page.locator('[data-analysis-mode="integrations"]').click();
     const frame = page.locator(".library-integrations-surface");
     await expect(frame.locator(".signal-row")).toHaveCount(3);
-    await expect(frame.locator(".library-integrations-controls")).toHaveCount(0);
+    const picker = frame.locator(".library-integrations-controls select");
+    await expect(picker).toBeVisible();
+    await expect(picker).toHaveValue("System.Text.Json");
     await expect(frame.locator(".signal-ns").first()).toContainText("System.Text.Json");
     await chooseSubject(page, "platform", "Platform");
     await page.getByTitle("Inspect System.Facade", { exact: true }).click();
     await chooseInspector(
       page,
       "data-library-lens",
-      "integrations",
-      "Integrations",
+      "analysis",
+      "Analysis",
     );
+    await page.locator('[data-analysis-mode="integrations"]').click();
     await expect(frame.locator(".signal-ns").first()).toContainText("System.Facade");
     await expect(frame.locator("footer")).toContainText("System.Facade.dll");
     await expect(page.locator("html")).toHaveAttribute("data-platform-integration-request", "System.Facade.dll:netcore.app");
@@ -620,7 +952,7 @@ for (const width of [1440, 390]) {
 test("production Integrations keeps deferred Library results out of the incoming scan", async ({ page }) => {
   await installFacades(page, surface, [], "ready", "deferred");
   await openIntegrations(page);
-  await expect(page.locator(".library-integrations-surface")).toContainText("Scanning integrations");
+  await expect(page.locator(".library-integrations-surface header")).toContainText("scanning");
   await expect(page.locator(".library-integrations-surface footer")).toContainText(core.asset);
   await releaseFacade(page, "fixture-integrations-ready:asset:core");
   await expect(page.locator(".library-integrations-scroll .signal-row")).toHaveCount(3);
@@ -629,10 +961,11 @@ test("production Integrations keeps deferred Library results out of the incoming
   await chooseInspector(
     page,
     "data-library-lens",
-    "integrations",
-    "Integrations",
+    "analysis",
+    "Analysis",
   );
-  await expect(page.locator(".library-integrations-surface")).toContainText("Scanning integrations");
+  await page.locator('[data-analysis-mode="integrations"]').click();
+  await expect(page.locator(".library-integrations-surface header")).toContainText("scanning");
   await expect(page.locator(".library-integrations-surface footer")).toContainText(other.asset);
   await expect(page.locator(".library-integrations-surface")).not.toContainText(core.name);
   await releaseFacade(page, "fixture-integrations-ready:asset:other");
@@ -654,12 +987,18 @@ for (const width of [1440, 390]) {
     await openReferences(page);
     const frame = page.locator(".library-references-surface");
     await expect(frame.locator(".dep-list li")).toHaveCount(1);
+    await expect(frame.locator(".reference-graph-section .graph-viewport"))
+      .toBeVisible();
+    await expect(frame.locator(".reference-graph-section")).toContainText(
+      "inspected assembly");
+    await expect(frame.locator(".reference-list-section")).toContainText(
+      "Assembly references");
     await expect(frame.locator("header")).toContainText("1 direct reference");
     await expect(frame.locator("footer")).toContainText(core.asset);
     await expect(frame.locator("footer")).toContainText("Example.Core, Version=1.0.0.0");
     await expect(frame.locator("footer")).toContainText("Example.Package@1.0.0");
     await expect(page.locator("#inspector-panel > .type-heading")).toHaveCount(0);
-    await expect(frame.locator("h2")).toHaveCount(0);
+    await expect(frame.locator("h2")).toHaveCount(2);
     const panelBox = await page.locator("#inspector-panel").boundingBox();
     const frameBox = await frame.boundingBox();
     expect(panelBox).not.toBeNull();
@@ -667,8 +1006,9 @@ for (const width of [1440, 390]) {
     expect(Math.abs(frameBox!.width - panelBox!.width)).toBeLessThanOrEqual(2);
     expect(Math.abs(frameBox!.height - panelBox!.height)).toBeLessThanOrEqual(2);
     const listBox = await frame.locator(".dep-list").boundingBox();
-    expect(Math.abs(listBox!.x - frameBox!.x)).toBeLessThanOrEqual(1);
-    expect(Math.abs(listBox!.width - frameBox!.width)).toBeLessThanOrEqual(2);
+    expect(listBox!.x).toBeGreaterThan(frameBox!.x);
+    expect(listBox!.x + listBox!.width)
+      .toBeLessThan(frameBox!.x + frameBox!.width);
     await page.screenshot({ path: testInfo.outputPath("references.png") });
     if (width === 390) {
       const back = page.getByRole("button", { name: "Libraries", exact: true });
@@ -690,6 +1030,8 @@ for (const width of [1440, 390]) {
     await openReferences(page);
     const frame = page.locator(".library-references-surface");
     await expect(frame.locator(".dep-list li")).toHaveCount(80);
+    await expect(frame.locator(".reference-graph-section")).toContainText(
+      "Reference graph shows 79 of 80 direct references");
     await expect(frame.locator("header")).toContainText("80 direct references");
     await expect(frame.locator("footer span").first()).toHaveAttribute("title", new RegExp(longCore.name));
     const headerBox = await frame.locator("header").boundingBox();

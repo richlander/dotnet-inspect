@@ -1,5 +1,6 @@
 using DotnetInspect.Cli.Commands;
 using System.Globalization;
+using System.IO.Compression;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Text;
@@ -26,7 +27,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonSerializer", "--platform", "System.Text.Json",
-            "-m", "Serialize", "-S", "Source Locations", "--rows", "6", "--tips", "q");
+            "-m", "Serialize", "-S", "Source Locations", "--rows", "6", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -43,7 +44,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonSerializer", "--platform", "System.Text.Json",
-            "Serialize:1", "-S", "Source Locations", "--tips", "q");
+            "Serialize:1", "-S", "Source Locations", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -51,6 +52,34 @@ public partial class CommandExecutionTests
         Assert.Contains("| Signature | File | Line | End Line | Url |", output);
         Assert.DoesNotContain("| Selector |", output);
         Assert.Contains("JsonSerializer.Write.String.cs", output);
+    }
+
+    [Fact]
+    public async Task Member_SourceLocations_SelectedSignature_JsonUsesPlatformSettlement()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "JsonSerializer", "--platform", "System.Text.Json",
+            "Serialize:1", "-S", "Source Locations", "--json", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using JsonDocument document = JsonDocument.Parse(output);
+        Assert.Contains(
+            "JsonSerializer.Serialize",
+            document.RootElement.GetProperty("member").GetString(),
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "JsonSerializer.Write.String.cs",
+            document.RootElement
+                .GetProperty("document")
+                .GetProperty("path")
+                .GetString(),
+            StringComparison.Ordinal);
+        Assert.True(
+            document.RootElement
+                .GetProperty("pdb_span")
+                .GetProperty("start_line")
+                .GetInt32() > 0);
     }
 
     [Theory]
@@ -63,8 +92,8 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             [
                 "member", "JsonSerializerOptions", "--platform", "System.Text.Json",
-                "MaxDepth", "-S", "Source Locations", "--tips", "q",
-                .. print ? new[] { "--print", "--row", "first", "--json" } : [],
+                "MaxDepth", "-S", "Source Locations",
+                .. print ? new[] { "--print", "--row", "first", "--json" } : ["--markdown"],
             ]);
 
         Assert.Equal(0, exit);
@@ -96,7 +125,7 @@ public partial class CommandExecutionTests
         // property.
         var (getterExit, getterOutput, getterError) = await RunAppAsync(
             "member", "JsonSerializerOptions", "--platform", "System.Text.Json",
-            "MaxDepth:1", "-S", "PDB Source", "--tips", "q");
+            "MaxDepth:1", "-S", "PDB Source");
 
         Assert.Equal(0, getterExit);
         Assert.Empty(getterError);
@@ -107,7 +136,7 @@ public partial class CommandExecutionTests
 
         var (setterExit, setterOutput, setterError) = await RunAppAsync(
             "member", "JsonSerializerOptions", "--platform", "System.Text.Json",
-            "MaxDepth:2", "-S", "PDB Source", "--tips", "q");
+            "MaxDepth:2", "-S", "PDB Source");
 
         Assert.Equal(0, setterExit);
         Assert.Empty(setterError);
@@ -127,7 +156,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonSerializerOptions", "--platform", "System.Text.Json",
-            "MaxDepth:1", "-S", "Original Source", "--tips", "q");
+            "MaxDepth:1", "-S", "Original Source");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -144,7 +173,7 @@ public partial class CommandExecutionTests
             var (exit, output, error) = await RunAppAsync(
                 "member", "DiscoveryFixtures.NoSourceLink", "Overloaded:1",
                 "--library", assemblyPath,
-                "-S", "PDB Source", "--tips", "q");
+                "-S", "PDB Source");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -180,7 +209,7 @@ public partial class CommandExecutionTests
             var (exit, output, error) = await RunAppAsync(
                 "member", "DiscoveryFixtures.NoSourceLink", "Overloaded:1",
                 "--library", assemblyPath,
-                "-S", "PDB Source", "--tips", "q");
+                "-S", "PDB Source");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -192,7 +221,7 @@ public partial class CommandExecutionTests
             var (jsonExit, jsonOutput, jsonError) = await RunAppAsync(
                 "member", "DiscoveryFixtures.NoSourceLink", "Overloaded:1",
                 "--library", assemblyPath,
-                "-S", "PDB Source", "--json", "--print", "--tips", "q");
+                "-S", "PDB Source", "--json", "--print");
 
             Assert.Equal(0, jsonExit);
             Assert.Empty(jsonError);
@@ -219,7 +248,7 @@ public partial class CommandExecutionTests
 
             var locations = await RunAppAsync(
                 "member", "DiscoveryFixtures.NoSourceLink", "Overloaded:1",
-                "--library", assemblyPath, "-S", "Source Locations", "--json", "--tips", "q");
+                "--library", assemblyPath, "-S", "Source Locations", "--json");
             Assert.Equal(0, locations.Exit);
             Assert.Empty(locations.Error);
             using var json = JsonDocument.Parse(locations.Output);
@@ -229,7 +258,7 @@ public partial class CommandExecutionTests
 
             var part = await RunAppAsync(
                 "member", "DiscoveryFixtures.NoSourceLink", "Overloaded:1",
-                "--library", assemblyPath, "--print", "--part", "signature", "--tips", "q");
+                "--library", assemblyPath, "--print", "--part", "signature");
             if (mismatch)
             {
                 Assert.Equal(1, part.Exit);
@@ -250,14 +279,125 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_SourceParts_ApiDigestResolvesMetadataExactMember()
+    {
+        var (assemblyPath, _, fixtureDir) =
+            CreateNoSourceLinkDiscoveryAssembly(
+                stringOverloadFirst: true);
+        try
+        {
+            using var stream = File.OpenRead(assemblyPath);
+            using var peReader = new PEReader(stream);
+            ApiType type = Assert.Single(
+                ApiSurfaceExtractor.Extract(peReader).Types,
+                candidate => candidate.FullName
+                    == "DiscoveryFixtures.NoSourceLink");
+            ApiMember method = Assert.Single(
+                type.Members,
+                candidate => candidate.Name == "Overloaded"
+                    && candidate.Signature?.Contains(
+                        "int value",
+                        StringComparison.Ordinal) == true);
+            string digest =
+                ApiMemberIdentity.GetMemberAnchor(type, method).Fingerprint;
+
+            var ordinal = await RunAppAsync(
+                "member", type.FullName, "Overloaded:1",
+                "--library", assemblyPath,
+                "--print", "--part", "signature");
+            var selected = await RunAppAsync(
+                "member", type.FullName, $"Overloaded~{digest}",
+                "--library", assemblyPath,
+                "--print", "--part", "signature");
+
+            Assert.Equal(0, ordinal.Exit);
+            Assert.Equal(ordinal, selected);
+            Assert.Contains("Overloaded(int value)", selected.Output);
+        }
+        finally
+        {
+            Directory.Delete(fixtureDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task
+        Member_SourceParts_DoesNotReadUnrequestedCompiledDocumentation()
+    {
+        var (assemblyPath, _, fixtureDir) =
+            CreateNoSourceLinkDiscoveryAssembly();
+        try
+        {
+            await using (FileStream documentation = File.Create(
+                Path.ChangeExtension(assemblyPath, ".xml")))
+            {
+                documentation.SetLength(9 * 1024 * 1024);
+            }
+
+            var result = await RunAppAsync(
+                "member", "DiscoveryFixtures.NoSourceLink",
+                "Overloaded:1", "--library", assemblyPath,
+                "--print", "--part", "signature");
+
+            Assert.Equal(0, result.Exit);
+            Assert.Contains(
+                "Overloaded(int value)", result.Output);
+            Assert.Empty(result.Error);
+        }
+        finally
+        {
+            Directory.Delete(fixtureDir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("1", true)]
+    [InlineData("first", true)]
+    [InlineData("last", true)]
+    [InlineData("2", false)]
+    public async Task Member_SourceParts_ExactRowSelectsOnlyItsSourceLocation(
+        string row,
+        bool valid)
+    {
+        var (assemblyPath, _, fixtureDir) = CreateNoSourceLinkDiscoveryAssembly();
+        try
+        {
+            var result = await RunAppAsync(
+                "member", "DiscoveryFixtures.NoSourceLink",
+                "Overloaded:1", "--library", assemblyPath,
+                "--print", "--part", "signature",
+                "--row", row);
+            if (valid)
+            {
+                Assert.Equal(0, result.Exit);
+                Assert.Contains(
+                    "Overloaded(int value)", result.Output);
+                Assert.Empty(result.Error);
+            }
+            else
+            {
+                Assert.Equal(1, result.Exit);
+                Assert.Empty(result.Output);
+                Assert.Contains(
+                    "row 2 is not in Source Locations.",
+                    result.Error);
+            }
+        }
+        finally
+        {
+            Directory.Delete(fixtureDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Member_PdbSource_ConstructorSelectorCasing_UsesTheResolvedMemberIdentity()
     {
         var canonical = await RunAppAsync(
             "member", typeof(ConstructorSourceCaseFixture).FullName!, "--library", TestAssemblyPath,
-            ".ctor:1", "-S", "PDB Source", "--tips", "q");
+            ".ctor:1", "-S", "PDB Source");
         var caseVariant = await RunAppAsync(
             "member", typeof(ConstructorSourceCaseFixture).FullName!, "--library", TestAssemblyPath,
-            ".Ctor:1", "-S", "PDB Source", "--tips", "q");
+            ".Ctor:1", "-S", "PDB Source");
 
         Assert.Equal(0, canonical.Exit);
         Assert.Empty(canonical.Error);
@@ -268,11 +408,10 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
-    [InlineData(SectionNames.PdbSource, "## PDB Source")]
-    [InlineData(SectionNames.SourceDiff, "## Source Diff")]
+    [InlineData(SectionNames.PdbSource)]
+    [InlineData(SectionNames.SourceDiff)]
     public async Task Member_InvalidSourceCoordinatesReportVisibleSectionFailure(
-        string section,
-        string heading)
+        string section)
     {
         using var stream = File.OpenRead(TestAssemblyPath);
         using var peReader = new PEReader(stream);
@@ -309,7 +448,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains(heading, output);
+        Assert.DoesNotContain($"## {section}", output);
         Assert.Contains("sequence-point coordinates", output);
     }
 
@@ -660,7 +799,7 @@ public partial class CommandExecutionTests
         ];
 
         var detailed = await RunAppAsync(
-            [.. target, "--json", "-v:d", "--tips", "q"]);
+            [.. target, "--json", "-v:d"]);
 
         Assert.Equal(0, detailed.Exit);
         Assert.Empty(detailed.Error);
@@ -672,7 +811,7 @@ public partial class CommandExecutionTests
         }
 
         var selected = await RunAppAsync(
-            [.. target, "-S", "PDB Source", "--json", "--tips", "q"]);
+            [.. target, "-S", "PDB Source", "--json"]);
 
         Assert.Equal(1, selected.Exit);
         Assert.Empty(selected.Output);
@@ -694,7 +833,7 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             "member", "DiffFixtureSample.BodyStateSample", ".ctor:1",
             "--library", FixtureCatalog.DiffPair.OldAssemblyPath(), "--all",
-            "-S", selector, "--json", "--tips", "q");
+            "-S", selector, "--json");
 
         if (exact)
         {
@@ -877,7 +1016,7 @@ public partial class CommandExecutionTests
         // and leaving the caller unable to tell success from silent failure (#3299).
         var (abstractExit, abstractOutput, abstractError) = await RunAppAsync(
             "member", "JsonConverter<T>", "--platform", "System.Text.Json",
-            "Read", "-S", "PDB Source", "--tips", "q");
+            "Read", "-S", "PDB Source");
 
         Assert.Equal(0, abstractExit);
         Assert.Empty(abstractError);
@@ -887,7 +1026,7 @@ public partial class CommandExecutionTests
         // An interface method is bodyless for a different metadata reason and gets the same answer.
         var (interfaceExit, interfaceOutput, interfaceError) = await RunAppAsync(
             "member", "IJsonOnDeserialized", "--platform", "System.Text.Json",
-            "OnDeserialized", "-S", "PDB Source", "--tips", "q");
+            "OnDeserialized", "-S", "PDB Source");
 
         Assert.Equal(0, interfaceExit);
         Assert.Empty(interfaceError);
@@ -900,7 +1039,7 @@ public partial class CommandExecutionTests
         // too: it still renders the canonical name.
         var (forwardedExit, forwardedOutput, forwardedError) = await RunAppAsync(
             "member", "System.Collections.IEnumerator", "--framework", "runtime",
-            "MoveNext", "-S", "Original Source", "--tips", "q");
+            "MoveNext", "-S", "Original Source");
 
         Assert.Equal(0, forwardedExit);
         Assert.Empty(forwardedError);
@@ -914,7 +1053,7 @@ public partial class CommandExecutionTests
             "member", typeof(SamplePInvokeClass).FullName!,
             nameof(SamplePInvokeClass.GetCurrentProcessId),
             "--library", TestAssemblyPath, "--all",
-            "-S", "PDB Source", "--tips", "q", "--verbose");
+            "-S", "PDB Source", "--verbose");
 
         Assert.Equal(0, pinvokeExit);
         Assert.Contains("has no IL body", pinvokeOutput);
@@ -967,11 +1106,11 @@ public partial class CommandExecutionTests
             var native = await RunAppAsync(
                 "member", typeName, memberName,
                 "--library", suppliedPath, "--all",
-                "-S", section, "--tips", "q");
+                "-S", section);
             var count = await RunAppAsync(
                 "member", typeName, memberName,
                 "--library", suppliedPath, "--all",
-                "-S", section, "--count", "--tips", "q");
+                "-S", section, "--count");
 
             Assert.Equal(0, native.Exit);
             Assert.Empty(native.Error);
@@ -980,23 +1119,13 @@ public partial class CommandExecutionTests
                     ? ApiCommand.BodylessMemberNote
                     : "Source diff unavailable",
                 native.Output);
-            if (section == SectionNames.PdbSource)
-            {
-                Assert.Equal(0, count.Exit);
-                Assert.Empty(count.Error);
-                Assert.Equal("0\n", count.Output);
-            }
-            else
-            {
-                Assert.Equal(1, count.Exit);
-                Assert.Empty(count.Output);
-                Assert.Contains(
-                    "Source diff unavailable",
-                    count.Error);
-                Assert.Contains(
-                    "cannot represent this code-section failure",
-                    count.Error);
-            }
+            // Both are scalar Texts under Section shapes: --count is rejected
+            // before acquisition, so the non-canonical path never matters here.
+            Assert.Equal(1, count.Exit);
+            Assert.Empty(count.Output);
+            Assert.Contains(
+                $"Section '{section}' is scalar and does not support --count",
+                count.Error);
         }
     }
 
@@ -1007,7 +1136,7 @@ public partial class CommandExecutionTests
         // the bodyless explanation never displaces real source (#3299).
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonSerializerOptions", "--platform", "System.Text.Json",
-            "MaxDepth:1", "-S", "PDB Source", "--tips", "q");
+            "MaxDepth:1", "-S", "PDB Source");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1020,15 +1149,14 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonConverter<T>", "--platform", "System.Text.Json",
-            "Read", "-S", "PDB Source,Source Diff", "--tips", "q");
+            "Read", "-S", "PDB Source,Source Diff");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
         Assert.Contains("## PDB Source", output);
         Assert.Contains(ApiCommand.BodylessMemberNote, output);
-        Assert.DoesNotContain("## Source Diff", output);
-        Assert.DoesNotContain("```", output);
-        Assert.DoesNotContain("..", output);
+        Assert.Contains("## Source Diff", output);
+        Assert.Contains("PDB comparison unavailable", output);
     }
 
     [Fact]
@@ -1038,7 +1166,7 @@ public partial class CommandExecutionTests
         // report its "before" side unavailable rather than diffing the explanation (#3299).
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonConverter<T>", "--platform", "System.Text.Json",
-            "Read", "-S", "Source Diff", "--tips", "q");
+            "Read", "-S", "Source Diff");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1048,15 +1176,17 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("has no IL body", output);
     }
 
+    // --count is no longer an exact-output case here: Source Diff is a scalar Text
+    // under Section shapes and rejects --count before acquisition (see
+    // Member_LoneSection_RendersInItsDeclaredShape).
     [Theory]
-    [InlineData("--count")]
     [InlineData("--json")]
     public async Task Member_SourceDiff_BodylessMemberUnderExactOutputFailsVisibly(
         string outputOption)
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonConverter<T>", "--platform", "System.Text.Json",
-            "Read", "-S", "Source Diff", outputOption, "--tips", "q");
+            "Read", "-S", "Source Diff", outputOption);
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -1066,15 +1196,17 @@ public partial class CommandExecutionTests
             error);
     }
 
+    // --count is no longer an exact-output case here: Source Diff is a scalar Text
+    // under Section shapes and rejects --count before acquisition (see
+    // Member_LoneSection_RendersInItsDeclaredShape).
     [Theory]
-    [InlineData("--count")]
     [InlineData("--json")]
     public async Task Member_SourceDiff_NoVouchedDeclarationUnderExactOutputFailsVisibly(
         string outputOption)
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonSerializerOptions", "--platform", "System.Text.Json",
-            ".ctor:3", "-S", "Source Diff", outputOption, "--tips", "q");
+            ".ctor:3", "-S", "Source Diff", outputOption);
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -1089,15 +1221,15 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonSerializerOptions", "--platform", "System.Text.Json",
-            "MaxDepth:2", "-S", "Source Diff", "-v:d", "--tips", "q");
+            "MaxDepth:2", "-S", "Source Diff", "-v:d");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
         Assert.Contains("## Source Diff", output);
         Assert.Contains("--- PDB comparison", output);
         Assert.Contains("+++ Decompiled comparison", output);
-        // The decompiled side is the accessor's own body, spelled with its metadata name.
-        Assert.Contains("set_MaxDepth", output);
+        Assert.DoesNotContain("set_MaxDepth", output);
+        Assert.Contains("set", output);
         Assert.Contains("VerifyMutable();", output);
         Assert.Contains("_maxDepth = value;", output);
     }
@@ -1113,8 +1245,6 @@ public partial class CommandExecutionTests
             "System.Collections",
             "Item:1",
             "--all",
-            "--tips",
-            "q",
         ];
         var (aloneExit, aloneOutput, aloneError) = await RunAppAsync(
             [.. command, "-S", SectionNames.AnnotatedSource]);
@@ -1154,7 +1284,7 @@ public partial class CommandExecutionTests
             "member",
             "System.Collections.Generic.Dictionary<TKey,TValue>",
             "--platform", "System.Collections",
-            "Item:1", "--all", "--tips", "q",
+            "Item:1", "--all",
         ];
         var (aloneExit, aloneOutput, aloneError) = await RunAppAsync(
             [.. command, "-S", SectionNames.AnnotatedSourceDocument, "--json"]);
@@ -1193,9 +1323,7 @@ public partial class CommandExecutionTests
             "--all",
             "-S",
             "Source Diff",
-            "-v:d",
-            "--tips",
-            "q");
+            "-v:d");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1215,7 +1343,7 @@ public partial class CommandExecutionTests
             typeof(CommandExecutionReadonlySourceDiffFixture).FullName!,
             $"{typeof(ICommandExecutionReadonlyValue).FullName}.Value:{accessorOrdinal}",
             "--library", TestAssemblyPath,
-            "--all", "-S", "Source Diff", "-v:d", "--tips", "q");
+            "--all", "-S", "Source Diff", "-v:d");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1232,7 +1360,7 @@ public partial class CommandExecutionTests
             "member", typeof(SourceDiffPropertyShapeFixture).FullName!,
             $"{typeof(ISourceDiffPropertyShapeFixture).FullName}.Initial:2",
             "--library", TestAssemblyPath,
-            "--all", "-S", "Source Diff", "-v:d", "--tips", "q");
+            "--all", "-S", "Source Diff", "-v:d");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1252,7 +1380,7 @@ public partial class CommandExecutionTests
             "member", typeof(SourceDiffPropertyShapeFixture).FullName!,
             $"{typeof(ISourceDiffPropertyShapeFixture).FullName}.{propertyName}:1",
             "--library", TestAssemblyPath,
-            "--all", "-S", "Source Diff", "-v:d", "--tips", "q");
+            "--all", "-S", "Source Diff", "-v:d");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1274,7 +1402,7 @@ public partial class CommandExecutionTests
             "member", typeof(SourceDiffPropertyShapeFixture).FullName!,
             $"{typeof(ISourceDiffPropertyShapeFixture).FullName}.{propertyName}:{accessorOrdinal}",
             "--library", TestAssemblyPath,
-            "--all", "-S", "Source Diff", "-v:d", "--tips", "q");
+            "--all", "-S", "Source Diff", "-v:d");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1300,7 +1428,7 @@ public partial class CommandExecutionTests
             "member", typeof(SourceDiffIndexerFixture).FullName!,
             $"{typeof(ISourceDiffIndexerFixture).FullName}.Item:{accessorOrdinal}",
             "--library", TestAssemblyPath,
-            "--all", "-S", "Source Diff", "-v:d", "--tips", "q");
+            "--all", "-S", "Source Diff", "-v:d");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1346,14 +1474,14 @@ public partial class CommandExecutionTests
             var (ordinalExit, ordinalOutput, ordinalError) = await RunAppAsync(
                 "member", typeName, $"{interfaceName}.{memberName}:{accessorOrdinal}",
                 "--library", library, "--all",
-                "-S", "Source Diff", "-v:d", "--tips", "q");
+                "-S", "Source Diff", "-v:d");
             var (rawExit, rawOutput, rawError) = await RunAppAsync(
                 "member", typeName, $"explicit:{renamed}",
                 "--library", library, "--all",
-                "-S", "Source Diff", "-v:d", "--tips", "q");
+                "-S", "Source Diff", "-v:d");
 
-            Assert.Equal(0, ordinalExit);
-            Assert.Equal(0, rawExit);
+            Assert.True(ordinalExit == 0, ordinalError);
+            Assert.True(rawExit == 0, rawError);
             Assert.Empty(ordinalError);
             Assert.Empty(rawError);
             string ordinalDiff = Assert.IsType<string>(
@@ -1375,7 +1503,7 @@ public partial class CommandExecutionTests
             "member", typeof(BodyShapeFixture).FullName!,
             "DotnetInspector.Fixtures.IBodyShapeValue.Value:1",
             "--library", typeof(BodyShapeFixture).Assembly.Location,
-            "--all", "-S", "Source Diff", "-v:d", "--tips", "q");
+            "--all", "-S", "Source Diff", "-v:d");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1392,9 +1520,9 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "System.Collections.Generic.Stack",
-            "explicit:System.Collections.ICollection.get_IsSynchronized",
+            "System.Collections.ICollection.IsSynchronized:1",
             "--platform", "System.Collections",
-            "-S", "Decompiled Source", "--tips", "q");
+            "-S", "Decompiled Source");
 
         Assert.True(exit == 0, error);
         Assert.Empty(error);
@@ -1414,14 +1542,12 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             "member",
             typeof(AttributedExplicitValuesFixture).FullName!,
-            $"explicit:{interfaceName}.get_Values",
+            $"{interfaceName}.Values:1",
             "--library",
             TestAssemblyPath,
             "-S",
             "Decompiled Source",
-            "--all",
-            "--tips",
-            "q");
+            "--all");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1442,7 +1568,7 @@ public partial class CommandExecutionTests
             "member", "System.Data.DataView",
             "--platform", "System.Data.Common",
             "System.ComponentModel.IBindingListView.Filter:2",
-            "--all", "-S", "Source Diff", "-v:d", "--tips", "q");
+            "--all", "-S", "Source Diff", "-v:d");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1462,7 +1588,7 @@ public partial class CommandExecutionTests
             "member", typeof(BodyShapeFixture).FullName!,
             "DotnetInspector.Fixtures.IBodyShapeValue.Changed:1",
             "--library", typeof(BodyShapeFixture).Assembly.Location,
-            "--all", "-S", "Source Diff", "-v:d", "--tips", "q");
+            "--all", "-S", "Source Diff", "-v:d");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1485,7 +1611,7 @@ public partial class CommandExecutionTests
             "member", typeof(BodyShapeFixture).FullName!,
             $"explicit:DotnetInspector.Fixtures.get_IBodyShapePrefixMethods.{methodName}",
             "--library", typeof(BodyShapeFixture).Assembly.Location,
-            "--all", "-S", "Source Diff", "-v:d", "--tips", "q");
+            "--all", "-S", "Source Diff", "-v:d");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1508,7 +1634,7 @@ public partial class CommandExecutionTests
             "member", typeof(BodyShapeFixture).FullName!,
             $"DotnetInspector.Fixtures.get_IBodyShapePrefixMethods.Value:{accessorOrdinal}",
             "--library", typeof(BodyShapeFixture).Assembly.Location,
-            "--all", "-S", "Source Diff", "-v:d", "--tips", "q");
+            "--all", "-S", "Source Diff", "-v:d");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1527,7 +1653,7 @@ public partial class CommandExecutionTests
             "member", nameof(BodyShapeFixture),
             nameof(BodyShapeFixtureExtensions.ProjectedCreation) + ":1",
             "--library", typeof(BodyShapeFixture).Assembly.Location,
-            "-S", "Source Diff", "-v:d", "--tips", "q");
+            "-S", "Source Diff", "-v:d");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1628,9 +1754,7 @@ public partial class CommandExecutionTests
             target.Assembly.Location,
             "-S",
             $"{SectionNames.Signature},{SectionCategoryNames.Source}",
-            "--json",
-            "--tips",
-            "q");
+            "--json");
 
         Assert.Equal(0, exit);
         Assert.DoesNotContain(
@@ -1649,8 +1773,8 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonSerializerOptions", "--platform", "System.Text.Json",
-            "MaxDepth:2", "-S", "Source Diff", "--print", "--json",
-            "--tips", "q");
+            "MaxDepth:2", "-S", "Source Diff", "--print", "--json"
+            );
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1666,7 +1790,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonConvert", "--package", "Newtonsoft.Json@13.0.4",
-            "SerializeObject:1", "-S", "Source Locations", "--urls", "--tips", "q");
+            "SerializeObject:1", "-S", "Source Locations", "--urls");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1677,11 +1801,187 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task
+        Member_SourceLocations_PackageLocalPdbUsesSettlementRoute()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "Instant",
+            "--package", "NodaTime@3.3.5",
+            "ToString:1",
+            "-S", "Source Locations",
+            "--verbose");
+
+        Assert.Equal(0, exit);
+        Assert.Contains(
+            "Settling package Portable PDB for: "
+                + "lib/net8.0/NodaTime.dll",
+            error);
+        Assert.Contains(
+            "Loaded PDB: Portable, Settlement",
+            error);
+        Assert.Contains(
+            "/_/src/NodaTime/Instant.cs",
+            output);
+        Assert.Contains(
+            "raw.githubusercontent.com/nodatime/nodatime/",
+            output);
+    }
+
+    [Fact]
+    public async Task
+        Member_SourceLocations_ReferencePrimaryUsesImplementationToken()
+    {
+        string referenceAssembly =
+            FixtureCatalog.AnalysisMethodCorrespondenceSurface
+                .AssemblyPath();
+        string implementationAssembly =
+            FixtureCatalog.AnalysisMethodCorrespondenceRuntime
+                .AssemblyPath();
+        Assert.NotEqual(
+            FindMethodToken(
+                referenceAssembly,
+                "MethodCorrespondenceFixture.Widget",
+                "Transform",
+                parameterCount: 1),
+            FindMethodToken(
+                implementationAssembly,
+                "MethodCorrespondenceFixture.Widget",
+                "Transform",
+                parameterCount: 1));
+
+        string tempDir = CreateMethodCorrespondencePackage();
+
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "member", "Widget",
+                "--package",
+                $"{MethodCorrespondencePackageId}@1.0.0",
+                "--source", tempDir,
+                "Transform:1",
+                "-S", "Source Locations",
+                "--json",
+                "--verbose");
+
+            Assert.True(exit == 0, error);
+            Assert.Contains(
+                $"Settling package Portable PDB for: "
+                + "lib/net11.0/"
+                + MethodCorrespondenceAssemblyFileName,
+                error);
+            using var document = JsonDocument.Parse(output);
+            Assert.EndsWith(
+                "MethodCorrespondenceRuntimeFixtures/Widget.cs",
+                document.RootElement
+                .GetProperty("document")
+                .GetProperty("path")
+                .GetString(),
+                StringComparison.Ordinal);
+            Assert.Equal(
+                11,
+                document.RootElement
+                .GetProperty("pdb_span")
+                .GetProperty("start_line")
+                .GetInt32());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task
+        Member_SourceLocations_IncompleteImplementationMappingUsesLegacyRoute()
+    {
+        string tempDir = CreateMethodCorrespondencePackage();
+
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "member", "Widget",
+                "--package",
+                $"{MethodCorrespondencePackageId}@1.0.0",
+                "--source", tempDir,
+                "SurfaceOnly:1",
+                "-S", "Source Locations", "--markdown",
+                "--verbose");
+
+            Assert.Equal(0, exit);
+            Assert.Contains(
+                "No SourceLink source locations found for "
+                    + "the selected member(s).",
+                output);
+            Assert.Contains(
+                "PackageHouse implementation metadata could not "
+                    + "correspond every selected member; retaining "
+                    + "the existing source-location route.",
+                error);
+            Assert.DoesNotContain(
+                "Settling package Portable PDB for:",
+                error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    private const string MethodCorrespondencePackageId =
+        "MethodCorrespondence.Package";
+
+    private const string MethodCorrespondenceAssemblyFileName =
+        "ILInspector.Analysis.MethodCorrespondenceFixture.dll";
+
+    private static string CreateMethodCorrespondencePackage()
+    {
+        string tempDir = Directory.CreateTempSubdirectory(
+            "member-source-reference-primary-").FullName;
+        string content = Path.Combine(tempDir, "content");
+        string referenceDirectory =
+            Path.Combine(content, "ref", "net11.0");
+        string implementationDirectory =
+            Path.Combine(content, "lib", "net11.0");
+        Directory.CreateDirectory(referenceDirectory);
+        Directory.CreateDirectory(implementationDirectory);
+        File.Copy(
+            FixtureCatalog.AnalysisMethodCorrespondenceSurface
+                .AssemblyPath(),
+            Path.Combine(
+                referenceDirectory,
+                MethodCorrespondenceAssemblyFileName));
+        string implementationAssembly =
+            FixtureCatalog.AnalysisMethodCorrespondenceRuntime
+                .AssemblyPath();
+        File.Copy(
+            implementationAssembly,
+            Path.Combine(
+                implementationDirectory,
+                MethodCorrespondenceAssemblyFileName));
+        File.Copy(
+            Path.ChangeExtension(implementationAssembly, ".pdb"),
+            Path.Combine(
+                implementationDirectory,
+                Path.ChangeExtension(
+                    MethodCorrespondenceAssemblyFileName,
+                    ".pdb")));
+        WriteAddressPackageManifest(
+            content,
+            MethodCorrespondencePackageId);
+        ZipFile.CreateFromDirectory(
+            content,
+            Path.Combine(
+                tempDir,
+                $"{MethodCorrespondencePackageId}.1.0.0.nupkg"));
+        return tempDir;
+    }
+
+    [Fact]
     public async Task Member_SourceLocations_UrlsGroup_EmitsUrlColumn()
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonConvert", "--package", "Newtonsoft.Json@13.0.4",
-            "-m", "SerializeObject", "-S", "Source Locations", "--urls", "--tips", "q");
+            "-m", "SerializeObject", "-S", "Source Locations", "--urls");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1790,7 +2090,7 @@ public partial class CommandExecutionTests
         {
             var (exit, output, error) = await RunAppAsync(
                 "library", "address", "--file", path,
-                "--library", TestAssemblyPath, "--count", "--tips", "q");
+                "--library", TestAssemblyPath, "--count");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -1829,7 +2129,7 @@ public partial class CommandExecutionTests
         {
             string[] head =
                 ["library", "address", "--file", path, "--library", TestAssemblyPath];
-            string[] tail = ["--tips", "q"];
+            string[] tail = [];
 
             var (renderExit, rendered, renderError) = await RunAppAsync([.. head, .. window, "--jsonl", .. tail]);
             var (countExit, counted, countError) = await RunAppAsync([.. head, .. window, "--count", .. tail]);
@@ -1874,11 +2174,11 @@ public partial class CommandExecutionTests
             var (headExit, headOut, _) = await RunAppAsync(
                 "library", "address", "--file", path,
                 "--library", TestAssemblyPath,
-                "-n", "1", "--head", "--tips", "q");
+                "-n", "1", "--head");
             var (tailExit, tailOut, _) = await RunAppAsync(
                 "library", "address", "--file", path,
                 "--library", TestAssemblyPath,
-                "-n", "1", "--tail", "--tips", "q");
+                "-n", "1", "--tail");
 
             Assert.Equal(0, headExit);
             Assert.Equal(0, tailExit);
@@ -1904,7 +2204,7 @@ public partial class CommandExecutionTests
         {
             var (exit, output, error) = await RunAppAsync(
                 "library", "address", "--file", path,
-                "--library", TestAssemblyPath, "--count", "--tips", "q");
+                "--library", TestAssemblyPath, "--count");
 
             Assert.Equal(0, exit);
             Assert.DoesNotContain("requires -S/--select", error);
@@ -1932,8 +2232,7 @@ public partial class CommandExecutionTests
                 "library", "address", "--file", path,
                 "--library", TestAssemblyPath,
                 "-S", "References",
-                "--count",
-                "--tips", "q");
+                "--count");
 
             Assert.Equal(1, exit);
             Assert.Empty(output);
@@ -1956,7 +2255,7 @@ public partial class CommandExecutionTests
         {
             var (exit, _, error) = await RunAppAsync(
                 "library", "address", "--file", path,
-                "--library", TestAssemblyPath, "--value", "--tips", "q");
+                "--library", TestAssemblyPath, "--value");
 
             Assert.Equal(1, exit);
             Assert.Contains(
@@ -1976,7 +2275,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonConvert", "--package", "Newtonsoft.Json",
-            "-m", "SerializeObject", "-S", "Source Locations", "--rows", "6", "--tips", "q");
+            "-m", "SerializeObject", "-S", "Source Locations", "--rows", "6", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1991,7 +2290,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonConvert", "--package", "Newtonsoft.Json@13.0.4",
-            "-m", "SerializeObject", "-S", "Source Locations", "--urls", "--row", "2", "--jsonl", "--tips", "q");
+            "-m", "SerializeObject", "-S", "Source Locations", "--urls", "--row", "2", "--jsonl");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2007,7 +2306,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonConvert", "--package", "Newtonsoft.Json@13.0.4",
-            "-m", "SerializeObject", "-S", "Source Locations", "--paths", "--row", "1", "--tips", "q");
+            "-m", "SerializeObject", "-S", "Source Locations", "--paths", "--row", "1");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2019,7 +2318,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonSerializer", "--platform", "System.Text.Json",
-            "-m", "Serialize", "-S", "Source Locations", "--fields", "Signature", "--value", "--row", "1", "--tips", "q");
+            "-m", "Serialize", "-S", "Source Locations", "--fields", "Signature", "--value", "--row", "1");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2033,7 +2332,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonConvert", "--package", "Newtonsoft.Json@13.0.4",
-            "-m", "SerializeObject", "-S", "Source Locations", "--print", "--row", "1", "--jsonl", "--tips", "q");
+            "-m", "SerializeObject", "-S", "Source Locations", "--print", "--row", "1", "--jsonl");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2049,7 +2348,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonConvert", "--package", "Newtonsoft.Json@13.0.4",
-            "-m", "SerializeObject", "-S", "Source Locations", "--tsv", "--no-headers", "--tips", "q");
+            "-m", "SerializeObject", "-S", "Source Locations", "--tsv", "--no-headers");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2070,7 +2369,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonConvert", "--package", "Newtonsoft.Json@13.0.4",
-            "-m", "SerializeObject", "-S", "Source Locations", "--prefer-rendered-urls", "--tsv", "--no-headers", "--tips", "q");
+            "-m", "SerializeObject", "-S", "Source Locations", "--prefer-rendered-urls", "--tsv", "--no-headers");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2083,7 +2382,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonConvert", "--package", "Newtonsoft.Json@13.0.4",
-            "-m", "SerializeObject", "-S", "Source Locations", "--tsv", "--no-headers", "--tips", "q");
+            "-m", "SerializeObject", "-S", "Source Locations", "--tsv", "--no-headers");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2096,7 +2395,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonSerializer", "--platform", "System.Text.Json",
-            "-m", "Serialize", "-D", "Source Locations", "--verbose", "--tips", "q");
+            "-m", "Serialize", "-D", "Source Locations", "--verbose");
 
         Assert.Equal(0, exit);
         Assert.Contains("| File | column |", output);
@@ -2249,9 +2548,7 @@ public partial class CommandExecutionTests
                     FullTypeDecompilationFixture
                         .InvokePrivateCore),
                 "-S",
-                "Decompiled Source",
-                "--tips",
-                "q");
+                "Decompiled Source");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2274,7 +2571,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(SampleKeywordParameterHost).FullName!, "--library", TestAssemblyPath,
-            nameof(SampleKeywordParameterHost.Instance), "-S", "Signature,Decompiled Source", "--tips", "q");
+            nameof(SampleKeywordParameterHost.Instance), "-S", "Signature,Decompiled Source");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2288,7 +2585,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(SampleRefReadonlyReturnHost).FullName!, "--library", TestAssemblyPath,
-            nameof(SampleRefReadonlyReturnHost.ChooseReadonly), "-S", "Signature,Decompiled Source", "--tips", "q");
+            nameof(SampleRefReadonlyReturnHost.ChooseReadonly), "-S", "Signature,Decompiled Source");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2324,7 +2621,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(CommandCaretGestureFixture).FullName!, "--library", TestAssemblyPath,
-            "Pump:1", "-S", "Annotated Source Document", "--json", "--tips", "q");
+            "Pump:1", "-S", "Annotated Source Document", "--json");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2480,7 +2777,7 @@ public partial class CommandExecutionTests
                 Select = [SectionNames.Methods],
                 IncludeSections = [SectionNames.AnnotatedSourceDocument],
                 JsonOutput = true,
-                TipLevel = TipLevel.Quiet
+                CompanionOutput = CompanionOutput.None
             }));
 
         Assert.Equal(0, result.ExitCode);
@@ -2507,7 +2804,7 @@ public partial class CommandExecutionTests
                     SectionNames.Signature
                 ],
                 JsonOutput = true,
-                TipLevel = TipLevel.Quiet
+                CompanionOutput = CompanionOutput.None
             }));
 
         Assert.Equal(1, result.ExitCode);
@@ -2530,7 +2827,7 @@ public partial class CommandExecutionTests
                 IncludeSections = [SectionNames.AnnotatedSourceDocument],
                 ExactIncludeSectionsOverride = [],
                 JsonOutput = true,
-                TipLevel = TipLevel.Quiet
+                CompanionOutput = CompanionOutput.None
             }));
 
         Assert.Equal(0, result.ExitCode);
@@ -2557,7 +2854,7 @@ public partial class CommandExecutionTests
                 ],
                 ExactIncludeSectionsOverride = [],
                 JsonOutput = true,
-                TipLevel = TipLevel.Quiet
+                CompanionOutput = CompanionOutput.None
             }));
 
         Assert.Equal(0, result.ExitCode);
@@ -2600,9 +2897,7 @@ public partial class CommandExecutionTests
                 methodName,
                 "-S",
                 "Annotated Source Document",
-                "--json",
-                "--tips",
-                "q");
+                "--json");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -2637,7 +2932,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(CommandCaretGestureFixture).FullName!, "--library", TestAssemblyPath,
-            "Pump:1", "-S", "Signature,Annotated Source Document", "--json", "--tips", "q");
+            "Pump:1", "-S", "Signature,Annotated Source Document", "--json");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -2650,7 +2945,7 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(CommandCaretGestureFixture).FullName!, "--library", TestAssemblyPath,
             "Pump:1", "-S", "Annotated Source Document", "--json",
-            "--bin", Path.GetDirectoryName(TestAssemblyPath)!, "--tips", "q");
+            "--bin", Path.GetDirectoryName(TestAssemblyPath)!);
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -2665,7 +2960,7 @@ public partial class CommandExecutionTests
             "Pump:1",
             "-S", "Annotated Source Document",
             "-S", "annotated source document",
-            "--json", "--tips", "q");
+            "--json");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2747,7 +3042,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, _) = await RunAppAsync(
             "member", typeof(CommandCaretGestureFixture).FullName!, "--library", TestAssemblyPath,
-            "Pump:1", "-S", "Annotated Source", "--tips", "q");
+            "Pump:1", "-S", "Annotated Source");
 
         Assert.Equal(0, exit);
         Assert.DoesNotContain("## Annotated Source", output);
@@ -2763,7 +3058,7 @@ public partial class CommandExecutionTests
         // from an honest absence.
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(CommandCaretGestureFixture).FullName!, "--library", TestAssemblyPath,
-            "Pump:1", "-S", "Annotated Source", "--focus", "alocation", "--tips", "q");
+            "Pump:1", "-S", "Annotated Source", "--focus", "alocation");
 
         Assert.Equal(0, exit);
         Assert.DoesNotContain("^^^^", output);
@@ -2776,7 +3071,7 @@ public partial class CommandExecutionTests
     {
         var (exit, _, error) = await RunAppAsync(
             "member", typeof(CommandCaretGestureFixture).FullName!, "--library", TestAssemblyPath,
-            "Pump:1", "-S", "Annotated Source", "--focus", "allocation", "--tips", "q");
+            "Pump:1", "-S", "Annotated Source", "--focus", "allocation");
 
         Assert.Equal(0, exit);
         Assert.DoesNotContain("matched no facts", error);
@@ -2787,7 +3082,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, _) = await RunAppAsync(
             "member", typeof(CommandCaretGestureFixture).FullName!, "--library", TestAssemblyPath,
-            "Pump:1", "-S", "Annotated Source", "--focus", "allocation", "--tips", "q");
+            "Pump:1", "-S", "Annotated Source", "--focus", "allocation");
 
         Assert.Equal(0, exit);
         var lines = output.ReplaceLineEndings("\n").Split('\n');
@@ -2844,7 +3139,7 @@ public partial class CommandExecutionTests
         // numbered caret, so a reader can tell which box is which.
         var (exit, output, _) = await RunAppAsync(
             "member", typeof(CommandCaretGestureFixture).FullName!, "--library", TestAssemblyPath,
-            "DenseBoxes:1", "--index", "1", "-S", "Annotated Source", "--focus", "allocation", "--tips", "q");
+            "DenseBoxes:1", "--index", "1", "-S", "Annotated Source", "--focus", "allocation");
 
         Assert.Equal(0, exit);
         var lines = output.ReplaceLineEndings("\n").Split('\n');
@@ -3040,7 +3335,6 @@ public partial class CommandExecutionTests
             "CreateOutput",
             "--all",
             "-S", "Source Diff",
-            "--tips", "q",
         ];
 
         var (normalExit, normalOutput, normalError) = await RunAppAsync(
@@ -3073,9 +3367,7 @@ public partial class CommandExecutionTests
             nameof(CommandExecutionSourceDiffFixture.AddOne),
             "-S",
             SectionNames.SourceDiff,
-            format,
-            "--tips",
-            "q");
+            format);
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -3113,8 +3405,7 @@ public partial class CommandExecutionTests
             "--library", TestAssemblyPath,
             "--all",
             "-S", SectionNames.SourceDiff,
-            format,
-            "--tips", "q");
+            format);
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -3155,7 +3446,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(CommandExecutionSourceDiffFixture).FullName!, "--library", TestAssemblyPath,
-            nameof(CommandExecutionSourceDiffFixture.AddOne), "-S", "@Source", "--tips", "q");
+            nameof(CommandExecutionSourceDiffFixture.AddOne), "-S", "@Source");
 
         Assert.Equal(0, exit);
         Assert.Contains("Source provider:", error);
@@ -3172,7 +3463,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(MemberCallsFixture).FullName!, "--library", TestAssemblyPath,
-            "Overloaded:2", "-S", "@Source", "--tips", "q");
+            "Overloaded:2", "-S", "@Source");
 
         Assert.Equal(0, exit);
         Assert.Contains("Source provider:", error);
@@ -3194,7 +3485,7 @@ public partial class CommandExecutionTests
             $"{nameof(FactsTableFixture.BoxInt)}:1",
         ];
         var (exit, output, error) = await RunAppAsync(
-            [.. command, "-S", "Finding Census", "--json", "--tips", "q"]);
+            [.. command, "-S", "Finding Census", "--json"]);
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -3244,7 +3535,7 @@ public partial class CommandExecutionTests
         });
 
         var (documentExit, documentOutput, documentError) = await RunAppAsync(
-            [.. command, "-S", "Annotated Source Document", "--json", "--tips", "q"]);
+            [.. command, "-S", "Annotated Source Document", "--json"]);
         Assert.Equal(0, documentExit);
         Assert.Empty(documentError);
         using var document = JsonDocument.Parse(documentOutput);
@@ -3293,7 +3584,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(MemberCallsFixture).FullName!, "--library", TestAssemblyPath,
-            "CallsInterfaceItem", "-S", "Decompiled Source", "--markdown", "--tips", "q");
+            "CallsInterfaceItem", "-S", "Decompiled Source", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -3310,7 +3601,7 @@ public partial class CommandExecutionTests
         var rejected = await RunAppAsync(
             "member", typeof(MemberCallsFixture).FullName!,
             "CallsInterfaceItem", "--library", TestAssemblyPath,
-            "--raw", "--tips", "q");
+            "--raw");
         var help = await RunAppAsync("member", "--help");
 
         Assert.Equal(1, rejected.Exit);
@@ -3445,7 +3736,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "System.Numerics.Vector<T>.operator<<",
-            "-S", SectionNames.Signature, "--count", "--tips", "q");
+            "-S", SectionNames.Signature, "--count");
 
         Assert.Equal(0, exit);
         Assert.Equal("1", output.Trim());

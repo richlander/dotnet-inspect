@@ -87,7 +87,7 @@ public sealed class ApiMemorySafetyJsonTests
                 IncludeSections = selectSections ? [SectionNames.Properties] : null,
                 JsonOutput = true,
                 CompactJson = compact,
-                TipLevel = TipLevel.Quiet,
+                CompanionOutput = CompanionOutput.None,
             }));
 
         Assert.Equal(0, result.ExitCode);

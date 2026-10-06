@@ -47,8 +47,10 @@ They do not enter `Default`, and requesting them does not implicitly request
 JSON call-argument or return-flow projections. Access when unrequested fails
 explicitly.
 
-Each result identifies a physical MethodDef token within the index's
-image-derived `LibraryBodyModuleIdentity`. An inspected body also retains its
+`LibraryLocalThrowAnalysisResult` publishes the evidence with the producing
+execution's `LibraryBodyAnalysisReceipt`. Each method result identifies a
+physical MethodDef token within that receipt's image-derived
+`LibraryBodyModuleIdentity`. An inspected body also retains its
 `MethodIdentity`. Each site retains its IL offset and distinguishes `throw`
 from `rethrow`.
 
@@ -115,7 +117,9 @@ host-specific rendering.
 
 The producer inherits Analysis's platform and acquisition contracts. It
 requires no Decompiler exception-flow catalog: that catalog owns normal
-transfer and cleanup, not the value consumed by a throw.
+transfer and cleanup, not the value consumed by a throw. Annotated Source
+consumes the focused result through Research Queries; `LibraryBodyIndex` no
+longer exposes a parallel local-throw projection.
 
 Focused Release gates cover the real construction/helper distinction,
 transparent and overwritten values, multiple sources, caught throws,

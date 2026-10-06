@@ -10,16 +10,19 @@
 
   <PropertyGroup>
     <Authors>Richard Lander</Authors>
-    <Description>Host-neutral PlatformHouse request and settlement contracts</Description>
+    <Description>Host-neutral PlatformHouse request and settlement contracts, execution, and shared Library ownership handoff</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
   </PropertyGroup>
 
   <ItemGroup>
-    <InternalsVisibleTo Include="DotnetInspector.PlatformHouse.Execution" />
-    <InternalsVisibleTo Include="DotnetInspector.PlatformHouse.Execution.Tests" />
     <InternalsVisibleTo Include="DotnetInspector.PlatformHouse.Tests" />
+    <ProjectReference Include="../DotnetInspector.DocumentationHouse.Contracts/DotnetInspector.DocumentationHouse.Contracts.csproj" />
+    <ProjectReference Include="../DotnetInspector.Libraries/DotnetInspector.Libraries.csproj" />
+    <ProjectReference Include="../DotnetInspector.LibraryMetadata/DotnetInspector.LibraryMetadata.csproj" />
     <ProjectReference Include="../DotnetInspector.Platforms/DotnetInspector.Platforms.csproj" />
+    <ProjectReference Include="../DotnetInspector.SourceSelection/DotnetInspector.SourceSelection.csproj" />
     <ProjectReference Include="../ILInspector.Metadata/ILInspector.Metadata.csproj" />
+    <ProjectReference Include="../Inspector.Artifacts.Workspaces/Inspector.Artifacts.Workspaces.csproj" />
   </ItemGroup>
 
 </Project>

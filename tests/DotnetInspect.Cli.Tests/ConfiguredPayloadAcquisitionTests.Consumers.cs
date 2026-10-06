@@ -29,7 +29,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
 
         var result = await RunCommandAsync(
             ["type", RangeType, "--package", $"{Id}@{endpoints}", "--at", selector,
-                "--source", fileUri ? new Uri(source).AbsoluteUri : source, "--tips", "q"]);
+                "--source", fileUri ? new Uri(source).AbsoluteUri : source]);
 
         Assert.True(result.Exit == 0, result.Error);
         Assert.Empty(result.Error);
@@ -45,7 +45,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
 
         var result = await RunCommandAsync(
             ["type", RangeType, "--package", "range.api.noaddress@1.0.0..3.0.0",
-                "--source", FirstFeed, "--tips", "q"]);
+                "--source", FirstFeed]);
 
         Assert.Equal(1, result.Exit);
         Assert.Contains("requires --at", result.Error);
@@ -67,7 +67,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             ? ["type", RangeType]
             : ["diff", "--history", "--type", RangeType, "--finding", "api.type"];
         args.AddRange(["--package", $"{Id}@1.0.0..3.0.0", "--at", "first",
-            "--source", FirstFeed, "--source", missing, "--tips", "q"]);
+            "--source", FirstFeed, "--source", missing]);
 
         var result = await RunCommandAsync([.. args]);
 
@@ -98,7 +98,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             new SelectionFeedHandler(FirstFeed, Id, ["1.0.0", "2.0.0", "3.0.0"],
                 version => CreateApiPackage(Id, version), requests));
         List<string> args = ["diff", "--history", "--package", $"{Id}@1.0.0..3.0.0",
-            "--type", RangeType, "--finding", "api.type", "--source", FirstFeed, "--tips", "q"];
+            "--type", RangeType, "--finding", "api.type", "--source", FirstFeed];
         if (selection == "checkpoints")
             args.AddRange(["--at", "first", "--at", "last"]);
         else if (selection == "adaptive")
@@ -184,7 +184,6 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 "--sample-percent", "50",
                 "--max-probes", "3",
                 "--json",
-                "--tips", "q",
             ]);
 
         Assert.True(result.Exit == 0, result.Error);
@@ -266,7 +265,6 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 "--finding", "api.type",
                 "--source", FirstFeed,
                 "--json",
-                "--tips", "q",
             ]);
 
         Assert.True(result.Exit == 0, result.Error);
@@ -340,7 +338,6 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 "--finding", "analysis.unsafety",
                 "--source", FirstFeed,
                 "--json",
-                "--tips", "q",
             ]);
 
         Assert.True(result.Exit == 0, result.Error);
@@ -409,7 +406,6 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 "--finding", "api.type",
                 "--source", FirstFeed,
                 "--at", "midpoint",
-                "--tips", "q",
             ]);
 
         Assert.True(result.Exit == 0, result.Error);
@@ -468,7 +464,6 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 "--finding", "api.type",
                 "--source", FirstFeed,
                 "--max-probes", "8",
-                "--tips", "q",
             ]);
 
         Assert.Contains("Blocked by failure", result.Output);
@@ -503,8 +498,6 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             FirstFeed,
             "--at",
             "all",
-            "--tips",
-            "q",
         ];
 
         // Warm the durable authority store first, so both compared runs
@@ -581,7 +574,6 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 "--rows", "1..1",
                 "--envelope",
                 "--compact",
-                "--tips", "q",
             ]);
 
         Assert.True(result.Exit == 0, result.Error);
@@ -635,7 +627,6 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 "--source", FirstFeed,
                 "--at", "all",
                 "--json",
-                "--tips", "q",
             ]);
 
         Assert.True(result.Exit == 0, result.Error);
@@ -683,8 +674,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 "-S", "Evaluations",
                 "-n", "2",
                 "--tail",
-                "--tsv",
-                "--tips", "q"
+                "--tsv"
             ]);
 
         Assert.True(result.Exit == 0, result.Error);
@@ -723,8 +713,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 "-S", "Evaluations",
                 "-n", "2",
                 "--lines",
-                "--tsv",
-                "--tips", "q"
+                "--tsv"
             ]);
 
         Assert.True(result.Exit == 0, result.Error);
@@ -764,8 +753,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 "--at", "all",
                 "-n", "2",
                 "--lines",
-                "--json",
-                "--tips", "q"
+                "--json"
             ]);
 
         Assert.Equal(1, result.Exit);
@@ -795,7 +783,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             ["diff", "--history", "--package", $"{Id}@1.0.0..3.0.0", "--type", RangeType,
                 "--finding", "api.member", "--source", Path.GetRelativePath(originalDirectory, source),
                 "--preview", "--all", "--tfm", "net10.0",
-                "--at", "first", "--at", "last", "-S", "@History", "--tips", "q"]);
+                "--at", "first", "--at", "last", "-S", "@History"]);
 
         Assert.True(result.Exit == 0, result.Error);
         string recommendation = result.Output.Split('\n').Single(
@@ -816,7 +804,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 ["diff", "--history", "--package", $"{Id}@1.0.0..3.0.0", "--type", RangeType,
                     "--finding", "api.type", "--source", source,
                     "--nugetconfig-directory", originalDirectory,
-                    "--preview", "--all", "--tfm", "net10.0", "--at", "#2", "--tips", "q"]);
+                    "--preview", "--all", "--tfm", "net10.0", "--at", "#2"]);
             Assert.True(replay.Exit == 0, replay.Error);
             Assert.Contains("2.0.0-preview.1", replay.Output);
             Assert.Contains("Complete", replay.Output);
@@ -856,7 +844,6 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 "--at", "last",
                 "-S", "@History",
                 "--preview",
-                "--tips", "q",
             ]);
 
         Assert.True(result.Exit == 0, result.Error);
@@ -879,7 +866,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         var result = await RunCommandAsync(
             ["type", RangeType, "--package", $"{Id}@{Version}",
                 "--source", source, "--source", Path.Combine(_root, "unreadable"),
-                "--tips", "q"]);
+                ]);
 
         Assert.True(result.Exit == 0, result.Error);
         Assert.Empty(result.Error);
@@ -902,7 +889,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
 
         var result = await RunCommandAsync(
             ["type", RangeType, "--package", $"{Id}{selector}",
-                "--source", source, "--tips", "q"]);
+                "--source", source]);
 
         Assert.True(result.Exit == 0, result.Error);
         Assert.Empty(result.Error);
@@ -923,7 +910,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
 
         var result = await RunCommandAsync(
             ["type", RangeType, "--package", Id,
-                "--source", FirstFeed, "--source", missing, "--tips", "q"]);
+                "--source", FirstFeed, "--source", missing]);
 
         Assert.Equal(1, result.Exit);
         Assert.Contains("could not be acquired", result.Error);
@@ -974,7 +961,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
 
         var result = await RunIsolatedCommandAsync(temporary,
             ["type", "--package", $"{Id}@{Version}..{Version}", "--at", "first",
-                "--library", "Missing.dll", "--source", source, "--tips", "q"]);
+                "--library", "Missing.dll", "--source", source]);
 
         Assert.Equal(1, result.Exit);
         Assert.Contains("Library 'Missing.dll' not found", result.Error);

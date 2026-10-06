@@ -40,7 +40,7 @@ public static class CompilerGeneratedNames
 
     /// <summary>Source-authored local-function and lambda method bodies.</summary>
     internal static bool IsLocalFunctionOrLambda(string methodName)
-        => TryGetLiftedOwnerName(methodName, out _);
+        => TryGetLiftedOwner(methodName, out _, out _);
 
     internal static bool HasLiftedMethodMarker(string methodName)
         => LastLiftedMethodMarker(methodName) >= 0;
@@ -49,9 +49,26 @@ public static class CompilerGeneratedNames
         string methodName,
         out string ownerName)
     {
-        string simpleName =
-            MetadataNameArity.StripFromSegment(methodName);
-        int close = LastLiftedMethodMarker(simpleName);
+        if (!TryGetLiftedOwner(
+                methodName,
+                out string simpleName,
+                out int close))
+        {
+            ownerName = "";
+            return false;
+        }
+
+        ownerName = simpleName[1..close];
+        return true;
+    }
+
+    static bool TryGetLiftedOwner(
+        string methodName,
+        out string simpleName,
+        out int close)
+    {
+        simpleName = MetadataNameArity.StripFromSegment(methodName);
+        close = LastLiftedMethodMarker(simpleName);
         if (simpleName.Length < 4
             || simpleName[0] != '<'
             || close <= 1
@@ -60,11 +77,9 @@ public static class CompilerGeneratedNames
                 simpleName,
                 close))
         {
-            ownerName = "";
             return false;
         }
 
-        ownerName = simpleName[1..close];
         return true;
     }
 

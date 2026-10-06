@@ -55,7 +55,7 @@ public static class PackageCommandDefinitions
         var layoutOption = new Option<bool>("--layout") { Description = "Show package file tree" };
         var pathOption = new Option<string[]>("--path")
         {
-            Description = "List package files with sizes (the Package files section), scoped to a file, directory, glob, @readme (README.md > PACKAGE.md), or @agents. Can repeat. Pass --path with no value for the whole package.",
+            Description = "List package files with sizes (the Files section), scoped to a file, directory, glob, @readme (README.md > PACKAGE.md), or @agents. Can repeat. Pass --path with no value for the whole package.",
             Arity = ArgumentArity.ZeroOrMore,
             AllowMultipleArgumentsPerToken = false
         };
@@ -64,7 +64,7 @@ public static class PackageCommandDefinitions
         var rootsOption = new Option<bool>("--roots")
         {
             Description =
-                "Project ordered distinct top-level roots represented by selected Package files rows"
+                "Project ordered distinct top-level roots represented by selected Files rows"
         };
         var tfmsOption = new Option<bool>("--tfms")
         {
@@ -266,17 +266,25 @@ public static class PackageCommandDefinitions
                 bool hasPopulationGesture =
                     hasPluralVersionSelector
                     || (isRange && result.GetValue(opts.Count));
-                if (!hasPopulationGesture
-                    || (!isRange && !isOrdinaryListing))
+                bool isPackageChildrenEnvelope =
+                    packageReferences is [_]
+                    && !hasPopulationGesture
+                    && !isRange
+                    && !result.GetValue(opts.Count);
+                if (!isPackageChildrenEnvelope
+                    && (!hasPopulationGesture
+                        || (!isRange && !isOrdinaryListing)))
                 {
                     result.AddError(
                         "--envelope on package requires one unversioned package "
                         + "with --versions or --versions-with-feed, or one "
                         + "Package@A..B range with --versions, "
-                        + "--versions-with-feed, or --count.");
+                        + "--versions-with-feed, or --count, or one exact "
+                        + "Package without a population gesture.");
                 }
 
-                if (!result.GetValue(opts.Count))
+                if (!result.GetValue(opts.Count)
+                    && !isPackageChildrenEnvelope)
                 {
                     foreach (Option option in new Option[]
                     {
@@ -329,8 +337,10 @@ public static class PackageCommandDefinitions
                 | CliRowSelectionCapabilities.Window
                 | CliRowSelectionCapabilities.Lines,
             isActive: result =>
-                result.GetResult(opts.Select)
-                    is { Implicit: false }
+                PackageOptionsParser.IsDependencyQueryRowSelection(
+                    result,
+                    opts,
+                    commandArgs)
                 && !(result.GetResult(opts.Rows)
                         is { Implicit: false }
                     && result.GetResult(opts.Limit)
@@ -354,8 +364,10 @@ public static class PackageCommandDefinitions
                 | CliRowSelectionCapabilities.Window
                 | CliRowSelectionCapabilities.Lines,
             isActive: result =>
-                result.GetResult(opts.Select)
-                    is { Implicit: false }
+                PackageOptionsParser.IsDependencyQueryRowSelection(
+                    result,
+                    opts,
+                    commandArgs)
                 && result.GetResult(opts.Rows)
                     is { Implicit: false }
                 && result.GetResult(opts.Limit)
@@ -364,6 +376,31 @@ public static class PackageCommandDefinitions
                 CliRowSelectionValidation.ValidateLineSelectionForOutput(
                     opts.IsJsonDocumentOutput(result),
                     lowering));
+        CliRowSelectionCommandRegistry.Register(
+            packageCommand,
+            new(
+                opts.Limit,
+                legacyPackageSectionRows,
+                top: null,
+                orderBy: null,
+                opts.Head,
+                opts.Tail,
+                opts.Lines,
+                opts.TailLines),
+            CliRowSelectionCapabilities.HeadTail
+                | CliRowSelectionCapabilities.Window
+                | CliRowSelectionCapabilities.Lines,
+            isActive: result =>
+                PackageOptionsParser.IsGenericPackageSectionRowSelection(
+                    result,
+                    opts,
+                    commandArgs),
+            validateLowering: (result, lowering) =>
+                CliRowSelectionValidation.ValidateLineSelectionForOutput(
+                    opts.IsJsonDocumentOutput(result),
+                    lowering),
+            defaultUnit:
+                CliRowSelectionDefaultUnit.RenderedLines);
         CliRowSelectionCommandRegistry.Register(
             packageCommand,
             new(
@@ -490,13 +527,17 @@ public static class PackageCommandDefinitions
                     {
                         var exitCode = await PackageCommand.ExecuteAsync(success.Options);
 
-                        if (exitCode == 0 && success.Options.PackageArgs.Length > 0 && success.Options.PackageLibrary == null && !success.Options.AllLibraries && !success.Options.FormatExplicitlySet && !success.Options.IsRawOutput)
+                        if (exitCode == 0
+                            && success.Options.CompanionOutput != CompanionOutput.None
+                            && success.Options.PackageArgs.Length > 0
+                            && success.Options.PackageLibrary == null
+                            && !success.Options.AllLibraries)
                         {
                             var target = PackageExtractor.ParsePackageTarget(success.Options.PackageArgs[0]);
                             var pkg = target.IsLocalFile
                                 ? target.OriginalArgument
                                 : PackageExtractor.ParsePackageReference(target.OriginalArgument).name;
-                            TipWriter.WritePackageTips(pkg, success.Options.TipLevel, success.Verbosity);
+                            TipWriter.WritePackageTips(pkg, success.Options.CompanionOutput, success.Verbosity);
                         }
 
                         return exitCode;
@@ -522,13 +563,19 @@ public static class PackageCommandDefinitions
     {
         var queryCommand = new Command(
             "query",
-            "Query exact package IDs or package-ID prefixes");
+            "Query exact package IDs, package-ID prefixes, or Ecosystems");
 
         var inputArg = new Argument<string?>("package")
         {
             Description =
                 "Exact package ID or literal package-ID prefix ending in '*'",
             Arity = ArgumentArity.ZeroOrOne
+        };
+        var ecosystemOption = new Option<string?>("--ecosystem")
+        {
+            Description =
+                "Query an Ecosystem's core packages and recorded prefixes "
+                + "(for example aspire or ecosystem.aspire) instead of a package argument"
         };
         var takeOption = new Option<string[]>("--take")
         {
@@ -564,6 +611,7 @@ public static class PackageCommandDefinitions
             Description = "Minified JSON (use with --json or --envelope)"
         };
         queryCommand.Arguments.Add(inputArg);
+        queryCommand.Options.Add(ecosystemOption);
         queryCommand.Options.Add(takeOption);
         queryCommand.Options.Add(prereleaseOption);
         queryCommand.Options.Add(nuspecOnlyOption);
@@ -744,12 +792,10 @@ public static class PackageCommandDefinitions
 
             string? input = parseResult.GetValue(inputArg);
             if (string.IsNullOrWhiteSpace(input))
-            {
-                CommandError.Write(
-                    "Package Query requires an exact package ID or a literal "
-                    + "package-ID prefix ending in '*'.");
-                return 1;
-            }
+                input = null;
+            string? ecosystem = parseResult.GetValue(ecosystemOption);
+            string[] whereExpressions =
+                parseResult.GetValue(opts.RowWhere) ?? [];
 
             string[]? select = opts.ParseSelect(parseResult);
             HashSet<string>? includeSections = null;
@@ -780,7 +826,8 @@ public static class PackageCommandDefinitions
 
             if (!PackageQueryOptions.TryCreate(
                     input,
-                    parseResult.GetValue(opts.RowWhere) ?? [],
+                    ecosystem,
+                    whereExpressions,
                     parseResult.GetValue(nuspecOnlyOption),
                     CliExecutionBoundCommandRegistry.GetPreparedValue(parseResult),
                     rowSelection,

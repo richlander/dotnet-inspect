@@ -230,9 +230,15 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
     {
         int requests = 0;
         ConfigureAuthenticDependencyFeed(() => requests++);
+        string[] arguments =
+            AuthenticDependencyArguments(false, envelope: true);
         var result = await RunEnvelopeCommandAsync(
-            [.. AuthenticDependencyArguments(false, envelope: true),
-                option, .. value is null ? Array.Empty<string>() : [value]]);
+            [
+                .. arguments[..^1],
+                option,
+                .. value is null ? Array.Empty<string>() : [value],
+                arguments[^1],
+            ]);
         Assert.Equal(1, result.Exit);
         Assert.Empty(result.Output);
         Assert.Contains(option == "--discover" ? "-D" : option.Split('=', ':')[0], result.Error);
@@ -246,7 +252,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         ConfigureAuthenticDependencyFeed(() => requests++);
         var result = await RunEnvelopeCommandAsync(
             ["depends", "--package", $"{NpgsqlPackage}@{AuthenticDependencyVersion}",
-                "--source", FirstFeed, "--envelope", "--tips", "q"]);
+                "--source", FirstFeed, "--envelope"]);
         Assert.Equal(1, result.Exit);
         Assert.Empty(result.Output);
         Assert.Contains("positional type", result.Error);
@@ -260,7 +266,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
     {
         var result = await RunEnvelopeCommandAsync(
             ["depends", "System.Object", "--library", typeof(object).Assembly.Location,
-                envelope ? "--envelope" : "--json", "--tips", "q"]);
+                envelope ? "--envelope" : "--json"]);
         Assert.True(result.Exit == 0, result.Error);
         Assert.Empty(result.Error);
         using JsonDocument document = JsonDocument.Parse(result.Output);
@@ -299,7 +305,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 .. includeValidAssembly
                     ? new[] { "--library", typeof(AssemblyReferenceIdentity).Assembly.Location }
                     : [],
-                "--envelope", "--tips", "q"]);
+                "--envelope"]);
         Assert.Equal(includeValidAssembly ? DependsCommand.UncertifiedScanExitCode : 1, result.Exit);
         using JsonDocument document = JsonDocument.Parse(result.Output);
         Assert.Equal(includeValidAssembly,

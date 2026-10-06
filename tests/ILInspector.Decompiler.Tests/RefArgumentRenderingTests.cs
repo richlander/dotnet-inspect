@@ -48,7 +48,7 @@ public class RefArgumentRenderingTests
         new SlotMaterializationPass().Run(
             function,
             PassContext.None);
-        return CSharpPrinter.Print(function).Output!;
+        return DecidedPrint.Print(function).Output!;
     }
 
     [Fact]
@@ -85,7 +85,7 @@ public class RefArgumentRenderingTests
     [Fact]
     public void ByRefReturn_RendersReturnRef()
     {
-        var output = CSharpPrinter.Print(BuildRefReturn()).Output;
+        var output = DecidedPrint.Print(BuildRefReturn()).Output;
 
         Assert.Contains("return ref V_0;", output);
         Assert.DoesNotContain("return V_0;", output);
@@ -123,7 +123,7 @@ public class RefArgumentRenderingTests
     [Fact]
     public void RefArgumentUnbox_SpellsUnsafeUnbox()
     {
-        var output = CSharpPrinter.Print(BuildUnboxByRefCall(ArgumentRefKind.Ref)).Output;
+        var output = DecidedPrint.Print(BuildUnboxByRefCall(ArgumentRefKind.Ref)).Output;
 
         Assert.Contains("Exchange(ref ", output);
         Assert.Contains("Unsafe.Unbox<int>(o)", output);
@@ -133,7 +133,7 @@ public class RefArgumentRenderingTests
     [Fact]
     public void OutArgumentUnbox_SpellsUnsafeUnbox()
     {
-        var output = CSharpPrinter.Print(BuildUnboxByRefCall(ArgumentRefKind.Out)).Output;
+        var output = DecidedPrint.Print(BuildUnboxByRefCall(ArgumentRefKind.Out)).Output;
 
         Assert.Contains("Exchange(out ", output);
         Assert.Contains("Unsafe.Unbox<int>(o)", output);
@@ -198,7 +198,7 @@ public class RefArgumentRenderingTests
             [],
             body);
 
-        var output = CSharpPrinter.Print(function).Output;
+        var output = DecidedPrint.Print(function).Output;
 
         Assert.Contains("Read(p)", output);
         Assert.DoesNotContain("Read(in *p)", output);

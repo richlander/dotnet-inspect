@@ -1,11 +1,16 @@
+using System.Collections.Immutable;
 using System.IO.Compression;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Text;
 
 using DotnetInspector.Fixtures;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
+using DotnetInspector.PlatformQueries;
 using DotnetInspector.Platforms;
 using DotnetInspector.Queries;
+using DotnetInspector.ResearchQueries;
 using DotnetInspector.Sections;
 using DotnetInspector.SourceSelection;
 using ILInspector.Metadata;
@@ -25,6 +30,13 @@ public sealed partial class PackageHouseExecutionTests
 
     private static string CallGraphTargetPath =>
         FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath();
+
+    private static string SystemTextJsonNetStandardPath =>
+        Path.Combine(
+            AppContext.BaseDirectory,
+            "RealAssets",
+            "IntrinsicCoreLibrary",
+            "System.Text.Json.dll");
 
     [Fact]
     public async Task
@@ -90,11 +102,14 @@ public sealed partial class PackageHouseExecutionTests
                 PackageDependencyMemberCallGraphInspectionOutcome.Available>(
                 envelope.Content);
         Assert.Equal(
-            "net12.0",
+            TraversalTargetFrameworkPolicy.ProductDefaultTargetFramework,
             available.Document.TraversalTargetPolicy.TargetFramework);
         Assert.Equal(
             TraversalTargetFrameworkPolicySource.ProductDefault,
             available.Document.TraversalTargetPolicy.Source);
+        Assert.Equal(
+            MemberCallGraphFocalLength.Everything,
+            available.Document.FocalScope.FocalLength);
         PackageDependencyMemberCallGraphInspectionDestination.Package
             destination =
             Assert.IsType<
@@ -116,7 +131,7 @@ public sealed partial class PackageHouseExecutionTests
                 GraphMember(
                     available.Document.Graph.Nodes[edge.ToNodeId]).Name));
         Assert.Equal(
-            "boundary",
+            "exit",
             ExternalFocusRole(available.Document.Graph, edge));
         Assert.Equal(
             [
@@ -139,6 +154,9 @@ public sealed partial class PackageHouseExecutionTests
                         subject.PackageId,
                         subject.PackageVersion,
                         subject.TargetFramework)));
+        Assert.Single(
+            available.Document
+                .IntrinsicCoreLibraryContextNonParticipation);
         Assert.IsType<InspectionShare.NonProjectable>(envelope.Share);
         Assert.Equal(
             [
@@ -150,6 +168,162 @@ public sealed partial class PackageHouseExecutionTests
         Assert.Equal(
             [CallGraphTargetPackage],
             environment.Clients[0].PayloadPackageIds);
+        await environment.AssertRootSettledAsync();
+    }
+
+    [Fact]
+    public async Task
+        DependencyMemberCallGraphContinuationPreservesInitialWorkspaceFailure()
+    {
+        await using HouseEnvironment environment =
+            HouseEnvironment.CreateForAnyPackage(
+                new SourceBehavior([RouteVersion]));
+        PackageHouseOperation realizationOperation =
+            PackageHouseOperation.Create(
+                PackageHouseOperationProfile.Realize);
+        PackageDependencyMemberCallGraphInspectionSource source =
+            CreateCallGraphSource(environment);
+        var continuation =
+            new PackageDependencyMemberCallGraphContinuation(
+                new UnexpectedCallGraphContinuationSource(),
+                ContinuationBudget());
+
+        InspectionEnvelope<
+            PackageDependencyMemberCallGraphInspectionOutcome> envelope =
+            await PackageDependencyMemberCallGraphInspection.ExecuteAsync(
+                CallGraphInspectionRequest(
+                    realizationOperation,
+                    "RunAcrossBoundary",
+                    workspaceDeadline:
+                        DateTimeOffset.UtcNow.AddMinutes(-1)),
+                source,
+                continuation,
+                TestContext.Current.CancellationToken);
+
+        var unavailable =
+            Assert.IsType<
+                PackageDependencyMemberCallGraphInspectionOutcome.Unavailable>(
+                envelope.Content);
+        Assert.Equal(
+            PackageDependencyMemberCallGraphInspectionUnavailableReason
+                .RootWorkspaceNotCommitted,
+            unavailable.Reason);
+        await environment.AssertRootSettledAsync();
+    }
+
+    [Fact]
+    public async Task
+        DependencyMemberCallGraphRetainsIntrinsicCoreLibraryContextNonParticipation()
+    {
+        string systemTextJson = SystemTextJsonNetStandardPath;
+        await using HouseEnvironment environment =
+            HouseEnvironment.CreateForAnyPackage(
+                new SourceBehavior([RouteVersion]));
+        PackageRootBinding rootBinding =
+            CallGraphRootBindingFromAssembly(
+                "System.Text.Json",
+                systemTextJson);
+        RealizedPackageDependencyContext rootContext =
+            await RouteRootContextAsync(rootBinding);
+        PackageDependencyTraversalOutcome traversal =
+            await RouteTraversalAsync(
+                environment,
+                new PackageDependencyTraversalRootOccurrence(
+                    rootContext,
+                    PackageDependencyTraversalExpansionAuthority
+                        .RecursiveSources));
+        Assert.Empty(traversal.Edges);
+
+        await using var workspace = new InspectionWorkspace();
+        WorkspaceScopeSnapshot empty = await CurrentScopeAsync(workspace);
+        WorkspaceScopeSnapshot rooted =
+            Assert.IsType<WorkspaceScopeOperationResult.Committed>(
+                await workspace.AddPackagesAsync(
+                    empty.Revision,
+                    empty.PublicationBase,
+                    [rootBinding],
+                    DateTimeOffset.UtcNow.AddMinutes(1),
+                    TestContext.Current.CancellationToken)).Snapshot;
+        PackageHouseOperation operation =
+            PackageHouseOperation.Create(
+                PackageHouseOperationProfile.Realize);
+        var request = new PackageDependencyMemberCallGraphRequest(
+            workspace,
+            rooted,
+            CurrentRegistrations(workspace),
+            traversal,
+            [rootBinding],
+            [],
+            new PackageDependencyMemberCallGraphFocus(
+                rootOccurrenceIndex: 0,
+                ModuleVersionId(systemTextJson),
+                MethodToken(
+                    systemTextJson,
+                    "JsonDocument",
+                    "Dispose")),
+            new(
+                maxDepth: 4,
+                maxNodes: 30),
+            DateTimeOffset.UtcNow.AddMinutes(1));
+
+        PackageDependencyMemberCallGraphOutcome.Completed completed =
+            Assert.IsType<
+                PackageDependencyMemberCallGraphOutcome.Completed>(
+                await PackageDependencyMemberCallGraphOperation.ExecuteAsync(
+                    request,
+                    environment.CreateHouse(
+                        (_, _) => new InMemoryPackageStore()),
+                    environment.Root.IssueOperationLease(
+                        TestContext.Current.CancellationToken,
+                        operation.RequestTimeout,
+                        operation.OperationTimeout)));
+
+        Assert.Empty(completed.Routes);
+        Assert.Same(
+            completed.ScopeRevision,
+            completed.FocalScope.ScopeRevision);
+        Assert.Equal(
+            MemberCallGraphFocalLength.Everything,
+            completed.FocalScope.FocalLength);
+        Assert.Empty(completed.FocalScope.PlatformPopulations);
+        Assert.NotEmpty(
+            completed.IntrinsicCoreLibraryContextNonParticipation);
+        Assert.True(
+            completed.IntrinsicCoreLibraryContextNonParticipation
+                .Select(receipt => receipt.Occurrence.OccurrenceId)
+                .Distinct()
+                .Count() > 1);
+        Assert.All(
+            completed.IntrinsicCoreLibraryContextNonParticipation,
+            receipt =>
+            {
+                Assert.Same(
+                    completed.ScopeRevision,
+                    receipt.ScopeRevision);
+                Assert.Same(
+                    receipt.Occurrence.Origin.Registration,
+                    receipt.Occurrence.CallSite.Identity
+                        .SourceRegistration);
+                Assert.Same(
+                    rootBinding.Root.Identity,
+                    receipt.Occurrence.Origin.Package);
+                TypeResolutionOutcome.Unavailable unavailable =
+                    Assert.IsType<TypeResolutionOutcome.Unavailable>(
+                        receipt.Occurrence.Correspondence.Outcome);
+                Assert.IsType<
+                    AssemblyBindingTarget.IntrinsicCoreLibrary>(
+                        unavailable.Target);
+                AssemblyBindingOrigin.RequestingAssembly origin =
+                    Assert.IsType<
+                        AssemblyBindingOrigin.RequestingAssembly>(
+                        unavailable.Origin);
+                Assert.Same(
+                    receipt.Occurrence.Origin.Registration,
+                    origin.Registration);
+                Assert.Equal(
+                    AssemblyResolutionScope.Platform,
+                    unavailable.Scope);
+            });
         await environment.AssertRootSettledAsync();
     }
 
@@ -267,7 +441,9 @@ public sealed partial class PackageHouseExecutionTests
                     edgeIndex: 0,
                     PackageHouseOperation.Create(
                         PackageHouseOperationProfile.Realize),
-                    PackageHouseTargetContext.Exact("net12.0")));
+                    PackageHouseTargetContext.Exact(
+                        TraversalTargetFrameworkPolicy
+                            .ProductDefaultTargetFramework)));
         await using var workspace = new InspectionWorkspace();
         WorkspaceScopeSnapshot empty = await CurrentScopeAsync(workspace);
         WorkspaceScopeSnapshot rooted =
@@ -343,7 +519,7 @@ public sealed partial class PackageHouseExecutionTests
             "net11.0",
             destination.Descriptor.SelectedTargetFramework);
         Assert.Equal(
-            "net12.0",
+            TraversalTargetFrameworkPolicy.ProductDefaultTargetFramework,
             completed.TraversalTargetPolicy.TargetFramework);
         Assert.Empty(completed.Baseline.RegisteredEcosystems);
         Assert.Equal(
@@ -403,7 +579,9 @@ public sealed partial class PackageHouseExecutionTests
                     edgeIndex: 0,
                     PackageHouseOperation.Create(
                         PackageHouseOperationProfile.Realize),
-                    PackageHouseTargetContext.Exact("net12.0")));
+                    PackageHouseTargetContext.Exact(
+                        TraversalTargetFrameworkPolicy
+                            .ProductDefaultTargetFramework)));
         await using var workspace = new InspectionWorkspace();
         WorkspaceScopeSnapshot empty = await CurrentScopeAsync(workspace);
         WorkspaceScopeSnapshot rooted =
@@ -493,7 +671,9 @@ public sealed partial class PackageHouseExecutionTests
                     edgeIndex: 0,
                     PackageHouseOperation.Create(
                         PackageHouseOperationProfile.Realize),
-                    PackageHouseTargetContext.Exact("net12.0")));
+                    PackageHouseTargetContext.Exact(
+                        TraversalTargetFrameworkPolicy
+                            .ProductDefaultTargetFramework)));
 
         await using var workspace = new InspectionWorkspace();
         WorkspaceScopeSnapshot empty = await CurrentScopeAsync(workspace);
@@ -576,7 +756,9 @@ public sealed partial class PackageHouseExecutionTests
                     edgeIndex: 0,
                     PackageHouseOperation.Create(
                         PackageHouseOperationProfile.Realize),
-                    PackageHouseTargetContext.Exact("net12.0")));
+                    PackageHouseTargetContext.Exact(
+                        TraversalTargetFrameworkPolicy
+                            .ProductDefaultTargetFramework)));
         PackageDependencyEdgeRealizationEvidence retainedRealization =
             await execution.ExecuteAsync(
                 environment.CreateHouse(
@@ -685,7 +867,9 @@ public sealed partial class PackageHouseExecutionTests
                             edgeIndex,
                             PackageHouseOperation.Create(
                                 PackageHouseOperationProfile.Realize),
-                            PackageHouseTargetContext.Exact("net12.0")))),
+                            PackageHouseTargetContext.Exact(
+                                TraversalTargetFrameworkPolicy
+                                    .ProductDefaultTargetFramework)))),
         ];
 
         await using var workspace = new InspectionWorkspace();
@@ -742,6 +926,212 @@ public sealed partial class PackageHouseExecutionTests
 
     [Fact]
     public async Task
+        DependencyMemberCallGraphPreparationResolvesNonReducedPackageVersion()
+    {
+        const string lowerVersion = "1.0.0";
+        const string higherVersion = "2.0.0";
+        await using HouseEnvironment environment =
+            HouseEnvironment.CreateForAnyPackage(
+                new SourceBehavior(
+                    [lowerVersion, higherVersion],
+                    PayloadContentEntries:
+                    [
+                        (
+                            "lib/net11.0/ILInspector.Analysis.CallerGraphTarget.dll",
+                            File.ReadAllBytes(CallGraphTargetPath)),
+                    ]));
+        PackageRootBinding rootBinding = CallGraphRootBinding(
+            (CallGraphTargetPackage, lowerVersion));
+        PackageRootBinding secondRootBinding = RouteRootBinding(
+            "callgraph.second-root",
+            (CallGraphTargetPackage, higherVersion));
+        RealizedPackageDependencyContext rootContext =
+            await RouteRootContextAsync(rootBinding);
+        RealizedPackageDependencyContext secondRootContext =
+            await RouteRootContextAsync(secondRootBinding);
+        PackageDependencyTraversalOutcome traversal =
+            await RouteTraversalAsync(
+                environment,
+                new PackageDependencyTraversalRootOccurrence(
+                    rootContext,
+                    PackageDependencyTraversalExpansionAuthority
+                        .RecursiveSources),
+                new PackageDependencyTraversalRootOccurrence(
+                    secondRootContext,
+                    PackageDependencyTraversalExpansionAuthority
+                        .RecursiveSources));
+        Assert.Equal(2, traversal.Edges.Length);
+        PackageDependencyEdgeRealizationExecution[] executions =
+        [
+            .. Enumerable.Range(0, traversal.Edges.Length)
+                .Select(
+                    edgeIndex =>
+                        PackageDependencyEdgeRealizationQuery.Execute(
+                            new PackageDependencyEdgeRealizationRequest(
+                                traversal,
+                                rootOccurrenceIndex:
+                                    Enumerable.Range(
+                                            0,
+                                            traversal.Roots.Length)
+                                        .Single(rootIndex =>
+                                            traversal
+                                                .RootReachability[rootIndex]
+                                                .IsEdgeAdmitted(
+                                                    edgeIndex,
+                                                    out _)),
+                                edgeIndex,
+                                PackageHouseOperation.Create(
+                                    PackageHouseOperationProfile.Realize),
+                                PackageHouseTargetContext.Exact(
+                                    TraversalTargetFrameworkPolicy
+                                        .ProductDefaultTargetFramework)))),
+        ];
+
+        await using var workspace = new InspectionWorkspace();
+        WorkspaceScopeSnapshot empty = await CurrentScopeAsync(workspace);
+        WorkspaceScopeSnapshot rooted =
+            Assert.IsType<WorkspaceScopeOperationResult.Committed>(
+                await workspace.AddPackagesAsync(
+                    empty.Revision,
+                    empty.PublicationBase,
+                    [rootBinding, secondRootBinding],
+                    DateTimeOffset.UtcNow.AddMinutes(1),
+                    TestContext.Current.CancellationToken)).Snapshot;
+        var request = new PackageDependencyMemberCallGraphRequest(
+            workspace,
+            rooted,
+            CurrentRegistrations(workspace),
+            traversal,
+            [rootBinding, secondRootBinding],
+            [.. executions],
+            new PackageDependencyMemberCallGraphFocus(
+                rootOccurrenceIndex: 0,
+                ModuleVersionId(CallGraphCallerPath),
+                MethodToken(
+                    CallGraphCallerPath,
+                    "Entry",
+                    "RunAcrossBoundary")),
+            new(
+                maxDepth: 2,
+                maxNodes: 10),
+            DateTimeOffset.UtcNow.AddMinutes(1));
+
+        PackageDependencyMemberCallGraphPreparation preparation =
+            Assert.IsType<
+                PackageDependencyMemberCallGraphPreparationOutcome.Prepared>(
+                    await PackageDependencyMemberCallGraphOperation.PrepareAsync(
+                        request,
+                        environment.CreateHouse(
+                            (_, _) => new InMemoryPackageStore()),
+                        environment.IssueOperation(
+                            executions[0].Request,
+                            TestContext.Current.CancellationToken))).Value;
+        PackageDependencyEdgeRealizationSubject lowerRoute =
+            Assert.Single(
+                executions,
+                execution =>
+                    execution.Subject.Candidate.Coordinate.Version
+                        == lowerVersion).Subject;
+        PackageRootBinding selected =
+            preparation.ResolvePackageBinding(lowerRoute);
+
+        Assert.Equal(lowerVersion, selected.Coordinate.Version);
+        Assert.DoesNotContain(
+            preparation.GraphBindings,
+            binding => ReferenceEquals(binding, selected));
+        Assert.Contains(
+            preparation.GraphBindings,
+            binding =>
+                binding.Coordinate.PackageId.Equals(
+                    CallGraphTargetPackage,
+                    StringComparison.OrdinalIgnoreCase)
+                && binding.Coordinate.Version == higherVersion);
+        ImmutableArray<PackageRootBinding> successorBindings =
+        [
+            .. preparation.GraphBindings.Select(
+                binding =>
+                    binding.Coordinate.PackageId.Equals(
+                        selected.Coordinate.PackageId,
+                        StringComparison.OrdinalIgnoreCase)
+                        ? selected
+                        : binding),
+        ];
+        Assert.Contains(selected, successorBindings);
+        Assert.DoesNotContain(
+            successorBindings,
+            binding =>
+                binding.Coordinate.PackageId.Equals(
+                    selected.Coordinate.PackageId,
+                    StringComparison.OrdinalIgnoreCase)
+                && !ReferenceEquals(binding, selected));
+        await using var successorWorkspace = new InspectionWorkspace();
+        WorkspaceScopeSnapshot successorEmpty =
+            await CurrentScopeAsync(successorWorkspace);
+        WorkspaceScopeSnapshot successorScope =
+            Assert.IsType<WorkspaceScopeOperationResult.Committed>(
+                await successorWorkspace.AddPackagesAsync(
+                    successorEmpty.Revision,
+                    successorEmpty.PublicationBase,
+                    successorBindings,
+                    DateTimeOffset.UtcNow.AddMinutes(1),
+                    TestContext.Current.CancellationToken)).Snapshot;
+        PackageCompileAsset selectedAsset =
+            Assert.Single(selected.Root.AssetSelection.Assets);
+        await using PackageDependencyMemberCallGraphGeneration generation =
+            await PackageDependencyMemberCallGraphOperation
+                .ExecuteGenerationAsync(
+                    successorWorkspace,
+                    successorScope,
+                    CurrentRegistrations(successorWorkspace),
+                    successorBindings,
+                    preparation.Root,
+                    request.Focus,
+                    request.Graph,
+                    request.SupplyChainBaseline,
+                    request.RealizationOptions,
+                    [new(selected, selectedAsset)],
+                    [],
+                    TestContext.Current.CancellationToken);
+
+        PackageRoleCleanupReport cleanup =
+            await generation.CloseAsync();
+        PackageDependencyMemberCallGraphOutcome.Completed completed =
+            Assert.IsType<
+                PackageDependencyMemberCallGraphOutcome.Completed>(
+                    PackageDependencyMemberCallGraphOperation
+                        .CompletePreparedGeneration(
+                            request,
+                            preparation,
+                            generation,
+                            cleanup));
+
+        Assert.Same(
+            successorScope.Revision.Identity,
+            completed.ScopeRevision);
+        Assert.Same(
+            completed.ScopeRevision,
+            completed.FocalScope.ScopeRevision);
+        Assert.Contains(
+            completed.NodePackages,
+            nodePackage =>
+                nodePackage.Descriptor.PackageId.Equals(
+                    CallGraphTargetPackage,
+                    StringComparison.OrdinalIgnoreCase)
+                && nodePackage.Descriptor.PackageVersion
+                    == lowerVersion);
+        Assert.DoesNotContain(
+            completed.NodePackages,
+            nodePackage =>
+                nodePackage.Descriptor.PackageId.Equals(
+                    CallGraphTargetPackage,
+                    StringComparison.OrdinalIgnoreCase)
+                && nodePackage.Descriptor.PackageVersion
+                    == higherVersion);
+        await environment.AssertRootSettledAsync();
+    }
+
+    [Fact]
+    public async Task
         DependencyMemberCallGraphCancellationPreventsSourceAndWorkspaceWork()
     {
         await using HouseEnvironment environment =
@@ -773,7 +1163,9 @@ public sealed partial class PackageHouseExecutionTests
                     edgeIndex: 0,
                     PackageHouseOperation.Create(
                         PackageHouseOperationProfile.Realize),
-                    PackageHouseTargetContext.Exact("net12.0")));
+                    PackageHouseTargetContext.Exact(
+                        TraversalTargetFrameworkPolicy
+                            .ProductDefaultTargetFramework)));
 
         await using var workspace = new InspectionWorkspace();
         WorkspaceScopeSnapshot empty = await CurrentScopeAsync(workspace);
@@ -866,7 +1258,9 @@ public sealed partial class PackageHouseExecutionTests
                     edgeIndex: 0,
                     PackageHouseOperation.Create(
                         PackageHouseOperationProfile.Realize),
-                    PackageHouseTargetContext.Exact("net12.0")));
+                    PackageHouseTargetContext.Exact(
+                        TraversalTargetFrameworkPolicy
+                            .ProductDefaultTargetFramework)));
 
         await using var workspace = new InspectionWorkspace();
         WorkspaceScopeSnapshot empty = await CurrentScopeAsync(workspace);
@@ -958,7 +1352,9 @@ public sealed partial class PackageHouseExecutionTests
                     edgeIndex: 0,
                     PackageHouseOperation.Create(
                         PackageHouseOperationProfile.Realize),
-                    PackageHouseTargetContext.Exact("net12.0")));
+                    PackageHouseTargetContext.Exact(
+                        TraversalTargetFrameworkPolicy
+                            .ProductDefaultTargetFramework)));
 
         await using var workspace = new InspectionWorkspace();
         WorkspaceScopeSnapshot empty = await CurrentScopeAsync(workspace);
@@ -1035,14 +1431,17 @@ public sealed partial class PackageHouseExecutionTests
                         .RecursiveSources));
         var platformTarget = new PlatformFamilyTarget(
             PlatformFamily.DotNetRuntime,
-            PlatformTargetFramework.Parse("net12.0"),
-            PlatformVersion.Parse("12.0.0"));
+            PlatformTargetFramework.Parse(
+                TraversalTargetFrameworkPolicy
+                    .ProductDefaultTargetFramework),
+            PlatformVersion.Parse("11.0.0"));
         PlatformPruneInventory inventory =
             PlatformPruneInventory.FromExactFamily(
                 new PlatformPruneTarget(
                     "Microsoft.NETCore.App",
-                    "net12.0",
-                    NuGetVersion.Parse("12.0.0")),
+                    TraversalTargetFrameworkPolicy
+                        .ProductDefaultTargetFramework,
+                    NuGetVersion.Parse("11.0.0")),
                 [$"{CallGraphTargetPackage}|{RouteVersion}"]);
         PackageDependencyEdgeRealizationExecution execution =
             PackageDependencyEdgeRealizationQuery.Execute(
@@ -1053,7 +1452,8 @@ public sealed partial class PackageHouseExecutionTests
                     PackageHouseOperation.Create(
                         PackageHouseOperationProfile.Realize),
                     PackageHouseTargetContext.Exact(
-                        "net12.0",
+                        TraversalTargetFrameworkPolicy
+                            .ProductDefaultTargetFramework,
                         platformTarget: platformTarget),
                     inventory));
 
@@ -1164,6 +1564,15 @@ public sealed partial class PackageHouseExecutionTests
     private static PackageRootBinding CallGraphRootBinding(
         Func<InMemoryPackageContent, IPackageContent> contentFactory,
         params (string PackageId, string Version)[] dependencies)
+        => CallGraphRootBinding(
+            contentFactory,
+            CallGraphCallerPath,
+            dependencies);
+
+    private static PackageRootBinding CallGraphRootBinding(
+        Func<InMemoryPackageContent, IPackageContent> contentFactory,
+        string assemblyPath,
+        params (string PackageId, string Version)[] dependencies)
     {
         ArgumentNullException.ThrowIfNull(contentFactory);
         string dependencyXml = string.Join(
@@ -1199,9 +1608,9 @@ public sealed partial class PackageHouseExecutionTests
                 nuspec.Write(manifest);
             }
             using Stream assembly = archive.CreateEntry(
-                "lib/netstandard2.0/ILInspector.Analysis.CallerGraphCaller.dll")
+                $"lib/netstandard2.0/{Path.GetFileName(assemblyPath)}")
                 .Open();
-            assembly.Write(File.ReadAllBytes(CallGraphCallerPath));
+            assembly.Write(File.ReadAllBytes(assemblyPath));
         }
 
         var content = new InMemoryPackageContent(
@@ -1213,6 +1622,149 @@ public sealed partial class PackageHouseExecutionTests
                 CallGraphRootPackage,
                 RouteVersion),
             contentFactory(content),
+            "tests",
+            PackagePayloadOrigin.Download);
+        return PackageRootBinding.CreateFromSource(
+            payload,
+            "netstandard2.0");
+    }
+
+    private static PackageDependencyMemberCallGraphInspectionSource
+        CreateCallGraphSource(HouseEnvironment environment)
+    {
+        var candidateSource =
+            new AuthorizedPackageDependencyCandidateSource(
+                environment.Authorization,
+                environment.Root);
+        return new(
+            new PackageDependencyTraversalCandidateAdapter(
+                candidateSource),
+            new UnexpectedManifestAcquirer(),
+            environment.CreateHouse(
+                (_, _) => new InMemoryPackageStore()),
+            (operation, cancellationToken) =>
+                environment.Root.IssueOperationLease(
+                    cancellationToken,
+                    operation.RequestTimeout,
+                    operation.OperationTimeout));
+    }
+
+    private static PackageDependencyMemberCallGraphInspectionRequest
+        CallGraphInspectionRequest(
+        PackageHouseOperation realizationOperation,
+        string member,
+        int maximumDependencyDepth = 1,
+        DateTimeOffset? workspaceDeadline = null,
+        params (string PackageId, string Version)[] dependencies) =>
+        new(
+            CallGraphRootBinding(dependencies),
+            new(
+                ModuleVersionId(CallGraphCallerPath),
+                MethodToken(
+                    CallGraphCallerPath,
+                    "Entry",
+                    member)),
+            TraversalTargetFrameworkPolicy.ProductDefault,
+            new(
+                maxDepth: 2,
+                maxNodes: 10),
+            realizationOperation,
+            workspaceDeadline
+                ?? DateTimeOffset.UtcNow.AddMinutes(1),
+            maximumDependencyDepth,
+            new(
+                maxManifestProjections: 3,
+                maxDeclarationResolutions: 3));
+
+    private static AssemblyReferenceResolutionWorkBudget
+        ContinuationBudget(
+        int maxPackageRouteOccurrences = 16) =>
+        new(
+            maxPackageRouteOccurrences,
+            maxPackageCandidateOperations: 16,
+            maxSourceOperations: 16,
+            maxAcquisitions: 16,
+            maxRealizedAssemblies: 16,
+            maxTransferBytes: 16 * 1024 * 1024,
+            maxRetainedAssemblyBytes: 16 * 1024 * 1024,
+            maxWorkspaceReplacements: 4,
+            deadline: DateTimeOffset.UtcNow.AddMinutes(1));
+
+    private sealed class UnexpectedCallGraphContinuationSource :
+        PackageDependencyMemberCallGraphExternalContinuationSource
+    {
+        public override ValueTask<
+            PackageDependencyMemberCallGraphPlatformRouteFormationOutcome>
+            FormPlatformRouteAsync(
+            AssemblyBindingRequest request,
+            AssemblyReferenceResolutionGenerationReceipt generation,
+            MemberCallGraphFocalScopeReceipt focalScope,
+            PackageAssemblyReferenceRouteEligibilityReceipt packageRoutes,
+            AssemblyReferenceResolutionWorkLedger work,
+            CancellationToken cancellationToken) =>
+            throw new InvalidOperationException(
+                "Initial Workspace failure must precede route formation.");
+
+        public override ValueTask<
+            ExternalAssemblyReferenceSupplierOutcome> ResolveAsync(
+            PackageAssemblyReferenceExternalRoute packageRoute,
+            PlatformAssemblyReferenceExternalRoute platformRoute,
+            AssemblyBindingSelection referencingContextSelection,
+            AssemblyReferenceResolutionWorkLedger work,
+            CancellationToken cancellationToken) =>
+            throw new InvalidOperationException(
+                "Initial Workspace failure must precede supplier resolution.");
+
+        public override ValueTask<ImmutableArray<
+            PackageAssemblyContextPlatformLibrary>>
+            AdmitPlatformPopulationAsync(
+            InspectionWorkspace workspace,
+            WorkspaceRegistrationRevision registrations,
+            PlatformFamilyTarget target,
+            AssemblyReferenceResolutionWorkLedger work,
+            CancellationToken cancellationToken) =>
+            throw new InvalidOperationException(
+                "Initial Workspace failure must precede Platform population admission.");
+    }
+
+    private static PackageRootBinding CallGraphRootBindingFromAssembly(
+        string packageId,
+        string assemblyPath)
+    {
+        byte[] manifest = Encoding.UTF8.GetBytes(
+            $$"""
+            <package>
+              <metadata>
+                <id>{{packageId}}</id>
+                <version>{{RouteVersion}}</version>
+                <authors>dotnet-inspect</authors>
+                <description>Intrinsic CoreLib call-graph fixture.</description>
+              </metadata>
+            </package>
+            """);
+        using var stream = new MemoryStream();
+        using (var archive = new ZipArchive(
+            stream,
+            ZipArchiveMode.Create,
+            leaveOpen: true))
+        {
+            using (Stream nuspec = archive.CreateEntry(
+                $"{packageId}.nuspec").Open())
+            {
+                nuspec.Write(manifest);
+            }
+            using Stream assembly = archive.CreateEntry(
+                $"lib/netstandard2.0/{Path.GetFileName(assemblyPath)}")
+                .Open();
+            assembly.Write(File.ReadAllBytes(assemblyPath));
+        }
+
+        var payload = new AcquiredPackageSourcePayload(
+            PackageSourceCoordinate.Create(packageId, RouteVersion),
+            new InMemoryPackageContent(
+                stream.ToArray(),
+                fromCache: false,
+                producerKey: "tests"),
             "tests",
             PackagePayloadOrigin.Download);
         return PackageRootBinding.CreateFromSource(
@@ -1232,11 +1784,27 @@ public sealed partial class PackageHouseExecutionTests
         string typeName,
         string methodName)
     {
-        Analysis.LibraryBodyIndex index =
-            Analysis.LibraryBodyIndex.Open(assemblyPath);
-        return index.Methods.Single(
-            method => method.DeclaringType.Name == typeName
-                && method.Name == methodName).MetadataToken;
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Open(assemblyPath);
+        return session.InspectImage(reader =>
+        {
+            MetadataReader metadata = reader.GetMetadataReader();
+            TypeDefinitionHandle type =
+                metadata.TypeDefinitions.Single(handle =>
+                    metadata.GetString(
+                        metadata.GetTypeDefinition(handle).Name)
+                        == typeName);
+            MethodDefinitionHandle method =
+                metadata.GetTypeDefinition(type).GetMethods().Single(handle =>
+                {
+                    MethodDefinition definition =
+                        metadata.GetMethodDefinition(handle);
+                    return definition.RelativeVirtualAddress != 0
+                        && metadata.GetString(definition.Name)
+                            == methodName;
+                });
+            return MetadataTokens.GetToken(method);
+        });
     }
 
     private static Analysis.MemberRef GraphMember(
@@ -1250,17 +1818,18 @@ public sealed partial class PackageHouseExecutionTests
     private static string ExternalFocusRole(
         InspectionGraphDocument document,
         InspectionGraphEdge edge) =>
-        Assert.IsType<InspectionGraphValue.Token>(
-            Assert.Single(
-                document.Characteristics,
-                characteristic =>
-                    ReferenceEquals(
-                        characteristic.Descriptor,
-                        ExternalFocusedCallGraphInspectionCatalog.EdgeRole)
-                    && characteristic.Target
-                        == InspectionGraphTarget.Edge(edge.Id))
-                .Value)
-            .Value;
+        Assert.Single(
+            Assert.IsType<InspectionGraphValue.TokenSet>(
+                Assert.Single(
+                    document.Characteristics,
+                    characteristic =>
+                        ReferenceEquals(
+                            characteristic.Payload.Descriptor,
+                            InspectionGraphFocusCatalog.Role)
+                        && characteristic.Target
+                            == InspectionGraphTarget.Edge(edge.Id))
+                    .Payload.Value)
+                .Values);
 
     private static WorkspaceRegistrationRevision CurrentRegistrations(
         InspectionWorkspace workspace) =>

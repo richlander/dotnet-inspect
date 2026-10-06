@@ -69,17 +69,23 @@ export function captureMemberFocus(
       key: "namespace",
       value: active.dataset.namespace,
     };
-  } else if (active?.dataset.kindFilter !== undefined) {
+  } else if (active?.dataset.typeKindFilter !== undefined) {
     dataTarget = {
-      selector: "[data-kind-filter]",
-      key: "kindFilter",
-      value: active.dataset.kindFilter,
+      selector: "[data-type-kind-filter]",
+      key: "typeKindFilter",
+      value: active.dataset.typeKindFilter,
     };
-  } else if (active?.dataset.accessChip !== undefined) {
+  } else if (active?.dataset.typeAccessFilter !== undefined) {
     dataTarget = {
-      selector: "[data-access-chip]",
-      key: "accessChip",
-      value: active.dataset.accessChip,
+      selector: "[data-type-access-filter]",
+      key: "typeAccessFilter",
+      value: active.dataset.typeAccessFilter,
+    };
+  } else if (active?.dataset.typeTraitFilter !== undefined) {
+    dataTarget = {
+      selector: "[data-type-trait-filter]",
+      key: "typeTraitFilter",
+      value: active.dataset.typeTraitFilter,
     };
   } else if (active?.dataset.libraryChip !== undefined) {
     dataTarget = {

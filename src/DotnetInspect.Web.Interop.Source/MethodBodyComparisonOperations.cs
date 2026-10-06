@@ -15,109 +15,144 @@ internal static class MethodBodyComparisonOperations
         string requestJson,
         CancellationToken token)
     {
-        BrowserMethodBodyComparisonRequest request =
-            MethodBodyOperations.Select(() =>
-            {
-                BrowserMethodBodyComparisonRequest parsed =
-                    JsonSerializer.Deserialize(
-                        requestJson,
-                        BrowserSourceJsonContext.Default
-                            .BrowserMethodBodyComparisonRequest)
-                    ?? throw new ArgumentException(
-                        "A method-body comparison request is required.");
-                ValidateRequest(parsed);
-                return parsed;
-            });
+        BrowserMethodBodyComparisonRequest request = ParseRequest(requestJson);
         return MethodBodyOperations.WithParticipantAsync(
             request.PackageId,
             request.Version,
             request.Framework,
             request.Assembly,
             (group, participant) =>
+                Compare(request, group, participant, token));
+    }
+
+    internal static Task<BrowserMethodBodyComparison>
+        RunRetainedMethodBodyComparison(
+            string retainedDefinitionId,
+            string realizationId,
+            string navigationId,
+            string requestJson,
+            CancellationToken token)
+    {
+        BrowserMethodBodyComparisonRequest request =
+            ParseRequest(requestJson);
+        return MethodBodyOperations.WithRetainedPackageParticipantAsync(
+            retainedDefinitionId,
+            realizationId,
+            navigationId,
+            request.PackageId,
+            request.Version,
+            request.Framework,
+            request.Assembly,
+            (group, participant) =>
+                Compare(request, group, participant, token),
+            token);
+    }
+
+    static BrowserMethodBodyComparisonRequest ParseRequest(
+        string requestJson)
+    {
+        return MethodBodyOperations.Select(() =>
+        {
+            BrowserMethodBodyComparisonRequest parsed =
+                JsonSerializer.Deserialize(
+                    requestJson,
+                    BrowserSourceJsonContext.Default
+                        .BrowserMethodBodyComparisonRequest)
+                ?? throw new ArgumentException(
+                    "A method-body comparison request is required.");
+            ValidateRequest(parsed);
+            return parsed;
+        });
+    }
+
+    static BrowserMethodBodyComparison Compare(
+        BrowserMethodBodyComparisonRequest request,
+        AssemblyContextGroup group,
+        AssemblyContextParticipant participant,
+        CancellationToken token)
+    {
+        ApiSurface surface = MethodBodyOperations.Select(() =>
+            BrowserMemberResolution.ImplementationSurface(
+                group,
+                participant));
+        BrowserMethodBodySelection[] inventory =
+            MethodBodyOperations.Inventory(surface);
+        CallGraphMemberResolution before = Resolve(request.Before);
+        CallGraphMemberResolution after = Resolve(request.After);
+        MetadataMethodAddress beforeAddress =
+            MethodBodyOperations.RequireAddress(
+                group,
+                participant,
+                before.BodyToken);
+        MetadataMethodAddress afterAddress =
+            MethodBodyOperations.RequireAddress(
+                group,
+                participant,
+                after.BodyToken);
+        Guid expectedModule = Guid.Parse(request.ModuleVersionId);
+        if (beforeAddress.ModuleVersionId != expectedModule
+            || afterAddress.ModuleVersionId != expectedModule)
+        {
+            throw new MethodBodyUnavailableException(
+                $"WrongImage: inventory module {expectedModule:D} "
+                + "is not the retained implementation module "
+                + $"{beforeAddress.ModuleVersionId:D}; the pair "
+                + "was not retargeted.");
+        }
+
+        request = request with
+        {
+            Before = inventory.Single(method =>
+                method.MetadataToken == before.BodyToken),
+            After = inventory.Single(method =>
+                method.MetadataToken == after.BodyToken),
+        };
+        LocalComparisonQueryResult comparison =
+            DirectMemberComparisonQuery.Execute(
+                group,
+                new(
+                    new(participant, beforeAddress),
+                    new(participant, afterAddress),
+                    [
+                        ResearchProducerKind.CSharp,
+                        ResearchProducerKind.IlBody,
+                    ]),
+                token);
+        return BrowserMethodBodyProjection.Project(
+            request,
+            comparison);
+
+        CallGraphMemberResolution Resolve(
+            BrowserMethodBodySelection selection)
+        {
+            if (!inventory.Any(method =>
+                method.MetadataToken == selection.MetadataToken
+                && method.TypeIdentity == selection.TypeIdentity
+                && method.MemberName == selection.MemberName
+                && method.SelectorKey == selection.SelectorKey))
             {
-                ApiSurface surface = MethodBodyOperations.Select(() =>
-                    BrowserMemberResolution.ImplementationSurface(
-                        group,
-                        participant));
-                BrowserMethodBodySelection[] inventory =
-                    MethodBodyOperations.Inventory(surface);
-                CallGraphMemberResolution before = Resolve(request.Before);
-                CallGraphMemberResolution after = Resolve(request.After);
-                MetadataMethodAddress beforeAddress =
-                    MethodBodyOperations.RequireAddress(
-                        group,
-                        participant,
-                        before.BodyToken);
-                MetadataMethodAddress afterAddress =
-                    MethodBodyOperations.RequireAddress(
-                        group,
-                        participant,
-                        after.BodyToken);
-                Guid expectedModule = Guid.Parse(request.ModuleVersionId);
-                if (beforeAddress.ModuleVersionId != expectedModule
-                    || afterAddress.ModuleVersionId != expectedModule)
-                {
-                    throw new MethodBodyUnavailableException(
-                        $"WrongImage: inventory module {expectedModule:D} "
-                        + "is not the retained implementation module "
-                        + $"{beforeAddress.ModuleVersionId:D}; the pair "
-                        + "was not retargeted.");
-                }
-
-                request = request with
-                {
-                    Before = inventory.Single(method =>
-                        method.MetadataToken == before.BodyToken),
-                    After = inventory.Single(method =>
-                        method.MetadataToken == after.BodyToken),
-                };
-                LocalComparisonQueryResult comparison =
-                    DirectMemberComparisonQuery.Execute(
-                        group,
-                        new(
-                            new(participant, beforeAddress),
-                            new(participant, afterAddress),
-                            [
-                                ResearchProducerKind.CSharp,
-                                ResearchProducerKind.IlBody,
-                            ]),
-                        token);
-                return BrowserMethodBodyProjection.Project(
-                    request,
-                    comparison);
-
-                CallGraphMemberResolution Resolve(
-                    BrowserMethodBodySelection selection)
-                {
-                    if (!inventory.Any(method =>
-                        method.MetadataToken == selection.MetadataToken
-                        && method.TypeIdentity == selection.TypeIdentity
-                        && method.MemberName == selection.MemberName
-                        && method.SelectorKey == selection.SelectorKey))
-                    {
-                        throw new MethodBodyUnavailableException(
-                            "SelectionUnavailable: the exact selector and "
-                            + "MethodDef are not in this implementation "
-                            + "inventory.");
-                    }
-                    CallGraphMemberResolution resolved =
-                        MethodBodyOperations.Select(() =>
-                            BrowserMemberResolution
-                                .ResolveImplementationMember(
-                                    surface,
-                                    selection.TypeIdentity,
-                                    selection.MemberName,
-                                    selection.SelectorKey,
-                                    selection.MetadataToken));
-                    if (resolved.BodyToken != selection.MetadataToken)
-                    {
-                        throw new MethodBodyUnavailableException(
-                            "SelectionUnavailable: the inventory body no "
-                            + "longer resolves to its asserted MethodDef.");
-                    }
-                    return resolved;
-                }
-            });
+                throw new MethodBodyUnavailableException(
+                    "SelectionUnavailable: the exact selector and "
+                    + "MethodDef are not in this implementation "
+                    + "inventory.");
+            }
+            CallGraphMemberResolution resolved =
+                MethodBodyOperations.Select(() =>
+                    BrowserMemberResolution
+                        .ResolveImplementationMember(
+                            surface,
+                            selection.TypeIdentity,
+                            selection.MemberName,
+                            selection.SelectorKey,
+                            selection.MetadataToken));
+            if (resolved.BodyToken != selection.MetadataToken)
+            {
+                throw new MethodBodyUnavailableException(
+                    "SelectionUnavailable: the inventory body no "
+                    + "longer resolves to its asserted MethodDef.");
+            }
+            return resolved;
+        }
     }
 
     static void ValidateRequest(

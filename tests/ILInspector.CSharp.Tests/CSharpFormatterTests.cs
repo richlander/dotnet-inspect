@@ -5,6 +5,35 @@ namespace ILInspector.CSharp.Tests;
 
 public sealed class CSharpFormatterTests
 {
+    // An attached extension's bucket is bounded by its declaring Type, but its
+    // declaration keeps the declared modifier: CoreLib's internal
+    // LoggingExtensions declares GetMethodName public, and it attaches to
+    // System.Delegate in the internal bucket
+    // (docs/design/api-population-scope.md#spelling-within-api-visibility-scope).
+    [Fact]
+    public void RealAttachedExtension_SpellsItsDeclaredModifier()
+    {
+        string path = Path.Combine(
+            AppContext.BaseDirectory,
+            "PinnedArtifacts",
+            "System.Private.CoreLib.dll");
+        using var stream = File.OpenRead(path);
+        using var peReader = new System.Reflection.PortableExecutable.PEReader(stream);
+        ApiSurface surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+        ApiType receiver = surface.Types.Single(type => type.FullName == "System.Delegate");
+        ApiMember attached = Assert.Single(
+            receiver.Members,
+            member => member.Kind == "extension-method"
+                && member.Name == "GetMethodName"
+                && member.DeclaringType == "System.Threading.Tasks.LoggingExtensions");
+
+        Assert.Equal("internal", attached.Accessibility);
+        Assert.StartsWith(
+            "public static ",
+            new CSharpFormatter().FormatMember(receiver, attached),
+            StringComparison.Ordinal);
+    }
+
     [Fact]
     public void FormatsStructuredMemberDeclaration()
     {

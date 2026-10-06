@@ -29,9 +29,9 @@ public readonly record struct SlotMaterializationDecision(
 /// <summary>
 /// Materializes decided synthetic stack slots as typed locals
 /// (value-typed-emission.md, slice 5b-2; the #2209 trajectory commitment).
-/// A slot whose loads testify to one type and whose stores are all at that
-/// type — which coercion insertion guarantees for the wrappable population —
-/// is a fully decided variable: it becomes a real local via
+/// A slot whose loads testify to one type and whose stores are exact,
+/// coercion-renderable, or carry owner-issued assignment testimony for that
+/// type is a fully decided variable: it becomes a real local via
 /// <see cref="IrFunction.AddLocal"/>, keeping its <c>S_{slot}</c> name so slot
 /// references read the same — declaration order and form may still change
 /// (materialized locals append to the locals table, and a single-store local
@@ -39,13 +39,14 @@ public readonly record struct SlotMaterializationDecision(
 /// retain their slot provenance because their legacy declaration order and
 /// scope remain part of the output contract. Its <see cref="StoreStackSlot"/>/
 /// <see cref="LoadStackSlot"/> nodes stop reaching the printer. What remains
-/// on slots is the counted residual the printer's unifier still owns:
+/// on slots is the counted residual that <see cref="ResidualSlotBindingPass"/>
+/// binds with the printer's frozen legacy policy at the end of the pipeline:
 /// ambiguous testimony, cross-family (true disjoint ranges), and nested-body
 /// scopes (this increment materializes function-scope slots only). Direct
 /// slot-copy webs retire as one connected component only when every member is
 /// independently decided; an undecided member keeps the whole component on
-/// slots. The terminus is C2: when the residual census reaches zero, the
-/// print-time unifier deletes cleanly. The component boundary is gated by
+/// slots. The burn-down target is the residual-binding census: each class it
+/// reports is a candidate for this pass to admit. The component boundary is gated by
 /// <c>MaterializesCompleteDirectCopyComponent</c> and
 /// <c>DefersWholeDirectCopyComponentWhenOneSlotIsUndecided</c>.
 /// </summary>
@@ -208,7 +209,8 @@ public sealed class SlotMaterializationPass : IIrPass
 
             if (!CoercionDomain.InDomain(slotType, function.TypeShapes))
             {
-                bool exactStorage = candidate.Stores.All(store => CoercionDomain.IsAtTarget(store.Value, slotType))
+                bool supportedStorage = candidate.Stores.All(store =>
+                        HasSupportedStorageAssignment(store.Value, slotType, function.TypeShapes, function.ProvenReferenceWidenings))
                     && (slotType.Kind == TypeRefKind.Definition
                         && (MemberIdentity.IsCoreLibraryType(slotType, "System", "String")
                             || MemberIdentity.IsCoreLibraryType(slotType, "System", "Object"))
@@ -219,12 +221,13 @@ public sealed class SlotMaterializationPass : IIrPass
                         || CSharpSpellability.CanSpellNamedValueStorageType(slotType, function)
                         || CSharpSpellability.CanSpellByRefLikeValueStorageType(slotType, function)
                         || CSharpSpellability.CanSpellGenericParameterStorageType(slotType, function));
-                if (!exactStorage)
+                if (!supportedStorage)
                     candidate.Vetoes |= SlotMaterializationVeto.OutsideCoercionDomain;
                 else if (candidate.Stores.Any(store => SwapIdiomPass.IsPendingStackSwap(function, store)))
                     candidate.Vetoes |= SlotMaterializationVeto.PendingStorageSwap;
             }
-            if (candidate.Stores.Any(store => store.Value.ResultType?.Equals(slotType) != true
+            if (candidate.Stores.Any(store =>
+                    !HasSupportedStorageAssignment(store.Value, slotType, function.TypeShapes, function.ProvenReferenceWidenings)
                     && !CoercionRendering.CanSpellSlotCoercion(
                         store.Value.ResultType, slotType, function.TypeShapes, function.EnumUnderlyingTypes)))
                 candidate.Vetoes |= SlotMaterializationVeto.UnrenderableStoreType;
@@ -263,6 +266,14 @@ public sealed class SlotMaterializationPass : IIrPass
                     element,
                     "System",
                     "Void");
+
+        static bool HasSupportedStorageAssignment(
+            IrExpression value,
+            TypeRef target,
+            IReadOnlyDictionary<TypeRef, TypeShape> shapes,
+            IReadOnlySet<ReferenceWidening>? provenWidenings = null)
+            => CoercionDomain.IsAtTarget(value, target)
+                || ReferenceAssignmentTargets.CanAssignStorageTo(value, target, shapes, provenWidenings);
 
         static TypeRef? UnanimousManagedReferenceStoreType(
             IReadOnlyList<StoreStackSlot> stores)

@@ -1,9 +1,12 @@
+using DotnetInspector.Platforms;
+
 namespace DotnetInspector.Queries;
 
 /// <summary>The governing target-framework policy for one traversal.</summary>
 public sealed record TraversalTargetFrameworkPolicy
 {
-    public const string ProductDefaultTargetFramework = "net12.0";
+    public const string ProductDefaultTargetFramework =
+        ProductDotNetReleaseLine.TargetFramework;
 
     public static TraversalTargetFrameworkPolicy ProductDefault { get; } =
         new(
