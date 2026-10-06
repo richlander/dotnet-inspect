@@ -337,12 +337,12 @@ public sealed class TypeDocumentInspectionOperationTests
                         "JsonSerializer"),
                     s_bounds,
                     hierarchy:
-                        new InspectionHierarchyRequest()));
+                       CompactHierarchy()));
 
         Assert.Equal("hierarchy", exception.ParamName);
 
         var request =
-            new InspectionHierarchyRequest();
+            CompactHierarchy();
         var declarations =
             new TypeMemberGroupPopulationRequest(
                 count: null,
@@ -357,6 +357,65 @@ public sealed class TypeDocumentInspectionOperationTests
                 request);
 
         Assert.Same(request, plan.Hierarchy);
+    }
+
+    [Fact]
+    public void HierarchyRequest_RejectsUnsupportedTerminalAndSpellingPlan()
+    {
+        var unsupported =
+            new InspectionHierarchyRequest<
+                TypeDocumentHierarchyTopology>(
+                TypeDocumentHierarchyTopology
+                    .TypeCategoriesAndMemberGroups,
+                InspectionHierarchyNodeSpelling.FullSpelling,
+                new InspectionHierarchyPopulationRequest.Count());
+        var declarations =
+            new TypeMemberGroupPopulationRequest(
+                count: null,
+                rows: new(maximumRows: 1));
+
+        ArgumentException exception =
+            Assert.Throws<ArgumentException>(
+                () => new TypeDocumentInspectionPlan(
+                    Name(
+                        "System.Text.Json",
+                        "JsonSerializer"),
+                    s_bounds,
+                    declarations,
+                    unsupported));
+
+        Assert.Equal("hierarchy", exception.ParamName);
+        Assert.Contains(
+            "category Rows by Name",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void HierarchyRequest_RequiresNestedExactMemberCounts()
+    {
+        var declarations =
+            new TypeMemberGroupPopulationRequest(
+                count: null,
+                rows: new(
+                    maximumRows: 1,
+                    includeExactMemberCount: false));
+
+        ArgumentException exception =
+            Assert.Throws<ArgumentException>(
+                () => new TypeDocumentInspectionPlan(
+                    Name(
+                        "System.Text.Json",
+                        "JsonSerializer"),
+                    s_bounds,
+                    declarations,
+                    CompactHierarchy()));
+
+        Assert.Equal("hierarchy", exception.ParamName);
+        Assert.Contains(
+            "exact-Member Counts",
+            exception.Message,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -380,7 +439,7 @@ public sealed class TypeDocumentInspectionOperationTests
 
         TypeDocumentHierarchyProjection.Write(
             document,
-            new InspectionHierarchyRequest(),
+            CompactHierarchy(),
             sink);
 
         TypeDocumentHierarchyNode.Category properties =
@@ -467,7 +526,7 @@ public sealed class TypeDocumentInspectionOperationTests
             Assert.Throws<InvalidOperationException>(
                 () => TypeDocumentHierarchyProjection.Write(
                     document,
-                    new InspectionHierarchyRequest(),
+                    CompactHierarchy(),
                     new RecordingHierarchySink()));
 
         Assert.Contains("complete member-group Rows", exception.Message);
@@ -771,6 +830,18 @@ public sealed class TypeDocumentInspectionOperationTests
                     @namespace,
                     [.. segments]))
             .Name;
+
+    private static InspectionHierarchyRequest<
+        TypeDocumentHierarchyTopology> CompactHierarchy() =>
+        new(
+            TypeDocumentHierarchyTopology
+                .TypeCategoriesAndMemberGroups,
+            InspectionHierarchyNodeSpelling.FullSpelling,
+            new InspectionHierarchyPopulationRequest.Rows(
+                InspectionHierarchyNodeSpelling.Name,
+                new InspectionHierarchyPopulationRequest.Rows(
+                    InspectionHierarchyNodeSpelling.Name,
+                    new InspectionHierarchyPopulationRequest.Count())));
 
     private sealed class RecordingHierarchySink :
         IInspectionHierarchySink<TypeDocumentHierarchyNode>

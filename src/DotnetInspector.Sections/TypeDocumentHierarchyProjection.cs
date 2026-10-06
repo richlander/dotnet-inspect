@@ -1,5 +1,10 @@
 namespace DotnetInspector.Sections;
 
+public enum TypeDocumentHierarchyTopology
+{
+    TypeCategoriesAndMemberGroups,
+}
+
 public abstract record TypeDocumentHierarchyNode
 {
     private TypeDocumentHierarchyNode()
@@ -32,12 +37,13 @@ public static class TypeDocumentHierarchyProjection
 
     public static void Write(
         TypeDocumentInspectionContent document,
-        InspectionHierarchyRequest request,
+        InspectionHierarchyRequest<TypeDocumentHierarchyTopology> request,
         IInspectionHierarchySink<TypeDocumentHierarchyNode> sink)
     {
         ArgumentNullException.ThrowIfNull(document);
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(sink);
+        ValidateRequest(request);
 
         TypeMemberGroupPopulationResult population =
             document.Declarations
@@ -93,6 +99,67 @@ public static class TypeDocumentHierarchyProjection
                             isLastSibling: ++memberIndex == logicalCount);
                     }
                 });
+        }
+    }
+
+    public static void ValidateRequest(
+        InspectionHierarchyRequest<TypeDocumentHierarchyTopology>
+            request) =>
+        ValidateRequestShape(request, nameof(request));
+
+    public static void ValidateRequest(
+        InspectionHierarchyRequest<TypeDocumentHierarchyTopology> request,
+        TypeMemberGroupPopulationRequest? declarations,
+        string parameterName)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentException.ThrowIfNullOrWhiteSpace(parameterName);
+        ValidateRequestShape(request, parameterName);
+        if (declarations?.Rows is not { } rows)
+        {
+            throw new ArgumentException(
+                "A Type document hierarchy requires a member-group Rows request.",
+                parameterName);
+        }
+        if (!rows.IncludeExactMemberCount)
+        {
+            throw new ArgumentException(
+                "A compact Type document hierarchy requires exact-Member Counts for every member-group Row.",
+                parameterName);
+        }
+    }
+
+    private static void ValidateRequestShape(
+        InspectionHierarchyRequest<TypeDocumentHierarchyTopology> request,
+        string parameterName)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (request.Topology
+            is not TypeDocumentHierarchyTopology
+                .TypeCategoriesAndMemberGroups)
+        {
+            throw new ArgumentException(
+                "The Type document does not admit the requested hierarchy topology.",
+                parameterName);
+        }
+        if (request.Children
+            is not InspectionHierarchyPopulationRequest.Rows
+            {
+                Spelling:
+                    InspectionHierarchyNodeSpelling.Name,
+                Children:
+                    InspectionHierarchyPopulationRequest.Rows
+                    {
+                        Spelling:
+                            InspectionHierarchyNodeSpelling.Name,
+                        Children:
+                            InspectionHierarchyPopulationRequest.Count,
+                    },
+            })
+        {
+            throw new ArgumentException(
+                "The compact Type document hierarchy requires category Rows by Name, MemberGroup Rows by Name, and exact-Member Count.",
+                parameterName);
         }
     }
 

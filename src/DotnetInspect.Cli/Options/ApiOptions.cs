@@ -446,6 +446,8 @@ public record TypeOptions : ApiOptions
         || Jsonl
         || NoHeader
         || ShapeOutput
+        || Tree
+        || MermaidOutput
         || Count;
 }
 

@@ -1,8 +1,9 @@
 using System.Text;
 
+using DotnetInspector.Sections;
 using Markout;
 
-namespace DotnetInspect.Cli.Output;
+namespace DotnetInspector.Presentation;
 
 internal sealed class MarkoutHierarchySink<TNode> :
     IInspectionHierarchySink<TNode>

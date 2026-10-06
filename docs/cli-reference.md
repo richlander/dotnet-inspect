@@ -1520,8 +1520,16 @@ inside a line to a space, as every TSV in this CLI does. `--json` stays
 the complete Source document, so it rejects `--rows`. Default output is
 unchanged, and `-n` remains a rendered-line window.
 
+An exact `type` with no competing projection renders the compact hierarchy by
+default; `--tree` selects that format explicitly. `--mermaid` lowers the same
+Type, category, MemberGroup, and nested exact-Member Count plan as standalone
+Mermaid, so it preserves the same membership, ordering, names, and overload
+counts without host-side regrouping. Mermaid is a standalone Type hierarchy
+format and cannot be combined with another output format.
+
 ```bash
 dotnet-inspect type string --tree
+dotnet-inspect type JsonSerializer --platform System.Text.Json --mermaid
 dotnet-inspect member System.String.Trim:1 -S Source --count
 dotnet-inspect member System.String.Trim:1 -S Source --rows 2..3
 dotnet-inspect type --platform System.Text.Json -n 1 --tail --json

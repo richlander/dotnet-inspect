@@ -106,6 +106,7 @@ public static class ApiCommandDefinitions
         opts.AddPrintOptionTo(typeCommand);
         opts.AddShapeProjectionOptionsTo(typeCommand);
         opts.AddPerformanceTriageOptionsTo(typeCommand);
+        typeCommand.Options.Add(opts.Mermaid);
         typeCommand.Options.Add(opts.Markdown);
         typeCommand.Options.Add(opts.PlainText);
         opts.AddEnvelopeOptionTo(
@@ -223,6 +224,22 @@ public static class ApiCommandDefinitions
                             ct),
                     _ => 1,
                 };
+            }
+
+            if (parseResult.GetValue(opts.Mermaid)
+                && (parseResult.GetValue(opts.Tree)
+                    || parseResult.GetValue(opts.Markdown)
+                    || parseResult.GetValue(opts.Json)
+                    || parseResult.GetValue(opts.PlainText)
+                    || parseResult.GetValue(opts.Table)
+                    || parseResult.GetValue(opts.Tsv)
+                    || parseResult.GetValue(opts.Jsonl)
+                    || parseResult.GetResult(opts.Verbosity)
+                        is { Implicit: false }))
+            {
+                CommandError.Write(
+                    "--mermaid is a standalone Type hierarchy format and cannot combine with another output format.");
+                return 1;
             }
 
             if (opts.ResolveFormat(parseResult) == OutputFormat.Json

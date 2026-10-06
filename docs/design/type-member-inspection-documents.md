@@ -182,26 +182,41 @@ Counts.
 
 ### Hierarchy projection
 
-Tree is an explicit host-neutral projection over complete compact Member-group
-Rows, not a host inference from its selected renderer. A Type overview plan
-that carries `InspectionHierarchyRequest` must also request Rows with an exact
+Hierarchy is an explicit host-neutral request over this owner's subject
+relations, not an inference from a selected renderer. The compact overview
+admits the `TypeCategoriesAndMemberGroups` topology:
+
+```text
+Type
+  -> Category
+    -> MemberGroup
+      -> exact Member
+```
+
+Its first profile requests FullSpelling for the Type, category Rows with Name,
+MemberGroup Rows with Name, and exact-Member Count beneath each MemberGroup.
+The plan must therefore request complete compact MemberGroup Rows with an exact
 Member Count for every row.
 
-The Type document owner pushes a typed union of:
+The Type document owner pushes category nodes carrying the category and its
+logical and exact Counts, plus MemberGroup nodes carrying the owner-issued
+compact row. It defines category membership and order, MemberGroup order,
+nesting, Counts, and exact last-sibling facts. It rejects unsupported spelling
+or terminal choices and unavailable, partial, or uncounted Rows rather than
+emitting a successful shortened hierarchy.
 
-- category nodes carrying the category, logical Member-group Count, and exact
-  Member Count; and
-- Member nodes carrying the owner-issued compact Member-group row.
-
-The owner defines category membership and order, Member order, nesting, Counts,
-and exact last-sibling facts. It rejects unavailable, partial, or uncounted
-Rows rather than emitting a successful shortened hierarchy. The host formats
-node text and renders or transports the push stream; it does not regroup or
-recount the returned rows.
+[Host-neutral hierarchy projection](host-neutral-hierarchy-projection.md)
+owns the recursive Rows-or-Count and Name-or-FullSpelling request vocabulary,
+the streaming sink, and shared format lowering. Tree and Mermaid do not
+regroup, recount, or reconstruct this owner's subjects.
 
 During transitional adoption, the existing public `TypeDocument` compact
 declaration population carries this projection. The eventual
 `TypeOverviewDocument` retains the same hierarchy semantics and correspondence.
+An expanded
+`Type -> MemberGroup -> exact Member Rows` projection belongs to the complete
+`TypeDocument`, because compact overview Counts are not exact-Member
+declarations.
 
 ## TypeDocument
 
@@ -339,8 +354,9 @@ production adoption as focused slices:
 8. Retire transitional document names and superseded host-local composition.
 
 Rendering work is not part of slices 1 through 6 and does not define the object
-model. CLI Tree adoption streams the owner-issued hierarchy through a host
-sink; Count and other projections retain their independently admitted routes.
+model. CLI Tree and Mermaid adoption select shared presentation profiles over
+the owner-issued hierarchy; Count and other projections retain their
+independently admitted routes.
 
 ## Required evidence
 

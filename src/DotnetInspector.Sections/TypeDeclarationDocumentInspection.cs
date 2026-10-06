@@ -15,15 +15,17 @@ public sealed record TypeDocumentInspectionPlan
         MetadataTypeDefinitionName type,
         ApiSurfaceExtractionBounds bounds,
         TypeMemberGroupPopulationRequest? declarations = null,
-        InspectionHierarchyRequest? hierarchy = null)
+        InspectionHierarchyRequest<TypeDocumentHierarchyTopology>?
+            hierarchy = null)
     {
         Type = type ?? throw new ArgumentNullException(nameof(type));
         Bounds = bounds
             ?? throw new ArgumentNullException(nameof(bounds));
-        if (hierarchy is not null && declarations?.Rows is null)
+        if (hierarchy is not null)
         {
-            throw new ArgumentException(
-                "A Type document hierarchy requires a member-group Rows request.",
+            TypeDocumentHierarchyProjection.ValidateRequest(
+                hierarchy,
+                declarations,
                 nameof(hierarchy));
         }
 
@@ -34,7 +36,8 @@ public sealed record TypeDocumentInspectionPlan
     public MetadataTypeDefinitionName Type { get; }
     public ApiSurfaceExtractionBounds Bounds { get; }
     public TypeMemberGroupPopulationRequest? Declarations { get; }
-    public InspectionHierarchyRequest? Hierarchy { get; }
+    public InspectionHierarchyRequest<TypeDocumentHierarchyTopology>?
+        Hierarchy { get; }
 }
 
 public sealed record TypeDocumentInspectionRequest

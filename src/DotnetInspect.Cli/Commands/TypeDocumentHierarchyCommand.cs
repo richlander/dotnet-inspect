@@ -1,6 +1,7 @@
 using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspector.Presentation;
 using DotnetInspector.Sections;
 using ILInspector.Metadata;
 
@@ -8,7 +9,6 @@ namespace DotnetInspect.Cli.Commands;
 
 internal static class TypeDocumentHierarchyCommand
 {
-    private const int MaxMemberGroupRows = 4096;
     private static readonly ApiSurfaceExtractionBounds s_bounds =
         new(
             maxTypes: 250_000,
@@ -36,21 +36,14 @@ internal static class TypeDocumentHierarchyCommand
             return 1;
         }
 
-        var hierarchy =
-            new InspectionHierarchyRequest();
-        TypeMemberGroupAccessibilityFilter accessibility =
-            options.IncludeAll
-                ? TypeMemberGroupAccessibilityFilter.All
-                : TypeMemberGroupAccessibilityFilter.Public;
-        var declarations =
-            new TypeMemberGroupPopulationRequest(
-                count: null,
-                rows: new TypeMemberGroupRowsRequest(
-                    MaxMemberGroupRows,
-                    includeExactMemberCount: true),
-                spelling: TypeMemberGroupSpelling.CSharp,
-                accessibility: accessibility,
-                includeHidden: options.IncludeAll);
+        TypeDocumentHierarchyPresentationFormat format =
+            options.Format is OutputFormat.Mermaid
+                ? TypeDocumentHierarchyPresentationFormat.Mermaid
+                : TypeDocumentHierarchyPresentationFormat.Tree;
+        TypeDocumentHierarchyPresentationPlan presentation =
+            TypeDocumentHierarchyPresentation.CreateCompactPlan(
+                format,
+                options.IncludeAll);
         TypeHierarchyInspectionResult? result =
             await ExactLibraryInspectionExecutor.ExecuteAsync(
                     apiDllPath,
@@ -58,8 +51,8 @@ internal static class TypeDocumentHierarchyCommand
                     session => Inspect(
                         session,
                         options.TypeName!,
-                        declarations,
-                        hierarchy,
+                        presentation.Declarations,
+                        presentation.Hierarchy,
                         cancellationToken),
                     cancellationToken)
                 .ConfigureAwait(false);
@@ -81,9 +74,9 @@ internal static class TypeDocumentHierarchyCommand
 
         try
         {
-            TypeDocumentHierarchyOutput.Write(
+            TypeDocumentHierarchyPresentation.Write(
                 inspected.Document,
-                hierarchy,
+                presentation,
                 Console.Out);
             return 0;
         }
@@ -104,7 +97,9 @@ internal static class TypeDocumentHierarchyCommand
             return false;
         }
 
-        if (!options.ShapeOutput && !options.Tree)
+        if (!options.ShapeOutput
+            && !options.Tree
+            && options.Format is not OutputFormat.Mermaid)
             return false;
         if (options.AssemblyPath is { } assemblyPath
             && File.Exists(
@@ -153,7 +148,8 @@ internal static class TypeDocumentHierarchyCommand
         ExactLibraryInspectionSession session,
         string typeQuery,
         TypeMemberGroupPopulationRequest declarations,
-        InspectionHierarchyRequest hierarchy,
+        InspectionHierarchyRequest<TypeDocumentHierarchyTopology>
+            hierarchy,
         CancellationToken cancellationToken)
     {
         LibraryTypeListingResult? listing =

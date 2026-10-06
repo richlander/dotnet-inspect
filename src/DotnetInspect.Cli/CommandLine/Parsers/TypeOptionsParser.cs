@@ -527,6 +527,9 @@ public static class TypeOptionsParser
             Format = outputFormat,
             MarkdownExplicitlySet = parseResult.GetResult(opts.Markdown) is { Implicit: false },
             PlainText = !envelopeOutput && parseResult.GetValue(opts.PlainText),
+            MermaidOutput =
+                !envelopeOutput
+                && outputFormat == OutputFormat.Mermaid,
             RequestAllTaste = parseResult.GetValue(opts.Taste),
             RequestReadableLocalNames = parseResult.GetValue(opts.ReadableNames),
             Print = parseResult.GetValue(opts.Print),

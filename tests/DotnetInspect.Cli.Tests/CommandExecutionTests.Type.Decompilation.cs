@@ -992,6 +992,32 @@ public partial class CommandExecutionTests
         }
     }
 
+    [Fact]
+    public async Task Type_ExactType_MermaidUsesSharedHierarchy()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            "System.Math",
+            "--mermaid");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.StartsWith(
+            "graph TD",
+            output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "static class System.Math",
+            output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Methods",
+            output,
+            StringComparison.Ordinal);
+        Assert.Contains(" --> ", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("└─", output, StringComparison.Ordinal);
+    }
+
     public abstract class FullTypeDecompilationFixture
     {
         static FullTypeDecompilationFixture()
@@ -1168,6 +1194,46 @@ public partial class CommandExecutionTests
             Assert.DoesNotContain(
                 "Library Type Rows",
                 error,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Type_Tree_PreservesNoncanonicalMetadataBacktick()
+    {
+        string directory =
+            Directory.CreateTempSubdirectory(
+                "noncanonical-backtick-").FullName;
+        string path =
+            Path.Combine(directory, "NoncanonicalBacktick.dll");
+        try
+        {
+            await File.WriteAllBytesAsync(
+                path,
+                MetadataTestImages
+                    .BuildNoncanonicalBacktickTypeImage(),
+                TestContext.Current.CancellationToken);
+
+            var (exit, output, error) = await RunAppAsync(
+                "type",
+                "Example.Widget`1Extra",
+                "--library",
+                path,
+                "--tree");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains(
+                "Widget`1Extra",
+                output,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "class Example.Widget\n",
+                output,
                 StringComparison.Ordinal);
         }
         finally
