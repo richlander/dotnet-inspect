@@ -91,20 +91,6 @@ jobs:
         env:
           BASH_ENV: ""
 
-      # Trend rows are reproducible evidence only when their recorded commit
-      # landed on main and its source declared the recorded methodology. This
-      # job already has the full history needed to prove both, so keep the gate
-      # here rather than making test jobs deepen otherwise-shallow checkouts.
-      - name: Check EVIL history provenance
-        shell: bash
-        env:
-          # After editing `run`, refresh this colocated acknowledgement with:
-          # dotnet run eng/test-ci-change-detection.cs -- --refresh-evil-provenance-pin
-          EVIL_PROVENANCE_RUN_SHA256: AFD8804F209E05792867D7776A950AE6B0EA459F32F896782F0C6B794F5A4B76
-        run: >
-          dotnet run --project tools/DecompilerHarness -c Release --
-          --verify-authored-corpus-history
-
       - name: Plan changes
         id: plan
         shell: bash
@@ -143,7 +129,7 @@ jobs:
           fi
           jq -e '
             type == "object"
-            and .schemaVersion == 6
+            and .schemaVersion == 7
             and .status == "planned"
           ' <<< "$plan" > /dev/null
           printf 'plan=%s\n' "$plan" >> "$GITHUB_OUTPUT"
@@ -170,7 +156,7 @@ jobs:
           globs: '**/*.md'
 
       - name: Cache NuGet packages for skill tests
-        if: fromJSON(steps.plan.outputs.plan).validations.skillGate
+        if: fromJSON(steps.plan.outputs.plan).validations.skillGate && !fromJSON(steps.plan.outputs.plan).validations.test
         uses: actions/cache@v6
         with:
           path: ~/.nuget/packages
@@ -179,9 +165,36 @@ jobs:
             nuget-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Run embedded skill tests
-        if: fromJSON(steps.plan.outputs.plan).validations.skillGate
+        if: fromJSON(steps.plan.outputs.plan).validations.skillGate && !fromJSON(steps.plan.outputs.plan).validations.test
         shell: bash
         run: dotnet run --project tests/DotnetInspect.Cli.Tests -c Release -- --filter-class "DotnetInspect.Cli.Tests.SkillCommandTests"
+
+  # Resolve committed EVIL observations against full Git history in parallel
+  # with change planning. The required aggregate waits for both independent
+  # gates, while path-gated jobs can start as soon as planning completes.
+  provenance:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '11.0.100-rc.1.26425.128'
+
+      - name: Check EVIL history provenance
+        shell: bash
+        env:
+          # After editing `run`, refresh this colocated acknowledgement with:
+          # dotnet run eng/test-ci-change-detection.cs -- --refresh-evil-provenance-pin
+          EVIL_PROVENANCE_RUN_SHA256: AFD8804F209E05792867D7776A950AE6B0EA459F32F896782F0C6B794F5A4B76
+        run: >
+          dotnet run --project tools/DecompilerHarness -c Release --
+          --verify-authored-corpus-history
 
   # Upholds the bar in docs/tla-plus-methodology.md for TLA+ models changed by
   # this candidate: SANY parses every selected module, and TLC runs the selected
@@ -290,10 +303,10 @@ jobs:
           export TLA_CHECK_TIMEOUT_SECONDS=120
           eng/run-tla-checks.sh --changed-files0 < "$scope_file"
 
-  # Keep focused Browser/Wasm coverage in PR CI. Deep Inspect owns complete
-  # facade, canary, and published-application checks on its daily web lane.
+  # Keep focused Browser/Wasm platform probes in PR CI. Deep Inspect owns
+  # complete engine, facade, canary, browser, and published-application checks.
   inspect-web-platform:
-    name: inspect-web platform and engine
+    name: inspect-web platform probes
     needs: changes
     if: fromJSON(needs.changes.outputs.plan).validations.inspectWeb
     runs-on: ubuntu-26.04
@@ -313,59 +326,6 @@ jobs:
 
       - name: Run local-path admission Browser/Wasm platform probe
         run: eng/run-local-path-admission-platform-probe.sh browser
-
-      - name: Test browser engine
-        env:
-          MSBuildEnableWorkloadResolver: 'false'
-        run: dotnet run --project tests/DotnetInspect.Web.Tests -c Release
-
-  inspect-web-frontend:
-    name: inspect-web frontend and browser
-    needs: changes
-    if: fromJSON(needs.changes.outputs.plan).validations.inspectWeb
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Setup Node
-        uses: actions/setup-node@v7
-        with:
-          node-version: '24'
-          cache: npm
-          cache-dependency-path: inspect-web/package-lock.json
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v6
-        with:
-          dotnet-version: '11.0.100-rc.1.26425.128'
-
-      - name: Install browser Wasm workload
-        run: dotnet workload install wasm-experimental
-
-      - name: Build and analyze browser frontend
-        working-directory: inspect-web
-        run: |
-          npm ci
-          npm run analyze
-          npm run build
-          grep -q '<script type="importmap"></script>' dist/index.html
-          grep -Eq '<link rel="preload" id="webassembly"[[:space:]]*/?>' dist/index.html
-
-      - name: Test browser frontend
-        working-directory: inspect-web
-        run: node --test
-
-      - name: Test annotated-source viewer
-        working-directory: prototypes/annotated-source-viewer
-        run: npm test
-
-      - name: Install Firefox
-        working-directory: inspect-web
-        run: npx playwright install --with-deps firefox
-
-      - name: Test browser UI in Firefox
-        working-directory: inspect-web
-        run: npm run test:browser
 
   inspect-web-msdl-tests:
     name: inspect-web managed API tests
@@ -420,7 +380,6 @@ jobs:
     needs:
       - changes
       - inspect-web-platform
-      - inspect-web-frontend
       - inspect-web-msdl-tests
     if: >-
       always() &&
@@ -434,54 +393,20 @@ jobs:
         run: |
           jq -e '
             [to_entries[] | select(.key != "changes") | .value.result] as $results
-            | ($results | length) == 3
+            | ($results | length) == 2
             and all($results[]; . == "success")
           ' <<< "$RESULTS"
 
-  # The host-analysis shard runs the migration guard for every changed C# path.
-  # It scans paths outside its owning project, so its selection must cover the
-  # full C# source surface. The always-selected changes job checks line endings.
-  # Build and run the PR test matrix on Ubuntu 24.04. Windows, macOS, and Ubuntu
-  # 26.04 compatibility suites run daily in Deep Inspect, where
-  # platform-specific failures do not hold the predominantly Linux and macOS
-  # development fleet on the much slower Windows runner.
-  #
-  # Runs on PRs only. A pull_request build validates the PR merged into the
-  # current base, so re-running the full test suite on the push to main is
-  # redundant; we skip it there to cut Actions minutes (the test job is the
-  # most expensive leg) and to reduce queued-job contention when many agents
-  # have PRs in flight at once. Release packages are built by release.yml at
-  # publish time, not here.
-  #
-  # Keep the primary Linux lane on the GA image so ordinary code PRs do not
-  # compete for preview-image capacity. Path-gated specialist jobs, Deep
-  # Inspect, and release publishing continue to exercise ubuntu-26.04.
+  # The always-selected changes job checks repository line endings. The slow
+  # migration inventory runs in the daily Deep Inspect test lane.
+  # Build the full Release solution and run a bounded PR smoke. The complete
+  # CLI, contract, analysis, networking, and package suites run daily in Deep
+  # Inspect. This lane keeps compile coverage and a few direct integration
+  # canaries while the daily lane owns exhaustive test selection.
   test:
     needs: changes
-    if: >-
-      fromJSON(needs.changes.outputs.plan).validations.test ||
-      fromJSON(needs.changes.outputs.plan).validations.repositoryGuards ||
-      fromJSON(needs.changes.outputs.plan).validations.buildNet10
-    permissions:
-      contents: read
-      packages: read
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-24.04
-            rid: linux-x64
-            shard: cli-a
-          - os: ubuntu-24.04
-            rid: linux-x64
-            shard: cli-b
-          - os: ubuntu-24.04
-            rid: linux-x64
-            shard: contracts
-          - os: ubuntu-24.04
-            rid: linux-x64
-            shard: host-analysis
-    runs-on: ${{ matrix.os }}
+    if: fromJSON(needs.changes.outputs.plan).validations.test
+    runs-on: ubuntu-24.04
     env:
       DOTNET_INSPECT_TIPS: q
     steps:
@@ -503,343 +428,26 @@ jobs:
       - name: Build
         run: dotnet build dotnet-inspect.slnx -c Release
 
-      - name: Test dependency policy
-        if: matrix.shard == 'host-analysis'
-        run: dotnet run --project eng/DependencyPolicy.Tests -c Release --no-build
-
       - name: Validate dependency policy
-        if: matrix.shard == 'host-analysis'
         run: dotnet run --project eng/DependencyPolicy -c Release --no-build
 
-      - name: Run Library name-family Research tests
-        if: matrix.shard == 'host-analysis'
-        run: >-
-          dotnet run --project tests/ILInspector.Research.Tests -c Release
-          --no-build --
-          --filter-class
-          'ILInspector.Research.Tests.LibraryNameFamilySummaryTests'
-
-      - name: Self-test Library Type-leverage census
-        if: matrix.shard == 'host-analysis'
-        run: >-
-          dotnet run -c Release
-          eng/census-library-type-leverage.cs --
-          --self-test
-
-      - name: Test CLI runtime flavor across publish modes
-        if: matrix.shard == 'host-analysis'
-        run: bash eng/test-runtime-flavor.sh ${{ matrix.rid }}
-
-      - name: Run MethodSemantics NativeAOT probe
-        if: matrix.shard == 'host-analysis'
-        run: eng/run-method-semantics-platform-probe.sh nativeaot ${{ matrix.rid }}
-
-      - name: Run local-path admission NativeAOT probe
-        if: matrix.shard == 'host-analysis'
-        run: eng/run-local-path-admission-platform-probe.sh nativeaot ${{ matrix.rid }}
-
-      - name: Build package-manifest corpus verifier
-        if: matrix.shard == 'host-analysis'
-        run: dotnet build eng/verify-package-manifest-corpus.cs -c Release
-
-      - name: Prepare PR decompiler corpus
-        if: matrix.shard == 'host-analysis'
-        run: |
-          mkdir -p artifacts/decompiler-pr-corpus
-          bash eng/prepare-decompiler-pr-corpus.sh artifacts/decompiler-pr-corpus/assemblies.txt
-
-      - name: Run PR decompiler corpus sensor
-        if: matrix.shard == 'host-analysis'
-        id: decompiler_pr_corpus
-        continue-on-error: true
-        shell: bash
-        run: |
-          mapfile -t assemblies < artifacts/decompiler-pr-corpus/assemblies.txt
-          set +e
-          dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
-            --emit-corpus-snapshot artifacts/decompiler-pr-corpus/snapshot.json \
-            --diff-corpus-baseline tools/DecompilerHarness/corpus/pr-quick-baseline.json \
-            --quality-diff-card \
-            --corpus-method-cap 100 \
-            --compile-cap 0 \
-            --corpus-fidelity-cap 0 \
-            --corpus-fidelity-oracle compile-back \
-            --max-examples 3 \
-            | tee artifacts/decompiler-pr-corpus/quality-diff-card.md
-          status=${PIPESTATUS[0]}
-          echo "$status" > artifacts/decompiler-pr-corpus/exit-code.txt
-          exit "$status"
-
-      - name: Upload PR decompiler corpus artifact
-        if: matrix.shard == 'host-analysis' && always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: decompiler-pr-corpus
-          path: artifacts/decompiler-pr-corpus/
-          if-no-files-found: error
-
-      - name: Check PR decompiler corpus result
-        if: matrix.shard == 'host-analysis' && steps.decompiler_pr_corpus.outcome == 'failure'
-        run: exit 1
-
-      # The contract shard needs mdv for the metadata cross-implementation
-      # oracle. Restore only the tools this parallel shard consumes.
-      - name: Install ilasm/ildasm/mdv for contract tests
-        if: matrix.shard == 'contracts'
-        id: iltools_contracts
-        continue-on-error: true
-        shell: bash
-        run: eng/restore-iltools.sh --rid ${{ matrix.rid }} --mdv >> "$GITHUB_PATH"
-
-      # The first five shards select explicit class-name prefixes. The final
-      # shard is their complement, so new or unusually named test classes
-      # cannot fall between ranges and silently disappear from PR CI.
-      - name: Run CLI tests A-C (fast)
-        if: matrix.shard == 'cli-b'
-        run: >-
-          dotnet run --project tests/DotnetInspect.Cli.Tests -c Release --no-build --
-          --filter-class 'DotnetInspect.Cli.Tests.A*'
-          'DotnetInspect.Cli.Tests.B*'
-          'DotnetInspect.Cli.Tests.C*'
-          --filter-not-trait "Speed=Slow"
-
-      - name: Run CLI tests D-I (fast)
-        if: matrix.shard == 'cli-a'
-        run: >-
-          dotnet run --project tests/DotnetInspect.Cli.Tests -c Release --no-build --
-          --filter-class 'DotnetInspect.Cli.Tests.D*'
-          'DotnetInspect.Cli.Tests.E*'
-          'DotnetInspect.Cli.Tests.F*'
-          'DotnetInspect.Cli.Tests.G*'
-          'DotnetInspect.Cli.Tests.H*'
-          'DotnetInspect.Cli.Tests.I*'
-          --filter-not-trait "Speed=Slow"
-
-      - name: Run Debug dependency sidecar contracts (Release)
-        if: matrix.shard == 'cli-a'
+      - name: Run CLI route smoke
         run: >-
           dotnet run --project tests/DotnetInspect.Cli.Tests -c Release
-          --no-restore -p:DefineConstants=DEBUG --
-          --filter-class 'DotnetInspect.Cli.Tests.DependsAssetCommandTests'
-          --filter-not-trait "Speed=Slow"
+          --no-build --
+          --filter-class 'DotnetInspect.Cli.Tests.WorkspacePacketCommandTests'
+          --filter-class 'DotnetInspect.Cli.Tests.CliRowSelectionLoweringTests'
+          --minimum-expected-tests 2
 
-      - name: Run CLI Markout and Match tests (fast)
-        if: matrix.shard == 'cli-a'
-        run: >-
-          dotnet run --project tests/DotnetInspect.Cli.Tests -c Release --no-build --
-          --filter-class 'DotnetInspect.Cli.Tests.Ma*'
-          --filter-not-trait "Speed=Slow"
-
-      - name: Run CLI Member tests (fast)
-        if: matrix.shard == 'cli-b'
-        run: >-
-          dotnet run --project tests/DotnetInspect.Cli.Tests -c Release --no-build --
-          --filter-class 'DotnetInspect.Cli.Tests.Mem*'
-          --filter-not-trait "Speed=Slow"
-
-      - name: Run CLI tests Q-Z (fast)
-        if: matrix.shard == 'cli-a'
-        run: >-
-          dotnet run --project tests/DotnetInspect.Cli.Tests -c Release --no-build --
-          --filter-class 'DotnetInspect.Cli.Tests.Q*'
-          'DotnetInspect.Cli.Tests.R*'
-          'DotnetInspect.Cli.Tests.S*'
-          'DotnetInspect.Cli.Tests.T*'
-          'DotnetInspect.Cli.Tests.U*'
-          'DotnetInspect.Cli.Tests.V*'
-          'DotnetInspect.Cli.Tests.W*'
-          'DotnetInspect.Cli.Tests.X*'
-          'DotnetInspect.Cli.Tests.Y*'
-          'DotnetInspect.Cli.Tests.Z*'
-          --filter-not-trait "Speed=Slow"
-
-      - name: Run remaining CLI tests (fast)
-        if: matrix.shard == 'cli-b'
-        run: >-
-          dotnet run --project tests/DotnetInspect.Cli.Tests -c Release --no-build --
-          --filter-not-class 'DotnetInspect.Cli.Tests.A*'
-          'DotnetInspect.Cli.Tests.B*'
-          'DotnetInspect.Cli.Tests.C*'
-          'DotnetInspect.Cli.Tests.D*'
-          'DotnetInspect.Cli.Tests.E*'
-          'DotnetInspect.Cli.Tests.F*'
-          'DotnetInspect.Cli.Tests.G*'
-          'DotnetInspect.Cli.Tests.H*'
-          'DotnetInspect.Cli.Tests.I*'
-          'DotnetInspect.Cli.Tests.Ma*'
-          'DotnetInspect.Cli.Tests.Mem*'
-          'DotnetInspect.Cli.Tests.Q*'
-          'DotnetInspect.Cli.Tests.R*'
-          'DotnetInspect.Cli.Tests.S*'
-          'DotnetInspect.Cli.Tests.T*'
-          'DotnetInspect.Cli.Tests.U*'
-          'DotnetInspect.Cli.Tests.V*'
-          'DotnetInspect.Cli.Tests.W*'
-          'DotnetInspect.Cli.Tests.X*'
-          'DotnetInspect.Cli.Tests.Y*'
-          'DotnetInspect.Cli.Tests.Z*'
-          --filter-not-trait "Speed=Slow"
-
-      # These whole-assembly command and render-document gates are correctly
-      # classified Slow, but they define the complete shared Performance
-      # Triage query path across library, type, and member scopes.
-      - name: Run Performance Triage contract tests
-        if: matrix.shard == 'contracts'
-        run: |
-          dotnet run --project tests/DotnetInspect.Cli.Tests -c Release --no-build -- \
-            --filter-method '*RenderTypeSectionsMarkdown_AppliesPerformanceTriagePlan*' \
-            --filter-method '*PerformanceTriageOrderByCallerLoopDepth_PutsMissingEvidenceLast*' \
-            --filter-method '*PerformanceTriageCount_AppliesWhereBeforeTop*' \
-            --filter-method '*LibraryCommand_DiscoverPerformanceTriage_ListsRenderableColumns*' \
-            --filter-method '*PerformanceTriageWhere_NormalizesMetadataToken*' \
-            --filter-method '*PerformanceTriageWhere_MemberAcceptsDisplayedShortSignature*' \
-            --filter-method '*PerformanceTriageOrderBy_OrdersBeforeTop*' \
-            --filter-method '*PerformanceTriageWhere_InvalidValuesReportDiagnostics*' \
-            --filter-method '*PerformanceTriageWhere_UnknownFieldReportsSuggestion*' \
-            --minimum-expected-tests 12
-
-      - name: Run GitHub Packages fixture test
-        if: matrix.shard == 'host-analysis'
-        id: package_fixture
-        continue-on-error: true
+      - name: Run embedded skill tests
+        if: fromJSON(needs.changes.outputs.plan).validations.skillGate
         shell: bash
-        env:
-          DOTNET_INSPECT_PACKAGE_FIXTURE_USER: ${{ github.actor }}
-          DOTNET_INSPECT_PACKAGE_FIXTURE_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          results_dir="$RUNNER_TEMP"
-          results_name="package-fixture-tests.xml"
-          results="$results_dir/$results_name"
-          dotnet run --project tests/DotnetInspect.Cli.Tests -c Release --no-build -- \
-            --filter-method '*Package_Manifest_RendersToolManifestRows*' \
-            --report-xunit-xml \
-            --report-xunit-xml-filename "$results_name" \
-            --results-directory "$results_dir" \
-            --minimum-expected-tests 1
-          if ! grep -Eq '<assembly[^>]+skipped="0"' "$results"; then
-            echo "::error::Package fixture test skipped authenticated execution." >&2
-            exit 1
-          fi
+        run: dotnet run --project tests/DotnetInspect.Cli.Tests -c Release --no-build -- --filter-class "DotnetInspect.Cli.Tests.SkillCommandTests"
 
-      - name: Run CSharpText tests
-        if: matrix.shard == 'contracts'
-        run: dotnet run --project tests/CSharpText.Tests -c Release -- --filter-not-trait "Speed=Slow"
-
-      - name: Run CSharp tests
-        if: matrix.shard == 'contracts'
-        run: dotnet run --project tests/ILInspector.CSharp.Tests -c Release
-
-      - name: Run artifact contract tests
-        if: matrix.shard == 'contracts'
-        run: dotnet run --project tests/Inspector.Artifacts.Tests -c Release
-
-      - name: Run Graph contract tests
-        if: matrix.shard == 'contracts'
-        run: dotnet run --project tests/Inspector.Graph.Tests -c Release
-
-      - name: Run Library contract tests
-        if: matrix.shard == 'contracts'
-        run: dotnet run --project tests/DotnetInspector.Libraries.Tests -c Release
-
-      - name: Run resource ownership contract tests
-        if: matrix.shard == 'contracts'
-        run: dotnet run --project tests/Inspector.Resources.Tests -c Release
-
-      - name: Run ecosystem registry tests
-        if: matrix.shard == 'contracts'
-        run: dotnet run --project tests/DotnetInspector.Ecosystems.Tests -c Release
-
-      - name: Run ecosystem consumer tests
-        if: matrix.shard == 'contracts'
-        run: dotnet run --project tests/DotnetInspector.Ecosystems.Consumer.Tests -c Release
-
-      - name: Run platform target currency and manifest format tests
-        if: matrix.shard == 'contracts'
-        run: dotnet run --project tests/DotnetInspector.Platforms.Tests -c Release
-
-      - name: Run application dependency manifest format tests
-        if: matrix.shard == 'contracts'
-        run: dotnet run --project tests/DotnetInspector.DependencyManifests.Tests -c Release
-
-      - name: Run PlatformHouse contract and execution tests
-        if: matrix.shard == 'contracts'
-        run: dotnet run --project tests/DotnetInspector.PlatformHouse.Tests -c Release
-
-      - name: Run local PlatformHouse adapter tests
-        if: matrix.shard == 'contracts'
-        run: dotnet run --project tests/DotnetInspector.PlatformHouse.Local.Tests -c Release
-
-      - name: Run package-backed PlatformHouse adapter tests
-        if: matrix.shard == 'contracts'
-        run: dotnet run --project tests/DotnetInspector.PlatformHouse.Packages.Tests -c Release -- --filter-not-trait "Speed=Slow"
-
-      - name: Run portable-query codec tests
-        if: matrix.shard == 'contracts'
-        run: dotnet run --project tests/DotnetInspector.PortableQueries.Tests -c Release
-
-      - name: Run row-selection tests
-        if: matrix.shard == 'contracts'
-        run: dotnet run --project tests/DotnetInspector.RowSelection.Tests -c Release
-
-      - name: Run performance-oracle fixture tests
-        if: matrix.shard == 'contracts'
-        run: dotnet run --project tests/DotnetInspector.PerformanceOracles.Tests -c Release
-
-      - name: Check Subject Relations constructed-generic oracle
-        if: matrix.shard == 'contracts'
-        run: >
-          dotnet run --project tools/SubjectRelationsScorecard -c Release
-          --no-build -- check
-          'tests/ILInspector.Metadata.Tests/bin/Release/net11.0/PinnedArtifacts/System.Private.CoreLib.dll|interface|System.Collections.Generic.IEnumerable`1'
-
-      - name: Run decoded-text tests
-        if: matrix.shard == 'contracts'
-        run: dotnet run --project tests/Inspector.Text.Tests -c Release
-
-      - name: Run source-selection public contract tests
-        if: matrix.shard == 'contracts'
-        run: dotnet run --project tests/DotnetInspector.SourceSelection.Tests -c Release
-
-      - name: Run source-delegation public contract tests
-        if: matrix.shard == 'contracts'
-        run: dotnet run --project tests/DotnetInspector.SourceDelegation.Tests -c Release
-
-      - name: Run SourceHouse authored settlement tests
-        if: matrix.shard == 'contracts'
-        run: dotnet run --project tests/DotnetInspector.SourceHouse.Tests -c Release
-
-      - name: Run section-row tests
-        if: matrix.shard == 'contracts'
-        run: dotnet run --project tests/DotnetInspector.Sections.Tests -c Release
-
-      - name: Run instruction-substrate tests
-        if: matrix.shard == 'contracts'
-        run: dotnet run --project tests/ILInspector.Instructions.Tests -c Release
-
-      - name: Run IL diff tests
-        if: matrix.shard == 'contracts'
-        run: dotnet run --project tests/ILInspector.ILDiff.Tests -c Release
-
-      - name: Run metadata tests
-        if: matrix.shard == 'contracts'
-        run: dotnet run --project tests/ILInspector.Metadata.Tests -c Release -- --filter-not-trait "Speed=Slow"
-
-      - name: Run fixture catalog tests
-        if: matrix.shard == 'contracts'
-        run: dotnet run --project tests/DotnetInspector.FixtureInfrastructure.Tests -c Release
-
-      - name: Run services tests
-        if: matrix.shard == 'contracts'
-        run: dotnet run --project tests/DotnetInspector.Services.Tests -c Release
-
-      - name: Run inspection query tests
-        if: matrix.shard == 'contracts'
-        # The full 3,879-case query suite runs in daily Deep Inspect. Keep
-        # representative planning, workspace, graph, and package contracts on
-        # every code PR without repeating its multi-minute integration sweep.
+      - name: Run inspection query smoke
         run: >-
-          dotnet run --project tests/DotnetInspector.Queries.Tests -c Release --no-build --
+          dotnet run --project tests/DotnetInspector.Queries.Tests -c Release
+          --no-build --
           --filter-class 'DotnetInspector.Queries.Tests.InspectionDefinitionTests'
           --filter-class 'DotnetInspector.Queries.Tests.InspectionWorkspaceTests'
           --filter-class 'DotnetInspector.Queries.Tests.PackageAssemblyQueryPlanningTests'
@@ -848,210 +456,18 @@ jobs:
           --filter-class 'DotnetInspector.Queries.Tests.TypeFindPopulationSelectionTests'
           --filter-class 'DotnetInspector.Queries.Tests.IntegrationCensusTests'
           --filter-class 'DotnetInspector.Queries.Tests.ViewFacetRegistryTests'
-          --filter-not-trait "Speed=Slow"
-          --minimum-expected-tests 300
+          --filter-not-trait "Speed=Slow" --minimum-expected-tests 300
 
-      - name: Run presentation tests
-        if: matrix.shard == 'contracts'
-        run: dotnet run --project tests/DotnetInspector.Presentation.Tests -c Release
-
-      - name: Run NetworkAccess tests
-        if: matrix.shard == 'host-analysis'
-        run: dotnet run --project tests/NetworkAccess.Tests -c Release
-
-      - name: Run BinaryFetch tests
-        if: matrix.shard == 'host-analysis'
-        run: dotnet run --project tests/BinaryFetch.Tests -c Release
-
-      - name: Run ZipFetch tests
-        if: matrix.shard == 'host-analysis'
-        run: dotnet run --project tests/ZipFetch.Tests -c Release
-
-      - name: Run UntrustedDocuments tests
-        if: matrix.shard == 'host-analysis'
-        run: dotnet run --project tests/UntrustedDocuments.Tests -c Release
-
-      - name: Run DotnetInspector.Networking tests
-        if: matrix.shard == 'host-analysis'
-        run: dotnet run --project tests/DotnetInspector.Networking.Tests -c Release
-
-      - name: Run DotnetInspector.Cache tests
-        if: matrix.shard == 'host-analysis'
-        run: dotnet run --project tests/DotnetInspector.Cache.Tests -c Release
-
-      - name: Run DotnetInspector.Packages tests
-        if: matrix.shard == 'host-analysis'
-        run: dotnet run --project tests/DotnetInspector.Packages.Tests -c Release
-
-      # NuGetFetch is the NuGet protocol and credential layer. Its live-network tests are tagged
-      # [Trait("Network", "Live")] and excluded here: the nuget.org ones would make the gate
-      # depend on a third-party service, and the Azure DevOps ones need a private feed and a
-      # token that CI — and any fork PR — does not have. Everything that can be proven with an
-      # in-memory transport, including the whole credential-mechanism matrix, runs here.
-      - name: Run NuGetFetch tests (offline)
-        if: matrix.shard == 'host-analysis'
-        run: >-
-          dotnet run --project tests/NuGetFetch.Tests -c Release --
-          --filter-not-trait "Network=Live"
-          --filter-not-trait "Speed=Slow"
-
-      - name: Exercise Catalog research probe (offline)
-        if: matrix.shard == 'host-analysis'
-        run: dotnet run tools/CatalogChangeBenchmark.cs -c Release -- --self-test
-
-      - name: Exercise package assembly-query benchmark (offline)
-        if: matrix.shard == 'host-analysis'
-        run: dotnet run tools/PackageAssemblyQueryBenchmark.cs -c Release -- --self-test
-
-      # InertText sits below every other project, so a regression here reaches every assembly
-      # that prints artifact-derived text. The gates are pure and fast — a full BMP sweep and a
-      # round-trip — so they run unconditionally rather than behind a path filter.
       - name: Run InertText tests
-        if: matrix.shard == 'host-analysis'
-        run: dotnet run --project tests/InertText.Tests -c Release
+        run: dotnet run --project tests/InertText.Tests -c Release --no-build
 
-      - name: Run analysis tests (fast)
-        if: matrix.shard == 'host-analysis'
-        run: dotnet run --project tests/ILInspector.Analysis.Tests -c Release -- --filter-not-trait "Speed=Slow"
-
-      # The runtime-async compiler switch changes IL lowering without changing
-      # whether the fixture builds. Run the focused owner gates so CI proves
-      # both lowerings issue equal authenticated JSExport wire facts.
-      - name: Run JSExport runtime-async wire gates
-        if: matrix.shard == 'host-analysis'
-        run: |
-          set -euo pipefail
-          results_dir="$RUNNER_TEMP"
-          results_name="jsexport-runtime-async-wire-tests.xml"
-          results="$results_dir/$results_name"
-          dotnet run --project tests/ILInspector.JsExportSurface.Tests \
-            -c Release --no-build -- \
-            --filter-method '*Build_ProducesEqualWireFactsAcrossAsyncLoweringsForDirectSerializerResult*' \
-            --filter-method '*Build_ProducesEqualWireFactsAcrossAsyncLoweringsForSerializerStoredAcrossSuspension*' \
-            --filter-method '*Build_RejectsConditionalSerializerStoreAcrossAsyncLowerings*' \
-            --filter-method '*RuntimeAsync*' \
-            --report-xunit-xml \
-            --report-xunit-xml-filename "$results_name" \
-            --results-directory "$results_dir"
-          if ! grep -Eq 'total="[1-9][0-9]*"' "$results"; then
-            echo "::error::JSExport runtime-async wire test filters selected no tests." >&2
-            exit 1
-          fi
-          for method in \
-            Build_ProducesEqualWireFactsAcrossAsyncLoweringsForDirectSerializerResult \
-            Build_ProducesEqualWireFactsAcrossAsyncLoweringsForSerializerStoredAcrossSuspension \
-            Build_RejectsConditionalSerializerStoreAcrossAsyncLowerings
-          do
-            if ! grep -Fq "method=\"$method\"" "$results"; then
-              echo "::error::JSExport runtime-async wire gate '$method' did not run." >&2
-              exit 1
-            fi
-          done
-
-      - name: Run ts-jsexport generator acceptance gates
-        if: matrix.shard == 'host-analysis'
-        run: |
-          set -euo pipefail
-          results_dir="$RUNNER_TEMP"
-          results_name="ts-jsexport-generator-tests.xml"
-          results="$results_dir/$results_name"
-          dotnet run --project tests/ILInspector.JsExportSurface.Tests \
-            -c Release --no-build -- \
-            --filter-class 'ILInspector.JsExportSurface.Tests.JsonNamingPoliciesTests' \
-            --filter-class 'ILInspector.JsExportSurface.Tests.JsExportContextLoaderTests' \
-            --filter-class 'ILInspector.JsExportSurface.Tests.TypeScriptFacadeEmitterTests' \
-            --filter-class 'ILInspector.JsExportSurface.Tests.TsJsExportContractsTests' \
-            --filter-class 'ILInspector.JsExportSurface.Tests.TsJsExportCommandTests' \
-            --report-xunit-xml \
-            --report-xunit-xml-filename "$results_name" \
-            --results-directory "$results_dir"
-          for class in \
-            ILInspector.JsExportSurface.Tests.JsonNamingPoliciesTests \
-            ILInspector.JsExportSurface.Tests.JsExportContextLoaderTests \
-            ILInspector.JsExportSurface.Tests.TypeScriptFacadeEmitterTests \
-            ILInspector.JsExportSurface.Tests.TsJsExportContractsTests \
-            ILInspector.JsExportSurface.Tests.TsJsExportCommandTests
-          do
-            if ! grep -Fq "type=\"$class\"" "$results"; then
-              echo "::error::ts-jsexport generator gate '$class' selected no tests." >&2
-              exit 1
-            fi
-          done
-          negative_results_name="ts-jsexport-negative-tests.xml"
-          negative_results="$results_dir/$negative_results_name"
-          dotnet run --project tests/ILInspector.JsExportSurface.Tests \
-            -c Release --no-build -- \
-            --filter-method '*Emit_DoesNotApplyDictionarySemanticsToLookalikeType*' \
-            --filter-method '*Emit_RejectsUnresolvedStructuredProducerWithIntrinsicSpelling*' \
-            --filter-method '*GeneratorLoader_ReadsOneImageForMetadataAndBodyEvidence*' \
-            --report-xunit-xml \
-            --report-xunit-xml-filename "$negative_results_name" \
-            --results-directory "$results_dir"
-          for method in \
-            Emit_DoesNotApplyDictionarySemanticsToLookalikeType \
-            Emit_RejectsUnresolvedStructuredProducerWithIntrinsicSpelling \
-            GeneratorLoader_ReadsOneImageForMetadataAndBodyEvidence
-          do
-            if ! grep -Fq "method=\"$method\"" "$negative_results"; then
-              echo "::error::ts-jsexport negative gate '$method' did not run." >&2
-              exit 1
-            fi
-          done
-
-      - name: Run ts-jsexport context NativeAOT gate
-        if: matrix.shard == 'host-analysis'
-        run: eng/test-ts-jsexport-context-aot.sh "${{ matrix.rid }}"
-
-      - name: Run runfaster tests
-        if: matrix.shard == 'host-analysis'
-        run: dotnet run --project tests/runfaster.Tests -c Release
-
-      # Fast IL round-trip oracle: focused fixture and handwritten IL cases run
-      # in PR CI when the round-trip tests or source dependencies change. The
-      # assembly-wide sweep is tagged [Trait("Speed", "Slow")] and runs in
-      # Deep Inspect / full local runs.
-      - name: Restore vendored ILAssembler
-        if: matrix.shard == 'host-analysis' && matrix.rid == 'linux-x64' && fromJSON(needs.changes.outputs.plan).validations.ilRoundTrip
-        run: bash eng/restore-ilassembler.sh
-
-      - name: Run IL round-trip tests (fast)
-        if: matrix.shard == 'host-analysis' && matrix.rid == 'linux-x64' && fromJSON(needs.changes.outputs.plan).validations.ilRoundTrip
-        run: dotnet run --project tests/DotnetInspector.ILRoundtrip.Tests -c Release -- --filter-not-trait "Speed=Slow"
-
-      # Terminal checks: the suites above still report their results when
-      # acquisition fails, but the lane must not go green having silently
-      # traded external evidence for skips.
-      - name: Check contract test ilasm/ildasm/mdv result
-        if: matrix.shard == 'contracts' && steps.iltools_contracts.outcome == 'failure'
-        run: |
-          echo "::error::Restoring ilasm/ildasm/mdv failed, so contract tests that use them skipped." >&2
-          echo "This lane cannot certify oracle-backed results. See the contract tool installation step." >&2
-          exit 1
-
-      - name: Check GitHub Packages fixture result
-        if: matrix.shard == 'host-analysis' && steps.package_fixture.outcome == 'failure'
-        run: |
-          echo "::error::The authenticated GitHub Packages fixture test failed." >&2
-          echo "This lane cannot certify hosted fixture consumption. See the fixture test step." >&2
-          exit 1
-
-      - name: Run legacy source-identity guard
-        if: matrix.shard == 'host-analysis' && fromJSON(needs.changes.outputs.plan).validations.repositoryGuards
-        run: >
-          dotnet run --project tests/NuGetFetch.Tests -c Release --
-          --filter-method "*LegacyPackageSourceIdentitySurfaceMatchesMigrationSet"
-          --minimum-expected-tests 1
-
-      - name: Build tool for net10.0 fallback
-        if: matrix.shard == 'host-analysis' && fromJSON(needs.changes.outputs.plan).validations.buildNet10
-        # Keep this last: compiling the net10 fallback can replace net11 build
-        # outputs used by the preceding test steps.
-        run: dotnet build src/DotnetInspect.Cli -c Release -p:DefaultTargetFramework=net10.0 -p:PublishAot=false
+      - name: Build package-manifest corpus verifier
+        run: dotnet build eng/verify-package-manifest-corpus.cs -c Release
 
   # Pull-request and merge-group candidates validate dependency policy in the
   # full test job above. Pushes to main need a focused second look at the
   # composed tree: two independently green PRs can introduce a forbidden edge
-  # only when both are present, and the full test matrix intentionally skips
+  # only when both are present, and the full test job intentionally skips
   # post-merge runs.
   dependency-policy:
     needs: changes
@@ -1080,48 +496,13 @@ jobs:
       - name: Validate dependency policy
         run: dotnet run --project eng/DependencyPolicy -c Release --no-build
 
-  # Decompiler fast tests and bounded compile-back receipt, pre-merge.
-  #
-  # This path-gated job owns the decompiler's PR-fast unit and harness suites,
-  # keeping them parallel with the Analysis shard. It also runs a bounded set
-  # of direct compile-back gates whose failures are attributable to a specific
-  # fixture and assertion. The broad whole-pipeline docket, lowered-fidelity,
-  # cluster, and printer sweeps run daily through Deep Inspect's
-  # `--gate no-corpus` selection.
-  #
-  # Currently-open receipt failures are pinned in
-  # eng/decompiler-gate-known-red.txt; the checker fails on any unpinned
-  # failure, on any pin that starts passing, and on any gate test that neither
-  # passes nor fails, so the pin list is a ratchet in both directions rather
-  # than a permanent exemption.
-  #
-  # NOTE: this path-gated job must never be named as a required status check
-  # directly. A required check that does not run on a given PR is reported as
-  # "Expected" forever and blocks that merge permanently, and this job is
-  # skipped on any PR that touches no decompiler-relevant path. Its result
-  # reaches `ci-required`, the aggregate job at the end of this file that is
-  # intended to serve as the merge gate and be the one context the ruleset
-  # requires.
-  #
-  # SkeletonEmitTests remains a whole-module skeleton check, but #3872 made its
-  # eight cases tractable by selecting the asserted method before per-method
-  # import/render/recompile work. The skeleton itself is not narrowed; a
-  # duplicate-unrelated-type mutation pins that contract.
-  #
-  # Completeness is case-granular (#3837). MTP JSON-RPC discovery and the
-  # execution receipt carry the same stable TestNodeUid. The checker requires
-  # every discovered ID to start exactly one test. That
-  # last condition is what makes the design fail closed: non-serializable theory
-  # data falls back to one delayed discovery case that starts several tests, so
-  # a set-only case-ID comparison would still be incomplete.
+  # Focused decompiler tests run beside the bounded test job. Daily Deep
+  # Inspect owns the complete non-corpus suite and bounded compile-back receipt.
+  # This path-gated job reaches the required check through `ci-required`.
   decompiler-gates:
     needs: changes
     if: fromJSON(needs.changes.outputs.plan).validations.decompilerGates
     runs-on: ubuntu-26.04
-    # The receipt step must time out before the job so the checker and artifact
-    # upload can turn a hang into a loud, diagnosable failure. A healthy job is
-    # expected to finish within the repository's approximately 10-minute PR
-    # budget; the remaining gap protects runner/setup variance on failure.
     timeout-minutes: 15
     env:
       DOTNET_INSPECT_TIPS: q
@@ -1133,16 +514,8 @@ jobs:
         with:
           dotnet-version: '11.0.100-rc.1.26425.128'
 
-      # Caches packages only. Do not add build outputs (artifacts/, bin/, obj/)
-      # here. The completeness check compares a discovery receipt against XML
-      # and the execution receipt, and both steps below run with --no-build
-      # against whatever the Build step produced. That comparison is only
-      # meaningful because all artifacts provably come from one build: the
-      # checkout is fresh, nothing
-      # restores binaries, and Build is fail-fast, so neither step can run
-      # against a stale or partial binary. Caching build outputs would break
-      # that silently -- the gate would still pass, while comparing a receipt
-      # and a report from different builds.
+      # Build the fast test hosts and their declared fixture graphs. The
+      # parallel test job retains the full Release solution build.
       - name: Cache NuGet packages
         uses: actions/cache@v6
         with:
@@ -1151,15 +524,10 @@ jobs:
           restore-keys: |
             nuget-${{ runner.os }}-${{ runner.arch }}-
 
-      # The gates decompile and recompile the fixture assemblies, so the whole
-      # solution must be built: building only the test project leaves the
-      # fixtures absent and the gates fail with a FileNotFoundException that
-      # reads exactly like a product regression.
-      #
-      # Deliberately not continue-on-error: the two --no-build steps below
-      # depend on this having succeeded.
-      - name: Build
-        run: dotnet build dotnet-inspect.slnx -c Release
+      - name: Build fast decompiler test graphs
+        run: |
+          dotnet build tests/ILInspector.Decompiler.Tests -c Release
+          dotnet build tests/DecompilerHarness.Tests -c Release
 
       - name: Install ilasm/ildasm for decompiler tests
         id: iltools_decompiler
@@ -1176,61 +544,6 @@ jobs:
       - name: Run DecompilerHarness tests
         run: dotnet run --project tests/DecompilerHarness.Tests -c Release --no-build
 
-      # Enumerate what the preset selects, without running it. This is the
-      # reference the completeness check compares the results against; the
-      # report's own summary counters cannot serve, because an honestly
-      # truncated report declares its own smaller total and agrees with itself.
-      #
-      # Uses --gate pre-merge, the same preset as the run below, so the two
-      # cannot drift. Sub-second, and not continue-on-error: if discovery fails
-      # there is no reference and the gate must not proceed.
-      - name: Discover expected gate tests
-        run: |
-          dotnet run --project tests/ILInspector.Decompiler.Tests -c Release --no-build -- \
-            --gate-discovery-receipt "$RUNNER_TEMP/decompiler-gates-discovery.jsonl" \
-            --gate pre-merge --pre-enumerate-theories on --no-ansi
-
-      # continue-on-error so the pinned known-red failures do not fail the job
-      # here; eng/check-decompiler-gate.cs decides pass/fail from the report.
-      #
-      # The step timeout is the point, not a formality. This PR exists because
-      # a *job* timeout cancels the job, and a cancelled job runs no further
-      # steps and satisfies no `failure()` condition — it fails silently. A
-      # step timeout well under the job timeout converts a hang into a failed
-      # step that the job survives, so the checker still runs, finds a missing
-      # or truncated report, and fails the job loudly. Do not raise this to the
-      # job timeout.
-      #
-      # Re-measure and re-tune both timeout numbers together whenever the preset
-      # or its collection topology changes.
-      #
-      # --no-build is required, not an optimization. Without it `dotnet run`
-      # builds implicitly, which would (a) break the guarantee that this run and
-      # the discovery receipt above describe the same binary, and (b) hide a
-      # build failure inside a continue-on-error step, where it would surface
-      # only as a missing report.
-      - name: Run decompiler gates
-        id: gates
-        continue-on-error: true
-        timeout-minutes: 5
-        env:
-          DOTNET_INSPECT_DECOMPILER_TEST_RECEIPT: ${{ runner.temp }}/decompiler-gates-execution.jsonl
-        run: |
-          dotnet run --project tests/ILInspector.Decompiler.Tests -c Release --no-build -- \
-            --gate pre-merge --pre-enumerate-theories on --no-ansi \
-            --auto-reporters off --report-xunit-xml \
-            --report-xunit-xml-filename decompiler-gates.xml \
-            --results-directory "$RUNNER_TEMP"
-
-      - name: Compare against pinned known-red
-        run: |
-          dotnet run eng/check-decompiler-gate.cs -- \
-            "$RUNNER_TEMP/decompiler-gates.xml" \
-            "$RUNNER_TEMP/decompiler-gates-execution.jsonl" \
-            eng/decompiler-gate-known-red.txt \
-            eng/decompiler-gate-expected-classes.txt \
-            "$RUNNER_TEMP/decompiler-gates-discovery.jsonl"
-
       - name: Check decompiler test ilasm/ildasm result
         if: always() && steps.iltools_decompiler.outcome == 'failure'
         run: |
@@ -1238,16 +551,6 @@ jobs:
           echo "This lane cannot certify oracle-backed results. See the decompiler tool installation step." >&2
           exit 1
 
-      - name: Upload gate report
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: decompiler-gates-report
-          path: |
-            ${{ runner.temp }}/decompiler-gates.xml
-            ${{ runner.temp }}/decompiler-gates-execution.jsonl
-            ${{ runner.temp }}/decompiler-gates-discovery.jsonl
-          if-no-files-found: warn
 
   # Cheap C# Diff harness coverage. Path-gated separately from the full test
   # lane so CSharpDiffHarness/card changes get focused snapshot/baseline JSONL
@@ -1449,9 +752,9 @@ jobs:
           path: artifacts/il-diff-smoke/
           if-no-files-found: warn
 
-  # Pack and smoke test on Ubuntu. This is a packaging smoke test only: it
-  # validates the pointer package, the any fallback, one RID-specific AOT pack,
-  # and local tool install/smoke. It is NOT the source of release artifacts
+  # Pack on Ubuntu to validate the pointer and any fallback packages. The daily test lane
+  # owns the RID-specific AOT pack and local tool install/smoke.
+  # This is NOT the source of release artifacts
   # (release.yml builds those itself at publish time), so it runs only on PRs
   # that touch build/packaging configuration. Most PRs (e.g. decompiler raises)
   # skip it, which removes packaging work from the hot PR path.
@@ -1499,95 +802,6 @@ jobs:
           path: artifacts/package/release/*.nupkg
           if-no-files-found: error
 
-      - name: Pack linux-x64 AOT package
-        run: dotnet pack src/DotnetInspect.Cli -c Release -r linux-x64 -p:OfficialAotBuild=true -p:DotnetInspectWebsiteUrl=https://dotnet-inspect.net
-
-      - name: Upload linux-x64 package
-        uses: actions/upload-artifact@v7
-        with:
-          name: package-linux-x64
-          path: artifacts/package/release/*.nupkg
-          if-no-files-found: error
-
-      - name: Install tool from local packages
-        run: dotnet tool install --global dotnet-inspect --source ./artifacts/package/release --no-cache
-
-      - name: Smoke test - version
-        run: |
-          OUTPUT=$(dotnet-inspect --version)
-          echo "$OUTPUT"
-          echo "$OUTPUT" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+'
-
-      - name: Smoke test - help
-        run: |
-          OUTPUT=$(dotnet-inspect --help)
-          echo "$OUTPUT"
-          echo "$OUTPUT" | grep -q "dotnet-inspect"
-
-      - name: Smoke test - production share URL
-        run: |
-          PACKET=eyJmIjoxLCJ0IjpbWyI6UGxhdGZvcm0iLCIxMC4wLjEwIiwibmV0MTAuMCIsbnVsbF0sWyJTeXN0ZW0uVGV4dC5Kc29uIiwiMTAuMC4wIiwibmV0MTAuMCIsbnVsbF1dLCJnIjpbWzAsMV1dLCJhIjoxLCJ4IjowLCJ2IjoiYXBpIiwieSI6IlN5c3RlbS5UZXh0Lkpzb24uSnNvblNlcmlhbGl6ZXIiLCJsIjpbIlN5c3RlbS5UZXh0Lkpzb24iXX0
-          OUTPUT=$(dotnet-inspect workspace packet decode "$PACKET" | dotnet-inspect workspace packet encode - --url)
-          echo "$OUTPUT"
-          test "$OUTPUT" = "https://dotnet-inspect.net/?w=$PACKET"
-
-      - name: Smoke test - package quiet
-        run: |
-          dotnet-inspect package System.Text.Json@10.0.0 -v:q > smoke-package.txt
-          cat smoke-package.txt
-          grep -q "System.Text.Json" smoke-package.txt
-          grep -q "System.Text.Json.dll" smoke-package.txt
-
-      - name: Smoke test - package normal
-        run: |
-          dotnet-inspect package System.Text.Json@10.0.0 -v:n \
-            -S "Package Info,Signature" > smoke-package-normal.md
-          cat smoke-package-normal.md
-          grep -q "## Package Info" smoke-package-normal.md
-          grep -q "## Signature" smoke-package-normal.md
-          grep -q "Library" smoke-package-normal.md
-
-      - name: Smoke test - type command (table output)
-        run: |
-          dotnet-inspect type --package System.Text.Json@10.0.0 -t JsonSerializer --table > smoke-type.txt
-          cat smoke-type.txt
-          grep -q "JsonSerializer" smoke-type.txt
-
-      - name: Smoke test - member command (table output)
-        run: |
-          dotnet-inspect member JsonSerializer --package System.Text.Json@10.0.0 -m Serialize --table > smoke-member.txt
-          cat smoke-member.txt
-          grep -q "Serialize" smoke-member.txt
-
-      - name: Smoke test - type command (markdown)
-        run: |
-          dotnet-inspect type --package System.Text.Json@10.0.0 -v:m -t JsonSerializer > smoke-type.md
-          cat smoke-type.md
-          grep -q "JsonSerializer" smoke-type.md
-
-      - name: Smoke test - member command (markdown)
-        run: |
-          dotnet-inspect member JsonSerializer --package System.Text.Json@10.0.0 -v:m -m Serialize > smoke-member.md
-          cat smoke-member.md
-          grep -q "JsonSerializer" smoke-member.md
-          grep -q "Serialize" smoke-member.md
-
-      - name: Smoke test - platform library
-        run: |
-          dotnet-inspect library System.Private.CoreLib -v:q --json > smoke-platform.json
-          cat smoke-platform.json
-          jq -e '
-            .source == "Platform"
-            and .assembly_info.assembly_name == "System.Private.CoreLib"
-          ' smoke-platform.json > /dev/null
-
-      - name: Validate markdown output
-        run: |
-          npm install -g markdownlint-cli
-          markdownlint --config .markdownlint.yaml smoke-*.md
-
-      - name: Uninstall tool
-        run: dotnet tool uninstall --global dotnet-inspect
 
   # The one check the `main` ruleset is meant to require, and the only one that
   # safely can be.
@@ -1612,7 +826,7 @@ jobs:
   # 2. `skipped` must pass for path-gated jobs but not for `changes`, and
   #    `cancelled` must never pass. Path-gated jobs are skipped on most PRs and
   #    that is correct. `changes` supplies every gate, so skipping it silently
-  #    skips the entire matrix. A cancelled job is a job that hit its timeout,
+  #    skips the entire selected set. A cancelled job is a job that hit its timeout,
   #    and this repository has already been burned by that distinction twice:
   #    the Deep Inspect notifier stayed silent because a cancelled job satisfies
   #    neither `failure()` nor a failed conclusion (#3432), and seven decompiler
@@ -1634,8 +848,8 @@ jobs:
   ci-required:
     needs:
       - changes
+      - provenance
       - inspect-web-platform
-      - inspect-web-frontend
       - inspect-web-msdl-tests
       - inspect-web
       - test
@@ -1659,9 +873,10 @@ jobs:
       RESULT_FILTER: >-
         to_entries[]
         | select(
-            (.key == "changes" and .value.result != "success")
+            ((.key == "changes" or .key == "provenance")
+              and .value.result != "success")
             or
-            (.key != "changes"
+            (.key != "changes" and .key != "provenance"
               and .value.result != "success"
               and .value.result != "skipped")
           )
@@ -1753,9 +968,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          probe='{"changes":{"result":"skipped"},"ok":{"result":"success"},"gated":{"result":"skipped"},"broke":{"result":"failure"},"timeout":{"result":"cancelled"},"future":{"result":"neutral"}}'
+          probe='{"changes":{"result":"skipped"},"provenance":{"result":"skipped"},"ok":{"result":"success"},"gated":{"result":"skipped"},"broke":{"result":"failure"},"timeout":{"result":"cancelled"},"future":{"result":"neutral"}}'
           got=$(printf '%s' "$probe" | jq -r "$RESULT_FILTER" | paste -sd, -)
-          expected='changes=skipped,broke=failure,timeout=cancelled,future=neutral'
+          expected='changes=skipped,provenance=skipped,broke=failure,timeout=cancelled,future=neutral'
           if [ "$got" != "$expected" ]; then
             echo "::error::Result filter no longer discriminates. Expected [$expected], got [$got]."
             exit 1

@@ -691,6 +691,10 @@ dotnet-inspect member JsonSerializer --package System.Text.Json -D --schema
 dotnet-inspect vocabulary -D
 dotnet-inspect vocabulary -S @Decompiler
 dotnet-inspect vocabulary -S "C# Body Kinds" -n 10
+dotnet-inspect explain vocabularies
+dotnet-inspect explain vocabularies/csharp.body-kinds
+dotnet-inspect explain vocabularies/csharp.body-kinds --depth 1
+dotnet-inspect explain vocabularies/csharp.style-tiers/values/spelling
 dotnet-inspect library System.Text.Json -S Signals
 dotnet-inspect library System.Text.Json -S @Audit
 dotnet-inspect library System.Text.Json -S References
@@ -1472,8 +1476,54 @@ fallback.
 
 ### Types, members, and source
 
+The type and member commands render a lone explicitly selected section in its
+declared shape's native format when no format is named, per
+[Section shapes](design/section-shapes.md): a Table streams its TSV rows
+(`type System.String -S Methods`, `member System.String.Trim -S Methods`, the
+`Type Info` record as field/value TSV, `Signature` as its one row) and a Text
+prints its undecorated payload (`Source`, `Decompiled Source`,
+`IL`, `API Declarations`, `PDB Source`, `Source Diff`, `Annotated Source`, the
+overlays, and `Finding Census`). The shape decides, not a list of section
+names. `Annotated Source Document` and `Call Graph` keep their composed
+rendering: the first is a document with no bare payload, the second a graph.
+An explicit format, an environment default, `--print`, `--row`, `--tree`,
+`--count`, a projection, a shape flag, discovery, an envelope, or an analysis
+query keeps its existing behavior, and selecting several sections composes
+Markdown as before. Scalar sections (`Type Info`, `API Info`, and every Text
+payload other than `Source`) have no rows: selecting one alone with `--count`
+or `--rows` fails before acquisition and names an inventory section as the
+alternative; a bare `-n` on it is the rendered-line window. `Signature` is a
+one-row inventory whose row is the resolved member, so `--count` answers `1`.
+Count maps over several sections keep their per-section meaning.
+
+Every other type or member Text with a bare payload (`API Declarations` on the
+`type` command, `Decompiled Source`, `Annotated Source`, `PDB Source`, `IL`,
+and the overlays) has a fact row: `--table`, `--tsv`, and `--jsonl` emit its
+section, line count, and character count. `Source Diff` keeps its own row
+form, the comparison metadata and summary. `--json` on any of them except
+`API Declarations` emits the facts plus the complete payload as `content`;
+`API Declarations` keeps its inspection envelope, whose content carries the
+complete text. A fact row is not
+an inventory, so `--count` and `--rows` stay rejected. Composed Markdown
+still shows each Text's body, so `-S "Decompiled Source,IL"` reads side by
+side.
+
+`Source` is the Text whose rows are its exact lines, per
+[Source document cardinality](design/source-document-cardinality.md):
+`--count` reports the line count, which includes the empty final line after a
+trailing line terminator; `--rows` selects lines, which native output,
+`--markdown`, and `--plaintext` print as text; and `--table`, `--tsv`, and
+`--jsonl` emit one row per line with its number, UTF-16 start offset, content,
+and terminator, which `--columns` and `--fields` can project. `--jsonl`
+carries each line's content exactly; `--tsv` and `--table` normalize a tab
+inside a line to a space, as every TSV in this CLI does. `--json` stays
+the complete Source document, so it rejects `--rows`. Default output is
+unchanged, and `-n` remains a rendered-line window.
+
 ```bash
 dotnet-inspect type string --tree
+dotnet-inspect member System.String.Trim:1 -S Source --count
+dotnet-inspect member System.String.Trim:1 -S Source --rows 2..3
 dotnet-inspect type --platform System.Text.Json -n 1 --tail --json
 dotnet-inspect find JsonSerializer --platform System.Text.Json
 dotnet-inspect member JsonSerializer --package System.Text.Json -m Serialize

@@ -139,6 +139,7 @@ type CatalogOperations =
   | "describeWorkspacePackageSources"
   | "decodeWorkspaceShareState"
   | "encodeWorkspaceShareState"
+  | "explainVocabularies"
   | "inspectVocabulary"
   | "listEcosystems"
   | "listHomeDemos"

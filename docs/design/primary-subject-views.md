@@ -139,7 +139,7 @@ edge, that adoption must not present its rows as copyable arguments.
   forwarders and the declaration-kind facet that distinguishes them,
   public-surface selection, and exact Count and Rows.
 - **Type and Member children:**
-  [Type and Member inspection documents](type-member-inspection-documents.md#type-members-row-space)
+  [Type and Member inspection documents](type-member-inspection-documents.md#typeoverviewdocument)
   own the Type `Members` and Member `Overloads` populations and the
   `receiver = static | this | extension` row facet, including attached
   extension rows that keep their receiver attachment separate from their

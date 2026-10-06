@@ -1,3 +1,5 @@
+using System.Diagnostics;
+
 using DotnetInspector.Packages;
 using ILInspector.Metadata;
 using NuGetFetch;
@@ -105,6 +107,72 @@ public abstract record PortablePdbPackageBindingResult
 }
 
 /// <summary>
+/// Package-local candidate preparation for an already realized exact
+/// implementation assembly.
+/// </summary>
+public abstract record PortablePdbPackagePreparationResult
+{
+    private protected PortablePdbPackagePreparationResult()
+    {
+    }
+
+    public sealed record Prepared(
+        PortablePdbPackageCandidate Candidate,
+        PortablePdbPackagePreparationReceipt Receipt)
+        : PortablePdbPackagePreparationResult;
+
+    public sealed record Terminal(
+        PortablePdbPackageBindingFailureKind Failure,
+        PackageHouseSettlement Settlement,
+        PortablePdbPackagePreparationReceipt Receipt)
+        : PortablePdbPackagePreparationResult;
+}
+
+/// <summary>
+/// The PackageHouse work completed while preparing one deferred package-local
+/// Portable PDB candidate.
+/// </summary>
+public sealed record PortablePdbPackagePreparationReceipt(
+    int RequestCount,
+    long BodyBytesRead,
+    TimeSpan Elapsed,
+    bool NetworkOccurred);
+
+/// <summary>
+/// Deferred package-local candidate preparation for one exact already
+/// realized package assembly.
+/// </summary>
+public sealed class PortablePdbPackagePreparation
+{
+    internal PortablePdbPackagePreparation(
+        ResolvedAssemblyReference assembly,
+        IPortablePdbPackageContentSource source,
+        PackageProducerIdentity producer)
+    {
+        Assembly =
+            assembly
+            ?? throw new ArgumentNullException(nameof(assembly));
+        Source =
+            source
+            ?? throw new ArgumentNullException(nameof(source));
+        Producer = producer;
+    }
+
+    internal ResolvedAssemblyReference Assembly { get; }
+
+    internal IPortablePdbPackageContentSource Source { get; }
+
+    public PackageProducerIdentity Producer { get; }
+
+    internal Task<PortablePdbPackagePreparationResult> PrepareAsync(
+        CancellationToken cancellationToken) =>
+        PortablePdbPackageComposition.PrepareForAssemblyAsync(
+            Assembly,
+            Source,
+            cancellationToken);
+}
+
+/// <summary>
 /// Composes PackageHouse target inventory with the exact symbol-bearing
 /// implementation assembly required by Portable PDB settlement.
 /// </summary>
@@ -112,6 +180,120 @@ public static class PortablePdbPackageComposition
 {
     private const long DefaultMaxAssemblyBytes =
         512L * 1024 * 1024;
+
+    public static PortablePdbPackagePreparation DeferForAssembly(
+        ResolvedAssemblyReference assembly,
+        IPortablePdbPackageContentSource source,
+        PackageProducerIdentity producer)
+    {
+        ArgumentNullException.ThrowIfNull(assembly);
+        ArgumentNullException.ThrowIfNull(source);
+        if (assembly.Provenance
+            is not AssemblyResolutionProvenance.PackageAsset
+            {
+                Tfm: not null,
+                AssetPath: not null,
+            })
+        {
+            throw new ArgumentException(
+                "Deferred package-local Portable PDB preparation requires exact package target and asset provenance.",
+                nameof(assembly));
+        }
+
+        return new(assembly, source, producer);
+    }
+
+    /// <summary>
+    /// Issues a package-local candidate for an already owner-bound package
+    /// implementation assembly without reacquiring that assembly.
+    /// </summary>
+    public static async Task<PortablePdbPackagePreparationResult>
+        PrepareForAssemblyAsync(
+        ResolvedAssemblyReference assembly,
+        IPortablePdbPackageContentSource source,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(assembly);
+        ArgumentNullException.ThrowIfNull(source);
+        if (assembly.Provenance
+            is not AssemblyResolutionProvenance.PackageAsset
+            {
+                Tfm: { } framework,
+                AssetPath: { } assetPath,
+            } package)
+        {
+            throw new ArgumentException(
+                "An existing package-local Portable PDB binding requires exact package target and asset provenance.",
+                nameof(assembly));
+        }
+
+        PackageSourceCoordinate coordinate =
+            PackageSourceCoordinate.Create(
+                package.PackageId,
+                package.PackageVersion);
+        PackageHouseTargetContext target =
+            PackageHouseTargetContext.Exact(
+                framework,
+                package.Rid);
+        var stopwatch = Stopwatch.StartNew();
+        PackageHouseSettlement inventorySettlement =
+            await AcquireInventoryOnlyAsync(
+                    coordinate,
+                    target,
+                    source,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        stopwatch.Stop();
+        PortablePdbPackagePreparationReceipt preparationReceipt =
+            CreatePreparationReceipt(
+                inventorySettlement,
+                stopwatch.Elapsed);
+        if (inventorySettlement
+                is not PackageHouseSettlement.Acquired acquired
+            || acquired.Result
+                is not PackageHouseResult.Settled)
+        {
+            return new PortablePdbPackagePreparationResult.Terminal(
+                Classify(inventorySettlement.Result),
+                inventorySettlement,
+                preparationReceipt);
+        }
+
+        PackageHouseLibraryInventory? inventory =
+            acquired.Result.Evidence.LibraryInventory;
+        if (inventory is null)
+        {
+            return new PortablePdbPackagePreparationResult.Terminal(
+                PortablePdbPackageBindingFailureKind.PackageFailed,
+                inventorySettlement,
+                preparationReceipt);
+        }
+
+        PackageHouseLibraryInventoryRow[] matchingRows =
+        [
+            .. inventory.Rows.Where(
+                candidate => string.Equals(
+                    (candidate.ImplementationEntry
+                        ?? candidate.CompileEntry).Path,
+                    assetPath,
+                    StringComparison.Ordinal)),
+        ];
+        if (matchingRows.Length != 1)
+        {
+            return new PortablePdbPackagePreparationResult.Terminal(
+                PortablePdbPackageBindingFailureKind
+                    .SelectedLibraryUnavailable,
+                inventorySettlement,
+                preparationReceipt);
+        }
+
+        return new PortablePdbPackagePreparationResult.Prepared(
+            new PortablePdbPackageCandidate(
+                inventory,
+                matchingRows[0],
+                source),
+            preparationReceipt);
+    }
 
     public static async Task<PortablePdbPackageBindingResult>
         PrepareAsync(
@@ -128,13 +310,11 @@ public static class PortablePdbPackageComposition
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
             maxAssemblyBytes);
 
-        PackageHouseContentQuery inventoryQuery =
-            PackageHouseContentQuery.GetLibraryAndInventoryForTarget(
-                target);
         PackageHouseSettlement inventorySettlement =
-            await source.AcquireAsync(
+            await AcquireInventoryAsync(
                     coordinate,
-                    inventoryQuery,
+                    target,
+                    source,
                     cancellationToken)
                 .ConfigureAwait(false);
         if (inventorySettlement
@@ -315,6 +495,54 @@ public static class PortablePdbPackageComposition
                 assembly,
                 library,
                 candidate));
+    }
+
+    private static Task<PackageHouseSettlement>
+        AcquireInventoryAsync(
+        PackageSourceCoordinate coordinate,
+        PackageHouseTargetContext target,
+        IPortablePdbPackageContentSource source,
+        CancellationToken cancellationToken)
+    {
+        PackageHouseContentQuery query =
+            PackageHouseContentQuery
+                .GetLibraryAndInventoryForTarget(target);
+        return source.AcquireAsync(
+            coordinate,
+            query,
+            cancellationToken);
+    }
+
+    private static Task<PackageHouseSettlement>
+        AcquireInventoryOnlyAsync(
+        PackageSourceCoordinate coordinate,
+        PackageHouseTargetContext target,
+        IPortablePdbPackageContentSource source,
+        CancellationToken cancellationToken)
+    {
+        PackageHouseContentQuery query =
+            PackageHouseContentQuery
+                .GetLibraryInventoryForTarget(target);
+        return source.AcquireAsync(
+            coordinate,
+            query,
+            cancellationToken);
+    }
+
+    private static PortablePdbPackagePreparationReceipt
+        CreatePreparationReceipt(
+        PackageHouseSettlement settlement,
+        TimeSpan elapsed)
+    {
+        PackageHouseAcquisitionReceipt? acquisition =
+            settlement.Result.Evidence.Acquisition;
+        return new(
+            acquisition?.Transfer.RequestCount ?? 0,
+            acquisition?.Transfer.BytesReceived ?? 0,
+            elapsed,
+            acquisition?.Origin
+                is PackagePayloadOrigin.Download
+                    or PackagePayloadOrigin.Ranged);
     }
 
     private static ResolvedAssemblyReference?

@@ -20,6 +20,8 @@ internal static class ResourceExplanationVocabulary
         new("analysis-requests");
     internal static readonly ExplanationOwnerIdentity FindingsOwner =
         new("findings");
+    internal static readonly ExplanationOwnerIdentity ProductVocabularyOwner =
+        new("product-vocabulary");
 
     internal static readonly ExplanationSchemaIdentity CoreSchemaIdentity =
         new(ResourceExplanationOwner, "installed");
@@ -35,12 +37,17 @@ internal static class ResourceExplanationVocabulary
         new(AnalysisOwner, "installed");
     internal static readonly ExplanationSchemaIdentity FindingsSchemaIdentity =
         new(FindingsOwner, "installed");
+    internal static readonly ExplanationSchemaIdentity
+        ProductVocabularySchemaIdentity =
+            new(ProductVocabularyOwner, "installed");
     internal static readonly ExplanationSchemaVersion Version = new(1);
 
     internal static readonly ExplanationDataShapeIdentity TextShape =
         new(CoreSchemaIdentity, "text");
     internal static readonly ExplanationDataShapeIdentity IntegerShape =
         new(CoreSchemaIdentity, "integer");
+    internal static readonly ExplanationDataShapeIdentity BooleanShape =
+        new(CoreSchemaIdentity, "boolean");
     internal static readonly ExplanationDataShapeIdentity
         OpaqueExternalIdentityShape =
             new(QuerySchemaIdentity, "opaque-external-identity");
@@ -81,6 +88,25 @@ internal static class ResourceExplanationVocabulary
             new(AnalysisSchemaIdentity, "operation-surface");
     internal static readonly ExplanationResourceTypeIdentity IssuedFindingType =
         new(FindingsSchemaIdentity, "issued-finding");
+    internal static readonly ExplanationResourceTypeIdentity
+        ValueVocabularyType =
+            new(ProductVocabularySchemaIdentity, "value-vocabulary");
+    internal static readonly ExplanationResourceTypeIdentity
+        VocabularyValueType =
+            new(ProductVocabularySchemaIdentity, "vocabulary-value");
+
+    internal static readonly ExplanationDataShapeIdentity MapDeclarationShape =
+        new(ProductVocabularySchemaIdentity, "map-declaration");
+    internal static readonly ExplanationDataShapeIdentity MapEntryShape =
+        new(ProductVocabularySchemaIdentity, "map-entry");
+    internal static readonly ExplanationDataShapeIdentity MapValueShape =
+        new(ProductVocabularySchemaIdentity, "map-value");
+
+    /// <summary>The most maps one value vocabulary declares.</summary>
+    internal const int MapLimit = 64;
+
+    /// <summary>The most map entries one vocabulary value carries.</summary>
+    internal const int MapEntryLimit = 256;
 
     internal static readonly ImmutableArray<ExplanationSchema> Schemas =
         CreateSchemas();
@@ -308,6 +334,101 @@ internal static class ResourceExplanationVocabulary
                 "An arbitrary-precision integer.",
                 valueBudget,
                 ExplanationScalarKind.Integer);
+        var booleanShape =
+            new ExplanationDataShapeDeclaration.Scalar(
+                BooleanShape,
+                "Boolean",
+                "A Boolean value.",
+                valueBudget,
+                ExplanationScalarKind.Boolean);
+        var mapDeclarationShape =
+            new ExplanationDataShapeDeclaration.Record(
+                MapDeclarationShape,
+                "Map declaration",
+                "One owner-declared vocabulary map.",
+                valueBudget,
+                [
+                    MapField(
+                        MapDeclarationShape,
+                        "identity",
+                        "Identity",
+                        "The map identity within its vocabulary.",
+                        TextShape),
+                    MapField(
+                        MapDeclarationShape,
+                        "name",
+                        "Name",
+                        "The owner-issued display label.",
+                        TextShape),
+                    MapField(
+                        MapDeclarationShape,
+                        "summary",
+                        "Summary",
+                        "The owner-issued summary.",
+                        TextShape),
+                    MapField(
+                        MapDeclarationShape,
+                        "value-kind",
+                        "Value kind",
+                        "text, integer, boolean, or term.",
+                        TextShape),
+                    new(
+                        new(MapDeclarationShape, "target-vocabulary"),
+                        "Target vocabulary",
+                        "The vocabulary a term map targets.",
+                        TextShape,
+                        ExplanationCardinality.OptionalOne),
+                    MapField(
+                        MapDeclarationShape,
+                        "cardinality",
+                        "Cardinality",
+                        "exactly-one, optional-one, one-or-more, or "
+                        + "zero-or-more values per value.",
+                        TextShape),
+                    MapField(
+                        MapDeclarationShape,
+                        "coverage",
+                        "Coverage",
+                        "complete or partial.",
+                        TextShape),
+                ]);
+        var mapValueShape =
+            new ExplanationDataShapeDeclaration.Choice(
+                MapValueShape,
+                "Map value",
+                "One owner-issued map value.",
+                valueBudget,
+                [
+                    MapValueCase("text", "Text", TextShape),
+                    MapValueCase("integer", "Integer", IntegerShape),
+                    MapValueCase("boolean", "Boolean", BooleanShape),
+                    new(
+                        new(MapValueShape, "term"),
+                        "Term",
+                        "The exact identity of a value in the map's target "
+                        + "vocabulary.",
+                        TextShape),
+                ]);
+        var mapEntryShape =
+            new ExplanationDataShapeDeclaration.Record(
+                MapEntryShape,
+                "Map entry",
+                "One map value a vocabulary value carries.",
+                valueBudget,
+                [
+                    MapField(
+                        MapEntryShape,
+                        "map",
+                        "Map",
+                        "The map identity within the value's vocabulary.",
+                        TextShape),
+                    MapField(
+                        MapEntryShape,
+                        "value",
+                        "Value",
+                        "The map value.",
+                        MapValueShape),
+                ]);
         var opaqueExternalIdentityShape =
             new ExplanationDataShapeDeclaration.Scalar(
                 OpaqueExternalIdentityShape,
@@ -353,6 +474,10 @@ internal static class ResourceExplanationVocabulary
                         "collection-analysis",
                         "Collection member",
                         AnalysisType),
+                    Relationship(
+                        "collection-vocabulary",
+                        "Collection member",
+                        ValueVocabularyType),
                 ]);
 
         ExplanationResourceTypeDeclaration catalog =
@@ -579,13 +704,66 @@ internal static class ResourceExplanationVocabulary
                 "Issued Finding",
                 "One Finding descriptor issued at an operation surface.",
                 []);
+        ExplanationResourceTypeDeclaration valueVocabulary =
+            Type(
+                ValueVocabularyType,
+                "Value vocabulary",
+                "One product vocabulary whose values rich-query inputs "
+                + "accept.",
+                [
+                    TextFact("identity", "Identity"),
+                    TextFact("name", "Name"),
+                    OptionalTextFact("summary", "Summary"),
+                    IntegerFact("members", "Members"),
+                    OpaqueExternalIdentitiesFact(
+                        "accepted-by",
+                        "Accepted by",
+                        64),
+                    ShapedFact(
+                        "maps",
+                        "Maps",
+                        MapDeclarationShape,
+                        MapLimit),
+                    TextsFact("defaults", "Defaults", 64),
+                ],
+                [
+                    Relationship(
+                        "vocabulary-value",
+                        "Value",
+                        VocabularyValueType),
+                    Relationship(
+                        "term-map-target",
+                        "Term map target",
+                        ValueVocabularyType),
+                ]);
+        ExplanationResourceTypeDeclaration vocabularyValue =
+            Type(
+                VocabularyValueType,
+                "Vocabulary value",
+                "One stable value of a product vocabulary.",
+                [
+                    TextFact("identity", "Identity"),
+                    TextFact("name", "Name"),
+                    OptionalTextFact("summary", "Summary"),
+                    ShapedFact(
+                        "map-entries",
+                        "Map entries",
+                        MapEntryShape,
+                        MapEntryLimit),
+                ],
+                [
+                    Relationship(
+                        "term-map-value",
+                        "Term map value",
+                        VocabularyValueType),
+                ]);
 
         return
         [
             new(
                 CoreSchemaIdentity,
                 Version,
-                [textShape, integerShape],
+                [textShape, integerShape, booleanShape],
                 [navigation],
                 [address]),
             new(
@@ -618,7 +796,35 @@ internal static class ResourceExplanationVocabulary
                 Version,
                 [],
                 [finding]),
+            new(
+                ProductVocabularySchemaIdentity,
+                Version,
+                [mapDeclarationShape, mapValueShape, mapEntryShape],
+                [valueVocabulary, vocabularyValue]),
         ];
+
+        static ExplanationRecordFieldDeclaration MapField(
+            ExplanationDataShapeIdentity record,
+            string identity,
+            string displayName,
+            string meaning,
+            ExplanationDataShapeIdentity valueShape) =>
+            new(
+                new(record, identity),
+                displayName,
+                meaning,
+                valueShape,
+                ExplanationCardinality.RequiredOne);
+
+        static ExplanationChoiceCaseDeclaration MapValueCase(
+            string identity,
+            string displayName,
+            ExplanationDataShapeIdentity valueShape) =>
+            new(
+                new(MapValueShape, identity),
+                displayName,
+                $"A {displayName.ToLowerInvariant()} map value.",
+                valueShape);
 
         ExplanationResourceTypeDeclaration Type(
             ExplanationResourceTypeIdentity identity,
@@ -686,6 +892,22 @@ internal static class ResourceExplanationVocabulary
 
         Func<
             ExplanationResourceTypeIdentity,
+            ExplanationFactDeclaration> OpaqueExternalIdentitiesFact(
+            string identity,
+            string displayName,
+            int maximumCount) =>
+            resourceType =>
+                new(
+                    Fact(resourceType, identity),
+                    displayName,
+                    $"The ordered {displayName.ToLowerInvariant()} facts.",
+                    OpaqueExternalIdentityShape,
+                    ExplanationCardinality.OrderedMany,
+                    ExplanationObservationStates.Available,
+                    maximumValueCount: maximumCount);
+
+        Func<
+            ExplanationResourceTypeIdentity,
             ExplanationFactDeclaration> OptionalTextFact(
             string identity,
             string displayName) =>
@@ -711,6 +933,23 @@ internal static class ResourceExplanationVocabulary
                     displayName,
                     $"The ordered {displayName.ToLowerInvariant()} facts.",
                     TextShape,
+                    ExplanationCardinality.OrderedMany,
+                    ExplanationObservationStates.Available,
+                    maximumValueCount: maximumCount);
+
+        Func<
+            ExplanationResourceTypeIdentity,
+            ExplanationFactDeclaration> ShapedFact(
+            string identity,
+            string displayName,
+            ExplanationDataShapeIdentity shape,
+            int maximumCount) =>
+            resourceType =>
+                new(
+                    Fact(resourceType, identity),
+                    displayName,
+                    $"The ordered {displayName.ToLowerInvariant()} facts.",
+                    shape,
                     ExplanationCardinality.OrderedMany,
                     ExplanationObservationStates.Available,
                     maximumValueCount: maximumCount);

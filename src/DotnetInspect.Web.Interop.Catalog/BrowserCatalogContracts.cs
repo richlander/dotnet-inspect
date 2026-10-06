@@ -379,6 +379,41 @@ public sealed record BrowserVocabularyInspection(
     BrowserVocabularyInspectionDiagnostic[] Diagnostics);
 
 /// <summary>
+/// One product vocabulary explanation request. <c>Explanation</c> is present
+/// exactly when <c>Outcome</c> is <c>Explained</c>; <c>Rejection</c> is
+/// present for every other outcome.
+/// </summary>
+public sealed record BrowserVocabularyExplanationResult(
+    BrowserVocabularyExplanationOutcome Outcome,
+    BrowserVocabularyExplanation? Explanation,
+    BrowserVocabularyExplanationRejection? Rejection);
+
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserVocabularyExplanationOutcome>))]
+public enum BrowserVocabularyExplanationOutcome
+{
+    Explained,
+    InvalidPath,
+    OutsideVocabularies,
+    Unknown,
+    InvalidDepth,
+}
+
+/// <summary>
+/// A completed explanation. <c>Content</c> is the Resource Explanation
+/// Document exactly as its owner serializes it, which the CLI's
+/// <c>explain --json</c> also writes for the same path and depth.
+/// </summary>
+public sealed record BrowserVocabularyExplanation(
+    JsonElement Content,
+    BrowserVocabularyInspectionShare Share,
+    BrowserVocabularyInspectionDiagnostic[] Diagnostics);
+
+public sealed record BrowserVocabularyExplanationRejection(
+    string RequestedPath,
+    string Message,
+    string[] Suggestions);
+
+/// <summary>
 /// One product home-demo catalog row from <c>EcosystemPackCatalog</c>.
 /// Browser-local so <c>ts-jsexport</c> emits a real TypeScript interface.
 /// </summary>
@@ -952,6 +987,7 @@ public sealed record BrowserRetainedWorkspacePackageSourceCredential(
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(BrowserVocabularyInspection))]
+[JsonSerializable(typeof(BrowserVocabularyExplanationResult))]
 [JsonSerializable(typeof(BrowserHomeDemoCatalog))]
 [JsonSerializable(typeof(BrowserEcosystemCatalog))]
 [JsonSerializable(typeof(BrowserHomeDemoResolveResult))]

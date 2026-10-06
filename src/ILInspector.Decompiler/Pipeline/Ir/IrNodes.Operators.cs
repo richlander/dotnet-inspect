@@ -452,7 +452,17 @@ public sealed class IncrementDecrement : IrExpression
         => $"{(IsPrefix ? "Pre" : "Post")}{(IsIncrement ? "Increment" : "Decrement")}";
 }
 
-public enum CoercionKind { Value, ReferenceWitness }
+/// <summary>
+/// How a <see cref="Coerce"/> reaches its target. <see cref="Value"/> is an
+/// ordinary typed sink: C# converts implicitly where it can, so only a value
+/// that does not convert gets a cast. <see cref="Exact"/> is a sink with no
+/// conversion target of its own — a <see cref="Box"/>, which boxes whatever
+/// C# type the spelled operand naturally has — so the operand must be spelled
+/// at exactly <see cref="Coerce.Target"/>, with an explicit cast where its
+/// natural type differs. <see cref="ReferenceWitness"/> spells an owner-issued
+/// reference conversion.
+/// </summary>
+public enum CoercionKind { Value, ReferenceWitness, Exact }
 
 /// <summary>
 /// The C#-surface coercion of a value into a typed sink

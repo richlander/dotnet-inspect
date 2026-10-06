@@ -118,7 +118,7 @@ public static class VocabularyJson
         _ => throw new InvalidOperationException($"Unsupported vocabulary value kind '{value.Kind}'."),
     };
 
-    private static string Name(VocabularyValueKind value) => value switch
+    internal static string Name(VocabularyValueKind value) => value switch
     {
         VocabularyValueKind.Text => "text",
         VocabularyValueKind.Integer => "integer",
@@ -127,7 +127,7 @@ public static class VocabularyJson
         _ => throw new InvalidOperationException($"Unsupported vocabulary value kind '{value}'."),
     };
 
-    private static string Name(VocabularyOperator value) => value switch
+    internal static string Name(VocabularyOperator value) => value switch
     {
         VocabularyOperator.Equals => "equals",
         VocabularyOperator.NotEquals => "not-equals",

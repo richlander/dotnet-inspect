@@ -220,8 +220,31 @@ public class QueryDiscoveryTests
         Assert.Empty(result.Error);
         Assert.Contains("C# Body Kinds", result.Output);
         Assert.Contains(
-            "vocabulary -S \"C# Body Kinds\"",
+            "explain vocabularies/csharp.body-kinds",
             result.Output);
+    }
+
+    [Fact]
+    public async Task BodyShapeQuery_KindLinksToAnExplainableValueVocabulary()
+    {
+        var discovery = await Run("type", "-Q", "Body Shapes", "--json");
+
+        Assert.Equal(0, discovery.ExitCode);
+        using var json = JsonDocument.Parse(discovery.Output);
+        JsonElement vocabulary = json.RootElement
+            .GetProperty("sections")[0]
+            .GetProperty("facets")[0]
+            .GetProperty("value_vocabulary");
+        Assert.Equal("C# Body Kinds", vocabulary.GetProperty("name").GetString());
+        string path = vocabulary.GetProperty("resource_path").GetString()!;
+        Assert.Equal("vocabularies/csharp.body-kinds", path);
+
+        var explanation = await Run("explain", path, "--json");
+        Assert.Equal(0, explanation.ExitCode);
+        using var explained = JsonDocument.Parse(explanation.Output);
+        Assert.Equal(
+            path,
+            explained.RootElement.GetProperty("requested_path").GetString());
     }
 
     [Fact]

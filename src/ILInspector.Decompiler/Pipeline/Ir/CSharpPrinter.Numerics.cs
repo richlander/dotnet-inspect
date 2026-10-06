@@ -2089,19 +2089,40 @@ public sealed partial class CSharpPrinter
     /// </summary>
     string CoerceNodeText(Coerce coerce)
     {
-        var rendered = coerce.Kind == CoercionKind.ReferenceWitness
-            ? new CoercedText($"({TypeText(coerce.Target)}){Operand(coerce.Operand)}", "ConversionExpression")
-            : RenderCoercion(coerce.Operand, coerce.Target);
+        var rendered = coerce.Kind switch
+        {
+            CoercionKind.ReferenceWitness
+                => new CoercedText($"({TypeText(coerce.Target)}){Operand(coerce.Operand)}", "ConversionExpression"),
+            CoercionKind.Exact => ExactCoercion(coerce.Operand, coerce.Target),
+            _ => RenderCoercion(coerce.Operand, coerce.Target),
+        };
         return WithNodeKind(
             coerce,
             rendered.Text,
             rendered.Kind);
     }
 
+    // An exact sink (a box operand) was decided pre-print to differ from its
+    // spelled natural type. The ordinary rendering already spells any cast,
+    // enum member, unchecked reinterpret, or long literal the target needs; a
+    // spelling it leaves bare (a fitting literal, an implicit widening) still
+    // carries the operand's own type, so the target is cast explicitly.
+    CoercedText ExactCoercion(IrExpression operand, TypeRef target)
+    {
+        var rendered = RenderCoercion(operand, target);
+        if (!rendered.IsBare)
+            return rendered;
+        string targetText = TypeText(target);
+        return new($"({targetText}){CastOperand(rendered.Text, targetText)}", "ConversionExpression");
+    }
+
+    // IsBare marks a rendering that spells the value without any conversion
+    // syntax, so its C# type is the operand's own.
     readonly record struct CoercedText(
         string Text,
         string Kind,
-        bool IsContextualWrapper = false);
+        bool IsContextualWrapper = false,
+        bool IsBare = false);
 
     string CoerceText(IrExpression value, TypeRef? target)
     {
@@ -2119,7 +2140,7 @@ public sealed partial class CSharpPrinter
     CoercedText TransparentCoercion(IrExpression value)
     {
         string text = Expression(value);
-        return new(text, RenderedNodeKind(value));
+        return new(text, RenderedNodeKind(value), IsBare: true);
     }
 
     CoercedText RenderCoercion(IrExpression value, TypeRef? target)
@@ -2416,12 +2437,14 @@ public sealed partial class CSharpPrinter
         if (value is Constant { Value: int or long } konst && target is { } t && TypeFamilies.IsNumericPrimitive(t))
         {
             long literal = konst.Value is int i ? i : (long)konst.Value!;
+            bool fits = CSharpConversionRules.ConstantFits(literal, t);
             return new(
                 NumericConstant(konst, t),
-                CSharpConversionRules.ConstantFits(literal, t)
+                fits
                     ? "LiteralExpression"
                     : "ConversionExpression",
-                IsContextualWrapper: !CSharpConversionRules.ConstantFits(literal, t));
+                IsContextualWrapper: !fits,
+                IsBare: fits);
         }
         var numericSource = CoercionSourceType(value);
         if (target is not { } numericTarget || !CoercionRendering.CanSpellPrimitiveNumeric(numericSource, numericTarget))
@@ -2472,11 +2495,13 @@ public sealed partial class CSharpPrinter
             if (conv.Operand is Constant { Value: int or long } convConst)
             {
                 long literal = convConst.Value is int i ? i : (long)convConst.Value!;
+                bool fits = CSharpConversionRules.ConstantFits(literal, numericTarget);
                 return new(
                     NumericConstant(convConst, numericTarget),
-                    CSharpConversionRules.ConstantFits(literal, numericTarget)
+                    fits
                         ? "LiteralExpression"
-                        : "ConversionExpression");
+                        : "ConversionExpression",
+                    IsBare: fits);
             }
             return new(
                 CheckedSafeNumericCast(

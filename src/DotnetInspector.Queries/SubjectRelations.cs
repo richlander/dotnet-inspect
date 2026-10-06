@@ -52,6 +52,129 @@ public enum SubjectRelationProducerDiagnosticKind
 }
 
 /// <summary>
+/// Process-local authority for one exact focused subject.
+/// </summary>
+public abstract record SubjectRelationFocusAuthority
+{
+    private protected SubjectRelationFocusAuthority()
+    {
+    }
+
+    public abstract StructuralSubjectIdentity.WorkspaceSubject Workspace
+    { get; }
+
+    public abstract StructuralSubjectKind Kind { get; }
+
+    public static SubjectRelationFocusAuthority Capture(
+        StructuralSubjectIdentity subject)
+    {
+        ArgumentNullException.ThrowIfNull(subject);
+        return new Structural(subject);
+    }
+
+    public static AcquiredType ForAcquiredType(
+        StructuralSubjectIdentity.WorkspaceSubject workspace,
+        AssemblyAcquisitionRegistration registration,
+        AssemblyReferenceIdentity assembly,
+        AssemblyResolutionProvenance provenance,
+        MetadataTypeDefinitionName type)
+    {
+        ArgumentNullException.ThrowIfNull(workspace);
+        ArgumentNullException.ThrowIfNull(registration);
+        ArgumentNullException.ThrowIfNull(assembly);
+        ArgumentNullException.ThrowIfNull(provenance);
+        ArgumentNullException.ThrowIfNull(type);
+        var assemblyIdentity = new NavigationAssemblyIdentity(
+            registration,
+            assembly,
+            provenance);
+        return new(
+            workspace,
+            assemblyIdentity,
+            new(
+                assemblyIdentity.Registration,
+                type));
+    }
+
+    public sealed record Structural : SubjectRelationFocusAuthority
+    {
+        internal Structural(StructuralSubjectIdentity subject)
+        {
+            Subject = subject
+                ?? throw new ArgumentNullException(nameof(subject));
+        }
+
+        public StructuralSubjectIdentity Subject { get; }
+
+        public override StructuralSubjectIdentity.WorkspaceSubject
+            Workspace => Subject.Workspace;
+
+        public override StructuralSubjectKind Kind => Subject.Kind;
+    }
+
+    public sealed record AcquiredType : SubjectRelationFocusAuthority
+    {
+        internal AcquiredType(
+            StructuralSubjectIdentity.WorkspaceSubject workspace,
+            NavigationAssemblyIdentity assembly,
+            NavigationTypeIdentity identity)
+        {
+            Workspace = workspace
+                ?? throw new ArgumentNullException(nameof(workspace));
+            Assembly = assembly
+                ?? throw new ArgumentNullException(nameof(assembly));
+            Identity = identity
+                ?? throw new ArgumentNullException(nameof(identity));
+            if (!ReferenceEquals(
+                    assembly.Registration,
+                    identity.Registration))
+            {
+                throw new ArgumentException(
+                    "The acquired Type and assembly must share one exact registration.",
+                    nameof(identity));
+            }
+        }
+
+        public override StructuralSubjectIdentity.WorkspaceSubject
+            Workspace
+        { get; }
+
+        public override StructuralSubjectKind Kind =>
+            StructuralSubjectKind.Type;
+
+        public NavigationAssemblyIdentity Assembly { get; }
+
+        public NavigationTypeIdentity Identity { get; }
+    }
+
+    internal NavigationAssemblyIdentity RequireTypeAssembly() =>
+        this switch
+        {
+            AcquiredType acquired => acquired.Assembly,
+            Structural
+            {
+                Subject:
+                    StructuralSubjectIdentity.TypeSubject type,
+            } => type.Library.Identity,
+            _ => throw new InvalidOperationException(
+                "The Subject Relations focus is not an exact Type."),
+        };
+
+    internal NavigationTypeIdentity RequireTypeIdentity() =>
+        this switch
+        {
+            AcquiredType acquired => acquired.Identity,
+            Structural
+            {
+                Subject:
+                    StructuralSubjectIdentity.TypeSubject type,
+            } => type.Identity,
+            _ => throw new InvalidOperationException(
+                "The Subject Relations focus is not an exact Type."),
+        };
+}
+
+/// <summary>
 /// Process-local authority for one exact candidate population.
 /// </summary>
 public abstract class SubjectRelationPopulationAuthority
@@ -97,7 +220,7 @@ public sealed class SubjectRelationPopulationAuthority<TIdentity> :
 public abstract class SubjectRelationFocusCorrespondence
 {
     private protected SubjectRelationFocusCorrespondence(
-        StructuralSubjectIdentity focus,
+        SubjectRelationFocusAuthority focus,
         SubjectRelationPopulationAuthority population,
         InspectionGraphSubject endpoint,
         InspectionGraphEndpointRole role)
@@ -109,13 +232,21 @@ public abstract class SubjectRelationFocusCorrespondence
             throw new ArgumentOutOfRangeException(nameof(role));
         RequireSameWorkspace(focus, population);
 
-        Focus = focus;
+        FocusAuthority = focus;
         Population = population;
         Endpoint = endpoint;
         Role = role;
     }
 
-    public StructuralSubjectIdentity Focus { get; }
+    public object Focus =>
+        FocusAuthority is SubjectRelationFocusAuthority.Structural
+        {
+            Subject: { } subject,
+        }
+            ? subject
+            : FocusAuthority;
+
+    public SubjectRelationFocusAuthority FocusAuthority { get; }
 
     public SubjectRelationPopulationAuthority Population { get; }
 
@@ -133,10 +264,25 @@ public abstract class SubjectRelationFocusCorrespondence
             InspectionGraphEndpointRole role,
             TEvidence evidence)
         where TEvidence : notnull =>
+        Create(
+            SubjectRelationFocusAuthority.Capture(focus),
+            population,
+            endpoint,
+            role,
+            evidence);
+
+    public static SubjectRelationFocusCorrespondence<TEvidence> Create<
+        TEvidence>(
+            SubjectRelationFocusAuthority focus,
+            SubjectRelationPopulationAuthority population,
+            InspectionGraphSubject endpoint,
+            InspectionGraphEndpointRole role,
+            TEvidence evidence)
+        where TEvidence : notnull =>
         new(focus, population, endpoint, role, evidence);
 
     internal static void RequireSameWorkspace(
-        StructuralSubjectIdentity focus,
+        SubjectRelationFocusAuthority focus,
         SubjectRelationPopulationAuthority population)
     {
         if (!ReferenceEquals(
@@ -157,7 +303,7 @@ public sealed class SubjectRelationFocusCorrespondence<TEvidence> :
     where TEvidence : notnull
 {
     internal SubjectRelationFocusCorrespondence(
-        StructuralSubjectIdentity focus,
+        SubjectRelationFocusAuthority focus,
         SubjectRelationPopulationAuthority population,
         InspectionGraphSubject endpoint,
         InspectionGraphEndpointRole role,
