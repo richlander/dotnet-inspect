@@ -118,6 +118,7 @@ type SourceOperations =
 
 type CallGraphOperations =
   | "expandPlatformCallGraph"
+  | "queryDirectUseClusters"
   | "queryMemberCallGraph";
 
 type CatalogOperations =
