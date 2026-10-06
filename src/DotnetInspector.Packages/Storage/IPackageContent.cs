@@ -159,6 +159,17 @@ public interface IPackageContentEntryManifest
     PackageContentEntryScanner CreateEntryScanner();
 }
 
+/// <summary>
+/// Package-owned capability that exposes the validated archive entry
+/// inventory rather than a backing store's physical files.
+/// </summary>
+internal interface IPackageArchiveEntryManifest
+{
+    bool TryGetArchiveEntries(
+        [NotNullWhen(true)]
+        out IReadOnlyList<PackageContentEntry>? entries);
+}
+
 /// <summary>One package entry's path and declared expanded length.</summary>
 public readonly record struct PackageContentEntry(string Path, long Length);
 

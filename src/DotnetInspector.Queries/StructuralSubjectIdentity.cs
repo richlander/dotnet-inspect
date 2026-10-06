@@ -7,6 +7,7 @@ namespace DotnetInspector.Queries;
 public enum StructuralSubjectKind
 {
     Workspace,
+    Ecosystem,
     Package,
     Library,
     Type,
@@ -43,6 +44,22 @@ public abstract record StructuralSubjectIdentity
     public static WorkspaceSubject ForWorkspace(
         InspectionWorkspaceIdentity workspace) =>
         new(workspace);
+
+    /// <summary>Creates one exact registered Ecosystem subject.</summary>
+    public static EcosystemSubject ForEcosystem(
+        WorkspaceSubject workspace,
+        WorkspaceEcosystemRegistrationOccurrence occurrence) =>
+        new(
+            workspace,
+            occurrence?.Identity
+                ?? throw new ArgumentNullException(nameof(occurrence)),
+            occurrence.Declaration.Id);
+
+    internal static EcosystemSubject ForEcosystem(
+        WorkspaceSubject workspace,
+        WorkspaceEcosystemRegistrationOccurrenceIdentity occurrence,
+        WorkspaceEcosystemRegistrationId id) =>
+        new(workspace, occurrence, id);
 
     /// <summary>Creates one exact retained Package subject.</summary>
     public static PackageSubject ForPackage(
@@ -97,6 +114,48 @@ public abstract record StructuralSubjectIdentity
             $"{nameof(WorkspaceSubject)} {{ {nameof(Kind)} = {Kind}, " +
             $"{nameof(IsPortable)} = {IsPortable}, " +
             $"{nameof(Identity)} = {Identity} }}";
+    }
+
+    /// <summary>One exact Ecosystem registration occurrence.</summary>
+    public sealed record EcosystemSubject : StructuralSubjectIdentity
+    {
+        internal EcosystemSubject(
+            WorkspaceSubject workspace,
+            WorkspaceEcosystemRegistrationOccurrenceIdentity occurrence,
+            WorkspaceEcosystemRegistrationId id)
+        {
+            ArgumentNullException.ThrowIfNull(workspace);
+            ArgumentNullException.ThrowIfNull(occurrence);
+            ArgumentNullException.ThrowIfNull(id);
+            if (!ReferenceEquals(
+                    occurrence.WorkspaceIdentity,
+                    workspace.Identity))
+            {
+                throw new ArgumentException(
+                    "The Ecosystem occurrence must belong to the exact Workspace.",
+                    nameof(occurrence));
+            }
+
+            Workspace = workspace;
+            Occurrence = occurrence;
+            Id = id;
+        }
+
+        public override WorkspaceSubject Workspace { get; }
+
+        public override StructuralSubjectKind Kind =>
+            StructuralSubjectKind.Ecosystem;
+
+        /// <summary>
+        /// The registration-owner occurrence of this exact Ecosystem.
+        /// </summary>
+        public WorkspaceEcosystemRegistrationOccurrenceIdentity Occurrence
+        {
+            get;
+        }
+
+        /// <summary>The canonical identity of the registered Ecosystem.</summary>
+        public WorkspaceEcosystemRegistrationId Id { get; }
     }
 
     /// <summary>One exact retained Package occurrence.</summary>

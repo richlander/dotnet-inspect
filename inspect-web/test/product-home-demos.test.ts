@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { stripTypeScriptTypes } from "node:module";
 import { runInNewContext } from "node:vm";
 import { parseSync } from "oxc-parser";
+import { defaultAnalysisMode } from "../src/analysis-inspector.ts";
 import { memberRequestKey } from "../src/data.ts";
 import type {
   MemberCallGraphRequest,
@@ -91,6 +92,8 @@ function surface(
       displayName: "Type",
       namespace: assembly,
       kind: "class",
+      kindFacetId: "api.type-kind.class",
+      traitFacetIds: ["api.type-trait.object"],
       accessibility: "public",
       accessibilityId: "public",
       assembly,
@@ -100,6 +103,36 @@ function surface(
       signature: `public class ${assembly}.Type`,
       api: [],
       platformPack,
+    }],
+    typeKinds: [{
+      id: "api.type-kind.class",
+      singularLabel: "class",
+      pluralLabel: "classes",
+      weight: 100,
+      count: 1,
+      isDefault: true,
+    }],
+    typeTraits: [{
+      id: "api.type-trait.abstract",
+      singularLabel: "abstract",
+      pluralLabel: "abstract",
+      weight: 100,
+      count: 0,
+      isDefault: false,
+    }, {
+      id: "api.type-trait.static",
+      singularLabel: "static",
+      pluralLabel: "static",
+      weight: 200,
+      count: 0,
+      isDefault: false,
+    }, {
+      id: "api.type-trait.object",
+      singularLabel: "object",
+      pluralLabel: "objects",
+      weight: 300,
+      count: 1,
+      isDefault: false,
     }],
     accessibility: [{
       id: "public",
@@ -270,6 +303,7 @@ test("actual app activation, member reload, drill and workspace reset preserve c
   const drills: PlatformDrillRequest[] = [];
   const context = {
     state,
+    defaultAnalysisMode,
     prepared,
     activation: demo.activation,
     drillTarget: {
@@ -286,7 +320,7 @@ test("actual app activation, member reload, drill and workspace reset preserve c
     openPlatformLibrary: async () => { state.package = pkg; return pkg; },
     selectedType: () => type,
     selectedMember: () => ({ overloads: [overload] }),
-    selectedConcreteOverload: () => overload,
+    selectedMemberOverload: () => overload,
     currentPackage: () => state.package,
     assemblyDescriptorForType: () => pkg.assemblies[0],
     platformPackForAssembly: () => "netcore.app",
@@ -294,6 +328,7 @@ test("actual app activation, member reload, drill and workspace reset preserve c
       load: async (request: MemberCallGraphRequest) => { loads.push(request); },
       drill: async (request: PlatformDrillRequest) => { drills.push(request); },
     },
+    directUseClusterInspection: { reset: () => {} },
     platformCatalogFramework: () => "net10.0",
     runtimePackPackage: () => pkg,
     runtimePackForFramework: () => pkg,

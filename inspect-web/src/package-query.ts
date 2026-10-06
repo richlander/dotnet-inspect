@@ -70,6 +70,8 @@ const PACKAGE_CONTENT_QUERY_CANDIDATE_LIMIT = 20;
 const NUSPEC_EXPENSIVE_QUERY_CANDIDATE_LIMIT = 5;
 const METADATA_EXPENSIVE_QUERY_CANDIDATE_LIMIT = 5;
 export const PACKAGE_QUERY_INITIAL_MATCH_CREDIT = 20;
+export const ECOSYSTEM_PACKAGE_QUERY_INITIAL_MATCH_CREDIT = 24;
+const ECOSYSTEM_PACKAGE_QUERY_MAXIMUM_MATCHES = 96;
 const PACKAGE_QUERY_MATCH_CREDIT_BATCH = 10;
 const PACKAGE_QUERY_MATCH_CREDIT_THRESHOLD = 5;
 
@@ -79,6 +81,8 @@ export interface QuerySourceSelection {
 
 /** One rerunnable in-memory request. Never encodes a resolved outcome. */
 export interface QueryRequest extends QuerySourceSelection {
+  ecosystemId?: string;
+  initialMatchCredit: number;
   scopeQuery: string;
   presets: readonly QueryPreset[];
   terms: readonly QueryTerm[];
@@ -96,6 +100,7 @@ export function createQueryRequest(
   scopeQuery: string,
 ): QueryRequest {
   return {
+    initialMatchCredit: PACKAGE_QUERY_INITIAL_MATCH_CREDIT,
     scopeQuery,
     includePrerelease: false,
     presets: [],
@@ -103,6 +108,25 @@ export function createQueryRequest(
     targetFramework: "net10.0",
     requestedLimit: DEFAULT_QUERY_CANDIDATE_LIMIT,
     requestedMatchLimit: DEFAULT_QUERY_MATCH_LIMIT,
+  };
+}
+
+export function createEcosystemQueryRequest(
+  ecosystemId: string,
+): QueryRequest {
+  if (!ecosystemId.trim()) {
+    throw new TypeError("An Ecosystem package query requires an identity.");
+  }
+  return {
+    ecosystemId,
+    initialMatchCredit: ECOSYSTEM_PACKAGE_QUERY_INITIAL_MATCH_CREDIT,
+    scopeQuery: "",
+    includePrerelease: false,
+    presets: [],
+    terms: [],
+    targetFramework: "net10.0",
+    requestedLimit: DEFAULT_QUERY_CANDIDATE_LIMIT,
+    requestedMatchLimit: ECOSYSTEM_PACKAGE_QUERY_MAXIMUM_MATCHES,
   };
 }
 
@@ -117,7 +141,8 @@ export function withSourceSelection(
 }
 
 export function shouldExecuteQuery(request: QueryRequest): boolean {
-  return request.scopeQuery.trim().length > 0;
+  return request.ecosystemId !== undefined
+    || request.scopeQuery.trim().length > 0;
 }
 
 export function withScopeQuery(
@@ -191,17 +216,7 @@ function queryRequest(
   request: QueryRequest,
   changes: Partial<QueryRequest>,
 ): QueryRequest {
-  const updated = {
-    scopeQuery: request.scopeQuery,
-    includePrerelease: request.includePrerelease,
-    presets: request.presets,
-    terms: request.terms,
-    targetFramework: request.targetFramework,
-    requestedLimit: request.requestedLimit,
-    requestedMatchLimit: request.requestedMatchLimit,
-    ...changes,
-  };
-  return updated;
+  return { ...request, ...changes };
 }
 
 export function togglePreset(
@@ -316,6 +331,11 @@ export interface QueryResultRow {
   description?: string | null;
   producer?: string;
   rootRequest?: string;
+  ecosystemAdmission?: {
+    ecosystemId: string;
+    basis: string;
+    registration: string;
+  } | null;
 }
 
 export interface QueryAssemblyAssessment {
@@ -514,6 +534,9 @@ export interface PackageQueryController {
   run(request: QueryRequest): Promise<void>;
   cancel(): void;
   requestMore(): void;
+  requestAdditionalMatchCredit(
+    additionalMatchCredit: number,
+  ): Promise<boolean>;
 }
 
 export type PackageQueryUpdateKind = "reset" | "stream";
@@ -530,6 +553,62 @@ export function createPackageQueryController(
   let abortController = new AbortController();
   let grantedMatchCredit = Number.POSITIVE_INFINITY;
   let matchCreditRequestPending = false;
+
+  async function requestAdditionalMatchCredit(
+    additionalMatchCredit: number,
+  ): Promise<boolean> {
+    if (!Number.isInteger(additionalMatchCredit)
+      || additionalMatchCredit <= 0) {
+      throw new RangeError(
+        "Additional Package Query match credit must be a positive integer.");
+    }
+    if (state.outcome.completion.kind !== "streaming"
+      || !source.requestMore
+      || matchCreditRequestPending
+      || !Number.isFinite(grantedMatchCredit)) {
+      return false;
+    }
+    const requestGeneration = generation;
+    let result: boolean | Promise<boolean>;
+    try {
+      result = source.requestMore(additionalMatchCredit);
+    } catch (error: unknown) {
+      const reason = error instanceof Error ? error.message : String(error);
+      state.outcome = withCompletion(state.outcome, {
+        kind: "failed",
+        reason,
+      });
+      onUpdate("stream");
+      return false;
+    }
+    if (typeof result === "boolean") {
+      if (result) {
+        grantedMatchCredit += additionalMatchCredit;
+        onUpdate("stream");
+      }
+      return result;
+    }
+    matchCreditRequestPending = true;
+    try {
+      const granted = await result;
+      if (requestGeneration !== generation) return false;
+      matchCreditRequestPending = false;
+      if (granted) grantedMatchCredit += additionalMatchCredit;
+      onUpdate("stream");
+      return granted;
+    } catch (error: unknown) {
+      if (requestGeneration !== generation) return false;
+      matchCreditRequestPending = false;
+      const reason =
+        error instanceof Error ? error.message : String(error);
+      state.outcome = withCompletion(state.outcome, {
+        kind: "failed",
+        reason,
+      });
+      onUpdate("stream");
+      return false;
+    }
+  }
 
   return {
     configure(request: QueryRequest) {
@@ -626,53 +705,15 @@ export function createPackageQueryController(
 
     requestMore() {
       if (state.outcome.completion.kind !== "streaming"
-        || !source.requestMore
         || matchCreditRequestPending
         || !Number.isFinite(grantedMatchCredit)
         || state.outcome.rows.length
           < grantedMatchCredit - PACKAGE_QUERY_MATCH_CREDIT_THRESHOLD) {
         return;
       }
-      const requestGeneration = generation;
-      let result: boolean | Promise<boolean>;
-      try {
-        result = source.requestMore(PACKAGE_QUERY_MATCH_CREDIT_BATCH);
-      } catch (error: unknown) {
-        const reason = error instanceof Error ? error.message : String(error);
-        state.outcome = withCompletion(state.outcome, {
-          kind: "failed",
-          reason,
-        });
-        onUpdate("stream");
-        return;
-      }
-      if (typeof result === "boolean") {
-        if (result)
-          grantedMatchCredit += PACKAGE_QUERY_MATCH_CREDIT_BATCH;
-        return;
-      }
-      matchCreditRequestPending = true;
-      void result.then(
-        granted => {
-          if (requestGeneration !== generation) return undefined;
-          matchCreditRequestPending = false;
-          if (granted)
-            grantedMatchCredit += PACKAGE_QUERY_MATCH_CREDIT_BATCH;
-          return undefined;
-        },
-        (error: unknown) => {
-          if (requestGeneration !== generation) return undefined;
-          matchCreditRequestPending = false;
-          const reason =
-            error instanceof Error ? error.message : String(error);
-          state.outcome = withCompletion(state.outcome, {
-            kind: "failed",
-            reason,
-          });
-          onUpdate("stream");
-          return undefined;
-        },
-      );
+      void requestAdditionalMatchCredit(PACKAGE_QUERY_MATCH_CREDIT_BATCH);
     },
+
+    requestAdditionalMatchCredit,
   };
 }

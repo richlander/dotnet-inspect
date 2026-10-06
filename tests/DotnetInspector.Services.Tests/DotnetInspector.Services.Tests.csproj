@@ -57,20 +57,21 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\DotnetInspector.Cache\DotnetInspector.Cache.csproj" />
     <ProjectReference Include="..\..\src\DotnetInspector.DocumentationHouse\DotnetInspector.DocumentationHouse.csproj" />
-    <ProjectReference Include="..\..\src\DotnetInspector.DocumentationHouse.Packages\DotnetInspector.DocumentationHouse.Packages.csproj" />
     <ProjectReference Include="..\..\src\DotnetInspector.LibraryMetadata\DotnetInspector.LibraryMetadata.csproj" />
     <ProjectReference Include="..\..\src\DotnetInspector.PackageQueries\DotnetInspector.PackageQueries.csproj" />
     <ProjectReference Include="..\..\src\DotnetInspector.Sections\DotnetInspector.Sections.csproj" />
     <ProjectReference Include="..\..\src\DotnetInspector.Services\DotnetInspector.Services.csproj" />
     <ProjectReference Include="..\..\src\DotnetInspector.Networking\DotnetInspector.Networking.csproj" />
     <ProjectReference Include="..\..\src\DotnetInspector.PackageHouse.Execution\DotnetInspector.PackageHouse.Execution.csproj" />
-    <ProjectReference Include="..\..\src\DotnetInspector.PlatformHouse.Execution\DotnetInspector.PlatformHouse.Execution.csproj" />
+    <ProjectReference Include="..\..\src\DotnetInspector.PlatformHouse\DotnetInspector.PlatformHouse.csproj" />
+    <ProjectReference Include="..\..\src\DotnetInspector.PlatformQueries\DotnetInspector.PlatformQueries.csproj" />
     <ProjectReference Include="..\..\src\DotnetInspector.ResearchQueries\DotnetInspector.ResearchQueries.csproj" />
     <ProjectReference Include="..\..\src\ILInspector.SourceLink\ILInspector.SourceLink.csproj" />
     <ProjectReference Include="..\..\fixtures\services\DotnetInspector.Services.RouteLearning.Consumer\DotnetInspector.Services.RouteLearning.Consumer.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\services\DotnetInspector.Services.RouteLearning.Unrelated\DotnetInspector.Services.RouteLearning.Unrelated.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.CallerGraphCaller\ILInspector.Analysis.CallerGraphCaller.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.CallerGraphTarget\ILInspector.Analysis.CallerGraphTarget.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.CallerGraphTargetV2\ILInspector.Analysis.CallerGraphTargetV2.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\DotnetInspector.FixtureInfrastructure\DotnetInspector.FixtureInfrastructure.csproj" />
   </ItemGroup>
 

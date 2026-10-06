@@ -51,7 +51,6 @@ public sealed class ResourceLifecycleAnalysisTests
             execution.ResourceLifecycle.AdmissionReceipt);
         Assert.Empty(root.Outcomes);
         Assert.True(root.IsComplete);
-        Assert.False(execution.HasMaterializedCompatibilityIndex);
     }
 
     [Fact]
@@ -386,8 +385,7 @@ public sealed class ResourceLifecycleAnalysisTests
             lifecycle with { Methods = [method] },
             new FindingSubject("fixture", "fixture"));
         Assert.IsType<
-            FindingInspection<ResourceLifecycleOccurrence>.Failed>(
-                inspection.Value);
+            ResourceLifecycleFindingInspection.Failed>(inspection);
     }
 
     [Fact]
@@ -701,8 +699,28 @@ public sealed class ResourceLifecycleAnalysisTests
             new FindingSubject("fixture", "fixture"));
 
         Assert.IsType<
-            FindingInspection<ResourceLifecycleOccurrence>.Failed>(
-                inspection.Value);
+            ResourceLifecycleFindingInspection.Failed>(inspection);
+    }
+
+    [Fact]
+    public void LifecycleProjection_PreservesFindingsWithTypedIncompleteness()
+    {
+        LibraryResourceLifecycleAnalysisResult lifecycle =
+            Analyze().ResourceLifecycle;
+
+        var inspection =
+            Assert.IsType<ResourceLifecycleFindingInspection.Incomplete>(
+                ResourceLifecycleAnalysis.Inspect(
+                    lifecycle,
+                    new FindingSubject("fixture", "fixture")));
+
+        Assert.NotEmpty(inspection.Inspection.Findings);
+        Assert.NotEmpty(inspection.Limitations);
+        Assert.Contains(
+            inspection.Limitations,
+            limitation =>
+                limitation.Method?.Name
+                    == "RentTwoWithSecondAddress");
     }
 
     [Fact]
@@ -729,8 +747,7 @@ public sealed class ResourceLifecycleAnalysisTests
             new FindingSubject("fixture", "fixture"));
 
         Assert.IsType<
-            FindingInspection<ResourceLifecycleOccurrence>.Failed>(
-                inspection.Value);
+            ResourceLifecycleFindingInspection.Failed>(inspection);
     }
 
     static LibraryBodyAnalysisExecution Analyze(

@@ -22,6 +22,58 @@ public class SlotMaterializationPassTests
         ], HasThis: false, GenericParameterCount: 0), locals, body);
 
     [Fact]
+    public void ProvenReferenceWideningAdmitsSubtypeStoreIntoJoinTypedSlot()
+    {
+        // A diamond stores a derived and a base instance into one slot whose
+        // load is typed at the base (the importer's join merge). Storage
+        // admission knows no hierarchy of its own: without the importer's
+        // proven widening the derived store is unrenderable; with it the web
+        // materializes as one base-typed local.
+        var baseType = TypeRef.Definition("Synthetic", "Samples", "JoinBase");
+        var derived = TypeRef.Definition("Synthetic", "Samples", "JoinDerived");
+        IrFunction Build()
+        {
+            var body = new BlockContainer();
+            var entry = new Block(0);
+            entry.Add(new ConditionalBranch(new LoadArgument(0, "x", Int32), 4));
+            entry.Add(new Branch(8));
+            var first = new Block(4);
+            first.Add(new StoreStackSlot(0, new LoadArgument(1, "d", derived)));
+            first.Add(new Branch(12));
+            var second = new Block(8);
+            second.Add(new StoreStackSlot(0, new LoadArgument(2, "b", baseType)));
+            second.Add(new Branch(12));
+            var join = new Block(12);
+            join.Add(new StoreLocal(0, baseType, new LoadStackSlot(0, baseType)));
+            join.Add(new Return(null));
+            body.Add(entry);
+            body.Add(first);
+            body.Add(second);
+            body.Add(join);
+            var function = Function([baseType], body);
+            function.TypeShapes = ImmutableDictionary<TypeRef, TypeShape>.Empty
+                .Add(baseType, TypeShape.Reference)
+                .Add(derived, TypeShape.Reference);
+            return function;
+        }
+
+        var without = Build();
+        var vetoed = Assert.Single(SlotMaterializationPass.Analyze(without), d => d.Slot == 0);
+        Assert.False(vetoed.WillMaterialize);
+        Assert.True(vetoed.Vetoes.HasFlag(SlotMaterializationVeto.UnrenderableStoreType), vetoed.Vetoes.ToString());
+
+        var with = Build();
+        with.ProvenReferenceWidenings = ImmutableHashSet.Create(new ReferenceWidening(derived, baseType));
+        var admitted = Assert.Single(SlotMaterializationPass.Analyze(with), d => d.Slot == 0);
+        Assert.True(admitted.WillMaterialize, admitted.Vetoes.ToString());
+        Assert.Equal(baseType, admitted.Type);
+
+        new SlotMaterializationPass().Run(with, PassContext.None);
+        Assert.DoesNotContain(with.Descendants, n => n is StoreStackSlot or LoadStackSlot);
+        with.CheckInvariant();
+    }
+
+    [Fact]
     public void CompilerProducedPropertyConditionalMaterializesBooleanIdentity()
     {
         // Mirrors the retained Boolean property temporary in Newtonsoft.Json
@@ -50,7 +102,7 @@ public class SlotMaterializationPassTests
 
         Assert.DoesNotContain(function.Descendants.OfType<LoadStackSlot>(), load => load.Slot == slot);
         Assert.DoesNotContain(function.Descendants.OfType<StoreStackSlot>(), store => store.Slot == slot);
-        Assert.Contains("bool S_", CSharpPrinter.Print(function).Output);
+        Assert.Contains("bool S_", DecidedPrint.Print(function).Output);
         Assert.Empty(CoercionInvariant.Check(function));
         function.CheckInvariant();
     }
@@ -120,7 +172,7 @@ public class SlotMaterializationPassTests
 
         new SlotMaterializationPass().Run(function, PassContext.None);
 
-        var output = CSharpPrinter.Print(function).Output;
+        var output = DecidedPrint.Print(function).Output;
         Assert.Empty(function.Descendants.OfType<LoadStackSlot>());
         Assert.Empty(function.Descendants.OfType<StoreStackSlot>());
         Assert.Equal(4, function.Locals.Length);
@@ -165,7 +217,7 @@ public class SlotMaterializationPassTests
         new SlotMaterializationPass().Run(function, PassContext.None);
         new CoercionInsertionPass().Run(function, PassContext.None);
 
-        var output = CSharpPrinter.Print(function).Output;
+        var output = DecidedPrint.Print(function).Output;
         Assert.Empty(function.Descendants.OfType<LoadStackSlot>());
         Assert.Empty(function.Descendants.OfType<StoreStackSlot>());
         Assert.Contains("bool S_0", output);
@@ -175,8 +227,11 @@ public class SlotMaterializationPassTests
         function.CheckInvariant();
     }
 
+    // S_256 -> S_1 -> S_0 where S_0's loads conflict (int and char): values
+    // flow only into the undecided S_0, so S_256 and S_1 are source-closed and
+    // materialize, while S_0 stays a slot whose store reads the typed local.
     [Fact]
-    public void DefersWholeDirectCopyComponentWhenOneSlotIsUndecided()
+    public void MaterializesSourceClosedMembersOfAnIncompleteComponent()
     {
         var body = new BlockContainer();
         var block = new Block(0);
@@ -194,18 +249,82 @@ public class SlotMaterializationPassTests
         Assert.Contains(decisions, decision => decision.Slot == 0
             && decision.Vetoes.HasFlag(SlotMaterializationVeto.ConflictingTypeTestimony)
             && decision.Vetoes.HasFlag(SlotMaterializationVeto.IncompleteCopyComponent));
+        Assert.Contains(decisions, decision => decision.Slot == 1 && decision.WillMaterialize);
+        Assert.Contains(decisions, decision => decision.Slot == 256 && decision.WillMaterialize);
+        Assert.Contains(decisions, decision => decision.Slot == 5 && decision.WillMaterialize);
+
+        var invariant = SlotMaterializationInvariant.Capture(function);
+        new SlotMaterializationPass().Run(function, PassContext.None);
+        invariant.Check();
+
+        var residual = Assert.Single(function.Descendants.OfType<StoreStackSlot>());
+        Assert.Equal(0, residual.Slot);
+        Assert.Equal(Int32, Assert.IsType<LoadLocal>(residual.Value).Type);
+        Assert.Equal(2, function.Descendants.OfType<LoadStackSlot>().Count());
+        Assert.Equal(6, function.Locals.Length);
+        function.CheckInvariant();
+    }
+
+    // S_0 (conflicting loads) -> S_1 -> S_256: the undecided member is the
+    // source, so every member downstream of it depends on a value no
+    // decision covers and the whole chain stays on slots.
+    [Fact]
+    public void DefersMembersDownstreamOfAnUndecidedSlot()
+    {
+        var body = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(0, new LoadArgument(0, "x", Int32)));
+        block.Add(new StoreLocal(1, Char, new LoadStackSlot(0, Char)));
+        block.Add(new StoreStackSlot(1, new LoadStackSlot(0, Int32)));
+        block.Add(new StoreStackSlot(256, new LoadStackSlot(1, Int32)));
+        block.Add(new StoreLocal(0, Int32, new LoadStackSlot(256, Int32)));
+        body.Add(block);
+        var function = Function([Int32, Char], body);
+
+        var decisions = SlotMaterializationPass.Analyze(function);
+        Assert.Contains(decisions, decision => decision.Slot == 0
+            && decision.Vetoes.HasFlag(SlotMaterializationVeto.ConflictingTypeTestimony));
         Assert.Contains(decisions, decision => decision.Slot == 1
             && decision.Vetoes == SlotMaterializationVeto.IncompleteCopyComponent);
         Assert.Contains(decisions, decision => decision.Slot == 256
             && decision.Vetoes == SlotMaterializationVeto.IncompleteCopyComponent);
-        Assert.Contains(decisions, decision => decision.Slot == 5 && decision.WillMaterialize);
 
         new SlotMaterializationPass().Run(function, PassContext.None);
 
         Assert.Equal(3, function.Descendants.OfType<StoreStackSlot>().Count());
-        Assert.Equal(4, function.Descendants.OfType<LoadStackSlot>().Count());
-        Assert.Equal(4, function.Locals.Length);
-        Assert.Contains(function.Descendants.OfType<StoreLocal>(), store => store.Index == 3);
+        Assert.Equal(2, function.Locals.Length);
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void DefersSourceWhoseUndecidedPeerIsASinkAtAnotherType()
+    {
+        // S_0 is decided Char and copies into S_1, whose load testifies Int32
+        // but whose dead Int64 store leaves it undecided. Materializing S_0
+        // alone would expose its local load to S_1's Int32 slot-store
+        // coercion and change S_1's frozen residual decision.
+        var body = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(0, new LoadArgument(0, "c", Char)));
+        block.Add(new StoreStackSlot(1, new LoadStackSlot(0, Char)));
+        block.Add(new StoreLocal(0, Int32, new LoadStackSlot(1, Int32)));
+        block.Add(new StoreStackSlot(1, new Constant(5L, Int64)));
+        body.Add(block);
+        var function = Function([Int32], body);
+
+        var decisions = SlotMaterializationPass.Analyze(function);
+        Assert.Contains(decisions, decision => decision.Slot == 0
+            && decision.Vetoes == SlotMaterializationVeto.IncompleteCopyComponent);
+        Assert.Contains(decisions, decision => decision.Slot == 1
+            && decision.Vetoes.HasFlag(SlotMaterializationVeto.UnrenderableStoreType));
+
+        new SlotMaterializationPass().Run(function, PassContext.None);
+        new CoercionInsertionPass().Run(function, PassContext.None);
+
+        Assert.Equal(3, function.Descendants.OfType<StoreStackSlot>().Count());
+        Assert.DoesNotContain(function.Descendants.OfType<StoreStackSlot>(),
+            store => store.Slot == 1 && store.Value is Coerce);
+        Assert.Single(function.Locals);
         function.CheckInvariant();
     }
 
@@ -344,7 +463,7 @@ public class SlotMaterializationPassTests
         var conditional = Assert.IsType<Conditional>(materialized.Value);
         Assert.Equal(Boolean, conditional.ResultType);
         Assert.Equal(Int32, materialized.Type);
-        Assert.Contains("? 1 : 0", CSharpPrinter.Print(function).Output);
+        Assert.Contains("? 1 : 0", DecidedPrint.Print(function).Output);
         Assert.Empty(CoercionInvariant.Check(function));
         function.CheckInvariant();
     }
@@ -388,7 +507,7 @@ public class SlotMaterializationPassTests
         Assert.Empty(function.Descendants.OfType<LoadStackSlot>());
         Assert.Empty(function.Descendants.OfType<StoreStackSlot>());
         Assert.Equal(Boolean, Assert.Single(function.Locals));
-        Assert.Contains("bool S_0", CSharpPrinter.Print(function).Output);
+        Assert.Contains("bool S_0", DecidedPrint.Print(function).Output);
         function.CheckInvariant();
     }
 
@@ -418,7 +537,7 @@ public class SlotMaterializationPassTests
         Assert.Empty(function.Descendants.OfType<LoadStackSlot>());
         Assert.Empty(function.Descendants.OfType<StoreStackSlot>());
         Assert.Equal(2, function.Locals.Length);
-        Assert.Contains("bool S_0", CSharpPrinter.Print(function).Output);
+        Assert.Contains("bool S_0", DecidedPrint.Print(function).Output);
         function.CheckInvariant();
     }
 
@@ -560,7 +679,7 @@ public class SlotMaterializationPassTests
         Assert.Equal(Int32, decision.Type);
         new SlotMaterializationPass().Run(function, PassContext.None);
         Assert.Equal(Int32, Assert.Single(function.Locals));
-        Assert.Contains("S_0 != 0", CSharpPrinter.Print(function).Output);
+        Assert.Contains("S_0 != 0", DecidedPrint.Print(function).Output);
         function.CheckInvariant();
     }
 
@@ -645,7 +764,7 @@ public class SlotMaterializationPassTests
         Assert.Contains(decisions, decision => decision.Slot == 3
             && decision.Vetoes.HasFlag(SlotMaterializationVeto.MissingStore));
         Assert.Contains(decisions, decision => decision.Slot == 4
-            && decision.Vetoes.HasFlag(SlotMaterializationVeto.OutsideCoercionDomain));
+            && decision.WillMaterialize);
         Assert.Contains(decisions, decision => decision.Slot == 5
             && decision.Vetoes.HasFlag(SlotMaterializationVeto.UnrenderableStoreType));
     }

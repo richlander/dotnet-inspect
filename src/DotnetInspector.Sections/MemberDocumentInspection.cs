@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 
 using DotnetInspector.Libraries;
 using ILInspector.Metadata;
+using ILInspector.MetadataPrimitives;
 using InertText;
 
 namespace DotnetInspector.Sections;
@@ -11,19 +12,24 @@ public sealed record MemberDocumentSelector
 {
     public MemberDocumentSelector(
         int? baselineOrdinal = null,
-        string? fingerprintPrefix = null)
+        string? fingerprintPrefix = null,
+        int? metadataToken = null)
     {
         bool hasOrdinal = baselineOrdinal.HasValue;
         bool hasFingerprint =
             !string.IsNullOrWhiteSpace(fingerprintPrefix);
-        if (hasOrdinal == hasFingerprint)
+        if ((hasOrdinal ? 1 : 0)
+            + (hasFingerprint ? 1 : 0)
+            + (metadataToken.HasValue ? 1 : 0) != 1)
         {
             throw new ArgumentException(
                 "An exact Member selector requires either one baseline "
-                    + "ordinal or one fingerprint prefix.");
+                    + "ordinal, fingerprint prefix, or Metadata token.");
         }
         if (baselineOrdinal is { } ordinal)
             ArgumentOutOfRangeException.ThrowIfNegativeOrZero(ordinal);
+        if (metadataToken is { } token)
+            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(token);
         if (hasFingerprint
             && !fingerprintPrefix!.All(Uri.IsHexDigit))
         {
@@ -33,35 +39,146 @@ public sealed record MemberDocumentSelector
         }
 
         BaselineOrdinal = baselineOrdinal;
+        MetadataToken = metadataToken;
         FingerprintPrefix = hasFingerprint
             ? fingerprintPrefix!.ToLowerInvariant()
             : null;
     }
 
     public int? BaselineOrdinal { get; }
+    public int? MetadataToken { get; }
     public string? FingerprintPrefix { get; }
 }
 
-public sealed record MemberSubject(
-    MemberGroupSubject Group,
-    MemberOverloadPopulationBinding Population,
-    int MetadataToken,
-    int BaselineOrdinal,
-    [property: JsonConverter(typeof(InertStringJsonConverter))]
-    InertString Fingerprint,
-    [property: JsonConverter(typeof(InertStringJsonConverter))]
-    InertString DocumentationId);
+public sealed record MemberSubject
+{
+    [JsonConstructor]
+    public MemberSubject(
+        MemberGroupSubject group,
+        MemberOverloadPopulationBinding population,
+        int metadataToken,
+        MemberAnchor anchor,
+        int baselineOrdinal,
+        InertString fingerprint,
+        InertString documentationId)
+    {
+        Group = group ?? throw new ArgumentNullException(nameof(group));
+        Population = population
+            ?? throw new ArgumentNullException(nameof(population));
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(metadataToken);
+        Anchor = anchor ?? throw new ArgumentNullException(nameof(anchor));
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
+            baselineOrdinal);
+        if (group.DeclaringType != population.DeclaringType
+            || !string.Equals(
+                group.Name,
+                population.Name,
+                StringComparison.Ordinal)
+            || group.Category != population.Category
+            || group.Role != population.Role
+            || group.Spelling != population.Spelling)
+        {
+            throw new ArgumentException(
+                "The Member group and exact-Member population binding must identify the same group.",
+                nameof(population));
+        }
+        if (!string.Equals(
+                fingerprint.ToString(),
+                anchor.Fingerprint,
+                StringComparison.Ordinal))
+        {
+            throw new ArgumentException(
+                "The exact-Member fingerprint must match its anchor.",
+                nameof(fingerprint));
+        }
 
-public sealed record MemberDocument(
-    MemberSubject Subject,
-    [property: JsonConverter(typeof(InertStringJsonConverter))]
-    InertString DisplaySignature,
-    [property: JsonConverter(typeof(InertStringJsonConverter))]
-    InertString CanonicalSignature,
-    [property: JsonConverter(typeof(InertStringJsonConverter))]
-    InertString Accessibility,
-    MemberReceiver Receiver,
-    MemberDocumentationAttachment? Documentation = null);
+        MetadataToken = metadataToken;
+        BaselineOrdinal = baselineOrdinal;
+        Fingerprint = fingerprint;
+        DocumentationId = documentationId;
+    }
+
+    public MemberGroupSubject Group { get; }
+    public MemberOverloadPopulationBinding Population { get; }
+    public int MetadataToken { get; }
+    public MemberAnchor Anchor { get; }
+    public int BaselineOrdinal { get; }
+    [JsonConverter(typeof(InertStringJsonConverter))]
+    public InertString Fingerprint { get; }
+    [JsonConverter(typeof(InertStringJsonConverter))]
+    public InertString DocumentationId { get; }
+}
+
+public record MemberDeclaration
+{
+    [JsonConstructor]
+    public MemberDeclaration(
+        MemberSubject subject,
+        InertString displaySignature,
+        InertString canonicalSignature,
+        InertString accessibility,
+        MemberReceiver receiver)
+    {
+        Subject = subject
+            ?? throw new ArgumentNullException(nameof(subject));
+        if (!Enum.IsDefined(receiver))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(receiver),
+                receiver,
+                "Unknown Member receiver.");
+        }
+        if (canonicalSignature
+            != new InertString(
+                TextPolicy.Field,
+                subject.Anchor.CanonicalSignature))
+        {
+            throw new ArgumentException(
+                "The Member canonical signature must match its exact identity.",
+                nameof(canonicalSignature));
+        }
+
+        DisplaySignature = displaySignature;
+        CanonicalSignature = canonicalSignature;
+        Accessibility = accessibility;
+        Receiver = receiver;
+    }
+
+    public MemberSubject Subject { get; }
+    [JsonConverter(typeof(InertStringJsonConverter))]
+    public InertString DisplaySignature { get; }
+    [JsonConverter(typeof(InertStringJsonConverter))]
+    public InertString CanonicalSignature { get; }
+    [JsonConverter(typeof(InertStringJsonConverter))]
+    public InertString Accessibility { get; }
+    public MemberReceiver Receiver { get; }
+}
+
+public sealed record MemberDocumentInspectionContent
+    : MemberDeclaration
+{
+    public MemberDocumentInspectionContent(
+        MemberSubject subject,
+        InertString displaySignature,
+        InertString canonicalSignature,
+        InertString accessibility,
+        MemberReceiver receiver,
+        MemberDocumentationAttachment? documentation = null,
+        MemberSourceAttachment? source = null)
+        : base(
+            subject,
+            displaySignature,
+            canonicalSignature,
+            accessibility,
+            receiver)
+    {
+        Documentation = documentation;
+        Source = source;
+    }
+
+    public MemberDocumentationAttachment? Documentation { get; init; }
+    public MemberSourceAttachment? Source { get; init; }
+}
 
 public sealed record MemberDocumentInspectionPlan
 {
@@ -74,9 +191,16 @@ public sealed record MemberDocumentInspectionPlan
         MemberOverloadReceiverFilter receiver =
             MemberOverloadReceiverFilter.All,
         bool includeHidden = false,
-        MemberDocumentationAttachmentRequest? documentation = null)
+        MemberDocumentationAttachmentRequest? documentation = null,
+        MemberSourceAttachmentRequest? source = null)
     {
         Group = group ?? throw new ArgumentNullException(nameof(group));
+        if (Group.Spelling is not TypeMemberGroupSpelling.CSharp)
+        {
+            throw new ArgumentException(
+                "The transitional exact-Member producer currently supports C# spelling only.",
+                nameof(group));
+        }
         Selector =
             selector ?? throw new ArgumentNullException(nameof(selector));
         Bounds = bounds ?? throw new ArgumentNullException(nameof(bounds));
@@ -99,6 +223,7 @@ public sealed record MemberDocumentInspectionPlan
         Receiver = receiver;
         IncludeHidden = includeHidden;
         Documentation = documentation;
+        Source = source;
     }
 
     public MemberGroupSubject Group { get; }
@@ -108,6 +233,7 @@ public sealed record MemberDocumentInspectionPlan
     public MemberOverloadReceiverFilter Receiver { get; }
     public bool IncludeHidden { get; }
     public MemberDocumentationAttachmentRequest? Documentation { get; }
+    public MemberSourceAttachmentRequest? Source { get; }
 }
 
 public sealed record MemberDocumentInspectionRequest(
@@ -125,6 +251,7 @@ public enum MemberDocumentInspectionRejection
     FingerprintNotFound,
     FingerprintAmbiguous,
     RowsRejected,
+    MetadataTokenNotFound,
 }
 
 public enum MemberDocumentInspectionFailure
@@ -136,6 +263,7 @@ public enum MemberDocumentInspectionFailure
     EmptyModuleVersionId,
     DocumentationResultSetMismatch,
     DocumentationSubjectMismatch,
+    SourceSubjectMismatch,
 }
 
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "outcome")]
@@ -157,7 +285,7 @@ public abstract record MemberDocumentInspectionOutcome
     {
     }
 
-    public sealed record Available(MemberDocument Document)
+    public sealed record Available(MemberDocumentInspectionContent Document)
         : MemberDocumentInspectionOutcome;
 
     public sealed record Rejected(MemberDocumentInspectionRejection Reason)
@@ -183,50 +311,105 @@ public static class MemberDocumentInspectionOperation
             LibraryOperationLease lease,
             MemberDocumentationAttachmentProvider documentationProvider,
             CancellationToken cancellationToken = default)
+        => await ExecuteAsync(
+                request,
+                lease,
+                documentationProvider,
+                sourceProvider: null,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+    public static async ValueTask<
+        InspectionEnvelope<MemberDocumentInspectionOutcome>>
+        ExecuteAsync(
+            MemberDocumentInspectionRequest request,
+            LibraryOperationLease lease,
+            MemberDocumentationAttachmentProvider?
+                documentationProvider,
+            MemberSourceAttachmentProvider? sourceProvider,
+            CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
-        ArgumentNullException.ThrowIfNull(documentationProvider);
+        if (request.Plan.Documentation is not null)
+            ArgumentNullException.ThrowIfNull(documentationProvider);
+        if (request.Plan.Source is not null)
+            ArgumentNullException.ThrowIfNull(sourceProvider);
 
         InspectionEnvelope<MemberDocumentInspectionOutcome> inspection =
             Execute(
                 request,
                 lease,
                 cancellationToken);
-        if (request.Plan.Documentation is null
-            || inspection.Content
-                is not MemberDocumentInspectionOutcome.Available available)
+        if (inspection.Content
+            is not MemberDocumentInspectionOutcome.Available available)
         {
             return inspection;
         }
 
-        MemberDocument document = available.Document;
-        MemberDocumentationAttachmentResult attachment =
-            await MemberDocumentationAttachmentOperation.ExecuteAsync(
-                    [
-                        document.Subject,
-                    ],
-                    request.Plan.Documentation,
-                    documentationProvider,
-                    cancellationToken)
-                .ConfigureAwait(false);
-        MemberDocumentInspectionOutcome content =
-            attachment switch
+        MemberDocumentInspectionContent document = available.Document;
+        if (request.Plan.Documentation is { } documentation)
+        {
+            MemberDocumentationAttachmentResult attachment =
+                await MemberDocumentationAttachmentOperation.ExecuteAsync(
+                        [
+                            document.Subject,
+                        ],
+                        documentation,
+                        documentationProvider!,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+            switch (attachment)
             {
-                MemberDocumentationAttachmentResult.Attached attached =>
-                    new MemberDocumentInspectionOutcome.Available(
-                        document with
-                        {
-                            Documentation =
-                                AssertSingle(attached.Attachments),
-                        }),
-                MemberDocumentationAttachmentResult.Failed failed =>
-                    new MemberDocumentInspectionOutcome.Failed(
-                        Map(failed.Reason)),
-                _ => throw new InvalidOperationException(
-                    "Unknown Member documentation attachment result."),
-            };
+                case MemberDocumentationAttachmentResult.Attached attached:
+                    document = document with
+                    {
+                        Documentation =
+                            AssertSingle(attached.Attachments),
+                    };
+                    break;
+                case MemberDocumentationAttachmentResult.Failed failed:
+                    return new(
+                        new MemberDocumentInspectionOutcome.Failed(
+                            Map(failed.Reason)),
+                        inspection.Share,
+                        inspection.Diagnostics);
+                default:
+                    throw new InvalidOperationException(
+                        "Unknown Member documentation attachment result.");
+            }
+        }
+
+        if (request.Plan.Source is { } source)
+        {
+            MemberSourceAttachmentResult attachment =
+                await MemberSourceAttachmentOperation.ExecuteAsync(
+                        document.Subject,
+                        source,
+                        sourceProvider!,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+            switch (attachment)
+            {
+                case MemberSourceAttachmentResult.Attached attached:
+                    document = document with
+                    {
+                        Source = attached.Attachment,
+                    };
+                    break;
+                case MemberSourceAttachmentResult.Failed failed:
+                    return new(
+                        new MemberDocumentInspectionOutcome.Failed(
+                            Map(failed.Reason)),
+                        inspection.Share,
+                        inspection.Diagnostics);
+                default:
+                    throw new InvalidOperationException(
+                        "Unknown Member source attachment result.");
+            }
+        }
+
         return new(
-            content,
+            new MemberDocumentInspectionOutcome.Available(document),
             inspection.Share,
             inspection.Diagnostics);
     }
@@ -359,6 +542,11 @@ public static class MemberDocumentInspectionOperation
                     .. rows.Items.Where(
                         row => row.BaselineOrdinal == ordinal),
                 ]
+                : selector.MetadataToken is { } token
+                    ? [
+                        .. rows.Items.Where(
+                            row => row.MetadataToken == token),
+                    ]
                 : [
                     .. rows.Items.Where(
                         row => row.Fingerprint.ToString().StartsWith(
@@ -371,8 +559,11 @@ public static class MemberDocumentInspectionOperation
                 selector.BaselineOrdinal.HasValue
                     ? MemberDocumentInspectionRejection
                         .BaselineOrdinalOutOfRange
-                    : MemberDocumentInspectionRejection
-                        .FingerprintNotFound);
+                    : selector.MetadataToken.HasValue
+                        ? MemberDocumentInspectionRejection
+                            .MetadataTokenNotFound
+                        : MemberDocumentInspectionRejection
+                            .FingerprintNotFound);
         }
         if (matches.Length > 1)
         {
@@ -387,6 +578,7 @@ public static class MemberDocumentInspectionOperation
                     content.Subject,
                     selected.Binding,
                     selected.MetadataToken,
+                    selected.Anchor,
                     selected.BaselineOrdinal,
                     selected.Fingerprint,
                     selected.DocumentationId),
@@ -415,6 +607,16 @@ public static class MemberDocumentInspectionOperation
                     .DocumentationSubjectMismatch,
             _ => throw new InvalidOperationException(
                 "Unknown Member documentation attachment failure."),
+        };
+
+    private static MemberDocumentInspectionFailure Map(
+        MemberSourceAttachmentFailure failure) =>
+        failure switch
+        {
+            MemberSourceAttachmentFailure.SubjectMismatch =>
+                MemberDocumentInspectionFailure.SourceSubjectMismatch,
+            _ => throw new InvalidOperationException(
+                "Unknown Member source attachment failure."),
         };
 
     private static MemberDocumentInspectionFailure Map(

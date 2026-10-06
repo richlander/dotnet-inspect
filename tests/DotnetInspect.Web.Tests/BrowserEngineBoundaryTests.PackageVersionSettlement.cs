@@ -149,6 +149,8 @@ public sealed partial class BrowserEngineBoundaryTests
             BrowserPackageWireProjection.Project(
                 result.VersionSettlement),
             PackageInfo: null,
+            PackageChildren: null,
+            Documents: [],
             Surface: null);
         string json = JsonSerializer.Serialize(
             wireResult,
@@ -159,6 +161,7 @@ public sealed partial class BrowserEngineBoundaryTests
                     json,
                     BrowserPackageJsonContext.Default.BrowserPackageLoadResult));
         Assert.Null(roundTripped.Surface);
+        Assert.Null(roundTripped.PackageChildren);
         Assert.Equal(
             BrowserPackageVersionSettlementOutcomeKind.NotSettled,
             roundTripped.VersionSettlement.Content.Kind);
@@ -549,7 +552,20 @@ public sealed partial class BrowserEngineBoundaryTests
         var result = new BrowserPackageLoadResult(
             BrowserPackageWireProjection.Project(inspection),
             BrowserPackageWireProjection.Project(packageInfo),
-            new BrowserPackageSurface(
+            BrowserPackageWireProjection.Project(
+                new InspectionEnvelope<PackageChildrenDocument>(
+                    PackageChildrenDocument.LibrariesWithoutRows(
+                        new(
+                            SettlementPackageId,
+                            SettlementStableVersion),
+                        PackageChildrenStatus.NoCompileAssets,
+                        "The Package contains no compile Libraries.",
+                        isComplete: true),
+                    new InspectionShare.NonProjectable(
+                        "package-children/share",
+                        "No canonical Workspace share projection."))),
+            Documents: [],
+            Surface: new BrowserPackageSurface(
                 SettlementPackageId,
                 SettlementStableVersion,
                 Frameworks: [],
@@ -562,6 +578,8 @@ public sealed partial class BrowserEngineBoundaryTests
                     Message: null),
                 Assemblies: [],
                 Types: [],
+                TypeKinds: [],
+                TypeTraits: [],
                 Accessibility: [],
                 TotalMembers: 0,
                 Documents: [],
@@ -578,6 +596,17 @@ public sealed partial class BrowserEngineBoundaryTests
                     BrowserPackageJsonContext.Default.BrowserPackageLoadResult));
 
         Assert.NotNull(roundTripped.Surface);
+        BrowserPackageChildrenInspection packageChildrenBaseline =
+            Assert.IsType<BrowserPackageChildrenInspection>(
+                roundTripped.PackageChildren);
+        Assert.Equal(
+            "NoCompileAssets",
+            packageChildrenBaseline.Content.Status);
+        Assert.True(packageChildrenBaseline.Content.IsComplete);
+        Assert.Empty(packageChildrenBaseline.Content.Libraries);
+        Assert.Equal(
+            BrowserInspectionShareKind.NonProjectable,
+            packageChildrenBaseline.Share.Kind);
         BrowserPackageInfoMeasurementInspection packageInfoBaseline =
             Assert.IsType<BrowserPackageInfoMeasurementInspection>(
                 roundTripped.PackageInfo);

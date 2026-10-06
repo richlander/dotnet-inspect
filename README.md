@@ -84,7 +84,8 @@ dnx dotnet-inspect -y -- demo aspire-postgres-callgraph --mermaid
 - [CLI reference and examples](docs/cli-reference.md)
 - [Documentation and contributor routes](docs/README.md)
 - Current agent guidance: `dotnet-inspect skill`
-- Repository workflow: [AGENTS.md](AGENTS.md)
+- Repository work: [agent launch guidance](AGENTS.md) and
+  [contributor workflow](docs/repository-workflow.md)
 
 Requires the .NET 10 SDK or later. Licensed under MIT.
 

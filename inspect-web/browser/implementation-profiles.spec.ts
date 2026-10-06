@@ -174,6 +174,14 @@ test("Type heat paints the member list without an Implementation section", async
   );
   await expect(rows.nth(1)).toHaveClass(/\bhub\b/);
   await expect(rows.nth(1)).not.toHaveClass(/\bheated\b/);
+  await expect(
+    rows.nth(1).locator(".item-achievement-glyph.implementation-hub"),
+  ).toHaveCount(1);
+  await expect(rows.nth(1).locator(".item-achievement-rail"))
+    .toHaveAttribute("aria-label", "implementation hub");
+  await expect(
+    rows.nth(0).locator(".item-achievement-glyph.implementation-hub"),
+  ).toHaveCount(0);
   await expect(rows.locator(".overload-size")).toHaveCount(0);
 
   // Public and private populations reuse one Type record.
@@ -194,7 +202,7 @@ test("Type heat paints the member list without an Implementation section", async
   await compute.click();
   await expect(rows).toHaveCount(2);
   await expect(rows.nth(0)).toHaveClass(/\bheated\b/);
-  await expect(rows.nth(1)).toHaveClass(/\bheated\b/);
+  await expect(rows.nth(1)).not.toHaveClass(/\bheated\b/);
   await expect(html).toHaveAttribute("data-type-heat-request-count", "1");
 
   await page.locator('[data-nav-overload="1"]').click();

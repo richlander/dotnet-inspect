@@ -76,8 +76,8 @@ public sealed class MethodClassificationAnalyzerTests
             .Method("Plain");
         ImmutableArray<byte> image = builder.Build();
 
-        ImmutableArray<ClassifiedMethodRow> runtime = Rows(image, RuntimeAsyncAnalyzer.Instance);
-        ImmutableArray<ClassifiedMethodRow> compiler = Rows(image, CompilerAsyncAnalyzer.Instance);
+        ImmutableArray<ClassifiedMethodRow> runtime = Rows(image, RuntimeAsyncClassificationProducer.Instance);
+        ImmutableArray<ClassifiedMethodRow> compiler = Rows(image, CompilerAsyncClassificationProducer.Instance);
 
         Assert.Equal(["Runtime", "Both"], runtime.Select(static row => row.MethodName.ToString()));
         Assert.All(runtime, static row => Assert.Equal(MethodClassification.RuntimeAsync, row.Classification));
@@ -111,26 +111,26 @@ public sealed class MethodClassificationAnalyzerTests
             .Method("Plain");
         ImmutableArray<byte> image = builder.Build();
 
-        ImmutableArray<ClassifiedMethodRow> async = Rows(image, AsyncAnalyzer.Instance);
+        ImmutableArray<ClassifiedMethodRow> async = Rows(image, AsyncClassificationProducer.Instance);
         Assert.Equal(
             [("RuntimeWithHostileAttribute", MethodClassification.RuntimeAsync), ("Compiler", MethodClassification.StateMachineAsync)],
             async.Select(static row => (row.MethodName.ToString(), row.Classification)));
         Assert.Equal(
             2,
-            Execute(image, new ProducerRequest(AsyncAnalyzer.Instance)).ResultOf(AsyncAnalyzer.Instance).Value!.Count);
+            Execute(image, new ProducerRequest(AsyncClassificationProducer.Instance)).ResultOf(AsyncClassificationProducer.Instance).Value!.Count);
         Assert.Equal(
             MethodDefinitionLayers.Flags | MethodDefinitionLayers.AttributeTypeMatch | MethodDefinitionLayers.Declaration,
-            AsyncAnalyzer.Instance.Layers & ~MethodDefinitionLayers.IdentityText);
+            AsyncClassificationProducer.Instance.Layers & ~MethodDefinitionLayers.IdentityText);
 
         // Neither the one pass nor compiler async alone reads the runtime-async
         // method's attribute: reading it would abort.
         ProducerResult<ClosedQueryResult<ClassifiedMethodRow>> compiler =
-            Execute(image, new ProducerRequest(CompilerAsyncAnalyzer.Instance)).ResultOf(CompilerAsyncAnalyzer.Instance);
+            Execute(image, new ProducerRequest(CompilerAsyncClassificationProducer.Instance)).ResultOf(CompilerAsyncClassificationProducer.Instance);
         Assert.Equal(1, compiler.Value!.Count);
     }
 
     [Theory]
-    [InlineData(ProducerTerminal.Complete)]
+    [InlineData(ProducerTerminal.Count)]
     [InlineData(ProducerTerminal.Exists)]
     [InlineData(ProducerTerminal.Rows)]
     public void Async_CompilerAsyncDeclaresNoRelationshipAndCountEqualsRows(ProducerTerminal terminal)
@@ -144,18 +144,18 @@ public sealed class MethodClassificationAnalyzerTests
             .Method("C");
         ImmutableArray<byte> image = builder.Build();
 
-        MethodDefinitionExecution execution = Execute(image, new ProducerRequest(CompilerAsyncAnalyzer.Instance, terminal));
-        ClosedQueryResult<ClassifiedMethodRow> value = execution.ResultOf(CompilerAsyncAnalyzer.Instance).Value!;
+        MethodDefinitionExecution execution = Execute(image, new ProducerRequest(CompilerAsyncClassificationProducer.Instance, terminal));
+        ClosedQueryResult<ClassifiedMethodRow> value = execution.ResultOf(CompilerAsyncClassificationProducer.Instance).Value!;
 
         Assert.Equal(
             MethodDefinitionLayers.Flags | MethodDefinitionLayers.AttributeTypeMatch | MethodDefinitionLayers.Declaration,
-            CompilerAsyncAnalyzer.Instance.Layers & ~MethodDefinitionLayers.IdentityText);
+            CompilerAsyncClassificationProducer.Instance.Layers & ~MethodDefinitionLayers.IdentityText);
         switch (terminal)
         {
             case ProducerTerminal.Rows:
                 Assert.Equal(2, value.Rows.Length);
                 break;
-            case ProducerTerminal.Complete:
+            case ProducerTerminal.Count:
                 Assert.Equal(2, value.Count);
                 Assert.False(execution.Receipt.IdentityBudgetArmed);
                 break;
@@ -183,7 +183,7 @@ public sealed class MethodClassificationAnalyzerTests
         ImmutableArray<byte> image = builder.Build();
 
         ProducerResult<ClosedQueryResult<ClassifiedMethodRow>> result =
-            Execute(image, new ProducerRequest(PInvokeAnalyzer.Instance, ProducerTerminal.Rows)).ResultOf(PInvokeAnalyzer.Instance);
+            Execute(image, new ProducerRequest(PInvokeClassificationProducer.Instance, ProducerTerminal.Rows)).ResultOf(PInvokeClassificationProducer.Instance);
         Assert.True(result.HasValue, $"{result.Outcome} {result.Failure} {result.Critical}");
         ClassifiedMethodRow row = Assert.Single(result.Value!.Rows);
 
@@ -196,7 +196,7 @@ public sealed class MethodClassificationAnalyzerTests
     }
 
     [Theory]
-    [InlineData(ProducerTerminal.Complete)]
+    [InlineData(ProducerTerminal.Count)]
     [InlineData(ProducerTerminal.Exists)]
     public void Analyzers_MalformedPointerSignatureFailsNamingTheMethod(ProducerTerminal terminal)
     {
@@ -206,8 +206,8 @@ public sealed class MethodClassificationAnalyzerTests
             .Method("Truncated", Bytes(0x00, 0x01, 0x01));
         ImmutableArray<byte> image = builder.Build();
 
-        MethodDefinitionExecution execution = Execute(image, new ProducerRequest(PointerSignatureAnalyzer.Instance, terminal));
-        ProducerResult<ClosedQueryResult<ClassifiedMethodRow>> result = execution.ResultOf(PointerSignatureAnalyzer.Instance);
+        MethodDefinitionExecution execution = Execute(image, new ProducerRequest(PointerSignatureClassificationProducer.Instance, terminal));
+        ProducerResult<ClosedQueryResult<ClassifiedMethodRow>> result = execution.ResultOf(PointerSignatureClassificationProducer.Instance);
 
         if (terminal == ProducerTerminal.Exists)
         {
@@ -229,21 +229,21 @@ public sealed class MethodClassificationAnalyzerTests
             .Method("B", PointerParameter(), implAttributes: RuntimeAsync);
         ImmutableArray<byte> image = builder.Build();
 
-        foreach (ProducerTerminal terminal in new[] { ProducerTerminal.Complete, ProducerTerminal.Exists })
+        foreach (ProducerTerminal terminal in new[] { ProducerTerminal.Count, ProducerTerminal.Exists })
         {
             MethodDefinitionExecution execution = Execute(
                 image,
-                new ProducerRequest(PInvokeAnalyzer.Instance, terminal),
-                new ProducerRequest(RuntimeAsyncAnalyzer.Instance, terminal),
-                new ProducerRequest(PointerSignatureAnalyzer.Instance, terminal));
+                new ProducerRequest(PInvokeClassificationProducer.Instance, terminal),
+                new ProducerRequest(RuntimeAsyncClassificationProducer.Instance, terminal),
+                new ProducerRequest(PointerSignatureClassificationProducer.Instance, terminal));
 
             Assert.False(execution.Receipt.IdentityBudgetArmed);
             Assert.Equal(0, execution.Receipt.IdentityWorkCharged);
-            Assert.False(execution.ResultOf(PointerSignatureAnalyzer.Instance).Value!.HasRows);
+            Assert.False(execution.ResultOf(PointerSignatureClassificationProducer.Instance).Value!.HasRows);
         }
 
-        MethodDefinitionExecution counted = Execute(image, new ProducerRequest(PointerSignatureAnalyzer.Instance));
-        Assert.Equal(2, counted.ResultOf(PointerSignatureAnalyzer.Instance).Value!.Count);
+        MethodDefinitionExecution counted = Execute(image, new ProducerRequest(PointerSignatureClassificationProducer.Instance));
+        Assert.Equal(2, counted.ResultOf(PointerSignatureClassificationProducer.Instance).Value!.Count);
     }
 
     [Fact]
@@ -258,11 +258,11 @@ public sealed class MethodClassificationAnalyzerTests
 
         // Each closing is its own request in its own work description:
         // nothing derives Count from Rows.
-        MethodDefinitionExecution rows = Execute(image, new ProducerRequest(RuntimeAsyncAnalyzer.Instance, ProducerTerminal.Rows));
-        MethodDefinitionExecution count = Execute(image, new ProducerRequest(RuntimeAsyncAnalyzer.Instance, ProducerTerminal.Complete));
+        MethodDefinitionExecution rows = Execute(image, new ProducerRequest(RuntimeAsyncClassificationProducer.Instance, ProducerTerminal.Rows));
+        MethodDefinitionExecution count = Execute(image, new ProducerRequest(RuntimeAsyncClassificationProducer.Instance, ProducerTerminal.Count));
 
-        ClosedQueryResult<ClassifiedMethodRow> listed = rows.ResultOf(RuntimeAsyncAnalyzer.Instance).Value!;
-        ClosedQueryResult<ClassifiedMethodRow> counted = count.ResultOf(RuntimeAsyncAnalyzer.Instance).Value!;
+        ClosedQueryResult<ClassifiedMethodRow> listed = rows.ResultOf(RuntimeAsyncClassificationProducer.Instance).Value!;
+        ClosedQueryResult<ClassifiedMethodRow> counted = count.ResultOf(RuntimeAsyncClassificationProducer.Instance).Value!;
         Assert.Equal(2, listed.Rows.Length);
         Assert.Equal(listed.Rows.Length, counted.Count);
         Assert.False(counted.HasRows);
@@ -273,7 +273,7 @@ public sealed class MethodClassificationAnalyzerTests
 
     [Theory]
     [InlineData(ProducerTerminal.Exists)]
-    [InlineData(ProducerTerminal.Complete)]
+    [InlineData(ProducerTerminal.Count)]
     [InlineData(ProducerTerminal.Rows)]
     public void GateCache_TypedKernelTestsInlineAndInterpretedPassResolvesOnce(ProducerTerminal terminal)
     {
@@ -286,55 +286,91 @@ public sealed class MethodClassificationAnalyzerTests
         // Alone, the analyzer's pass runs as its kernel, specialized to the
         // scope's struct classification: it tests the gate inline and never
         // looks up the classifier's cache.
-        MethodDefinitionExecution kernel = Execute(image, new ProducerRequest(PointerSignatureAnalyzer.Instance, terminal));
+        MethodDefinitionExecution kernel = Execute(image, new ProducerRequest(PointerSignatureClassificationProducer.Instance, terminal));
         Assert.Equal(0, kernel.GateCacheLookups);
 
         // Beside an independent producer, the pass is interpreted.
         MethodDefinitionExecution interpreted = Execute(
             image,
-            new ProducerRequest(PointerSignatureAnalyzer.Instance, terminal),
+            new ProducerRequest(PointerSignatureClassificationProducer.Instance, terminal),
             new ProducerRequest(Independent.Instance));
         Assert.Equal(1, interpreted.GateCacheLookups);
 
         // Both pass shapes answer as before.
-        ClosedQueryResult<ClassifiedMethodRow> alone = kernel.ResultOf(PointerSignatureAnalyzer.Instance).Value!;
-        ClosedQueryResult<ClassifiedMethodRow> fused = interpreted.ResultOf(PointerSignatureAnalyzer.Instance).Value!;
+        ClosedQueryResult<ClassifiedMethodRow> alone = kernel.ResultOf(PointerSignatureClassificationProducer.Instance).Value!;
+        ClosedQueryResult<ClassifiedMethodRow> fused = interpreted.ResultOf(PointerSignatureClassificationProducer.Instance).Value!;
         Assert.Equal(terminal == ProducerTerminal.Exists ? 1 : 2, alone.Count);
         Assert.Equal(alone.Count, fused.Count);
     }
 
     [Theory]
-    [InlineData(ProducerTerminal.Rows, ProducerTerminal.Complete)]
-    [InlineData(ProducerTerminal.Complete, ProducerTerminal.Rows)]
+    [InlineData(ProducerTerminal.Rows, ProducerTerminal.Count)]
+    [InlineData(ProducerTerminal.Count, ProducerTerminal.Rows)]
     [InlineData(ProducerTerminal.Rows, ProducerTerminal.Exists)]
     [InlineData(ProducerTerminal.Exists, ProducerTerminal.Rows)]
-    [InlineData(ProducerTerminal.Complete, ProducerTerminal.Exists)]
-    [InlineData(ProducerTerminal.Exists, ProducerTerminal.Complete)]
+    [InlineData(ProducerTerminal.Count, ProducerTerminal.Exists)]
+    [InlineData(ProducerTerminal.Exists, ProducerTerminal.Count)]
     public void Planner_DistinctClosingsForOneProducerAreAContractError(ProducerTerminal first, ProducerTerminal second)
     {
         // Planning never ranks or merges closings, so no order yields a lossy plan.
         ProducerContractException error = Assert.Throws<ProducerContractException>(() => ProducerPlanner.Plan(
         [
-            new ProducerRequest(RuntimeAsyncAnalyzer.Instance, first),
-            new ProducerRequest(RuntimeAsyncAnalyzer.Instance, second),
+            new ProducerRequest(RuntimeAsyncClassificationProducer.Instance, first),
+            new ProducerRequest(RuntimeAsyncClassificationProducer.Instance, second),
         ]));
-        Assert.Contains(RuntimeAsyncAnalyzer.Instance.Identity, error.Message, StringComparison.Ordinal);
+        Assert.Contains(RuntimeAsyncClassificationProducer.Instance.Identity, error.Message, StringComparison.Ordinal);
         Assert.Contains(first.ToString(), error.Message, StringComparison.Ordinal);
         Assert.Contains(second.ToString(), error.Message, StringComparison.Ordinal);
     }
 
     [Theory]
     [InlineData(ProducerTerminal.Rows)]
-    [InlineData(ProducerTerminal.Complete)]
+    [InlineData(ProducerTerminal.Count)]
     [InlineData(ProducerTerminal.Exists)]
     public void Planner_IdenticalDuplicateRequestIsAccepted(ProducerTerminal terminal)
     {
         WorkDescription description = Plan(
-            new ProducerRequest(RuntimeAsyncAnalyzer.Instance, terminal),
-            new ProducerRequest(RuntimeAsyncAnalyzer.Instance, terminal));
+            new ProducerRequest(RuntimeAsyncClassificationProducer.Instance, terminal),
+            new ProducerRequest(RuntimeAsyncClassificationProducer.Instance, terminal));
 
-        Assert.Equal(terminal, description.TerminalOf(RuntimeAsyncAnalyzer.Instance));
-        Assert.Equal([RuntimeAsyncAnalyzer.Instance], description.Producers);
+        Assert.Equal(terminal, description.TerminalOf(RuntimeAsyncClassificationProducer.Instance));
+        Assert.Equal([RuntimeAsyncClassificationProducer.Instance], description.Producers);
+    }
+
+    [Fact]
+    public void Planner_IdenticalHeadIsAcceptedAndDistinctLimitsConflict()
+    {
+        ProducerRequest head = ProducerRequest.Head(
+            RuntimeAsyncClassificationProducer.Instance,
+            2);
+        WorkDescription description = Plan(head, head);
+
+        Assert.Equal(
+            ProducerTerminal.Rows,
+            description.TerminalOf(RuntimeAsyncClassificationProducer.Instance));
+        Assert.Equal(
+            2,
+            description.RowLimitOf(RuntimeAsyncClassificationProducer.Instance));
+
+        ProducerContractException error =
+            Assert.Throws<ProducerContractException>(() => ProducerPlanner.Plan(
+            [
+                ProducerRequest.Head(RuntimeAsyncClassificationProducer.Instance, 2),
+                ProducerRequest.Head(RuntimeAsyncClassificationProducer.Instance, 3),
+            ]));
+        Assert.Contains("Head(2)", error.Message, StringComparison.Ordinal);
+        Assert.Contains("Head(3)", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Planner_HeadRequiresAPositiveRowLimit()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            ProducerRequest.Head(RuntimeAsyncClassificationProducer.Instance, 0));
+        Assert.Throws<ArgumentException>(() => new ProducerRequest(
+            RuntimeAsyncClassificationProducer.Instance,
+            ProducerTerminal.Complete,
+            rowLimit: 1));
     }
 
     [Fact]
@@ -348,16 +384,26 @@ public sealed class MethodClassificationAnalyzerTests
             .Method("D");
         ImmutableArray<byte> image = builder.Build();
 
-        foreach (ProducerTerminal terminal in new[] { ProducerTerminal.Complete, ProducerTerminal.Exists, ProducerTerminal.Rows })
+        ProducerRequest[] requests =
+        [
+            new(RuntimeAsyncClassificationProducer.Instance, ProducerTerminal.Count),
+            new(RuntimeAsyncClassificationProducer.Instance, ProducerTerminal.Exists),
+            new(RuntimeAsyncClassificationProducer.Instance, ProducerTerminal.Rows),
+            ProducerRequest.Head(RuntimeAsyncClassificationProducer.Instance, 1),
+        ];
+        foreach (ProducerRequest request in requests)
         {
             // Alone, each analyzer runs as a kernel; beside an independent
             // producer, the reference executor interprets it.
             foreach (ProducerDeclaration<ClosedQueryResult<ClassifiedMethodRow>> analyzer in Analyzers)
             {
-                MethodDefinitionExecution kernel = Execute(image, new ProducerRequest(analyzer, terminal));
+                ProducerRequest analyzerRequest = request.RowLimit is int count
+                    ? ProducerRequest.Head(analyzer, count)
+                    : new ProducerRequest(analyzer, request.Terminal);
+                MethodDefinitionExecution kernel = Execute(image, analyzerRequest);
                 MethodDefinitionExecution interpreted = Execute(
                     image,
-                    new ProducerRequest(analyzer, terminal),
+                    analyzerRequest,
                     new ProducerRequest(Independent.Instance));
 
                 ProducerResult<ClosedQueryResult<ClassifiedMethodRow>> k = kernel.ResultOf(analyzer);
@@ -375,7 +421,7 @@ public sealed class MethodClassificationAnalyzerTests
     }
 
     [Theory]
-    [InlineData(ProducerTerminal.Complete)]
+    [InlineData(ProducerTerminal.Count)]
     [InlineData(ProducerTerminal.Exists)]
     [InlineData(ProducerTerminal.Rows)]
     public void Analyzers_AbortedKernelReceiptEqualsTheInterpretedExecutor(
@@ -389,18 +435,18 @@ public sealed class MethodClassificationAnalyzerTests
 
         MethodDefinitionExecution kernel = Execute(
             image,
-            new ProducerRequest(PointerSignatureAnalyzer.Instance, terminal));
+            new ProducerRequest(PointerSignatureClassificationProducer.Instance, terminal));
         MethodDefinitionExecution interpreted = Execute(
             image,
-            new ProducerRequest(PointerSignatureAnalyzer.Instance, terminal),
+            new ProducerRequest(PointerSignatureClassificationProducer.Instance, terminal),
             new ProducerRequest(Independent.Instance));
 
         Assert.NotNull(kernel.Receipt.Critical);
         Assert.NotNull(interpreted.Receipt.Critical);
         Assert.Equal(interpreted.Receipt.UnitsVisited, kernel.Receipt.UnitsVisited);
         Assert.Equal(2, kernel.Receipt.UnitsVisited);
-        ProducerParticipation kp = kernel.Receipt.For(PointerSignatureAnalyzer.Instance);
-        ProducerParticipation ip = interpreted.Receipt.For(PointerSignatureAnalyzer.Instance);
+        ProducerParticipation kp = kernel.Receipt.For(PointerSignatureClassificationProducer.Instance);
+        ProducerParticipation ip = interpreted.Receipt.For(PointerSignatureClassificationProducer.Instance);
         Assert.Equal(
             (ip.Outcome, ip.UnitsAttempted, ip.UnitsCompleted, ip.UnitsFailed),
             (kp.Outcome, kp.UnitsAttempted, kp.UnitsCompleted, kp.UnitsFailed));
@@ -412,7 +458,7 @@ public sealed class MethodClassificationAnalyzerTests
     // ---- Helpers ----
 
     static readonly ProducerDeclaration<ClosedQueryResult<ClassifiedMethodRow>>[] Analyzers =
-        [PInvokeAnalyzer.Instance, AsyncAnalyzer.Instance, RuntimeAsyncAnalyzer.Instance, CompilerAsyncAnalyzer.Instance, PointerSignatureAnalyzer.Instance];
+        [PInvokeClassificationProducer.Instance, AsyncClassificationProducer.Instance, RuntimeAsyncClassificationProducer.Instance, CompilerAsyncClassificationProducer.Instance, PointerSignatureClassificationProducer.Instance];
 
     static BlobBuilder PointerParameter() =>
         GateFixtureImage.VoidSignature(static t => t.Pointer().Int32());
@@ -441,15 +487,15 @@ public sealed class MethodClassificationAnalyzerTests
     {
         MethodDefinitionExecution execution = Execute(
             image,
-            new ProducerRequest(PInvokeAnalyzer.Instance, ProducerTerminal.Rows),
-            new ProducerRequest(RuntimeAsyncAnalyzer.Instance, ProducerTerminal.Rows),
-            new ProducerRequest(CompilerAsyncAnalyzer.Instance, ProducerTerminal.Rows),
-            new ProducerRequest(PointerSignatureAnalyzer.Instance, ProducerTerminal.Rows));
+            new ProducerRequest(PInvokeClassificationProducer.Instance, ProducerTerminal.Rows),
+            new ProducerRequest(RuntimeAsyncClassificationProducer.Instance, ProducerTerminal.Rows),
+            new ProducerRequest(CompilerAsyncClassificationProducer.Instance, ProducerTerminal.Rows),
+            new ProducerRequest(PointerSignatureClassificationProducer.Instance, ProducerTerminal.Rows));
         return (
-            execution.ResultOf(PInvokeAnalyzer.Instance).Value!.Rows,
-            [.. execution.ResultOf(RuntimeAsyncAnalyzer.Instance).Value!.Rows,
-                .. execution.ResultOf(CompilerAsyncAnalyzer.Instance).Value!.Rows],
-            execution.ResultOf(PointerSignatureAnalyzer.Instance).Value!.Rows);
+            execution.ResultOf(PInvokeClassificationProducer.Instance).Value!.Rows,
+            [.. execution.ResultOf(RuntimeAsyncClassificationProducer.Instance).Value!.Rows,
+                .. execution.ResultOf(CompilerAsyncClassificationProducer.Instance).Value!.Rows],
+            execution.ResultOf(PointerSignatureClassificationProducer.Instance).Value!.Rows);
     }
 
     static ImmutableArray<ClassifiedMethodRow> Rows(
@@ -476,5 +522,164 @@ public sealed class MethodClassificationAnalyzerTests
     struct AlwaysTrue : IMethodDefinitionPredicate
     {
         public readonly bool Test(scoped MethodDefinitionView view) => true;
+    }
+
+    [Fact]
+    public void ExtensionAnalyzer_CountsPublicStaticExtensionMethodsOnStaticExtensionTypes()
+    {
+        GateFixtureImage builder = new();
+        MemberReferenceHandle extension = builder.AttributeConstructor(builder.TypeRef(
+            "System.Runtime.CompilerServices", "ExtensionAttribute"));
+        MemberReferenceHandle editorBrowsable = builder.AttributeConstructor(
+            builder.TypeRef("System.ComponentModel", "EditorBrowsableAttribute"),
+            static t => t.Int32());
+        MemberReferenceHandle obsolete = builder.AttributeConstructor(
+            builder.TypeRef("System", "ObsoleteAttribute"),
+            static t => t.String());
+        MemberReferenceHandle compilerFeatureRequired = builder.AttributeConstructor(
+            builder.TypeRef("System.Runtime.CompilerServices", "CompilerFeatureRequiredAttribute"),
+            static t => t.String());
+        builder.Type("N", "Extensions")
+            .Attributes(extension)
+            .Method("Visible", PointerParameter(), PublicStatic, attributeConstructors: extension)
+            .Method("NotExtension", PointerParameter(), PublicStatic)
+            .Method("Instance", PointerParameter(), MethodAttributes.Public, attributeConstructors: extension)
+            .Method("Internal", PointerParameter(), MethodAttributes.Assembly | MethodAttributes.Static, attributeConstructors: extension)
+            .Method("HiddenMethod", PointerParameter(), PublicStatic, attributeConstructors: extension)
+            .MethodAttribute(editorBrowsable, GateFixtureImage.AttributeValue(1))
+            .Method("BrowsableAdvanced", PointerParameter(), PublicStatic, attributeConstructors: extension)
+            .MethodAttribute(editorBrowsable, GateFixtureImage.AttributeValue(2))
+            .Method("Deprecated", PointerParameter(), PublicStatic, attributeConstructors: extension)
+            .MethodAttribute(obsolete, GateFixtureImage.AttributeValue("Use Visible."))
+            .Method("CompilerCompatibility", PointerParameter(), PublicStatic, attributeConstructors: extension)
+            .MethodAttribute(obsolete, GateFixtureImage.AttributeValue(
+                "Types with embedded references are not supported in this version of your compiler."))
+            .MethodAttribute(compilerFeatureRequired, GateFixtureImage.AttributeValue("RefStructs"))
+            .Method("CompilerCompatibilityWithDiagnosticId", PointerParameter(), PublicStatic, attributeConstructors: extension)
+            .MethodAttribute(obsolete, ObsoleteWithDiagnosticId(
+                "Types with embedded references are not supported in this version of your compiler.",
+                "CS9999"))
+            .MethodAttribute(compilerFeatureRequired, GateFixtureImage.AttributeValue("RefStructs"))
+            .Method("ManyCompatibilityMarkers", PointerParameter(), PublicStatic, attributeConstructors: extension);
+        for (int marker = 0; marker < 2048; marker++)
+        {
+            builder.Types[^1]
+                .MethodAttribute(obsolete, GateFixtureImage.AttributeValue(
+                    "Constructors of types with required members are not supported in this version of your compiler."))
+                .MethodAttribute(compilerFeatureRequired, GateFixtureImage.AttributeValue("RequiredMembers"));
+        }
+        builder.Type("N", "NotExtensionType")
+            .Method("Stray", PointerParameter(), PublicStatic, attributeConstructors: extension);
+        builder.Type("N", "HiddenExtensions")
+            .Attributes(extension)
+            .Attribute(editorBrowsable, GateFixtureImage.AttributeValue(1))
+            .Method("OnHiddenType", PointerParameter(), PublicStatic, attributeConstructors: extension);
+        builder.Type("N", "InstanceExtensions")
+            .WithShape(TypeAttributes.Public)
+            .Attributes(extension)
+            .Method("OnInstanceType", PointerParameter(), PublicStatic, attributeConstructors: extension);
+        ImmutableArray<byte> image = builder.Build();
+
+        MethodDefinitionExecution count = Execute(image, new ProducerRequest(ExtensionMethodClassificationProducer.Instance, ProducerTerminal.Count));
+        ImmutableArray<ClassifiedMethodRow> rows = Rows(image, ExtensionMethodClassificationProducer.Instance);
+
+        // Legacy compares a compatibility message only within sixteen bytes
+        // of its length, so the DiagnosticId variant is an ordinary
+        // deprecation (hidden) for both; the 2,048 repeated markers are read
+        // once per row by the gate where legacy rescans at every marker.
+        Assert.Equal(4, count.ResultOf(ExtensionMethodClassificationProducer.Instance).Value!.Count);
+        Assert.Equal(
+            ["Visible", "BrowsableAdvanced", "CompilerCompatibility", "ManyCompatibilityMarkers"],
+            rows.Select(static row => row.MethodName.ToString()));
+        Assert.All(rows, static row => Assert.Equal(MethodClassification.Extension, row.Classification));
+        Assert.Equal(4, LegacyExtensionMethodCount(image));
+    }
+
+    /// <summary>An <c>[Obsolete(message, DiagnosticId = id)]</c> value: one fixed string and one named property.</summary>
+    static BlobBuilder ObsoleteWithDiagnosticId(string message, string diagnosticId)
+    {
+        var blob = new BlobBuilder();
+        blob.WriteUInt16(1);
+        blob.WriteSerializedString(message);
+        blob.WriteUInt16(1);
+        blob.WriteByte(0x54); // PROPERTY
+        blob.WriteByte(0x0e); // ELEMENT_TYPE_STRING
+        blob.WriteSerializedString("DiagnosticId");
+        blob.WriteSerializedString(diagnosticId);
+        return blob;
+    }
+
+    [Fact]
+    public void ExtensionAnalyzer_CountsSignaturesBeyondTheLegacySignatureGuard()
+    {
+        // Roslyn compiles `void M(this int[][]...[] value)` with 513 array
+        // levels, a shallow receiver with a deep second parameter, and a
+        // shallow method with 33,000 `int[]` parameters. Legacy decodes every
+        // candidate's signature through the signature guard, whose bounds are
+        // 512 levels and 65,536 type nodes, and drops all three; the analyzer
+        // decodes nothing and counts them. All three are extension methods,
+        // so the analyzer's answer is the faithful one.
+        GateFixtureImage builder = new();
+        MemberReferenceHandle extension = builder.AttributeConstructor(builder.TypeRef(
+            "System.Runtime.CompilerServices", "ExtensionAttribute"));
+        builder.Type("N", "Extensions")
+            .Attributes(extension)
+            .Method(
+                "Deep",
+                GateFixtureImage.VoidSignature(static t =>
+                {
+                    SignatureTypeEncoder element = t;
+                    for (int level = 0; level < 513; level++)
+                        element = element.SZArray();
+                    element.Int32();
+                }),
+                PublicStatic,
+                attributeConstructors: extension)
+            .Method(
+                "DeepParameter",
+                GateFixtureImage.VoidSignature(
+                    static t => t.Int32(),
+                    static t =>
+                    {
+                        SignatureTypeEncoder element = t;
+                        for (int level = 0; level < 513; level++)
+                            element = element.SZArray();
+                        element.Int32();
+                    }),
+                PublicStatic,
+                attributeConstructors: extension)
+            .Method(
+                "Wide",
+                GateFixtureImage.VoidSignature(
+                    [.. Enumerable.Repeat<Action<SignatureTypeEncoder>>(static t => t.SZArray().Int32(), 33_000)]),
+                PublicStatic,
+                attributeConstructors: extension);
+        ImmutableArray<byte> image = builder.Build();
+
+        MethodDefinitionExecution count = Execute(image, new ProducerRequest(ExtensionMethodClassificationProducer.Instance, ProducerTerminal.Count));
+
+        Assert.Equal(3, count.ResultOf(ExtensionMethodClassificationProducer.Instance).Value!.Count);
+        Assert.Equal(0, LegacyExtensionMethodCount(image));
+    }
+
+    static int LegacyExtensionMethodCount(ImmutableArray<byte> image)
+    {
+        using var reader = new PEReader(image);
+        return ExtensionMethodScanner.FindAllExtensions(reader, includeAll: false)
+            .Count(static member => member.Kind == "method");
+    }
+
+    [Theory]
+    [InlineData(typeof(System.Text.Json.JsonSerializer))]
+    [InlineData(typeof(Enumerable))]
+    public void ExtensionAnalyzer_CountEqualsTheLegacyScanOnARealAssembly(Type anchor)
+    {
+        ImmutableArray<byte> image = [.. File.ReadAllBytes(anchor.Assembly.Location)];
+        int legacy = LegacyExtensionMethodCount(image);
+
+        MethodDefinitionExecution count = Execute(image, new ProducerRequest(ExtensionMethodClassificationProducer.Instance, ProducerTerminal.Count));
+
+        Assert.True(legacy > 0);
+        Assert.Equal(legacy, count.ResultOf(ExtensionMethodClassificationProducer.Instance).Value!.Count);
     }
 }

@@ -411,6 +411,76 @@ so suspension does not reopen a mutable path. Disposing the group prevents new
 access and releases its retained references after active callbacks complete,
 but it never attempts to revoke or recycle an already returned span or retained
 descriptor.
+
+#### Participant-scoped prepared-resource leases
+
+`AssemblyContextGroup` owns the lifetime of prepared resources derived from one
+participant snapshot. A participant-resource lease is identified by the exact
+participant registration and the exact registered group-owned resource. The
+group validates both identities and admits the lease only while the group and
+participant remain open.
+
+Requesting participant or group release closes new participant-resource lease
+admission immediately. An already admitted lease remains usable until its
+owner disposes it; it keeps the participant snapshot retained and accounted,
+and group release remains non-quiescent. Abandoning a lease can therefore keep
+terminal release waiting because the group cannot infer that repeated
+execution has ended. Preparation that still needs snapshot access after lease
+admission uses the lease-bound snapshot operation; ordinary snapshot admission
+continues to reject a participant whose release has already been requested.
+
+After release is requested and the final lease for one participant-resource
+pair closes, the group may retire that resource's participant state. Every
+registered participant resource retires before the participant snapshot
+releases. Cleanup runs without the group lifetime gate held, and existing
+cleanup-failure reporting remains visible. Releasing one participant does not
+retire a sibling's resources or snapshot.
+
+A participant resource owns only synchronous retirement of its derived state.
+It does not maintain a second execution count, decide whether new leases are
+admitted, or authorize snapshot release. A producer may expose a one-shot
+operation that acquires and disposes the same lease internally, or a prepared
+execution that retains it across repeated terminals. QuerySpace capability
+planning may select such a prepared provision, but does not own its lease or
+release mechanics.
+
+The
+[participant prepared-resource handle](design/participant-prepared-resource-handles.md)
+is the producer-facing construction boundary for this protocol. It binds one
+group-owned producer state to exact participant/resource admission, performs
+preparation through lease-bound snapshot access, issues reusable execution
+borrows, and dispatches participant cleanup. Raw participant-resource
+registration, borrowing, and retirement remain InspectionSpace implementation
+details rather than producer-facing composition points.
+
+The underlying lease contract's first production adoption migrated the
+prepared declared-Method source from
+[#9143](https://github.com/richlander/dotnet-inspect/pull/9143) through
+[#9321](https://github.com/richlander/dotnet-inspect/issues/9321). Its
+preparation and reusable execution now pass through the typed handle. Live
+execution, stale-ready rejection, retained-image accounting, cleanup order,
+and sibling-independence outcomes remain unchanged while producer-local lease
+coordination is retired.
+
+The second production adoption binds Metadata's target-independent hierarchy
+reverse index to the same typed participant lifetime. Available and rejected
+preparation outcomes settle and publish while the preparation borrow is live.
+One settled preparation per exact participant and preparation policy may serve
+repeated target analyses; each reusable execution retains the group-issued
+borrow, and the resource retires its session and indexes before the participant
+snapshot. Metadata continues to own hierarchy facts, diagnostics, budgets, and
+terminal materialization. QuerySpace provision selection remains separate.
+Tracks
+[#9300](https://github.com/richlander/dotnet-inspect/issues/9300) and
+[#9322](https://github.com/richlander/dotnet-inspect/issues/9322).
+
+The
+[participant-resource lifecycle model](models/assembly-context-participant-resource-lifecycle/README.md)
+checks lease admission, final-lease retirement, resource-before-snapshot
+ordering, retained accounting, sibling independence, and eventual participant
+and group release. Release tests remain the implementation gates. Tracks
+[#9270](https://github.com/richlander/dotnet-inspect/issues/9270).
+
 `InspectionWorkspaceTests` gates policy-version consistency, immutable snapshot
 isolation, callback and span lifetimes, concurrent disposal, bounded retention,
 per-participant single-flight acquisition, and typed acquisition failures.

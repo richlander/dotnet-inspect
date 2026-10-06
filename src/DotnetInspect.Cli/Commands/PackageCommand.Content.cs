@@ -378,11 +378,9 @@ public partial class PackageCommand
                 + $"{transfer.BytesReceived} bytes received.");
         }
 
-        // The directory lists every entry, so a ranged read answers this
-        // check as the complete archive does; a possible tool wrapper takes
-        // the complete package-content path, which follows the redirect.
         if (MayRequireLegacyToolWrapperHandling(
-                file.Settlement.Payload.Content))
+                file.FileList.Entries.Select(
+                    static entry => entry.Path)))
         {
             context.Logger.Log(
                 $"{target.PackageName}@{pinnedVersion} may be a .NET tool wrapper; "
@@ -394,12 +392,22 @@ public partial class PackageCommand
             && HasUnstructuredOutputPath(options)
             && ProjectionDestinationWriter.IsFile(destination))
         {
-            await using PackageHousePayloadRead input =
-                file.OpenRead();
-            await ProjectionDestinationWriter.WriteExactBytesAsync(
-                    destination,
-                    input)
-                .ConfigureAwait(false);
+            try
+            {
+                await using PackageHousePayloadRead input =
+                    file.OpenRead();
+                await ProjectionDestinationWriter.WriteExactBytesAsync(
+                        destination,
+                        input)
+                    .ConfigureAwait(false);
+            }
+            catch (InvalidDataException exception)
+            {
+                CommandError.Write(
+                    "Could not read the selected package document.",
+                    exception.Message);
+                return 1;
+            }
             return 0;
         }
 
@@ -466,10 +474,11 @@ public partial class PackageCommand
     }
 
     private static bool MayRequireLegacyToolWrapperHandling(
-        IPackageContent content)
+        IEnumerable<string> entries)
     {
+        ArgumentNullException.ThrowIfNull(entries);
         bool hasToolSettings = false;
-        foreach (string entry in content.EnumerateEntries())
+        foreach (string entry in entries)
         {
             if (entry.EndsWith(
                     ".dll",
@@ -626,10 +635,6 @@ public partial class PackageCommand
                 RequiresIdentifierMetadata(producerOptions, pipeline);
             bool wantsPackageMetadata =
                 RequiresPackageMetadata(producerOptions, pipeline);
-            using var vulnerabilityTrafficScope = AllowsVulnerabilityTraffic(
-                producerOptions)
-                ? NetworkTelemetry.Allow(NetworkTrafficKind.VulnerabilityData)
-                : null;
             var result = await PackageInspector.InspectAsync(
                 resolution,
                 resolvedPackageName,
@@ -1176,7 +1181,7 @@ public partial class PackageCommand
         }
 
         if (MayRequireLegacyToolWrapperHandling(
-                settlement.Payload.Content))
+                settlement.Payload.Content.EnumerateEntries()))
         {
             context.Logger.Log(
                 $"{target.PackageName}@{settlement.Payload.Coordinate.Version} "
@@ -1297,14 +1302,23 @@ public partial class PackageCommand
         bool hasProjection =
             options.Fields is { Length: > 0 }
             || options.Columns is { Length: > 0 };
+        if (options.Tree)
+        {
+            WritePackageFilesTree(result, options);
+            return PackageIntegrityExitCode(result);
+        }
         if (options.Tabular)
         {
             if (options.Jsonl && !hasProjection)
             {
-                WritePackageFilesJsonl(
-                    result,
-                    PackageSections.Files,
-                    rows: null);
+                OutputDestination.Write(
+                    options.OutputPath,
+                    null,
+                    output => WritePackageFilesJsonl(
+                        output,
+                        result,
+                        PackageSections.Files,
+                        rows: null));
                 return PackageIntegrityExitCode(result);
             }
 
@@ -1370,15 +1384,18 @@ public partial class PackageCommand
                         : "column",
                     writerOptions.IncludeSections,
                     fieldSectionsAsColumns: true);
-                Console.Out.Write(rendered);
+                OutputDestination.Write(
+                    options.OutputPath,
+                    null,
+                    output => output.Write(rendered));
             }
             else
             {
-                OutputFormatter.WritePackageTable(
-                    result,
-                    options,
-                    pipeline,
-                    showHeader: !options.NoHeader);
+                OutputDestination.Write(
+                    options.OutputPath,
+                    null,
+                    output => OutputFormatter.WritePackageTable(
+                        output, result, options, pipeline, showHeader: !options.NoHeader));
             }
 
             return PackageIntegrityExitCode(result);
@@ -1480,7 +1497,6 @@ public partial class PackageCommand
             && !options.Print
             && !options.ShowContent
             && !options.Raw
-            && !options.Tree
             && !options.EnvelopeOutput
             && (!options.JsonOutput
                 || options.Count
@@ -2040,6 +2056,13 @@ public partial class PackageCommand
     private static void WritePackageFilesJsonl(
         InspectionResult result,
         string section,
+        RowWindow? rows) =>
+        WritePackageFilesJsonl(Console.Out, result, section, rows);
+
+    private static void WritePackageFilesJsonl(
+        TextWriter output,
+        InspectionResult result,
+        string section,
         RowWindow? rows)
     {
         var text = new PackageInspectionText(result);
@@ -2050,7 +2073,7 @@ public partial class PackageCommand
         foreach (var file in RowWindow.Apply(rows, files))
         {
             var row = new PackageFileJsonRow(file.Path, file.Size);
-            Console.WriteLine(JsonSerializer.Serialize(row, PackageFileJsonRowContext.Default.PackageFileJsonRow));
+            output.WriteLine(JsonSerializer.Serialize(row, PackageFileJsonRowContext.Default.PackageFileJsonRow));
         }
     }
 

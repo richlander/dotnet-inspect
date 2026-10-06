@@ -214,6 +214,40 @@ test("member source request identity includes decompiler taste", () => {
     memberRequestKey(request, ["prefer-explicit-types"]));
 });
 
+test("automatic decompiled settlement does not replace the requested source view", () => {
+  const cacheClear =
+    appSource.match(/function clearMemberContentCache\(\)[\s\S]*?\n}/)?.[0]
+    ?? "";
+  const sourceSelection =
+    appSource.match(/onMemberSourceViewSelect: view => \{[\s\S]*?\n    },/)?.[0]
+    ?? "";
+  const sourceLoad =
+    appSource.match(/async function loadSelectedMemberSource\(\)[\s\S]*?\n}/)?.[0]
+    ?? "";
+  const memberNavigation =
+    appSource.match(/function navigateToMember\([\s\S]*?\n}/)?.[0]
+    ?? "";
+
+  assert.match(
+    appSource,
+    /memberSourceRequestedView: "source" as const,[\s\S]*memberSourceView: "source" as const/);
+  assert.match(
+    cacheClear,
+    /state\.memberSourceView = state\.memberSourceRequestedView;/);
+  assert.match(
+    sourceSelection,
+    /state\.memberSourceRequestedView = view;\s*state\.memberSourceView = view;/);
+  assert.match(
+    sourceLoad,
+    /state\.memberSourceView = "decompiler-source";/);
+  assert.doesNotMatch(
+    sourceLoad,
+    /memberSourceRequestedView = "decompiler-source"/);
+  assert.match(
+    memberNavigation,
+    /state\.memberSection = section;\s*clearMemberContentCache\(\);/);
+});
+
 test("member request identity distinguishes colliding type queries", () => {
   const memberSignature =
     appSource.match(/function memberRequestSignature\([\s\S]*?\n}/)?.[0]
@@ -237,7 +271,7 @@ test("member request identity distinguishes colliding type queries", () => {
 test("annotated source request identity includes the selected body", () => {
   const annotatedLoader =
     appSource.match(
-      /async function loadSelectedMemberAnnotatedSource\(\)[\s\S]*?\n}\n\nfunction memberRequestSignature/)?.[0]
+      /async function loadSelectedMemberAnnotatedSource\(\)[\s\S]*?\n}\n\nasync function exploreSelectedMemberAnnotatedSource/)?.[0]
     ?? "";
   assert.match(
     annotatedLoader,
@@ -245,6 +279,9 @@ test("annotated source request identity includes the selected body", () => {
   assert.match(
     annotatedLoader,
     /isCurrent: \(\) => memberRequestIsCurrent\(signature, true, true\)/);
+  assert.match(
+    annotatedLoader,
+    /await memberDetailInspection\.loadFindingCensus\([\s\S]*return signature;/);
   assert.match(
     annotatedLoader,
     /state\.selectedBodyTarget\?\.selectorKey \?\? overload\.graphSelectorKey,[\s\S]*?state\.selectedBodyTarget\?\.metadataToken \?\? overload\.metadataToken/);
@@ -273,6 +310,49 @@ test("annotated source request identity includes the selected body", () => {
     memberRequestKey([...request, String(0x06000002), "M:<Run>b__0_0"]));
 });
 
+test("annotated Source Explore opens only its captured member result", async () => {
+  const explore =
+    appSource.match(
+      /async function exploreSelectedMemberAnnotatedSource\(\)[\s\S]*?\n}/)?.[0]
+    ?? "";
+
+  assert.match(
+    explore,
+    /const signature = await loadSelectedMemberAnnotatedSource\(\);/);
+  assert.match(
+    explore,
+    /signature !== null\s*&& memberRequestIsCurrent\(signature, true, true\)\s*&& state\.memberAnnotatedKey === signature/);
+
+  const state = {
+    memberAnnotatedError: "",
+    memberAnnotatedKey: "member-b",
+    memberAnnotated: {},
+    memberAnnotatedLoading: false,
+    memberSection: "source",
+  };
+  let current = false;
+  let opens = 0;
+  const context = {
+    state,
+    loadSelectedMemberAnnotatedSource: async () => "member-a",
+    memberRequestIsCurrent: (signature: string) =>
+      current && signature === "member-a",
+    openAnnotatedSourceModal: () => opens++,
+  };
+  const invoke = `(${stripTypeScriptTypes(explore)})()`;
+
+  await runInNewContext(invoke, context);
+  assert.equal(opens, 0);
+
+  current = true;
+  await runInNewContext(invoke, context);
+  assert.equal(opens, 0);
+
+  state.memberAnnotatedKey = "member-a";
+  await runInNewContext(invoke, context);
+  assert.equal(opens, 1);
+});
+
 test("member detail adapters preserve exact engine coordinates", () => {
   const coordinator =
     appSource.match(
@@ -284,7 +364,7 @@ test("member detail adapters preserve exact engine coordinates", () => {
     ?? "";
   const annotatedLoader =
     appSource.match(
-      /async function loadSelectedMemberAnnotatedSource\(\)[\s\S]*?\n}\n\nfunction memberRequestSignature/)?.[0]
+      /async function loadSelectedMemberAnnotatedSource\(\)[\s\S]*?\n}\n\nasync function exploreSelectedMemberAnnotatedSource/)?.[0]
     ?? "";
   const factsLoader =
     appSource.match(
@@ -310,7 +390,7 @@ test("member detail adapters preserve exact engine coordinates", () => {
     /request\.isRuntimePack\s*\?\s*inspectPlatformMemberDocumentation\(\s*request\.framework,\s*request\.version,\s*request\.assembly,\s*request\.platformPack,\s*documentationId\)\s*:\s*inspectMemberDocumentation\(\s*request\.packageId,\s*request\.version,\s*request\.framework,\s*request\.assembly,\s*documentationId\)/);
   assert.match(
     coordinator,
-    /inspectMemberFindingCensus\(\s*request\.packageId,\s*request\.version,\s*request\.framework,\s*request\.assembly,\s*request\.typeIdentity,\s*request\.type,\s*request\.member,\s*request\.memberSignature,\s*request\.selectorKey,\s*request\.metadataToken,\s*request\.taste\)/);
+    /request\.kind === "platform"\s*\?\s*inspectPlatformMemberFindingCensus\(\s*request\.framework,\s*request\.version,\s*request\.assembly,\s*request\.pack,\s*request\.typeIdentity,\s*request\.type,\s*request\.member,\s*request\.memberSignature,\s*request\.selectorKey,\s*request\.metadataToken,\s*request\.taste,\s*request\.contextId\)\s*:\s*inspectMemberFindingCensus\(\s*request\.packageId,\s*request\.version,\s*request\.framework,\s*request\.assembly,\s*request\.typeIdentity,\s*request\.type,\s*request\.member,\s*request\.memberSignature,\s*request\.selectorKey,\s*request\.metadataToken,\s*request\.taste\)/);
   assert.match(
     coordinator,
     /const document = result\.annotatedSource\.document;\s*validateAnnotatedSourceDocument\(document\);[\s\S]*annotatedSource: \{\s*\.\.\.result\.annotatedSource,\s*document/);
@@ -328,7 +408,7 @@ test("member detail adapters preserve exact engine coordinates", () => {
     /memberDetailInspection\.loadDeclaration\(\{\s*signature,\s*packageId: pkg\.id,\s*version: pkg\.version,\s*framework: pkg\.activeFramework,\s*assembly,\s*isRuntimePack: pkg\.isRuntimePack,\s*platformPack,\s*typeIdentity: type\.definitionId \?\? type\.id,\s*member: overload\.name,\s*selectorKey: overload\.graphSelectorKey,\s*metadataToken:\s*overload\.declarationMetadataToken \?\? overload\.metadataToken \?\? 0,\s*implementationMember: Boolean\(overload\.graphOnly\),\s*isCurrent: \(\) => memberRequestIsCurrent\(signature\)/);
   assert.match(
     annotatedLoader,
-    /loadFindingCensus\(\{\s*signature,\s*packageId: pkg\.id,\s*version: pkg\.version,\s*framework: pkg\.activeFramework,\s*assembly: type\.assembly,\s*typeIdentity: type\.definitionId \?\? type\.id,\s*type: type\.queryId \?\? type\.id,\s*member: state\.selectedBodyTarget\?\.memberName \?\? overload\.name,\s*memberSignature: overload\.signature,[\s\S]*taste: JSON\.stringify\(state\.taste\)/);
+    /const request = \{\s*signature,\s*typeIdentity: type\.definitionId \?\? type\.id,\s*type: type\.queryId \?\? type\.id,\s*member: state\.selectedBodyTarget\?\.memberName \?\? overload\.name,\s*memberSignature: overload\.signature,[\s\S]*taste: JSON\.stringify\(state\.taste\),[\s\S]*if \(pkg\.isRuntimePack\) \{[\s\S]*kind: "platform",[\s\S]*assembly: platformAssemblyRequest\(row\),\s*pack: row\.pack,\s*contextId: platformDemoContextIdFor\(pkg\),[\s\S]*kind: "package",\s*packageId: pkg\.id,\s*version: pkg\.version,\s*framework: pkg\.activeFramework,\s*assembly: type\.assembly/);
   assert.match(
     factsLoader,
     /const signature = memberRequestSignature\(type, overload, true\)/);
@@ -423,11 +503,11 @@ test("source operations cancel when superseded or hidden", () => {
   assert.match(autoLoadBody, /openGraphSource\(/);
   const annotatedLoader =
     appSource.match(
-      /async function loadSelectedMemberAnnotatedSource\(\)[\s\S]*?\n}\n\nfunction memberRequestSignature/)?.[0]
+      /async function loadSelectedMemberAnnotatedSource\(\)[\s\S]*?\n}\n\nasync function exploreSelectedMemberAnnotatedSource/)?.[0]
     ?? "";
   assert.match(
     annotatedLoader,
-    /return memberDetailInspection\.loadFindingCensus\(\{/);
+    /await memberDetailInspection\.loadFindingCensus\(\{[\s\S]*return signature;/);
   assert.doesNotMatch(
     annotatedLoader,
     /sourceRequestNeedsLoad|memberAnnotatedLoading/);
@@ -482,9 +562,9 @@ test("source operations cancel when superseded or hidden", () => {
       ...visible,
       lens: "api",
       selectedMemberKey: "M",
-      memberSection: "annotated"
+      memberSection: "source"
     }),
-    "annotated");
+    "member");
   assert.equal(
     sourceReloadKind({
       ...visible,
@@ -506,7 +586,7 @@ test("source operations cancel when superseded or hidden", () => {
       ...visible,
       lens: "api",
       selectedMemberKey: "M",
-      memberSection: "annotated"
+      memberSection: "source"
     }, false),
     null);
   assert.equal(
@@ -515,7 +595,7 @@ test("source operations cancel when superseded or hidden", () => {
       settings: true,
       lens: "api",
       selectedMemberKey: "M",
-      memberSection: "annotated"
+      memberSection: "source"
     }),
     null);
   assert.equal(
@@ -630,6 +710,7 @@ test("generated source wrappers parse their JSON envelopes", () => {
     "queryMemberFindingCensus",
     "queryMemberFacts",
     "queryMemberSource",
+    "queryPlatformMemberFindingCensus",
     "queryTypeMemberSource",
   ]) {
     assert.match(
@@ -651,14 +732,15 @@ test("MethodDef-only member sections are hidden for bodiless APIs", () => {
   }
   assert.deepEqual(
     memberSectionIdsFor({ kind: "method" }),
-    ["overview", "call-graph", "facts", "source", "annotated", "compare"]);
+    ["overview", "call-graph", "facts", "source", "compare"]);
   assert.deepEqual(
     memberSectionIdsFor({ kind: "method" }, true),
     ["overview", "call-graph", "source"]);
 });
 
-// Arrowing between members keeps ordinary sections sticky.
-test("moving between members keeps sections sticky without section-driven profile activation", () => {
+// Compare follows cross-Member navigation; exact method sections return to the
+// new family's Overview until an overload is selected.
+test("moving between members keeps Compare sticky without carrying exact method sections", () => {
   const openMemberGroupBody =
     appSource.match(/function openMemberGroup\(key: string\) \{[\s\S]*?\n}\n/)?.[0] ?? "";
   assert.match(openMemberGroupBody, /clearMemberContentCache\(\)/);
@@ -668,10 +750,16 @@ test("moving between members keeps sections sticky without section-driven profil
     /const preserveSection =\s*state\.memberBrowseTypeId === type\?\.id && Boolean\(state\.selectedMemberKey\)/);
   assert.match(
     openMemberGroupBody,
-    /state\.selectedBodyTarget = graphOnlyTarget;[\s\S]*if \(methodGroup \|\| !preserveSection\) \{\s*state\.memberSection = "overview"/);
+    /state\.selectedBodyTarget = graphOnlyTarget;[\s\S]*if \(resetMethodSection \|\| !preserveSection\) \{\s*state\.memberSection = "overview"/);
   assert.match(
     openMemberGroupBody,
-    /state\.memberSection !== "overview"[\s\S]*group\.overloads\.length > 1[\s\S]*state\.selectedOverloadIndex = 0;[\s\S]*retainMemberSectionIfSupported\(group\)/);
+    /const resetMethodSection =\s*ordinaryMethodGroup\(group\) && state\.memberSection !== "compare"/);
+  assert.doesNotMatch(
+    openMemberGroupBody,
+    /openMemberDocument|memberBaselineOrdinal/);
+  assert.match(
+    openMemberGroupBody,
+    /state\.memberSection !== "overview"[\s\S]*group\.overloads\.length > 1[\s\S]*state\.selectedOverloadIndex =\s*memberNavOverloadSourceIndex\(group, 0\);[\s\S]*retainMemberSectionIfSupported\(group\)/);
   assert.match(
     openMemberGroupBody,
     /const retainedSection = state\.memberSection;[\s\S]*let selectedFirstOverload = false;[\s\S]*selectedFirstOverload = true;[\s\S]*if \(selectedFirstOverload && state\.memberSection !== retainedSection\) \{\s*state\.selectedOverloadIndex = null;\s*state\.selectedBodyTarget = null/);
@@ -702,7 +790,10 @@ test("moving between members keeps sections sticky without section-driven profil
     ?? "";
   assert.match(
     selectEntryBody,
-    /entry\.group\.key === state\.selectedMemberKey[\s\S]*entry\.group\.overloads\.length === 1[\s\S]*state\.selectedOverloadIndex = null;\s*clearMemberContentCache\(\);\s*render\(\)/);
+    /entry\.group\.key === state\.selectedMemberKey[\s\S]*selectMemberFamilyParent\(state, entry\.group\)[\s\S]*clearMemberContentCache\(\);\s*render\(\)/);
+  assert.match(
+    selectEntryBody,
+    /memberNavOverloadSourceIndex\(entry\.group, entry\.index\);[\s\S]*openOverload\(sourceIndex\)/);
 });
 
 test("every overload-specific member loader leaves a multi-overload picker inert", () => {
@@ -716,8 +807,15 @@ test("every overload-specific member loader leaves a multi-overload picker inert
     const body =
       appSource.match(new RegExp(`async function ${name}\\(\\)[\\s\\S]*?\\n}`))?.[0]
       ?? "";
-    assert.match(body, /selectedConcreteOverload\(member\.overloads, state\.selectedOverloadIndex\)/);
-    assert.match(body, /if \(!overload\) \{\s*render\(\);\s*return;\s*}/);
+    assert.match(body, /selectedMemberOverload\(type, member\)/);
+    assert.doesNotMatch(
+      body,
+      /selectedConcreteOverload\(member\.overloads, state\.selectedOverloadIndex\)/);
+    assert.match(
+      body,
+      name === "loadSelectedMemberAnnotatedSource"
+        ? /if \(!overload\) \{\s*render\(\);\s*return null;\s*}/
+        : /if \(!overload\) \{\s*render\(\);\s*return;\s*}/);
     assert.doesNotMatch(body, /selectedOverloadIndex \?\? 0/);
   }
 });
@@ -750,13 +848,20 @@ test("source requests carry exact type and member identities", () => {
     ?? "";
   assert.match(
     memberBridge,
-    /typeIdentity, memberName, selectorKey, metadataToken, styleOptionsJson/);
+    /typeIdentity, memberName, selectorKey, metadataToken, documentBaselineOrdinal, styleOptionsJson/);
   assert.match(
     platformMemberBridge,
-    /targetFramework, platformVersion, assemblyName, pack,[\s\S]*typeIdentity, memberName, selectorKey, metadataToken, styleOptionsJson, contextId/);
+    /targetFramework, platformVersion, assemblyName, pack,[\s\S]*typeIdentity, memberName, selectorKey, metadataToken, documentBaselineOrdinal, styleOptionsJson, view, contextId/);
   assert.match(
     memberLoader,
     /type\.definitionId \?\? type\.id,[\s\S]*?state\.selectedBodyTarget\?\.memberName[\s\S]*?state\.selectedBodyTarget\?\.selectorKey[\s\S]*?state\.selectedBodyTarget\?\.metadataToken[\s\S]*pkg\.isRuntimePack[\s\S]*kind: "platform"[\s\S]*platformAssemblyRequest\(row\)[\s\S]*pack: row\.pack,[\s\S]*contextId: platformDemoContextIdFor\(pkg\)[\s\S]*kind: "package"/);
+  assert.match(
+    memberLoader,
+    /documentBaselineOrdinal:[\s\S]*memberBaselineOrdinal\(type, member, overload\)/);
+  assert.match(
+    appSource,
+    /function memberBaselineOrdinal\([\s\S]*overload\.baselineOrdinal[\s\S]*row => row\.metadataToken === metadataToken\)\?\.baselineOrdinal/);
+  assert.doesNotMatch(memberLoader, /overload\.anchorDigest/);
   assert.doesNotMatch(memberLoader, /signature:/);
 });
 

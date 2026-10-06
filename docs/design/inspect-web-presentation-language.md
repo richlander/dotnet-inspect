@@ -114,13 +114,17 @@ menu, dialog, drawer, toast, and scrim consumers in both themes.
 
 ## Selector controls
 
-Selector controls are compact pill-shaped buttons used to choose a value or
-filter a result set. Type kind, member kind, accessibility, and member trait
-controls use the same state language even when their values and selection
-semantics differ. This section applies to selector pills, not to subject or lens
-navigation.
+Selector controls choose a value or filter a result set. Broad navigation
+surfaces may use compact pill-shaped buttons; narrow Member and Type filter
+regions use labeled native dropdowns so complete labels and counts remain
+readable. Type kind, member kind, accessibility, and member trait controls use
+the same state language even when their values and selection semantics differ.
+This section applies to selector controls, not to subject or lens navigation.
+The visual state rules below apply to pill-shaped selectors. Native dropdowns
+use their platform-selected option, visible label, and ordinary focus semantics
+rather than imitating pill borders or `aria-pressed`.
 
-### Selected state
+### Pill selected state
 
 The accent color is the website-wide indication that a selector value is
 currently selected. It is not an accessibility color and must not be reserved

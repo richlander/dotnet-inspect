@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <LangVersion>preview</LangVersion>
+    <RootNamespace>DotnetInspector.PlatformHouse.Local.Tests</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsTestProject>true</IsTestProject>
+    <IsAotCompatible>false</IsAotCompatible>
+    <OutputType>Exe</OutputType>
+    <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="xunit.v3" />
+    <Using Include="Xunit" />
+    <ProjectReference Include="../../src/DotnetInspector.PlatformHouse/DotnetInspector.PlatformHouse.csproj" />
+    <ProjectReference Include="../../src/DotnetInspector.LibraryMetadata/DotnetInspector.LibraryMetadata.csproj" />
+    <ProjectReference Include="../../src/DotnetInspector.PlatformHouse.Local/DotnetInspector.PlatformHouse.Local.csproj" />
+  </ItemGroup>
+
+</Project>

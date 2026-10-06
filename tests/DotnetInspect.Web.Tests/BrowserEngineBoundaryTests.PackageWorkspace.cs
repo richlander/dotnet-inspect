@@ -38,7 +38,7 @@ using BrowserPackageOpportunities = DotnetInspect.Web.Interop.Analysis.BrowserPa
 using BrowserPackagePerformance = DotnetInspect.Web.Interop.Analysis.BrowserPackagePerformance;
 using BrowserPerformanceMember = DotnetInspect.Web.Interop.Analysis.BrowserPerformanceMember;
 using BrowserOpportunityItem = DotnetInspect.Web.Interop.Analysis.BrowserOpportunityItem;
-using BrowserLibraryNamespaceLeverage = DotnetInspect.Web.Interop.Analysis.BrowserLibraryNamespaceLeverage;
+using BrowserLibraryStructuralSalience = DotnetInspect.Web.Interop.Analysis.BrowserLibraryStructuralSalience;
 using BrowserLibraryTypeLeverageShard = DotnetInspect.Web.Interop.Analysis.BrowserLibraryTypeLeverageShard;
 using BrowserSource = DotnetInspect.Web.Interop.Source.BrowserSource;
 using BrowserCallGraph = DotnetInspect.Web.Interop.CallGraph.BrowserCallGraph;
@@ -1025,41 +1025,37 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Equal(
             BrowserAnalysisCompileLibraryStatus.Selected,
             integrations.CompileLibrary.Status);
-        BrowserLibraryNamespaceLeverage leverage =
-            Assert.IsType<BrowserLibraryNamespaceLeverage>(
+        BrowserLibraryStructuralSalience salience =
+            Assert.IsType<BrowserLibraryStructuralSalience>(
                 JsonSerializer.Deserialize(
                     await DotnetInspect.Web.Interop.Analysis.AnalysisExports
-                        .QueryPlatformLibraryNamespaceLeverage(
+                        .QueryPlatformLibraryStructuralSalience(
                             "net11.0",
                             version,
                             "DotnetInspect.Web.Tests.dll",
                             "netcore.app"),
                     BrowserAnalysisJsonContext.Default
-                        .BrowserLibraryNamespaceLeverage));
-        Assert.Equal("available", leverage.Outcome);
+                        .BrowserLibraryStructuralSalience));
+        Assert.Equal("available", salience.Surface.Outcome);
+        Assert.Equal("available", salience.Implementation.Outcome);
         Assert.Equal(
-            "structural-salience.v2",
-            leverage.MethodologyVersion);
-        Assert.NotEmpty(leverage.Namespaces);
+            "structural-salience.v3",
+            salience.Surface.MethodologyVersion);
+        Assert.NotEmpty(salience.Surface.NamespaceIndex!.Namespaces);
+        Assert.Equal(
+            salience.Surface.NamespaceIndex.Namespaces.Length,
+            salience.Surface.TypeLeverageShards.Length);
+        Assert.Equal(
+            salience.Surface.NamespaceIndex.Namespaces.Length,
+            salience.Implementation.TypeLeverageShards.Length);
         BrowserLibraryTypeLeverageShard shard =
-            Assert.IsType<BrowserLibraryTypeLeverageShard>(
-                JsonSerializer.Deserialize(
-                    await DotnetInspect.Web.Interop.Analysis.AnalysisExports
-                        .QueryPlatformNamespaceTypeLeverage(
-                            "net11.0",
-                            version,
-                            "DotnetInspect.Web.Tests.dll",
-                            "netcore.app",
-                            leverage.Namespaces[0].Namespace),
-                    BrowserAnalysisJsonContext.Default
-                        .BrowserLibraryTypeLeverageShard));
-        Assert.Equal("available", shard.Outcome);
-        Assert.Equal(2, shard.SchemaVersion);
+            salience.Surface.TypeLeverageShards[0];
         Assert.NotEmpty(shard.Types);
-        Assert.Null(leverage.Failure);
+        Assert.Null(salience.Surface.Failure);
+        Assert.Null(salience.Implementation.Failure);
         Assert.Equal(
             BrowserAnalysisCompileLibraryStatus.Selected,
-            leverage.CompileLibrary.Status);
+            salience.CompileLibrary.Status);
         BrowserPackageOpportunities opportunities =
             Assert.IsType<BrowserPackageOpportunities>(
                 JsonSerializer.Deserialize(

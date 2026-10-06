@@ -232,7 +232,7 @@ public sealed class TypeResolutionCatalog : IDisposable
 
         ApiSurface surface =
             ((CandidateSessionResult.Ready)session)
-                .Session.ApiSurface(
+                .Session.CompatibilityApiSurface(
                     source,
                     this,
                     bindingPolicy,

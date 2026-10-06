@@ -36,13 +36,23 @@ public sealed class WorkspaceDeclarationMember
         ExactLibrarySourceCoordinate? coordinate,
         AssemblyReferenceIdentity assemblyIdentity,
         WorkspaceDeclarationOrigin origin,
-        AssemblyResolutionProvenance selection)
+        AssemblyResolutionProvenance selection,
+        FindPackageSourceRequest? packageRequest)
     {
         Occurrence = occurrence;
         Coordinate = coordinate;
         AssemblyIdentity = assemblyIdentity;
         Origin = origin;
         Selection = selection;
+        if ((coordinate
+                is ExactLibrarySourceCoordinate.Package)
+            != (packageRequest is not null))
+        {
+            throw new ArgumentException(
+                "A package member requires package request identity, and other members cannot carry it.",
+                nameof(packageRequest));
+        }
+        PackageRequest = packageRequest;
     }
 
     public WorkspaceDeclarationOccurrence Occurrence { get; }
@@ -54,6 +64,7 @@ public sealed class WorkspaceDeclarationMember
     public AssemblyReferenceIdentity AssemblyIdentity { get; }
     public WorkspaceDeclarationOrigin Origin { get; }
     public AssemblyResolutionProvenance Selection { get; }
+    public FindPackageSourceRequest? PackageRequest { get; }
 }
 
 /// <summary>
@@ -250,6 +261,21 @@ public enum WorkspaceDeclarationInventoryBound
     RetainedInventories,
 }
 
+internal abstract record WorkspaceDeclarationAssemblyUseOutcome<TResult>
+{
+    private WorkspaceDeclarationAssemblyUseOutcome()
+    {
+    }
+
+    internal sealed record Available(TResult Value)
+        : WorkspaceDeclarationAssemblyUseOutcome<TResult>;
+
+    internal sealed record Unavailable(
+        WorkspaceDeclarationMember? Member,
+        string Detail)
+        : WorkspaceDeclarationAssemblyUseOutcome<TResult>;
+}
+
 /// <summary>
 /// Live query input over an exact captured roster. This is not a resident index.
 /// </summary>
@@ -259,6 +285,10 @@ public sealed class WorkspaceDeclarationPopulation
     readonly IReadOnlyDictionary<
         WorkspaceDeclarationOccurrence,
         WorkspaceDeclarationMemberAccess> _access;
+    readonly object _relationRegistrationGate = new();
+    readonly Dictionary<
+        WorkspaceDeclarationOccurrence,
+        AssemblyAcquisitionRegistration> _relationRegistrations = [];
 
     internal WorkspaceDeclarationPopulation(
         InspectionWorkspace workspace,
@@ -270,9 +300,16 @@ public sealed class WorkspaceDeclarationPopulation
         _workspace = workspace;
         Receipt = receipt;
         _access = access;
+        RelationAuthority =
+            SubjectRelationPopulationAuthority.Capture(
+                StructuralSubjectIdentity.ForWorkspace(
+                    receipt.Workspace),
+                receipt.Identity);
     }
 
     public WorkspaceDeclarationPopulationReceipt Receipt { get; }
+
+    internal SubjectRelationPopulationAuthority RelationAuthority { get; }
 
     internal WorkspaceDeclarationPopulationFailure? Availability() =>
         _workspace.DeclarationPopulationAvailability();
@@ -370,6 +407,251 @@ public sealed class WorkspaceDeclarationPopulation
                 .LibraryInspected(outcome);
         }
     }
+
+    internal WorkspaceDeclarationAssemblyUseOutcome<TResult>
+        UseAssemblySession<TResult>(
+            WorkspaceDeclarationOccurrence occurrence,
+            Func<
+                AssemblyInspectionSession,
+                MetadataRelationGraphSource,
+                TResult> callback,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(occurrence);
+        ArgumentNullException.ThrowIfNull(callback);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!_access.TryGetValue(occurrence, out var access))
+        {
+            return new WorkspaceDeclarationAssemblyUseOutcome<TResult>
+                .Unavailable(
+                    Member: null,
+                    "The declaration occurrence is not selected by this "
+                        + "captured population.");
+        }
+        if (Availability() is { } unavailable)
+        {
+            return new WorkspaceDeclarationAssemblyUseOutcome<TResult>
+                .Unavailable(
+                    access.Member,
+                    $"The Workspace declaration population is "
+                        + $"{unavailable}.");
+        }
+
+        try
+        {
+            return access switch
+            {
+                WorkspaceDeclarationMemberAccess.AssemblyContext group =>
+                    UseAssemblyContextSession(
+                        group,
+                        callback,
+                        cancellationToken),
+                WorkspaceDeclarationMemberAccess.LibraryOccurrence library =>
+                    UseLibrarySession(
+                        library,
+                        callback,
+                        cancellationToken),
+                _ => throw new InvalidOperationException(
+                    "Unknown Workspace declaration member access."),
+            };
+        }
+        catch (ObjectDisposedException exception)
+            when (exception.ObjectName
+                == typeof(AssemblyContextGroup).FullName)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return new WorkspaceDeclarationAssemblyUseOutcome<TResult>
+                .Unavailable(
+                    access.Member,
+                    "The selected assembly context is unavailable.");
+        }
+    }
+
+    static WorkspaceDeclarationAssemblyUseOutcome<TResult>
+        UseAssemblyContextSession<TResult>(
+            WorkspaceDeclarationMemberAccess.AssemblyContext access,
+            Func<
+                AssemblyInspectionSession,
+                MetadataRelationGraphSource,
+                TResult> callback,
+            CancellationToken cancellationToken)
+    {
+        AssemblyImageAccessResult<TResult> outcome =
+            access.Group.UseAssemblySession(
+                access.Assembly,
+                cancellationToken,
+                (session, source) =>
+                    callback(
+                        session,
+                        MetadataRelationGraphSource.From(source)));
+        cancellationToken.ThrowIfCancellationRequested();
+        return outcome switch
+        {
+            AssemblyImageAccessResult<TResult>.Available available =>
+                new WorkspaceDeclarationAssemblyUseOutcome<TResult>
+                    .Available(available.Value),
+            AssemblyImageAccessResult<TResult>.Rejected rejected =>
+                new WorkspaceDeclarationAssemblyUseOutcome<TResult>
+                    .Unavailable(
+                        access.Member,
+                        rejected.Failure.Detail),
+            _ => throw new InvalidOperationException(
+                "Unknown assembly-image access result."),
+        };
+    }
+
+    WorkspaceDeclarationAssemblyUseOutcome<TResult>
+        UseLibrarySession<TResult>(
+            WorkspaceDeclarationMemberAccess.LibraryOccurrence access,
+            Func<
+                AssemblyInspectionSession,
+                MetadataRelationGraphSource,
+                TResult> callback,
+            CancellationToken cancellationToken)
+    {
+        WorkspaceLibraryOperationIssueOutcome issued =
+            _workspace.IssueLibraryOperation(access.Occurrence);
+        if (issued is not WorkspaceLibraryOperationIssueOutcome.Issued
+            available)
+        {
+            return new WorkspaceDeclarationAssemblyUseOutcome<TResult>
+                .Unavailable(
+                    access.Member,
+                    "The selected Library occurrence is unavailable.");
+        }
+
+        using (available.Lease)
+        {
+            return available.Lease.Snapshot(
+                access.Occurrence.Library.ApiAssembly,
+                (view, token) =>
+                    view.UseReadStream(
+                        content => UseLibraryContent(
+                            content,
+                            access,
+                            callback,
+                            token)),
+                cancellationToken);
+        }
+    }
+
+    WorkspaceDeclarationAssemblyUseOutcome<TResult>
+        UseLibraryContent<TResult>(
+            Stream content,
+            WorkspaceDeclarationMemberAccess.LibraryOccurrence access,
+            Func<
+                AssemblyInspectionSession,
+                MetadataRelationGraphSource,
+                TResult> callback,
+            CancellationToken cancellationToken)
+    {
+        AssemblyInspectionSession session;
+        try
+        {
+            session = AssemblyInspectionSession.OpenPrefetched(content);
+        }
+        catch (Exception exception) when (
+            exception is MalformedMetadataRootException
+                or UnsupportedMetadataFormatException
+                or BadImageFormatException
+                or ArgumentOutOfRangeException
+                or OverflowException)
+        {
+            return new WorkspaceDeclarationAssemblyUseOutcome<TResult>
+                .Unavailable(
+                    access.Member,
+                    exception.Message);
+        }
+
+        using (session)
+        {
+            MetadataRelationGraphSource source;
+            try
+            {
+                if (!session.HasMetadata)
+                {
+                    return new
+                        WorkspaceDeclarationAssemblyUseOutcome<TResult>
+                            .Unavailable(
+                                access.Member,
+                                "The selected Library content is not a "
+                                    + "managed assembly.");
+                }
+                if (!session.IsAssembly)
+                {
+                    return new
+                        WorkspaceDeclarationAssemblyUseOutcome<TResult>
+                            .Unavailable(
+                                access.Member,
+                                "The selected Library content is a managed "
+                                    + "module, not an assembly.");
+                }
+
+                AssemblyReferenceIdentity identity =
+                    session.AssemblyIdentity();
+                if (!identity.IsEquivalentTo(
+                        access.Member.AssemblyIdentity))
+                {
+                    return new
+                        WorkspaceDeclarationAssemblyUseOutcome<TResult>
+                            .Unavailable(
+                                access.Member,
+                                "The selected Library content changed "
+                                    + "assembly identity.");
+                }
+                Guid moduleVersionId = session.ModuleVersionId();
+                AssemblyAcquisitionRegistration registration;
+                lock (_relationRegistrationGate)
+                {
+                    if (!_relationRegistrations.TryGetValue(
+                            access.Member.Occurrence,
+                            out registration!))
+                    {
+                        registration =
+                            AssemblyAcquisitionRegistration.ForArtifact(
+                                access.Occurrence.Library.ApiAssembly
+                                    .Registration,
+                                moduleVersionId);
+                        _relationRegistrations.Add(
+                            access.Member.Occurrence,
+                            registration);
+                    }
+                    else if (registration.ModuleVersionId
+                        != moduleVersionId)
+                    {
+                        return new
+                            WorkspaceDeclarationAssemblyUseOutcome<TResult>
+                                .Unavailable(
+                                    access.Member,
+                                    "The selected Library content changed "
+                                        + "module generation.");
+                    }
+                }
+
+                source = new(
+                    registration,
+                    identity,
+                    access.Member.Selection);
+            }
+            catch (Exception exception) when (
+                exception is MalformedMetadataRootException
+                    or UnsupportedMetadataFormatException
+                    or BadImageFormatException
+                    or ArgumentOutOfRangeException
+                    or OverflowException)
+            {
+                return new WorkspaceDeclarationAssemblyUseOutcome<TResult>
+                    .Unavailable(
+                        access.Member,
+                        exception.Message);
+            }
+
+            TResult result = callback(session, source);
+            cancellationToken.ThrowIfCancellationRequested();
+            return new WorkspaceDeclarationAssemblyUseOutcome<TResult>
+                .Available(result);
+        }
+    }
 }
 
 internal abstract record WorkspaceDeclarationMemberAccess
@@ -378,12 +660,23 @@ internal abstract record WorkspaceDeclarationMemberAccess
     {
     }
 
+    internal WorkspaceDeclarationMember Member =>
+        this switch
+        {
+            AssemblyContext assembly => assembly.Declaration,
+            LibraryOccurrence library => library.Declaration,
+            _ => throw new InvalidOperationException(
+                "Unknown Workspace declaration member access."),
+        };
+
     internal sealed record AssemblyContext(
+        WorkspaceDeclarationMember Declaration,
         AssemblyContextGroup Group,
         ResolvedAssemblyReference Assembly)
         : WorkspaceDeclarationMemberAccess;
 
     internal sealed record LibraryOccurrence(
+        WorkspaceDeclarationMember Declaration,
         WorkspaceLibraryOccurrence Occurrence,
         LibraryTypeDeclarationInventoryInspectionBounds Bounds)
         : WorkspaceDeclarationMemberAccess;

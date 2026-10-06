@@ -25,9 +25,9 @@ import type {
   CompiledDocumentationOutcome,
 } from "../src/facades/inspect-web-package.js";
 import type {
-  BrowserLibraryNamespaceLeverage as LibraryNamespaceLeverage,
-  BrowserLibraryTypeLeverageShard as LibraryTypeLeverageShard,
+  BrowserLibraryStructuralSalience as LibraryStructuralSalience,
   BrowserPackageIntegrations as PackageIntegrations,
+  BrowserTypeMethodLeverage as TypeMethodLeverage,
 } from "../src/facades/inspect-web-analysis.js";
 import type {
   BrowserWorkspaceShareEncodeResult,
@@ -569,32 +569,32 @@ declare global {
         framework: string,
         libraryId: string,
       ): Promise<PackageIntegrations>;
-      queryLibraryNamespaceLeverage(
+      queryLibraryStructuralSalience(
         packageId: string,
         version: string,
         framework: string,
         libraryId: string,
-      ): Promise<LibraryNamespaceLeverage>;
-      queryNamespaceTypeLeverage(
+      ): Promise<LibraryStructuralSalience>;
+      queryPlatformLibraryStructuralSalience(
+        framework: string,
+        version: string,
+        assembly: string,
+        pack: string,
+      ): Promise<LibraryStructuralSalience>;
+      queryPackageTypeMethodLeverage(
         packageId: string,
         version: string,
         framework: string,
-        libraryId: string,
-        exactNamespace: string,
-      ): Promise<LibraryTypeLeverageShard>;
-      queryPlatformLibraryNamespaceLeverage(
+        assembly: string,
+        typeDefinitionId: string,
+      ): Promise<TypeMethodLeverage>;
+      queryPlatformTypeMethodLeverage(
         framework: string,
         version: string,
         assembly: string,
         pack: string,
-      ): Promise<LibraryNamespaceLeverage>;
-      queryPlatformNamespaceTypeLeverage(
-        framework: string,
-        version: string,
-        assembly: string,
-        pack: string,
-        exactNamespace: string,
-      ): Promise<LibraryTypeLeverageShard>;
+        typeDefinitionId: string,
+      ): Promise<TypeMethodLeverage>;
       queryPlatformDocumentation(
         framework: string,
         platformVersion: string,
@@ -680,36 +680,46 @@ async function boot(page: Page): Promise<void> {
       queryIntegrations: (packageId, pkgVersion, framework, libraryId) =>
         client.analysis.queryPackageIntegrations(
           packageId, pkgVersion, framework, libraryId),
-      queryLibraryNamespaceLeverage: (
+      queryLibraryStructuralSalience: (
         packageId,
         pkgVersion,
         framework,
         libraryId,
-      ) => client.analysis.queryPackageLibraryNamespaceLeverage(
+      ) => client.analysis.queryPackageLibraryStructuralSalience(
         packageId, pkgVersion, framework, libraryId),
-      queryNamespaceTypeLeverage: (
+      queryPlatformLibraryStructuralSalience: (
+        framework,
+        platformVersion,
+        assembly,
+        pack,
+      ) => client.analysis.queryPlatformLibraryStructuralSalience(
+        framework, platformVersion, assembly, pack),
+      queryPackageTypeMethodLeverage: (
         packageId,
         pkgVersion,
         framework,
-        libraryId,
-        exactNamespace,
-      ) => client.analysis.queryPackageNamespaceTypeLeverage(
-        packageId, pkgVersion, framework, libraryId, exactNamespace),
-      queryPlatformLibraryNamespaceLeverage: (
+        assembly,
+        typeDefinitionId,
+      ) => client.analysis.queryPackageTypeMethodLeverage(
+        packageId,
+        pkgVersion,
+        framework,
+        assembly,
+        typeDefinitionId,
+      ),
+      queryPlatformTypeMethodLeverage: (
         framework,
         platformVersion,
         assembly,
         pack,
-      ) => client.analysis.queryPlatformLibraryNamespaceLeverage(
-        framework, platformVersion, assembly, pack),
-      queryPlatformNamespaceTypeLeverage: (
+        typeDefinitionId,
+      ) => client.analysis.queryPlatformTypeMethodLeverage(
         framework,
         platformVersion,
         assembly,
         pack,
-        exactNamespace,
-      ) => client.analysis.queryPlatformNamespaceTypeLeverage(
-        framework, platformVersion, assembly, pack, exactNamespace),
+        typeDefinitionId,
+      ),
       queryPlatformDocumentation: (
         framework,
         platformVersion,
@@ -749,10 +759,22 @@ function driver(page: Page): {
   clearOccurrences(): Promise<void>;
   queryDependencies(packageId: string, version: string, framework: string, assemblyId: string): Promise<PackageDependencies>;
   queryIntegrations(packageId: string, version: string, framework: string, libraryId: string): Promise<PackageIntegrations>;
-  queryLibraryNamespaceLeverage(packageId: string, version: string, framework: string, libraryId: string): Promise<LibraryNamespaceLeverage>;
-  queryNamespaceTypeLeverage(packageId: string, version: string, framework: string, libraryId: string, exactNamespace: string): Promise<LibraryTypeLeverageShard>;
-  queryPlatformLibraryNamespaceLeverage(framework: string, version: string, assembly: string, pack: string): Promise<LibraryNamespaceLeverage>;
-  queryPlatformNamespaceTypeLeverage(framework: string, version: string, assembly: string, pack: string, exactNamespace: string): Promise<LibraryTypeLeverageShard>;
+  queryLibraryStructuralSalience(packageId: string, version: string, framework: string, libraryId: string): Promise<LibraryStructuralSalience>;
+  queryPlatformLibraryStructuralSalience(framework: string, version: string, assembly: string, pack: string): Promise<LibraryStructuralSalience>;
+  queryPackageTypeMethodLeverage(
+    packageId: string,
+    version: string,
+    framework: string,
+    assembly: string,
+    typeDefinitionId: string,
+  ): Promise<TypeMethodLeverage>;
+  queryPlatformTypeMethodLeverage(
+    framework: string,
+    version: string,
+    assembly: string,
+    pack: string,
+    typeDefinitionId: string,
+  ): Promise<TypeMethodLeverage>;
   queryPlatformDocumentation(
     framework: string,
     platformVersion: string,
@@ -816,47 +838,24 @@ function driver(page: Page): {
           window.__adoption!.queryIntegrations(id, ver, tfm, selected),
         { packageId, version: pkgVersion, framework, libraryId },
       ),
-    queryLibraryNamespaceLeverage: (
+    queryLibraryStructuralSalience: (
       packageId,
       pkgVersion,
       framework,
       libraryId,
     ) => page.evaluate(
       ({ packageId: id, version: ver, framework: tfm, libraryId: selected }) =>
-        window.__adoption!.queryLibraryNamespaceLeverage(
+        window.__adoption!.queryLibraryStructuralSalience(
           id, ver, tfm, selected),
       { packageId, version: pkgVersion, framework, libraryId },
     ),
-    queryNamespaceTypeLeverage: (
-      packageId,
-      pkgVersion,
-      framework,
-      libraryId,
-      exactNamespace,
-    ) => page.evaluate(
-      ({
-        packageId: id,
-        version: ver,
-        framework: tfm,
-        libraryId: selected,
-        exactNamespace: namespace,
-      }) => window.__adoption!.queryNamespaceTypeLeverage(
-        id, ver, tfm, selected, namespace),
-      {
-        packageId,
-        version: pkgVersion,
-        framework,
-        libraryId,
-        exactNamespace,
-      },
-    ),
-    queryPlatformLibraryNamespaceLeverage: (
+    queryPlatformLibraryStructuralSalience: (
       framework,
       platformVersion,
       assembly,
       pack,
     ) => page.evaluate(
-      coordinates => window.__adoption!.queryPlatformLibraryNamespaceLeverage(
+      coordinates => window.__adoption!.queryPlatformLibraryStructuralSalience(
         coordinates.framework,
         coordinates.platformVersion,
         coordinates.assembly,
@@ -864,21 +863,43 @@ function driver(page: Page): {
       ),
       { framework, platformVersion, assembly, pack },
     ),
-    queryPlatformNamespaceTypeLeverage: (
+    queryPackageTypeMethodLeverage: (
+      packageId,
+      pkgVersion,
+      framework,
+      assembly,
+      typeDefinitionId,
+    ) => page.evaluate(
+      coordinates => window.__adoption!.queryPackageTypeMethodLeverage(
+        coordinates.packageId,
+        coordinates.version,
+        coordinates.framework,
+        coordinates.assembly,
+        coordinates.typeDefinitionId,
+      ),
+      {
+        packageId,
+        version: pkgVersion,
+        framework,
+        assembly,
+        typeDefinitionId,
+      },
+    ),
+    queryPlatformTypeMethodLeverage: (
       framework,
       platformVersion,
       assembly,
       pack,
-      exactNamespace,
+      typeDefinitionId,
     ) => page.evaluate(
-      coordinates => window.__adoption!.queryPlatformNamespaceTypeLeverage(
+      coordinates => window.__adoption!.queryPlatformTypeMethodLeverage(
         coordinates.framework,
         coordinates.platformVersion,
         coordinates.assembly,
         coordinates.pack,
-        coordinates.exactNamespace,
+        coordinates.typeDefinitionId,
       ),
-      { framework, platformVersion, assembly, pack, exactNamespace },
+      { framework, platformVersion, assembly, pack, typeDefinitionId },
     ),
     queryPlatformDocumentation: (
       framework,
@@ -1000,9 +1021,9 @@ test("Library API Diff preserves distinct carriage-return and newline Type ident
     packet: null,
   };
   const result: BrowserLibraryApiDiffResult = {
-    schemaVersion: 2,
+    schemaVersion: 3,
     request: {
-      schemaVersion: 2,
+      schemaVersion: 3,
       packageId: input.packageId,
       currentVersion: input.currentVersion,
       targetVersion: input.targetVersion,
@@ -1013,6 +1034,7 @@ test("Library API Diff preserves distinct carriage-return and newline Type ident
       views: "Changes",
       typeNames: [],
       memberTargetIdentities: [],
+      predicate: null,
     },
     kind: "Succeeded",
     value: {
@@ -1046,6 +1068,7 @@ test("Library API Diff preserves distinct carriage-return and newline Type ident
           surface: "Library",
           views: "Changes",
           analyses: ["api"],
+          predicates: [],
         },
         outcomes: [{
           analysis: "api",
@@ -1190,8 +1213,7 @@ test.describe("Package Query website over real Wasm", () => {
     await expect(overview.locator("h1")).toHaveText(
       literalCoordinate.packageId.toLowerCase(),
     );
-    await expect(overview.locator(".overview-surface-footer"))
-      .toContainText(literalCoordinate.version);
+    await expect(overview.locator(".overview-surface-footer")).toHaveCount(0);
     const packageUrl = page.url();
     const retainedWorkspaceId = await currentHistoryWorkspaceId(page);
     expect(retainedWorkspaceId).not.toBeNull();
@@ -2661,7 +2683,7 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     await page.evaluate(() => window.__adoption!.dispose());
   });
 
-  test("answers structural salience as an index plus exact namespace shard", async ({
+  test("answers structural salience as one exhaustive document", async ({
     page,
     context,
   }) => {
@@ -2677,38 +2699,31 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
       throw new Error(`Expected the ${healthyAssemblyName} Library descriptor.`);
     }
 
-    const index = await engine.queryLibraryNamespaceLeverage(
+    const salience = await engine.queryLibraryStructuralSalience(
       healthy.packageId,
       healthy.version,
       fixtureFramework,
       library.id,
     );
-    expect(index.outcome).toBe("available");
-    expect(index.methodologyVersion).toBe("structural-salience.v2");
-    expect(index.evidenceMode).toBe("signature");
-    expect(index.failure).toBeNull();
-    expect(index.namespaces.length).toBeGreaterThan(0);
-    const namespace = index.namespaces.find(row => row.topLeverage)
-      ?? index.namespaces[0];
-    if (namespace === undefined) {
-      throw new Error("Expected one namespace leverage row.");
+    expect(salience.surface.outcome).toBe("available");
+    expect(salience.surface.methodologyVersion)
+      .toBe("structural-salience.v3");
+    expect(salience.surface.evidenceMode).toBe("signature");
+    expect(salience.surface.failure).toBeNull();
+    expect(salience.surface.namespaceIndex).not.toBeNull();
+    expect(salience.implementation.outcome).toBe("available");
+    expect(salience.implementation.evidenceMode).toBe("body-use");
+    const namespaces = salience.surface.namespaceIndex!.namespaces;
+    expect(namespaces.length).toBeGreaterThan(0);
+    for (const channel of [salience.surface, salience.implementation]) {
+      expect(channel.typeLeverageShards.map(shard => shard.namespace))
+        .toEqual(namespaces.map(row => row.namespace));
     }
-
-    const shard = await engine.queryNamespaceTypeLeverage(
-      healthy.packageId,
-      healthy.version,
-      fixtureFramework,
-      library.id,
-      namespace.namespace,
-    );
-    expect(shard.outcome).toBe("available");
-    expect(shard.methodologyVersion).toBe(index.methodologyVersion);
-    expect(shard.evidenceMode).toBe(index.evidenceMode);
-    expect(shard.namespace).toBe(namespace.namespace);
-    expect(shard.failure).toBeNull();
-    expect(
-      new Set(shard.types.map(row => row.typeDefinitionId)).size,
-    ).toBe(shard.types.length);
+    for (const shard of salience.surface.typeLeverageShards) {
+      expect(
+        new Set(shard.types.map(row => row.typeDefinitionId)).size,
+      ).toBe(shard.types.length);
+    }
     await page.evaluate(() => window.__adoption!.dispose());
   });
 
@@ -2885,7 +2900,7 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     // "Inspection failed" instead.
     await expect(panel.locator(".api-surface-head"))
       .toContainText("1 direct reference");
-    await expect(panel.locator("footer")).toContainText(healthyAssemblyFileName);
+    await expect(panel.locator("footer")).toHaveCount(0);
     await expect(panel).not.toContainText("Inspection failed");
   });
 
@@ -2924,6 +2939,10 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     // Library Compare: one frame, Diff active, Package-owned target explained.
     const panel = page.locator("#inspector-panel");
     const frame = panel.locator(".compare-surface");
+    const settledLocationAfter = async (previousLocation: string) => {
+      await expect.poll(() => page.url()).not.toBe(previousLocation);
+      return page.url();
+    };
     await expect(frame).toHaveClass(/compare-surface-library/, { timeout: 60_000 });
     await expect(panel.locator('[data-compare-mode="diff"]'))
       .toHaveAttribute("aria-selected", "true");
@@ -2934,15 +2953,17 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     await expect(panel.locator(".compare-head .compare-status"))
       .toContainText("Comparison complete", { timeout: 60_000 });
     await expect(frame.locator(":scope > .compare-status")).toHaveCount(0);
+    await expect(frame.locator(":scope > .compare-target")).toHaveCount(0);
     const headerBox = await frame.locator(".compare-head").boundingBox();
-    const targetBox = await frame.locator(".compare-target").boundingBox();
+    const contextBox = await frame.locator(".compare-context").boundingBox();
     const resultBox = await frame.locator(".compare-panel").boundingBox();
     expect(headerBox).not.toBeNull();
-    expect(targetBox).not.toBeNull();
+    expect(contextBox).not.toBeNull();
     expect(resultBox).not.toBeNull();
-    expect(Math.abs(targetBox!.y - headerBox!.y - headerBox!.height))
-      .toBeLessThanOrEqual(1);
-    expect(Math.abs(resultBox!.y - targetBox!.y - targetBox!.height))
+    expect(contextBox!.y).toBeGreaterThanOrEqual(headerBox!.y);
+    expect(contextBox!.y + contextBox!.height)
+      .toBeLessThanOrEqual(headerBox!.y + headerBox!.height + 1);
+    expect(Math.abs(resultBox!.y - headerBox!.y - headerBox!.height))
       .toBeLessThanOrEqual(1);
     await expect(panel.locator(".library-api-diff-type")).toHaveCount(8);
     await expect(panel).toContainText("LibraryApiDiffFixture.RemovedType");
@@ -2969,6 +2990,7 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
       .toHaveCount(7);
     expect(registry.downloadCount(libraryDiffV1)).toBe(1);
     expect(registry.downloadCount(libraryDiffV2)).toBe(1);
+    const libraryLocation = page.url();
 
     // Library -> Type keeps Compare and Diff active with the same target.
     await panel.locator(
@@ -2986,6 +3008,14 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     // The added Type carries its implicit constructor plus First and Second.
     await expect(panel.locator(".compare-status"))
       .toContainText("3 changed Members", { timeout: 60_000 });
+    const changedTypeNavigation = page.locator(
+      '#content-navigation-pane [data-type="LibraryApiDiffFixture.AddedType"]',
+    );
+    await expect(
+      changedTypeNavigation.locator(".item-achievement-glyph.api-diff"),
+    ).toHaveCount(1);
+    await expect(changedTypeNavigation.locator(".item-achievement-rail"))
+      .toHaveAttribute("aria-label", /API differences/);
     await expect(panel.locator(".library-api-diff-member")).toHaveCount(3);
     await expect(panel.locator(".library-api-diff-member button")).toHaveCount(3);
     await expect(panel).not.toContainText("Whole type diff");
@@ -2993,11 +3023,14 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     await expect(panel.locator('[aria-label="Type-level changes"] .library-api-diff-change'))
       .toHaveCount(1);
     await expect(panel.locator('[aria-label="Type-level changes"]'))
-      .toContainText("type added");
+      .toContainText("Additive");
+    await expect(panel.locator('[aria-label="Type-level changes"]'))
+      .toContainText("Type 'LibraryApiDiffFixture.AddedType' was added");
     await expect(panel.locator(".library-api-diff-member .library-api-diff-change-chip"))
       .toHaveCount(0);
     expect(registry.downloadCount(libraryDiffV1)).toBe(1);
     expect(registry.downloadCount(libraryDiffV2)).toBe(1);
+    const addedTypeLocation = await settledLocationAfter(libraryLocation);
 
     // Type -> Member is the detailed-result boundary.
     await panel.locator(".library-api-diff-member button", { hasText: "First" })
@@ -3009,15 +3042,26 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
       .toHaveText("LibraryApiDiffFixture.AddedType.First");
     await expect(panel.locator(".compare-status"))
       .toContainText("Member added", { timeout: 60_000 });
-    await expect(panel.locator(".library-api-diff-endpoint")).toHaveCount(2);
-    await expect(panel.locator(".library-api-diff-absent")).toHaveCount(1);
+    const changedMemberNavigation = page.locator(
+      '#content-navigation-pane [data-nav-member="method:First"]',
+    );
+    await expect(
+      changedMemberNavigation.locator(".item-achievement-glyph.api-diff"),
+    ).toHaveCount(1);
+    await expect(changedMemberNavigation.locator(".item-achievement-rail"))
+      .toHaveAttribute("aria-label", /API differences/);
+    await expect(panel.locator(".library-api-diff-endpoint")).toHaveCount(0);
+    await expect(panel).not.toContainText("Member evidence");
     await expect(panel.locator("#library-api-diff-changes-title")).toHaveText("What changed");
+    await expect(panel.locator(
+      ".member-diff-inline-source .member-diff-source-unavailable",
+    )).toContainText("Before: Not present on this side.");
     await expect(panel).toContainText(
       "No Member-level change is classified: the containing Type was added as a whole.",
     );
     const explore = page.locator("#member-diff-explore");
     await expect(explore).toBeVisible();
-    const memberLocation = page.url();
+    const memberLocation = await settledLocationAfter(addedTypeLocation);
     const memberHistoryLength = await page.evaluate(() => history.length);
     await explore.focus();
     await explore.click();
@@ -3033,21 +3077,74 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     await expect(memberDiffExplorer.locator("#member-diff-explorer-title"))
       .toContainText("First");
     expect(page.url()).toBe(memberLocation);
+    await expect(memberDiffExplorer.locator(".member-diff-explorer-content"))
+      .toHaveCount(1);
+    await expect(memberDiffExplorer.locator(".code-evidence-viewer-workspace"))
+      .toHaveCount(1);
+    await expect(memberDiffExplorer.locator(".member-diff-explorer-rail"))
+      .toHaveCount(1);
     await expect(memberDiffExplorer.locator(".member-diff-explorer-pane"))
-      .toHaveCount(3);
+      .toHaveCount(0);
     await expect(memberDiffExplorer.locator("#member-diff-explorer-title"))
       .toContainText("First");
-    await expect(memberDiffExplorer).toContainText(
+    await expect(memberDiffExplorer).not.toContainText(
       "No Member-level change is classified: the containing Type was added as a whole.",
     );
-    await expect(memberDiffExplorer.locator(".member-diff-declaration-unavailable"))
-      .toBeVisible();
+    await expect(memberDiffExplorer).not.toContainText("Declaration");
+    await expect(memberDiffExplorer).not.toContainText("What changed");
     await expect(memberDiffExplorer.locator(
       ".member-diff-source-endpoint",
     ).first()).toContainText("Not present on this side.");
     await expect(memberDiffExplorer.locator(".member-diff-source-unavailable"))
       .toBeVisible({ timeout: 120_000 });
+    const desktopGeometry = await memberDiffExplorer.evaluate(explorer => {
+      const content = explorer.querySelector(
+        ".code-evidence-viewer-content",
+      )?.getBoundingClientRect();
+      const rail = explorer.querySelector(
+        ".code-evidence-viewer-rail",
+      )?.getBoundingClientRect();
+      return {
+        content: content === undefined
+          ? null
+          : { x: content.x, width: content.width },
+        rail: rail === undefined
+          ? null
+          : { x: rail.x, width: rail.width },
+      };
+    });
+    expect(desktopGeometry.content).not.toBeNull();
+    expect(desktopGeometry.rail).not.toBeNull();
+    expect(desktopGeometry.content!.width)
+      .toBeGreaterThan(desktopGeometry.rail!.width);
+    expect(desktopGeometry.rail!.width).toBeLessThanOrEqual(360);
+    expect(desktopGeometry.rail!.x)
+      .toBeGreaterThanOrEqual(
+        desktopGeometry.content!.x + desktopGeometry.content!.width - 1,
+      );
     await page.setViewportSize({ width: 390, height: 844 });
+    const narrowGeometry = await memberDiffExplorer.evaluate(explorer => {
+      const content = explorer.querySelector(
+        ".code-evidence-viewer-content",
+      )?.getBoundingClientRect();
+      const rail = explorer.querySelector(
+        ".code-evidence-viewer-rail",
+      )?.getBoundingClientRect();
+      return {
+        content: content === undefined
+          ? null
+          : { y: content.y, height: content.height },
+        rail: rail === undefined
+          ? null
+          : { y: rail.y },
+      };
+    });
+    expect(narrowGeometry.content).not.toBeNull();
+    expect(narrowGeometry.rail).not.toBeNull();
+    expect(narrowGeometry.rail!.y)
+      .toBeGreaterThanOrEqual(
+        narrowGeometry.content!.y + narrowGeometry.content!.height - 1,
+      );
     const overflow = await page.evaluate(() => ({
       document: document.documentElement.scrollWidth - window.innerWidth,
       explorer: (document.querySelector(".member-diff-explorer")?.scrollWidth
@@ -3060,9 +3157,30 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     await expect(explore).toBeFocused();
     await page.setViewportSize({ width: 1440, height: 900 });
 
+    // Cross-Member keyboard navigation keeps Compare active.
+    await page.locator("#type-list").focus();
+    await page.keyboard.press("ArrowDown");
+    await expect(panel.locator("#compare-title"))
+      .toHaveText("LibraryApiDiffFixture.AddedType.Second");
+    await expect(page.locator(
+      '[data-inspector-tab][data-member-section="compare"]',
+    )).toHaveAttribute("aria-selected", "true");
+    await page.keyboard.press("ArrowUp");
+    await expect(panel.locator("#compare-title"))
+      .toHaveText("LibraryApiDiffFixture.AddedType.First");
+    await page.locator("#nav-back").click();
+    await expect(panel.locator("#compare-title"))
+      .toHaveText("LibraryApiDiffFixture.AddedType.Second");
+    await page.locator("#nav-back").click();
+    await expect(panel.locator("#compare-title"))
+      .toHaveText("LibraryApiDiffFixture.AddedType.First");
+
     // A Member with its own classified change shows the producer's change row.
     await page.locator("#nav-back").click();
+    await expect.poll(() => page.url()).toBe(addedTypeLocation);
+    await expect(frame).toHaveClass(/compare-surface-type/, { timeout: 60_000 });
     await page.locator("#nav-back").click();
+    await expect.poll(() => page.url()).toBe(libraryLocation);
     await expect(frame).toHaveClass(/compare-surface-library/, { timeout: 60_000 });
     await panel.locator(
       '[data-compare-type-id="LibraryApiDiffFixture.HardChangedType"]',
@@ -3070,23 +3188,35 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     await expect(frame).toHaveClass(/compare-surface-type/, { timeout: 60_000 });
     await expect(panel.locator(".library-api-diff-member .library-api-diff-change-chip"))
       .toHaveText(["Breaking · virtual removed"]);
+    const hardChangedTypeLocation = await settledLocationAfter(libraryLocation);
     await panel.locator(".library-api-diff-member button", { hasText: "First" })
       .click();
     await expect(frame).toHaveClass(/compare-surface-member/, { timeout: 60_000 });
     await expect(panel.locator(".compare-status"))
       .toContainText("Member changed", { timeout: 60_000 });
+    await settledLocationAfter(hardChangedTypeLocation);
     const changeRows = panel.locator('[aria-label="What changed"] .library-api-diff-change');
     await expect(changeRows).toHaveCount(1);
-    await expect(changeRows.first()).toContainText("virtual removed");
+    await expect(changeRows.first())
+      .toContainText("Member 'First' is no longer virtual");
+    await expect(changeRows.first()).not.toContainText("virtual removed");
     await expect(changeRows.first().locator(".library-api-diff-change-chip"))
       .toHaveText("Breaking");
     await expect(changeRows.first().locator(".library-api-diff-change-category"))
-      .toHaveText("Signature");
+      .toHaveCount(0);
+    await expect(panel.locator(".library-api-diff-member-summary"))
+      .toHaveCount(0);
+    await expect(panel.locator(".library-api-diff-member-evidence"))
+      .toHaveCount(0);
     await expect(explore).toBeVisible();
     await explore.click();
     await expect(memberDiffExplorer).toBeVisible();
+    await expect(memberDiffExplorer.locator(".member-diff-explorer-content"))
+      .toHaveCount(1);
+    await expect(memberDiffExplorer).not.toContainText("What changed");
+    await expect(memberDiffExplorer).not.toContainText("Declaration");
     await expect(memberDiffExplorer.locator(
-      ".member-diff-explorer-source .member-diff-source-endpoint",
+      ".member-diff-explorer-rail .member-diff-source-endpoint",
     ))
       .toHaveCount(2);
     await expect(memberDiffExplorer).not.toContainText(
@@ -3103,9 +3233,11 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     await page.locator("#nav-back")
       .evaluate((button: HTMLButtonElement) => button.click());
     await expect(memberDiffExplorer).toHaveCount(0);
+    await expect.poll(() => page.url()).toBe(hardChangedTypeLocation);
     await expect(frame).toHaveClass(/compare-surface-type/, { timeout: 60_000 });
     await expect(panel.locator("#compare-title")).toBeFocused();
     await page.locator("#nav-back").click();
+    await expect.poll(() => page.url()).toBe(libraryLocation);
     await expect(frame).toHaveClass(/compare-surface-library/, { timeout: 60_000 });
 
     // A Member the producer placed under two Types: the Before placement is
@@ -3115,6 +3247,8 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
       '[data-compare-type-id="LibraryApiDiffFixture.ProjectionExtensions"]',
     ).click();
     await expect(frame).toHaveClass(/compare-surface-type/, { timeout: 60_000 });
+    const projectionExtensionsLocation =
+      await settledLocationAfter(libraryLocation);
     const movedAway = panel.locator(".library-api-diff-member", { hasText: "Transform" });
     await expect(movedAway).toHaveClass(/library-api-diff-member-inert/);
     await expect(movedAway).toContainText(
@@ -3126,6 +3260,8 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     await expect(frame).toHaveClass(/compare-surface-type/, { timeout: 60_000 });
     await expect(panel.locator("#compare-title"))
       .toHaveText("LibraryApiDiffFixture.ProjectionReceiver");
+    const projectionReceiverLocation =
+      await settledLocationAfter(projectionExtensionsLocation);
     const movedHere = panel.locator(".library-api-diff-member", { hasText: "Transform" });
     await expect(movedHere.locator(".library-api-diff-moved"))
       .toContainText("Moved from LibraryApiDiffFixture.ProjectionExtensions");
@@ -3134,20 +3270,29 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     await expect(panel.locator(".library-api-diff-correspondence")).toContainText(
       "Moved from LibraryApiDiffFixture.ProjectionExtensions to LibraryApiDiffFixture.ProjectionReceiver",
     );
+    await settledLocationAfter(projectionReceiverLocation);
     await page.locator("#nav-back").click();
+    await expect.poll(() => page.url()).toBe(projectionReceiverLocation);
+    await expect(frame).toHaveClass(/compare-surface-type/, { timeout: 60_000 });
     await page.locator("#nav-back").click();
+    await expect.poll(() => page.url()).toBe(projectionExtensionsLocation);
+    await expect(frame).toHaveClass(/compare-surface-type/, { timeout: 60_000 });
     await page.locator("#nav-back").click();
+    await expect.poll(() => page.url()).toBe(libraryLocation);
     await expect(frame).toHaveClass(/compare-surface-library/, { timeout: 60_000 });
     await panel.locator(
       '[data-compare-type-id="LibraryApiDiffFixture.AddedType"]',
     ).click();
     await expect(frame).toHaveClass(/compare-surface-type/, { timeout: 60_000 });
+    const addedTypeReturnLocation = await settledLocationAfter(libraryLocation);
     await panel.locator(".library-api-diff-member button", { hasText: "First" })
       .click();
     await expect(frame).toHaveClass(/compare-surface-member/, { timeout: 60_000 });
+    await settledLocationAfter(addedTypeReturnLocation);
 
     // Back restores the Type inventory with Compare and Diff still active.
     await page.locator("#nav-back").click();
+    await expect.poll(() => page.url()).toBe(addedTypeReturnLocation);
     await expect(frame).toHaveClass(/compare-surface-type/, { timeout: 60_000 });
     await expect(panel.locator(".library-api-diff-member")).toHaveCount(3);
     await expect(panel.locator('[data-compare-mode="diff"]'))
@@ -3205,8 +3350,7 @@ test.describe("deterministic two-host Workspace demo", () => {
       await expect(overview).toBeVisible({ timeout: 180_000 });
       await expect(overview.locator("h1"))
         .toHaveText(retainedWorkspace.packageId);
-      await expect(overview.locator(".overview-surface-footer"))
-        .toContainText(retainedWorkspace.version);
+      await expect(overview.locator(".overview-surface-footer")).toHaveCount(0);
     };
 
     await page.setViewportSize({ width: 1440, height: 900 });
@@ -3495,6 +3639,7 @@ test.describe("bounded network-backed Worker smoke", () => {
         lens: "library:overview", type: null,
         memberAnchor: null, memberSignature: null, section: null,
         libraries: ['["netcore.app","System.Xml.dll"]'],
+        sourceView: null,
       },
     }));
     expect(encoded.succeeded, encoded.failure?.message).toBe(true);
@@ -3741,7 +3886,61 @@ test.describe("bounded network-backed Worker smoke", () => {
     expect(flattened).toContain("AddHttpClient");
   });
 
-  test("measures structural salience index and top shard over real Wasm", async ({
+  test("projects exact all-access Type method leverage into the UI", async ({
+    page,
+  }, testInfo) => {
+    await page.goto(
+      "/?package=System.Text.Json&version=10.0.0&framework=net10.0",
+      { waitUntil: "domcontentloaded" },
+    );
+    await page.locator(".workbench").waitFor({ timeout: 180_000 });
+    await page.locator("[data-package-child-library]").filter({
+      hasText: "System.Text.Json",
+    }).click();
+    await page.locator("button").filter({
+      hasText: /^20System\.Text\.Json$/,
+    }).click();
+    await page.locator("[data-type]").filter({
+      hasText: "JsonSerializerOptions",
+    }).first().click();
+    await expect(page.getByRole("button", {
+      name: "Show Top Leverage",
+      exact: true,
+    })).toHaveCount(0);
+    await expect(page.locator("[data-method-leverage-filter]")).toHaveCount(0);
+    const runnerUp = page.locator(
+      '.api-row[data-member="property:AllowDuplicateProperties"]',
+    );
+    await expect(runnerUp).toBeVisible();
+    await expect(runnerUp.locator(".item-achievement-rail")).toHaveCount(1);
+    await expect(
+      runnerUp.locator(".item-achievement-glyph.top-leverage"),
+    ).toHaveCount(0);
+    await expect(
+      page.locator(".item-achievement-glyph.top-leverage"),
+    ).toHaveCount(0);
+
+    await page.locator("[data-member-filter-disclosure] summary").click();
+    await page.locator("[data-member-access-filter]").selectOption("all");
+    const winner = page.locator(".api-row[data-member]").filter({
+      hasText: "VerifyMutable",
+    });
+    await expect(winner).toBeVisible({ timeout: 180_000 });
+    await expect(
+      winner.locator(".item-achievement-glyph.top-leverage"),
+    ).toHaveCount(1, { timeout: 180_000 });
+    await expect(
+      winner.locator(".item-achievement-rail"),
+    ).toHaveAttribute("aria-label", /Top Leverage; 31 direct callers/);
+
+    await expect(winner).toBeVisible();
+    await expect(runnerUp).toBeVisible();
+    await page.locator("#subject-panel").screenshot({
+      path: testInfo.outputPath("method-leverage-achievement.png"),
+    });
+  });
+
+  test("measures exhaustive structural salience over real Wasm", async ({
     page,
   }) => {
     await boot(page);
@@ -3757,67 +3956,118 @@ test.describe("bounded network-backed Worker smoke", () => {
     if (library === undefined) {
       throw new Error("Expected the System.Text.Json Library descriptor.");
     }
-    const queryIndex = () => engine.queryLibraryNamespaceLeverage(
-      "System.Text.Json",
-      "10.0.0",
-      "net10.0",
-      library.id,
+    const optionsType = surface.types.find(
+      candidate =>
+        candidate.definitionId
+          === "System.Text.Json.JsonSerializerOptions",
     );
-    const warmIndex = await queryIndex();
-    const topNamespace = warmIndex.namespaces.find(row => row.topLeverage);
-    if (topNamespace === undefined) {
-      throw new Error("Expected a top-leverage System.Text.Json namespace.");
+    if (optionsType === undefined) {
+      throw new Error("Expected JsonSerializerOptions in the package surface.");
     }
-    const queryShard = () => engine.queryNamespaceTypeLeverage(
+    const methodLeverage = await engine.queryPackageTypeMethodLeverage(
+      "System.Text.Json",
+      "10.0.0",
+      "net10.0",
+      optionsType.assemblyId,
+      optionsType.definitionId,
+    );
+    expect(methodLeverage.outcome).toBe("available");
+    expect(methodLeverage.content?.winningRank?.directCallerCount).toBe(31);
+    expect(methodLeverage.content?.winnerCount).toBe(1);
+    expect(methodLeverage.content?.anchoredWinners).toHaveLength(1);
+    expect(
+      methodLeverage.content?.anchoredWinners[0]?.stableSelector,
+    ).toContain("VerifyMutable");
+    expect(
+      methodLeverage.content?.anchoredWinners.some(
+        winner => winner.stableSelector.includes(
+          "AllowDuplicateProperties")),
+    ).toBe(false);
+    const querySalience = () => engine.queryLibraryStructuralSalience(
       "System.Text.Json",
       "10.0.0",
       "net10.0",
       library.id,
-      topNamespace.namespace,
     );
-    await queryShard();
+    await querySalience();
 
     async function measure<T>(operation: () => Promise<T>) {
       const start = performance.now();
       const value = await operation();
       return { value, milliseconds: performance.now() - start };
     }
-    const indexMeasurements = [];
-    const shardMeasurements = [];
+    const measurements = [];
     for (let index = 0; index < 5; index++) {
-      indexMeasurements.push(await measure(queryIndex));
-      shardMeasurements.push(await measure(queryShard));
+      measurements.push(await measure(querySalience));
     }
     const median = (values: readonly number[]) => {
       const ordered = [...values].sort((left, right) => left - right);
       return ordered[Math.floor(ordered.length / 2)] ?? 0;
     };
-    const measuredIndex = indexMeasurements.at(-1)?.value;
-    const measuredShard = shardMeasurements.at(-1)?.value;
-    if (measuredIndex === undefined || measuredShard === undefined) {
+    const measured = measurements.at(-1)?.value;
+    if (measured === undefined) {
       throw new Error("Expected structural salience measurements.");
     }
-    expect(measuredIndex.outcome).toBe("available");
-    expect(measuredShard.outcome).toBe("available");
-    expect(measuredShard.namespace).toBe(topNamespace.namespace);
-    expect(measuredShard.types.some(row => row.pole === "SeaLevel")).toBe(true);
+    const surfaceLeverage = measured.surface;
+    const namespaceIndex = surfaceLeverage.namespaceIndex;
+    if (namespaceIndex === null) {
+      throw new Error("Expected structural salience namespace evidence.");
+    }
+    expect(surfaceLeverage.outcome).toBe("available");
+    const topNamespace = namespaceIndex.namespaces.find(
+      row => row.topLeverage,
+    );
+    if (topNamespace === undefined) {
+      throw new Error("Expected a top-leverage System.Text.Json namespace.");
+    }
+    const topShard = surfaceLeverage.typeLeverageShards.find(
+      shard => shard.namespace === topNamespace.namespace,
+    );
+    if (topShard === undefined) {
+      throw new Error("Expected the top-leverage namespace shard.");
+    }
+    expect(topShard.types.some(row => row.pole === "SeaLevel")).toBe(true);
     expect(
-      measuredShard.types.some(row => row.pole === "MountainPeak"),
+      topShard.types.some(row => row.pole === "MountainPeak"),
     ).toBe(true);
+    expect(measured.implementation.outcome).toBe("available");
+    const implementationTypes =
+      measured.implementation.typeLeverageShards.flatMap(
+        shard => shard.types,
+      );
+    expect(implementationTypes.find(
+      row => row.typeDefinitionId
+        === "System.Text.Json.ThrowHelper",
+    )?.pole).toBe("SeaLevel");
+    expect(implementationTypes.find(
+      row => row.typeDefinitionId
+        === "System.Text.Json.JsonSerializer",
+    )?.pole).toBe("MountainPeak");
+    expect(implementationTypes.find(
+      row => row.typeDefinitionId
+        === "System.Text.Json.JsonDocument",
+    )?.pole).toBe("MountainPeak");
     console.log("STRUCTURAL_SALIENCE_BROWSER_WASM", JSON.stringify({
       asset: "System.Text.Json@10.0.0/net10.0",
-      namespaceCount: measuredIndex.namespaces.length,
+      namespaceCount: namespaceIndex.namespaces.length,
       topNamespace: topNamespace.namespace,
-      topShardTypeRows: measuredShard.types.length,
-      seaLevelDesignations:
-        measuredShard.types.filter(row => row.pole === "SeaLevel").length,
-      mountainPeakDesignations:
-        measuredShard.types.filter(row => row.pole === "MountainPeak").length,
-      indexMedianMilliseconds: median(
-        indexMeasurements.map(measurement => measurement.milliseconds),
+      typeRows: surfaceLeverage.typeLeverageShards.reduce(
+        (sum, shard) => sum + shard.types.length,
+        0,
       ),
-      topShardMedianMilliseconds: median(
-        shardMeasurements.map(measurement => measurement.milliseconds),
+      seaLevelDesignations:
+        surfaceLeverage.typeLeverageShards.flatMap(shard => shard.types)
+          .filter(row => row.pole === "SeaLevel").length,
+      mountainPeakDesignations:
+        surfaceLeverage.typeLeverageShards.flatMap(shard => shard.types)
+          .filter(row => row.pole === "MountainPeak").length,
+      bodySeaLevelDesignations:
+        implementationTypes.filter(row => row.pole === "SeaLevel").length,
+      bodyMountainPeakDesignations:
+        implementationTypes.filter(
+          row => row.pole === "MountainPeak").length,
+      exhaustiveMedianMilliseconds: median(
+        measurements.map(measurement => measurement.milliseconds),
       ),
     }));
     await page.evaluate(() => window.__adoption!.dispose());
@@ -3832,71 +4082,109 @@ test.describe("bounded network-backed Worker smoke", () => {
     const platformVersion = "11.0.0-rc.1.26425.128";
     const assembly = "System.Private.CoreLib.dll";
     const pack = "netcore.app";
-    const queryIndex = () =>
-      engine.queryPlatformLibraryNamespaceLeverage(
+    const querySalience = () =>
+      engine.queryPlatformLibraryStructuralSalience(
         framework,
         platformVersion,
         assembly,
         pack,
       );
-    const warmIndex = await queryIndex();
-    const topNamespace = warmIndex.namespaces.find(row => row.topLeverage);
-    if (topNamespace === undefined) {
-      throw new Error("Expected a top-leverage CoreLib namespace.");
-    }
-    const queryShard = () => engine.queryPlatformNamespaceTypeLeverage(
-      framework,
-      platformVersion,
-      assembly,
-      pack,
-      topNamespace.namespace,
-    );
-    await queryShard();
+    await querySalience();
 
     async function measure<T>(operation: () => Promise<T>) {
       const start = performance.now();
       const value = await operation();
       return { value, milliseconds: performance.now() - start };
     }
-    const indexMeasurements = [];
-    const shardMeasurements = [];
+    const measurements = [];
     for (let index = 0; index < 5; index++) {
-      indexMeasurements.push(await measure(queryIndex));
-      shardMeasurements.push(await measure(queryShard));
+      measurements.push(await measure(querySalience));
     }
     const median = (values: readonly number[]) => {
       const ordered = [...values].sort((left, right) => left - right);
       return ordered[Math.floor(ordered.length / 2)] ?? 0;
     };
-    const measuredIndex = indexMeasurements.at(-1)?.value;
-    const measuredShard = shardMeasurements.at(-1)?.value;
-    if (measuredIndex === undefined || measuredShard === undefined) {
+    const measured = measurements.at(-1)?.value;
+    if (measured === undefined) {
       throw new Error("Expected CoreLib structural salience measurements.");
     }
-    expect(measuredIndex.outcome).toBe("available");
-    expect(measuredIndex.namespaces.length).toBeGreaterThan(50);
-    expect(measuredShard.outcome).toBe("available");
-    expect(measuredShard.namespace).toBe(topNamespace.namespace);
-    expect(measuredShard.types.some(row => row.pole === "SeaLevel")).toBe(true);
+    const surface = measured.surface;
+    const namespaceIndex = surface.namespaceIndex;
+    if (namespaceIndex === null) {
+      throw new Error("Expected CoreLib namespace evidence.");
+    }
+    expect(surface.outcome).toBe("available");
+    expect(namespaceIndex.namespaces.length).toBeGreaterThan(50);
+    const topNamespace = namespaceIndex.namespaces.find(
+      row => row.topLeverage,
+    );
+    if (topNamespace === undefined) {
+      throw new Error("Expected a top-leverage CoreLib namespace.");
+    }
+    const topShard = surface.typeLeverageShards.find(
+      shard => shard.namespace === topNamespace.namespace,
+    );
+    if (topShard === undefined) {
+      throw new Error("Expected the top-leverage CoreLib namespace shard.");
+    }
+    expect(topShard.types.some(row => row.pole === "SeaLevel")).toBe(true);
     expect(
-      measuredShard.types.some(row => row.pole === "MountainPeak"),
+      topShard.types.some(row => row.pole === "MountainPeak"),
     ).toBe(true);
+    expect(measured.implementation.outcome).toBe("available");
+    const implementationTypes =
+      measured.implementation.typeLeverageShards.flatMap(
+        shard => shard.types,
+      );
+    expect(implementationTypes).toHaveLength(1_907);
+    expect(
+      implementationTypes.filter(row => row.pole === "SeaLevel"),
+    ).toHaveLength(29);
+    expect(
+      implementationTypes.filter(row => row.pole === "MountainPeak"),
+    ).toHaveLength(35);
     console.log("STRUCTURAL_SALIENCE_BROWSER_WASM", JSON.stringify({
       asset: "System.Private.CoreLib/.NET 11 RC1",
-      namespaceCount: measuredIndex.namespaces.length,
+      namespaceCount: namespaceIndex.namespaces.length,
       topNamespace: topNamespace.namespace,
-      topShardTypeRows: measuredShard.types.length,
-      seaLevelDesignations:
-        measuredShard.types.filter(row => row.pole === "SeaLevel").length,
-      mountainPeakDesignations:
-        measuredShard.types.filter(row => row.pole === "MountainPeak").length,
-      indexMedianMilliseconds: median(
-        indexMeasurements.map(measurement => measurement.milliseconds),
+      typeRows: surface.typeLeverageShards.reduce(
+        (sum, shard) => sum + shard.types.length,
+        0,
       ),
-      topShardMedianMilliseconds: median(
-        shardMeasurements.map(measurement => measurement.milliseconds),
+      seaLevelDesignations:
+        surface.typeLeverageShards.flatMap(shard => shard.types)
+          .filter(row => row.pole === "SeaLevel").length,
+      mountainPeakDesignations:
+        surface.typeLeverageShards.flatMap(shard => shard.types)
+          .filter(row => row.pole === "MountainPeak").length,
+      bodyTypeRows: implementationTypes.length,
+      bodySeaLevelDesignations:
+        implementationTypes.filter(row => row.pole === "SeaLevel").length,
+      bodyMountainPeakDesignations:
+        implementationTypes.filter(
+          row => row.pole === "MountainPeak").length,
+      exhaustiveMedianMilliseconds: median(
+        measurements.map(measurement => measurement.milliseconds),
       ),
     }));
+    await page.evaluate(() => window.__adoption!.dispose());
+  });
+
+  test("answers platform Type method leverage over real Wasm", async ({
+    page,
+  }) => {
+    await boot(page);
+    const engine = driver(page);
+    const methodLeverage = await engine.queryPlatformTypeMethodLeverage(
+      "net11.0",
+      "11.0.0-rc.1.26425.128",
+      "System.Private.CoreLib.dll",
+      "netcore.app",
+      "System.String",
+    );
+    expect(methodLeverage.outcome).toBe("available");
+    expect(methodLeverage.content?.typeDefinitionId).toBe("System.String");
+    expect(methodLeverage.content?.methodCount).toBeGreaterThan(0);
     await page.evaluate(() => window.__adoption!.dispose());
   });
 

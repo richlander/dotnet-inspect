@@ -15,6 +15,7 @@ namespace DotnetInspector.Packages;
 public sealed class InMemoryPackageContent :
     IPackageContent,
     IPackageContentEntryManifest,
+    IPackageArchiveEntryManifest,
     IPackageContentDigestSource,
     IPackageHousePayloadSource
 {
@@ -374,6 +375,14 @@ public sealed class InMemoryPackageContent :
         if (_admission.TryGetArchive(out PackageArchivePayload? archive))
             return archive.CreateEntryScanner();
         return new ZipArchiveEntryScanner(_nupkgBytes);
+    }
+
+    bool IPackageArchiveEntryManifest.TryGetArchiveEntries(
+        [NotNullWhen(true)]
+        out IReadOnlyList<PackageContentEntry>? entries)
+    {
+        entries = _entries.Value;
+        return true;
     }
 
     /// <inheritdoc />

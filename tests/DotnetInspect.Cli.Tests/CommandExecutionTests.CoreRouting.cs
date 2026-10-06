@@ -155,9 +155,7 @@ public partial class CommandExecutionTests
             "System.Text.Json@10.0.0",
             "-S",
             "Package Info",
-            "--section:Manifest",
-            "--tips",
-            "q");
+            "--section:Manifest");
 
         Assert.True(
             exit == 0,
@@ -181,9 +179,7 @@ public partial class CommandExecutionTests
             "System.Text.Json@10.0.0",
             "-S",
             "Package Info",
-            "-SManifest",
-            "--tips",
-            "q");
+            "-SManifest");
 
         Assert.True(
             exit == 0,
@@ -205,9 +201,7 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             "library",
             "System.Text.Json",
-            "--section:@Library",
-            "--tips",
-            "q");
+            "--section:@Library");
 
         Assert.True(
             exit == 0,
@@ -225,9 +219,7 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             "library",
             "System.Text.Json",
-            "-S@Library",
-            "--tips",
-            "q");
+            "-S@Library");
 
         Assert.True(
             exit == 0,
@@ -249,9 +241,7 @@ public partial class CommandExecutionTests
             "Library Info",
             "--section",
             ";",
-            "--offline",
-            "--tips",
-            "q");
+            "--offline");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -327,19 +317,17 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Vocabulary_EnvironmentMermaidRejectsMultiSectionCount()
+    public async Task Ecosystem_EnvironmentMermaidRejectsMultiSectionCount()
     {
         string? originalFormat = Environment.GetEnvironmentVariable("DOTNET_INSPECT_FORMAT");
         try
         {
             Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", "mermaid");
             var (exit, output, error) = await RunAppAsync(
-                "vocabulary",
+                "ecosystem",
                 "-S",
-                "C# *",
-                "--count",
-                "--tips",
-                "q");
+                "@Ecosystem",
+                "--count");
 
             Assert.Equal(1, exit);
             Assert.Empty(output);
@@ -376,7 +364,7 @@ public partial class CommandExecutionTests
     [Fact]
     public async Task BareName_PlatformLibrary_RoutesToLibrary()
     {
-        var (exit, output, error) = await RunAppAsync("System.Text.Json", "--tips", "q");
+        var (exit, output, error) = await RunAppAsync("System.Text.Json");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -387,7 +375,7 @@ public partial class CommandExecutionTests
     [Fact]
     public async Task BareName_PlatformNamespacePrefix_RoutesToTypePrefixBrowse()
     {
-        var (exit, output, error) = await RunAppAsync("System.Text", "--tips", "q");
+        var (exit, output, error) = await RunAppAsync("System.Text");
 
         Assert.Equal(0, exit);
         Assert.Contains("Showing best-effort platform prefix matches for 'System.Text'", error);
@@ -399,7 +387,7 @@ public partial class CommandExecutionTests
         // claim is asserted. The claim here is about ROUTING, so it is moved to where the evidence
         // lives rather than dropped.
         var (factExit, factOutput, _) = await RunAppAsync(
-            "System.Text", "--tips", "q", "-S", SectionNames.ApiInfo);
+            "System.Text", "-S", SectionNames.ApiInfo, "--markdown");
 
         Assert.Equal(0, factExit);
         Assert.Contains("| Source | Platform |", factOutput, StringComparison.Ordinal);
@@ -415,13 +403,9 @@ public partial class CommandExecutionTests
             "--namespace",
             "System.Text.Json.Nodes",
             "--framework",
-            "runtime",
-            "--tips",
-            "q");
+            "runtime");
         var routed = await RunAppAsync(
-            "System.Text.Json.Nodes",
-            "--tips",
-            "q");
+            "System.Text.Json.Nodes");
 
         Assert.Equal(0, direct.Exit);
         Assert.Equal(0, routed.Exit);
@@ -440,19 +424,21 @@ public partial class CommandExecutionTests
     [Fact]
     public async Task BareName_ExactNuGetPackageId_RoutesToPackage()
     {
-        var (exit, output, error) = await RunAppAsync("System.CommandLine", "--tips", "q");
+        var (exit, output, error) = await RunAppAsync("System.CommandLine");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("# System.CommandLine", output);
-        Assert.Contains("## Package Info", output);
+        Assert.StartsWith("System.CommandLine ", output);
+        Assert.Contains("System.CommandLine", output);
+        Assert.DoesNotContain("Type declarations", output);
+        Assert.DoesNotContain("## Package Info", output);
         Assert.DoesNotContain("Library: System.CommandLine.dll | Types:", output);
     }
 
     [Fact]
     public async Task BareName_CommandTypo_SuggestsCommandWithoutNuGetLookup()
     {
-        var (exit, output, error) = await RunAppAsync("packag", "--tips", "q");
+        var (exit, output, error) = await RunAppAsync("packag");
 
         Assert.NotEqual(0, exit);
         Assert.Empty(output);
@@ -468,7 +454,7 @@ public partial class CommandExecutionTests
     [Fact]
     public async Task ApiCommand_RemovedFromRoot()
     {
-        var (exit, output, error) = await RunAppAsync("api", "--tips", "q");
+        var (exit, output, error) = await RunAppAsync("api");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -481,8 +467,6 @@ public partial class CommandExecutionTests
     public async Task DependencyEvidenceCommand_ReportsDependsReplacement()
     {
         var (exit, output, error) = await RunAppAsync(
-            "--tips",
-            "q",
             "dependency-evidence",
             "--package",
             "Definitely.Does.Not.Exist");
@@ -501,13 +485,71 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
-    [InlineData("--tips")]
-    [InlineData("-T")]
-    public async Task DependencyEvidenceCommand_AfterBareTipsReportsReplacement(
-        string tipsOption)
+    [InlineData("", "Bare '-E' is reserved")]
+    [InlineData(".references", "reusable references")]
+    [InlineData(".unknown", "Unknown companion projection '.unknown'")]
+    public async Task UnavailableCompanionProjection_RejectsBeforeAcquisition(
+        string projection,
+        string expectedError)
+    {
+        string[] arguments = projection.Length == 0
+            ? ["package", "Definitely.Does.Not.Exist", "-E"]
+            : ["package", "Definitely.Does.Not.Exist", "-E", projection];
+
+        var (exit, output, error) = await RunAppAsync(arguments);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(expectedError, error);
+        Assert.DoesNotContain("Package 'Definitely.Does.Not.Exist' not found", error);
+        Assert.DoesNotContain("Network traffic", error);
+    }
+
+    [Theory]
+    [InlineData("-E.tips", "separate token")]
+    [InlineData("-E=.tips", "separate token")]
+    [InlineData("-E:.tips", "separate token")]
+    [InlineData("-e", "Use uppercase '-E'")]
+    public async Task InvalidCompanionSpelling_RejectsBeforeAcquisition(
+        string option,
+        string expectedError)
     {
         var (exit, output, error) = await RunAppAsync(
-            tipsOption,
+            "package",
+            "Definitely.Does.Not.Exist",
+            option);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(expectedError, error);
+        Assert.DoesNotContain("Package 'Definitely.Does.Not.Exist' not found", error);
+        Assert.DoesNotContain("Network traffic", error);
+    }
+
+    [Fact]
+    public async Task RemovedCompanionSpellingAsOutputPathReachesCommand()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "--offline",
+            "package",
+            "Definitely.Does.Not.Exist",
+            "--out",
+            "--tips");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "Package 'Definitely.Does.Not.Exist'",
+            error,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("is no longer valid", error);
+    }
+
+    [Fact]
+    public async Task DependencyEvidenceCommand_AfterBareCompanionReportsReplacement()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "-E",
             "dependency-evidence",
             "--package",
             "Definitely.Does.Not.Exist");
@@ -524,14 +566,12 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("Network traffic", error);
     }
 
-    [Theory]
-    [InlineData("--tips")]
-    [InlineData("-T")]
-    public async Task BareTips_PreservesExplicitDependencyEvidencePackageSubject(
-        string tipsOption)
+    [Fact]
+    public async Task TipsCompanion_PreservesExplicitDependencyEvidencePackageSubject()
     {
         var (exit, output, error) = await RunAppAsync(
-            tipsOption,
+            "-E",
+            ".tips",
             "package",
             "dependency-evidence",
             "-D",
@@ -539,14 +579,15 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.NotEmpty(output);
-        Assert.Empty(error);
+        Assert.DoesNotContain("Tips:", error);
+        Assert.Contains("package dependency-evidence", error);
     }
 
     [Fact]
     public async Task Router_PrefixBrowse_InferredPlatformTypo_ListsBestEffortMatches()
     {
         var (exit, output, error) = await RunAppAsync(
-            "System.Runtime.CompilerService", "--table", "--tips", "q");
+            "System.Runtime.CompilerService", "--table");
 
         Assert.Equal(0, exit);
         Assert.Contains("best-effort prefix matches", error);
@@ -558,7 +599,7 @@ public partial class CommandExecutionTests
     public async Task Router_BareSimpleType_UsesTargetBoundPlatformLocator()
     {
         var (exit, output, error) = await RunAppAsync(
-            "Regex", "--markdown", "--tips", "q");
+            "Regex", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Contains("# System.Text.RegularExpressions.Regex", output);
@@ -576,7 +617,7 @@ public partial class CommandExecutionTests
         string expectedType)
     {
         var (exit, output, error) = await RunAppAsync(
-            query, "--markdown", "--tips", "q");
+            query, "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Contains($"# {expectedType}", output);
@@ -588,7 +629,7 @@ public partial class CommandExecutionTests
     public async Task Router_NestedPlatformTypePlusSyntax_RemainsResolvable()
     {
         var (exit, output, error) = await RunAppAsync(
-            "JSType+String", "--markdown", "--tips", "q");
+            "JSType+String", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Contains(
@@ -601,7 +642,7 @@ public partial class CommandExecutionTests
     public async Task Router_AmbiguousTargetBoundPlatformLocator_ReportsAmbiguity()
     {
         var (exit, output, error) = await RunAppAsync(
-            "Timer", "--markdown", "--tips", "q");
+            "Timer", "--markdown");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -615,7 +656,7 @@ public partial class CommandExecutionTests
     public async Task Router_AmbiguousTargetBoundPlatformMember_ReportsAmbiguity()
     {
         var (exit, output, error) = await RunAppAsync(
-            "Timer.Start", "--markdown", "--tips", "q");
+            "Timer.Start", "--markdown");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -632,7 +673,7 @@ public partial class CommandExecutionTests
         Router_QualifiedCompatibilityRoutePreservesAmbiguity(string query)
     {
         var (exit, output, error) = await RunAppAsync(
-            query, "--markdown", "--tips", "q");
+            query, "--markdown");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -645,7 +686,7 @@ public partial class CommandExecutionTests
     public async Task Router_BareGenericType_UsesTargetBoundPlatformLocator()
     {
         var (exit, output, error) = await RunAppAsync(
-            "List<T>", "--markdown", "--tips", "q");
+            "List<T>", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Contains("# System.Collections.Generic.List&lt;T&gt;", output);
@@ -663,7 +704,7 @@ public partial class CommandExecutionTests
         string expectedLibrary)
     {
         var (exit, output, error) = await RunAppAsync(
-            typeName, "--markdown", "--tips", "q");
+            typeName, "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -677,7 +718,7 @@ public partial class CommandExecutionTests
         string target)
     {
         var (exit, output, error) = await RunAppAsync(
-            target, "--markdown", "--tips", "q");
+            target, "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -712,7 +753,7 @@ public partial class CommandExecutionTests
         string target)
     {
         var (exit, output, error) = await RunAppAsync(
-            target, "--markdown", "--tips", "q");
+            target, "--markdown");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -736,9 +777,6 @@ public partial class CommandExecutionTests
             "System.Private.CoreLib",
             "-S",
             "Type Info",
-            "--count",
-            "--tips",
-            "q"
         ];
         var direct = await RunAppAsync(["type", target, .. tail]);
         var deferred = await RunAppAsync([target, .. tail]);
@@ -775,8 +813,7 @@ public partial class CommandExecutionTests
             member,
             "-S",
             "Type Info",
-            "--tips",
-            "q"
+            "--markdown",
         ];
         string[] scopedTail = explicitPlatform
             ? ["--platform", "System.Private.CoreLib", .. tail]
@@ -803,8 +840,6 @@ public partial class CommandExecutionTests
             "MoveNext",
             "--platform",
             "System.Private.CoreLib",
-            "--tips",
-            "q"
         ];
         var direct = await RunAppAsync(["type", target, .. tail]);
         var routed = await RunAppAsync([target, .. tail]);
@@ -825,8 +860,6 @@ public partial class CommandExecutionTests
         [
             "-m",
             "MoveNext",
-            "--tips",
-            "q"
         ];
         var direct = await RunAppAsync(["type", target, .. tail]);
         var routed = await RunAppAsync([target, .. tail]);
@@ -852,8 +885,6 @@ public partial class CommandExecutionTests
             "-S",
             "Signature",
             "--count",
-            "--tips",
-            "q"
         ];
         var direct = await RunAppAsync(["member", target, .. tail]);
         var routed = await RunAppAsync([target, .. tail]);
@@ -876,8 +907,6 @@ public partial class CommandExecutionTests
             SectionNames.TypeInfo,
             "--schema",
             "--table",
-            "--tips",
-            "q"
         ];
         var direct = await RunAppAsync(["type", target, .. tail]);
         var routed = await RunAppAsync([target, .. tail]);
@@ -896,10 +925,8 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             target,
             "-S",
-            "Type Info",
-            "--count",
-            "--tips",
-            "q");
+            "Methods",
+            "--count");
 
         Assert.Equal(0, exit);
         Assert.True(int.TryParse(output.Trim(), out var count) && count > 0);
@@ -915,7 +942,7 @@ public partial class CommandExecutionTests
         string expectedType)
     {
         var (exit, output, error) = await RunAppAsync(
-            target, "--markdown", "--tips", "q");
+            target, "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Contains($"# {expectedType}", output);
@@ -929,7 +956,7 @@ public partial class CommandExecutionTests
     public async Task Router_UnqualifiedGenericPlatformMember_UsesSelectedRuntimeCatalog()
     {
         var (exit, output, error) = await RunAppAsync(
-            "SequenceReader<T>.TryRead", "--all", "--markdown", "--tips", "q");
+            "SequenceReader<T>.TryRead", "--all", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -945,9 +972,7 @@ public partial class CommandExecutionTests
             "--platform",
             "System.Memory",
             "--all",
-            "--markdown",
-            "--tips",
-            "q");
+            "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -967,8 +992,7 @@ public partial class CommandExecutionTests
             "runtime",
             "-S",
             "Type Info",
-            "--tips",
-            "q"
+            "--markdown",
         ];
 
         var (exit, output, error) = await RunAppAsync(args);
@@ -976,13 +1000,12 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         AssertPlatformTypeInfo(output, "System.Collections");
 
+        // Type Info is a scalar record under Section shapes: --count is rejected
+        // before acquisition rather than counting rendered fields.
         var count = await RunAppAsync([.. args, "--count"]);
-        Assert.Equal(0, count.Exit);
-        Assert.Empty(count.Error);
-        Assert.Equal(
-            CountRenderedMarkdownTableRowsBySection(output)["Type Info"]
-                .ToString(CultureInfo.InvariantCulture),
-            count.Output.Trim());
+        Assert.Equal(1, count.Exit);
+        Assert.Empty(count.Output);
+        Assert.Contains("Section 'Type Info' is scalar and does not support --count", count.Error);
     }
 
     [Theory]
@@ -995,9 +1018,7 @@ public partial class CommandExecutionTests
             target,
             "--framework",
             "netstandard",
-            "--markdown",
-            "--tips",
-            "q");
+            "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Contains("System.Threading.Tasks.Task", output);
@@ -1012,9 +1033,7 @@ public partial class CommandExecutionTests
             "System.Threading.Tasks.Task<T>.Result",
             "--framework",
             "netstandard",
-            "--markdown",
-            "--tips",
-            "q");
+            "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1034,8 +1053,6 @@ public partial class CommandExecutionTests
             "--where",
             "Kind=InvocationExpression",
             "--table",
-            "--tips",
-            "q"
         ];
         var direct = await RunAppAsync(["type", .. arguments]);
         var deferred = await RunAppAsync(arguments);
@@ -1060,8 +1077,6 @@ public partial class CommandExecutionTests
                 "Kind=InvocationExpression",
                 "-D",
                 "--schema",
-                "--tips",
-                "q"
             ]);
 
         Assert.Equal(0, exit);
@@ -1085,8 +1100,6 @@ public partial class CommandExecutionTests
             "Kind=InvocationExpression",
             "-D",
             "--schema",
-            "--tips",
-            "q"
         ];
         var direct = await RunAppAsync(
             [
@@ -1127,9 +1140,7 @@ public partial class CommandExecutionTests
             "-m",
             explicitSelector,
             "-S",
-            "Signature",
-            "--tips",
-            "q");
+            "Signature");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -1148,9 +1159,7 @@ public partial class CommandExecutionTests
             "-m",
             "IndexOf:1",
             "-S",
-            "Signature",
-            "--tips",
-            "q");
+            "Signature");
 
         Assert.Equal(0, exit);
         Assert.Contains("IndexOf", output);
@@ -1175,9 +1184,7 @@ public partial class CommandExecutionTests
             "-m",
             explicitSelector,
             "-S",
-            "Signature",
-            "--tips",
-            "q");
+            "Signature");
 
         Assert.Equal(0, exit);
         Assert.Contains("Add", output);
@@ -1201,9 +1208,7 @@ public partial class CommandExecutionTests
             "runtime@0.0.0",
             "-D",
             "--schema",
-            "--table",
-            "--tips",
-            "q");
+            "--table");
 
         Assert.Equal(0, exit);
         Assert.Contains(expectedSchemaItem, output);
@@ -1219,9 +1224,7 @@ public partial class CommandExecutionTests
             "runtime",
             "-S",
             "Signature",
-            "--count",
-            "--tips",
-            "q");
+            "--count");
 
         Assert.Equal(0, exit);
         Assert.Equal("1", output.Trim());
@@ -1235,9 +1238,7 @@ public partial class CommandExecutionTests
             "System.String.IndexOf",
             "--framework",
             "runtime@10.0.10",
-            "--markdown",
-            "--tips",
-            "q");
+            "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1254,9 +1255,7 @@ public partial class CommandExecutionTests
             "System.String.IndexOf",
             "--framework",
             "runtime@3.1.0",
-            "--markdown",
-            "--tips",
-            "q");
+            "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1274,9 +1273,7 @@ public partial class CommandExecutionTests
             "System.AppDomain.FriendlyName",
             "--framework",
             "runtime@3.1.0",
-            "--markdown",
-            "--tips",
-            "q");
+            "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1296,9 +1293,7 @@ public partial class CommandExecutionTests
             "System.AppDomain",
             "--framework",
             "runtime@3.1.0",
-            "--markdown",
-            "--tips",
-            "q");
+            "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1318,9 +1313,7 @@ public partial class CommandExecutionTests
             "-S",
             "Methods",
             "--markdown",
-            "--verbose",
-            "--tips",
-            "q");
+            "--verbose");
 
         Assert.Equal(0, exit);
         Assert.Contains(
@@ -1346,9 +1339,7 @@ public partial class CommandExecutionTests
             "--framework",
             "runtime@3.1.0",
             "--markdown",
-            "--verbose",
-            "--tips",
-            "q");
+            "--verbose");
 
         Assert.Equal(1, exit);
         Assert.DoesNotContain("Showing best-effort platform prefix", error);
@@ -1365,9 +1356,7 @@ public partial class CommandExecutionTests
             "--framework",
             "runtime@3.1.0",
             "--json",
-            "--verbose",
-            "--tips",
-            "q");
+            "--verbose");
 
         Assert.Equal(0, exit);
         Assert.Contains(
@@ -1404,8 +1393,6 @@ public partial class CommandExecutionTests
             missingAssembly,
             "-S",
             "DefinitelyNotASection",
-            "--tips",
-            "q"
         ];
 
         var direct = await RunAppAsync(["type", .. arguments]);
@@ -1432,8 +1419,6 @@ public partial class CommandExecutionTests
             "System.Collections.Immutable",
             "-S",
             "Methods,DefinitelyNotASection",
-            "--tips",
-            "q"
         ];
         var direct = await RunAppAsync(["type", .. arguments]);
         var deferred = await RunAppAsync(arguments);
@@ -1461,8 +1446,6 @@ public partial class CommandExecutionTests
             missingAssembly,
             "--json-array",
             "--json",
-            "--tips",
-            "q"
         ];
         var direct = await RunAppAsync(["type", .. arguments]);
         var deferred = await RunAppAsync(arguments);
@@ -1491,8 +1474,6 @@ public partial class CommandExecutionTests
             missingAssembly,
             "--tree",
             "--json",
-            "--tips",
-            "q"
         ];
         if (section is not null)
             tail.InsertRange(2, ["-S", section]);
@@ -1525,8 +1506,6 @@ public partial class CommandExecutionTests
             "-D",
             "Signature",
             "--schema",
-            "--tips",
-            "q"
         ];
         var direct = await RunAppAsync(
             [
@@ -1561,9 +1540,7 @@ public partial class CommandExecutionTests
             "Member Index",
             "--columns",
             "Stable",
-            "--tsv",
-            "--tips",
-            "q");
+            "--tsv");
         Assert.Equal(0, inventory.Exit);
         var stableSelector = inventory.Output
             .Split('\n', StringSplitOptions.RemoveEmptyEntries)
@@ -1575,8 +1552,6 @@ public partial class CommandExecutionTests
             "-D",
             "Signature",
             "--schema",
-            "--tips",
-            "q"
         ];
         var direct = await RunAppAsync(
             [
@@ -1611,8 +1586,6 @@ public partial class CommandExecutionTests
             "System.Collections.Immutable",
             "--markdown",
             "--verbose",
-            "--tips",
-            "q"
         ];
 
         var direct = await RunAppAsync(["type", .. arguments]);
@@ -1639,8 +1612,6 @@ public partial class CommandExecutionTests
             "--markdown",
             "-S",
             "Methods",
-            "--tips",
-            "q"
         ];
         var direct = await RunAppAsync(["type", .. arguments]);
         var deferred = await RunAppAsync(arguments);
@@ -1660,16 +1631,12 @@ public partial class CommandExecutionTests
             target,
             "--platform",
             "System.Memory",
-            outputOption,
-            "--tips",
-            "q");
+            outputOption);
         var deferred = await RunAppAsync(
             target,
             "--platform",
             "System.Memory",
-            outputOption,
-            "--tips",
-            "q");
+            outputOption);
 
         Assert.Equal(direct, deferred);
         Assert.Equal(0, deferred.Exit);
@@ -1687,8 +1654,6 @@ public partial class CommandExecutionTests
             "--platform",
             "System.Collections.Immutable",
             .. memberOnlyOption,
-            "--tips",
-            "q"
         ];
         var (exit, output, error) = await RunAppAsync(arguments);
 
@@ -1708,8 +1673,6 @@ public partial class CommandExecutionTests
             "System.Text.Json",
             "--project",
             "/tmp/missing.csproj",
-            "--tips",
-            "q"
         ];
         var direct = await RunAppAsync(
             ["type", "System.Text.Json.JsonSerializer", .. tail]);
@@ -1767,7 +1730,6 @@ public partial class CommandExecutionTests
         }
         if (structuralDiscovery)
             tail.AddRange(["-D", "--schema", "--table"]);
-        tail.AddRange(["--tips", "q"]);
 
         var target = explicitPlatform
             ? "System.Text.Json.JsonSerializer"
@@ -1796,8 +1758,6 @@ public partial class CommandExecutionTests
             "-m",
             "Add",
             "--tree",
-            "--tips",
-            "q"
         ];
         var direct = await RunAppAsync(["type", target, .. tail]);
         var deferred = await RunAppAsync([target, .. tail]);
@@ -1819,9 +1779,6 @@ public partial class CommandExecutionTests
             "*SampleGenericClass*",
             "-S",
             "API Info",
-            "--count",
-            "--tips",
-            "q"
         ];
         var direct = await RunAppAsync(["type", target, .. tail]);
         var routed = await RunAppAsync([target, .. tail]);
@@ -1837,8 +1794,6 @@ public partial class CommandExecutionTests
         string[] tail =
         [
             "--markdown",
-            "--tips",
-            "q",
         ];
         var direct = await RunAppAsync(["Regex", .. tail]);
         var routed = await RunAppAsync([" Regex ", .. tail]);
@@ -1855,9 +1810,7 @@ public partial class CommandExecutionTests
             RouterDecisionLog.Begin();
 
         var (exit, _, _) = await RunAppAsync(
-            "System.Text.Json.DoesNotExist",
-            "--tips",
-            "q");
+            "System.Text.Json.DoesNotExist");
 
         Assert.Equal(1, exit);
         Assert.DoesNotContain(
@@ -1873,9 +1826,7 @@ public partial class CommandExecutionTests
     {
         var (exit, _, error) = await RunAppAsync(
             "System.DoesNotExist",
-            "--verbose",
-            "--tips",
-            "q");
+            "--verbose");
 
         Assert.Equal(1, exit);
         Assert.Equal(
@@ -1903,9 +1854,7 @@ public partial class CommandExecutionTests
             RouterDecisionLog.Begin();
 
         var (exit, output, error) = await RunAppAsync(
-            "System.Private.CoreLib.JsonSerializer.Serialize",
-            "--tips",
-            "q");
+            "System.Private.CoreLib.JsonSerializer.Serialize");
 
         Assert.Equal(0, exit);
         Assert.NotEmpty(output);
@@ -1931,8 +1880,6 @@ public partial class CommandExecutionTests
             "-S",
             SectionNames.Signature,
             "--count",
-            "--tips",
-            "q"
         ];
         var direct = await RunAppAsync(
             ["member", typeName, "-m", memberName, .. tail]);
@@ -1960,8 +1907,7 @@ public partial class CommandExecutionTests
             "--all",
             "-S",
             "Type Info",
-            "--tips",
-            "q"
+            "--markdown",
         ];
 
         var (exit, output, error) = await RunAppAsync(args);
@@ -1969,13 +1915,12 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         AssertPlatformTypeInfo(output, "Microsoft.AspNetCore.Components.Endpoints");
 
+        // Type Info is a scalar record under Section shapes: --count is rejected
+        // before acquisition rather than counting rendered fields.
         var count = await RunAppAsync([.. args, "--count"]);
-        Assert.Equal(0, count.Exit);
-        Assert.Empty(count.Error);
-        Assert.Equal(
-            CountRenderedMarkdownTableRowsBySection(output)["Type Info"]
-                .ToString(CultureInfo.InvariantCulture),
-            count.Output.Trim());
+        Assert.Equal(1, count.Exit);
+        Assert.Empty(count.Output);
+        Assert.Contains("Section 'Type Info' is scalar and does not support --count", count.Error);
     }
 
     [Fact]
@@ -1989,15 +1934,13 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             target,
             "-m",
-            "explicit:ToResult",
+            "ToResult",
             "--framework",
             "aspnetcore",
             "--all",
             "-S",
             "Member Index",
-            "--count",
-            "--tips",
-            "q");
+            "--count");
 
         Assert.Equal(0, exit);
         Assert.Equal("1", output.Trim());
@@ -2017,8 +1960,6 @@ public partial class CommandExecutionTests
             "-S",
             "Member Index",
             "--count",
-            "--tips",
-            "q"
         ];
         var direct = await RunAppAsync(
         [
@@ -2049,9 +1990,6 @@ public partial class CommandExecutionTests
             "System.Private.CoreLib",
             "-S",
             "Type Info",
-            "--count",
-            "--tips",
-            "q"
         ];
         var direct = await RunAppAsync(
             ["type", target, .. tail]);
@@ -2072,8 +2010,6 @@ public partial class CommandExecutionTests
             TestAssemblyPath,
             "--markdown",
             "--mermaid",
-            "--tips",
-            "q"
         ];
         var direct = await RunAppAsync(["type", target, .. tail]);
         var routed = await RunAppAsync([target, .. tail]);
@@ -2098,8 +2034,6 @@ public partial class CommandExecutionTests
             "-S",
             "Signature",
             "--count",
-            "--tips",
-            "q"
         ];
         var direct = await RunAppAsync(["member", target, .. tail]);
         var routed = await RunAppAsync([target, .. tail]);
@@ -2122,8 +2056,6 @@ public partial class CommandExecutionTests
             "-S",
             "Signature",
             "--count",
-            "--tips",
-            "q"
         ];
         var direct = await RunAppAsync(["member", target, .. tail]);
         var routed = await RunAppAsync([target, .. tail]);
@@ -2146,9 +2078,7 @@ public partial class CommandExecutionTests
             "ConvertAll<TOutput>",
             "-S",
             "Member Index",
-            "--table",
-            "--tips",
-            "q");
+            "--table");
         Assert.Equal(0, inventory.Exit);
         var selector = inventory.Output
             .Split('\n', StringSplitOptions.RemoveEmptyEntries)
@@ -2167,8 +2097,6 @@ public partial class CommandExecutionTests
             "-S",
             "Signature",
             "--count",
-            "--tips",
-            "q"
         ];
         var direct = await RunAppAsync(["member", target, .. tail]);
         var routed = await RunAppAsync([target, .. tail]);
@@ -2192,8 +2120,6 @@ public partial class CommandExecutionTests
             "-S",
             "Member Index",
             "--count",
-            "--tips",
-            "q"
         ];
         var direct = await RunAppAsync(["type", target, .. tail]);
         var deferred = await RunAppAsync([target, .. tail]);
@@ -2220,8 +2146,6 @@ public partial class CommandExecutionTests
             "System.Collections.Immutable",
             "-m",
             memberFilter,
-            "--tips",
-            "q"
         ];
         var direct = await RunAppAsync(["type", target, .. tail]);
         var deferred = await RunAppAsync([target, .. tail]);
@@ -2241,8 +2165,6 @@ public partial class CommandExecutionTests
             "System.Collections.Immutable",
             "-m",
             "Add<X>",
-            "--tips",
-            "q"
         ];
         var direct = await RunAppAsync(["type", target, .. tail]);
         var deferred = await RunAppAsync([target, .. tail]);
@@ -2263,9 +2185,7 @@ public partial class CommandExecutionTests
             missingAssembly,
             "-D",
             "--schema",
-            "--table",
-            "--tips",
-            "q");
+            "--table");
 
         Assert.Equal(0, exit);
         Assert.Contains("Type Info", output);
@@ -2285,9 +2205,6 @@ public partial class CommandExecutionTests
             TestAssemblyPath,
             "-S",
             "Type Info",
-            "--count",
-            "--tips",
-            "q"
         ];
 
         var direct = await RunAppAsync(["type", .. arguments]);
@@ -2309,8 +2226,6 @@ public partial class CommandExecutionTests
             "-S",
             SectionNames.Signature,
             "--count",
-            "--tips",
-            "q"
         ];
 
         var direct = await RunAppAsync(
@@ -2352,9 +2267,7 @@ public partial class CommandExecutionTests
             "Member Index",
             "--columns",
             "Stable",
-            "--tsv",
-            "--tips",
-            "q");
+            "--tsv");
 
         Assert.Equal(0, inventory.Exit);
         Assert.Empty(inventory.Error);
@@ -2370,9 +2283,7 @@ public partial class CommandExecutionTests
             TestAssemblyPath,
             "-S",
             SectionNames.Signature,
-            "--count",
-            "--tips",
-            "q");
+            "--count");
 
         Assert.Equal(0, exit);
         Assert.Equal("1", output.Trim());
@@ -2387,7 +2298,7 @@ public partial class CommandExecutionTests
     {
         const string typeName =
             "DotnetInspect.Cli.Tests.Operators<T>";
-        string[] projection = ["--table", "--tips", "q"];
+        string[] projection = ["--table"];
         var direct = await RunAppAsync(
         [
             "member",
@@ -2426,9 +2337,7 @@ public partial class CommandExecutionTests
             "Member Index",
             "--columns",
             "Stable",
-            "--tsv",
-            "--tips",
-            "q");
+            "--tsv");
 
         Assert.Equal(0, inventory.Exit);
         Assert.Empty(inventory.Error);
@@ -2444,9 +2353,7 @@ public partial class CommandExecutionTests
             TestAssemblyPath,
             "-S",
             SectionNames.Signature,
-            "--count",
-            "--tips",
-            "q");
+            "--count");
 
         Assert.Equal(0, exit);
         Assert.Equal("1", output.Trim());
@@ -2469,8 +2376,6 @@ public partial class CommandExecutionTests
             "-S",
             SectionNames.Signature,
             "--count",
-            "--tips",
-            "q"
         ];
         var direct = await RunAppAsync(
         [
@@ -2498,9 +2403,7 @@ public partial class CommandExecutionTests
             "System.Collections.Concurrent.ConcurrentDictionary<TKey,TValue>.AlternateLookup<TAlternateKey>",
             "--package",
             "System.Collections.Concurrent@4.3.0",
-            "--markdown",
-            "--tips",
-            "q");
+            "--markdown");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -2513,7 +2416,7 @@ public partial class CommandExecutionTests
     public async Task Router_UnqualifiedNestedGenericType_RoutesAsExactType(string typeName)
     {
         var (exit, output, error) = await RunAppAsync(
-            typeName, "--tree", "--tips", "q");
+            typeName, "--tree");
 
         Assert.Equal(0, exit);
         Assert.Contains(
@@ -2528,7 +2431,7 @@ public partial class CommandExecutionTests
     public async Task Router_GenericNestedTypeMember_UsesLongestExactTypePrefix(string target)
     {
         var (exit, output, error) = await RunAppAsync(
-            target, "--table", "--tips", "q");
+            target, "--table");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2540,7 +2443,7 @@ public partial class CommandExecutionTests
     public async Task Router_VoidKeyword_UsesPlatformFindIfMiss()
     {
         var (exit, output, error) = await RunAppAsync(
-            "void", "--table", "--tips", "q");
+            "void", "--table");
 
         Assert.Equal(0, exit);
         Assert.DoesNotContain("Package 'void'", error);
@@ -2550,7 +2453,7 @@ public partial class CommandExecutionTests
     public async Task Router_FullyQualifiedPlatformMember_UsesPlatformMemberFindIfMiss()
     {
         var (exit, output, error) = await RunAppAsync(
-            "System.String.IndexOf", "--table", "--tips", "q");
+            "System.String.IndexOf", "--table");
 
         Assert.Equal(0, exit);
         Assert.Contains("IndexOf", output);
@@ -2562,7 +2465,7 @@ public partial class CommandExecutionTests
     public async Task Router_SimplePlatformMember_UsesPlatformMemberFindIfMiss()
     {
         var (exit, output, error) = await RunAppAsync(
-            "String.IndexOf", "--table", "--tips", "q");
+            "String.IndexOf", "--table");
 
         Assert.Equal(0, exit);
         Assert.Contains("IndexOf", output);
@@ -2574,7 +2477,7 @@ public partial class CommandExecutionTests
     public async Task Router_PrimitiveKeywordMember_UsesPlatformMemberFindIfMiss()
     {
         var (exit, output, error) = await RunAppAsync(
-            "string.IndexOf", "--table", "--tips", "q");
+            "string.IndexOf", "--table");
 
         Assert.Equal(0, exit);
         Assert.Contains("IndexOf", output);
@@ -2586,12 +2489,11 @@ public partial class CommandExecutionTests
     public async Task Router_NumericKeywordMember_UsesPlatformMemberFindIfMiss()
     {
         var (exit, output, error) = await RunAppAsync(
-            "int.Parse", "--table", "--tips", "q");
+            "int.Parse", "--table");
 
         Assert.Equal(0, exit);
         Assert.Contains("Parse", output);
-        Assert.Contains("Return Type", output);
-        Assert.Contains("int", output);
+        Assert.Contains("public static int Parse(string s)", output);
         Assert.Empty(error);
     }
 
@@ -2599,7 +2501,7 @@ public partial class CommandExecutionTests
     public async Task Router_BooleanKeywordMember_UsesPlatformMemberFindIfMiss()
     {
         var (exit, output, error) = await RunAppAsync(
-            "bool.TryParse", "--table", "--tips", "q");
+            "bool.TryParse", "--table");
 
         Assert.Equal(0, exit);
         Assert.Contains("TryParse", output);
@@ -2610,7 +2512,7 @@ public partial class CommandExecutionTests
     public async Task Router_ObjectKeywordMember_UsesPlatformMemberFindIfMiss()
     {
         var (exit, output, error) = await RunAppAsync(
-            "object.GetType", "--table", "--tips", "q");
+            "object.GetType", "--table");
 
         Assert.Equal(0, exit);
         Assert.Contains("GetType", output);
@@ -2622,7 +2524,7 @@ public partial class CommandExecutionTests
     public async Task Router_GenericMemberSelector_NormalizesGenericTypeArguments()
     {
         var (exit, output, error) = await RunAppAsync(
-            "JsonSerializer.Deserialize<TValue>", "--table", "--tips", "q");
+            "JsonSerializer.Deserialize<TValue>", "--table");
 
         Assert.Equal(0, exit);
         Assert.Contains("Deserialize", output);
@@ -2634,7 +2536,7 @@ public partial class CommandExecutionTests
     public async Task Router_ConstructorSelector_NormalizesCtorAlias()
     {
         var (exit, output, error) = await RunAppAsync(
-            "String.ctor", "--table", "--tips", "q");
+            "String.ctor", "--table");
 
         Assert.Equal(0, exit);
         Assert.Contains(".ctor", output);
@@ -2646,7 +2548,7 @@ public partial class CommandExecutionTests
     public async Task Router_DoubleDotConstructorSelector_NormalizesCtorAlias()
     {
         var (exit, output, error) = await RunAppAsync(
-            "List<T>..ctor", "--table", "--tips", "q");
+            "List<T>..ctor", "--table");
 
         Assert.Equal(0, exit);
         Assert.Contains(".ctor", output);
@@ -2658,7 +2560,7 @@ public partial class CommandExecutionTests
     public async Task Router_DoubleDotConstructorSelector_PreservesOverloadIndex()
     {
         var (exit, output, error) = await RunAppAsync(
-            "List<T>..ctor:3", "--table", "--tips", "q");
+            "List<T>..ctor:3", "--table");
 
         Assert.Equal(0, exit);
         Assert.Contains(".ctor", output);
@@ -2670,7 +2572,7 @@ public partial class CommandExecutionTests
     public async Task Router_IndexerSelector_NormalizesThisAlias()
     {
         var (exit, output, error) = await RunAppAsync(
-            "String.this[]", "--table", "--tips", "q");
+            "String.this[]", "--table");
 
         Assert.Equal(0, exit);
         Assert.Contains("Chars", output);
@@ -2682,7 +2584,7 @@ public partial class CommandExecutionTests
     public async Task Router_IndexerSelector_NormalizesThisAliasWithIllustrativeArgument()
     {
         var (exit, output, error) = await RunAppAsync(
-            "String.this[0]", "--table", "--tips", "q");
+            "String.this[0]", "--table");
 
         Assert.Equal(0, exit);
         Assert.Contains("Chars", output);
@@ -2694,7 +2596,7 @@ public partial class CommandExecutionTests
     public async Task Router_GenericIndexerSelector_NormalizesThisAliasWithTypeArgument()
     {
         var (exit, output, error) = await RunAppAsync(
-            "Dictionary<TKey,TValue>.this[TKey]", "--table", "--tips", "q");
+            "Dictionary<TKey,TValue>.this[TKey]", "--table");
 
         Assert.Equal(0, exit);
         Assert.Contains("Item", output);
@@ -2706,7 +2608,7 @@ public partial class CommandExecutionTests
     public async Task Router_OperatorSelector_NormalizesOperatorAlias()
     {
         var (exit, output, error) = await RunAppAsync(
-            "DateTime.operator+", "--table", "--tips", "q");
+            "DateTime.operator+", "--table");
 
         Assert.Equal(0, exit);
         Assert.Contains("operator +", output);
@@ -2718,7 +2620,7 @@ public partial class CommandExecutionTests
     public async Task Router_ConversionSelector_NormalizesImplicitAlias()
     {
         var (exit, output, error) = await RunAppAsync(
-            "Decimal.implicit", "--table", "--tips", "q");
+            "Decimal.implicit", "--table");
 
         Assert.Equal(0, exit);
         Assert.Contains("implicit operator", output);
@@ -2730,7 +2632,7 @@ public partial class CommandExecutionTests
     public async Task Router_PlatformPrefixBrowse_UnresolvedNamespace_ListsPlatformMatches()
     {
         var (exit, output, error) = await RunAppAsync(
-            "System.Text", "--table", "--tips", "q");
+            "System.Text", "--table");
 
         Assert.Equal(0, exit);
         Assert.Contains("best-effort platform prefix matches", error);
@@ -2744,7 +2646,7 @@ public partial class CommandExecutionTests
     public async Task Router_ExactPlatformAssembly_StillRoutesToLibrary()
     {
         var (exit, output, error) = await RunAppAsync(
-            "System.Runtime", "--table", "--tips", "q");
+            "System.Runtime", "--table");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2758,7 +2660,7 @@ public partial class CommandExecutionTests
     [Fact]
     public async Task SourceCommand_RemovedFromRoot()
     {
-        var (exit, _, error) = await RunAppAsync("source", "--tips", "q");
+        var (exit, _, error) = await RunAppAsync("source");
 
         Assert.Equal(1, exit);
         Assert.Contains("Unrecognized command or argument 'source'", error);
@@ -2769,7 +2671,7 @@ public partial class CommandExecutionTests
     {
         var (exit, _, error) = await RunAppAsync(
             "member", "JsonConvert", "--package", "Newtonsoft.Json@13.0.4",
-            "-m", "SerializeObject", "-S", "Source Locations", "--browsable-urls", "--tips", "q");
+            "-m", "SerializeObject", "-S", "Source Locations", "--browsable-urls");
 
         Assert.Equal(1, exit);
         Assert.Contains("Unrecognized option '--browsable-urls'", error);
@@ -2779,7 +2681,7 @@ public partial class CommandExecutionTests
     public async Task Router_PlatformPrefixBrowse_NarrowSourceMissFallsBackToWidePlatformMatches()
     {
         var (exit, output, error) = await RunAppAsync(
-            "System.Collections.Frozen", "--table", "--tips", "q");
+            "System.Collections.Frozen", "--table");
 
         Assert.Equal(0, exit);
         Assert.Contains("best-effort platform prefix matches", error);
@@ -2797,8 +2699,6 @@ public partial class CommandExecutionTests
             "--platform",
             "System.Text.Json",
             "--table",
-            "--tips",
-            "q"
         ];
 
         var direct = await RunAppAsync(["type", .. arguments]);
@@ -2841,8 +2741,7 @@ public partial class CommandExecutionTests
             "System.Text.Json",
             "-S",
             "Type Info",
-            "--tips",
-            "q"
+            "--markdown",
         ];
 
         var direct = await RunAppAsync(
@@ -2852,8 +2751,7 @@ public partial class CommandExecutionTests
             "System.Text.Json",
             "-S",
             "Type Info",
-            "--tips",
-            "q");
+            "--markdown");
         var routed = await RunAppAsync(arguments);
 
         Assert.Equal(direct, routed);
@@ -2877,8 +2775,6 @@ public partial class CommandExecutionTests
         [
             "-S",
             "Type Info",
-            "--tips",
-            "q"
         ];
         var direct = await RunAppAsync(
             [
@@ -2911,17 +2807,13 @@ public partial class CommandExecutionTests
             "JsonSerializer",
             "--platform",
             "System.Text.Json",
-            "--bogus",
-            "--tips",
-            "q");
+            "--bogus");
         var routed = await RunAppAsync(
             "System.Text.Json",
             "--platform",
             "System.Text.Json",
             "--bogus",
-            "JsonSerializer",
-            "--tips",
-            "q");
+            "JsonSerializer");
 
         Assert.Equal(direct, routed);
         Assert.Equal(1, routed.Exit);
@@ -2947,8 +2839,7 @@ public partial class CommandExecutionTests
             member,
             "-S",
             "Type Info",
-            "--tips",
-            "q"
+            "--markdown",
         ];
         var direct = await RunAppAsync(
             [
@@ -2983,8 +2874,7 @@ public partial class CommandExecutionTests
             "JsonSerializer",
             "-S",
             "Type Info",
-            "--tips",
-            "q"
+            "--markdown",
         ];
 
         var direct = await RunAppAsync(
@@ -2994,8 +2884,7 @@ public partial class CommandExecutionTests
             "System.Text.Json",
             "-S",
             "Type Info",
-            "--tips",
-            "q");
+            "--markdown");
         var routed = await RunAppAsync(arguments);
 
         Assert.Equal(direct, routed);
@@ -3016,8 +2905,6 @@ public partial class CommandExecutionTests
             "-S",
             "Member Index",
             "--count",
-            "--tips",
-            "q"
         ];
         var direct = await RunAppAsync(
             [
@@ -3049,16 +2936,12 @@ public partial class CommandExecutionTests
             "JsonSerializer.Deserialize",
             "--platform",
             "System.Text.Json",
-            "--tips",
-            "q"
         ];
 
         var direct = await RunAppAsync(
             "JsonSerializer.Deserialize",
             "--platform",
-            "System.Text.Json",
-            "--tips",
-            "q");
+            "System.Text.Json");
         var routed = await RunAppAsync(arguments);
 
         Assert.Equal(direct, routed);
@@ -3082,8 +2965,7 @@ public partial class CommandExecutionTests
             "JsonSerializer",
             "-S",
             "Type Info",
-            "--tips",
-            "q"
+            "--markdown",
         ];
 
         var direct = await RunAppAsync(
@@ -3095,8 +2977,7 @@ public partial class CommandExecutionTests
             "JsonSerializer",
             "-S",
             "Type Info",
-            "--tips",
-            "q");
+            "--markdown");
         var routed = await RunAppAsync(arguments);
 
         Assert.Equal(direct, routed);
@@ -3116,8 +2997,6 @@ public partial class CommandExecutionTests
             "-S",
             "Classes",
             "--count",
-            "--tips",
-            "q"
         ];
 
         var direct = await RunAppAsync(["type", .. arguments]);
@@ -3137,8 +3016,6 @@ public partial class CommandExecutionTests
             TestAssemblyPath,
             "-S",
             "Classes",
-            "--tips",
-            "q"
         ];
 
         var direct = await RunAppAsync(["type", .. arguments]);
@@ -3161,9 +3038,7 @@ public partial class CommandExecutionTests
             "--library",
             TestAssemblyPath,
             "-S",
-            "Classes",
-            "--tips",
-            "q");
+            "Classes");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -3185,8 +3060,6 @@ public partial class CommandExecutionTests
                 "--library",
                 "Test.Primary.dll",
                 "--table",
-                "--tips",
-                "q"
             ];
 
             var direct = await RunAppAsync(["type", .. arguments]);
@@ -3216,9 +3089,9 @@ public partial class CommandExecutionTests
             ? [libraryOption]
             : [libraryOption, libraryValue];
         string[] executionTail =
-            [.. libraryTokens, "--offline", "--tips", "q"];
+            [.. libraryTokens, "--offline"];
         string[] schemaTail =
-            [.. libraryTokens, "-D", "--schema", "--offline", "--tips", "q"];
+            [.. libraryTokens, "-D", "--schema", "--offline"];
 
         var directExecution = await RunAppAsync(
             ["package", target, .. executionTail]);
@@ -3231,9 +3104,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(directExecution, routedExecution);
         Assert.Equal(1, routedExecution.Exit);
-        Assert.DoesNotContain("File not found: --tips", routedExecution.Error);
         Assert.Equal(directSchema, routedSchema);
-        Assert.DoesNotContain("File not found: --tips", routedSchema.Error);
     }
 
     [Theory]
@@ -3319,16 +3190,16 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Router_ConcatenatedOptionalValueRemainsOwned()
+    public async Task Router_AttachedOptionalValueRemainsOwned()
     {
         var direct = await RunAppAsync(
             "member",
             "System.String.ToString",
-            "-T-n1",
+            "-v:n",
             "--help");
         var routed = await RunAppAsync(
             "System.String.ToString",
-            "-T-n1",
+            "-v:n",
             "--help");
 
         Assert.Equal(0, direct.Exit);
@@ -3350,8 +3221,6 @@ public partial class CommandExecutionTests
         [
             "System.String",
             libraryOption,
-            "--tips",
-            "q"
         ];
 
         var direct = await RunAppAsync(["type", .. arguments]);
@@ -3370,8 +3239,7 @@ public partial class CommandExecutionTests
             $"--library:{typeof(CommandLineBuilder).Assembly.Location}",
             "-S",
             "Type Info",
-            "--tips",
-            "q"
+            "--markdown",
         ];
 
         var direct = await RunAppAsync(["type", .. arguments]);
@@ -3391,8 +3259,7 @@ public partial class CommandExecutionTests
             "--platform:System.Runtime",
             "-S",
             "Type Info",
-            "--tips",
-            "q"
+            "--markdown",
         ];
 
         var direct = await RunAppAsync(["type", .. arguments]);
@@ -3412,8 +3279,7 @@ public partial class CommandExecutionTests
             "--package:Newtonsoft.Json@13.0.4",
             "-S",
             "Type Info",
-            "--tips",
-            "q"
+            "--markdown",
         ];
 
         var direct = await RunAppAsync(["type", .. arguments]);
@@ -3432,8 +3298,6 @@ public partial class CommandExecutionTests
             "System.String",
             "--library",
             "-missing.dll",
-            "--tips",
-            "q"
         ];
 
         var direct = await RunAppAsync(["type", .. arguments]);
@@ -3454,8 +3318,6 @@ public partial class CommandExecutionTests
             "System.String",
             "--library",
             libraryPath,
-            "--tips",
-            "q"
         ];
 
         var direct = await RunAppAsync(["type", .. arguments]);
@@ -3477,8 +3339,6 @@ public partial class CommandExecutionTests
             "System.Runtime",
             "--library",
             "System.Private.CoreLib.dll",
-            "--tips",
-            "q"
         ];
 
         var direct = await RunAppAsync(["type", .. arguments]);
@@ -3494,7 +3354,7 @@ public partial class CommandExecutionTests
     public async Task BareQualifiedPlatformType_WithLeafCollision_RoutesExactly()
     {
         var (exit, output, error) = await RunAppAsync(
-            "System.IO.File", "--tips", "q");
+            "System.IO.File");
 
         Assert.Equal(0, exit);
         Assert.DoesNotContain("ambiguous", error, StringComparison.OrdinalIgnoreCase);
@@ -3507,7 +3367,7 @@ public partial class CommandExecutionTests
         SkipUnlessAspNetCoreAvailable();
 
         var (exit, output, error) = await RunAppAsync(
-            "Microsoft.AspNetCore.Builder.WebApplication", "--markdown", "--tips", "q");
+            "Microsoft.AspNetCore.Builder.WebApplication", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.DoesNotContain("ambiguous", error, StringComparison.OrdinalIgnoreCase);
@@ -3524,7 +3384,7 @@ public partial class CommandExecutionTests
         SkipUnlessAspNetCoreAvailable();
 
         var (exit, output, error) = await RunAppAsync(
-            target, "--markdown", "--tips", "q");
+            target, "--markdown");
 
         Assert.Equal(0, exit);
         Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
@@ -3540,9 +3400,7 @@ public partial class CommandExecutionTests
 
         var (exit, output, error) = await RunAppAsync(
             "Microsoft.AspNetCore.Http.HttpResults.Results<T1,T2>",
-            "--markdown",
-            "--tips",
-            "q");
+            "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -3559,9 +3417,7 @@ public partial class CommandExecutionTests
 
         var (exit, output, error) = await RunAppAsync(
             "Microsoft.AspNetCore.Http.HttpResults.Results<T1,T2>.ExecuteAsync",
-            "--markdown",
-            "--tips",
-            "q");
+            "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -3577,7 +3433,7 @@ public partial class CommandExecutionTests
         SkipUnlessAspNetCoreAvailable();
 
         var (exit, output, error) = await RunAppAsync(
-            "Microsoft.AspNetCore.Http.HttpContext", "--markdown", "--tips", "q");
+            "Microsoft.AspNetCore.Http.HttpContext", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.DoesNotContain("best-effort prefix", error, StringComparison.OrdinalIgnoreCase);
@@ -3592,7 +3448,7 @@ public partial class CommandExecutionTests
         SkipUnlessAspNetCoreAvailable();
 
         var (exit, output, error) = await RunAppAsync(
-            "Microsoft.AspNetCore.Builder.WebApplication.Run", "--table", "--tips", "q");
+            "Microsoft.AspNetCore.Builder.WebApplication.Run", "--table");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -3603,7 +3459,7 @@ public partial class CommandExecutionTests
     public async Task BareQualifiedPlatformType_TrueAmbiguityStillFails()
     {
         var (exit, output, error) = await RunAppAsync(
-            "System.Numerics.Enumerator", "--markdown", "--tips", "q");
+            "System.Numerics.Enumerator", "--markdown");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -3616,7 +3472,7 @@ public partial class CommandExecutionTests
         using RouterDecisionLog.Capture decisions =
             RouterDecisionLog.Begin();
         var (exit, output, error) = await RunAppAsync(
-            "System.Numerics.Enumerator.X", "--tips", "q");
+            "System.Numerics.Enumerator.X");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -3656,7 +3512,7 @@ public partial class CommandExecutionTests
         // The router captures projection flags as raw tokens, so the outer invocation records
         // nothing. It used to invoke the rewritten parse directly, bypassing the audit, which
         // left every bare-mode invocation unguarded. It now goes through the choke point.
-        var (exit, _, error) = await RunAppAsync("Regex", "--count", "--print", "--tips", "q");
+        var (exit, _, error) = await RunAppAsync("Regex", "--count", "--print");
 
         Assert.Equal(1, exit);
         Assert.Contains("--count cannot be combined with --print", error);
@@ -3734,7 +3590,7 @@ public partial class CommandExecutionTests
         // a concise error on stderr with a non-zero exit, not full help with exit 0.
         foreach (var command in new[] { "type", "member", "find", "depends", "extensions", "implements" })
         {
-            var (exit, output, error) = await RunAppAsync(command, "--tips", "q");
+            var (exit, output, error) = await RunAppAsync(command);
 
             Assert.Equal(1, exit);
             Assert.Empty(output);
@@ -3747,7 +3603,7 @@ public partial class CommandExecutionTests
     public async Task BareName_DecompilerCategory_IsNotPublished()
     {
         var (exit, output, error) = await RunAppAsync(
-            "System.Text.Json", "-S", "@Decompiler", "--tips", "q");
+            "System.Text.Json", "-S", "@Decompiler");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -3779,7 +3635,7 @@ public partial class CommandExecutionTests
 
             foreach (var command in commands)
             {
-                var discoveryArgs = command.Concat(["-D", "--tips", "q"]).ToArray();
+                var discoveryArgs = command.Concat(["-D"]).ToArray();
                 var (discoverExit, discoverOutput, discoverError) = await RunAppAsync(discoveryArgs);
                 Assert.Equal(0, discoverExit);
 
@@ -3857,8 +3713,6 @@ public partial class CommandExecutionTests
             library,
             "-S",
             "Library Info",
-            "--tips",
-            "q",
         ];
         var direct = await RunAppAsync(["package", .. arguments]);
         var routed = await RunAppAsync(arguments);
@@ -3870,8 +3724,6 @@ public partial class CommandExecutionTests
             "-D",
             "--schema",
             "--offline",
-            "--tips",
-            "q",
         ];
         var directSchema = await RunAppAsync(
             ["package", .. schemaArguments]);
@@ -3902,8 +3754,6 @@ public partial class CommandExecutionTests
             libraryPath,
             "-S",
             "Library Info",
-            "--tips",
-            "q"
         ];
 
         var direct = await RunAppAsync(["package", .. arguments]);
@@ -3950,8 +3800,6 @@ public partial class CommandExecutionTests
                 libraryPath,
                 "-S",
                 "Library Info",
-                "--tips",
-                "q"
             ];
 
             var direct = await RunAppInDirectoryAsync(
@@ -3980,8 +3828,6 @@ public partial class CommandExecutionTests
             "--library:lib/net6.0/Newtonsoft.Json.dll",
             "-S",
             "Library Info",
-            "--tips",
-            "q"
         ];
 
         var direct = await RunAppAsync(["package", .. arguments]);
@@ -4020,8 +3866,6 @@ public partial class CommandExecutionTests
             "Newtonsoft.Json",
             "--library",
             libraryPath,
-            "--tips",
-            "q"
         ];
 
         var direct = await RunAppAsync(["package", .. arguments]);
@@ -4046,8 +3890,6 @@ public partial class CommandExecutionTests
             "Newtonsoft.Json@13.0.4",
             "--library",
             libraryPath,
-            "--tips",
-            "q"
         ];
 
         var direct = await RunAppAsync(["type", .. arguments]);
@@ -4075,8 +3917,6 @@ public partial class CommandExecutionTests
             "System.String",
             "--library",
             libraryPath,
-            "--tips",
-            "q"
         ];
 
         var direct = await RunAppAsync(["type", .. arguments]);
@@ -4098,8 +3938,6 @@ public partial class CommandExecutionTests
             "Newtonsoft.Json@13.0.3",
             "--library",
             libraryPath,
-            "--tips",
-            "q"
         ];
 
         var direct = await RunAppAsync(["type", .. arguments]);
@@ -4121,8 +3959,6 @@ public partial class CommandExecutionTests
             "lib/net8.0/../Newtonsoft.Json.dll",
             "-S",
             "Library Info",
-            "--tips",
-            "q"
         ];
 
         var direct = await RunAppAsync(["type", .. arguments]);
@@ -4153,8 +3989,6 @@ public partial class CommandExecutionTests
                 "Newtonsoft.Json.dll",
                 "-S",
                 "Library Info",
-                "--tips",
-                "q"
             ];
 
             var direct = await RunAppInDirectoryAsync(
@@ -4207,8 +4041,7 @@ public partial class CommandExecutionTests
             "Newtonsoft.Json@13.0.4",
             "-S",
             "Package Info",
-            "--tips",
-            "q"
+            "--markdown",
         ];
 
         var direct = await RunAppAsync(
@@ -4216,8 +4049,7 @@ public partial class CommandExecutionTests
             "Newtonsoft.Json@13.0.4",
             "-S",
             "Package Info",
-            "--tips",
-            "q");
+            "--markdown");
         var routed = await RunAppAsync(arguments);
 
         Assert.Equal(direct, routed);
@@ -4236,8 +4068,6 @@ public partial class CommandExecutionTests
         [
             "-S",
             "Type Info",
-            "--tips",
-            "q"
         ];
         var direct = await RunAppAsync(
             [
@@ -4272,8 +4102,7 @@ public partial class CommandExecutionTests
             "--package:Newtonsoft.Json@13.0.4",
             "-S",
             "Package Info",
-            "--tips",
-            "q"
+            "--markdown",
         ];
 
         var direct = await RunAppAsync(
@@ -4281,8 +4110,7 @@ public partial class CommandExecutionTests
             "Newtonsoft.Json@13.0.4",
             "-S",
             "Package Info",
-            "--tips",
-            "q");
+            "--markdown");
         var routed = await RunAppAsync(arguments);
 
         Assert.Equal(direct, routed);
@@ -4301,8 +4129,7 @@ public partial class CommandExecutionTests
             "--package:Newtonsoft.Json@13.0.4",
             "-S",
             "Type Info",
-            "--tips",
-            "q"
+            "--markdown",
         ];
 
         var direct = await RunAppAsync(
@@ -4312,8 +4139,7 @@ public partial class CommandExecutionTests
             "Newtonsoft.Json@13.0.4",
             "-S",
             "Type Info",
-            "--tips",
-            "q");
+            "--markdown");
         var routed = await RunAppAsync(arguments);
 
         Assert.Equal(direct, routed);
@@ -4337,8 +4163,6 @@ public partial class CommandExecutionTests
             "Newtonsoft.Json",
             "-S",
             "Package Info",
-            "--tips",
-            "q"
         ];
 
         var direct = await RunAppAsync(
@@ -4346,9 +4170,7 @@ public partial class CommandExecutionTests
             "Newtonsoft.Json",
             version,
             "-S",
-            "Package Info",
-            "--tips",
-            "q");
+            "Package Info");
         var routed = await RunAppAsync(arguments);
 
         Assert.Equal(direct, routed);
@@ -4373,8 +4195,7 @@ public partial class CommandExecutionTests
             "1",
             "-S",
             "Signature",
-            "--tips",
-            "q"
+            "--markdown",
         ];
 
         var direct = await RunAppAsync(
@@ -4388,8 +4209,7 @@ public partial class CommandExecutionTests
             "1",
             "-S",
             "Signature",
-            "--tips",
-            "q");
+            "--markdown");
         var routed = await RunAppAsync(arguments);
 
         Assert.Equal(direct, routed);
@@ -4407,18 +4227,14 @@ public partial class CommandExecutionTests
             "--package",
             "Newtonsoft.Json@13.0.4",
             "--package",
-            "--version",
-            "--tips",
-            "q"
+            "--version=q",
         ];
 
         var direct = await RunAppAsync(
             "package",
             "Newtonsoft.Json@13.0.4",
             "--package",
-            "--version",
-            "--tips",
-            "q");
+            "--version=q");
         var routed = await RunAppAsync(arguments);
 
         Assert.Equal(direct, routed);
@@ -4435,8 +4251,7 @@ public partial class CommandExecutionTests
             "JsonConvert",
             "-S",
             "Type Info",
-            "--tips",
-            "q"
+            "--markdown",
         ];
 
         var direct = await RunAppAsync(
@@ -4446,8 +4261,7 @@ public partial class CommandExecutionTests
             "Newtonsoft.Json@13.0.4",
             "-S",
             "Type Info",
-            "--tips",
-            "q");
+            "--markdown");
         var routed = await RunAppAsync(arguments);
 
         Assert.Equal(direct, routed);
@@ -4469,7 +4283,7 @@ public partial class CommandExecutionTests
             "System.Runtime.CompilerServices.Unsafe is not facade-only in this runtime.");
 
         var (exit, output, runError) = await RunAppAsync(
-            "System.Runtime.CompilerServices.Unsafe", "--markdown", "-v:q", "--tips", "q");
+            "System.Runtime.CompilerServices.Unsafe", "--markdown", "-v:q");
 
         Assert.Equal(0, exit);
         Assert.Empty(runError);
@@ -4491,7 +4305,7 @@ public partial class CommandExecutionTests
         Assert.False(IsFacadeAssembly(assemblyPath));
 
         var (exit, output, runError) = await RunAppAsync(
-            "System.Text.Json", "--markdown", "-v:q", "--tips", "q");
+            "System.Text.Json", "--markdown", "-v:q");
 
         Assert.Equal(0, exit);
         Assert.Empty(runError);
@@ -4508,9 +4322,7 @@ public partial class CommandExecutionTests
             "System.Private.CoreLib",
             "-S",
             "Type Info",
-            "--count",
-            "--tips",
-            "q");
+            "--count");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -4529,9 +4341,7 @@ public partial class CommandExecutionTests
             "System.Collections",
             "-S",
             SectionNames.Signature,
-            "--count",
-            "--tips",
-            "q");
+            "--count");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -4552,8 +4362,6 @@ public partial class CommandExecutionTests
             "-S",
             SectionNames.Signature,
             "--count",
-            "--tips",
-            "q"
         ];
         var direct = await RunAppAsync(["member", target, .. tail]);
         var deferred = await RunAppAsync([target, .. tail]);
@@ -4575,9 +4383,7 @@ public partial class CommandExecutionTests
             "System.Numerics.Vectors",
             "-S",
             SectionNames.Signature,
-            "--count",
-            "--tips",
-            "q");
+            "--count");
 
         Assert.Equal(0, exit);
         Assert.Equal("1", output.Trim());
@@ -4597,8 +4403,6 @@ public partial class CommandExecutionTests
             "-D",
             SectionNames.Signature,
             "--schema",
-            "--tips",
-            "q"
         ];
         var direct = await RunAppAsync(
             [
@@ -4625,8 +4429,6 @@ public partial class CommandExecutionTests
             "-D",
             SectionNames.Signature,
             "--schema",
-            "--tips",
-            "q"
         ];
         var direct = await RunAppAsync(
             [
@@ -4653,8 +4455,6 @@ public partial class CommandExecutionTests
             "-S",
             SectionNames.Signature,
             "--count",
-            "--tips",
-            "q"
         ];
         var direct = await RunAppAsync(
             [
@@ -4685,8 +4485,6 @@ public partial class CommandExecutionTests
             "-S",
             SectionNames.Signature,
             "--count",
-            "--tips",
-            "q"
         ];
 
         var direct = await RunAppAsync(
@@ -4698,9 +4496,7 @@ public partial class CommandExecutionTests
             "Apply",
             "-S",
             SectionNames.Signature,
-            "--count",
-            "--tips",
-            "q");
+            "--count");
         var routed = await RunAppAsync(arguments);
 
         Assert.Equal(direct, routed);
@@ -4719,9 +4515,7 @@ public partial class CommandExecutionTests
             TestAssemblyPath,
             "-S",
             SectionNames.Signature,
-            "--count",
-            "--tips",
-            "q");
+            "--count");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);

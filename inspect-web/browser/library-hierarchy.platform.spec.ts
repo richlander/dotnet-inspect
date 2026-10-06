@@ -734,12 +734,12 @@ test("Workspace retains an in-place framework Library selection", async ({ page 
   await chooseInspector(
     page,
     "data-library-lens",
-    "integrations",
-    "Integrations",
+    "analysis",
+    "Analysis",
   );
-  await page.locator('[data-integration-mode="opportunities"]').click();
+  await page.locator('[data-analysis-mode="integrations"]').click();
   const picker = page.locator(
-    ".library-opportunities-controls .platform-library-select",
+    ".library-integrations-controls .platform-library-select",
   );
   await picker.selectOption("System.Facade");
   await expect(picker).toHaveValue("System.Facade");

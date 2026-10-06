@@ -21,6 +21,210 @@ import {
 
 test.use({ viewport: { width: 900, height: 900 } });
 
+test("Type filters expose counted Namespace, Accessibility, Kind, and Trait selectors", async ({
+  page,
+}) => {
+  const publicType = surface.types[0]!;
+  const internal = {
+    ...surface.types[1]!,
+    namespace: "Hidden",
+    kind: "interface",
+    kindFacetId: "api.type-kind.interface",
+    traitFacetIds: [],
+    accessibility: "internal",
+    accessibilityId: "internal",
+    signature: "internal interface Example.Neighbor",
+  };
+  await installFacades(page, {
+    ...surface,
+    types: [publicType, internal],
+    typeKinds: [
+      {
+        id: "api.type-kind.class",
+        singularLabel: "class",
+        pluralLabel: "classes",
+        weight: 100,
+        count: 1,
+        isDefault: true,
+      },
+      {
+        id: "api.type-kind.interface",
+        singularLabel: "interface",
+        pluralLabel: "interfaces",
+        weight: 300,
+        count: 1,
+        isDefault: true,
+      },
+    ],
+    typeTraits: surface.typeTraits.map(trait => ({
+      ...trait,
+      count: trait.id === "api.type-trait.object" ? 1 : 0,
+    })),
+    accessibility: [
+      { id: "public", label: "Public", order: 0, isDefault: true, count: 1 },
+      { id: "internal", label: "Internal", order: 2, isDefault: false, count: 1 },
+    ],
+  });
+  await page.goto(root);
+  await chooseSubject(page, "type", "Type");
+  await page.locator("#type-filter-summary").click();
+
+  await expect(page.locator(".type-filter-selects .member-filter-select > span"))
+    .toHaveText(["Namespace", "Accessibility", "Kind", "Trait"]);
+  await expect(page.locator("#namespace-jump option"))
+    .toHaveText([
+      "all namespaces · 1",
+      "Example · 1",
+    ]);
+  await expect(page.locator("[data-type-access-filter] option"))
+    .toHaveText([
+      "all · 2",
+      "public · 1",
+      "internal · 1",
+    ]);
+  await expect(page.locator("[data-type-kind-filter] option"))
+    .toHaveText([
+      "all · 1",
+      "class · 1",
+      "interface · 0",
+    ]);
+  await expect(page.locator("[data-type-trait-filter] option"))
+    .toHaveText([
+      "all · 1",
+      "abstract · 0",
+      "static · 0",
+      "object · 1",
+    ]);
+
+  await page.locator("#namespace-jump").selectOption("Example");
+  await page.locator("[data-type-access-filter]")
+    .selectOption("internal");
+  await expect(page.locator("#namespace-jump")).toHaveValue("");
+  await expect(page.locator("#namespace-jump option"))
+    .toHaveText([
+      "all namespaces · 1",
+      "Hidden · 1",
+    ]);
+  await expect(page.locator("[data-type-kind-filter] option"))
+    .toHaveText([
+      "all · 1",
+      "class · 0",
+      "interface · 1",
+    ]);
+  await expect(page.locator("[data-type-trait-filter] option"))
+    .toHaveText([
+      "all · 1",
+      "abstract · 0",
+      "static · 0",
+      "object · 0",
+    ]);
+  await expect(page.locator("#type-list [data-type]")).toHaveCount(1);
+  await expect(page.locator("#type-list")).toContainText("Neighbor");
+
+  await page.locator("[data-type-trait-filter]")
+    .selectOption("api.type-trait.abstract");
+  await expect(page.locator("#type-list [data-type]")).toHaveCount(0);
+  await page.locator("[data-type-trait-filter]")
+    .selectOption("api.type-trait.object");
+  await expect(page.locator("#type-list [data-type]")).toHaveCount(0);
+});
+
+test("non-public Type deep links select the exact accessibility bucket", async ({
+  page,
+}) => {
+  const publicType = surface.types[0]!;
+  const internal = {
+    ...surface.types[1]!,
+    accessibility: "internal",
+    accessibilityId: "internal",
+    signature: "internal class Example.Neighbor",
+  };
+  await installFacades(page, {
+    ...surface,
+    types: [publicType, internal],
+    accessibility: [
+      { id: "public", label: "Public", order: 0, isDefault: true, count: 1 },
+      { id: "internal", label: "Internal", order: 2, isDefault: false, count: 1 },
+    ],
+  });
+  await page.goto(root);
+  await chooseSubject(page, "type", "Type");
+  await page.locator("#type-filter-summary").click();
+  await page.locator("[data-type-access-filter]").selectOption("internal");
+  await page.locator(
+    `#type-list [data-type="${internal.id}"]`,
+  ).click();
+  const internalTypeUrl = page.url();
+
+  await page.goto(root);
+  await page.goto(internalTypeUrl);
+  await page.locator("#type-filter-summary").click();
+
+  await expect(page.locator("[data-type-access-filter]"))
+    .toHaveValue("internal");
+  await expect(page.locator("#type-list [data-type]")).toHaveCount(1);
+  await expect(page.locator(
+    `#type-list [data-type="${internal.id}"]`,
+  )).toBeVisible();
+  await expect(page.locator(
+    `#type-list [data-type="${publicType.id}"]`,
+  )).toHaveCount(0);
+});
+
+test("internal-only Library navigation selects one exact accessibility bucket", async ({
+  page,
+}) => {
+  const publicType = surface.types[0]!;
+  const internal = {
+    ...surface.types[1]!,
+    namespace: "Hidden",
+    accessibility: "internal",
+    accessibilityId: "internal",
+    signature: "internal class Hidden.Neighbor",
+  };
+  const privateType = {
+    ...surface.types[1]!,
+    id: `${surface.types[1]!.id}:private`,
+    definitionId: "Hidden.PrivateNeighbor",
+    queryId: "Hidden.PrivateNeighbor",
+    metadataId: "Hidden.PrivateNeighbor",
+    name: "PrivateNeighbor",
+    displayName: "Hidden.PrivateNeighbor",
+    namespace: "Hidden",
+    accessibility: "private",
+    accessibilityId: "private",
+    signature: "private class Hidden.PrivateNeighbor",
+  };
+  await installFacades(page, {
+    ...surface,
+    types: [publicType, internal, privateType],
+    accessibility: [
+      { id: "public", label: "Public", order: 0, isDefault: true, count: 1 },
+      { id: "internal", label: "Internal", order: 2, isDefault: false, count: 1 },
+      { id: "private", label: "Private", order: 5, isDefault: false, count: 1 },
+    ],
+  });
+  await page.goto(root);
+  await selectLibrary(page, other.id);
+  await chooseSubject(page, "type", "Type");
+  await page.locator("#type-filter-summary").click();
+
+  await expect(page.locator("[data-type-access-filter]"))
+    .toHaveValue("internal");
+  await expect(page.locator("#namespace-jump option"))
+    .toHaveText([
+      "all namespaces · 1",
+      "Hidden · 1",
+    ]);
+  await expect(page.locator("#type-list [data-type]")).toHaveCount(1);
+  await expect(page.locator(
+    `#type-list [data-type="${internal.id}"]`,
+  )).toBeVisible();
+  await expect(page.locator(
+    `#type-list [data-type="${privateType.id}"]`,
+  )).toHaveCount(0);
+});
+
 test("exact Library inspectors auto-select the alphabetical fallback only on navigation", async ({ page }) => {
   await installFacades(page);
   await page.goto(root.replace("#pkg", "#library"));
@@ -189,7 +393,7 @@ test("Workspace occurrence activation retains Package Info", async ({ page }) =>
 
   await expect(subjectTab(page, "package")).toHaveAttribute("aria-selected", "true");
   await expect(overview.locator(
-    ".package-overview-summary .section-title h2"))
+    ".package-info-section > .section-title h2"))
     .toHaveText("Package Info");
 });
 
@@ -248,7 +452,9 @@ test("Workspace projection failure pushes a degraded package successor", async (
 for (const width of [1440, 800, 390]) {
   test(`production Package Overview fills its frame and opens Library at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
-    await installFacades(page);
+    await installFacades(page, { ...surface, documents: [{
+      kind: "readme", name: "README", path: "README.md", size: 1024,
+    }] });
     await page.goto(root);
     const overview = page.locator(".package-overview-surface");
     await expect(overview).toBeVisible();
@@ -258,25 +464,25 @@ for (const width of [1440, 800, 390]) {
     await expect(overview.getByRole("heading", { level: 1 })).toHaveText("Example.Package");
     expect((await overview.locator(".overview-identity h1").boundingBox())!.width).toBeGreaterThan(100);
     await expect(overview.locator(".overview-identity [data-package-icon]")).toBeVisible();
-    await expect(overview.locator("#package-version")).toBeVisible();
+    await expect(overview.locator("#package-version")).toHaveCount(0);
+    await expect(page.locator(".package-version-nav [data-package-version]")).not.toHaveCount(0);
     await expect(overview.locator("#framework")).toHaveCount(0);
     const packageIconSource = await overview.locator("[data-package-icon]").getAttribute("src");
-    await expect(page.locator(".overview-surface-head p")).toHaveText("2 types · 2 members");
-    await expect(page.locator(".overview-surface-footer span")).toHaveText([
-      "Example.Package@1.0.0", "net10.0",
-    ]);
+    await expect(overview.locator(".overview-surface-head")).toHaveCount(0);
+    await expect(overview.locator("footer")).toHaveCount(0);
     await expect(overview.locator(".library-row, [data-lib-scope]")).toHaveCount(0);
-    await expect(overview.locator(".comparison-target-row")).toHaveCount(2);
-    const diffTarget = overview.locator("#package-diff-target");
-    await expect(diffTarget.locator("option:checked")).toHaveText("Automatic: 0.9.0");
-    await expect(overview.locator(".comparison-target-policy"))
-      .toHaveText("Session only. Choosing a target does not run a comparison or change shared links.");
+    const libraryList = await overview.locator(".package-children").boundingBox();
+    const documentLink = await overview.locator('[data-doc-path="README.md"]').boundingBox();
+    expect(libraryList).not.toBeNull();
+    expect(documentLink).not.toBeNull();
+    expect(documentLink!.y).toBeGreaterThan(libraryList!.y + libraryList!.height);
+    await expect(overview.locator(".comparison-target-row")).toHaveCount(0);
+    await expect(overview.locator(".overview-subject-label")).toHaveCount(0);
     await expect(overview.locator(
-      ".package-overview-summary .section-title h2"))
+      ".package-info-section > .section-title h2"))
       .toHaveText("Package Info");
-    await expect(overview.locator(
-      ".package-overview-resources .section-title h2"))
-      .toHaveText("Comparison targets");
+    await expect(page.locator(".package-version-nav .package-frameworks h2"))
+      .toHaveText("Target frameworks");
     await expect(overview.locator(".package-info-rows dt")).toHaveText([
       "Package Size (compressed)",
       "Selected TFM",
@@ -285,45 +491,15 @@ for (const width of [1440, 800, 390]) {
       "Selected-TFM Size",
       "TFMs",
     ]);
-    if (width === 1440) {
-      const inventory = await overview.locator(".package-overview-summary").boundingBox();
-      const resources = await overview.locator(".package-overview-resources").boundingBox();
-      expect(inventory).not.toBeNull();
-      expect(resources).not.toBeNull();
-      expect(resources!.x).toBeGreaterThanOrEqual(inventory!.x + inventory!.width);
-      expect(resources!.y).toBeCloseTo(inventory!.y, 0);
-      expect((await diffTarget.boundingBox())!.width).toBeGreaterThan(250);
-      expect(await diffTarget.evaluate(select => {
-        if (!(select instanceof HTMLSelectElement)) return false;
-        const canvas = document.createElement("canvas");
-        const context = canvas.getContext("2d");
-        if (!context) return false;
-        context.font = getComputedStyle(select).font;
-        return context.measureText(select.selectedOptions[0]?.text ?? "").width + 48
-          <= select.clientWidth;
-      })).toBe(true);
-    } else {
-      const inventory = await overview.locator(".package-overview-summary").boundingBox();
-      const resources = await overview.locator(".package-overview-resources").boundingBox();
-      expect(inventory).not.toBeNull();
-      expect(resources).not.toBeNull();
-      expect(resources!.x).toBeCloseTo(inventory!.x, 0);
-      expect(resources!.y).toBeGreaterThanOrEqual(inventory!.y + inventory!.height);
-      const row = await overview.locator(".comparison-target-row").first().boundingBox();
-      const heading = await overview.locator(".comparison-target-heading").first().boundingBox();
-      const selection = await overview.locator(".comparison-target-selection").first().boundingBox();
-      expect(row).not.toBeNull();
-      expect(heading).not.toBeNull();
-      expect(selection).not.toBeNull();
-      expect(Math.abs(selection!.x - heading!.x)).toBeLessThan(1);
-      expect(selection!.y).toBeGreaterThan(heading!.y + heading!.height);
-    }
+    await expect(overview.locator(".package-overview-resources")).toHaveCount(0);
+    const inventory = await overview.locator(".package-overview-summary").boundingBox();
+    expect(inventory!.width).toBeGreaterThan((await overview.boundingBox())!.width - 40);
     expect(await overview.locator(".overview-scroll").evaluate(scroll =>
       scroll.scrollWidth - scroll.clientWidth)).toBe(0);
     expect(await page.evaluate(() =>
       document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
     if (width === 390) {
-      await page.getByRole("button", { name: "Frameworks", exact: true }).click();
+      await page.getByRole("button", { name: "Frameworks & versions", exact: true }).click();
       await expect(page.locator('[data-package-framework][aria-current="page"]'))
         .toBeFocused();
       await page.getByRole("button", { name: "Show details", exact: true }).click();
@@ -405,7 +581,7 @@ for (const width of [1440, 800, 390]) {
       .toContainText("No public types.");
     await expect(libraryOverview.locator(
       "[data-namespace-jump], [data-kind-jump]")).toHaveCount(0);
-    await expect(libraryOverview.locator(".overview-surface-footer")).toBeVisible();
+    await expect(libraryOverview.locator(".overview-surface-footer")).toHaveCount(0);
   });
 }
 
@@ -591,7 +767,6 @@ test("metadata accessors retain their established overload detail route", async 
   await page.locator("#member-filter-summary").click();
   await page.locator("[data-member-spelling]").selectOption("metadata");
   await chooseSubject(page, "member", "Member");
-  await page.locator(".member-surface-list .overload-row").click();
 
   expect(await page.locator("html").getAttribute(
     "data-member-document-request",
@@ -602,13 +777,14 @@ test("metadata accessors retain their established overload detail route", async 
     .toContainText("int Example.Widget.get_Value()");
 });
 
-test("non-public overload navigation retains its established detail route", async ({
+test("filtered non-public overload navigation retains its established detail route", async ({
   page,
 }) => {
-  const hidden = [1, 2].map(index => ({
+  const hidden = [1, 2, 3].map(index => ({
     ...run,
     signature: `private void Hidden(int value${index})`,
     name: "Hidden",
+    isStatic: index !== 2,
     accessibility: "private",
     stableSelector: `Hidden:${index}`,
     anchorDigest: `widget-hidden-${index}`,
@@ -635,16 +811,31 @@ test("non-public overload navigation retains its established detail route", asyn
     '#type-list [data-type="asset:core:Example.Widget"]').click();
   await page.locator("#member-filter-summary").click();
   await page.locator("[data-member-access-filter]").selectOption("private");
+  await page.locator("[data-member-trait-filter]").selectOption("static");
   await chooseSubject(page, "member", "Member");
-  await page.locator('[data-nav-overload="1"]').click();
+  await page.locator('[data-nav-overload="2"]').click();
 
   expect(await page.locator("html").getAttribute(
     "data-member-document-request",
   )).toBeNull();
-  await expect(page.locator('[data-nav-overload="1"]'))
+  await expect(page.locator('[data-nav-overload="2"]'))
     .toHaveAttribute("aria-selected", "true");
   await expect(page.locator(".member-surface"))
-    .toContainText("void Example.Widget.Hidden(int value2)");
+    .toContainText("void Example.Widget.Hidden(int value3)");
+
+  await page.locator("[data-nav-member]").filter({ hasText: "Hidden" }).click();
+  const pickerRows = page.locator(".member-surface-list .overload-row");
+  await expect(pickerRows).toHaveCount(2);
+  await expect(pickerRows.nth(1)).toContainText("value3");
+  await expect(page.locator(".member-surface-head #member-back")).toBeVisible();
+  await pickerRows.nth(1).click();
+  await expect(page.locator('[data-nav-overload="2"]'))
+    .toHaveAttribute("aria-selected", "true");
+  await expect(page.locator(".member-surface"))
+    .toContainText("void Example.Widget.Hidden(int value3)");
+  await page.locator("[data-nav-member]").filter({ hasText: "Hidden" }).click();
+  await page.locator(".member-surface-head #member-back").click();
+  await expect(subjectTab(page, "type")).toHaveAttribute("aria-selected", "true");
 });
 
 test("aggregate Library remains active through Spotlight Type and Member results", async ({ page }) => {
@@ -679,29 +870,27 @@ test("aggregate Library remains active through Spotlight Type and Member results
     .toHaveValue("public");
   await expect(page.locator("#member-surface-title")).toHaveText("Run");
   await expect(page.locator(".member-surface-list .overload-row"))
-    .toHaveCount(1);
+    .toHaveCount(0);
   expect(await page.locator("html").getAttribute(
     "data-member-group-document-request",
   )).toBeNull();
 
   await page.keyboard.press("1");
   await expect(page.locator(".member-surface-list .overload-row"))
-    .toHaveCount(1);
+    .toHaveCount(0);
 
   await page.keyboard.press("ArrowRight");
-  await expect(subjectTab(page, "type"))
+  await expect(subjectTab(page, "member"))
     .toHaveAttribute("aria-selected", "true");
   await page.keyboard.press("ArrowLeft");
   await expect(subjectTab(page, "member"))
     .toHaveAttribute("aria-selected", "true");
   await expect(page.locator(".member-surface-list .overload-row"))
-    .toHaveCount(1);
+    .toHaveCount(0);
 
-  await page.locator(".member-surface-list .overload-row").click();
   await page.keyboard.press("Backspace");
-  await expect(page.locator("#member-surface-title")).toHaveText("Run");
-  await expect(page.locator(".member-surface-list .overload-row"))
-    .toHaveCount(1);
+  await expect(subjectTab(page, "type"))
+    .toHaveAttribute("aria-selected", "true");
 
   await chooseSubject(page, "type", "Type");
   await expect(page.locator(".subject-path-segment").nth(1))
@@ -797,7 +986,7 @@ for (const [selectedLibrary, activation] of [[core, "click"], [empty, "keyboard"
     await expect(page.locator(".package-overview-surface [data-lib-scope]"))
       .toHaveCount(0);
 
-    const frameworks = page.getByRole("button", { name: "Frameworks", exact: true });
+    const frameworks = page.getByRole("button", { name: "Frameworks & versions", exact: true });
     await frameworks.click();
     await expect(page.locator('[data-package-framework][aria-current="page"]'))
       .toBeFocused();
@@ -946,6 +1135,29 @@ test("Member filters use dropdowns and request all accessibility buckets", async
     ...run,
     isStatic: true,
   };
+  const instanceMember = {
+    ...run,
+    signature: "public void Run(int value)",
+    parameters: [{
+      name: "value",
+      type: "int",
+      modifier: null,
+      hasDefault: false,
+      defaultValue: null,
+      description: null,
+    }],
+    metadataToken: 0x06000002,
+    declarationMetadataToken: 0x06000002,
+    stableSelector: "Run:2",
+    anchorDigest: "widget-run-two",
+    canonicalSignature: "M:Example.Widget.Run(System.Int32)",
+    graphSelectorKey: "Run:2",
+    bodySelectors: [{
+      token: 0x06000002,
+      memberName: "Run",
+      selectorKey: "Run:2",
+    }],
+  };
   const privateMember = {
     ...run,
     name: "Value",
@@ -965,13 +1177,13 @@ test("Member filters use dropdowns and request all accessibility buckets", async
   };
   const model = {
     ...surface,
-    totalMembers: surface.totalMembers + 1,
+    totalMembers: surface.totalMembers + 2,
     types: surface.types.map(item =>
       item.id === "asset:core:Example.Widget"
         ? {
             ...item,
-            members: item.members + 1,
-            api: [publicMember, privateMember],
+            members: item.members + 2,
+            api: [publicMember, instanceMember, privateMember],
           }
         : item),
   };
@@ -988,18 +1200,37 @@ test("Member filters use dropdowns and request all accessibility buckets", async
   const trait = page.locator("[data-member-trait-filter]");
   await expect(kind).toBeVisible();
   await expect(page.locator("[data-member-spelling]")).toBeVisible();
+  await expect(page.locator(
+    "[data-member-filter-disclosure] .member-filter-select > span",
+  ))
+    .toHaveText(["Kind", "Accessibility", "Trait", "Spelling"]);
+  await expect(kind.locator('option[value="all"]')).toHaveText("all kinds · 2");
+  await expect(kind.locator('option[value="method"]')).toHaveText("method · 2");
+  await expect(trait.locator("option"))
+    .toHaveText([
+      "all · 2",
+      "static · 1",
+      "instance · 1",
+      "virtual · 0",
+      "interface · 0",
+      "extensions · 0",
+    ]);
   const accessibility = page.locator("[data-member-access-filter]");
   await expect(accessibility.locator('option[value="all"]'))
-    .toHaveText("all · 2");
+    .toHaveText("all · 3");
 
   await kind.selectOption("method");
-  await trait.selectOption("isStatic");
+  await trait.selectOption("static");
   await accessibility.selectOption("private");
 
   await expect(kind).toHaveValue("method");
-  await expect(kind.locator('option[value="method"]')).toHaveCount(1);
-  await expect(trait).toHaveValue("isStatic");
-  await expect(trait.locator('option[value="isStatic"]')).toHaveCount(1);
+  await expect(kind.locator('option[value="method"]'))
+    .toHaveText("method · 0");
+  await expect(trait).toHaveValue("static");
+  await expect(trait.locator('option[value="static"]'))
+    .toHaveText("static · 0");
+  await expect(trait.locator('option[value="instance"]'))
+    .toHaveText("instance · 1");
   await expect(page.locator("#inspector-panel [data-member]")).toHaveCount(0);
 
   await kind.selectOption("all");
@@ -1017,6 +1248,70 @@ test("Member filters use dropdowns and request all accessibility buckets", async
     "data-type-member-population-request",
     /"Example.Widget","csharp","all"\]$/,
   );
+
+  await accessibility.selectOption("public");
+  await expect(accessibility).toHaveValue("public");
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-type-member-population-request",
+    /"Example.Widget","csharp","public"\]$/,
+  );
+  await trait.selectOption("instance");
+  await expect(trait).toHaveValue("instance");
+  await expect(trait.locator('option[value="instance"]'))
+    .toHaveAttribute("selected", "");
+  await expect(page.locator(".api-surface > .api-surface-head p"))
+    .toContainText("1 of 2 members");
+  const filteredRun = page.locator("#inspector-panel [data-member]");
+  await expect(filteredRun).toHaveCount(1);
+  await expect(filteredRun.locator("code"))
+    .toHaveText("public void Run(int value)");
+  await expect(filteredRun.locator("small")).not.toContainText("+");
+
+  await filteredRun.click();
+  await expect(page.locator(".member-surface-head"))
+    .toContainText("method · 2 of 2");
+  await expect(page.locator(".member-surface-list .overload-row"))
+    .toHaveCount(0);
+  await expect(page.locator(".signature-code"))
+    .toContainText("public void Run(int value)");
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-member-declaration-request",
+    /"Run","Run:2",100663298,false\]$/,
+  );
+  await expect(page.getByText(
+    "M:Example.Widget.Run(System.Int32)",
+    { exact: true },
+  )).toBeVisible();
+
+  await page.goto(root);
+  await selectLibrary(page, core.id);
+  await chooseSubject(page, "type", "Type");
+  await page.locator(
+    '#type-list [data-type="asset:core:Example.Widget"]',
+  ).click();
+  await page.locator("#member-filter-summary").click();
+  await page.locator("#inspector-panel [data-member]").click();
+  await expect(page.locator(".member-surface-list .overload-row"))
+    .toHaveCount(2);
+
+  await page.locator("[data-member-trait-filter]")
+    .selectOption("instance");
+  await expect(page.locator(".member-surface-head"))
+    .toContainText("method · 2 of 2");
+  await expect(page.locator(".signature-code"))
+    .toContainText("public void Run(int value)");
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-member-declaration-request",
+    /"Run","Run:2",100663298,false\]$/,
+  );
+  await expect(page.locator("#type-list [data-nav-overload]"))
+    .toHaveCount(0);
+  await expect(page.locator(
+    '#type-list [data-nav-member] .family-count',
+  )).toHaveCount(0);
+  await expect(page.locator(
+    '#type-list [data-nav-member] .type-name',
+  )).toContainText("Run(int)");
 });
 
 for (const width of [900, 390]) {
@@ -1165,6 +1460,8 @@ test("browser history restores each retained Workspace Library", async ({ page }
   await page.keyboard.press("Control+p");
   await page.locator('[data-sl-pkg-recent="Second.Package"]').click();
   await expect(page.locator(".inspected-target")).toContainText("Second.Package");
+  await expect(subjectTab(page, "package")).toHaveAttribute("aria-selected", "true");
+  await chooseSubject(page, "library", "Library");
   await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
   await expect(page.locator(".library-overview-surface h1")).toHaveText("All libraries");
   await page.goBack();
@@ -1233,6 +1530,8 @@ test("browser history restores the incoming retained Library ancestry", async ({
   await selectLibrary(page, core.id);
   await page.keyboard.press("Control+p");
   await page.locator('[data-sl-pkg-recent="Second.Package"]').click();
+  await expect(page.locator("#inspector-panel h1")).toHaveText("Second.Package");
+  await chooseSubject(page, "library", "Library");
   await expect(page.locator("#inspector-panel h1")).toHaveText("All libraries");
 
   await page.goBack();
@@ -1488,3 +1787,26 @@ for (const [command, dialog] of [
     expect(page.url()).toBe(url);
   });
 }
+
+
+test("Compare keeps a single aligned heading row at desktop and narrow widths", async ({ page }) => {
+  await installFacades(page);
+  await page.goto(root);
+  await selectLibrary(page, core.id);
+  await chooseInspector(page, "data-library-lens", "compare", "Compare");
+  for (const width of [1440, 900, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    const heading = page.locator(".compare-head");
+    await expect(heading).toBeVisible();
+    const headingBox = await heading.boundingBox();
+    expect(headingBox!.height).toBe(40);
+    if (width > 760) {
+      const master = await page.locator(".browser-head").boundingBox();
+      expect(master!.height).toBe(headingBox!.height);
+      expect(master!.y).toBe(headingBox!.y);
+    }
+    await expect(page.locator("#compare-change-target")).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth
+      <= document.documentElement.clientWidth)).toBe(true);
+  }
+});

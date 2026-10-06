@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using System.Collections.Immutable;
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection.Metadata;
 
 namespace ILInspector.Instructions;
@@ -66,10 +67,9 @@ public static class InstructionDecoder
             }
             else
             {
-                int instructionSize =
-                    opcode.GetInstructionSize();
-                int operandSize = instructionSize
-                    - (reader.Offset - opcodeStart);
+                int instructionSize = opcode.GetInstructionSize();
+                int operandSize =
+                    instructionSize - (reader.Offset - opcodeStart);
                 if (instructionSize < 0
                     || operandSize < 0
                     || operandSize > reader.RemainingBytes)
@@ -86,8 +86,7 @@ public static class InstructionDecoder
 
             previous = opcode;
             hasPrevious = true;
-            int encodedLength =
-                reader.Offset - opcodeStart;
+            int encodedLength = reader.Offset - opcodeStart;
             if (!visitor(
                     opcode,
                     operandToken,
@@ -101,6 +100,239 @@ public static class InstructionDecoder
                 $"IL ends with a dangling prefix at IL_{reader.Offset:X4}");
         }
         return true;
+    }
+
+    /// <summary>
+    /// Visits one retained IL snapshot without materializing decoded
+    /// instructions.
+    /// </summary>
+    public static bool Visit(
+        ReadOnlySpan<byte> il,
+        Func<ILOpCode, int, int, bool> visitor)
+    {
+        ArgumentNullException.ThrowIfNull(visitor);
+
+        var reader = new ILReader(il);
+        ILOpCode previous = default;
+        bool hasPrevious = false;
+        try
+        {
+            while (reader.Offset < reader.Size)
+            {
+                int offset = reader.Offset;
+                int opcodeStart = reader.Offset;
+                ILOpCode opcode = reader.ReadILOpcode();
+                if (!opcode.IsValid())
+                {
+                    throw new BadImageFormatException(
+                        $"Invalid opcode 0x{(int)opcode:X} at IL_{offset:X4}");
+                }
+
+                int operandToken = 0;
+                if (opcode == ILOpCode.Switch)
+                {
+                    uint count = reader.ReadILUInt32();
+                    long tableEnd =
+                        (long)reader.Offset + (long)count * sizeof(int);
+                    if (count > int.MaxValue / sizeof(int)
+                        || tableEnd > reader.Size)
+                    {
+                        throw new BadImageFormatException(
+                            $"Malformed switch at IL_{offset:X4}");
+                    }
+                    reader.Seek((int)tableEnd);
+                }
+                else
+                {
+                    int instructionSize = opcode.GetInstructionSize();
+                    int operandSize =
+                        instructionSize - (reader.Offset - opcodeStart);
+                    if (instructionSize < 0
+                        || operandSize < 0
+                        || operandSize > reader.Size - reader.Offset)
+                    {
+                        throw new BadImageFormatException(
+                            $"Truncated operand at IL_{offset:X4}");
+                    }
+
+                    if (IsMethodOperand(opcode))
+                        operandToken = reader.ReadILToken();
+                    else
+                        reader.Seek(reader.Offset + operandSize);
+                }
+
+                previous = opcode;
+                hasPrevious = true;
+                int encodedLength = reader.Offset - opcodeStart;
+                if (!visitor(opcode, operandToken, encodedLength))
+                    return false;
+            }
+        }
+        catch (InvalidProgramException ex)
+        {
+            throw NormalizeMalformedIl(ex);
+        }
+
+        if (hasPrevious && previous.IsPrefix())
+        {
+            throw new BadImageFormatException(
+                $"IL ends with a dangling prefix at IL_{reader.Offset:X4}");
+        }
+        return true;
+    }
+
+    internal static bool TryReadNext(
+        MethodBodyBlock body,
+        ref int nextOffset,
+        out InstructionEntry instruction)
+    {
+        BlobReader reader = body.GetILReader();
+        if ((uint)nextOffset > (uint)(reader.Offset + reader.RemainingBytes))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(nextOffset),
+                nextOffset,
+                "The next instruction offset must be within the IL stream.");
+        }
+
+        reader.Offset = nextOffset;
+        if (reader.RemainingBytes == 0)
+        {
+            instruction = default;
+            return false;
+        }
+
+        int offset = reader.Offset;
+        int opcodeStart = reader.Offset;
+        byte first = reader.ReadByte();
+        ILOpCode opcode = first == 0xFE
+            ? (ILOpCode)(0xFE00 | reader.ReadByte())
+            : (ILOpCode)first;
+        if (!opcode.IsValid())
+        {
+            throw new BadImageFormatException(
+                $"Invalid opcode 0x{(int)opcode:X} at IL_{offset:X4}");
+        }
+
+        if (opcode == ILOpCode.Switch)
+        {
+            int count = reader.ReadInt32();
+            if (count < 0
+                || count > reader.RemainingBytes / sizeof(int))
+            {
+                throw new BadImageFormatException(
+                    $"Malformed switch at IL_{offset:X4}");
+            }
+            reader.Offset += count * sizeof(int);
+        }
+        else
+        {
+            int instructionSize = opcode.GetInstructionSize();
+            int operandSize =
+                instructionSize - (reader.Offset - opcodeStart);
+            if (instructionSize < 0
+                || operandSize < 0
+                || operandSize > reader.RemainingBytes)
+            {
+                throw new BadImageFormatException(
+                    $"Truncated operand at IL_{offset:X4}");
+            }
+
+            reader.Offset += operandSize;
+        }
+
+        int followingOffset = reader.Offset;
+        if (opcode.IsPrefix() && reader.RemainingBytes == 0)
+        {
+            throw new BadImageFormatException(
+                $"IL ends with a dangling prefix at IL_{offset:X4}");
+        }
+
+        instruction = new(
+            offset,
+            opcode,
+            followingOffset);
+        nextOffset = followingOffset;
+        return true;
+    }
+
+    internal static bool TryReadNext(
+        ReadOnlySpan<byte> il,
+        ref int nextOffset,
+        out InstructionEntry instruction)
+    {
+        if ((uint)nextOffset > (uint)il.Length)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(nextOffset),
+                nextOffset,
+                "The next instruction offset must be within the IL stream.");
+        }
+
+        if (nextOffset == il.Length)
+        {
+            instruction = default;
+            return false;
+        }
+
+        try
+        {
+            int offset = nextOffset;
+            var reader = new ILReader(il, offset);
+            ILOpCode opcode = reader.ReadILOpcode();
+            if (!opcode.IsValid())
+            {
+                throw new BadImageFormatException(
+                    $"Invalid opcode 0x{(int)opcode:X} at IL_{offset:X4}");
+            }
+
+            if (opcode == ILOpCode.Switch)
+            {
+                uint count = reader.ReadILUInt32();
+                long tableEnd =
+                    (long)reader.Offset + (long)count * sizeof(int);
+                if (count > int.MaxValue / sizeof(int)
+                    || tableEnd > reader.Size)
+                {
+                    throw new BadImageFormatException(
+                        $"Malformed switch at IL_{offset:X4}");
+                }
+                reader.Seek((int)tableEnd);
+            }
+            else
+            {
+                int instructionSize = opcode.GetInstructionSize();
+                int opcodeSize = reader.Offset - offset;
+                int operandSize = instructionSize - opcodeSize;
+                if (instructionSize < 0
+                    || operandSize < 0
+                    || operandSize > reader.Size - reader.Offset)
+                {
+                    throw new BadImageFormatException(
+                        $"Truncated operand at IL_{offset:X4}");
+                }
+
+                reader.Seek(reader.Offset + operandSize);
+            }
+
+            int followingOffset = reader.Offset;
+            if (opcode.IsPrefix() && followingOffset == il.Length)
+            {
+                throw new BadImageFormatException(
+                    $"IL ends with a dangling prefix at IL_{offset:X4}");
+            }
+
+            nextOffset = followingOffset;
+            instruction = new(
+                offset,
+                opcode,
+                followingOffset);
+            return true;
+        }
+        catch (InvalidProgramException ex)
+        {
+            throw NormalizeMalformedIl(ex);
+        }
     }
 
     public static ImmutableArray<DecodedInstruction> Decode(byte[] il)
@@ -192,12 +424,10 @@ public static class InstructionDecoder
         instructions = [];
         decodedInstructionCount = 0;
         var builder = ImmutableArray.CreateBuilder<DecodedInstruction>();
-        var reader = new ILReader(il);
+        int offset = 0;
 
-        while (reader.HasNext)
+        while (offset < il.Length)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-
             if (builder.Count == maximumInstructions)
             {
                 decodedInstructionCount = builder.Count;
@@ -205,16 +435,61 @@ public static class InstructionDecoder
                 return false;
             }
 
-            int offset = reader.Offset;
-            var opcode = reader.ReadILOpcode();
+            if (!TryDecodeNext(
+                il,
+                ref offset,
+                cancellationToken,
+                out DecodedInstruction? instruction))
+            {
+                throw new InvalidOperationException(
+                    "The decoder reached the end before the IL length.");
+            }
+            builder.Add(instruction);
+            decodedInstructionCount = builder.Count;
+        }
+
+        decodedInstructionCount = builder.Count;
+        instructions = builder.ToImmutable();
+        return true;
+    }
+
+    internal static bool TryDecodeNext(
+        ReadOnlySpan<byte> il,
+        ref int nextOffset,
+        CancellationToken cancellationToken,
+        [NotNullWhen(true)] out DecodedInstruction? instruction)
+    {
+        if ((uint)nextOffset > (uint)il.Length)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(nextOffset),
+                nextOffset,
+                "The next instruction offset must be within the IL stream.");
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        if (nextOffset == il.Length)
+        {
+            instruction = null;
+            return false;
+        }
+
+        try
+        {
+            int offset = nextOffset;
+            var reader = new ILReader(il, offset);
+            ILOpCode opcode = reader.ReadILOpcode();
             if (!opcode.IsValid())
-                throw new BadImageFormatException($"Invalid opcode 0x{(int)opcode:X} at IL_{offset:X4}");
+            {
+                throw new BadImageFormatException(
+                    $"Invalid opcode 0x{(int)opcode:X} at IL_{offset:X4}");
+            }
 
             int operandOffset = reader.Offset;
-            var kind = Classify(opcode);
+            OperandKind kind = Classify(opcode);
 
             long operandValue = 0;
-            var targets = ImmutableArray<int>.Empty;
+            ImmutableArray<int> targets = [];
             bool branches = false;
             bool unconditional = false;
             bool exits = false;
@@ -238,32 +513,54 @@ public static class InstructionDecoder
             }
             else
             {
-                operandValue = ReadOperandValue(il, operandOffset, kind, offset);
+                operandValue = ReadOperandValue(
+                    il,
+                    operandOffset,
+                    kind,
+                    offset);
                 reader.Skip(opcode);
                 if (reader.Offset > il.Length)
-                    throw new BadImageFormatException($"Truncated operand at IL_{offset:X4}");
-                exits = opcode is ILOpCode.Ret or ILOpCode.Throw or ILOpCode.Rethrow or ILOpCode.Jmp
-                    or ILOpCode.Endfinally or ILOpCode.Endfilter;
+                {
+                    throw new BadImageFormatException(
+                        $"Truncated operand at IL_{offset:X4}");
+                }
+
+                exits = opcode is ILOpCode.Ret
+                    or ILOpCode.Throw
+                    or ILOpCode.Rethrow
+                    or ILOpCode.Jmp
+                    or ILOpCode.Endfinally
+                    or ILOpCode.Endfilter;
             }
 
-            int next = reader.Offset;
+            int followingOffset = reader.Offset;
+            if (opcode.IsPrefix() && followingOffset == il.Length)
+            {
+                throw new BadImageFormatException(
+                    $"IL ends with a dangling prefix at IL_{offset:X4}");
+            }
+
             bool fallsThrough = !(exits || unconditional);
-
-            builder.Add(new DecodedInstruction(
-                offset, opcode, operandOffset, next, kind, operandValue,
-                targets, branches, unconditional, exits, fallsThrough, leaves));
-            decodedInstructionCount = builder.Count;
+            instruction = new DecodedInstruction(
+                offset,
+                opcode,
+                operandOffset,
+                followingOffset,
+                kind,
+                operandValue,
+                targets,
+                branches,
+                unconditional,
+                exits,
+                fallsThrough,
+                leaves);
+            nextOffset = followingOffset;
+            return true;
         }
-
-        // Fail closed on a dangling prefix: a prefix (tail./constrained./no./...) must be
-        // followed by another instruction, so the stream must not end on one.
-        if (builder.Count > 0 && builder[^1].OpCode.IsPrefix())
-            throw new BadImageFormatException(
-                $"IL ends with a dangling prefix at IL_{builder[^1].Offset:X4}");
-
-        decodedInstructionCount = builder.Count;
-        instructions = builder.ToImmutable();
-        return true;
+        catch (InvalidProgramException ex)
+        {
+            throw NormalizeMalformedIl(ex);
+        }
     }
 
     static BadImageFormatException NormalizeMalformedIl(

@@ -429,6 +429,11 @@ public sealed class InspectionPlanningTests
             "7a7f0afab9",
             "System.Text.Json.Utf8JsonWriter",
             "WriteStringValue");
+        ViewFacetId overview = InspectionViewFacetCatalog.Registry
+            .GetRequiredDescriptor(
+                StructuralSubjectKind.Member,
+                ViewFacetRole.MemberOverview)
+            .Id;
         var basis = new ResolvedMemberInspectionBasis(
             new ResolvedInspectionSource(
                 AssemblyResolutionProvenance.Package(
@@ -447,6 +452,7 @@ public sealed class InspectionPlanningTests
                 "System.Text.Json.Utf8JsonWriter",
                 type,
                 anchor),
+            overview,
             new InspectionCatalogReference(
                 InspectionCatalogIdentity.ApiMemberDetail.ToString(),
                 1),
@@ -457,11 +463,6 @@ public sealed class InspectionPlanningTests
                 InspectionRequestVerbosity.Normal,
                 [SectionNames.Signature],
                 InspectionDiscoveryRequest.None));
-        ViewFacetId overview = InspectionViewFacetCatalog.Registry
-            .GetRequiredDescriptor(
-                StructuralSubjectKind.Member,
-                ViewFacetRole.MemberOverview)
-            .Id;
 
         MemberInspectionTerminalPlan[] plans =
         [
@@ -469,10 +470,13 @@ public sealed class InspectionPlanningTests
                 basis,
                 InspectionRequestVerbosity.Normal),
             new EffectiveDiscoveryPlan(basis),
-            new ShareProjectionPlan(basis, overview),
+            new ShareProjectionPlan(basis),
         ];
 
         Assert.All(plans, plan => Assert.Same(basis, plan.Basis));
+        Assert.All(
+            plans,
+            plan => Assert.Equal(overview, plan.Basis.DefaultFacet));
         Assert.Collection(
             plans,
             plan => Assert.IsType<SectionExecutionPlan>(plan),
@@ -538,6 +542,7 @@ public sealed class InspectionPlanningTests
                 member: anchor,
                 structuralPlan: structuralPlan,
                 options: finalOptions));
+        Assert.Equal("member.overview", plan.Basis.DefaultFacet.Value);
         MemberOptions applied =
             MemberInspectionPlanBuilder.ApplySemanticDemand(
                 finalOptions with
@@ -580,8 +585,6 @@ public sealed class InspectionPlanningTests
             "--tfm",
             "net9.0",
             "--markdown",
-            "--tips",
-            "q",
         ];
 
         var execution = await RunAppAsync(
@@ -660,8 +663,6 @@ public sealed class InspectionPlanningTests
             "-D",
             "Package Info",
             "--table",
-            "--tips",
-            "q",
         ];
         var leadingSchema = await RunAppAsync(
             ["--schema", .. trailing]);
@@ -686,9 +687,7 @@ public sealed class InspectionPlanningTests
             "-S",
             SectionCategoryNames.Context,
             "-D",
-            "--schema",
-            "--tips",
-            "q");
+            "--schema");
 
         Assert.Equal(1, result.Exit);
         Assert.Empty(result.Output);
@@ -775,7 +774,7 @@ public sealed class InspectionPlanningTests
                 "Unknown precedence scenario."),
         };
         string[] projection =
-            ["-D", "--schema", "--count", "--tips", "q"];
+            ["-D", "--schema", "--count"];
 
         var routed = await RunAppAsync(
             [.. commandless, .. projection]);
@@ -796,9 +795,7 @@ public sealed class InspectionPlanningTests
             "*",
             "-D",
             "--schema",
-            "--table",
-            "--tips",
-            "q");
+            "--table");
 
         Assert.Equal(0, result.Exit);
         Assert.Contains(SectionNames.ApiInfo, result.Output);
@@ -813,7 +810,7 @@ public sealed class InspectionPlanningTests
     public async Task StaticMemberSchema_PositionalNupkgMatchesExplicitSource()
     {
         string[] projection =
-            ["-D", "--schema", "--count", "--tips", "q"];
+            ["-D", "--schema", "--count"];
         var positional = await RunAppAsync(
             [
                 "member",
@@ -874,8 +871,6 @@ public sealed class InspectionPlanningTests
             SectionNames.TypeInfo,
             "--schema",
             "--count",
-            "--tips",
-            "q",
         ];
         var commandless =
             await RunAppAsync(
@@ -902,9 +897,7 @@ public sealed class InspectionPlanningTests
             "*String*",
             "-D",
             SectionNames.ApiInfo,
-            "--table",
-            "--tips",
-            "q");
+            "--table");
 
         Assert.Equal(0, result.Exit);
         Assert.Contains("Library", result.Output);
@@ -925,8 +918,6 @@ public sealed class InspectionPlanningTests
             SectionNames.TypeInfo,
             "--schema",
             "--table",
-            "--tips",
-            "q",
         ];
         var baseline = await RunAppAsync(common);
         var matchingFilter = await RunAppAsync(
@@ -954,8 +945,6 @@ public sealed class InspectionPlanningTests
             SectionNames.Classes,
             "--schema",
             "--table",
-            "--tips",
-            "q",
         ];
         var commandless = await RunAppAsync(args);
         var explicitType = await RunAppAsync(
@@ -1065,9 +1054,7 @@ public sealed class InspectionPlanningTests
             "System.Private.CoreLib",
             "-D",
             "--schema",
-            "--table",
-            "--tips",
-            "q");
+            "--table");
 
         Assert.Equal(0, result.Exit);
         Assert.Contains(
@@ -1090,8 +1077,6 @@ public sealed class InspectionPlanningTests
             SectionNames.Signature,
             "--schema",
             "--table",
-            "--tips",
-            "q",
         ];
         var explicitIndex = await RunAppAsync(
             [
@@ -1128,8 +1113,6 @@ public sealed class InspectionPlanningTests
             "-D",
             SectionNames.Signature,
             "--table",
-            "--tips",
-            "q",
         ];
         var structural = await RunAppAsync(
             [.. common, "--schema"]);
@@ -1158,9 +1141,7 @@ public sealed class InspectionPlanningTests
             "-D",
             SectionNames.Signature,
             "--schema",
-            "--table",
-            "--tips",
-            "q");
+            "--table");
 
         Assert.Equal(0, result.Exit);
         Assert.Contains("Canonical Signature", result.Output);
@@ -1185,9 +1166,7 @@ public sealed class InspectionPlanningTests
             "-D",
             SectionNames.Signature,
             "--schema",
-            "--table",
-            "--tips",
-            "q");
+            "--table");
 
         Assert.Equal(1, result.Exit);
         Assert.Empty(result.Output);
@@ -1205,9 +1184,7 @@ public sealed class InspectionPlanningTests
             "Kind=ObjectCreationExpression",
             "-D",
             "--schema",
-            "--table",
-            "--tips",
-            "q");
+            "--table");
 
         Assert.Equal(0, result.Exit);
         Assert.Contains(SectionNames.TypeInfo, result.Output);
@@ -1232,9 +1209,7 @@ public sealed class InspectionPlanningTests
             "1",
             "-D",
             "--schema",
-            "--table",
-            "--tips",
-            "q");
+            "--table");
 
         Assert.Equal(0, result.Exit);
         Assert.Contains(SectionNames.Signature, result.Output);
@@ -1260,9 +1235,7 @@ public sealed class InspectionPlanningTests
             "-D",
             "Signature",
             "--schema",
-            "--table",
-            "--tips",
-            "q");
+            "--table");
 
         Assert.Equal(0, result.Exit);
         Assert.Contains(SectionNames.Signature, result.Output);
@@ -1285,9 +1258,7 @@ public sealed class InspectionPlanningTests
             "-D",
             SectionNames.Signature,
             "--schema",
-            "--table",
-            "--tips",
-            "q");
+            "--table");
 
         Assert.Equal(0, result.Exit);
         Assert.Contains(SectionNames.Signature, result.Output);
@@ -1337,9 +1308,7 @@ public sealed class InspectionPlanningTests
             "Microsoft.CodeAnalysis.CSharp.Syntax.OperatorDeclarationSyntax",
             "-D",
             "--schema",
-            "--table",
-            "--tips",
-            "q");
+            "--table");
 
         Assert.Equal(0, result.Exit);
         Assert.Contains(
@@ -1359,8 +1328,6 @@ public sealed class InspectionPlanningTests
             "-D",
             "--schema",
             "--table",
-            "--tips",
-            "q",
         ];
         var dotted = await RunAppAsync(
             [
@@ -1457,9 +1424,7 @@ public sealed class InspectionPlanningTests
             "-D",
             "--schema",
             "-S",
-            selector,
-            "--tips",
-            "q");
+            selector);
 
         Assert.Equal(1, result.Exit);
         Assert.Empty(result.Output);
@@ -1483,9 +1448,7 @@ public sealed class InspectionPlanningTests
             "System.Private.CoreLib",
             "-D",
             "--schema",
-            "--table",
-            "--tips",
-            "q");
+            "--table");
 
         Assert.Equal(0, result.Exit);
         Assert.Contains(SectionCategoryNames.Member, result.Output);
@@ -1504,9 +1467,7 @@ public sealed class InspectionPlanningTests
             "Missing.Type.Run",
             "-D",
             "--schema",
-            "--table",
-            "--tips",
-            "q");
+            "--table");
 
         Assert.Equal(0, result.Exit);
         Assert.Contains(
@@ -1531,9 +1492,7 @@ public sealed class InspectionPlanningTests
             "-D",
             SectionNames.BodyShapes,
             "--schema",
-            "--table",
-            "--tips",
-            "q");
+            "--table");
 
         Assert.Equal(0, result.Exit);
         Assert.Contains("Start Line", result.Output);
@@ -1562,8 +1521,6 @@ public sealed class InspectionPlanningTests
             "Kind=ObjectCreationExpression",
             "-D",
             "--table",
-            "--tips",
-            "q",
         ];
 
         var implicitOverload =
@@ -1598,9 +1555,7 @@ public sealed class InspectionPlanningTests
             "-S",
             SectionCategoryNames.Surface,
             "-D",
-            SectionNames.Classes,
-            "--tips",
-            "q");
+            SectionNames.Classes);
 
         Assert.Equal(0, result.Exit);
         Assert.Contains("Members", result.Output);
@@ -1623,9 +1578,7 @@ public sealed class InspectionPlanningTests
             SectionCategoryNames.Member,
             "-D",
             SectionCategoryNames.Member,
-            "--markdown",
-            "--tips",
-            "q");
+            "--markdown");
 
         Assert.Equal(0, result.Exit);
         Assert.Contains(SectionNames.Methods, result.Output);
@@ -1645,9 +1598,7 @@ public sealed class InspectionPlanningTests
             "--library",
             missing,
             "-D",
-            SectionNames.Signature,
-            "--tips",
-            "q");
+            SectionNames.Signature);
 
         Assert.Equal(1, result.Exit);
         Assert.Empty(result.Output);
@@ -1674,9 +1625,7 @@ public sealed class InspectionPlanningTests
             "--library",
             missing,
             "-D",
-            SectionNames.Signature,
-            "--tips",
-            "q");
+            SectionNames.Signature);
 
         Assert.Equal(1, result.Exit);
         Assert.Empty(result.Output);
@@ -1708,9 +1657,7 @@ public sealed class InspectionPlanningTests
             "-D",
             SectionNames.Signature,
             "--schema",
-            "--table",
-            "--tips",
-            "q");
+            "--table");
 
         Assert.Equal(0, result.Exit);
         Assert.Contains(
@@ -1738,9 +1685,7 @@ public sealed class InspectionPlanningTests
             "--library",
             missing,
             "-D",
-            "DefinitelyNotASection",
-            "--tips",
-            "q");
+            "DefinitelyNotASection");
 
         Assert.Equal(1, result.Exit);
         Assert.Empty(result.Output);
@@ -1769,9 +1714,7 @@ public sealed class InspectionPlanningTests
             "Library Info",
             "--schema",
             projection,
-            "NoSuchValue",
-            "--tips",
-            "q");
+            "NoSuchValue");
 
         Assert.Equal(1, result.Exit);
         Assert.Empty(result.Output);
@@ -1804,12 +1747,12 @@ public sealed class InspectionPlanningTests
             Assert.IsType<SectionCardinalityDeclaration>(
                 aggregate.SectionCardinalities?[SectionNames.LibraryInfo]);
         Assert.Equal(
-            SectionSemanticShape.Scalar,
-            exactDeclaration.Shape);
+            SectionCardinalityKind.Scalar,
+            exactDeclaration.Kind);
         Assert.Empty(exactDeclaration.Terminals);
         Assert.Equal(
-            SectionSemanticShape.Inventory,
-            aggregateDeclaration.Shape);
+            SectionCardinalityKind.Inventory,
+            aggregateDeclaration.Kind);
         Assert.Equal(
             [
                 SectionTerminalCapability.Rows,
@@ -1827,9 +1770,13 @@ public sealed class InspectionPlanningTests
                     StructuralViewIdentity.Type,
                     InspectionCatalogIdentity.ApiType));
 
-        Assert.False(
-            projection.SectionCardinalities?.ContainsKey(
-                SectionNames.ApiInfo));
+        // API Info is the listing's identity fact table: a scalar record with
+        // no row terminals, like Type Info on the single-type catalog.
+        SectionCardinalityDeclaration apiInfo =
+            Assert.IsType<SectionCardinalityDeclaration>(
+                projection.SectionCardinalities?[SectionNames.ApiInfo]);
+        Assert.Equal(SectionCardinalityKind.Scalar, apiInfo.Kind);
+        Assert.Empty(apiInfo.Terminals);
 
         foreach (string section in new[]
                  {
@@ -1846,8 +1793,8 @@ public sealed class InspectionPlanningTests
                 Assert.IsType<SectionCardinalityDeclaration>(
                     projection.SectionCardinalities?[section]);
             Assert.Equal(
-                SectionSemanticShape.Inventory,
-                inventory.Shape);
+                SectionCardinalityKind.Inventory,
+                inventory.Kind);
             Assert.Equal(
                 [
                     SectionTerminalCapability.Rows,
@@ -1865,8 +1812,6 @@ public sealed class InspectionPlanningTests
             "Missing.Type.Run",
             "--schema",
             "--count",
-            "--tips",
-            "q",
         ];
         var equals = await RunAppAsync(
             [.. common, "-D=Signature"]);
@@ -1887,9 +1832,7 @@ public sealed class InspectionPlanningTests
             "-D",
             "Signature",
             "--schema=false",
-            "--count",
-            "--tips",
-            "q");
+            "--count");
 
         Assert.Equal(1, disabled.Exit);
         Assert.Contains("File not found", disabled.Error);
@@ -1904,9 +1847,7 @@ public sealed class InspectionPlanningTests
             "-D",
             "--schema",
             "--count",
-            "--verbose",
-            "--tips",
-            "q");
+            "--verbose");
 
         Assert.Equal(0, result.Exit);
         Assert.DoesNotContain(
@@ -1998,9 +1939,7 @@ public sealed class InspectionPlanningTests
             "--schema",
             "-S",
             "DefinitelyNotASection",
-            "--count",
-            "--tips",
-            "q");
+            "--count");
 
         Assert.Equal(1, result.Exit);
         Assert.Empty(result.Output);
@@ -2028,8 +1967,6 @@ public sealed class InspectionPlanningTests
                 SectionCategoryNames.Member,
                 "--schema",
                 "--table",
-                "--tips",
-                "q",
             ]
             :
             [
@@ -2042,8 +1979,6 @@ public sealed class InspectionPlanningTests
                 SectionCategoryNames.Member,
                 "--schema",
                 "--table",
-                "--tips",
-                "q",
             ];
 
         var result = await RunAppAsync(args);
@@ -2071,9 +2006,7 @@ public sealed class InspectionPlanningTests
             "-S",
             SectionNames.Signature,
             "-D",
-            SectionNames.Methods,
-            "--tips",
-            "q");
+            SectionNames.Methods);
 
         Assert.Equal(1, result.Exit);
         Assert.Contains(
@@ -2105,8 +2038,6 @@ public sealed class InspectionPlanningTests
                 "-D",
                 "--schema",
                 "--count",
-                "--tips",
-                "q",
             ]);
 
         Assert.Equal(0, result.Exit);
@@ -2128,7 +2059,7 @@ public sealed class InspectionPlanningTests
         [
             "Missing.Type.Run", "--library", "missing.dll", option,
             .. value is null ? Array.Empty<string>() : [value],
-            "-D", "Library Info", "--schema", "--table", "--tips", "q",
+            "-D", "Library Info", "--schema", "--table",
         ];
         var commandless = await RunAppAsync(args);
         var explicitPackage = await RunAppAsync(["package", .. args]);
@@ -2149,7 +2080,7 @@ public sealed class InspectionPlanningTests
     {
         var result = await RunAppAsync(
             "Missing.Type.Run", "--library", "missing.dll", option,
-            "-D", "Library Info", "--schema", "--table", "--tips", "q");
+            "-D", "Library Info", "--schema", "--table");
 
         Assert.Equal(0, result.Exit);
         Assert.Empty(result.Error);
@@ -2162,7 +2093,7 @@ public sealed class InspectionPlanningTests
         string[] args =
         [
             "Missing.Type.Run", "--effective",
-            "-D", "Library Info", "--schema", "--table", "--tips", "q",
+            "-D", "Library Info", "--schema", "--table",
         ];
         var commandless = await RunAppAsync(args);
         var explicitLibrary = await RunAppAsync(["library", .. args]);
@@ -2181,7 +2112,7 @@ public sealed class InspectionPlanningTests
     {
         var result = await RunAppAsync(
             "Missing.Type.Run", option,
-            "-D", "Library Info", "--schema", "--table", "--tips", "q");
+            "-D", "Library Info", "--schema", "--table");
 
         Assert.Equal(0, result.Exit);
         Assert.Empty(result.Error);
@@ -2197,7 +2128,7 @@ public sealed class InspectionPlanningTests
         string[] tail =
         [
             .. selectorOption == "-S" ? new[] { "-D" } : [],
-            "--schema", "--table", "--tips", "q",
+            "--schema", "--table",
         ];
         var alias = await RunAppAsync([.. prefix, "Metadata: 0x02", .. tail]);
         var canonical = await RunAppAsync([.. prefix, "Metadata: TypeDef", .. tail]);
@@ -2210,7 +2141,7 @@ public sealed class InspectionPlanningTests
     [Fact]
     public async Task CommandlessLibraryPreflightNormalizesMetadataTableAliases()
     {
-        string[] tail = ["-D", "Metadata: 0x02", "--table", "--tips", "q"];
+        string[] tail = ["-D", "Metadata: 0x02", "--table"];
         var commandless = await RunAppAsync(["System.Private.CoreLib", .. tail]);
         var explicitLibrary = await RunAppAsync(["library", "System.Private.CoreLib", .. tail]);
 
@@ -2229,7 +2160,7 @@ public sealed class InspectionPlanningTests
         [
             "Missing.Type.Run", selectorOption, "Metadata: 0x02",
             .. selectorOption == "-S" ? new[] { "-D" } : [],
-            "--schema", "--table", "--tips", "q",
+            "--schema", "--table",
         ]);
 
         Assert.Equal(0, result.Exit);
@@ -2242,7 +2173,7 @@ public sealed class InspectionPlanningTests
     {
         var result = await RunAppAsync(
             "Missing.Type.Run", "-D", $"Metadata: 0xff,{SectionNames.Methods}",
-            "--schema", "--table", "--tips", "q");
+            "--schema", "--table");
 
         Assert.Equal(0, result.Exit);
         Assert.Empty(result.Error);
@@ -2264,7 +2195,7 @@ public sealed class InspectionPlanningTests
             "--library", typeof(Fixtures.BodyShapeFixture).Assembly.Location,
             "-t", filter, "--where", "Kind=ObjectCreationExpression",
             .. schema ? new[] { "-D", SectionNames.BodyShapes, "--schema" } : [],
-            "--table", "--tips", "q",
+            "--table",
         ]);
 
         Assert.Equal(1, result.Exit);
@@ -2284,7 +2215,7 @@ public sealed class InspectionPlanningTests
         [
             selectorOption, SectionNames.Classes,
             .. selectorOption == "-S" ? new[] { "-D" } : [],
-            "--schema", "--table", "--tips", "q",
+            "--schema", "--table",
         ];
         var commandless = await RunAppAsync(
             [target, "--where", "Kind=ObjectCreationExpression", .. discovery]);
@@ -2316,7 +2247,7 @@ public sealed class InspectionPlanningTests
             "Missing.Type.Run", "--where", "Kind=ObjectCreationExpression",
             selectorOption, SectionNames.BodyShapes,
             .. selectorOption == "-S" ? new[] { "-D" } : [],
-            "--schema", "--table", "--tips", "q",
+            "--schema", "--table",
         ]);
 
         Assert.Equal(0, result.Exit);
@@ -2335,7 +2266,7 @@ public sealed class InspectionPlanningTests
         string[] args =
         [
             "type", type, "--library", typeof(Fixtures.BodyShapeFixture).Assembly.Location,
-            "--where", "Kind=ObjectCreationExpression", "--table", "--tips", "q",
+            "--where", "Kind=ObjectCreationExpression", "--table",
         ];
         var filtered = await RunAppAsync([.. args, "-t", type]);
         var unfiltered = await RunAppAsync(args);
@@ -2358,9 +2289,7 @@ public sealed class InspectionPlanningTests
             "Contains",
             projection,
             "DefinitelyNotASection",
-            "--verbose",
-            "--tips",
-            "q");
+            "--verbose");
 
         Assert.Equal(1, result.Exit);
         Assert.Contains(
@@ -2426,8 +2355,6 @@ public sealed class InspectionPlanningTests
             "-D",
             section,
             "--table",
-            "--tips",
-            "q",
         ];
 
         var implicitOverload =
@@ -2463,9 +2390,7 @@ public sealed class InspectionPlanningTests
             "--platform",
             "System.Private.CoreLib",
             "-D",
-            section,
-            "--tips",
-            "q");
+            section);
 
         Assert.Equal(1, result.Exit);
         Assert.Contains(
@@ -2494,8 +2419,6 @@ public sealed class InspectionPlanningTests
                 "-D",
                 SectionNames.Signature,
                 "--verbose",
-                "--tips",
-                "q",
             ],
             "positional-member" =>
             [
@@ -2506,8 +2429,6 @@ public sealed class InspectionPlanningTests
                 "-S",
                 SectionNames.TypeInfo,
                 "--verbose",
-                "--tips",
-                "q",
             ],
             _ => throw new ArgumentOutOfRangeException(
                 nameof(scenario),
@@ -2551,8 +2472,6 @@ public sealed class InspectionPlanningTests
                 SectionNames.TypeInfo,
                 "--schema",
                 "--count",
-                "--tips",
-                "q",
             ]);
         var longSelector = await RunAppAsync(
             [
@@ -2563,8 +2482,6 @@ public sealed class InspectionPlanningTests
                 SectionNames.TypeInfo,
                 "--schema",
                 "--count",
-                "--tips",
-                "q",
             ]);
 
         Assert.Equal(longSelector, shortSelector);
@@ -2586,9 +2503,7 @@ public sealed class InspectionPlanningTests
             "1",
             "-D",
             "--schema",
-            "--count",
-            "--tips",
-            "q");
+            "--count");
 
         Assert.Equal(1, result.Exit);
         Assert.Empty(result.Output);
@@ -2606,8 +2521,6 @@ public sealed class InspectionPlanningTests
             SectionNames.ApiInfo,
             "--schema",
             "--count",
-            "--tips",
-            "q",
         ];
         var commandless =
             await RunAppAsync(
@@ -2634,9 +2547,7 @@ public sealed class InspectionPlanningTests
             "-D",
             "Signature",
             "--schema",
-            "--table",
-            "--tips",
-            "q");
+            "--table");
 
         Assert.Equal(0, result.Exit);
         Assert.DoesNotContain(
@@ -2655,8 +2566,6 @@ public sealed class InspectionPlanningTests
             "-D",
             "--schema",
             "--count",
-            "--tips",
-            "q",
         ];
         var commandless =
             await RunAppAsync(
@@ -2684,8 +2593,6 @@ public sealed class InspectionPlanningTests
             SectionNames.Signature,
             "--schema",
             "--count",
-            "--tips",
-            "q",
         ];
         var commandless =
             await RunAppAsync(
@@ -2718,8 +2625,6 @@ public sealed class InspectionPlanningTests
             SectionNames.Signature,
             "--schema",
             "--count",
-            "--tips",
-            "q",
         ];
         var commandless =
             await RunAppAsync(
@@ -2756,8 +2661,6 @@ public sealed class InspectionPlanningTests
             "-D",
             SectionNames.Classes,
             "--table",
-            "--tips",
-            "q",
         ];
         var commandless = await RunAppAsync(
             [
@@ -2790,8 +2693,6 @@ public sealed class InspectionPlanningTests
             "-S",
             SectionNames.TypeInfo,
             "--table",
-            "--tips",
-            "q",
         ];
         var commandless = await RunAppAsync(
             [
@@ -2824,9 +2725,7 @@ public sealed class InspectionPlanningTests
             "-D",
             "Package Info",
             "--schema",
-            "--table",
-            "--tips",
-            "q");
+            "--table");
 
         Assert.Equal(1, result.Exit);
         Assert.Empty(result.Output);
@@ -2845,9 +2744,7 @@ public sealed class InspectionPlanningTests
             "-D",
             "Package Info",
             "--schema",
-            "--table",
-            "--tips",
-            "q");
+            "--table");
 
         Assert.Equal(1, result.Exit);
         Assert.Empty(result.Output);
@@ -2870,9 +2767,7 @@ public sealed class InspectionPlanningTests
             "-D",
             SectionNames.Signature,
             "--schema",
-            "--table",
-            "--tips",
-            "q");
+            "--table");
 
         Assert.Equal(0, result.Exit);
         Assert.Contains(
@@ -2892,9 +2787,7 @@ public sealed class InspectionPlanningTests
             "-D",
             SectionNames.Signature,
             "--schema",
-            "--table",
-            "--tips",
-            "q");
+            "--table");
 
         Assert.Equal(0, result.Exit);
         Assert.Contains(
@@ -2919,9 +2812,7 @@ public sealed class InspectionPlanningTests
             "-D",
             "@Source",
             "--schema",
-            "--table",
-            "--tips",
-            "q");
+            "--table");
 
         Assert.Equal(0, result.Exit);
         Assert.Contains(
@@ -2970,8 +2861,6 @@ public sealed class InspectionPlanningTests
                 SectionNames.Signature,
                 "--schema",
                 "--table",
-                "--tips",
-                "q",
             ]);
 
         Assert.True(
@@ -2998,9 +2887,7 @@ public sealed class InspectionPlanningTests
             "System.Private.CoreLib",
             "-D",
             SectionNames.Signature,
-            "--table",
-            "--tips",
-            "q");
+            "--table");
 
         Assert.Equal(1, result.Exit);
         Assert.Empty(result.Output);
@@ -3021,9 +2908,7 @@ public sealed class InspectionPlanningTests
             "System.Private.CoreLib",
             "-D",
             SectionNames.Signature,
-            "--table",
-            "--tips",
-            "q");
+            "--table");
 
         Assert.Equal(1, result.Exit);
         Assert.Empty(result.Output);
@@ -3044,9 +2929,7 @@ public sealed class InspectionPlanningTests
             "Contains",
             "-S",
             SectionNames.Methods,
-            "--table",
-            "--tips",
-            "q");
+            "--table");
 
         Assert.Equal(1, result.Exit);
         Assert.Empty(result.Output);
@@ -3069,9 +2952,7 @@ public sealed class InspectionPlanningTests
             "Classes",
             "-D",
             "Structs",
-            "--table",
-            "--tips",
-            "q");
+            "--table");
 
         Assert.Equal(1, result.Exit);
         Assert.Empty(result.Output);
@@ -3093,9 +2974,7 @@ public sealed class InspectionPlanningTests
             "--library",
             missing,
             "-D",
-            "DefinitelyNotASection",
-            "--tips",
-            "q");
+            "DefinitelyNotASection");
 
         Assert.Equal(1, result.Exit);
         Assert.Empty(result.Output);
@@ -3127,9 +3006,7 @@ public sealed class InspectionPlanningTests
             "Kind=InvocationExpression",
             "-D",
             "--schema",
-            "--count",
-            "--tips",
-            "q");
+            "--count");
 
         Assert.Equal(1, result.Exit);
         Assert.Empty(result.Output);
@@ -3151,9 +3028,7 @@ public sealed class InspectionPlanningTests
             "-D",
             SectionCategoryNames.Member,
             "--schema",
-            "--table",
-            "--tips",
-            "q");
+            "--table");
 
         Assert.Equal(0, result.Exit);
         Assert.Contains(
@@ -3174,9 +3049,7 @@ public sealed class InspectionPlanningTests
         var result = await RunAppAsync(
             "Timer.Start",
             selectorOption,
-            "DefinitelyNotASection",
-            "--tips",
-            "q");
+            "DefinitelyNotASection");
 
         Assert.Equal(1, result.Exit);
         Assert.Empty(result.Output);
@@ -3208,7 +3081,7 @@ public sealed class InspectionPlanningTests
         };
         if (schema)
             args.Add("--schema");
-        args.AddRange(["--table", "--tips", "q"]);
+        args.AddRange(["--table"]);
 
         var result = await RunAppAsync([.. args]);
 
@@ -3235,9 +3108,7 @@ public sealed class InspectionPlanningTests
             "-D",
             SectionNames.Signature,
             "--schema",
-            "--table",
-            "--tips",
-            "q");
+            "--table");
 
         Assert.Equal(1, result.Exit);
         Assert.Empty(result.Output);
@@ -3260,9 +3131,7 @@ public sealed class InspectionPlanningTests
             "-D",
             SectionNames.Signature,
             "--schema",
-            "--table",
-            "--tips",
-            "q");
+            "--table");
 
         Assert.Equal(0, result.Exit);
         Assert.Contains(
@@ -3301,8 +3170,6 @@ public sealed class InspectionPlanningTests
             SectionNames.Signature,
             "--schema",
             "--table",
-            "--tips",
-            "q",
         ];
         var positional = await RunAppAsync(
             [
@@ -3333,8 +3200,6 @@ public sealed class InspectionPlanningTests
             SectionNames.Signature,
             "--schema",
             "--table",
-            "--tips",
-            "q",
         ];
         var positional = await RunAppAsync(
             [
@@ -3369,8 +3234,6 @@ public sealed class InspectionPlanningTests
             "-D",
             SectionNames.Signature,
             "--table",
-            "--tips",
-            "q",
         ];
         var positional = await RunAppAsync(
             [
@@ -3406,8 +3269,7 @@ public sealed class InspectionPlanningTests
             SectionNames.Signature,
             "-S",
             SectionNames.Methods,
-            "--tips",
-            "q");
+            "--markdown");
 
         Assert.Equal(0, result.Exit);
         Assert.Contains(SectionNames.Signature, result.Output);
@@ -3427,9 +3289,8 @@ public sealed class InspectionPlanningTests
             "-m",
             "Clone",
             "-S",
-            $"{SectionNames.Signature},Not A Section",
-            "--tips",
-            "q");
+            $"{SectionNames.Signature},Not A Section"
+            );
 
         Assert.Equal(0, result.Exit);
         Assert.Equal(
@@ -3455,9 +3316,7 @@ public sealed class InspectionPlanningTests
             "-D",
             SectionNames.Signature,
             "--schema",
-            "--table",
-            "--tips",
-            "q");
+            "--table");
 
         Assert.Equal(1, result.Exit);
         Assert.Empty(result.Output);
@@ -3475,16 +3334,12 @@ public sealed class InspectionPlanningTests
         var defaultResult = await RunAppAsync(
             command,
             "-D",
-            "--schema",
-            "--tips",
-            "q");
+            "--schema");
         var explicitTableResult = await RunAppAsync(
             command,
             "-D",
             "--schema",
-            "--table",
-            "--tips",
-            "q");
+            "--table");
 
         Assert.Equal(explicitTableResult, defaultResult);
         Assert.Equal(0, defaultResult.Exit);
@@ -3501,18 +3356,14 @@ public sealed class InspectionPlanningTests
             "--package",
             "Missing.Package.For.Schema",
             "-D",
-            "--schema",
-            "--tips",
-            "q");
+            "--schema");
         var explicitMarkdownResult = await RunAppAsync(
             command,
             "--package",
             "Missing.Package.For.Schema",
             "-D",
             "--schema",
-            "--markdown",
-            "--tips",
-            "q");
+            "--markdown");
 
         Assert.Equal(explicitMarkdownResult, defaultResult);
         Assert.Equal(0, defaultResult.Exit);
@@ -3532,9 +3383,7 @@ public sealed class InspectionPlanningTests
             "--bogus",
             "-D",
             "--schema",
-            "--count",
-            "--tips",
-            "q");
+            "--count");
 
         Assert.Equal(1, result.Exit);
         Assert.Empty(result.Output);
@@ -3553,9 +3402,7 @@ public sealed class InspectionPlanningTests
             "--bogus",
             "-D",
             "--schema",
-            "--count",
-            "--tips",
-            "q");
+            "--count");
 
         Assert.Equal(1, result.Exit);
         Assert.Empty(result.Output);
@@ -3572,7 +3419,7 @@ public sealed class InspectionPlanningTests
     {
         var result = await RunAppAsync(
             "System.String", option, "-D", SectionNames.Signature,
-            "--schema", "--table", "--tips", "q");
+            "--schema", "--table");
 
         Assert.Equal(1, result.Exit);
         Assert.Empty(result.Output);
@@ -3586,7 +3433,7 @@ public sealed class InspectionPlanningTests
     {
         var result = await RunAppAsync(
             "Missing.Type.Run", option, "nope", "-D", SectionNames.Signature,
-            "--schema", "--table", "--tips", "q");
+            "--schema", "--table");
 
         Assert.Equal(1, result.Exit);
         Assert.Empty(result.Output);
@@ -3605,7 +3452,7 @@ public sealed class InspectionPlanningTests
         string[] args =
         [
             "Missing.Type", option, .. value is null ? Array.Empty<string>() : [value],
-            "-D", SectionNames.Signature, "--schema", "--table", "--tips", "q",
+            "-D", SectionNames.Signature, "--schema", "--table",
         ];
         var result = await RunAppAsync(args);
 
@@ -3622,7 +3469,7 @@ public sealed class InspectionPlanningTests
         string[] args =
         [
             "System.Str", "--platform", "System.Private.CoreLib",
-            "-S", selection, "-D", SectionNames.Classes, "--table", "--tips", "q",
+            "-S", selection, "-D", SectionNames.Classes, "--table",
         ];
         var commandless = await RunAppAsync(args);
         var explicitType = await RunAppAsync(["type", .. args]);
@@ -3641,7 +3488,7 @@ public sealed class InspectionPlanningTests
     {
         string[] projection =
         [
-            "-S", "Methods,Properties,Classes", "-D", SectionNames.Classes, format, "--tips", "q",
+            "-S", "Methods,Properties,Classes", "-D", SectionNames.Classes, format,
         ];
         var prefix = await RunAppAsync(
             ["System.Str", "--platform", "System.Private.CoreLib", .. projection]);
@@ -3662,7 +3509,7 @@ public sealed class InspectionPlanningTests
     {
         var result = await RunAppAsync(
             "type", "System.String", "--platform", "System.Private.CoreLib",
-            "-S", selection, "-D", SectionNames.Methods, "--table", "--tips", "q");
+            "-S", selection, "-D", SectionNames.Methods, "--table");
 
         Assert.Equal(expectedExit, result.Exit);
         Assert.Contains("Select value 'Classes' not found", result.Error);
@@ -3678,7 +3525,7 @@ public sealed class InspectionPlanningTests
         var result = await RunAppAsync(
             "Missing.Type", "--platform", "Missing.Library",
             "-S", SectionNames.Methods, "-D", SectionNames.Classes,
-            "--table", "--tips", "q");
+            "--table");
 
         Assert.Equal(1, result.Exit);
         Assert.Empty(result.Output);
@@ -3699,8 +3546,6 @@ public sealed class InspectionPlanningTests
             "-D",
             "--schema",
             "--table",
-            "--tips",
-            "q",
         ];
         var commandless = await RunAppAsync(
             ["Missing.Package", .. tail]);
@@ -3724,9 +3569,7 @@ public sealed class InspectionPlanningTests
             "-D",
             SectionNames.Signature,
             "--schema",
-            "--table",
-            "--tips",
-            "q");
+            "--table");
 
         Assert.Equal(0, result.Exit);
         Assert.Contains(
@@ -3751,7 +3594,7 @@ public sealed class InspectionPlanningTests
         string[] tail =
         [
             "--platform", "Missing.Platform.For.Schema",
-            "-D", SectionNames.Signature, "--schema", "--table", "--tips", "q",
+            "-D", SectionNames.Signature, "--schema", "--table",
         ];
         var implied = await RunAppAsync(["member", $"{type}.{selector}", "-m", "Run", .. tail]);
         var explicitMember = await RunAppAsync(["member", type, "-m", selector, .. tail]);
@@ -3768,7 +3611,7 @@ public sealed class InspectionPlanningTests
         var result = await RunAppAsync(
             "member", "Missing.op_Helpers.Widget.Run:1", "-m", "Stop",
             "--platform", "Missing.Platform.For.Schema",
-            "-D", SectionNames.Signature, "--schema", "--table", "--tips", "q");
+            "-D", SectionNames.Signature, "--schema", "--table");
 
         Assert.Equal(1, result.Exit);
         Assert.Empty(result.Output);
@@ -3785,9 +3628,7 @@ public sealed class InspectionPlanningTests
             "-D",
             SectionNames.Signature,
             "--schema",
-            "--table",
-            "--tips",
-            "q");
+            "--table");
 
         Assert.Equal(0, result.Exit);
         Assert.Contains(
@@ -3810,7 +3651,7 @@ public sealed class InspectionPlanningTests
             "System.Collections.Immutable.ImmutableArray<T>.Builder",
             "--platform", "System.Collections.Immutable",
             "-m", first, "-m", second, "-D", SectionNames.Signature,
-            "--schema", "--table", "--tips", "q");
+            "--schema", "--table");
 
         Assert.Equal(1, result.Exit);
         Assert.Empty(result.Output);
@@ -3826,7 +3667,7 @@ public sealed class InspectionPlanningTests
             "System.Collections.Immutable.ImmutableArray<T>.Builder",
             "--platform", "System.Collections.Immutable",
             "-m", "Add", "-m", second, "-D", SectionNames.Signature,
-            "--schema", "--table", "--tips", "q");
+            "--schema", "--table");
 
         Assert.Equal(0, result.Exit);
         Assert.Empty(result.Error);
@@ -3839,7 +3680,7 @@ public sealed class InspectionPlanningTests
         var result = await RunAppAsync(
             "Some.Container<T>.Nested",
             "-m", "Add", "-m", "Clear", "-D", "Methods,Signature",
-            "--schema", "--table", "--tips", "q");
+            "--schema", "--table");
 
         Assert.Equal(0, result.Exit);
         Assert.Empty(result.Error);
@@ -3860,8 +3701,6 @@ public sealed class InspectionPlanningTests
         [
             "-D",
             "--schema",
-            "--tips",
-            "q",
         ];
         var positional = await RunAppAsync(
             [command, "Missing.Package.For.Schema", .. tail]);
@@ -3888,8 +3727,6 @@ public sealed class InspectionPlanningTests
             "-D",
             "--schema",
             "--table",
-            "--tips",
-            "q",
         ];
         var positional = await RunAppAsync(
             ["type", "Missing.Package.For.Schema", .. tail]);
@@ -3916,8 +3753,6 @@ public sealed class InspectionPlanningTests
             SectionNames.Signature,
             "--schema",
             "--table",
-            "--tips",
-            "q",
         ];
         var positional = await RunAppAsync(
             ["member", "Missing.Package.For.Schema", .. tail]);
@@ -3947,8 +3782,6 @@ public sealed class InspectionPlanningTests
             "-D",
             "--schema",
             "--table",
-            "--tips",
-            "q",
         ];
         var bareAlias = await RunAppAsync(
             [command, "string", .. tail]);
@@ -3973,9 +3806,7 @@ public sealed class InspectionPlanningTests
             "-D",
             SectionNames.Signature,
             "--schema",
-            "--table",
-            "--tips",
-            "q");
+            "--table");
 
         Assert.Equal(0, result.Exit);
         Assert.Contains("[type/", result.Output);
@@ -3992,8 +3823,6 @@ public sealed class InspectionPlanningTests
             "5",
             "-D",
             "API Info",
-            "--tips",
-            "q",
         ];
         var commandless = await RunAppAsync(
             [
@@ -4024,8 +3853,6 @@ public sealed class InspectionPlanningTests
             "-m",
             "5",
             "--table",
-            "--tips",
-            "q",
         ];
         var commandless = await RunAppAsync(
             ["String", .. projection]);
@@ -4050,9 +3877,7 @@ public sealed class InspectionPlanningTests
             "-D",
             "IL",
             "--schema",
-            "--table",
-            "--tips",
-            "q");
+            "--table");
 
         Assert.Equal(1, result.Exit);
         Assert.Empty(result.Output);
@@ -4076,9 +3901,7 @@ public sealed class InspectionPlanningTests
             "-D",
             "DefinitelyNotASection",
             "--schema",
-            "--table",
-            "--tips",
-            "q");
+            "--table");
 
         Assert.Equal(1, result.Exit);
         Assert.Empty(result.Output);
@@ -4095,8 +3918,6 @@ public sealed class InspectionPlanningTests
             "-D",
             "--schema",
             "--table",
-            "--tips",
-            "q",
         ];
         var attached = await RunAppAsync(
             ["Missing.Type", "-t=-1", .. suffix]);
@@ -4124,8 +3945,6 @@ public sealed class InspectionPlanningTests
             SectionNames.Signature,
             "--schema",
             "--table",
-            "--tips",
-            "q",
         ];
         var commandless = await RunAppAsync(suffix);
         var explicitType = await RunAppAsync(
@@ -4146,8 +3965,6 @@ public sealed class InspectionPlanningTests
             "-D",
             "--schema",
             "--plaintext",
-            "--tips",
-            "q",
         ];
         var packageLibrary = await RunAppAsync(
             [
@@ -4179,8 +3996,6 @@ public sealed class InspectionPlanningTests
             SectionNames.Signature,
             "--schema",
             "--table",
-            "--tips",
-            "q",
         ];
         var optionMember = await RunAppAsync(
             [
@@ -4215,9 +4030,7 @@ public sealed class InspectionPlanningTests
             "Missing.Platform",
             "-D",
             "--schema",
-            "--table",
-            "--tips",
-            "q");
+            "--table");
 
         Assert.Equal(0, result.Exit);
         Assert.Contains(

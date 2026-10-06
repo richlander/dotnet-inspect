@@ -213,6 +213,7 @@ public sealed partial class MethodBodySource
     public BoundedMethodBodyRead ReadBounded(int methodToken, int maxILBytes)
     {
         _ensureAlive();
+        System.Threading.Interlocked.Increment(ref ReadCountForTests);
         ArgumentOutOfRangeException.ThrowIfNegative(maxILBytes);
 
         if (!TryGetMethodDefinition(

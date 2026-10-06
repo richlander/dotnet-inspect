@@ -88,22 +88,15 @@ every direct call: which method definition declared in the inspected module
 does this call bind to, if any? The raw definition token on a direct call
 does not answer it. A call through a generic instantiation, such as a method
 of `Box<T>` calling its own `B()`, is encoded as a member reference on a type
-specification, and that token stays unresolved. Analysis already resolves
-these calls internally, first by token and then by signature, but it does not
-publish the result for this use.
-
-Analysis owns that resolution and its typed failures (unmatched, ambiguous,
-unsupported signature, work limit). Publishing it as a public per-call fact
-keyed by the physical occurrence is adoption step 0, an Analysis-owned focused
-effort. The existing catalog-scoped `DirectCallDefinitionResolution` already
-has a comparable shape; whether step 0 reuses it is Analysis's decision.
-Target-side attribution also needs the declared-source association for methods
-that make no calls. Today that is public only through the transitional
-compatibility index, which this owner may not use (see [Modern
-infrastructure only](#modern-infrastructure-only)). Step 0 therefore also
-covers publishing that association on the focused result, and Analysis
-decides its shape. Nested lifted bodies are attributed exactly as the
-association issues them.
+specification, and that token stays unresolved. Analysis publishes that
+resolution through `LibraryCallGraphAnalysisResult.ResolveTarget`, first by
+token and then by signature. Its typed failures are indirect, unsupported
+signature, malformed signature, invalid generic declaration, unmatched, and
+ambiguous.
+`LibraryCallGraphAnalysisResult.ResolveDeclaredMethod` publishes the
+target-side declared-source association, including for methods that make no
+calls. These Analysis-owned prerequisites landed in #8701 and #8704.
+Nested lifted bodies are attributed exactly as that association issues them.
 Research consumes the result. It never re-implements signature
 matching, and it never treats a missing resolution as an external call.
 
@@ -112,13 +105,23 @@ matching, and it never treats a missing resolution as an external call.
 Every slice of this work builds only on the current architecture, and
 superseded infrastructure is prohibited:
 
-- **`LibraryBodyIndex` is prohibited.** That includes its
-  `CompatibilityIndex()` adapter on `LibraryBodyAnalysisExecution` and any
-  API that returns or wraps it. Research, the query, and both hosts consume
-  only Analysis's focused typed results from one
-  `LibraryBodyAnalysisExecution`. When a needed fact exists only on the
-  compatibility index, the resolution is to have Analysis publish it on a
-  focused result (step 0). Never read through the index "for now".
+- **Inspector.Graph owns topology mechanics.** Research constructs one
+  portable `GraphDocument` whose canonical nodes are internal types and exact
+  external namespace targets, whose groups are internal namespaces and exact
+  external nodes, and whose relationships distinguish invocation from function
+  reference. `GraphDocumentExecution.GroupProjection` owns namespace
+  contraction and complete canonical contributors.
+  `GraphDocumentExecution.ComponentAnalysis` runs over the induced selection of
+  internal namespace groups and exclusively owns strong components,
+  condensation, contributor retention, and levels. Research retains those
+  source-bound results with its document, lowers them into this owner's rows,
+  and applies only domain meaning: internal/external selection, namespace cycle
+  vocabulary, completeness, qualification, and presentation order. It never
+  copies SCC or levelization logic.
+- **Analysis stays focused.** Research, the query, and both hosts consume only
+  Analysis's focused typed results from one `LibraryBodyAnalysisExecution`.
+  When a needed fact lacks a focused owner, the resolution is to have Analysis
+  publish it on a focused result (step 0), not to introduce another aggregate.
 - **QuerySpace is the encouraged selection substrate.** Filtering, ordering,
   counting, and limiting the issued rows (type, namespace, and external nodes;
   edges; cycles) use QuerySpace, with the row vocabulary declared
@@ -219,9 +222,9 @@ union. `calli` has no static target and is counted as unresolved.
   declared method.
 - **Unresolved:** each remaining call, with a typed reason. The reasons are:
   `calli` (no static target); a current-module declaring type for which
-  Analysis resolution reports unmatched, ambiguous, unsupported, or
-  work-limited; any other module-reference origin; and a reference decode
-  failure. "Current-module" is Analysis's own current-module test, which also
+  Analysis resolution reports unsupported signature, malformed signature,
+  invalid generic declaration, unmatched, or ambiguous; and a module-reference
+  origin. "Current-module" is Analysis's own current-module test, which also
   covers a self-referencing assembly reference and a same-module module
   reference. Such a reference is never classified as external.
   Reasons carry Analysis's typed resolution failure unchanged. Unresolved
@@ -289,8 +292,9 @@ never establishes identity or order.
 **Namespace cycles** are groups of two or more namespaces in the inspected
 library that depend on each other through call edges: each namespace in the
 group reaches every other one, directly or through other namespaces
-(formally, the strongly connected components of the internal namespace
-graph). For example, if `Foo.Validators` calls `Foo.Internal` and
+(formally, the multi-member components issued by Graph for the induced
+selection of internal namespace groups). For example, if `Foo.Validators`
+calls `Foo.Internal` and
 `Foo.Internal` calls back into `Foo.Validators`, both form one cycle.
 
 Only internal namespaces take part. A namespace in another assembly is an
@@ -299,10 +303,11 @@ local namespace, so a namespace declared across two assemblies is neither a
 cycle nor detected here. A cycle's members are ordered by namespace identity,
 and cycles are ordered by their first member.
 
-**Levels** follow Lakos levelization over the condensation of the internal
-namespace graph. A namespace with no internal outgoing edge is level 0. Every
-other namespace is one more than the highest level it depends on. All members
-of one cycle share one level. External edges do not affect levels.
+**Levels** are the Graph-issued Lakos levels over the condensation of that same
+internal-group selection. A namespace with no internal outgoing edge is level
+0. Every other namespace is one more than the highest level it depends on. All
+members of one cycle share one level. External edges do not affect levels.
+Research does not reconstruct the condensation or settle levels.
 
 ### Absence claims require completeness
 
@@ -327,11 +332,13 @@ connect, and where the cycles and levels fall. A narrative also needs
 dimension over the two-dimensional shape. Amplitude comes from other owners
 and is joined onto this shape by exact identity. It is never computed here.
 
-| Amplitude | Owner | Grain and qualification |
-| --- | --- | --- |
-| Implementation volume and complexity | [Library Metrics](library-structural-report.md) type summaries | Per type, over complete physical profiles |
-| Leverage (distinct callers, fan-out, depth, loops) | Analysis `LibraryLeverageAnalysisResult` | Per method; currently a bounded top-N ranking, so an overlay must disclose that it is partial |
-| Communities | [#8406](https://github.com/richlander/dotnet-inspect/issues/8406) over this graph | Grouping, not weight; it colors the shape |
+- **Implementation volume and complexity.** [Library Metrics](library-structural-report.md)
+  owns type summaries over complete physical profiles.
+- **Leverage (distinct callers, fan-out, depth, and loops).** Analysis owns
+  `LibraryLeverageAnalysisResult` per method. It is currently a bounded top-N
+  ranking, so an overlay must disclose that it is partial.
+- **Communities.** [#8406](https://github.com/richlander/dotnet-inspect/issues/8406)
+  groups this graph and colors the shape; it does not weight the graph.
 
 This owner's single obligation to amplitude is **join currency**:
 
@@ -437,13 +444,18 @@ interpretations under the #8516 narrative levels.
 The survey informs vocabulary and boundaries only. No code or architecture
 transfers.
 
-| Tool | Relevant behavior | Transfer decision |
-| --- | --- | --- |
-| Lakos, *Large-Scale C++ Software Design* | Levelization over the component condensation | Adopted as the level definition |
-| NDepend dependency matrix | Namespace dependencies, cycles, and explaining members | Adopted: edge explanation and cycle vocabulary. Declined: Instability/Abstractness scores and rule verdicts |
-| Structure101 / Sonargraph | "Tangles" (strongly connected components) and levelized views | Adopted: cycles as strongly connected components. Declined: tangle severity metrics |
-| JDepend | Package cycles plus Martin metrics | Declined: metrics are interpretations |
-| ArchUnitNET / NetArchTest | User-authored layering rules asserted in tests | Declined here. Rules are a possible later consumer of this document |
+- **Lakos, *Large-Scale C++ Software Design*.** Its levelization over the
+  component condensation is adopted as the level definition.
+- **NDepend dependency matrix.** Its namespace dependencies, cycles, and
+  explaining members inform edge explanation and cycle vocabulary.
+  Instability/Abstractness scores and rule verdicts are declined.
+- **Structure101 / Sonargraph.** Their "tangles" and levelized views inform the
+  use of strongly connected components for cycles. Tangle severity metrics are
+  declined.
+- **JDepend.** Package cycles plus Martin metrics are declined because the
+  metrics are interpretations.
+- **ArchUnitNET / NetArchTest.** User-authored layering rules asserted in tests
+  are declined here. Rules are a possible later consumer of this document.
 
 These tools usually analyze all type references. Starting from call evidence
 is a deliberate narrowing to evidence Analysis already owns and qualifies.
@@ -470,10 +482,11 @@ executable over a compiled fixture library under `fixtures/research/`:
   generic type through an instantiation, produce internal edges rather than
   unresolved counts.
 - `LibraryDependencyStructure_KeysExternalNodesByExactReference`: calls into
-  types referenced through `System.Runtime` and `System.Runtime.Extensions`
-  yield distinct external nodes. A forwarded type stays with the referenced
-  facade, and a primitive declaring type maps to the intrinsic core library
-  node.
+  types referenced through `System.Runtime` and `System.Collections` yield
+  distinct external nodes. A type the runtime forwards to the core library
+  stays with the referenced facade (`System.Runtime`). The intrinsic
+  core-library node is **unverified**, because C# does not emit a member
+  reference whose parent has an intrinsic origin.
 - `LibraryDependencyStructure_ProjectsNestedAndGlobalNamespaces`: a nested
   type uses its outermost type's namespace, and the global namespace is an
   explicit node.
@@ -484,17 +497,61 @@ executable over a compiled fixture library under `fixtures/research/`:
   no edge to `Foo`'s namespace.
 - `LibraryDependencyStructure_DerivesCyclesAndLevels`: a three-namespace
   cycle plus an acyclic tail produce one cycle and the expected levels.
-- `LibraryDependencyStructure_QualifiesAbsenceUnderIncompleteEvidence`: an
-  otherwise acyclic graph with one Analysis-issued incomplete body issues
-  qualified absence, not unqualified acyclicity.
-- `LibraryDependencyStructure_CountsUnresolvedAndRejectsDuplicateOccurrence`:
-  `calli` is unresolved by reason, a multidimensional array accessor is
-  counted as runtime-provided and does not qualify absence, the four receipt
-  categories sum to the examined count, and a duplicated physical call-site
-  key fails visibly.
+- `LibraryDependencyStructure_GraphComponentsMatchIndependentOracle`: every
+  internal namespace group and no external group reaches Graph component
+  analysis; its cycles and levels agree with an independent Research test
+  oracle over the issued namespace edges; and every Graph condensation
+  contributor crosses the component boundary it claims.
+- `LibraryDependencyStructure_QualifiesAbsenceUnderIncompleteEvidence`: a
+  graph with an unresolved `calli` is `Qualified`, and a fixture with no
+  unresolved calls and no diagnosed bodies is `Complete`. The same rule
+  qualifies on Analysis-diagnosed bodies. That branch is **unverified** by a
+  fixture, because no current compiler output yields a diagnosed body except
+  the budget case tracked by #8636.
+- `LibraryDependencyStructure_PartitionsExaminedCallsExactly`: `calli` is
+  unresolved by reason, a multidimensional array accessor is runtime-provided,
+  the four receipt categories sum to the examined count, and the type-level
+  edges and intra-type counts reconcile with the receipt. Rejecting a
+  duplicated physical call-site key is enforced in code and is **unverified**
+  by a gate, because Analysis never publishes duplicates.
 - `LibraryDependencyStructure_BoundsExplanationWithExactRemainder`: an edge
   with seven contributing type edges retains five in the specified order and a
   remainder of two.
+
+The QuerySpace adoption is gated in the Release
+`DotnetInspector.Queries.Tests` executable:
+
+- `QuerySpace_DeclaresEveryIssuedRowFamily`: the query declares all eight
+  owner-issued node, edge, and cycle row families with Rows and Count
+  terminals.
+- `Execute_PreservesFocusedAnalysisAvailability`: the query consumes the
+  focused Analysis result and preserves typed Research unavailability.
+- `Select_ProjectsEveryRowSetAfterBuildingTheDocument`: each row family is
+  selected from the already completed document without changing another row
+  family or rebuilding topology.
+- `Select_FiltersRanksLimitsAndCountsIssuedRows`: predicates, named ranking,
+  limits, and Count execute through QuerySpace while the carried document
+  remains complete.
+- `Select_CycleMembershipRetainsDocumentCycleIndex`: cycle selection retains
+  the exact index used by namespace rows.
+- `Select_RejectsInvalidRequestsAndReportsSemanticBounds`: unknown row-set
+  requests are rejected and out-of-range selection remains a typed semantic
+  failure.
+- `SharedAnalysisFeedsMetricsAndDependencyStructure`: one
+  `LibraryBodyAnalysisExecution` supplies both Library Metrics and Library
+  Dependency Structure.
+- `LibraryDependencyStructure_ExternalKeysNeverCollideAcrossSeparators`:
+  length-prefixed external identity components keep distinct
+  `(assembly, namespace)` pairs distinct even when untrusted metadata contains
+  delimiter-like text.
+- `LibraryDependencyStructure_UsesLibraryMetricsTypeKeys`: every type node's
+  key is `LibraryStructuralReport.TypeKey`, and every type edge endpoint is a
+  node.
+
+Graph's
+`ComponentAnalysis_DeepChainAndGiantCycleRemainIterative` gate owns
+stack-safe pathological component derivation. Research does not duplicate that
+algorithm or its stress gate.
 
 Real-asset probes are reproducible design evidence, not CI gates:
 FluentValidation 12.1.1 (net8.0), `dotnet-inspect.dll` at a pinned commit,
@@ -504,24 +561,60 @@ cache.
 
 ## Adoption plan
 
-0. **Analysis prerequisite:** publish the same-module callee resolution
-   described under [Imported evidence](#analysis-prerequisite-same-module-callee-resolution),
-   with its typed failures, as an Analysis-owned focused effort under
+0. **Analysis prerequisite (complete):** #8701 and #8704 publish the
+   same-module callee resolution and declared-source association described
+   under
+   [Imported evidence](#analysis-prerequisite-same-module-callee-resolution),
+   owned by
    [Library body analysis service](library-body-analysis-service.md).
-1. **Research:** the document, typed outcome, and fixture gates.
-2. **Query:** a Research-backed query in `DotnetInspector.ResearchQueries`
+1. **Research (complete):** #9145 supplies the document, typed outcome, and
+   fixture gates.
+2. **Query (implemented by
+   [#9156](https://github.com/richlander/dotnet-inspect/pull/9156)):** a
+   Research-backed query in `DotnetInspector.ResearchQueries`
    carries the completed document without rendering it. It shares the Analysis
    execution with `LibraryMetricsQuery` when both are selected, consumes only
    focused Analysis results, and exposes the issued rows through QuerySpace
-   (see [Modern infrastructure only](#modern-infrastructure-only)).
+   (see [Modern infrastructure only](#modern-infrastructure-only)). Each
+   request selects one row family; multiple selections reuse the same completed
+   document rather than rebuilding its graph.
 3. **CLI:** an exact-name-only `library` section, `Dependency Structure`,
    outside the default `-v:m` view. It uses Markout for tables and the Mermaid
    graph lowering, and `--envelope` carries the complete Content with Share
    and diagnostics.
-4. **Browser/Wasm:** the Library Metrics lens adds a levelized namespace view
-   with cycles marked and drill-down from edge to explaining type edges to
-   Type. It uses the same managed query and does no topology work in
-   TypeScript.
+4. **Browser/Wasm:** the Library Analysis inspector exposes a dedicated
+   **Dependencies** tab with a levelized namespace view, marked cycles, and
+   drill-down from one selected namespace edge to its explaining Type edges.
+   Entering the tab does not spend the additional whole-library call-graph
+   budget; it presents an explicit **Load dependency structure** gesture.
+   That gesture invokes a separate focused managed operation whose Analysis
+   request selects only Method Evidence and whose Research query remains the
+   singular owner of topology. Its QuerySpace request retains every namespace
+   node and cycle and selects at most 64 owner-ranked namespace edges; the
+   response carries the total edge count so the host discloses any omitted
+   edges. TypeScript positions nodes by their issued levels, marks their issued
+   cycle indices, preserves distinct directional arrows for reciprocal selected
+   relationships, and activates explaining types by exact type key. One stable
+   detail panel below the graph names the selected source and target namespaces,
+   reports the edge's issued counts, and exposes only that edge's bounded Type
+   contributors. Selection uses exact namespace identity rather than display
+   text.
+
+   The global namespace remains in the returned typed document but is hidden
+   from the initial graph together with its incident selected edges and any
+   cycle that contains it. The inspector discloses those omissions and offers
+   an **Include global namespace** control. This keeps compiler-synthesized
+   global-namespace types from dominating the authored-structure view without
+   converting their absence into a product claim. Other nodes retain their
+   owner-issued levels; the Browser does not renumber them or derive a filtered
+   topology. It does not derive SCCs, levels, completeness, or relationships.
+   This interactive SVG lowering deliberately bypasses Markout because
+   visual-edge selection and exact-Type activation are Browser interaction
+   concerns. A later Library Metrics request and dependency request may repeat
+   Analysis work; cross-request prepared sharing remains owned by
+   [#8574](https://github.com/richlander/dotnet-inspect/issues/8574) and
+   [#8965](https://github.com/richlander/dotnet-inspect/issues/8965), rather
+   than widening the initial Library Metrics operation.
 5. **Skill:** the `project-analysis` workflow catalog
    ([#8518](https://github.com/richlander/dotnet-inspect/pull/8518)) gains an
    architecture-narrative workflow that consumes this document and labels

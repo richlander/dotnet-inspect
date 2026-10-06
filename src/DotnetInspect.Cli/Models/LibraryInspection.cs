@@ -4,7 +4,6 @@ using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Ecosystems;
 using DotnetInspector.Queries;
-using DotnetInspector.Sections;
 using DotnetInspect.Cli.Sections;
 using ILInspector.Analysis;
 using ILInspector.Decompiler;
@@ -53,6 +52,15 @@ internal static class LibraryInspectionDisplay
 
 public class LibraryInspection
 {
+    // Runtime gate for terminals that retire the mutable legacy model.
+    internal static int ConstructionCountForTests;
+
+    public LibraryInspection()
+    {
+        System.Threading.Interlocked.Increment(
+            ref ConstructionCountForTests);
+    }
+
     [JsonIgnore]
     internal IntegrationQueryOptions IntegrationQuery { get; init; } = IntegrationQueryOptions.Default;
 
@@ -68,11 +76,12 @@ public class LibraryInspection
     { get; set; }
 
     /// <summary>
-    /// Presentation-selected ecosystem-dependency pairs. Null retains the
-    /// complete recognized population from the recognition Document.
+    /// Presentation-selected ecosystem-dependency matches. Null retains the
+    /// complete recognized and candidate populations from the recognition
+    /// Document.
     /// </summary>
     [JsonIgnore]
-    public IReadOnlyList<EcosystemDependencyRecognitionEntry>?
+    public IReadOnlyList<EcosystemDependencyMatchEntry>?
         EcosystemDependencyRows
     { get; set; }
 
@@ -185,21 +194,6 @@ public class LibraryInspection
     public FindingInspection<AssemblySurfaceClassification>?
         SurfaceClassificationInspection
     { get; set; }
-
-    /// <summary>
-    /// The host-neutral Library document facts for a managed assembly
-    /// (<c>docs/design/library-info-composition.md</c>), or null for native and
-    /// manifestless images, which keep the legacy view path.
-    /// </summary>
-    [JsonIgnore]
-    public LibraryDocument? LibraryDocument { get; set; }
-
-    /// <summary>
-    /// Why the Library document could not be read for a managed assembly.
-    /// Library Info reports it instead of document-sourced rows.
-    /// </summary>
-    [JsonIgnore]
-    public string? LibraryDocumentFailure { get; set; }
 
     /// <summary>
     /// Publisher identity from NuGet package author signature (CN).
@@ -561,6 +555,36 @@ public class LibraryInspection
         }
     }
 
+    private LibraryArchitecturalFamilyQueryResult? _architecturalFamilyQueryResult;
+
+    /// <summary>Typed Architectural Families result.</summary>
+    [JsonIgnore]
+    public LibraryArchitecturalFamilyQueryResult? ArchitecturalFamilyQueryResult
+    {
+        get => _architecturalFamilyQueryResult;
+        set
+        {
+            _architecturalFamilyQueryResult = value;
+            ResetFindingProjectionCaches();
+        }
+    }
+
+    private LibraryDependencyStructureQueryResult?
+        _dependencyStructureQueryResult;
+
+    /// <summary>Typed dependency-structure inspection result.</summary>
+    [JsonIgnore]
+    public LibraryDependencyStructureQueryResult?
+        DependencyStructureQueryResult
+    {
+        get => _dependencyStructureQueryResult;
+        set
+        {
+            _dependencyStructureQueryResult = value;
+            ResetFindingProjectionCaches();
+        }
+    }
+
     /// <summary>
     /// Safe, local optimization opportunities inferred from IL/body evidence. Internal backing
     /// for the kind-scoped performance sections and the nested <see cref="Performance"/> JSON
@@ -592,6 +616,10 @@ public class LibraryInspection
     public ImmutableArray<OptimizationOpportunity>
         PerformanceTriageOpportunities
     { get; set; } = [];
+
+    [JsonIgnore]
+    internal OptimizationOpportunityCounts? PerformanceTriageCounts
+    { get; set; }
 
     /// <summary>
     /// Nested performance projection: the optimization opportunities bucketed by kind, mirroring
@@ -823,15 +851,70 @@ public class LibraryInspection
         set => _asyncMethodCount = value;
     }
 
-    /// <summary>Whether the async analyzer found any method, by its rows or its count.</summary>
+    private int? _extensionMethodCount;
+
+    /// <summary>
+    /// The number of public static extension methods on static extension
+    /// types, from the extension analyzer's Count: the method half of the
+    /// Library Info Extension Methods row.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? ExtensionMethodCount
+    {
+        get => MethodClassificationFailureOf(MethodClassificationAnalyzer.Extension) is null ? _extensionMethodCount : null;
+        set => _extensionMethodCount = value;
+    }
+
+    private bool? _pInvokeMethodPresence;
+
+    /// <summary>
+    /// Exact P/Invoke section applicability from the analyzer's Exists
+    /// closing; null when no applicability consumer asked.
+    /// </summary>
+    [JsonIgnore]
+    public bool? PInvokeMethodPresence
+    {
+        get => MethodClassificationFailureOf(
+            MethodClassificationAnalyzer.PInvoke) is null
+                ? _pInvokeMethodPresence
+                : null;
+        set => _pInvokeMethodPresence = value;
+    }
+
+    private bool? _asyncMethodPresence;
+
+    /// <summary>
+    /// Exact async section applicability from the analyzer's Exists closing;
+    /// null when no applicability consumer asked.
+    /// </summary>
+    [JsonIgnore]
+    public bool? AsyncMethodPresence
+    {
+        get => MethodClassificationFailureOf(
+            MethodClassificationDemand.AsyncAnalyzer) is null
+                ? _asyncMethodPresence
+                : null;
+        set => _asyncMethodPresence = value;
+    }
+
+    /// <summary>
+    /// Whether the async analyzer found any method, by Exists, rows, or Count.
+    /// </summary>
     [JsonIgnore]
     public bool HasAsyncMethods =>
-        AsyncMethodDisplayRows is { IsDefault: false, IsEmpty: false } || AsyncMethodCount > 0;
+        AsyncMethodPresence == true
+        || AsyncMethodDisplayRows is { IsDefault: false, IsEmpty: false }
+        || AsyncMethodCount > 0;
 
-    /// <summary>Whether the P/Invoke analyzer found any method, by its rows or its count.</summary>
+    /// <summary>
+    /// Whether the P/Invoke analyzer found any method, by Exists, rows, or
+    /// Count.
+    /// </summary>
     [JsonIgnore]
     public bool HasPInvokeMethods =>
-        PInvokeMethodDisplayRows is { IsDefault: false, IsEmpty: false } || PInvokeMethodCount > 0;
+        PInvokeMethodPresence == true
+        || PInvokeMethodDisplayRows is { IsDefault: false, IsEmpty: false }
+        || PInvokeMethodCount > 0;
 
     private FindingInspection<EcosystemIntegrationSignalInfo>? _ecosystemIntegrationInspection;
     private FindingInspection<OpenTelemetrySignalInfo>? _openTelemetryInspection;
@@ -1083,6 +1166,32 @@ public class LibraryInspection
                         SectionNames.NameFamilies,
                         LibraryNameFamilyQuery.Definition.Name,
                         nameFamilyFailure.Error.Message));
+                }
+                if (ArchitecturalFamilyQueryResult
+                    is LibraryArchitecturalFamilyQueryResult.Failed architecturalFamilyFailure)
+                {
+                    failures.Add(new LibraryInspectionFailureJson(
+                        SectionNames.ArchitecturalFamilies,
+                        LibraryArchitecturalFamilyQuery.Definition.Name,
+                        architecturalFamilyFailure.Error.Message));
+                }
+                if (DependencyStructureQueryResult
+                    is LibraryDependencyStructureQueryResult.Failed
+                        dependencyStructureFailure)
+                {
+                    failures.Add(new LibraryInspectionFailureJson(
+                        SectionNames.DependencyStructure,
+                        LibraryDependencyStructureQuery.Definition.Name,
+                        dependencyStructureFailure.Error.Message));
+                }
+                if (DependencyStructureQueryResult
+                    is LibraryDependencyStructureQueryResult.SelectionFailed
+                        dependencyStructureSelectionFailure)
+                {
+                    failures.Add(new LibraryInspectionFailureJson(
+                        SectionNames.DependencyStructure,
+                        LibraryDependencyStructureQuery.Definition.Name,
+                        dependencyStructureSelectionFailure.Detail));
                 }
                 if (OptimizationOpportunitiesQueryResult
                     is OptimizationOpportunitiesResult.Failed optimizationFailure)

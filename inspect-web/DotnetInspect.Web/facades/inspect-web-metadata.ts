@@ -18,6 +18,8 @@ export type AuthoredDocumentationUnavailableReason = number;
 
 export type BrowserCompileLibraryStatus = "Selected" | "NoCompileAssets" | "NoMatchingTargetFramework" | "EmptyCompileGroup" | "InvalidImplementationAssets" | number;
 
+export type BrowserDiffAnalysisPredicateOperator = "Contains" | "StartsWith" | number;
+
 export type BrowserDiffAnalysisSurface = "Member" | "Type" | "Library" | number;
 
 export type BrowserDiffAnalysisViews = string | number;
@@ -146,6 +148,12 @@ export interface BrowserCompileLibraryAvailability {
   readonly status: BrowserCompileLibraryStatus;
   readonly targetFramework: string | null;
   readonly message: string | null;
+}
+
+export interface BrowserDiffAnalysisPredicate {
+  readonly key: string;
+  readonly operator: BrowserDiffAnalysisPredicateOperator;
+  readonly value: string;
 }
 
 export interface BrowserExceptionSurface {
@@ -317,6 +325,7 @@ export interface BrowserLibraryApiDiffRequest {
   readonly views: BrowserDiffAnalysisViews;
   readonly typeNames: ReadonlyArray<string>;
   readonly memberTargetIdentities: ReadonlyArray<string>;
+  readonly predicate: BrowserDiffAnalysisPredicate | null;
 }
 
 export interface BrowserLibraryApiDiffResult {
@@ -462,6 +471,7 @@ export interface BrowserMemberSurface {
   readonly graphSelectorKey: string;
   readonly bodySelectors: ReadonlyArray<BrowserMemberBodySelector>;
   readonly baselineOrdinal: number | null;
+  readonly isExplicitInterfaceImplementation: boolean;
 }
 
 export interface BrowserMetadataCell {
@@ -642,11 +652,17 @@ export interface BrowserTypeMemberComposition {
   readonly extension: number;
 }
 
+export interface BrowserTypeMemberFacetCount {
+  readonly value: string;
+  readonly count: number;
+}
+
 export interface BrowserTypeMemberPopulation {
   readonly typeIdentity: string;
   readonly spelling: string;
   readonly accessibility: string;
   readonly composition: BrowserTypeMemberComposition;
+  readonly selectorCounts: BrowserTypeMemberSelectorCounts;
   readonly groups: ReadonlyArray<BrowserTypeMemberPopulationGroup>;
 }
 
@@ -663,6 +679,20 @@ export interface BrowserTypeMemberPopulationInspection {
   readonly detail: string | null;
   readonly population: BrowserTypeMemberPopulation | null;
   readonly diagnostics: ReadonlyArray<string>;
+}
+
+export interface BrowserTypeMemberSelectorCounts {
+  readonly kinds: ReadonlyArray<BrowserTypeMemberFacetCount>;
+  readonly traits: BrowserTypeMemberTraitCounts;
+}
+
+export interface BrowserTypeMemberTraitCounts {
+  readonly all: number;
+  readonly static: number;
+  readonly instance: number;
+  readonly virtual: number;
+  readonly interface: number;
+  readonly extensions: number;
 }
 
 export interface BrowserTypeMetadata {
@@ -683,6 +713,8 @@ export interface BrowserTypeSurface {
   readonly displayName: string;
   readonly namespace: string;
   readonly kind: string;
+  readonly kindFacetId: string;
+  readonly traitFacetIds: ReadonlyArray<string>;
   readonly accessibility: string;
   readonly accessibilityId: string;
   readonly assembly: string;

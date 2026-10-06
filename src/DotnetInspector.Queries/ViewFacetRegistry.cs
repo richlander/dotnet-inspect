@@ -43,6 +43,8 @@ public sealed record ViewFacetId
         ReadOnlySpan<char> prefix = value.AsSpan(0, dot);
         if (prefix.SequenceEqual("workspace"))
             kind = StructuralSubjectKind.Workspace;
+        else if (prefix.SequenceEqual("ecosystem"))
+            kind = StructuralSubjectKind.Ecosystem;
         else if (prefix.SequenceEqual("package"))
             kind = StructuralSubjectKind.Package;
         else if (prefix.SequenceEqual("library"))
@@ -82,6 +84,18 @@ public sealed record ViewFacetId
         return true;
     }
 
+    internal static string GetPrefix(StructuralSubjectKind kind) =>
+        kind switch
+        {
+            StructuralSubjectKind.Workspace => "workspace",
+            StructuralSubjectKind.Ecosystem => "ecosystem",
+            StructuralSubjectKind.Package => "package",
+            StructuralSubjectKind.Library => "library",
+            StructuralSubjectKind.Type => "type",
+            StructuralSubjectKind.Member => "member",
+            _ => throw new ArgumentOutOfRangeException(nameof(kind)),
+        };
+
     static bool IsLowerAsciiLetter(char value) =>
         value is >= 'a' and <= 'z';
 
@@ -93,6 +107,7 @@ public sealed record ViewFacetId
 public enum ViewFacetRole
 {
     WorkspaceOverview,
+    EcosystemOverview,
     PackageOverview,
     LibraryReferences,
     TypeApi,
@@ -637,6 +652,18 @@ public sealed class ViewFacetRegistry
         return Descriptors.Single(descriptor =>
             descriptor.Kind == kind
             && descriptor.Role == role);
+    }
+
+    /// <summary>
+    /// Lowers one exact subject-relative name to its canonical facet identity.
+    /// </summary>
+    public ViewFacetId ResolveRelativeName(
+        StructuralSubjectKind kind,
+        string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        return new ViewFacetId(
+            string.Concat(ViewFacetId.GetPrefix(kind), ".", name));
     }
 
     public ImmutableArray<ViewFacetOption> Discover(

@@ -51,6 +51,24 @@ internal static class LibraryOutputCapabilities
                 OutputCapabilityCatalog.StandardSectionFormats
                     .Where(format =>
                         format != DiscoveryOutputMode.Json));
+        sections[SectionNames.ArchitecturalFamilies] =
+            SectionOutputCapabilities.Create(
+                OutputCapabilityCatalog.StandardSectionFormats
+                    .Where(format =>
+                        format != DiscoveryOutputMode.Json));
+        sections[SectionNames.ArchitecturalFamilyTypes] =
+            SectionOutputCapabilities.Create(
+                OutputCapabilityCatalog.StandardSectionFormats
+                    .Where(format =>
+                        format != DiscoveryOutputMode.Json));
+        sections[SectionNames.DependencyStructure] =
+            SectionOutputCapabilities.Create(
+                [
+                    .. OutputCapabilityCatalog.StandardSectionFormats
+                        .Where(format =>
+                            format != DiscoveryOutputMode.Json),
+                    DiscoveryOutputMode.Mermaid,
+                ]);
         sections[SectionNames.ReferenceHierarchy] =
             SectionOutputCapabilities.Create(
                 [

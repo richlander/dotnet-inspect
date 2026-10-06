@@ -3,7 +3,7 @@ import { expect, test } from "@playwright/test";
 test("complexity cells disclose evidence and activate exact type keys", async ({
   page,
 }) => {
-  await page.goto("/browser/library-metrics.html");
+  await page.goto("/browser/library-metrics.html?view=complexity");
   const first = page.locator('[data-metrics-type-key="Example.A"]');
   const second = page.locator('[data-metrics-type-key="Example.B"]');
   const evidence = page.locator("[data-metrics-treemap-evidence]");
@@ -24,65 +24,23 @@ test("complexity cells disclose evidence and activate exact type keys", async ({
   await expect(activation).toHaveText("Example.B");
 });
 
-test("structural salience preserves issued orders and exact interactions", async ({
-  page,
-}, testInfo) => {
-  await page.setViewportSize({ width: 1100, height: 800 });
-  await page.goto("/browser/library-metrics.html");
-  const salience = page.locator(".metrics-salience-section");
-  await expect(salience).toContainText("Structural Salience");
-  await expect(salience).toContainText("Example · 7 external source Types");
-  await expect(salience.locator(".metrics-salience-order").first())
-    .toContainText("A");
-  await expect(salience.locator(".metrics-salience-order").first())
-    .toContainText("7 incoming peers · foundation");
-  await expect(salience.locator(".metrics-salience-order").nth(1))
-    .toContainText("6 outgoing peers · orchestrator");
-  await expect(salience.locator(".metrics-salience-type.sea-level").first())
-    .toContainText("sea level");
-  await expect(
-    salience.locator(".metrics-salience-type.mountain-peak").first(),
-  ).toContainText("mountain peak");
-  await expect(salience.locator(".sea-level.mountain-peak")).toHaveCount(0);
-  await expect(salience.locator(".sea-level .metrics-salience-pole").first())
-    .toHaveText("▁");
-  await expect(
-    salience.locator(".mountain-peak .metrics-salience-pole").first(),
-  ).toHaveText("▲");
-  await salience.screenshot({
-    path: testInfo.outputPath("structural-salience-poles.png"),
-  });
-
-  await salience.locator(
-    '[data-metrics-salience-type-key="Example.B"]',
-  ).first().click();
-  await expect(page.locator("#metrics-activated-type"))
-    .toHaveText("Example.B");
-
-  await salience.locator("[data-metrics-salience-namespace]")
-    .selectOption("Example.Tools");
-  await expect(page.locator("#metrics-selected-namespace"))
-    .toHaveText("Example.Tools");
-});
-
-test("a sole zero-leverage namespace can trigger exact shard demand", async ({
-  page,
-}) => {
-  await page.goto("/browser/library-metrics.html?zero-top");
-  const select = page.locator("[data-metrics-salience-namespace]");
-  await expect(select).toHaveValue("__choose_namespace__");
-  await select.selectOption("Only");
-  await expect(page.locator("#metrics-selected-namespace"))
-    .toHaveText("Only");
-});
-
 test("reciprocal relationship evidence remains independently reachable", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1100, height: 700 });
-  await page.goto("/browser/library-metrics.html");
+  await page.goto("/browser/library-metrics.html?view=relationships");
   const edges = page.locator("path.metrics-relationship-edge");
-  await expect(edges).toHaveCount(20);
+  const visibleEdges = page.locator(
+    "path.metrics-relationship-edge:not([hidden])",
+  );
+  const activation = page.locator("#metrics-activated-type");
+  const limit = page.locator("[data-metrics-relationship-limit]");
+  const limitOutput = page.locator(
+    "[data-metrics-relationship-limit-output]",
+  );
+  await expect(edges).toHaveCount(30);
+  await expect(visibleEdges).toHaveCount(15);
+  await expect(limitOutput).toHaveText("15 / 30");
   await page.locator("svg.metrics-relationship-crossing")
     .scrollIntoViewIfNeeded();
 
@@ -115,6 +73,61 @@ test("reciprocal relationship evidence remains independently reachable", async (
       .toBe(true);
   }
 
+  const detail = page.locator("[data-metrics-relationship-detail]");
+  const forwardEdge = edges.filter({ hasText: forward });
+  const forwardPoint = await forwardEdge.evaluate(element => {
+    if (!(element instanceof SVGPathElement))
+      throw new Error("Relationship edge is not an SVG path.");
+    const matrix = element.getScreenCTM();
+    if (matrix === null) throw new Error("Relationship edge has no screen CTM.");
+    const point = element.getPointAtLength(element.getTotalLength() / 2);
+    const screen = new DOMPoint(point.x, point.y).matrixTransform(matrix);
+    return { x: screen.x, y: screen.y };
+  });
+  await page.mouse.click(forwardPoint.x, forwardPoint.y);
+  await expect(forwardEdge).toHaveAttribute("aria-pressed", "true");
+  await expect(detail.locator("[data-metrics-relationship-source]"))
+    .toHaveText("Example.A");
+  await expect(detail.locator("[data-metrics-relationship-target]"))
+    .toHaveText("Example.B");
+  await expect(detail.locator("[data-metrics-relationship-depth]"))
+    .toHaveText("1 retained call site");
+  await expect(detail.locator("[data-metrics-relationship-rank]"))
+    .toHaveText("1/30 most connected");
+
+  await detail.locator("[data-metrics-relationship-target]").click();
+  await expect(activation).toHaveText("Example.B");
+
+  const reverseEdge = edges.filter({ hasText: reverse });
+  await reverseEdge.focus();
+  await reverseEdge.press("Enter");
+  await expect(reverseEdge).toHaveAttribute("aria-pressed", "true");
+  await expect(forwardEdge).toHaveAttribute("aria-pressed", "false");
+  await expect(detail.locator("[data-metrics-relationship-source]"))
+    .toHaveText("Example.B");
+  await expect(detail.locator("[data-metrics-relationship-target]"))
+    .toHaveText("Example.A");
+  await expect(detail.locator("[data-metrics-relationship-rank]"))
+    .toHaveText("6/30 most connected");
+
+  await limit.focus();
+  await limit.press("End");
+  await expect(visibleEdges).toHaveCount(30);
+  await expect(limitOutput).toHaveText("30 / 30");
+
+  const lastEdge = edges.nth(29);
+  await lastEdge.focus();
+  await lastEdge.press("Enter");
+  await expect(detail.locator("[data-metrics-relationship-rank]"))
+    .toHaveText("30/30 most connected");
+
+  await limit.focus();
+  await limit.press("Home");
+  await expect(visibleEdges).toHaveCount(8);
+  await expect(limitOutput).toHaveText("8 / 30");
+  await expect(detail.locator("[data-metrics-relationship-detail-empty]"))
+    .toBeVisible();
+
   const svg = page.locator("svg.metrics-relationship-crossing");
   const viewport = await svg.boundingBox();
   expect(viewport).not.toBeNull();
@@ -136,4 +149,175 @@ test("reciprocal relationship evidence remains independently reachable", async (
       viewport!.y + viewport!.height + .5,
     );
   }
+});
+
+test("dependency edges reveal exact-type explanations", async ({ page }) => {
+  await page.goto("/browser/library-metrics.html?view=dependencies");
+  await expect(page.locator(".metrics-dependency-structure")).toHaveCount(0);
+  await page.getByRole("button", {
+    name: "Load dependency structure",
+  }).click();
+  const edge = page.locator('[data-dependency-edge-index="0"]');
+  const detail = page.locator('[data-dependency-edge-detail="0"]');
+  const activation = page.locator("#metrics-activated-type");
+
+  await edge.focus();
+  await edge.press("Enter");
+  await expect(edge).toHaveAttribute("aria-pressed", "true");
+  await expect(detail).toBeVisible();
+  await expect(page.locator("[data-dependency-edge-detail]:visible"))
+    .toHaveCount(1);
+  await expect(detail).toContainText("Example.A");
+  await expect(detail).toContainText("Example.B");
+
+  await detail.locator(
+    '[data-dependency-type-key="Example.B"]',
+  ).click();
+  await expect(activation).toHaveText("Example.B");
+});
+
+test("global namespace evidence is hidden by default and explicitly recoverable", async ({
+  page,
+}) => {
+  await page.goto(
+    "/browser/library-metrics.html?view=dependencies&dependency=global",
+  );
+  await page.getByRole("button", {
+    name: "Load dependency structure",
+  }).click();
+
+  const includeGlobal = page.getByRole("checkbox", {
+    name: "Include global namespace",
+  });
+  await expect(includeGlobal).not.toBeChecked();
+  await expect(page.locator(".metrics-dependency-level")
+    .filter({ hasText: "Level 0" })).toHaveCount(0);
+  await expect(page.locator(".metrics-dependency-node-label")
+    .filter({ hasText: "(global)" })).toHaveCount(0);
+  await expect(page.locator(".metrics-dependency-global-note"))
+    .toContainText("1 retained relationship");
+  await expect(page.locator("path.metrics-dependency-edge")).toHaveCount(4);
+
+  await includeGlobal.check();
+  await expect(page.locator(".metrics-dependency-level")
+    .filter({ hasText: "Level 0" })).toHaveCount(1);
+  await expect(page.locator(".metrics-dependency-node-label")
+    .filter({ hasText: "(global)" })).toHaveCount(1);
+  await expect(page.locator("path.metrics-dependency-edge")).toHaveCount(5);
+});
+
+test("dependency layout preserves issued levels and cycles responsively", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 620, height: 700 });
+  await page.goto("/browser/library-metrics.html?view=dependencies");
+  await page.getByRole("button", {
+    name: "Load dependency structure",
+  }).click();
+
+  await expect(page.locator(".metrics-dependency-level")).toHaveText([
+    "Level 0",
+    "Level 1",
+    "Level 2",
+  ]);
+  await expect(page.locator(".metrics-dependency-node-cycle")).toHaveCount(2);
+  const cycleDirections = await page.locator("path.metrics-dependency-edge")
+    .evaluateAll(elements => elements
+      .map(element => ({
+        title: element.querySelector("title")?.textContent ?? "",
+        path: element.getAttribute("d") ?? "",
+        markerEnd: element.getAttribute("marker-end") ?? "",
+      }))
+      .filter(edge =>
+        edge.title.includes("Example.Core depends on Example.Workflows") ||
+        edge.title.includes("Example.Workflows depends on Example.Core")));
+  expect(cycleDirections).toHaveLength(2);
+  expect(new Set(cycleDirections.map(edge => edge.path)).size).toBe(2);
+  expect(cycleDirections.every(edge =>
+    edge.markerEnd === "url(#metrics-dependency-arrow)")).toBe(true);
+  const viewport = page.locator(".metrics-dependency-viewport");
+  const geometry = await viewport.evaluate(element => ({
+    clientWidth: element.clientWidth,
+    scrollWidth: element.scrollWidth,
+    right: element.getBoundingClientRect().right,
+    documentWidth: document.documentElement.clientWidth,
+  }));
+
+  expect(geometry.scrollWidth).toBeGreaterThanOrEqual(geometry.clientWidth);
+  expect(geometry.right).toBeLessThanOrEqual(geometry.documentWidth + .5);
+});
+
+test("level-zero reciprocal cycle routes remain inside the viewport", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 620, height: 700 });
+  await page.goto(
+    "/browser/library-metrics.html?view=dependencies&dependency=cycle-zero",
+  );
+  await page.getByRole("button", {
+    name: "Load dependency structure",
+  }).click();
+
+  const geometry = await page.locator("path.metrics-dependency-edge")
+    .evaluateAll(elements => {
+      const first = elements[0];
+      if (!(first instanceof SVGGraphicsElement) || !first.ownerSVGElement)
+        throw new Error("Dependency SVG is missing.");
+      const svg = first.ownerSVGElement;
+      return {
+        viewBoxWidth: svg.viewBox.baseVal.width,
+        paths: elements.map(element => {
+          if (!(element instanceof SVGGraphicsElement))
+            throw new Error("Dependency edge is not graphical.");
+          const bounds = element.getBBox();
+          return {
+            left: bounds.x,
+            right: bounds.x + bounds.width,
+            path: element.getAttribute("d") ?? "",
+            markerEnd: element.getAttribute("marker-end") ?? "",
+          };
+        }),
+      };
+    });
+
+  expect(geometry.paths).toHaveLength(2);
+  expect(new Set(geometry.paths.map(path => path.path)).size).toBe(2);
+  for (const path of geometry.paths) {
+    expect(path.left).toBeGreaterThanOrEqual(0);
+    expect(path.right).toBeLessThanOrEqual(geometry.viewBoxWidth);
+    expect(path.markerEnd).toBe("url(#metrics-dependency-arrow)");
+  }
+});
+
+test("deep dependency levels scroll without shrinking labels", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 620, height: 700 });
+  await page.goto(
+    "/browser/library-metrics.html?view=dependencies&dependency=deep",
+  );
+  await page.getByRole("button", {
+    name: "Load dependency structure",
+  }).click();
+
+  const geometry = await page.locator(".metrics-dependency-viewport")
+    .evaluate(element => {
+      const svg = element.querySelector(".metrics-dependency-structure");
+      const label = element.querySelector(".metrics-dependency-level");
+      if (!(svg instanceof SVGSVGElement) ||
+          !(label instanceof SVGTextElement)) {
+        throw new Error("Dependency layout is incomplete.");
+      }
+      const matrix = label.getScreenCTM();
+      return {
+        clientWidth: element.clientWidth,
+        scrollWidth: element.scrollWidth,
+        svgWidth: svg.getBoundingClientRect().width,
+        labelScale: matrix === null ? 0 : Math.hypot(matrix.a, matrix.b),
+      };
+    });
+
+  expect(geometry.scrollWidth).toBeGreaterThan(geometry.clientWidth);
+  expect(geometry.svgWidth).toBeGreaterThanOrEqual(2_580);
+  expect(geometry.labelScale).toBeGreaterThanOrEqual(.99);
 });

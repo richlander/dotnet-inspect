@@ -91,8 +91,9 @@ fix.
 
 ## Design principle
 
-From `AGENTS.md`: *"Treat identifiers … and presentation as separate concerns.
-Do not infer one from display text when a typed identity exists."* Metadata owns
+The [repository engineering contract](../repository-workflow.md#engineering-constraints)
+keeps identity and presentation separate and prohibits inferring identity from
+display text when typed identity exists. Metadata owns
 the type facts and should produce **both** spellings from the structure it
 already holds; identity should consume the structural spelling **directly** and
 never re-parse display.
@@ -331,10 +332,10 @@ own contract states *"Display names are for humans; equality is structural"*. It
 carries `ElementType` / `TypeArguments` / `ContainsPointer()` and excludes
 advisory provenance (`TrustedFrameworkAssembly`, spoof flags) from structural
 identity — exactly the separation of concerns this design argues for. Analysis
-consumers (`OpaqueUnsafe`, `LibraryBodyIndex`) ask `TypeRef` structural questions
-and never string-match. **Metadata is the outlier:** it builds a `TypeNode` tree,
-flattens it to a display string, discards the structure, then makes every
-downstream consumer re-parse.
+consumers ask `TypeRef` structural questions and never string-match.
+**Metadata is the outlier:** it builds a `TypeNode` tree, flattens it to a
+display string, discards the structure, then makes every downstream consumer
+re-parse.
 
 **Important caveat (round 2):** `TypeRef` cannot simply move below Metadata. It
 carries Analysis-specific trust bits and its decoder *rejects* function pointers

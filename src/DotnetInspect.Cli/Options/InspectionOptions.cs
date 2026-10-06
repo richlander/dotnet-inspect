@@ -117,6 +117,11 @@ public record InspectionOptions : IProjectionOptions
     public RowSelectionIntent<string>? NameFamilyRowSelection
     { get; init; }
 
+    public bool ArchitecturalFamilyTypeRows { get; init; }
+
+    public RowSelectionIntent<string>? DependencyStructureRowSelection
+    { get; init; }
+
     public PerformanceTriageOptions PerformanceTriage { get; init; } =
         PerformanceTriageOptions.Default;
 
@@ -223,7 +228,7 @@ public record InspectionOptions : IProjectionOptions
 
     /// <summary>
     /// Project top-level package roots represented by selected
-    /// <c>Package files</c> rows.
+    /// <c>Files</c> rows.
     /// </summary>
     public bool Roots { get; init; }
 
@@ -316,9 +321,9 @@ public record InspectionOptions : IProjectionOptions
     public Verbosity Verbosity { get; init; } = Verbosity.Minimal;
 
     /// <summary>
-    /// Tip verbosity level.
+    /// Whether the explicit tip projection was requested.
     /// </summary>
-    public TipLevel TipLevel { get; init; } = TipLevel.Quiet;
+    public CompanionOutput CompanionOutput { get; init; } = CompanionOutput.None;
 
     /// <summary>
     /// Bare <c>-S</c> mode: render the network-free <b>fixed</b> overview — only sections whose

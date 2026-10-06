@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using ILInspector.Decompiler.Pipeline;
 
 namespace ILInspector.Decompiler.Tests;
@@ -55,6 +56,50 @@ public class PipelineStageTests
     }
 
     [Fact]
+    public void RunWithReceipts_MatchesStagedChangeAttributionAndFinalIr()
+    {
+        var receipted = ImportFixture(nameof(CfgSampleClass.Add));
+        var staged = ImportFixture(nameof(CfgSampleClass.Add));
+
+        var receipts = IrPasses.RunWithReceipts(receipted);
+        var stages = IrPasses.RunWithStages(staged);
+
+        Assert.Equal(IrPasses.Default.Length, receipts.Count);
+        Assert.Equal(IrPrinter.Dump(staged), IrPrinter.Dump(receipted));
+        for (int i = 0; i < receipts.Count; i++)
+        {
+            Assert.Equal(i + 1, receipts[i].Ordinal);
+            Assert.Equal(stages[i + 1].PassName, receipts[i].PassName);
+            Assert.Equal(
+                stages[i].Projection != stages[i + 1].Projection,
+                receipts[i].Changed);
+        }
+    }
+
+    [Fact]
+    public void RunWithReceipts_DistinguishesRepeatedChangedAndUnchangedOccurrences()
+    {
+        var function = ImportFixture(nameof(CfgSampleClass.Add));
+        var repeated = new RecordingPass("repeated");
+        ImmutableArray<IIrPass> passes = [repeated, repeated];
+        int projection = 0;
+
+        var receipts = IrPasses.RunWithReceipts(
+            function,
+            passes,
+            _ => projection++ < 2 ? "before" : "after",
+            PassContext.None);
+
+        Assert.Equal(
+        [
+            new PassExecutionReceipt(1, "repeated", Changed: false),
+            new PassExecutionReceipt(2, "repeated", Changed: true),
+        ], receipts);
+        Assert.Equal(["repeated"], PassExecutionReceipts.ChangedPasses(receipts));
+        Assert.Equal(3, projection);
+    }
+
+    [Fact]
     public void StageDump_Format_FramesEveryStageWithAHeader()
     {
         var function = ImportFixture(nameof(CfgSampleClass.Add));
@@ -100,6 +145,15 @@ public class PipelineStageTests
             i += needle.Length;
         }
         return count;
+    }
+
+    sealed class RecordingPass(string name) : IIrPass
+    {
+        public string Name => name;
+
+        public void Run(IrFunction function, PassContext context)
+        {
+        }
     }
 
     [Fact]

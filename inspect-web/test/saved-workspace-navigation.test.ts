@@ -4,6 +4,7 @@ import { stripTypeScriptTypes } from "node:module";
 import { runInNewContext } from "node:vm";
 import test from "node:test";
 import { parseSync } from "oxc-parser";
+import { defaultAnalysisMode } from "../src/analysis-inspector.ts";
 import { createCatalogRequests } from "../src/catalog-requests.ts";
 import {
   createPackageComparisonTargets,
@@ -155,7 +156,8 @@ const hostNames = new Set([
   "retainPackageModel", "packageIdentityEquals", "releasePackageModelCaches",
   "invalidateWorkspaceMembershipViews", "invalidateGraphMemberNavigation",
   "clearWorkspaceOccurrenceView", "clearWorkspacePackages",
-  "activatePackage", "defaultAccessibilityFilter", "resetMemberFilters",
+  "activatePackage", "defaultAccessibilityFilter",
+  "setTypeAccessibilityFilter", "resetMemberFilters",
 ]);
 const hostFunctions = app.program.body.filter(
   node => node.type === "FunctionDeclaration" && hostNames.has(node.id?.name ?? ""));
@@ -220,9 +222,25 @@ function packageSurface(
     types: [{
       id: "Added.Widget", definitionId: "Added.Widget", queryId: "Added.Widget",
       metadataId: "Added.Widget", name: "Widget", displayName: "Added.Widget",
-      namespace: "Added", kind: "class", accessibility: "public", accessibilityId: "public",
+      namespace: "Added", kind: "class", kindFacetId: "api.type-kind.class",
+      traitFacetIds: ["api.type-trait.object"],
+      accessibility: "public", accessibilityId: "public",
       assembly: "Added.Core", assemblyId: "added-core", assemblyName: "Added.Core",
       members: 0, signature: "public class Widget", api: [], platformPack: null,
+    }],
+    typeKinds: [{
+      id: "api.type-kind.class", singularLabel: "class", pluralLabel: "classes",
+      weight: 100, count: 1, isDefault: true,
+    }],
+    typeTraits: [{
+      id: "api.type-trait.abstract", singularLabel: "abstract", pluralLabel: "abstract",
+      weight: 100, count: 0, isDefault: false,
+    }, {
+      id: "api.type-trait.static", singularLabel: "static", pluralLabel: "static",
+      weight: 200, count: 0, isDefault: false,
+    }, {
+      id: "api.type-trait.object", singularLabel: "object", pluralLabel: "objects",
+      weight: 300, count: 1, isDefault: false,
     }],
     accessibility: [{ id: "public", label: "Public", order: 0, isDefault: true, count: 1 }],
     totalMembers: 0, documents: [], icon: null, inspectionErrors: [], inspectionError: null,
@@ -286,6 +304,33 @@ function packageLoadResult(
       },
       diagnostics: [],
     },
+    packageChildren: {
+      content: {
+        kind: "Libraries",
+        status: "Available",
+        packageId: surface.package,
+        packageVersion: surface.version,
+        targetFramework: surface.activeFramework,
+        libraries: surface.assemblies.map(assembly => ({
+          assetId: assembly.id,
+          assetPath: assembly.asset,
+          assemblyName: assembly.name,
+          role: "Compile",
+        })),
+        runtimeIdentifierPackages: [],
+        detail: null,
+        isComplete: true,
+      },
+      share: {
+        kind: "NonProjectable",
+        fullUrl: null,
+        packet: null,
+        path: "package-children/share",
+        reason: "No canonical Workspace share projection.",
+      },
+      diagnostics: [],
+    },
+    documents: surface.documents,
     surface,
   };
 }
@@ -303,7 +348,7 @@ function sharedState(): BrowserWorkspaceShareState {
     selectedContextId: "both",
     view: {
       lens: null, type: null, memberAnchor: null, memberSignature: null,
-      section: null, libraries: [],
+      section: null, libraries: [], sourceView: null,
     },
   };
 }
@@ -370,6 +415,12 @@ function harness() {
     spotlightOpen: false,
     memberCallGraph: null as object | null, memberCallGraphError: "", memberCallGraphKey: "",
     memberCallGraphLoading: false, memberCallGraphExpanding: false, memberCallGraphSeq: 0,
+    directUseClusterGraphKey: "",
+    directUseClusterBoundary: null as object | null,
+    directUseClusterResult: null as object | null,
+    directUseClusterLoading: false,
+    directUseClusterError: "",
+    directUseClusterSeq: 0,
     memberGroupDocumentLoading: false, memberGroupDocumentKey: "",
     memberSource: { status: "idle" } as SourceResultState,
     typeSource: { status: "idle" } as SourceResultState,
@@ -508,7 +559,12 @@ function harness() {
     },
   };
   const context = {
-    state, location, history, document, workspaceLocation: asyncWorkspaceLocation,
+    state,
+    location,
+    history,
+    document,
+    defaultAnalysisMode,
+    workspaceLocation: asyncWorkspaceLocation,
     engineClient: {
       catalog: {
         captureCompleteWorkspaceShareState: async (
@@ -623,7 +679,11 @@ function harness() {
         capacity);
     },
     createPackageAcquisition,
-    inspectPackage: (...coordinate: Parameters<PackageAcquisitionDependencies["queryPackage"]>) => {
+    inspectPackageSummary: (
+      ...coordinate: Parameters<
+        PackageAcquisitionDependencies["queryPackageSummary"]
+      >
+    ) => {
       queries.push(coordinate);
       return controls.queryPackage(...coordinate);
     },
@@ -671,6 +731,16 @@ function harness() {
     },
     cancelFindingCensusRequest: () => {},
     memberDetailInspection: { invalidate: () => {} },
+    directUseClusterInspection: {
+      reset: () => {
+        state.directUseClusterSeq++;
+        state.directUseClusterGraphKey = "";
+        state.directUseClusterBoundary = null;
+        state.directUseClusterResult = null;
+        state.directUseClusterLoading = false;
+        state.directUseClusterError = "";
+      },
+    },
     persistRecentPackages: () => {},
     persistPlatformRecent: () => {},
     refreshPackageStats: () => {},
@@ -701,6 +771,7 @@ function harness() {
       state.packages.push(pkg);
       return pkg;
     },
+    loadDeepPackageSurface: async () => {},
     applyLoadedPackageLibraryScope: () => null,
     applyDeepLink: (deep: ParsedWorkspaceLocation) => {
       effects.push("deep-link");
@@ -1342,7 +1413,7 @@ test("saved Platform Open commits its staged URL after Platform selection comple
     selectedContextId: "platform-context",
     view: {
       lens: null, type: null, memberAnchor: null, memberSignature: null,
-      section: null, libraries: [],
+      section: null, libraries: [], sourceView: null,
     },
   };
   h.location.href = "https://inspect.test/demos";
@@ -2045,7 +2116,10 @@ test("successful saved Open retires comparison settings with the discarded Packa
 
   assert.ok(h.state.package);
   assert.deepEqual(h.packageComparisonTargets.get(h.state.package), {
-    diff: { kind: "previous" }, clone: { kind: "workspace" }, mode: "diff",
+    diff: { kind: "previous" },
+    diffContent: { kind: "api" },
+    clone: { kind: "workspace" },
+    mode: "diff",
   });
   assert.deepEqual(h.packageComparisonTargets.get(sourcePackage).diff, { kind: "previous" });
   assert.deepEqual(h.catalogRequests.packageVersions(sourcePackage), { status: "idle" });
@@ -2236,6 +2310,57 @@ function inspectionSelection(h: ReturnType<typeof harness>) {
   };
 }
 
+test("retained Workspace restoration settles cluster work and preserves its request sequence", () => {
+  const h = harness();
+  const boundary = { id: "edge-a" };
+  const result = { clusters: [{ ordinal: 1 }] };
+  Object.assign(h.state, {
+    directUseClusterGraphKey: "member-request-a",
+    directUseClusterBoundary: boundary,
+    directUseClusterResult: result,
+    directUseClusterLoading: true,
+    directUseClusterSeq: 7,
+  });
+
+  const snapshots: { state: typeof h.state }[] = [];
+  runInNewContext(
+    "capture(captureCanonicalWorkspaceRestoreSnapshot())",
+    {
+      ...h.context,
+      capture: (snapshot: { state: typeof h.state }) =>
+        snapshots.push(snapshot),
+    },
+  );
+  const snapshot = snapshots[0];
+  assert.ok(snapshot);
+  assert.equal(snapshot.state.directUseClusterLoading, false);
+  assert.equal(snapshot.state.directUseClusterSeq, 8);
+  assert.deepEqual(snapshot.state.directUseClusterBoundary, boundary);
+  assert.deepEqual(snapshot.state.directUseClusterResult, result);
+
+  runInNewContext("invalidateWorkspaceAsyncOwners()", h.context);
+  assert.equal(h.state.directUseClusterLoading, false);
+  assert.equal(h.state.directUseClusterSeq, 8);
+  assert.equal(h.state.directUseClusterGraphKey, "");
+  assert.equal(h.state.directUseClusterBoundary, null);
+  assert.equal(h.state.directUseClusterResult, null);
+  Object.assign(h.state, {
+    directUseClusterGraphKey: "member-request-b",
+    directUseClusterLoading: false,
+    directUseClusterSeq: 41,
+  });
+  runInNewContext(
+    "restoreCanonicalWorkspaceRestoreSnapshot(snapshot)",
+    { ...h.context, snapshot },
+  );
+
+  assert.equal(h.state.directUseClusterLoading, false);
+  assert.equal(h.state.directUseClusterSeq, 42);
+  assert.equal(h.state.directUseClusterGraphKey, "member-request-a");
+  assert.deepEqual(h.state.directUseClusterBoundary, boundary);
+  assert.deepEqual(h.state.directUseClusterResult, result);
+});
+
 function seedInspectionSelection(h: ReturnType<typeof harness>) {
   Object.assign(h.state, {
     selectedTypeId: "Source.Widget", selectedMemberKey: "Run",
@@ -2349,7 +2474,7 @@ test("Add appends the resolved coordinate, preserves inspection, invalidates mem
     ],
     activeTabId: "t1", selectedContextId: "g1",
     view: { lens: null, type: null, memberAnchor: null, memberSignature: null,
-      section: null, libraries: [] },
+      section: null, libraries: [], sourceView: null },
   });
   assert.equal(h.location.pathname, "/");
   assert.equal(h.location.hash, "#workspace");

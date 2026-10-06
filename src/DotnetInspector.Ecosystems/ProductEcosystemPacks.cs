@@ -1,4 +1,5 @@
 using DotnetInspector.Platforms;
+using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
 using DotnetInspector.SourceSelection;
@@ -56,6 +57,7 @@ internal static class ProductEcosystemPacks
             ])
         {
             NamespaceRoots = ["Microsoft.Extensions"],
+            DependsOn = EcosystemPackIds.Runtime,
         }, "ecosystem.microsoft-extensions",
         [
             new WorkspaceEcosystemPopulationDeclaration.PackagePrefix(
@@ -71,6 +73,7 @@ internal static class ProductEcosystemPacks
             PopulationLoader: ProductEcosystemPopulationLoaders.AspNetCore)
         {
             NamespaceRoots = ["Microsoft.AspNetCore"],
+            DependsOn = EcosystemPackIds.MicrosoftExtensions,
         }, "ecosystem.aspnetcore",
         [
             new WorkspaceEcosystemPopulationDeclaration.Platform(
@@ -91,6 +94,7 @@ internal static class ProductEcosystemPacks
             Scanner: EcosystemIntegrationScanner.AspireBinding)
         {
             NamespaceRoots = ["Aspire"],
+            DependsOn = EcosystemPackIds.AspNetCore,
             CorePackages =
             [
                 new("Aspire.Hosting"),
@@ -110,6 +114,7 @@ internal static class ProductEcosystemPacks
             PackageSet: null,
             [])
         {
+            DependsOn = EcosystemPackIds.MicrosoftExtensions,
             NamespaceRoots =
             [
                 "Microsoft.Extensions.AI",
@@ -139,6 +144,7 @@ internal static class ProductEcosystemPacks
             PackageSet: null,
             [])
         {
+            DependsOn = EcosystemPackIds.AspNetCore,
             NamespaceRoots =
             [
                 "Microsoft.AspNetCore.Components",
@@ -166,6 +172,7 @@ internal static class ProductEcosystemPacks
             PackageSet: null,
             [])
         {
+            DependsOn = EcosystemPackIds.MicrosoftExtensions,
             NamespaceRoots =
             [
                 "Microsoft.Maui",
@@ -192,23 +199,11 @@ internal static class ProductEcosystemPacks
 
     internal static WorkspacePlan PlatformWorkspacePlan { get; } = EcosystemWorkspacePlanFactory.Create(
         Registry,
-        [
-            EcosystemPackIds.Runtime,
-            EcosystemPackIds.AspNetCore,
-            EcosystemPackIds.MicrosoftExtensions,
-        ]);
+        Registry.ExpandLineages([EcosystemPackIds.AspNetCore]));
 
     internal static WorkspacePlan AllKnownWorkspacePlan { get; } = EcosystemWorkspacePlanFactory.Create(
         Registry,
-        [
-            EcosystemPackIds.Runtime,
-            EcosystemPackIds.AspNetCore,
-            EcosystemPackIds.MicrosoftExtensions,
-            EcosystemPackIds.Aspire,
-            EcosystemPackIds.AI,
-            EcosystemPackIds.Blazor,
-            EcosystemPackIds.Maui,
-        ],
+        Registry.ExpandLineages(Registry.Packs.Select(pack => pack.Id)),
         requireAllPacks: true);
 
     internal static EcosystemDependencyRecognitionProfile
@@ -225,25 +220,47 @@ internal static class ProductEcosystemPacks
                         AssemblyFamily("Microsoft.VisualBasic"),
                         ExactAssembly("mscorlib"),
                         ExactAssembly("netstandard"),
+                    ],
+                    [
+                        RuntimeEvidence("System.Net.Http"),
+                        RuntimeEvidence("System.Runtime"),
+                        RuntimeEvidence("System.Runtime.InteropServices"),
+                        RuntimeEvidence("System.ComponentModel"),
+                        RuntimeEvidence("System.Collections.Concurrent"),
+                        RuntimeEvidence("System.Collections"),
+                        RuntimeEvidence("System.ComponentModel.Annotations"),
+                        RuntimeEvidence("System.Threading"),
                     ]),
                 Dependencies(
                     EcosystemPackIds.MicrosoftExtensions,
                     [
                         PackageFamily("Microsoft.Extensions"),
                         AssemblyFamily("Microsoft.Extensions"),
+                    ],
+                    [
+                        ExtensionsEvidence("Microsoft.Extensions.Options"),
+                        ExtensionsEvidence(
+                            "Microsoft.Extensions.DependencyInjection.Abstractions"),
+                        ExtensionsEvidence("Microsoft.Extensions.Primitives"),
+                        ExtensionsEvidence(
+                            "Microsoft.Extensions.Logging.Abstractions"),
                     ]),
                 Dependencies(
                     EcosystemPackIds.AspNetCore,
                     [
                         PackageFamily("Microsoft.AspNetCore"),
                         AssemblyFamily("Microsoft.AspNetCore"),
+                    ],
+                    [
+                        WebViewMauiEvidence(),
                     ]),
                 Dependencies(
                     EcosystemPackIds.Aspire,
                     [
                         PackageFamily("Aspire"),
                         AssemblyFamily("Aspire"),
-                    ]),
+                    ],
+                    []),
                 Dependencies(
                     EcosystemPackIds.AI,
                     [
@@ -259,7 +276,8 @@ internal static class ProductEcosystemPacks
                         ExactAssembly("Google.GenAI"),
                         ExactAssembly("ModelContextProtocol"),
                         ExactAssembly("Microsoft.Agents.AI"),
-                    ]),
+                    ],
+                    []),
                 Dependencies(
                     EcosystemPackIds.Blazor,
                     [
@@ -267,6 +285,9 @@ internal static class ProductEcosystemPacks
                         PackageFamily("Microsoft.Authentication.WebAssembly"),
                         AssemblyFamily("Microsoft.AspNetCore.Components"),
                         AssemblyFamily("Microsoft.Authentication.WebAssembly"),
+                    ],
+                    [
+                        WebViewMauiEvidence(),
                     ]),
                 Dependencies(
                     EcosystemPackIds.Maui,
@@ -279,6 +300,9 @@ internal static class ProductEcosystemPacks
                         AssemblyFamily("CommunityToolkit.Maui"),
                         AssemblyFamily(
                             "Microsoft.AspNetCore.Components.WebView.Maui"),
+                    ],
+                    [
+                        WebViewMauiEvidence(),
                     ]),
             ]);
 
@@ -310,8 +334,9 @@ internal static class ProductEcosystemPacks
 
     private static EcosystemDependencyProfileRegistration Dependencies(
         EcosystemPackId ecosystem,
-        EcosystemDependencyAssociation[] associations) =>
-        new(ecosystem, associations);
+        EcosystemDependencyAssociation[] associations,
+        EcosystemAssemblyDefinitionEvidence[] assemblyEvidence) =>
+        new(ecosystem, associations, assemblyEvidence);
 
     private static EcosystemDependencyAssociation PackageFamily(string value) =>
         EcosystemDependencyAssociation.PackageIdFamily(value);
@@ -324,6 +349,47 @@ internal static class ProductEcosystemPacks
 
     private static EcosystemDependencyAssociation ExactAssembly(string value) =>
         EcosystemDependencyAssociation.ExactAssemblyName(value);
+
+    private static EcosystemAssemblyDefinitionEvidence RuntimeEvidence(
+        string assemblyName) =>
+        AssemblyEvidence(
+            "Microsoft.NETCore.App.Ref",
+            "10.0.0",
+            $"ref/net10.0/{assemblyName}.dll",
+            assemblyName,
+            "b03f5f7f11d50a3a");
+
+    private static EcosystemAssemblyDefinitionEvidence ExtensionsEvidence(
+        string assemblyName) =>
+        AssemblyEvidence(
+            assemblyName,
+            "10.0.0",
+            $"lib/net10.0/{assemblyName}.dll",
+            assemblyName,
+            "adb9793829ddae60");
+
+    private static EcosystemAssemblyDefinitionEvidence WebViewMauiEvidence() =>
+        AssemblyEvidence(
+            "Microsoft.AspNetCore.Components.WebView.Maui",
+            "10.0.0",
+            "lib/net10.0/Microsoft.AspNetCore.Components.WebView.Maui.dll",
+            "Microsoft.AspNetCore.Components.WebView.Maui",
+            publicKeyToken: null);
+
+    private static EcosystemAssemblyDefinitionEvidence AssemblyEvidence(
+        string packageId,
+        string packageVersion,
+        string assetPath,
+        string assemblyName,
+        string? publicKeyToken) =>
+        new(
+            new PackageCoordinate(packageId, packageVersion),
+            assetPath,
+            new AssemblyReferenceIdentity(
+                assemblyName,
+                new Version(10, 0, 0, 0),
+                "neutral",
+                publicKeyToken));
 
     private static InspectionDefinitionRecord[] CreateStjSerializerRecords()
     {

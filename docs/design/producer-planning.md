@@ -125,16 +125,15 @@ a request was satisfied.
 **A scope guard narrows the work.** Three questions ask about the same
 methods: which are P/Invoke, how many are async, and whether any other
 signature carries a pointer. They share one classification, computed cheapest
-first: in scope, then P/Invoke, then async. A classifier producer computes it
-once per unit and publishes each unit's class. The three question producers
-declare scope guards on it, so each is visited only for units in the classes it
-accepts. The classifier also declares a type scope, so a compiler-generated
-type is out of scope for it and for every producer it guards, and the
-traversal skips that type as a whole. A unit outside a producer's scope is
-neither attempted nor failed; the receipt counts only the units the producer
-visited. Asked alone, each question costs only the classification it needs.
-Asked together, the questions share one pass without repeating the
-classification.
+first: in scope, then P/Invoke, then async. The method-row source gate computes
+it once per unit. The three question producers declare source-gate guards, so
+each is visited only for units in the classes it accepts. The classifier also
+declares a type scope, so a compiler-generated type is out of scope for it and
+for every producer it guards, and the traversal skips that type as a whole. A
+unit outside a producer's scope is neither attempted nor failed; the receipt
+counts only the units the producer visited. Asked alone, each question costs
+only the classification it needs. Asked together, the questions share one pass
+without repeating the classification.
 
 **A consumer owns its interpretation.** The JS export surface's JSON
 wire-contract rules need field-store, field-load, and return-flow facts.
@@ -633,9 +632,9 @@ description needs; the owning level decides how to meet it.
 4. Release happens once and deterministically, however many producers
    borrowed.
 
-Today analysis owns its own reader lifetime for each execution, and Research
-shares state by `LibraryBodyIndex` instance identity. #8576 tracks closing that
-gap.
+Today Analysis owns its own reader lifetime for each execution. Research joins
+detached focused results through their shared execution receipt; #8576 tracks
+the remaining subject-lifetime gap.
 
 ### Level 2: work ordering and collapsing
 
@@ -678,8 +677,8 @@ such as the JSON wire contract, form higher tiers.
 Research is therefore not only a consumer. It consumes Analysis results and
 describes its own producers with the same declarations. That replaces the
 parallel machinery it has today: string-keyed producer dependencies,
-requirement unions expressed as Analysis feature bits, and a memoized context
-keyed by one `LibraryBodyIndex` instance. How Research adopts this, and what
+requirement unions expressed as Analysis feature bits, and an assembly context
+over one focused member-projection input. How Research adopts this, and what
 happens to its session and admission contracts, is Research's own focused
 effort.
 

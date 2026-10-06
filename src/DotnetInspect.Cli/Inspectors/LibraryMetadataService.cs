@@ -32,6 +32,8 @@ internal static class LibraryMetadataService
 {
     internal const int DiscoveryMaxEmbeddedPdbBytes =
         64 * 1024 * 1024;
+    // Runtime gate for the document-only CLI path.
+    internal static int InspectionCountForTests;
 
     /// <summary>
     /// Full inspection pipeline for a single assembly.
@@ -52,9 +54,10 @@ internal static class LibraryMetadataService
         AssemblyIntegrationOpportunitiesEntry?
             integrationOpportunitiesEntry = null,
         bool discoveryOnly = false,
-        Sections.InspectionTrace? trace = null,
-        bool readLibraryDocument = true)
+        Sections.InspectionTrace? trace = null)
     {
+        System.Threading.Interlocked.Increment(
+            ref InspectionCountForTests);
         logger.Log($"Inspecting: {Path.GetFileName(path)}");
 
         try
@@ -66,8 +69,13 @@ internal static class LibraryMetadataService
                 queryPlan is null
                     ? queries
                     : queryPlan.Queries;
-            if (requiredQueries?.Contains(
+            bool applicabilityOnly =
+                options.Discover is not null
+                && options.Effective;
+            if ((requiredQueries?.Contains(
                     LibraryNameFamilyQuery.Definition) == true
+                || requiredQueries?.Contains(
+                    LibraryArchitecturalFamilyQuery.Definition) == true)
                 && assemblyReference is
                 {
                     Registration.ArtifactRegistration: null,
@@ -198,10 +206,15 @@ internal static class LibraryMetadataService
                         Trace = trace,
                         RequestedQueries = requiredQueries,
                         CountOnly = options.Count,
+                        ApplicabilityOnly = applicabilityOnly,
                         NameFamilyPopulation =
                             options.NameFamilyPopulation,
                         NameFamilyRowSelection =
                             options.NameFamilyRowSelection,
+                        ArchitecturalFamilyTypeRows =
+                            options.ArchitecturalFamilyTypeRows,
+                        DependencyStructureRowSelection =
+                            options.DependencyStructureRowSelection,
                     };
                     await RunTypedQueriesAsync(
                         path,
@@ -284,11 +297,16 @@ internal static class LibraryMetadataService
             inspection.HasAssemblyAttributes = presenceFlags.HasAssemblyAttributes;
             inspection.HasExportedTypeForwarders = presenceFlags.HasTypeForwarders;
             inspection.HasUnionTypes = presenceFlags.HasUnionTypes;
-            var appContextSwitches =
-                AppContextSwitchProjectionProducer.ProduceInventory(
-                    pdbContext.MethodBodies);
-            inspection.SwitchCount = presenceFlags.SwitchCount + appContextSwitches.Length;
-            inspection.HasSwitches = inspection.SwitchCount > 0;
+            // The Switches row is an overview count, so it reads only the
+            // switches the metadata declares (docs/design/progressive-disclosure.md#overview-cost).
+            // AppContext call sites need every IL body; the Switches section's
+            // query reads them on request, and plain discovery reads them here
+            // only to decide whether that section has data.
+            inspection.SwitchCount = presenceFlags.SwitchCount;
+            inspection.HasSwitches = presenceFlags.SwitchCount > 0
+                || (discoveryOnly
+                    && AppContextSwitchProjectionProducer.ProduceInventory(
+                        pdbContext.MethodBodies).Length > 0);
 
             if (integrationsEntry is not null)
             {
@@ -344,10 +362,15 @@ internal static class LibraryMetadataService
                     Trace = trace,
                     RequestedQueries = requiredQueries,
                     CountOnly = options.Count,
+                    ApplicabilityOnly = applicabilityOnly,
                     NameFamilyPopulation =
                         options.NameFamilyPopulation,
                     NameFamilyRowSelection =
                         options.NameFamilyRowSelection,
+                    ArchitecturalFamilyTypeRows =
+                        options.ArchitecturalFamilyTypeRows,
+                    DependencyStructureRowSelection =
+                        options.DependencyStructureRowSelection,
                 };
 
                 await RunTypedQueriesAsync(
@@ -397,8 +420,10 @@ internal static class LibraryMetadataService
                         logger,
                         new MethodClassificationBindingResult.Available(
                             MethodClassificationQuery.Execute(
-                                session,
-                                MethodClassificationDemand.AllQuestions)));
+                                MethodClassificationQuery.Prepare(
+                                    session,
+                                    MethodClassificationDemand
+                                        .AllQuestions))));
                 }
 
                 catch (Exception ex)
@@ -523,18 +548,6 @@ internal static class LibraryMetadataService
                     typeFilter: options.TypeFilter);
             }
 
-            // A managed module without an assembly manifest keeps the legacy
-            // reading (docs/design/library-info-composition.md#scope-of-input).
-            if (readLibraryDocument
-                && inspection.AssemblyInfo?.AssemblyName is not null)
-            {
-                await ReadLibraryDocumentAsync(
-                        inspection,
-                        path,
-                        packageName,
-                        isPlatformAssembly)
-                    .ConfigureAwait(false);
-            }
             return inspection;
         }
         catch (OperationCanceledException)
@@ -565,7 +578,9 @@ internal static class LibraryMetadataService
     {
         var features = Analysis.LibraryBodyAnalysisFeatures.None;
         if (queries?.Contains(TopLeverageQuery.Definition) == true
-            || queries?.Contains(UnsafeEvidenceQuery.Definition) == true)
+            || queries?.Contains(UnsafeEvidenceQuery.Definition) == true
+            || queries?.Contains(
+                LibraryDependencyStructureQuery.Definition) == true)
         {
             features |= Analysis.LibraryBodyAnalysisFeatures.MethodEvidence;
         }
@@ -916,49 +931,6 @@ internal static class LibraryMetadataService
     /// assembly Microsoft never built. A symbol server that served the PDB is evidence about the
     /// publisher; a self-declared source URL is not.
     /// </remarks>
-    private static readonly LibraryInspectionPlan s_libraryInfoPlan =
-        new(
-            types: null,
-            DirectLibraryInspectionCommand.s_bounds,
-            new LibraryEnablementsRequest(),
-            new LibraryImageFactsRequest(),
-            new LibraryDescriptionFactsRequest());
-
-    /// <summary>
-    /// Reads the Library document facts that Library Info and the view's
-    /// summary fields render (<c>docs/design/library-info-composition.md</c>).
-    /// </summary>
-    private static async Task ReadLibraryDocumentAsync(
-        LibraryInspection inspection,
-        string path,
-        string? packageName,
-        bool isPlatformAssembly)
-    {
-        InspectionEnvelope<LibraryInspectionOutcome>? envelope =
-            await ExactLibraryInspectionExecutor.ExecuteAsync(
-                    path,
-                    "library info",
-                    session => session.Execute(s_libraryInfoPlan, CancellationToken.None),
-                    CancellationToken.None,
-                    LibraryInfoRole(path, packageName, isPlatformAssembly))
-                .ConfigureAwait(false);
-        switch (envelope?.Content)
-        {
-            case LibraryInspectionOutcome.Available available:
-                inspection.LibraryDocument = available.Document;
-                break;
-            case LibraryInspectionOutcome.Rejected rejected:
-                inspection.LibraryDocumentFailure = rejected.Reason.ToString();
-                break;
-            case LibraryInspectionOutcome.Failed failed:
-                inspection.LibraryDocumentFailure = failed.Reason.ToString();
-                break;
-            default:
-                inspection.LibraryDocumentFailure = "LibraryUnavailable";
-                break;
-        }
-    }
-
     /// <summary>
     /// Whether the request renders the Library document's scalar fields: the
     /// Library Info section, or the <c>-v:q</c> context line. Other requests,
@@ -2095,39 +2067,19 @@ internal static class LibraryMetadataService
         switch (result)
         {
             case ResourceTriageResult.Available available:
-                inspection.ResourceLifecycleInspection =
-                    available.Inspection;
-                var drillByToken = getDrillMap();
-                inspection.ResourceTriageDrillMap = drillByToken;
-                ImmutableArray<Analysis.ResourceTriageAssessment> assessments =
-                [
-                    .. available.Assessments
-                        .Where(assessment =>
-                            assessment.Actionability
-                                == Analysis.ResourceTriageActionability
-                                    .UntrustedActionable)
-                        .OrderBy(
-                            assessment => FormatMethod(
-                                assessment.Source.Payload.Method),
-                            StringComparer.Ordinal)
-                        .ThenBy(
-                            assessment =>
-                                assessment.Source.Payload.AcquireOffset)
-                        .ThenBy(
-                            assessment =>
-                                assessment.Boundaries.Length > 0
-                                    ? assessment.Boundaries[0]
-                                        .Evidence.ILOffset
-                                    : -1),
-                ];
-                inspection.ResourceTriageAssessments = assessments;
-                var rows = assessments
-                    .Select(assessment =>
-                        ProjectResourceTriageAssessment(
-                            assessment,
-                            drillByToken))
-                    .ToList();
-                inspection.ResourceTriage = rows;
+                ApplyResourceTriageEvidence(
+                    inspection,
+                    available.Inspection,
+                    available.Assessments,
+                    getDrillMap());
+                break;
+
+            case ResourceTriageResult.Incomplete incomplete:
+                ApplyResourceTriageEvidence(
+                    inspection,
+                    incomplete.Inspection,
+                    incomplete.Assessments,
+                    getDrillMap());
                 break;
 
             case ResourceTriageResult.NoMetadata:
@@ -2144,6 +2096,47 @@ internal static class LibraryMetadataService
                 throw new InvalidOperationException(
                     $"Unknown resource triage result '{result.GetType().Name}'.");
         }
+    }
+
+    static void ApplyResourceTriageEvidence(
+        LibraryInspection inspection,
+        FindingInspection<Analysis.ResourceLifecycleOccurrence>.Complete
+            lifecycleInspection,
+        ImmutableArray<Analysis.ResourceTriageAssessment> availableAssessments,
+        IReadOnlyDictionary<
+            int,
+            (string? Stable, string Visibility, string Selector)> drillByToken)
+    {
+        inspection.ResourceLifecycleInspection = lifecycleInspection;
+        inspection.ResourceTriageDrillMap = drillByToken;
+        ImmutableArray<Analysis.ResourceTriageAssessment> assessments =
+        [
+            .. availableAssessments
+                .Where(assessment =>
+                    assessment.Actionability
+                        == Analysis.ResourceTriageActionability
+                            .UntrustedActionable)
+                .OrderBy(
+                    assessment => FormatMethod(
+                        assessment.Source.Payload.Method),
+                    StringComparer.Ordinal)
+                .ThenBy(
+                    assessment =>
+                        assessment.Source.Payload.AcquireOffset)
+                .ThenBy(
+                    assessment =>
+                        assessment.Boundaries.Length > 0
+                            ? assessment.Boundaries[0]
+                                .Evidence.ILOffset
+                            : -1),
+        ];
+        inspection.ResourceTriageAssessments = assessments;
+        inspection.ResourceTriage = assessments
+            .Select(assessment =>
+                ProjectResourceTriageAssessment(
+                    assessment,
+                    drillByToken))
+            .ToList();
     }
 
     internal static ResourceTriageSummary ProjectResourceTriageAssessment(
@@ -2254,61 +2247,20 @@ internal static class LibraryMetadataService
         => Analysis.OptimizationOpportunityRanking.IteratesInLoop(
             opportunity);
 
-    internal static IEnumerable<Analysis.OptimizationOpportunity> FilterAndOrderTriageOpportunities(
-        IEnumerable<Analysis.OptimizationOpportunity> opportunities,
-        PerformanceTriageOptions? options)
-    {
-        options ??= PerformanceTriageOptions.Default;
-        IEnumerable<Analysis.OptimizationOpportunity> filtered = opportunities;
-        if (options.Shapes.Length > 0)
-        {
-            var shapes = options.Shapes.ToHashSet(StringComparer.OrdinalIgnoreCase);
-            filtered = filtered.Where(opportunity => shapes.Contains(opportunity.Shape));
-        }
-
-        RowSelectionResult<Analysis.OptimizationOpportunity> result =
-            RowQueryExecutor.Apply(
-                filtered.ToArray(),
-                options.GetResolvedPlan());
-        if (!result.IsSuccess)
-        {
-            throw new InvalidOperationException(
-                "Performance Triage produced an unexpected row-window failure.");
-        }
-
-        return result.Values;
-    }
-
-    internal static IEnumerable<Analysis.OptimizationOpportunity> TriageOpportunities(
-        Analysis.LibraryOptimizationAnalysisResult optimization,
-        PerformanceTriageOptions? options)
-        => options?.IncludesAllocationFanout == true
-            ? optimization.Opportunities.Concat(optimization.AllocationFanoutOpportunities)
-            : optimization.Opportunities;
-
     static string? FormatToken(int? token)
         => token is { } value ? $"0x{value:X8}" : null;
 
     internal static string? FormatProvenance(Analysis.PerformanceTriageProvenance provenance)
-        => provenance switch
-        {
-            Analysis.PerformanceTriageProvenance.Exact => "exact",
-            Analysis.PerformanceTriageProvenance.Aggregate => "aggregate",
-            Analysis.PerformanceTriageProvenance.Unmatched => "unmatched",
-            _ => null,
-        };
+        => Analysis.OptimizationOpportunityRowSpace.ProvenanceText(
+            provenance);
 
     internal static string? FormatCallerLoop(Analysis.CallerLoopEvidence? evidence)
-        => evidence is null ? null : evidence.Depth == 1 ? "direct" : "transitive";
+        => Analysis.OptimizationOpportunityRowSpace.CallerLoopText(
+            evidence);
 
     internal static string? FormatCallerLoopWitness(Analysis.CallerLoopEvidence? evidence)
-    {
-        if (evidence is null || evidence.Witness.IsDefaultOrEmpty)
-            return null;
-
-        var calls = evidence.Witness.Select(step => $"{FormatMethod(step.Caller)} @ IL_{step.ILOffset:X4}");
-        return $"{string.Join(" -> ", calls)} -> {FormatMethod(evidence.Witness[^1].Callee)}";
-    }
+        => Analysis.OptimizationOpportunityRowSpace.CallerLoopWitnessText(
+            evidence);
 
     private static void ApplyQueryResults(
         string path,
@@ -2414,6 +2366,29 @@ internal static class LibraryMetadataService
                 inspection,
                 logger,
                 nameFamilies);
+        }
+
+        if (results.TryGet(
+                LibraryArchitecturalFamilyQuery.Definition,
+                out LibraryArchitecturalFamilyQueryResult? architecturalFamilies))
+        {
+            ApplyLibraryArchitecturalFamilyResult(
+                path,
+                inspection,
+                logger,
+                architecturalFamilies);
+        }
+
+        if (results.TryGet(
+                LibraryDependencyStructureQuery.Definition,
+                out LibraryDependencyStructureQueryResult?
+                    dependencyStructure))
+        {
+            ApplyLibraryDependencyStructureResult(
+                path,
+                inspection,
+                logger,
+                dependencyStructure);
         }
 
         if (results.TryGet(
@@ -2613,6 +2588,7 @@ internal static class LibraryMetadataService
     {
         inspection.OptimizationOpportunitiesQueryResult = result;
         inspection.PerformanceTriageOpportunities = [];
+        inspection.PerformanceTriageCounts = null;
         inspection.OptimizationOpportunities = null;
 
         switch (result)
@@ -2620,7 +2596,7 @@ internal static class LibraryMetadataService
             case OptimizationOpportunitiesResult.Available available:
                 ReportOptimizationDiagnostics(available.Diagnostics);
                 ImmutableArray<Analysis.OptimizationOpportunity> opportunities =
-                    SelectPerformanceTriageOpportunities(
+                    PerformanceTriageRowQuery.Select(
                         available,
                         inspection.PerformanceTriageOptions);
                 inspection.PerformanceTriageOpportunities = opportunities;
@@ -2632,6 +2608,12 @@ internal static class LibraryMetadataService
                     inspection.OptimizationOpportunities =
                         rows.Count > 0 ? rows : null;
                 }
+                break;
+
+            case OptimizationOpportunitiesResult.Counted counted:
+                ReportOptimizationDiagnostics(counted.Diagnostics);
+                inspection.PerformanceTriageCounts =
+                    counted.Counts;
                 break;
 
             case OptimizationOpportunitiesResult.NoMetadata:
@@ -2745,24 +2727,65 @@ internal static class LibraryMetadataService
         }
     }
 
-    internal static ImmutableArray<Analysis.OptimizationOpportunity>
-        SelectPerformanceTriageOpportunities(
-            OptimizationOpportunitiesResult.Available available,
-            PerformanceTriageOptions options)
-        =>
-        [
-            .. FilterAndOrderTriageOpportunities(
-                available.Opportunities
-                    .Concat(available.AllocationFanoutOpportunities)
-                    .Where(opportunity =>
-                        opportunity.Shape
-                            == Analysis.AnalysisFindings
-                                .StringMaterializationShape
-                        || IncludePerformanceOpportunity(
-                            opportunity,
-                            available.GeneratedFrameworkTypes)),
-                options),
-        ];
+    internal static void ApplyLibraryArchitecturalFamilyResult(
+        string path,
+        LibraryInspection inspection,
+        VerboseLogger logger,
+        LibraryArchitecturalFamilyQueryResult result)
+    {
+        inspection.ArchitecturalFamilyQueryResult = result;
+
+        switch (result)
+        {
+            case LibraryArchitecturalFamilyQueryResult.Available:
+            case LibraryArchitecturalFamilyQueryResult.NameFamiliesUnavailable:
+            case LibraryArchitecturalFamilyQueryResult.NameFamiliesRejected:
+            case LibraryArchitecturalFamilyQueryResult.StructuralRejected:
+            case LibraryArchitecturalFamilyQueryResult.CompositionRejected:
+            case LibraryArchitecturalFamilyQueryResult.PopulationUnavailable:
+            case LibraryArchitecturalFamilyQueryResult.SelectionFailed:
+                break;
+
+            case LibraryArchitecturalFamilyQueryResult.Failed failed:
+                logger.LogWarning(
+                    $"Error collecting Library architectural families in {path}: "
+                    + failed.Error.Message);
+                break;
+
+            default:
+                throw new InvalidOperationException(
+                    "Unknown Architectural Families result "
+                    + $"'{result.GetType().Name}'.");
+        }
+    }
+
+    internal static void ApplyLibraryDependencyStructureResult(
+        string path,
+        LibraryInspection inspection,
+        VerboseLogger logger,
+        LibraryDependencyStructureQueryResult result)
+    {
+        inspection.DependencyStructureQueryResult = result;
+
+        switch (result)
+        {
+            case LibraryDependencyStructureQueryResult.Available:
+            case LibraryDependencyStructureQueryResult.Unavailable:
+            case LibraryDependencyStructureQueryResult.SelectionFailed:
+                break;
+
+            case LibraryDependencyStructureQueryResult.Failed failed:
+                logger.LogWarning(
+                    $"Error collecting dependency structure in {path}: "
+                    + failed.Error.Message);
+                break;
+
+            default:
+                throw new InvalidOperationException(
+                    "Unknown dependency structure result "
+                    + $"'{result.GetType().Name}'.");
+        }
+    }
 
     internal static void ApplyBodyShapesResult(
         LibraryInspection inspection,
@@ -3005,6 +3028,9 @@ internal static class LibraryMetadataService
                     case MethodClassificationAnalyzer.PointerSignature:
                         inspection.UnsafeMethodCount = count.Value;
                         break;
+                    case MethodClassificationAnalyzer.Extension:
+                        inspection.ExtensionMethodCount = count.Value;
+                        break;
                     default:
                         throw new InvalidOperationException(
                             $"No consumer asks for the {question.Analyzer} count.");
@@ -3050,6 +3076,25 @@ internal static class LibraryMetadataService
                     default:
                         throw new InvalidOperationException(
                             $"No consumer asks for {question.Analyzer} rows.");
+                }
+
+                break;
+
+            case ClassificationAnswer.Exists exists:
+                switch (question.Analyzer)
+                {
+                    case MethodClassificationAnalyzer.PInvoke:
+                        inspection.PInvokeMethodPresence =
+                            exists.Value;
+                        break;
+                    case MethodClassificationDemand.AsyncAnalyzer:
+                        inspection.AsyncMethodPresence =
+                            exists.Value;
+                        break;
+                    default:
+                        throw new InvalidOperationException(
+                            $"No applicability consumer asks whether "
+                            + $"{question.Analyzer} exists.");
                 }
 
                 break;

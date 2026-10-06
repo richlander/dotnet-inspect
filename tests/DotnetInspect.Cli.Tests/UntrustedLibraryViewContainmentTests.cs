@@ -287,6 +287,7 @@ public class UntrustedTypeSpellingContainmentTests : IDisposable
                 AssemblyPath = _path,
                 TypeName = "GenericType",
                 Select = ["Type Info"],
+                FormatExplicitlySet = true,
             }));
 
         Assert.Equal(0, exit);
@@ -801,7 +802,12 @@ public class UntrustedPackageContainmentTests : IDisposable
             {
                 PackageArgs = [_path],
                 Verbosity = verbosity,
-                TipLevel = TipLevel.Quiet,
+                CompanionOutput = CompanionOutput.None,
+                IncludeSections =
+                    new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        PackageSections.PackageInfo,
+                    },
             }));
 
         Assert.Equal(0, exit);
@@ -827,7 +833,7 @@ public class UntrustedPackageContainmentTests : IDisposable
             {
                 PackageArgs = [_path],
                 ListLayout = true,
-                TipLevel = TipLevel.Quiet,
+                CompanionOutput = CompanionOutput.None,
             }));
 
         Assert.Equal(0, exit);
@@ -856,7 +862,7 @@ public class UntrustedPackageContainmentTests : IDisposable
                 Tsv = true,
                 TabularExplicitlySet = true,
                 FormatExplicitlySet = true,
-                TipLevel = TipLevel.Quiet,
+                CompanionOutput = CompanionOutput.None,
             }));
 
         Assert.True(exit == 0, error);

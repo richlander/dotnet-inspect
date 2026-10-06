@@ -38,6 +38,8 @@ public sealed record BrowserPackageSurface(
     BrowserCompileLibraryAvailability CompileLibrary,
     BrowserAssemblySurface[] Assemblies,
     BrowserTypeSurface[] Types,
+    BrowserApiFacetDescriptor[] TypeKinds,
+    BrowserApiFacetDescriptor[] TypeTraits,
     BrowserAccessibilityDescriptor[] Accessibility,
     int TotalMembers,
     BrowserPackageDocument[] Documents,
@@ -54,6 +56,14 @@ public sealed record BrowserAccessibilityDescriptor(
     int Order,
     bool IsDefault,
     int Count);
+
+public sealed record BrowserApiFacetDescriptor(
+    string Id,
+    string SingularLabel,
+    string PluralLabel,
+    int Weight,
+    int Count,
+    bool IsDefault);
 
 public sealed record BrowserAssemblySurface(
     string Id,
@@ -75,6 +85,8 @@ public sealed record BrowserTypeSurface(
     string DisplayName,
     string Namespace,
     string Kind,
+    string KindFacetId,
+    string[] TraitFacetIds,
     string Accessibility,
     string AccessibilityId,
     string Assembly,
@@ -143,8 +155,20 @@ public sealed record BrowserCallGraph(
     BrowserCallGraphNode Callees,
     BrowserCallGraphScope Scope,
     BrowserCallGraphTarget[] Targets,
+    BrowserCallGraphBoundary[] Boundaries,
     BrowserCallGraphDiagnostics Diagnostics,
     bool NoBody = false);
+
+public sealed record BrowserCallGraphBoundary(
+    string Id,
+    string SourcePackageId,
+    string SourcePackageVersion,
+    string SourcePackageFramework,
+    string SourceAssembly,
+    string TargetPackageId,
+    string TargetPackageVersion,
+    string TargetPackageFramework,
+    string TargetAssembly);
 
 public sealed record BrowserCallGraphDiagnostics(
     int IncompleteNodes,
@@ -367,6 +391,41 @@ public sealed record BrowserVocabularyInspection(
     BrowserVocabularyInspectionDiagnostic[] Diagnostics);
 
 /// <summary>
+/// One product vocabulary explanation request. <c>Explanation</c> is present
+/// exactly when <c>Outcome</c> is <c>Explained</c>; <c>Rejection</c> is
+/// present for every other outcome.
+/// </summary>
+public sealed record BrowserVocabularyExplanationResult(
+    BrowserVocabularyExplanationOutcome Outcome,
+    BrowserVocabularyExplanation? Explanation,
+    BrowserVocabularyExplanationRejection? Rejection);
+
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserVocabularyExplanationOutcome>))]
+public enum BrowserVocabularyExplanationOutcome
+{
+    Explained,
+    InvalidPath,
+    OutsideVocabularies,
+    Unknown,
+    InvalidDepth,
+}
+
+/// <summary>
+/// A completed explanation. <c>Content</c> is the Resource Explanation
+/// Document exactly as its owner serializes it, which the CLI's
+/// <c>explain --json</c> also writes for the same path and depth.
+/// </summary>
+public sealed record BrowserVocabularyExplanation(
+    JsonElement Content,
+    BrowserVocabularyInspectionShare Share,
+    BrowserVocabularyInspectionDiagnostic[] Diagnostics);
+
+public sealed record BrowserVocabularyExplanationRejection(
+    string RequestedPath,
+    string Message,
+    string[] Suggestions);
+
+/// <summary>
 /// One product home-demo catalog row from <c>EcosystemPackCatalog</c>.
 /// Browser-local so <c>ts-jsexport</c> emits a real TypeScript interface.
 /// </summary>
@@ -505,7 +564,8 @@ public sealed record BrowserWorkspaceShareView(
     string? MemberAnchor,
     string? MemberSignature,
     string? Section,
-    string[] Libraries);
+    string[] Libraries,
+    string? SourceView);
 
 /// <summary>
 /// Long-form Browser transport for one canonical packet-local scenario.
@@ -829,6 +889,12 @@ public sealed record BrowserRetainedWorkspacePlatformAdmissionResult(
     BrowserRetainedWorkspacePlatform? Platform,
     string? Message);
 
+public sealed record BrowserEcosystemPackageWorkspaceAdmissionResult(
+    string Status,
+    BrowserRetainedWorkspacePosting? Posting,
+    BrowserRetainedNavigationResult? Navigation,
+    string? Message);
+
 public sealed record BrowserRetainedWorkspaceCleanup(string Message);
 
 /// <summary>
@@ -933,6 +999,7 @@ public sealed record BrowserRetainedWorkspacePackageSourceCredential(
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(BrowserVocabularyInspection))]
+[JsonSerializable(typeof(BrowserVocabularyExplanationResult))]
 [JsonSerializable(typeof(BrowserHomeDemoCatalog))]
 [JsonSerializable(typeof(BrowserEcosystemCatalog))]
 [JsonSerializable(typeof(BrowserHomeDemoResolveResult))]
@@ -946,6 +1013,7 @@ public sealed record BrowserRetainedWorkspacePackageSourceCredential(
 [JsonSerializable(typeof(BrowserRetainedWorkspaceConsumerCompletionResult))]
 [JsonSerializable(typeof(BrowserRetainedWorkspacePackageAdmissionResult))]
 [JsonSerializable(typeof(BrowserRetainedWorkspacePlatformAdmissionResult))]
+[JsonSerializable(typeof(BrowserEcosystemPackageWorkspaceAdmissionResult))]
 [JsonSerializable(typeof(BrowserSpotlightActionResult))]
 [JsonSerializable(typeof(BrowserRetainedWorkspaceDeactivationResult))]
 [JsonSerializable(typeof(BrowserRetainedWorkspaceSettlementResult))]

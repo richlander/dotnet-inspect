@@ -254,7 +254,7 @@ public sealed partial class NavigationSessionTests
         fixture.Prepare = null;
         NavigationConsumerResult resumed = await session.RefreshAsync(TestContext.Current.CancellationToken);
         Assert.Equal(selected.Snapshot.ActiveSubject, resumed.Snapshot.ActiveSubject);
-        Assert.Equal(selected.Snapshot.Hierarchy[4].Subject, resumed.Snapshot.Hierarchy[4].Subject);
+        Assert.Equal(selected.Snapshot.Hierarchy[5].Subject, resumed.Snapshot.Hierarchy[5].Subject);
         Assert.Equal(selected.Snapshot.LensOutcome, resumed.Snapshot.LensOutcome);
         Assert.NotNull(resumed.Snapshot.Types[0].Navigation.Action);
 
@@ -316,7 +316,7 @@ public sealed partial class NavigationSessionTests
         Assert.Equal(StructuralSubjectKind.Workspace, workspace.Snapshot.ActiveSubject.Kind);
         Assert.Equal(suspended.Snapshot.ActivePackage, workspace.Snapshot.ActivePackage);
         Assert.Equal(NavigationDescriptorState.Pending, workspace.Snapshot.Packages[0].State);
-        Assert.Null(workspace.Snapshot.Hierarchy[1].Action);
+        Assert.Null(workspace.Snapshot.Hierarchy[2].Action);
         Assert.Null(workspace.Snapshot.LensOutcome.Suspension);
     }
 

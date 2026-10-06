@@ -2,13 +2,10 @@
 // library selectors. The application root owns all resulting state and work.
 
 export type PlatformLibraryLens =
-  | "integrations"
   | "analysis"
-  | "metrics"
   | "metadata";
 
 export interface LibraryControlBindingActions {
-  onAccessibilityChipSelect: (accessibility: string) => void;
   onLibraryApiRetry: () => void;
   onLibraryChipSelect: (library: string) => void;
   onLibraryJump: (library: string) => void;
@@ -22,9 +19,7 @@ export interface LibraryControlBindingActions {
 
 const platformLensSelectors:
   readonly [selector: string, lens: PlatformLibraryLens][] = [
-    ["[data-platform-integrations-library]", "integrations"],
     ["[data-platform-analysis-library]", "analysis"],
-    ["[data-platform-metrics-library]", "metrics"],
     ["[data-platform-metadata-library]", "metadata"],
   ];
 
@@ -36,11 +31,6 @@ export function bindLibraryControls(
     button.addEventListener(
       "click",
       () => actions.onLibraryChipSelect(button.dataset.libraryChip ?? "")));
-  root.querySelectorAll<HTMLElement>("[data-access-chip]").forEach(button =>
-    button.addEventListener(
-      "click",
-      () => actions.onAccessibilityChipSelect(
-        button.dataset.accessChip ?? "")));
   root.querySelectorAll<HTMLElement>("[data-library-api-retry]")
     .forEach(button =>
       button.addEventListener("click", actions.onLibraryApiRetry));

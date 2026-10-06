@@ -7,6 +7,60 @@ namespace DotnetInspector.Fixtures;
 
 public static class HierarchyRelationSafetyFixtures
 {
+    public static byte[] BuildDuplicateInterfaceOccurrences()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("DuplicateHierarchy.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("DuplicateHierarchy"),
+            new Version(1, 0),
+            default,
+            default,
+            default,
+            AssemblyHashAlgorithm.None);
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle target = metadata.AddTypeDefinition(
+            TypeAttributes.Public
+                | TypeAttributes.Interface
+                | TypeAttributes.Abstract,
+            metadata.GetOrAddString("Sample"),
+            metadata.GetOrAddString("ITarget"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle source = metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("Sample"),
+            metadata.GetOrAddString("Source"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddInterfaceImplementation(source, target);
+        metadata.AddInterfaceImplementation(source, target);
+
+        var image = new BlobBuilder();
+        new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly)
+            .Serialize(image);
+        return image.ToArray();
+    }
+
     public static byte[] BuildCyclicNestedTypeVisibility(
         int nestedTypeCount)
     {
@@ -55,6 +109,85 @@ public static class HierarchyRelationSafetyFixtures
                     MetadataTokens.MethodDefinitionHandle(1));
             metadata.AddNestedType(cyclic, cyclic);
         }
+
+        var image = new BlobBuilder();
+        new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly)
+            .Serialize(image);
+        return image.ToArray();
+    }
+
+    public static byte[]
+        BuildRejectedSourceNameBetweenHierarchyMatches()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("RejectedHierarchySource.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("RejectedHierarchySource"),
+            new Version(1, 0),
+            default,
+            default,
+            default,
+            AssemblyHashAlgorithm.None);
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle target = metadata.AddTypeDefinition(
+            TypeAttributes.Public
+                | TypeAttributes.Interface
+                | TypeAttributes.Abstract,
+            metadata.GetOrAddString("Sample"),
+            metadata.GetOrAddString("ITarget"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle first = metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("Sample"),
+            metadata.GetOrAddString("First"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle rejected = metadata.AddTypeDefinition(
+            TypeAttributes.NestedPublic,
+            metadata.GetOrAddString("Sample"),
+            metadata.GetOrAddString("Rejected"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle second = metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("Sample"),
+            metadata.GetOrAddString("Second"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle third = metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("Sample"),
+            metadata.GetOrAddString("Third"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddInterfaceImplementation(first, target);
+        metadata.AddInterfaceImplementation(rejected, target);
+        metadata.AddInterfaceImplementation(second, target);
+        metadata.AddInterfaceImplementation(third, target);
+        metadata.AddNestedType(rejected, rejected);
 
         var image = new BlobBuilder();
         new ManagedPEBuilder(

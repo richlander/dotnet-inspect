@@ -30,6 +30,7 @@ public enum MetadataMethodReceiverFilter
     This,
     Static,
     Extension,
+    NonExtension,
 }
 
 public enum MetadataMethodGroupInspectionBound
@@ -40,6 +41,7 @@ public enum MetadataMethodGroupInspectionBound
 
 public sealed record MetadataMethodGroupRow(
     int MetadataToken,
+    MemberAnchor Anchor,
     string DisplaySignature,
     string CanonicalSignature,
     string DocumentationId,
@@ -240,6 +242,7 @@ internal static class MetadataMethodGroupInspection
                     documentationSignature.XmlDocumentationIsVararg);
             return new(
                 MetadataTokens.GetToken(handle),
+                anchor,
                 MetadataDeclarationQuery.GetMethodSignatureText(
                     declaration),
                 anchor.CanonicalSignature,
@@ -420,6 +423,9 @@ internal static class MetadataMethodGroupInspection
                     retainedTextCharacters
                         + row.DisplaySignature.Length
                         + row.CanonicalSignature.Length
+                        + row.Anchor.StableSelector.Length
+                        + row.Anchor.TypeFullName.Length
+                        + row.Anchor.MemberName.Length
                         + row.Fingerprint.Length
                         + row.Accessibility.Length);
                 if (retainedTextCharacters
@@ -872,22 +878,27 @@ internal static class MetadataMethodGroupInspection
             (method.Attributes & MethodAttributes.Static) != 0;
         if (filter is MetadataMethodReceiverFilter.This)
             return !isStatic;
-        if (!isStatic)
-            return false;
 
-        extensionContainer ??=
-            AttributeReader.HasExtensionAttribute(
-                reader,
-                type.GetCustomAttributes());
-        bool isExtension =
-            extensionContainer.Value
-            && AttributeReader.HasExtensionAttribute(
-                reader,
-                method.GetCustomAttributes());
+        bool isExtension = false;
+        if (isStatic)
+        {
+            extensionContainer ??=
+                AttributeReader.HasExtensionAttribute(
+                    reader,
+                    type.GetCustomAttributes());
+            isExtension =
+                extensionContainer.Value
+                && AttributeReader.HasExtensionAttribute(
+                    reader,
+                    method.GetCustomAttributes());
+        }
         return filter switch
         {
-            MetadataMethodReceiverFilter.Static => !isExtension,
+            MetadataMethodReceiverFilter.Static =>
+                isStatic && !isExtension,
             MetadataMethodReceiverFilter.Extension => isExtension,
+            MetadataMethodReceiverFilter.NonExtension =>
+                !isExtension,
             _ => throw new InvalidOperationException(
                 "Unknown Method-group receiver filter."),
         };

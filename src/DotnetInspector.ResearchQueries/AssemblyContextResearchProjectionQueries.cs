@@ -586,19 +586,19 @@ public static class AssemblyContextMemberProjectionQuery
                         ? ProjectAllocationExceptionPaths(
                             projection)
                         : null;
-            LibraryBodyIndex? localThrowIndex =
+            LibraryLocalThrowAnalysisResult? localThrows =
                 request.LocalThrowPaths
-                    ? execution?.CompatibilityIndex()
+                    ? execution?.LocalThrows
                     : null;
             AssemblyMemberLocalThrowPathInspection? localThrowPaths =
                 request.LocalThrowPaths
-                    && localThrowIndex is not null
+                    && localThrows is not null
                     && callGraph is not null
                     && request.MethodToken is int localThrowRootToken
                     && callRelationships is not null
                     && relationshipOverlay is not null
                     ? ProjectLocalThrowPaths(
-                        localThrowIndex,
+                        localThrows,
                         callGraph,
                         localThrowRootToken,
                         callRelationships,
@@ -1181,7 +1181,7 @@ public static class AssemblyContextMemberProjectionQuery
     }
 
     static AssemblyMemberLocalThrowPathInspection ProjectLocalThrowPaths(
-        LibraryBodyIndex index,
+        LibraryLocalThrowAnalysisResult localThrows,
         LibraryCallGraphAnalysisResult callGraph,
         int rootToken,
         CallRelationshipProjection relationships,
@@ -1211,7 +1211,7 @@ public static class AssemblyContextMemberProjectionQuery
                 == CallGraphNodeMatch.Found
             && outboundNodeIds.Contains(node.Id);
         Dictionary<int, ImmutableArray<LocalThrowSite>> knownThrows =
-            index.LocalThrows
+            localThrows.Evidence
                 .OfType<MethodLocalThrowEvidence.Inspected>()
                 .Select(evidence => (
                     evidence.MethodToken,
@@ -1226,7 +1226,7 @@ public static class AssemblyContextMemberProjectionQuery
                 .ToDictionary(
                     static entry => entry.MethodToken,
                     static entry => entry.Sites);
-        int incompleteThrowEvidence = index.LocalThrows.Count(evidence =>
+        int incompleteThrowEvidence = localThrows.Evidence.Count(evidence =>
             IsProjectedLocalMethod(evidence.MethodToken)
             && (evidence switch
                 {

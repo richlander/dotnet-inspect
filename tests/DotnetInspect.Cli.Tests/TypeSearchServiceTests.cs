@@ -53,7 +53,7 @@ public class TypeSearchServiceTests
     }
 
     [Fact]
-    public async Task FindWorkspacePlan_PreservesExplicitEcosystemOrder()
+    public async Task FindWorkspacePlan_RegistersSelectedLineages()
     {
         Assert.True(
             EcosystemPackId.TryCreate(
@@ -76,7 +76,8 @@ public class TypeSearchServiceTests
             Assert.IsType<WorkspaceRegistrationReadResult.Available>(
                 workspace.GetRegistrationSnapshot());
         Assert.Equal(
-            ["ecosystem.aspire", "ecosystem.ai"],
+            ["ecosystem.runtime", "ecosystem.microsoft-extensions",
+                "ecosystem.aspnetcore", "ecosystem.aspire", "ecosystem.ai"],
             snapshot.Revision.Registrations
                 .Cast<WorkspaceRegistration.Ecosystem>()
                 .Select(

@@ -17,6 +17,16 @@ API and Implementation Population Scope owns:
 > implementation population by default; it does not use `--all` as a proxy for
 > completeness.
 
+It also owns the boundary between declaration and contextual populations:
+
+> A Type's declaration population contains only declarations physically owned
+> by that Type. C# spelling may compose same-owner metadata records into one
+> declaration; metadata spelling may retain those records separately. Neither
+> spelling imports inherited declarations or extension declarations physically
+> owned by another Type. Those belong to separately requested contextual
+> populations whose identity, completion, and failures do not alter the base
+> declaration population.
+
 This is a semantic distinction, not a performance mode. A producer may still
 apply its own bounded-work policy, and it must retain visible incomplete or
 unavailable outcomes when the declared population cannot be fully evaluated.
@@ -43,6 +53,36 @@ The default is still applied independently at each operation boundary. A
 source API endpoint may use `--all` while a destination or correspondence
 operation retains its own declaration contract. A route must document any
 asymmetry rather than imply that one flag changes every nested operation.
+
+### Declaration ownership and contextual populations
+
+A declaration population is stable for one admitted Type definition and
+visibility scope. Adding another workspace assembly, changing imports, or
+resolving another base Type cannot add members to it. Properties, events, and
+explicit interface implementations may compose several metadata records, but
+every record that forms the declaration is physically owned by the selected
+Type.
+
+Two useful populations are therefore contextual rather than declarative:
+
+- an inherited-member population projects declarations physically owned by
+  base Types or interfaces into the context of the selected Type; and
+- an extension-member population projects extension declarations physically
+  owned by their declaring Types toward a receiver Type.
+
+A consumer may request and present those populations beside declared members.
+That composition does not rewrite the declaration population. Every projected
+member retains both the selected API target and its physical declaring owner,
+and every contextual population retains completion and failure evidence
+separate from the declaration population. If an explicitly requested
+contextual population is unavailable, the composed request is not complete;
+the already completed declaration population does not become incomplete or
+silently absorb an empty contextual result.
+
+Spelling chooses how records already admitted to one population form rows. It
+does not select another population. In particular, placing an extension under
+its receiver or an inherited member under its derived Type is contextual
+projection, not C# spelling.
 
 ### Accessibility within API visibility scope
 
@@ -77,10 +117,11 @@ does not narrow the population further by name.
 ### Spelling within API visibility scope
 
 The same Member population has two spellings. Spelling is independent of
-accessibility, hidden status, and `--all`.
+accessibility, hidden status, `--all`, and contextual population selection.
 
 **C# spelling** is the default. It composes metadata records into one
-declaration wherever some consumer can see them as a single unit:
+declaration wherever the same Type physically owns the records and a consumer
+sees them as a single unit:
 
 - A property or event and its accessors are one declaration, even when one
   accessor is narrower. Code inside the class sees
@@ -114,15 +155,18 @@ such as `JsonSerializerContext`'s implementation of the internal
 `IBuiltInJsonTypeInfoResolver.IsCompatibleWithOptions`, belongs to that
 interface's bucket, here `internal`. A non-private member keeps its own
 accessibility even when a MethodImpl also targets an interface member.
-A finalizer belongs to `protected`, its declared accessibility. An attached
-extension declaration, an extension method listed under its receiver Type,
-belongs to the narrower of its own accessibility and its declaring Type's,
-because only consumers who can see the declaring Type can call it. For
-example, the public method `JsonHelpers.ReadWithVerify` of System.Text.Json's
-internal `JsonHelpers` is `internal` under `Utf8JsonReader`. The bucket
-classifies the declaration; its spelling keeps the declared modifier, as
-`public static void ReadWithVerify(this ref Utf8JsonReader reader)`. A view shows
-each declaration with the parts visible at its selected accessibility:
+A finalizer belongs to `protected`, its declared accessibility.
+
+When an extension population projects a declaration toward its receiver, its
+effective accessibility is the narrower of its own accessibility and its
+declaring Type's, because only consumers who can see the declaring Type can
+call it. That classification belongs to the contextual extension population,
+not to the receiver's declaration buckets. For example, the public method
+`JsonHelpers.ReadWithVerify` of System.Text.Json's internal `JsonHelpers` is
+an `internal` projection toward `Utf8JsonReader` while remaining a declaration
+of `JsonHelpers`. Its C# spelling keeps the declared modifier, as
+`public static void ReadWithVerify(this ref Utf8JsonReader reader)`. A view
+shows each declaration with the parts visible at its selected accessibility:
 `public` shows `BytesPending { get; }`, and every bucket shows
 `BytesPending { get; private set; }`.
 
@@ -130,9 +174,9 @@ each declaration with the parts visible at its selected accessibility:
 of the Type itself (method, property, event, or field), including accessor
 methods. A method or field record belongs to the bucket of its own
 accessibility flag. A property or event record, which has no flag of its own,
-takes its accessors' join defined above, not its interface's bucket. Attached extension
-declarations are records of their declaring Type, so they appear only under C#
-spelling.
+takes its accessors' join defined above, not its interface's bucket. An
+extension method record appears under its declaring Type; projecting it under a
+receiver is not a spelling.
 
 Hidden status also remains record-local under metadata spelling. A hidden
 property or event record does not hide its accessor MethodDef records; each
@@ -187,7 +231,8 @@ the implementation analysis complete.
 | --- | --- | --- |
 | Which API declarations should an API inventory show? | The ordinary public-facing API | Include the command's non-public, hidden, and obsolete declarations |
 | Which accessibility should a Type's Member inventory show? | The `public` bucket without hidden declarations; an `accessibility` term selects other buckets, still without hidden declarations | Every bucket plus hidden declarations; an added `accessibility` term narrows the buckets and hidden declarations stay admitted |
-| How should a Type's Member inventory spell its rows? | C# spelling: records compose into declarations wherever a consumer sees a single unit | Unchanged; metadata spelling is a separate, explicit choice |
+| Which members belong to a Type's declaration population? | Declarations physically owned by that Type; inherited and extension members require separately requested contextual populations | Widen only the visibility of the declaration population; do not request contextual populations |
+| How should a Type's Member inventory spell its rows? | C# spelling: same-owner records compose into declarations wherever a consumer sees a single unit | Unchanged; metadata spelling is a separate, explicit choice |
 | Which declarations should an API comparison match? | The comparison's ordinary API population | Widen the API population where that comparison admits the option |
 | Which named root should a body operation resolve? | Roots in the ordinary public-facing API | Include a non-public, hidden, or obsolete root; the resulting implementation analysis is unchanged |
 | Which method bodies should a whole-library metric summarize? | Every admitted implementation body in the selected library population | Not a completeness switch; the report declares its own implementation population |
@@ -216,6 +261,12 @@ API inventory can still be a valid implementation row, and a compiler-created
 physical body can be valid evidence even when no ordinary API declaration
 names it. Producers must not reconstruct implementation identity from a
 display name or from whether an API row happened to be visible.
+
+Declaration and contextual API populations likewise retain distinct identity.
+A contextual projection preserves its selected API target, physical declaring
+owner, and population receipt. A composed view does not infer those identities
+from where a row is displayed, and it does not combine their Counts unless the
+composition owner explicitly defines and completes that aggregate population.
 
 ## Progressive disclosure
 
@@ -253,6 +304,7 @@ This owner does not define:
 - which declarations are public, hidden, obsolete, or compiler-generated;
 - package asset selection, Library aggregation, or target-framework selection;
 - implementation-profile metric formulas or body correspondence;
+- contextual-population traversal, applicability, ordering, or index shapes;
 - source acquisition, decompilation, or authored-source fidelity;
 - call, dependency, or graph topology;
 - section names, renderer formats, or JSON schemas; or
@@ -278,3 +330,11 @@ single-Library to aggregate package/API subjects are tracked separately by
 [#7318](https://github.com/richlander/dotnet-inspect/issues/7318). Those
 adoptions may change individual producers without changing this scope
 distinction.
+
+[#9180](https://github.com/richlander/dotnet-inspect/issues/9180) locks the
+declaration/contextual population boundary. Assembly Inspection adopts it by
+making its declaration model stable and declaration-only. Inherited- and
+extension-population owners then define their own typed results and
+completeness contracts. CLI and Browser adoption consume those same
+host-neutral populations; neither host reconstructs or mutates the declaration
+population.

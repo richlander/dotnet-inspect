@@ -83,8 +83,16 @@ public static class MemberOptionsParser
         plan = null;
         error = null;
         targetFree = false;
+        // --schema and --details are both structural, offline views of the
+        // catalog. --schema owns this parser-level route and its syntactic
+        // catalog choice; a details-only request takes it only when fully
+        // target-free (below), because a targeted request is routed by the
+        // command after it resolves the target, exactly as bare -D is.
+        bool schema = options.ParseSchema(parseResult);
+        bool detailsOnly =
+            !schema && options.ParseDiscoverDetails(parseResult);
         if (!options.IsDiscoveryMode(parseResult)
-            || !options.ParseSchema(parseResult))
+            || !(schema || detailsOnly))
         {
             return false;
         }
@@ -108,6 +116,16 @@ public static class MemberOptionsParser
         bool hasProjectSource =
             (parseResult.GetValue(args.ProjectOption) ?? []).Length > 0
             && !sourceInputs.HasExplicitSource;
+        if (detailsOnly
+            && (sourceInputs.Args.Length > 0
+                || sourceInputs.HasExplicitSource
+                || hasProjectSource
+                || optionMembers.Length > 0
+                || ctor
+                || index is not null))
+        {
+            return false;
+        }
         error =
             SharedParsers.GetStructuralPositionalVersionError(
                 sourceInputs,
@@ -299,7 +317,9 @@ public static class MemberOptionsParser
         Option<string?> AtOption,
         Option<string?> RouterDeferredTargetOption,
         Option<bool> SourcePartsOption,
-        Option<string?> SourcePartOption);
+        Option<string?> SourcePartOption,
+        Option<string?> ExplainOption,
+        Option<string?> CompanionOption);
 
     /// <summary>
     /// Result of parsing member command options.
@@ -658,6 +678,10 @@ public static class MemberOptionsParser
             RequestAllTaste = parseResult.GetValue(opts.Taste),
             RequestReadableLocalNames = parseResult.GetValue(opts.ReadableNames),
             Focus = parseResult.GetValue(opts.Focus),
+            Explanation =
+                SharedOptions.ParseExplanationProjection(
+                    parseResult,
+                    args.ExplainOption),
             Print = parseResult.GetValue(opts.Print),
             PrintRow = opts.ParsePrintRow(parseResult),
             Value = parseResult.GetValue(opts.Value),
@@ -689,6 +713,7 @@ public static class MemberOptionsParser
             CallerScopePackages = parseResult.GetValue(args.CallerPackageOption) ?? [],
             SourceRepositories = parseResult.GetValue(args.RepoOption) ?? [],
             Discover = opts.ParseDiscover(parseResult),
+            DiscoverDetails = opts.ParseDiscoverDetails(parseResult),
             Tree = parseResult.GetValue(opts.Tree),
             Select = select,
             SelectDefault = selectDefault,
@@ -730,7 +755,9 @@ public static class MemberOptionsParser
 
         options = options with
         {
-            TipLevel = opts.ParseTipLevel(parseResult)
+            CompanionOutput = opts.ParseCompanionOutput(
+                parseResult,
+                args.CompanionOption)
         };
 
         ResolvedMemberInspectionPlan plan =

@@ -38,7 +38,7 @@ public class SwitchRaisingSharedMissHandlerTests
         // Render the actual text: a technically-raised-but-garbled body (e.g.
         // a duplicated or dropped miss-handler assignment) would slip past the
         // node-shape assertions above but must be caught here.
-        var output = CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n").Trim();
+        var output = DecidedPrint.Print(function).Output!.ReplaceLineEndings("\n").Trim();
         Assert.Equal(
             """
             int V_0;
@@ -86,7 +86,7 @@ public class SwitchRaisingSharedMissHandlerTests
 
         if (chainLength >= 2)
         {
-            var output = CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n");
+            var output = DecidedPrint.Print(function).Output!.ReplaceLineEndings("\n");
             Assert.Contains("V_0 = -1;\nV_1 = 0;\nIL_0070:\nreturn V_0;", output);
             Assert.Equal(2, output.Split("V_1 = 0;", StringSplitOptions.None).Length);
         }

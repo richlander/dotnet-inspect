@@ -130,7 +130,7 @@ internal static class ReducibleIteratorReconstruction
 
         // Re-run the pipeline: the body is reducible now, so the ordinary structurer
         // forms the loops and the yields ride along as opaque statements.
-        IrPasses.Run(work, IrPasses.Default, context);
+        IrPasses.Run(work, IrPasses.ForIntermediateBody, context);
 
         // Validate: a clean reconstruction is fully structured (no residual goto), keeps
         // at least one yield, and leaves no unspeakable state-machine field behind.

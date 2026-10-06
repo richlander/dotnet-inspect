@@ -1128,9 +1128,10 @@ public partial class CommandExecutionTests
     }
 
     private static (string AssemblyPath, string SourcePath, string FixtureDir)
-        CreateNoSourceLinkDiscoveryAssembly()
+        CreateNoSourceLinkDiscoveryAssembly(
+            bool stringOverloadFirst = false)
     {
-        const string source =
+        const string integerFirstSource =
             """
             namespace DiscoveryFixtures;
 
@@ -1140,6 +1141,20 @@ public partial class CommandExecutionTests
                 public static string Overloaded(string value) => value;
             }
             """;
+        const string stringFirstSource =
+            """
+            namespace DiscoveryFixtures;
+
+            public static class NoSourceLink
+            {
+                public static string Overloaded(string value) => value;
+                public static int Overloaded(int value) => value;
+            }
+            """;
+        string source =
+            stringOverloadFirst
+                ? stringFirstSource
+                : integerFirstSource;
 
         var fixtureDir = Path.Combine(
             AppContext.BaseDirectory,
@@ -1979,7 +1994,8 @@ public partial class CommandExecutionTests
         {
             PlatformAssembly = assembly,
             TypeName = typeName,
-            Select = [SectionNames.TypeInfo]
+            Select = [SectionNames.TypeInfo],
+            FormatExplicitlySet = true,
         };
 
         var (exit, output, _) = await ConsoleCapture.RunAsync(
@@ -2081,8 +2097,8 @@ public partial class CommandExecutionTests
     {
         List<string> args = [.. command];
         args.AddRange(section == SectionNames.FindingCensus
-            ? ["-S", section, "--tips", "q"]
-            : ["-S", section, "--table", "--tips", "q", "-n", "40"]);
+            ? ["-S", section]
+            : ["-S", section, "--table", "-n", "40"]);
         return [.. args];
     }
 

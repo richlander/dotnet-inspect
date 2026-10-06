@@ -60,10 +60,20 @@ export interface BrowserPackageQueryEngine {
     initialMatchCredit: number,
     eventSink: unknown,
   ): Promise<BrowserPackageQueryResult>;
+  runEcosystem?(
+    operationId: string,
+    ecosystemId: string,
+    maximumCandidates: number,
+    maximumMatches: number,
+    includePrerelease: boolean,
+    initialMatchCredit: number,
+    eventSink: unknown,
+  ): Promise<BrowserPackageQueryResult>;
 }
 
 export interface BrowserPackageQueryDataSourceOptions {
   createOperationId?: () => string;
+  initialMatchCredit?: number;
   onInspection?: (
     inspection: BrowserPackageQueryInspection | null,
   ) => void;
@@ -139,8 +149,14 @@ export function createBrowserPackageQueryDataSource(
         diagnostic ?? error);
     });
   const onInspection = options.onInspection ?? (() => {});
+  const initialMatchCredit =
+    options.initialMatchCredit ?? PACKAGE_QUERY_INITIAL_MATCH_CREDIT;
+  if (!Number.isInteger(initialMatchCredit) || initialMatchCredit <= 0) {
+    throw new RangeError(
+      "Package Query initial match credit must be a positive integer.");
+  }
   return {
-    initialMatchCredit: PACKAGE_QUERY_INITIAL_MATCH_CREDIT,
+    initialMatchCredit,
     requestMore: async additionalMatchCredit => {
       const operationId = activeOperationId;
       if (operationId === null) return false;
@@ -165,6 +181,10 @@ export function createBrowserPackageQueryDataSource(
       }
       activeOperationId = operationId;
       onInspection(null);
+      if (request.initialMatchCredit !== initialMatchCredit) {
+        throw new Error(
+          "Package Query request and data source initial credit differ.");
+      }
 
       let completion: TerminalQueryCompletion | null = null;
       const streamedAssessmentKeys = new Set<string>();
@@ -255,7 +275,8 @@ export function createBrowserPackageQueryDataSource(
         engine.cancel(operationId, cancellationReason(abortSignal.reason));
       abortSignal.addEventListener("abort", cancel, { once: true });
       try {
-        const result = await engine.run(
+        const result = request.ecosystemId === undefined
+          ? await engine.run(
               operationId,
               request.scopeQuery,
               [
@@ -276,8 +297,21 @@ export function createBrowserPackageQueryDataSource(
               request.requestedLimit,
               request.requestedMatchLimit,
               request.includePrerelease,
-              PACKAGE_QUERY_INITIAL_MATCH_CREDIT,
-              eventSink);
+              request.initialMatchCredit,
+              eventSink)
+          : engine.runEcosystem === undefined
+            ? (() => {
+                throw new Error(
+                  "The Browser engine does not support Ecosystem Package Query.");
+              })()
+            : await engine.runEcosystem(
+                operationId,
+                request.ecosystemId,
+                request.requestedLimit,
+                request.requestedMatchLimit,
+                request.includePrerelease,
+                request.initialMatchCredit,
+                eventSink);
         flushEvents();
         let unexpectedFailure: Error | null = null;
         if (result.version === 3
@@ -602,6 +636,24 @@ function parseRow(value: unknown): BrowserPackageQueryRowPayload {
     owners: row.owners.map(item =>
       stringValue(item, "package-query owner")),
     manifest: parseManifest(row.manifest),
+    ecosystemAdmission: row.ecosystemAdmission === null
+      ? null
+      : (() => {
+          const admission = objectValue(
+            row.ecosystemAdmission,
+            "package-query Ecosystem admission");
+          return {
+            ecosystemId: stringValue(
+              admission.ecosystemId,
+              "package-query Ecosystem admission identity"),
+            basis: stringValue(
+              admission.basis,
+              "package-query Ecosystem admission basis"),
+            registration: stringValue(
+              admission.registration,
+              "package-query Ecosystem admission registration"),
+          };
+        })(),
   };
 }
 
@@ -1114,6 +1166,7 @@ function toQueryRow(
     totalDownloads: row.totalDownloads,
     description: row.description,
     producer: row.producer,
+    ecosystemAdmission: row.ecosystemAdmission,
   };
   if (rootRequest !== null && rootRequest !== undefined)
     result.rootRequest = rootRequest;

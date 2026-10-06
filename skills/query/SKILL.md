@@ -169,7 +169,7 @@ single-result formats such as tree or Mermaid.
 
 `@Package` groups `Package Info`, `Signals`, `Statistics`, `Target Frameworks`,
 `Signature`, `Dependencies`, `Vulnerabilities`, `Manifest`, `Runtime
-Dependencies`, and the unbounded `Package files` listing. `@Files` groups the
+Dependencies`, and the unbounded `Files` listing. `@Files` groups the
 curated nuspec, README, and skill-file sections. The `type` listing's
 `@Surface` category groups `API Info`, public type-kind and type-forwarder
 inventories, and `Inspection Failures`. Member `@Member` follows the resolved
@@ -179,7 +179,7 @@ overload. Use its domain doors for audit, call, decompiler, performance, source,
 or SourceLink evidence. Diff `@Diff` composes `Changes`, `Analysis Diff`, and
 `Implementation Diff`; select the non-composable `Finding Transitions` section
 by exact name. Project `@Project` composes restored dependency `Skills` and
-`Package README file` inventories. Vocabulary `@Vocabulary` composes the
+`README` inventories. Vocabulary `@Vocabulary` composes the
 complete product-owned vocabulary document; use `@API` or `@Decompiler` for
 the corresponding query family. Ecosystem `@Ecosystem` composes every section
 available after the optional focus operand chooses the route; select exact

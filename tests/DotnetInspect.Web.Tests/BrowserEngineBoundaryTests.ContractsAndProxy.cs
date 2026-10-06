@@ -56,6 +56,81 @@ namespace DotnetInspect.Web.Tests;
 
 public sealed partial class BrowserEngineBoundaryTests
 {
+    [Fact]
+    public void TypeFacetProjectionCarriesProductOwnedIdentityAndMembership()
+    {
+        var surface = new ApiSurface
+        {
+            Types =
+            [
+                new ApiType
+                {
+                    Name = "Concrete",
+                    Namespace = "Example",
+                    Kind = "class",
+                },
+                new ApiType
+                {
+                    Name = "Abstract",
+                    Namespace = "Example",
+                    Kind = "class",
+                    IsAbstract = true,
+                },
+                new ApiType
+                {
+                    Name = "Static",
+                    Namespace = "Example",
+                    Kind = "class",
+                    IsAbstract = true,
+                    IsSealed = true,
+                    IsStatic = true,
+                },
+                new ApiType
+                {
+                    Name = "Contract",
+                    Namespace = "Example",
+                    Kind = "interface",
+                    IsAbstract = true,
+                },
+            ],
+        };
+
+        BrowserSurfaceProjection.Surface projected =
+            BrowserSurfaceProjection.Project(
+                surface,
+                [],
+                new AssemblyReferenceIdentity(
+                    "Example",
+                    new Version(1, 0, 0, 0),
+                    Culture: null,
+                    PublicKeyToken: null),
+                "Example",
+                "example",
+                "Example.dll",
+                []);
+
+        Assert.Equal(
+            [
+                ("api.type-kind.class", 3),
+                ("api.type-kind.interface", 1),
+            ],
+            projected.TypeKinds.Select(facet => (facet.Id, facet.Count)));
+        Assert.Equal(
+            [
+                ("api.type-trait.abstract", 1),
+                ("api.type-trait.static", 1),
+                ("api.type-trait.object", 1),
+            ],
+            projected.TypeTraits.Select(facet => (facet.Id, facet.Count)));
+        Assert.Equal(
+            ["api.type-trait.object"],
+            Assert.Single(projected.Types, type => type.Name == "Concrete")
+                .TraitFacetIds);
+        Assert.Empty(
+            Assert.Single(projected.Types, type => type.Name == "Contract")
+                .TraitFacetIds);
+    }
+
 
     [Fact]
     public void PackageManifestFacts_FromInMemoryBytesRemainBrowserCompatible()
@@ -350,7 +425,8 @@ public sealed partial class BrowserEngineBoundaryTests
     {
         using AssemblyInspectionSession session = AssemblyInspectionSession.Open(
             FixtureCatalog.AnalysisCallerLoop.AssemblyPath());
-        ApiSurface surface = session.ApiSurface(includeAll: true);
+        ApiSurface surface =
+            session.CompatibilityApiSurface(includeAll: true);
         ApiType receiver = Assert.Single(
             surface.Types,
             type => type.FullName
@@ -389,7 +465,7 @@ public sealed partial class BrowserEngineBoundaryTests
                 "RealAssets",
                 "PlatformDemo",
                 "System.Private.CoreLib.dll"));
-        ApiSurface surface = session.ApiSurface(
+        ApiSurface surface = session.CompatibilityApiSurface(
             ApiSurfaceExtractionScope.PublicWithNonPublicTypes);
         ApiType receiver = Assert.Single(
             surface.Types,
@@ -590,7 +666,7 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
-    public void SourceContexts_UseFreshMemoryOnlyPdbStores()
+    public void SourceContexts_UseSharedMemoryOnlyPdbStoreAndSettlement()
     {
         AssemblyContextSourceQueryContext first =
             DotnetInspect.Web.Interop.Source.SourceExports.CreateSourceContext();
@@ -600,8 +676,12 @@ public sealed partial class BrowserEngineBoundaryTests
         var firstStore =
             Assert.IsType<InMemoryPdbStore>(first.PdbStore);
         Assert.IsType<InMemoryPdbStore>(second.PdbStore);
-        Assert.NotSame(first.PdbStore, second.PdbStore);
+        Assert.Same(first.PdbStore, second.PdbStore);
         Assert.Equal(24L * MiB, firstStore.MaxRetainedBytes);
+        Assert.Same(
+            first.PortablePdbSettlementCapability,
+            second.PortablePdbSettlementCapability);
+        Assert.NotNull(first.PortablePdbSettlementCapability);
         Assert.False(first.AllowLocalSourceReads);
         Assert.Null(first.RepositoryPaths);
         Assert.NotNull(first.SymbolAcquisitionLimits);

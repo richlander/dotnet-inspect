@@ -20,6 +20,8 @@ using DotnetInspector.Sections;
 using InertText;
 using Markout;
 
+using ILInspector.ILDiff;
+
 namespace DotnetInspect.Cli.Tests;
 
 /// <summary>
@@ -1279,6 +1281,7 @@ public class DiffCommandTests
         Assert.Equal("failed", row.OldInspection);
         Assert.Equal("complete", row.NewInspection);
         Assert.Contains("render failed", row.Detail);
+        Assert.True(DiffAnalysisInspection.IsFailedComparison(row));
     }
 
     [Fact]
@@ -2085,6 +2088,39 @@ public class DiffCommandTests
                 }));
 
         Assert.Contains("method-like target", error.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("InstanceA", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AnalysisSet_NonMethodImplementationTargetRejectsBeforeApiRuns()
+    {
+        string oldPath = FixtureCatalog.DiffPair.OldAssemblyPath();
+        string newPath = FixtureCatalog.DiffPair.NewAssemblyPath();
+        ApiSurface oldSurface = AssemblyReader.ExtractApiSurface(oldPath)!;
+        ApiSurface newSurface = AssemblyReader.ExtractApiSurface(newPath)!;
+
+        var error = Assert.Throws<DiffAnalysisTargetException>(() =>
+            DiffCommand.BuildAnalysisTransitions(
+                [oldPath],
+                [newPath],
+                oldSurface,
+                newSurface,
+                "v1",
+                "v2",
+                new DiffOptions
+                {
+                    Analysis = ["api", "il"],
+                    TypeFilter =
+                    [
+                        "DiffFixtureSample.DiffSample.FieldTokenHolder",
+                    ],
+                    MemberFilter = ["InstanceA"],
+                }));
+
+        Assert.Contains(
+            "method-like target",
+            error.Message,
+            StringComparison.OrdinalIgnoreCase);
         Assert.Contains("InstanceA", error.Message, StringComparison.Ordinal);
     }
 
@@ -3490,241 +3526,6 @@ public class DiffCommandTests
         Assert.Equal("System.Int32", ResearchMemberIdentity.BodyParameterTypeName("System.Int32"));
     }
 
-    [Fact]
-    public void AddResearchBodyIdentity_PhysicalExtensionUsesExtensionSelector()
-    {
-        var type = new ApiType { Namespace = "DiffFixtureSample", Name = "ExtensionSample" };
-        var member = DiffMember("Twice", signature: "int Twice(int value)");
-        member.IsExtension = true;
-        member.DeclaringType = "DiffFixtureSample.ExtensionSample";
-        var target = ResolvedTarget(type, member);
-        HashSet<string> identities = new(StringComparer.Ordinal);
-
-        Assert.True(ResearchMemberIdentity.TryAddTargetIdentity(target, identities));
-
-        var expectedCanonical = "M:DiffFixtureSample.ExtensionSample.Twice(System.Int32)";
-        Assert.Contains($"extension:Twice~{MemberAnchor.ComputeFingerprint(expectedCanonical)}", identities);
-    }
-
-    [Fact]
-    public void AddResearchBodyIdentity_ProjectedExtensionUsesPhysicalDeclaringType()
-    {
-        var extendedType = new ApiType { Namespace = "System", Name = "Int32" };
-        var member = DiffMember("Twice", signature: "int Twice(int value)");
-        member.Kind = "extension-method";
-        member.IsExtension = true;
-        member.DeclaringType = "DiffFixtureSample.ExtensionSample";
-        var target = ResolvedTarget(
-            extendedType,
-            member,
-            new BodyTarget("DiffFixtureSample.ExtensionSample", "M:DiffFixtureSample.ExtensionSample.Twice(System.Int32)"));
-        HashSet<string> identities = new(StringComparer.Ordinal);
-
-        Assert.True(ResearchMemberIdentity.TryAddTargetIdentity(target, identities));
-
-        var expectedCanonical = "M:DiffFixtureSample.ExtensionSample.Twice(System.Int32)";
-        Assert.Contains($"extension:Twice~{MemberAnchor.ComputeFingerprint(expectedCanonical)}", identities);
-    }
-
-    [Fact]
-    public void AddResearchReturnTypeBodyIdentity_UsesPositionalGenericParameter()
-    {
-        var type = new ApiType { Namespace = "Sample", Name = "Widget" };
-        var member = DiffMember(
-            "Changed",
-            signature: "T Changed<T>(T value)",
-            genericArity: 1);
-        member.SignatureModel!.ReturnTypeShape =
-            ApiTypeShape.GenericParameter(
-                index: 0,
-                isMethodParameter: true);
-        var target = ResolvedTarget(type, member);
-        HashSet<string> identities = new(StringComparer.Ordinal);
-
-        Assert.True(
-            ResearchMemberIdentity.TryAddReturnTypeTargetIdentity(
-                target,
-                identities));
-
-        const string canonical =
-            "M:Sample.Widget.Changed<T>(T)~!!0";
-        Assert.Equal(
-            $"Changed~{MemberAnchor.ComputeFingerprint(canonical)}",
-            Assert.Single(identities));
-    }
-
-    [Fact]
-    public void AddResearchReturnTypeBodyIdentity_PreservesNestedGenericArity()
-    {
-        var type = new ApiType { Namespace = "Sample", Name = "Widget" };
-        var member = DiffMember(
-            "Changed",
-            signature: "object Changed()");
-        var coreLibrary = new ApiAssemblyIdentity(
-            "System.Private.CoreLib",
-            version: null,
-            culture: null,
-            publicKeyToken: null);
-        member.SignatureModel!.ReturnTypeShape =
-            ApiTypeShape.GenericInstance(
-                new ApiTypeReferenceIdentity(
-                    coreLibrary,
-                    "System.Collections.Generic.Dictionary`2"),
-                [
-                    ApiTypeShape.PrimitiveType(ApiPrimitiveType.String),
-                    ApiTypeShape.GenericInstance(
-                        new ApiTypeReferenceIdentity(
-                            coreLibrary,
-                            "System.Collections.Generic.List`1"),
-                        [
-                            ApiTypeShape.PrimitiveType(
-                                ApiPrimitiveType.Int32),
-                        ]),
-                ]);
-        var target = ResolvedTarget(type, member);
-        HashSet<string> identities = new(StringComparer.Ordinal);
-
-        Assert.True(
-            ResearchMemberIdentity.TryAddReturnTypeTargetIdentity(
-                target,
-                identities));
-
-        const string canonical =
-            "M:Sample.Widget.Changed()"
-            + "~System.Collections.Generic.Dictionary`2"
-            + "<System.String,System.Collections.Generic.List`1"
-            + "<System.Int32>>";
-        Assert.Equal(
-            $"Changed~{MemberAnchor.ComputeFingerprint(canonical)}",
-            Assert.Single(identities));
-    }
-
-    [Fact]
-    public void ResearchBodyIdentity_TargetAliasMatchesMethodSubjectCanonicalFormatter()
-    {
-        AssertTargetAliasMatchesMethodSubject(
-            DiffType("Sample", "Widget", DiffMember("M", signature: "void M(int[] values)")),
-            DiffMember("M", signature: "void M(int[] values)"),
-            new MethodIdentity(
-                "Asm",
-                Guid.Empty,
-                TypeRef.Definition("Asm", "Sample", "Widget"),
-                "M",
-                [TypeRef.SzArray(TypeRef.CoreLib("System", "Int32"))],
-                TypeRef.CoreLib("System", "Void"),
-                MetadataToken: 0x06000000,
-                IsStatic: true));
-
-        AssertTargetAliasMatchesMethodSubject(
-            DiffType("Sample", "Widget", DiffMember("M", signature: "void M(ref int value)")),
-            DiffMember("M", signature: "void M(ref int value)"),
-            new MethodIdentity(
-                "Asm",
-                Guid.Empty,
-                TypeRef.Definition("Asm", "Sample", "Widget"),
-                "M",
-                [TypeRef.ByRef(TypeRef.CoreLib("System", "Int32"))],
-                TypeRef.CoreLib("System", "Void"),
-                MetadataToken: 0x06000000,
-                IsStatic: true));
-
-        AssertTargetAliasMatchesMethodSubject(
-            DiffType("Sample", "Widget", DiffMember("M", signature: "void M(int* value)")),
-            DiffMember("M", signature: "void M(int* value)"),
-            new MethodIdentity(
-                "Asm",
-                Guid.Empty,
-                TypeRef.Definition("Asm", "Sample", "Widget"),
-                "M",
-                [TypeRef.Pointer(TypeRef.CoreLib("System", "Int32"))],
-                TypeRef.CoreLib("System", "Void"),
-                MetadataToken: 0x06000001,
-                IsStatic: true));
-
-        AssertTargetAliasMatchesMethodSubject(
-            DiffType("Sample", "Widget", DiffMember("M", signature: "T M<T>(T value)", genericArity: 1)),
-            DiffMember("M", signature: "T M<T>(T value)", genericArity: 1),
-            new MethodIdentity(
-                "Asm",
-                Guid.Empty,
-                TypeRef.Definition("Asm", "Sample", "Widget"),
-                "M",
-                [TypeRef.MethodGenericParameter(0, "T")],
-                TypeRef.MethodGenericParameter(0, "T"),
-                MetadataToken: 0x06000002,
-                IsStatic: true,
-                GenericArity: 1,
-                GenericParameterNames: ["T"]));
-
-        var op = DiffMember("op_Addition", signature: "Sample.Widget op_Addition(Sample.Widget left, Sample.Widget right)");
-        op.Kind = "operator";
-        AssertTargetAliasMatchesMethodSubject(
-            DiffType("Sample", "Widget", op),
-            op,
-            new MethodIdentity(
-                "Asm",
-                Guid.Empty,
-                TypeRef.Definition("Asm", "Sample", "Widget"),
-                "op_Addition",
-                [TypeRef.Definition("Asm", "Sample", "Widget"), TypeRef.Definition("Asm", "Sample", "Widget")],
-                TypeRef.Definition("Asm", "Sample", "Widget"),
-                MetadataToken: 0x06000003,
-                IsStatic: true));
-
-        var explicitImpl = DiffMember("IFoo.Bar", signature: "void IFoo.Bar()");
-        explicitImpl.Kind = "explicit-interface-implementation";
-        AssertTargetAliasMatchesMethodSubject(
-            DiffType("Sample", "Widget", explicitImpl),
-            explicitImpl,
-            new MethodIdentity(
-                "Asm",
-                Guid.Empty,
-                TypeRef.Definition("Asm", "Sample", "Widget"),
-                "IFoo.Bar",
-                [],
-                TypeRef.CoreLib("System", "Void"),
-                MetadataToken: 0x06000004,
-                IsStatic: false));
-
-        var constructor = new ApiMember
-        {
-            Name = ".ctor",
-            Kind = "constructor",
-            Signature = "void .ctor()",
-            SignatureModel = new ApiSignature { MemberName = "#ctor" }
-        };
-        AssertTargetAliasMatchesMethodSubject(
-            DiffType("Sample", "Widget", constructor),
-            constructor,
-            new MethodIdentity(
-                "Asm",
-                Guid.Empty,
-                TypeRef.Definition("Asm", "Sample", "Widget"),
-                ".ctor",
-                [],
-                TypeRef.CoreLib("System", "Void"),
-                MetadataToken: 0x06000005,
-                IsStatic: false));
-
-        var extensionType = new ApiType { Namespace = "Sample", Name = "Extensions" };
-        var extension = DiffMember("Twice", signature: "int Twice(int value)");
-        extension.IsExtension = true;
-        extension.DeclaringType = "Sample.Extensions";
-        AssertTargetAliasMatchesMethodSubject(
-            extensionType,
-            extension,
-            new MethodIdentity(
-                "Asm",
-                Guid.Empty,
-                TypeRef.Definition("Asm", "Sample", "Extensions"),
-                "Twice",
-                [TypeRef.CoreLib("System", "Int32")],
-                TypeRef.CoreLib("System", "Int32"),
-                MetadataToken: 0x06000006,
-                IsStatic: true,
-                IsExtension: true));
-    }
-
     // #1736: a hotness-only allocation regression. The allocation count is unchanged
     // (1 -> 1) but the allocation moves into a loop (allocInLoop false -> true). The raw
     // count delta is zero, so this must still surface as an in-place allocations row with
@@ -3780,17 +3581,6 @@ public class DiffCommandTests
         var changedOnly = DiffCommand.BuildAnalysisDiff([v1], [v1], new DiffOptions { ChangedOnly = true });
         Assert.Empty(changedOnly.Rows);
         Assert.Equal("No in-place analysis signal changes detected.", changedOnly.Summary);
-    }
-
-    static void AssertTargetAliasMatchesMethodSubject(ApiType type, ApiMember member, MethodIdentity method)
-    {
-        HashSet<string> identities = new(StringComparer.Ordinal);
-
-        Assert.True(ResearchMemberIdentity.TryAddTargetIdentity(ResolvedTarget(type, member), identities));
-
-        var targetId = Assert.Single(identities);
-        var methodSubject = ResearchMemberIdentity.SubjectFromMethod(method);
-        Assert.Equal(methodSubject.Id, targetId);
     }
 
     static ApiSurface DiffSurface(params ApiMember[] members)
@@ -3927,7 +3717,8 @@ public class DiffCommandTests
                 "2.0.0",
                 AnalysisReportSurfaceKind.Member,
                 DiffAnalysisDocumentViews.Changes,
-                ["api", "call-site"]),
+                ["api", "call-site"],
+                []),
             [
                 new DiffAnalysisDocumentOutcome(
                     "api",
@@ -4030,7 +3821,8 @@ public class DiffCommandTests
                 "2.0.0",
                 AnalysisReportSurfaceKind.Member,
                 DiffAnalysisDocumentViews.Changes,
-                ["api"]),
+                ["api"],
+                []),
             [
                 new DiffAnalysisDocumentOutcome(
                     "api",
@@ -4102,6 +3894,105 @@ public class DiffCommandTests
         Assert.True(JsonElement.DeepEquals(
             json.RootElement,
             envelope.RootElement.GetProperty("content")));
+    }
+
+    [Fact]
+    public async Task AnalysisSet_FailedFindingComparison_PreservesEvidenceAndFails()
+    {
+        var accepted = Assert.IsType<AnalysisSetValidationResult.Accepted>(
+            DiffAnalysisCommandCapability.Catalog.AnalysisCapabilities.ValidateSet(
+                DiffAnalysisCatalog.Operation,
+                AnalysisReportSurfaceKind.Library,
+                targetCount: 1,
+                ["string-literals"]));
+        var document = new DiffAnalysisDocument(
+            new DiffAnalysisComparisonContext(
+                "Sample",
+                "1.0.0",
+                "2.0.0",
+                AnalysisReportSurfaceKind.Library,
+                DiffAnalysisDocumentViews.Transitions,
+                ["string-literals"],
+                [
+                    new DiffAnalysisQueryTermContext(
+                        "Literal",
+                        "Contains",
+                        "https://"),
+                ]),
+            [
+                new DiffAnalysisDocumentOutcome(
+                    "string-literals",
+                    DiffAnalysisDocumentOutcomeKind.Compared,
+                    ["analysis.string-literal-use"],
+                    null),
+            ],
+            changes: null,
+            summary: null,
+            transitions:
+            [
+                new DiffAnalysisTransitionRow(
+                    DiffAnalysisInspection.FailedComparisonTransition,
+                    "analysis.string-literal-use",
+                    "Sample",
+                    "1.0.0",
+                    "2.0.0",
+                    "failed",
+                    "complete",
+                    "String literal scan exceeded its occurrence work limit.",
+                    "failed",
+                    "complete"),
+            ]);
+        var run = new DiffCommand.AnalysisSetRun(
+            new InspectionEnvelope<DiffAnalysisDocument>(
+                document,
+                new InspectionShare.NonProjectable(
+                    "diff",
+                    "This test does not project a share packet."),
+                [
+                    new InspectionDiagnostic(
+                        "diff-analysis.finding-comparison-failed",
+                        InspectionDiagnosticSeverity.Error,
+                        "Finding comparison 'analysis.string-literal-use' "
+                            + "failed for 'Sample': String literal scan "
+                            + "exceeded its occurrence work limit."),
+                ]));
+        var plan = new DiffCommand.DiffAnalysisPlan(
+            accepted,
+            [DiffSections.Transitions.Name]);
+
+        var (exitCode, output, error) =
+            await ConsoleCapture.RunAsync(() =>
+                Task.FromResult(DiffCommand.WriteAnalysisSet(
+                    "Sample",
+                    new ApiSurface(),
+                    new ApiSurface(),
+                    "1.0.0",
+                    "2.0.0",
+                    new DiffOptions
+                    {
+                        JsonOutput = true,
+                        CompactJson = true,
+                    },
+                    plan,
+                    run)));
+
+        Assert.Equal(1, exitCode);
+        Assert.Contains(
+            DiffAnalysisInspection.FailedComparisonTransition,
+            output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "String literal scan exceeded its occurrence work limit.",
+            output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Finding comparison 'analysis.string-literal-use' failed",
+            error,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "String literal scan exceeded its occurrence work limit.",
+            error,
+            StringComparison.Ordinal);
     }
 
 }

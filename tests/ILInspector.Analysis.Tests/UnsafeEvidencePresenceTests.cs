@@ -321,12 +321,12 @@ public partial class UnsafeEvidencePresenceTests
         File.WriteAllBytes(path, image.AsSpan());
         try
         {
-            LibraryBodyIndex index =
-                LibraryBodyIndex.Open(
+            LibraryBodyAnalysisExecution index =
+                BodyAnalysisTestExecution.Open(
                     path,
                     LibraryBodyAnalysisFeatures.MethodEvidence);
             MethodIdentity caller = Assert.Single(
-                index.Methods,
+                index.CallGraph.Methods,
                 method => method.Name == "Call");
             CallTreeNode child = Assert.Single(
                 index.BuildCallTree(
@@ -335,7 +335,7 @@ public partial class UnsafeEvidencePresenceTests
                         maxNodes: 10)
                     .Children);
 
-            Assert.Empty(index.Diagnostics);
+            Assert.Empty(index.Receipt.Diagnostics);
             Assert.Equal(expectedStatus, child.Status);
         }
         finally
@@ -393,12 +393,12 @@ public partial class UnsafeEvidencePresenceTests
         File.WriteAllBytes(path, image.AsSpan());
         try
         {
-            LibraryBodyIndex index =
-                LibraryBodyIndex.Open(
+            LibraryBodyAnalysisExecution index =
+                BodyAnalysisTestExecution.Open(
                     path,
                     LibraryBodyAnalysisFeatures.MethodEvidence);
             MethodIdentity caller = Assert.Single(
-                index.DeclaredMethods,
+                index.CallGraph.DeclaredMethods,
                 method => method.Name == "Caller");
 
             Assert.True(
@@ -2437,12 +2437,12 @@ public partial class UnsafeEvidencePresenceTests
         File.WriteAllBytes(path, image.AsSpan());
         try
         {
-            LibraryBodyIndex index =
-                LibraryBodyIndex.Open(
+            LibraryBodyAnalysisExecution index =
+                BodyAnalysisTestExecution.Open(
                     path,
                     LibraryBodyAnalysisFeatures.MethodEvidence);
             MethodIdentity caller = Assert.Single(
-                index.Methods,
+                index.CallGraph.Methods,
                 method => method.Name == "Call");
             CallTreeNode child = Assert.Single(
                 index.BuildCallTree(
@@ -2451,7 +2451,7 @@ public partial class UnsafeEvidencePresenceTests
                         maxNodes: 10)
                     .Children);
             MethodIdentity target = Assert.Single(
-                index.DeclaredMethods,
+                index.CallGraph.DeclaredMethods,
                 method => method.Name == "Invoke");
             CallTreeNode callerTree =
                 index.BuildCallerTree(
@@ -2459,7 +2459,7 @@ public partial class UnsafeEvidencePresenceTests
                     maxDepth: 2,
                     maxNodes: 10);
 
-            Assert.Empty(index.Diagnostics);
+            Assert.Empty(index.Receipt.Diagnostics);
             Assert.Equal(expectedStatus, child.Status);
             Assert.Equal(
                 expectedStatus == CallTreeStatus.Leaf
@@ -2767,12 +2767,12 @@ public partial class UnsafeEvidencePresenceTests
         File.WriteAllBytes(path, image.AsSpan());
         try
         {
-            LibraryBodyIndex index =
-                LibraryBodyIndex.Open(
+            LibraryBodyAnalysisExecution index =
+                BodyAnalysisTestExecution.Open(
                     path,
                     LibraryBodyAnalysisFeatures.MethodEvidence);
-            Assert.Empty(index.UnsafeEvidence);
-            Assert.Empty(index.Diagnostics);
+            Assert.Empty(index.Safety.Evidence);
+            Assert.Empty(index.Receipt.Diagnostics);
         }
         finally
         {

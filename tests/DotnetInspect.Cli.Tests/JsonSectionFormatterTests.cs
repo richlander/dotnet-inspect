@@ -16,8 +16,8 @@ public class JsonSectionFormatterTests
     {
         Results =
         [
-            new FindRow(Field("Cache"), Field("MemoryCache"), Field("System.Runtime.Caching"), Field("class"), Field("System.Runtime.Caching"), Field("runtime"), Field("Exact"), Field("1.00")),
-            new FindRow(Field("Cache"), Field("HybridCache"), Field("Microsoft.Extensions.Caching.Hybrid"), Field("class"), Field("Microsoft.Extensions.Caching.Abstractions"), Field("nuget"), Field("Partial"), Field("0.80")),
+            new FindRow(Field("Cache"), Field("MemoryCache"), Field("System.Runtime.Caching"), Field("class"), Field("System.Runtime.Caching"), Field("runtime"), null, Field("Exact"), Field("1.00")),
+            new FindRow(Field("Cache"), Field("HybridCache"), Field("Microsoft.Extensions.Caching.Hybrid"), Field("class"), Field("Microsoft.Extensions.Caching.Abstractions"), Field("nuget"), null, Field("Partial"), Field("0.80")),
         ],
     };
 

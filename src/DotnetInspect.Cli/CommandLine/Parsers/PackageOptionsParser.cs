@@ -169,6 +169,25 @@ public static class PackageOptionsParser
         || GetExactLibrary(result, args) is not null;
 
     /// <summary>
+    /// Returns the coordinate validator's reason when <paramref name="packageArg"/>
+    /// cannot be a package reference (a local file or directory, a .nupkg path,
+    /// or ID[@version-or-range]), or <see langword="null"/> when it can.
+    /// </summary>
+    private static string? InvalidPackageReferenceReason(string packageArg)
+    {
+        if (packageArg.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase)
+            || File.Exists(packageArg)
+            || Directory.Exists(packageArg))
+        {
+            return null;
+        }
+
+        (string name, _) = PackageExtractor.ParsePackageReference(packageArg);
+        return PackageCoordinateResolver.Validate(new PackageCoordinate(name))
+            ?.Message;
+    }
+
+    /// <summary>
     /// Parses package command options.
     /// </summary>
     public static PackageParseResult Parse(
@@ -190,6 +209,21 @@ public static class PackageOptionsParser
         var badOption = GetUnrecognizedOption(parseResult, args);
         if (badOption != null)
             return new UnrecognizedOption(badOption);
+
+        // Every positional is a package reference: a local file or directory,
+        // a .nupkg path, or ID[@version-or-range]. A token that cannot be one
+        // (for example a section name) fails here with the real reason instead
+        // of flowing into multi-package or feed selection.
+        foreach (string packageArg in packageArgs)
+        {
+            if (InvalidPackageReferenceReason(packageArg) is { } reason)
+            {
+                return new InvalidArguments(
+                    $"'{packageArg}' is not a valid package ID. {reason} "
+                        + "Correct the package command input and retry. "
+                        + $"To select a section, use -S \"{packageArg}\".");
+            }
+        }
 
         string? explicitVersion =
             parseResult.GetValue(args.VersionOption);
@@ -591,8 +625,8 @@ public static class PackageOptionsParser
         if (!string.IsNullOrWhiteSpace(typeFilter))
             options = options with { Select = [.. options.Select ?? [], Views.PackageSections.SourceLinkFiles] };
 
-        var tipLevel = opts.ParseTipLevel(parseResult);
-        options = options with { TipLevel = tipLevel };
+        var companionOutput = opts.ParseCompanionOutput(parseResult);
+        options = options with { CompanionOutput = companionOutput };
 
         return new Success(options, verbosity);
     }

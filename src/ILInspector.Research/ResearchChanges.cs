@@ -5,6 +5,8 @@ using Inspector.Findings;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
 
+using ILInspector.ILDiff;
+
 namespace ILInspector.Research;
 
 [Flags]
@@ -22,6 +24,7 @@ public enum ResearchChangeMechanism
 
 public enum ResearchSubjectKind
 {
+    Library,
     Type,
     Member,
 }
@@ -264,6 +267,38 @@ public sealed record ResearchChange
     public ImmutableArray<CSharpDiffDisplayRow> CSharpDisplayRows { get; }
     public CSharpDiffDisplayFailureRow? CSharpDisplayFailureRow { get; }
     public FindingComparison<AllocationOccurrence>? AllocationComparison { get; }
+
+    internal ResearchChange WithSubject(ResearchSubjectKey subject)
+        => new(
+            subject,
+            Mechanism,
+            Descriptor,
+            Kind,
+            OldValue,
+            NewValue,
+            Delta,
+            OldIlOffset,
+            NewIlOffset,
+            Detail,
+            Category,
+            Signal,
+            Shape,
+            Magnitude,
+            DirectionScore,
+            SubjectInBoth,
+            InLoop,
+            ApiChange,
+            IlRow,
+            IlFailureRow,
+            CSharpRow,
+            CSharpFailureRow,
+            IlDisplayRows,
+            IlDisplayFailureRow,
+            IlMemberDiff,
+            IlBodyDiff,
+            CSharpDisplayRows,
+            CSharpDisplayFailureRow,
+            AllocationComparison);
 }
 
 public sealed record ResearchSubjectChanges
@@ -367,7 +402,21 @@ public sealed class RetainedFindingComparisonSet
                 nameof(comparisons));
         }
 
+        ImmutableArray<RetainedFindingComparison>.Builder? failures = null;
+        foreach (RetainedFindingComparison comparison in items)
+        {
+            if (comparison.Failure is null)
+                continue;
+
+            failures ??=
+                ImmutableArray.CreateBuilder<RetainedFindingComparison>();
+            failures.Add(comparison);
+        }
+
         Items = items;
+        Failures =
+            failures?.ToImmutable()
+            ?? ImmutableArray<RetainedFindingComparison>.Empty;
         _byDescriptor = items
             .GroupBy(comparison => comparison.Descriptor.Id, StringComparer.Ordinal)
             .ToImmutableDictionary(
@@ -380,6 +429,9 @@ public sealed class RetainedFindingComparisonSet
 
     public int Count => Items.Length;
     public bool IsEmpty => Items.IsEmpty;
+
+    /// <summary>Failed retained comparisons, in retention order.</summary>
+    public ImmutableArray<RetainedFindingComparison> Failures { get; }
 
     /// <summary>The retained Finding descriptor identities, in first-retained order.</summary>
     public ImmutableArray<string> DescriptorIds =>

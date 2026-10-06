@@ -480,8 +480,8 @@ public sealed class InspectionGraphDocumentTests
 
         CallTreeNode MakeTree()
         {
-            LibraryBodyIndex index = LibraryBodyIndex.Open(path);
-            MethodIdentity method = index.DeclaredMethods.Single(
+            LibraryBodyAnalysisExecution index = BodyAnalysisTestExecution.Open(path);
+            MethodIdentity method = index.CallGraph.DeclaredMethods.Single(
                 candidate =>
                     candidate.DeclaringType.Name
                         == "InstanceRecursionApi"
@@ -494,10 +494,10 @@ public sealed class InspectionGraphDocumentTests
             using var scope = new CatalogCallGraphScope(
                 new AssemblyDependencyResolver(
                     new AssemblyDependencyResolutionOptions(path)),
-                [new CatalogCallGraphParticipant(index, assembly)]);
+                [new CatalogCallGraphParticipant(index.CallGraph, assembly)]);
             return scope.Detach(
                 scope.BuildCallerTree(
-                    index,
+                    index.CallGraph,
                     method.MetadataToken));
         }
 

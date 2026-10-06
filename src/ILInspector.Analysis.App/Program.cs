@@ -99,13 +99,18 @@ static int RunUnsafeReport(string[] args)
         return 1;
     }
 
-    var index = LibraryBodyIndex.Open(assemblyPath);
-    var modes = index.UnsafeModes;
-    var top = index.TopUnsafeLeverage(count);
+    LibraryBodyAnalysisExecution execution =
+        LibraryBodyAnalysisService.ExecutePath(
+            assemblyPath,
+            LibraryBodyAnalysisRequest.Create(
+                LibraryBodyAnalysisFeatures.Default));
+    LibrarySafetyAnalysisResult safety = execution.Safety;
+    var modes = safety.UnsafeModes;
+    var top = execution.Leverage.TopUnsafe(count);
 
     Console.WriteLine($"Assembly: {assemblyPath}");
     Console.WriteLine(
-        $"Module memory-safety rules: {DescribeMemorySafetyRules(index.MemorySafetyRules)}");
+        $"Module memory-safety rules: {DescribeMemorySafetyRules(safety.MemorySafetyRules)}");
     Console.WriteLine($"Methods: {modes.Total:N0}");
     Console.WriteLine($"  None     (no requires-unsafe):              {modes.None:N0}");
     Console.WriteLine($"  Implicit (legacy compatibility contract):   {modes.Implicit:N0}");
@@ -118,7 +123,7 @@ static int RunUnsafeReport(string[] args)
     foreach (var entry in top)
         Console.WriteLine($"{rank++}. {entry.DirectCallerCount,6} callers  [{entry.Mode}]  {MethodDisplay(entry.Method)}");
 
-    var opaque = index.OpaqueUnsafeMethods();
+    var opaque = OpaqueUnsafe.Collect(execution.CallGraph.Methods);
     Console.WriteLine();
     Console.WriteLine($"Opaque-contract methods ({opaque.Length}): requires-unsafe with no pointer in the signature");
     Console.WriteLine("  (the obligation is visible only via the attribute / unsafe modifier, not the signature)");
@@ -126,7 +131,9 @@ static int RunUnsafeReport(string[] args)
     foreach (var entry in opaque)
         Console.WriteLine($"  [{entry.Mode}]  {MethodDisplay(entry.Method)}");
 
-    var hollow = index.HollowUnsafeMethods();
+    var hollow = HollowUnsafe.Collect(
+        execution.CallGraph.Methods,
+        safety.Evidence);
     Console.WriteLine();
     Console.WriteLine($"Hollow-unsafe methods ({hollow.Length}): requires-unsafe with no directly-visible unsafe operation");
     Console.WriteLine("  (an absence claim, never \"safe\" — an optimized-away pointer local can erase a real deref)");

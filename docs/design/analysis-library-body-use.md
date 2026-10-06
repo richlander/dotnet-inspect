@@ -200,7 +200,7 @@ peers, remove self relationships, rank Types, or aggregate evidence.
 
 The work is declared through
 [Producer Planning](producer-planning.md), not another
-`LibraryBodyAnalysisFeatures` path or `LibraryBodyIndex` projection.
+`LibraryBodyAnalysisFeatures` path or aggregate projection.
 
 The body-use producer is a method-definition producer. Its shipping consumer
 closes it with the Rows terminal. The scorecard also exercises its internal
@@ -219,7 +219,7 @@ Producer Planning closes dependencies and records participation. QuerySpace
 and source delegation own scheduling, collapse, and later acquisition
 pushdown. Graph owns structural execution over the admitted rows.
 
-Research's later Graph composition is a higher-tier completion requiring the
+Research's Graph composition is a higher-tier completion requiring the
 Metadata signature-use and Analysis body-use results. It does not reopen
 either image or repeat operand resolution.
 
@@ -275,7 +275,7 @@ the same semantics.
 
 ## Consumer boundary
 
-The future Research depth mode may consume the detached result and:
+The Research body Type-leverage pilot consumes the detached result and:
 
 - maps canonical Types to Graph nodes;
 - maps complete logical occurrences to typed Graph relationships;
@@ -289,9 +289,10 @@ repair incomplete evidence, infer identity from display text, or treat a
 missing relationship as an examined zero.
 
 The current Type structural-leverage surface mode does not acquire this
-body-use population. Adopting the depth mode requires separate cost and
-qualification evidence and must not silently change the meaning of the
-signature-only surface rankings.
+body-use population. The pilot has no CLI or Browser consumer and does not
+define automatic acquisition, transport, or cache behavior. Adopting the depth
+mode requires separate cost and qualification evidence and must not silently
+change the meaning of the signature-only surface rankings.
 
 The later QuerySpace adoption may push selected relationship demand into
 acquisition. It must preserve this closed-document result's identities,
@@ -348,6 +349,13 @@ scorecard excludes only the Planner execution receipt: an oracle cannot
 truthfully manufacture Producer Planning participation and work without
 invoking the Planner itself.
 
+The scorecard is end to end: timing begins before bounded Type-inventory
+admission and includes method traversal, body decoding, logical-owner
+attribution, operand binding, occurrence admission, diagnostics, and terminal
+closing. It never begins from pre-materialized occurrence rows. LINQ Count
+lazily enumerates each admitted per-method occurrence batch; Rows alone
+materializes the complete occurrence population.
+
 The scorecard runs four columns:
 
 - **Direct** is the existing explicit MethodDef traversal.
@@ -381,13 +389,22 @@ exact detail, including bounded or unsupported Type-inventory admission.
 
 NativeAOT is the only accepted timing. The report identifies the exact
 candidate, assets, source locations, pinned NLinq provenance, invocation,
-per-closing answer hashes, absolute medians, allocation, and ratios to NLinq.
-It runs the Roslyn fidelity assets and the body-use ECMA safety fixtures. A
-faster fair oracle is evidence for Planner improvement; the oracle is not
-burdened with unconsumed Planner work.
+per-closing answer hashes, terminal value, bodies and operands reached,
+absolute per-asset deltas to Planner, absolute medians, allocation,
+implementation ratios to Planner, and per-implementation terminal ratios to
+Count. Work shape precedes ratios so shared Analysis cost remains visible and
+the report cannot be read as a terminal-operator microbenchmark. It runs the
+Roslyn fidelity assets and the body-use ECMA safety fixtures. A faster fair
+oracle is evidence for Planner improvement; the oracle is not burdened with
+unconsumed Planner work.
 
-The four implementations and report live in
-[`BodyUseScorecard.cs`](../../tools/AnalysisHarness/BodyUseScorecard.cs).
+The four implementations and timing loop live in the stable
+[`BodyUseScorecardKernel`](../../tools/AnalysisHarness/BodyUseScorecardKernel.cs)
+assembly. The report host consumes its cells through
+[`BodyUseScorecard.cs`](../../tools/AnalysisHarness/BodyUseScorecard.cs), so
+report-only growth does not add methods to the timing-kernel assembly.
+The NativeAOT host supplies an explicit order for the measured call chain;
+the order names real kernel methods and does not use synthetic padding.
 NLinq traverses the shared
 [`MethodDefinitionRows`](../../tests/DotnetInspector.PerformanceOracles/MethodDefinitionRows.cs)
 source. Its exact upstream pin and checksums remain in
@@ -398,8 +415,8 @@ Publish and run the scorecard for the target RID:
 ```bash
 dotnet publish tools/BodyUseScorecard -c Release -r <rid> \
   -o artifacts/body-use-scorecard
-artifacts/body-use-scorecard/analysis-harness check <assembly>...
-artifacts/body-use-scorecard/analysis-harness time \
+artifacts/body-use-scorecard/body-use-scorecard check <assembly>...
+artifacts/body-use-scorecard/body-use-scorecard time \
   --rounds 6 --budget-ms 2000 --tsv <path> <assembly>...
 ```
 

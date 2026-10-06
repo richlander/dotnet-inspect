@@ -1,3 +1,4 @@
+import type { DataBarResult } from "./data-bar.ts";
 import type {
   BrowserLibraryApiDiffChange,
   BrowserLibraryApiDiffEndpoint,
@@ -45,6 +46,7 @@ interface LibraryApiDiffQuerySelection {
   readonly views: BrowserLibraryApiDiffRequest["views"];
   readonly typeNames: readonly string[];
   readonly memberTargetIdentities: readonly string[];
+  readonly predicate?: NonNullable<BrowserLibraryApiDiffRequest["predicate"]>;
 }
 
 interface LibraryApiDiffOperationInput {
@@ -83,6 +85,38 @@ export type LibraryApiDiffState =
       readonly input: LibraryApiDiffOperationInput;
       readonly error: string;
     };
+
+export interface LibraryApiDiffPresence {
+  readonly typeIdentifiers: ReadonlySet<string>;
+  readonly memberFingerprints: ReadonlySet<string>;
+}
+
+const emptyLibraryApiDiffPresence: LibraryApiDiffPresence = {
+  typeIdentifiers: new Set(),
+  memberFingerprints: new Set(),
+};
+
+export function libraryApiDiffPresence(
+  state: LibraryApiDiffState,
+): LibraryApiDiffPresence {
+  if (state.status !== "ready"
+    || state.result.kind !== "Succeeded"
+    || state.result.value === null) {
+    return emptyLibraryApiDiffPresence;
+  }
+
+  const typeIdentifiers = new Set<string>();
+  const memberFingerprints = new Set<string>();
+  for (const type of state.result.value.types) {
+    if (type.after !== null)
+      typeIdentifiers.add(type.after.identifier);
+    for (const member of type.members) {
+      if (member.after !== null)
+        memberFingerprints.add(member.after.fingerprint);
+    }
+  }
+  return { typeIdentifiers, memberFingerprints };
+}
 
 export interface LibraryApiDiffStateHost {
   libraryApiDiff: LibraryApiDiffState;
@@ -181,7 +215,20 @@ function sameQuery(
     && sameStrings(
       left.memberTargetIdentities,
       right.memberTargetIdentities,
-    );
+    )
+    && samePredicate(left.predicate, right.predicate);
+}
+
+function samePredicate(
+  left: LibraryApiDiffQuerySelection["predicate"],
+  right: LibraryApiDiffQuerySelection["predicate"],
+): boolean {
+  return left === right
+    || (left !== undefined
+      && right !== undefined
+      && left.key === right.key
+      && left.operator === right.operator
+      && left.value === right.value);
 }
 
 function stateMatchesSelection(
@@ -207,12 +254,45 @@ function stateMatchesSelection(
   });
 }
 
+export function libraryApiDiffDataBarResult(
+  state: LibraryApiDiffState,
+  selection: LibraryApiDiffSelection | null,
+): DataBarResult | null {
+  if (selection === null || state.status !== "ready"
+    || !stateMatchesSelection(state, selection)
+    || !sameQuery(effectiveQuery(selection), defaultQuery)
+    || state.result.kind !== "Succeeded" || state.result.value === null) {
+    return null;
+  }
+  const value = state.result.value;
+  if (!value.target.isComplete || !value.current.isComplete) return null;
+  const aggregate = value.aggregate;
+  const notices = state.result.inspection?.diagnostics.filter(
+    diagnostic => diagnostic.severity > 0,
+  ).length ?? 0;
+  return {
+    subject: value.libraryDisplay,
+    title: "Public API comparison",
+    context: `${value.target.version} → ${value.current.version}`,
+    facts: [
+      { value: aggregate.changedTypeCount, label: "changed Types" },
+      { value: aggregate.addedTypeCount, label: "added Types" },
+      { value: aggregate.removedTypeCount, label: "removed Types" },
+      { value: aggregate.changedMemberCount, label: "changed Members" },
+      { value: aggregate.breakingCount, label: "breaking" },
+      { value: aggregate.additiveCount, label: "additive" },
+      { value: aggregate.potentiallyBreakingCount, label: "potentially breaking" },
+    ],
+    ...(notices > 0 ? { qualification: `${notices} inspection ${notices === 1 ? "notice" : "notices"}` } : {}),
+  };
+}
+
 function createRequest(
   input: LibraryApiDiffOperationInput,
 ): BrowserLibraryApiDiffRequest {
   const query = effectiveInputQuery(input);
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     packageId: input.packageId,
     currentVersion: input.currentVersion,
     targetVersion: input.targetVersion,
@@ -223,6 +303,7 @@ function createRequest(
     views: query.views,
     typeNames: query.typeNames,
     memberTargetIdentities: query.memberTargetIdentities,
+    predicate: query.predicate ?? null,
   };
 }
 
@@ -257,6 +338,19 @@ function requireNullableString(value: unknown, description: string): void {
 function requireNullableInteger(value: unknown, description: string): void {
   if (value !== null && value !== undefined)
     requireInteger(value, description);
+}
+
+function validatePredicate(
+  value: unknown,
+  description: string,
+): void {
+  const predicate = requireRecord(value, description);
+  requireString(predicate.key, `${description}.key`);
+  requireEnum(predicate.operator, `${description}.operator`, [
+    "Contains",
+    "StartsWith",
+  ]);
+  requireString(predicate.value, `${description}.value`);
 }
 
 function requireStringArray(value: unknown, description: string): string[] {
@@ -768,6 +862,31 @@ function validateInspection(
     comparison.analyses,
     "Library API Diff comparison analyses",
   );
+  if (!Array.isArray(comparison.predicates))
+    throw new Error("Library API Diff comparison predicates must be an array.");
+  const predicates = comparison.predicates.map((candidate, index) => {
+    const predicate = requireRecord(
+      candidate,
+      `Library API Diff comparison predicates[${index}]`,
+    );
+    requireString(predicate.key, "Library API Diff predicate key");
+    requireString(predicate.operator, "Library API Diff predicate operator");
+    requireString(predicate.value, "Library API Diff predicate value");
+    return predicate;
+  });
+  const expectedPredicate = query.predicate;
+  if (predicates.length !== (expectedPredicate === undefined ? 0 : 1)
+    || (expectedPredicate !== undefined
+      && (predicates[0]?.key !== expectedPredicate.key
+        || predicates[0]?.operator
+          !== (expectedPredicate.operator === "Contains"
+            ? "contains"
+            : "starts-with")
+        || predicates[0]?.value !== expectedPredicate.value))) {
+    throw new Error(
+      "Library API Diff inspection predicate does not match its request.",
+    );
+  }
   if (comparison.surface !== query.surface
     || comparison.views !== query.views
     || !sameStrings(analyses, query.analyses)) {
@@ -846,14 +965,14 @@ function validateResult(
   input: LibraryApiDiffOperationInput,
 ): asserts result is BrowserLibraryApiDiffResult {
   const record = requireRecord(result, "Library API Diff result");
-  if (record.schemaVersion !== 2)
+  if (record.schemaVersion !== 3)
     throw new Error("Unsupported Library API Diff result schema.");
   const request = requireRecord(
     record.request,
     "Library API Diff result request",
   );
   const query = effectiveInputQuery(input);
-  if (request.schemaVersion !== 2
+  if (request.schemaVersion !== 3
     || request.packageId !== input.packageId
     || request.currentVersion !== input.currentVersion
     || request.targetVersion !== input.targetVersion
@@ -880,8 +999,25 @@ function validateResult(
     || !sameStrings(
       memberTargetIdentities,
       query.memberTargetIdentities,
-    )) {
+    )
+    || (request.predicate === null) !== (query.predicate === undefined)) {
     throw new Error("Library API Diff result does not match its request.");
+  }
+  if (request.predicate !== null) {
+    validatePredicate(
+      request.predicate,
+      "Library API Diff request predicate",
+    );
+    const predicate = requireRecord(
+      request.predicate,
+      "Library API Diff request predicate",
+    );
+    if (query.predicate === undefined
+      || predicate.key !== query.predicate.key
+      || predicate.operator !== query.predicate.operator
+      || predicate.value !== query.predicate.value) {
+      throw new Error("Library API Diff result predicate does not match its request.");
+    }
   }
   switch (record.kind) {
     case "Succeeded":
@@ -1308,6 +1444,7 @@ export type LibraryApiDiffSubject =
     };
 
 export interface LibraryApiDiffRenderOptions {
+  readonly resultSummaryInDataBar?: boolean;
   readonly subject?: LibraryApiDiffSubject;
   readonly subjectLabel?: string;
   // Exact current-side identities the Browser has joined to loaded Navigation
@@ -1317,6 +1454,7 @@ export interface LibraryApiDiffRenderOptions {
   readonly activatableMembers?: ReadonlySet<string>;
   readonly targetText?: string;
   readonly mode?: CompareMode;
+  readonly tools?: string;
   readonly memberDiffSection?: string;
 }
 
@@ -1386,8 +1524,9 @@ export function renderLibraryApiDiffChangeChips(
     )}</span>`).join("")}</span>`;
 }
 
-// One row per Metadata-issued compatibility change. The classification and
-// message come from the producer; the Browser never re-derives either.
+// One row per Metadata-issued compatibility change. The classification,
+// message, and changed values come from the producer; the Browser never
+// re-derives them or repeats producer taxonomy beside the explanation.
 function renderChangeRows(
   changes: readonly BrowserLibraryApiDiffChange[],
   escapeHtml: (value: unknown) => string,
@@ -1404,10 +1543,8 @@ function renderChangeRows(
     return `<li class="library-api-diff-change">
       <span class="library-api-diff-change-chip ${classificationClass(change.classification)}">${escapeHtml(classificationLabel(change.classification))}</span>
       <span class="library-api-diff-change-copy">
-        <strong>${escapeHtml(changeKindLabel(change.kind))}</strong>
-        <span>${escapeHtml(change.message)}</span>
+        <span class="library-api-diff-change-message">${escapeHtml(change.message)}</span>
         ${values}
-        <span class="library-api-diff-change-category">${escapeHtml(String(change.category))}</span>
       </span>
     </li>`;
   }).join("")}</ol>`;
@@ -1499,29 +1636,6 @@ function renderMemberRow(
   }</li>`;
 }
 
-function memberIdentityEvidence(
-  label: string,
-  identity: BrowserLibraryApiDiffMemberIdentity | null,
-  escapeHtml: (value: unknown) => string,
-): string {
-  if (identity === null) {
-    return `<section class="library-api-diff-endpoint">
-      <h2>${escapeHtml(label)}</h2>
-      <p class="library-api-diff-absent">Not present on this side.</p>
-    </section>`;
-  }
-  return `<section class="library-api-diff-endpoint">
-    <h2>${escapeHtml(label)}</h2>
-    <p><code>${escapeHtml(identity.display)}</code></p>
-    <dl>
-      <div><dt>Declaring type</dt><dd><code>${escapeHtml(identity.typeFullName)}</code></dd></div>
-      <div><dt>Stable selector</dt><dd><code>${escapeHtml(identity.stableSelector)}</code></dd></div>
-      <div><dt>Canonical signature</dt><dd><code>${escapeHtml(identity.canonicalSignature)}</code></dd></div>
-      <div><dt>Digest</dt><dd><code>${escapeHtml(identity.fingerprint)}</code></dd></div>
-    </dl>
-  </section>`;
-}
-
 function findType(
   value: BrowserLibraryApiDiffSucceeded,
   typeIdentifier: string,
@@ -1595,16 +1709,31 @@ interface DiffAnalysisOutcomePresentation {
 interface DiffAnalysisPresentationContent {
   readonly views: readonly string[];
   readonly outcomes: readonly DiffAnalysisOutcomePresentation[];
+  readonly transitions: readonly DiffAnalysisTransitionPresentation[];
+}
+
+interface DiffAnalysisTransitionPresentation {
+  readonly transition: string;
+  readonly finding: string;
+  readonly target: string;
+  readonly old: string;
+  readonly new: string;
+  readonly detail: string | null;
 }
 
 interface DiffSpecializedPresentation {
   readonly analysis: string;
   readonly view: string;
-  readonly kind: "library-api";
+  readonly kind: "library-api" | "string-literals";
 }
 
 const diffPresentationRegistry: readonly DiffSpecializedPresentation[] = [
   { analysis: "api", view: "Changes", kind: "library-api" },
+  {
+    analysis: "string-literals",
+    view: "Transitions",
+    kind: "string-literals",
+  },
 ];
 
 function analysisTitle(analysis: string): string {
@@ -1648,11 +1777,120 @@ function diffPresentationContent(
       detail: candidate.detail ?? null,
     });
   }
+  const transitions: DiffAnalysisTransitionPresentation[] = [];
+  if (content.transitions !== null && content.transitions !== undefined) {
+    if (!Array.isArray(content.transitions)) return null;
+    for (const candidate of content.transitions) {
+      if (!isRecord(candidate)
+        || typeof candidate.transition !== "string"
+        || typeof candidate.finding !== "string"
+        || typeof candidate.target !== "string"
+        || typeof candidate.old !== "string"
+        || typeof candidate.new !== "string"
+        || (candidate.detail !== null
+          && candidate.detail !== undefined
+          && typeof candidate.detail !== "string")) {
+        return null;
+      }
+      transitions.push({
+        transition: candidate.transition,
+        finding: candidate.finding,
+        target: candidate.target,
+        old: candidate.old,
+        new: candidate.new,
+        detail: candidate.detail ?? null,
+      });
+    }
+  }
   return {
     views: comparison.views.split(",")
       .map(view => view.trim())
       .filter(Boolean),
     outcomes,
+    transitions,
+  };
+}
+
+function renderStringLiteralPresentation(
+  result: BrowserLibraryApiDiffResult,
+  escapeHtml: (value: unknown) => string,
+): RenderedContent | null {
+  const content = diffPresentationContent(result);
+  if (content === null
+    || !content.views.includes("Transitions")
+    || !content.outcomes.some(outcome =>
+      outcome.analysis === "string-literals"
+      && outcome.kind === "Compared")) {
+    return null;
+  }
+  const literalRows = content.transitions.filter(
+    row => row.finding === "analysis.string-literal-use",
+  );
+  const failures = literalRows.filter(
+    row => row.transition === "FindingComparison.Failed",
+  );
+  const rows = literalRows.filter(
+    row => row.transition !== "FindingComparison.Failed",
+  );
+  if (rows.length === 0 && failures.length === 0) {
+    return {
+      status: "Comparison complete. No matching string literals.",
+      content: renderCompareEmpty(
+        "No matching string literals",
+        "Neither Library contains a literal matching this predicate.",
+        escapeHtml,
+      ),
+    };
+  }
+  const renderValue = (label: string, value: string): string =>
+    `<section class="string-literal-diff-value">
+      <span>${escapeHtml(label)}</span>
+      <pre><code>${escapeHtml(value)}</code></pre>
+    </section>`;
+  const renderedRows = rows.map(row => {
+    const transition = row.transition.startsWith("PairFinding.")
+      ? row.transition.slice("PairFinding.".length)
+      : row.transition;
+    const values = transition === "Added"
+      ? renderValue("Current", row.new)
+      : transition === "Removed"
+        ? renderValue("Target", row.old)
+        : row.old === row.new
+          ? renderValue("Both", row.old)
+          : `${renderValue("Target", row.old)}${renderValue("Current", row.new)}`;
+    return `<li class="string-literal-diff-row" data-transition="${attributeText(transition, escapeHtml)}">
+      <header>
+        <span class="library-api-diff-state library-api-diff-state-${transition.toLowerCase()}">${escapeHtml(transition)}</span>
+        <span>${escapeHtml(row.target)}</span>
+      </header>
+      <div class="string-literal-diff-values">${values}</div>
+    </li>`;
+  }).join("");
+  const failureNotice = failures.length === 0
+    ? ""
+    : `<section class="diff-analysis-notices" aria-labelledby="string-literal-diff-failures-title">
+      <h2 id="string-literal-diff-failures-title">String literal inspection incomplete</h2>
+      <ul>${failures.map(row => `<li>
+        <strong>${escapeHtml(row.target)}</strong>
+        <span>${escapeHtml(
+          row.detail
+            ?? `Target inspection ${row.old}; current inspection ${row.new}.`,
+        )}</span>
+      </li>`).join("")}</ul>
+    </section>`;
+  const literalList = rows.length === 0
+    ? ""
+    : `<ol class="string-literal-diff-rows" aria-label="Matching string literals">${renderedRows}</ol>`;
+  const matchCount = `${rows.length.toLocaleString()} matching ${
+    rows.length === 1 ? "literal" : "literals"
+  }`;
+  return {
+    status: failures.length === 0
+      ? `Comparison complete. ${matchCount}.`
+      : `Comparison incomplete. ${matchCount}; ${failures.length.toLocaleString()} literal inspection ${
+        failures.length === 1 ? "failure" : "failures"
+      }.`,
+    content: `${failureNotice}${literalList}`,
   };
 }
 
@@ -1663,39 +1901,30 @@ function renderDiffAnalysisPresentation(
 ): string {
   const content = diffPresentationContent(result);
   if (content === null) return specializedContent;
-  const outcomes = content.outcomes.map(outcome => {
-    const detail = outcome.detail === null
-      ? outcome.kind === "Compared"
-        ? `${outcome.findings.length.toLocaleString()} Finding ${
-          outcome.findings.length === 1 ? "kind" : "kinds"
-        }`
-        : ""
-      : outcome.detail;
-    return `<li class="diff-analysis-outcome diff-analysis-outcome-${outcome.kind.toLowerCase()}" data-diff-analysis="${attributeText(outcome.analysis, escapeHtml)}">
-      <span class="diff-analysis-name">${escapeHtml(analysisTitle(outcome.analysis))}</span>
-      <strong>${escapeHtml(outcome.kind)}</strong>
-      ${detail === "" ? "" : `<span>${escapeHtml(detail)}</span>`}
-    </li>`;
-  }).join("");
-  const views = content.views.map(view =>
-    `<span class="diff-analysis-view">${escapeHtml(view)}</span>`).join("");
+  const isRegistered = (outcome: DiffAnalysisOutcomePresentation): boolean =>
+    diffPresentationRegistry.some(registration =>
+      registration.analysis === outcome.analysis
+      && content.views.includes(registration.view));
   const hasRegisteredPresentation = diffPresentationRegistry.some(registration =>
-      registration.kind === "library-api"
-      && content.views.includes(registration.view)
+      content.views.includes(registration.view)
       && content.outcomes.some(outcome =>
         outcome.analysis === registration.analysis
         && outcome.kind === "Compared"));
   const specialized = result.kind !== "Succeeded" || hasRegisteredPresentation
     ? specializedContent
     : "";
-  return `<section class="diff-analysis-presentation" aria-labelledby="diff-analysis-title">
-    <header>
-      <h2 id="diff-analysis-title">Diff analyses</h2>
-      <div class="diff-analysis-views" aria-label="Selected Diff views">${views}</div>
-    </header>
-    <ol class="diff-analysis-outcomes">${outcomes}</ol>
-  </section>
-  ${specialized}`;
+  const notices = content.outcomes.filter(outcome =>
+    outcome.kind === "Failed"
+    || (outcome.kind === "Unavailable" && isRegistered(outcome)));
+  if (notices.length === 0) return specialized;
+  return `${specialized}
+  <section class="diff-analysis-notices" aria-labelledby="diff-analysis-notices-title">
+    <h2 id="diff-analysis-notices-title">Comparison notices</h2>
+    <ul>${notices.map(outcome => `<li data-diff-analysis="${attributeText(outcome.analysis, escapeHtml)}">
+      <strong>${escapeHtml(analysisTitle(outcome.analysis))} ${escapeHtml(outcome.kind.toLowerCase())}</strong>
+      ${outcome.detail === null ? "" : `<span>${escapeHtml(outcome.detail)}</span>`}
+    </li>`).join("")}</ul>
+  </section>`;
 }
 
 function renderLibrarySubject(
@@ -1717,7 +1946,7 @@ function renderLibrarySubject(
   ].filter(Boolean);
   if (value.types.length === 0) {
     return {
-      status: "Comparison complete. No changed Types.",
+      status: options.resultSummaryInDataBar ? "" : "Comparison complete. No changed Types.",
       content: renderCompareEmpty(
         "No public API changes",
         "The selected Library is unchanged between these versions.",
@@ -1726,9 +1955,11 @@ function renderLibrarySubject(
     };
   }
   return {
-    status: `Comparison complete. ${aggregate.changedTypeCount.toLocaleString()} changed Types.`,
-    content: `<div class="library-api-diff-metrics">${metrics.map(metric =>
-      `<span>${escapeHtml(metric)}</span>`).join("")}</div>
+    status: options.resultSummaryInDataBar
+      ? "" : `Comparison complete. ${aggregate.changedTypeCount.toLocaleString()} changed Types.`,
+    content: `${options.resultSummaryInDataBar ? ""
+      : `<div class="library-api-diff-metrics">${metrics.map(metric =>
+        `<span>${escapeHtml(metric)}</span>`).join("")}</div>`}
       <ol class="library-api-diff-types" aria-label="Changed Types">${value.types.map(type =>
         renderTypeRow(type, escapeHtml, options.activatableTypes)).join("")}</ol>`,
   };
@@ -1821,23 +2052,14 @@ function renderMemberSubject(
       ),
     };
   }
-  const classification = [
-    `${libraryApiDiffMemberStateLabel(member)} Member`,
-    `Relation ${String(member.role)}`,
-    ...member.changes.map(change =>
-      `${classificationLabel(change.classification)} · ${changeKindLabel(change.kind)}`),
-    type.typeDefinitionChanged === true ? "Type definition changed" : "",
-  ].filter(Boolean);
   const counterpart = counterpartType(member);
-  const correspondence = [
-    matchText(member),
+  const correspondence =
     counterpart !== null && member.before !== null && member.after !== null
       ? `Moved from ${member.before.typeFullName} to ${member.after.typeFullName}`
-      : "",
-  ].filter(Boolean);
-  const correspondenceHtml = correspondence.length === 0
+      : "";
+  const correspondenceHtml = correspondence === ""
     ? ""
-    : `<p class="library-api-diff-note library-api-diff-correspondence">${correspondence.map(escapeHtml).join(" · ")}</p>`;
+    : `<p class="library-api-diff-note library-api-diff-correspondence">${escapeHtml(correspondence)}</p>`;
   const changes = renderLibraryApiDiffMemberChanges(
     type,
     member,
@@ -1845,22 +2067,16 @@ function renderMemberSubject(
   );
   return {
     status: `Comparison complete. Member ${libraryApiDiffMemberStateLabel(member).toLowerCase()}.`,
-    content: `<div class="library-api-diff-metrics">${classification.map(metric =>
-      `<span>${escapeHtml(metric)}</span>`).join("")}</div>
-      ${correspondenceHtml}
+    content: `${correspondenceHtml}
       <section class="library-api-diff-change-section" aria-labelledby="library-api-diff-changes-title">
         <h2 id="library-api-diff-changes-title">What changed</h2>
         ${changes}
       </section>
-      <div class="library-api-diff-member-detail">
-        ${memberIdentityEvidence("Before", member.before, escapeHtml)}
-        ${memberIdentityEvidence("After", member.after, escapeHtml)}
-      </div>
       ${options.memberDiffSection ?? ""}`,
   };
 }
 
-export function renderLibraryApiDiffMemberChanges(
+function renderLibraryApiDiffMemberChanges(
   type: BrowserLibraryApiDiffType,
   member: BrowserLibraryApiDiffMember,
   escapeHtml: (value: unknown) => string,
@@ -1922,6 +2138,7 @@ function frame(
     targetText: target,
     status: rendered.status,
     content: rendered.content,
+    ...(options.tools === undefined ? {} : { tools: options.tools }),
     escapeHtml,
   });
 }
@@ -1981,7 +2198,8 @@ export function renderLibraryApiDiff(
   }
 
   const { input, result } = state;
-  const diagnostics = result.inspection?.diagnostics ?? [];
+  const diagnostics = (result.inspection?.diagnostics ?? [])
+    .filter(diagnostic => diagnostic.code !== "diff-analysis.unavailable");
   const diagnosticHtml = diagnostics.length === 0 ? "" :
     `<details class="library-api-diff-evidence">
       <summary>Inspection diagnostics (${diagnostics.length})</summary>
@@ -1994,6 +2212,25 @@ export function renderLibraryApiDiff(
               : ` (${diagnostic.correspondence})`}`,
         )}</li>`).join("")}</ul>
     </details>`;
+  const stringLiterals = renderStringLiteralPresentation(
+    result,
+    escapeHtml,
+  );
+  if (stringLiterals !== null) {
+    return frame(
+      input,
+      {
+        status: stringLiterals.status,
+        content: renderDiffAnalysisPresentation(
+          result,
+          stringLiterals.content,
+          escapeHtml,
+        ) + diagnosticHtml,
+      },
+      escapeHtml,
+      options,
+    );
+  }
   switch (result.kind) {
     case "Succeeded": {
       const value = result.value;

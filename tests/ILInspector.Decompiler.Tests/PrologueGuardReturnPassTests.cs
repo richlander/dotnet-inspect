@@ -76,7 +76,7 @@ public class PrologueGuardReturnPassTests
         Assert.Contains(function.Body.Blocks, b => b.StartOffset == 0x0018);
         Assert.NotEmpty(function.Descendants.OfType<Leave>());
 
-        var output = CSharpPrinter.Print(function).Output!;
+        var output = DecidedPrint.Print(function).Output!;
         Assert.Contains("if (V_0 is not null)", output);
         Assert.DoesNotContain("goto", output.Split("if (V_0 is not null)")[0]);
     }

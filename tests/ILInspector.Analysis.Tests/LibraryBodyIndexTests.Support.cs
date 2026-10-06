@@ -360,7 +360,7 @@ public partial class LibraryBodyIndexTests
         return image.ToArray();
     }
 
-    static LibraryBodyIndex OpenMemorySafetyContractImage(
+    static LibraryBodyAnalysisExecution OpenMemorySafetyContractImage(
         params int?[] moduleMarkers)
     {
         string path = Path.Combine(
@@ -371,9 +371,10 @@ public partial class LibraryBodyIndexTests
             File.WriteAllBytes(
                 path,
                 BuildMemorySafetyContractImage(moduleMarkers));
-            return LibraryBodyIndex.Open(
+            return LibraryBodyAnalysisService.ExecutePath(
                 path,
-                LibraryBodyAnalysisFeatures.MethodEvidence);
+                LibraryBodyAnalysisRequest.Create(
+                    LibraryBodyAnalysisFeatures.MethodEvidence));
         }
         finally
         {

@@ -191,7 +191,7 @@ public sealed class CapabilityCatalogSearchTests
                 .Content;
 
         Assert.Equal(
-            ResourceExplanationResourceKind.HostNeutralRoute,
+            CapabilityCatalogSearchResourceKind.HostNeutralRoute,
             executable.ResourceKind);
         Assert.Equal(
             PackageQueryCapability.Route.Descriptor.Identity,
@@ -203,7 +203,7 @@ public sealed class CapabilityCatalogSearchTests
             production.Results,
             static result =>
                 result.ResourceKind
-                    == ResourceExplanationResourceKind.ConsumerBinding);
+                    == CapabilityCatalogSearchResourceKind.ConsumerBinding);
     }
 
     [Fact]
@@ -225,7 +225,7 @@ public sealed class CapabilityCatalogSearchTests
                 .Results
                 .Where(static result =>
                     result.ResourceKind
-                        == ResourceExplanationResourceKind
+                        == CapabilityCatalogSearchResourceKind
                             .InspectionDocument),
         ];
 
@@ -281,7 +281,7 @@ public sealed class CapabilityCatalogSearchTests
                 .Results
                 .Where(static result =>
                     result.ResourceKind
-                        == ResourceExplanationResourceKind
+                        == CapabilityCatalogSearchResourceKind
                             .InspectionDocument),
         ];
 
@@ -391,10 +391,10 @@ public sealed class CapabilityCatalogSearchTests
 
         var resolved = Assert.IsType<ResourcePathResolution.Resolved>(
             explanation.Resolve(result.ResourcePath));
-        var identity =
-            Assert.IsType<ResourceExplanationIdentity.Capability>(
-                resolved.Identity);
-        Assert.Equal(result.ResourceIdentity, identity.Resource);
+        Assert.Equal(
+            explanation.Resources.Single(resource =>
+                resource.Path!.Value == result.ResourcePath).Key,
+            resolved.Key);
     }
 
     [Theory]

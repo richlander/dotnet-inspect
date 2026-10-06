@@ -1,10 +1,12 @@
 using System.Net;
 using System.Text.Json;
 
+using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Sections;
+using DotnetInspect.Cli.Services;
 using DotnetInspect.Cli.Views;
 using DotnetInspector.Fixtures;
 using DotnetInspector.Packages;
@@ -137,6 +139,91 @@ public sealed class InspectionGraphCommandTests
     }
 
     [Fact]
+    public void PackagesCommand_ExposesExactPairWithoutTraversal()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(
+            [
+                "graph",
+                "packages",
+                "--package",
+                "Package.A@1.0.0",
+                "--package",
+                "Package.B@2.0.0",
+                "--tfm",
+                "net10.0",
+            ]);
+
+        Assert.Empty(result.Errors);
+        Assert.DoesNotContain(
+            result.CommandResult.Command.Options,
+            option => option.Name is "--depth"
+                or "--direction"
+                or "--relationship"
+                or "--root-package");
+        Assert.Contains(
+            result.CommandResult.Command.Options,
+            option => option.Aliases.Contains("--select"));
+        Assert.Contains(
+            result.CommandResult.Command.Options,
+            option => option.Name == "--jsonl");
+    }
+
+    [Fact]
+    public async Task PackagesCommand_DiscoversSharedSectionsWithoutAcquisition()
+    {
+        var captured = await RunCliAsync(
+            "graph",
+            "packages",
+            "-D");
+
+        Assert.Equal(0, captured.ExitCode);
+        Assert.Contains(
+            PackagePairCallUseCommand.DirectUseClustersSection,
+            captured.Output);
+        Assert.Contains(
+            PackagePairCallUseCommand.LibraryPairsSection,
+            captured.Output);
+        Assert.Contains(
+            PackagePairCallUseCommand.CallSitesSection,
+            captured.Output);
+    }
+
+    [Fact]
+    public async Task PackagesCommand_AppliesColumnAndFieldProjections()
+    {
+        Execution table = await ExecutePackagePairAsync(
+            OutputFormat.Table,
+            columns: ["Cluster"]);
+
+        Assert.Equal(0, table.ExitCode);
+        Assert.Contains("Cluster", table.Output);
+        Assert.DoesNotContain("Library Pair", table.Output);
+        Assert.DoesNotContain("Source Package", table.Output);
+
+        Execution json = await ExecutePackagePairAsync(
+            OutputFormat.Json,
+            fields: ["Cluster"]);
+
+        Assert.Equal(0, json.ExitCode);
+        using JsonDocument parsed = JsonDocument.Parse(json.Output);
+        JsonElement[] rows =
+        [
+            .. parsed.RootElement
+                .GetProperty("direct_use_clusters")
+                .EnumerateArray(),
+        ];
+        Assert.NotEmpty(rows);
+        Assert.All(
+            rows,
+            static row =>
+                Assert.Equal(
+                    ["cluster"],
+                    row.EnumerateObject()
+                        .Select(static property => property.Name)
+                        .ToArray()));
+    }
+
+    [Fact]
     public void ClusterCommand_ExposesFocusedPairWithoutTraversal()
     {
         var result = CommandLineBuilder.CreateRootCommand().Parse(
@@ -169,6 +256,129 @@ public sealed class InspectionGraphCommandTests
             result.CommandResult.Command.Options,
             option => option.Name == "--fields");
         Assert.Single(result.CommandResult.Command.Arguments);
+    }
+
+    [Fact]
+    public void ClusterCommand_AcceptsExactPackagePair()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(
+            [
+                "graph",
+                "cluster",
+                "1",
+                "--package",
+                "Package.A@1.0.0",
+                "--package",
+                "Package.B@2.0.0",
+                "--tfm",
+                "net10.0",
+            ]);
+
+        Assert.Empty(result.Errors);
+        Assert.Contains(
+            result.CommandResult.Command.Options,
+            option => option.Name == "--package");
+        Assert.Contains(
+            result.CommandResult.Command.Options,
+            option => option.Name == "--tfm");
+    }
+
+    [Fact]
+    public async Task ClusterCommand_AppliesParsedPackageProjections()
+    {
+        var store = new InMemoryPackageStore();
+        string sourceKey = NuGetCache.GetSourceKey(Source.Url);
+        await CommitAsync(
+            PackageId,
+            FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
+        await CommitAsync(
+            OtherPackageId,
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
+        using var client = new HttpClient(new FailingHandler());
+        WorkspaceContextLoadOptions loadOptions = new()
+        {
+            HttpClient = client,
+            SourceAuthorization =
+                new UniformPackageSourceAuthorization([Source]),
+            PackageStore = store,
+            IncludePackageRootBindings = true,
+        };
+
+        var table = await ExecuteAsync(
+            "--table",
+            "--columns",
+            "Cluster");
+        Assert.True(table.ExitCode == 0, table.Error);
+        Assert.Equal(
+            ["Cluster", "1"],
+            table.Output.Split(
+                Environment.NewLine,
+                StringSplitOptions.RemoveEmptyEntries));
+
+        var json = await ExecuteAsync(
+            "--json",
+            "--fields",
+            "Cluster");
+        Assert.True(json.ExitCode == 0, json.Error);
+        using JsonDocument parsed = JsonDocument.Parse(json.Output);
+        JsonElement row = Assert.Single(
+            parsed.RootElement
+                .GetProperty("call_sites")
+                .EnumerateArray());
+        Assert.Equal(
+            ["cluster"],
+            row.EnumerateObject()
+                .Select(static property => property.Name)
+                .ToArray());
+
+        Assert.Empty(table.Error);
+        Assert.Empty(json.Error);
+
+        Task<(int ExitCode, string Output, string Error)> ExecuteAsync(
+            params string[] projection) =>
+            ConsoleCapture.RunAsync(
+                () =>
+                {
+                    var root = new System.CommandLine.RootCommand();
+                    root.Subcommands.Add(
+                        InspectionGraphCommandDefinitions
+                            .CreateGraphCommand(
+                                new SharedOptions(),
+                                loadOptions));
+                    return root.Parse(
+                        [
+                            "graph",
+                            "cluster",
+                            "1",
+                            "--package",
+                            $"{PackageId}@{Version}",
+                            "--package",
+                            $"{OtherPackageId}@{Version}",
+                            "--tfm",
+                            Framework,
+                            .. projection,
+                        ])
+                        .InvokeAsync();
+                });
+
+        async Task CommitAsync(
+            string packageId,
+            string assemblyPath)
+        {
+            byte[] package = SnupkgPdbReaderTests.MakeSnupkg(
+                ($"{packageId}.nuspec", "<package />"u8.ToArray()),
+                ($"lib/{Framework}/{Path.GetFileName(assemblyPath)}",
+                    await File.ReadAllBytesAsync(
+                        assemblyPath,
+                        TestContext.Current.CancellationToken)));
+            using var stream = new MemoryStream(package);
+            await store.CommitAsync(
+                packageId,
+                Version,
+                sourceKey,
+                stream,
+                TestContext.Current.CancellationToken);
+        }
     }
 
     [Fact]
@@ -1365,7 +1575,7 @@ public sealed class InspectionGraphCommandTests
         var presentation =
             await Counts("DotnetInspector.Presentation.dll");
         Assert.Equal(
-            (52, 15, 8, 1508),
+            (55, 16, 8, 1517),
             presentation);
 
         var metadataRendering =
@@ -3253,6 +3463,70 @@ public sealed class InspectionGraphCommandTests
             captured.ExitCode,
             captured.Output,
             captured.Error);
+    }
+
+    static async Task<Execution> ExecutePackagePairAsync(
+        OutputFormat format,
+        string[]? columns = null,
+        string[]? fields = null)
+    {
+        var store = new InMemoryPackageStore();
+        string sourceKey = NuGetCache.GetSourceKey(Source.Url);
+        await CommitAsync(
+            PackageId,
+            FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
+        await CommitAsync(
+            OtherPackageId,
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
+
+        using var client = new HttpClient(new FailingHandler());
+        WorkspaceContextLoadOptions loadOptions = new()
+        {
+            HttpClient = client,
+            SourceAuthorization =
+                new UniformPackageSourceAuthorization([Source]),
+            PackageStore = store,
+            IncludePackageRootBindings = true,
+        };
+        var captured = await ConsoleCapture.RunAsync(
+            () => PackagePairCallUseCommand.ExecuteAsync(
+                new PackagePairCallUseOptions
+                {
+                    Packages =
+                    [
+                        $"{PackageId}@{Version}",
+                        $"{OtherPackageId}@{Version}",
+                    ],
+                    TargetFramework = Framework,
+                    Format = format,
+                    Columns = columns,
+                    Fields = fields,
+                },
+                loadOptions,
+                TestContext.Current.CancellationToken));
+        return new Execution(
+            captured.ExitCode,
+            captured.Output,
+            captured.Error);
+
+        async Task CommitAsync(
+            string packageId,
+            string assemblyPath)
+        {
+            byte[] package = SnupkgPdbReaderTests.MakeSnupkg(
+                ($"{packageId}.nuspec", "<package />"u8.ToArray()),
+                ($"lib/{Framework}/{Path.GetFileName(assemblyPath)}",
+                    await File.ReadAllBytesAsync(
+                        assemblyPath,
+                        TestContext.Current.CancellationToken)));
+            using var stream = new MemoryStream(package);
+            await store.CommitAsync(
+                packageId,
+                Version,
+                sourceKey,
+                stream,
+                TestContext.Current.CancellationToken);
+        }
     }
 
     static Task<(int ExitCode, string Output, string Error)> RunCliAsync(

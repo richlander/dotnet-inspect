@@ -4,16 +4,45 @@ import type { BrowserTypeMetadata } from "./facades/inspect-web-metadata.d.ts";
 import { typeGraphLegendHtml } from "./graph-legends.ts";
 import type { KeybindingRegistry } from "./keybinding-registry.ts";
 import {
+  memberSourceView,
   typeSourceView,
+  type MemberSourceView,
   type SourceResultState,
   type TypeSourceView,
 } from "./source-inspection.ts";
 import { WORKBENCH_KEYBINDING_PRIORITY } from "./workbench-keybindings.ts";
 import { isForwardedType, type TypeInventoryRow } from "./platform-forwarders.ts";
-import type { TypeLeveragePole } from "./type-leverage.ts";
+import {
+  itemAchievementClassNames,
+  renderItemAchievementRail,
+  type ItemAchievement,
+} from "./item-achievements.ts";
 
 export const TYPE_RELATIONSHIPS_GRAPH_SUMMARY =
   "base · interfaces · derived — select a highlighted node to open";
+
+export type TypeAccessibilitySelectionMode = "all" | "exact";
+
+export function normalizeTypeAccessibilityFilter(
+  selected: ReadonlySet<string>,
+  bucketIds: readonly string[],
+  mode: TypeAccessibilitySelectionMode,
+) {
+  if (mode === "all") return new Set(bucketIds);
+  const admitted = bucketIds.filter(id => selected.has(id));
+  const exact = admitted[0];
+  if (exact === undefined) return new Set(selected);
+  return new Set([exact]);
+}
+
+export function shouldRestoreTypeAccessibilitySelection(
+  capturedMode: TypeAccessibilitySelectionMode,
+  capturedGeneration: number,
+  currentGeneration: number,
+) {
+  return capturedMode === "all"
+    && capturedGeneration === currentGeneration;
+}
 
 const EXACT_TYPE_NOT_FOUND = 1;
 const EXACT_TYPE_AMBIGUOUS = 2;
@@ -45,12 +74,15 @@ export interface TypeSummary {
   members: number;
   accessibility?: string;
   assembly: string;
+  assemblyId?: string;
   definitionId?: string;
   platformPack?: string | null;
 }
 
 export interface MemberOverloadSummary {
   signature: string;
+  stableSelector?: string | null;
+  anchorDigest?: string | null;
   graphOnly?: boolean;
   parameters?: readonly OverloadLabelParameter[];
   returnType?: string | null;
@@ -191,14 +223,26 @@ export interface MemberGroup {
   overloads: readonly MemberOverloadSummary[];
   completeCount?: number;
   completeCountStatus?: "available" | "pending" | "failed";
+  sourceOverloadCount?: number;
+}
+
+export function memberGroupUsesFamilySurface(
+  group: {
+    readonly overloads: readonly unknown[];
+    readonly sourceOverloadCount?: number;
+  } | null | undefined,
+): boolean {
+  return (group?.overloads.length ?? 0) > 1;
 }
 
 export function familyOutsideMarkerHtml(
   group: MemberGroup,
   selectedAccessibility: string,
   escapeHtml: EscapeHtml,
+  overloadFilterActive = false,
 ): string {
   if (group.overloads.some(overload => overload.graphOnly)) return "";
+  if (overloadFilterActive) return "";
   const completeCountStatus = group.completeCountStatus
     ?? (group.completeCount == null ? "pending" : "available");
   if (completeCountStatus === "failed") {
@@ -270,17 +314,21 @@ export interface MemberSourcePartSelector {
 
 export function createMemberSourcePartSelector(): MemberSourcePartSelector {
   let selectedSignature = "";
-  let selectedPart: MemberSourcePartSelection = "Member";
+  let selectedPart: MemberSourcePartSelection = "Declaration";
   return {
     current(signature, source) {
       if (selectedSignature !== signature) {
         selectedSignature = signature;
-        selectedPart = "Member";
+        selectedPart = "Declaration";
       }
       if (source !== null
+        && source.parts.some(part => part.spans.length > 0)
         && !source.parts.some(
           part => part.kind === selectedPart && part.spans.length > 0)) {
-        selectedPart = "Member";
+        selectedPart = source.parts.some(
+          part => part.kind === "Declaration" && part.spans.length > 0)
+          ? "Declaration"
+          : "Member";
       }
       return selectedPart;
     },
@@ -304,14 +352,15 @@ export interface TypePanelBindingActions {
     anchor: "selector" | "digest" | "canonical" | undefined,
   ) => void;
   onCopyMemberSource: () => void;
+  onMemberSourceViewSelect: (view: MemberSourceView) => void;
   onMemberSourcePartSelect: (part: MemberSourcePartSelection) => void;
   onCopySignature: () => void;
   onCopyTypeSource: () => void;
   onTypeSourceViewSelect: (view: TypeSourceView) => void;
   onExploreSource: () => void;
   onKindSelect: (kind: string) => void;
-  onTypeLeverageActivate?: () => void;
-  onTypeLeverageFilterSelect?: (filter: string) => void;
+  onTypeAccessibilitySelect: (accessibility: string) => void;
+  onTypeTraitSelect: (trait: string) => void;
   onTypeLeverageRetry: () => void;
   onTypeNavBack: () => void;
   onListKeyDown: (event: KeyboardEvent) => boolean;
@@ -327,6 +376,7 @@ export interface TypePanelBindingActions {
   onMemberFilterKeyDown: (event: KeyboardEvent, value: string) => boolean;
   onMemberGroupOpen: (memberKey: string) => void;
   onMemberKindFilterSelect: (kind: string | undefined) => void;
+  onMethodLeverageRetry: () => void;
   onMemberOverloadOpen: (index: number) => void;
   onMemberSelect: (memberKey: string | undefined) => void;
   onMemberTraitFilterSelect: (trait: string | undefined) => void;
@@ -352,22 +402,24 @@ export function bindTypePanel(
     button.addEventListener(
       "click",
       () => actions.onNamespaceSelect(button.dataset.namespace ?? "")));
-  root.querySelectorAll<HTMLElement>("[data-kind-filter]").forEach(button =>
-    button.addEventListener(
-      "click",
-      () => actions.onKindSelect(button.dataset.kindFilter ?? "")));
-  root.querySelector("[data-type-leverage-activate]")?.addEventListener(
-    "click",
-    () => actions.onTypeLeverageActivate?.());
+  root.querySelectorAll<HTMLSelectElement>("[data-type-kind-filter]")
+    .forEach(select =>
+      select.addEventListener(
+        "change",
+        () => actions.onKindSelect(select.value)));
+  root.querySelectorAll<HTMLSelectElement>("[data-type-access-filter]")
+    .forEach(select =>
+      select.addEventListener(
+        "change",
+        () => actions.onTypeAccessibilitySelect(select.value)));
+  root.querySelectorAll<HTMLSelectElement>("[data-type-trait-filter]")
+    .forEach(select =>
+      select.addEventListener(
+        "change",
+        () => actions.onTypeTraitSelect(select.value)));
   root.querySelector("[data-type-leverage-retry]")?.addEventListener(
     "click",
     actions.onTypeLeverageRetry);
-  root.querySelectorAll<HTMLElement>("[data-type-leverage-filter]")
-    .forEach(button =>
-      button.addEventListener(
-        "click",
-        () => actions.onTypeLeverageFilterSelect?.(
-          button.dataset.typeLeverageFilter ?? "")));
   root.querySelector("[data-type-nav-back]")?.addEventListener(
     "click",
     actions.onTypeNavBack);
@@ -410,6 +462,9 @@ export function bindTypePanel(
       select.addEventListener(
         "change",
         () => actions.onMemberKindFilterSelect(select.value)));
+  root.querySelector("[data-method-leverage-retry]")?.addEventListener(
+    "click",
+    actions.onMethodLeverageRetry);
   root.querySelectorAll<HTMLSelectElement>("[data-member-access-filter]")
     .forEach(select =>
       select.addEventListener(
@@ -452,6 +507,11 @@ export function bindTypePanel(
   root.querySelector("#copy-source")?.addEventListener(
     "click",
     actions.onCopyMemberSource);
+  root.querySelectorAll<HTMLElement>("[data-member-source-view]")
+    .forEach(button => button.addEventListener("click", () => {
+      const view = memberSourceView(button.dataset.memberSourceView ?? "");
+      if (view !== null) actions.onMemberSourceViewSelect(view);
+    }));
   const memberSourcePart =
     root.querySelector<HTMLSelectElement>("#member-source-part");
   memberSourcePart?.addEventListener("change", () => {
@@ -552,12 +612,14 @@ export interface TypeNavOptions {
   typeFilter: string;
   namespaceFilter: string;
   kindFilter: string;
+  accessibilityFilter: string;
+  traitFilter: string;
   namespaceCount: number;
   namespaceOptionsHtml: string;
   namespaceSelectionValue?: (exactNamespace: string) => string;
-  kindFilters: readonly string[];
-  accessibilityControlHtml: string;
-  leverageControlHtml?: string;
+  kindOptions: readonly TypeSelectorOption[];
+  accessibilityOptions: readonly TypeSelectorOption[];
+  traitOptions: readonly TypeSelectorOption[];
   library: string;
   parentSubject: "package" | "platform" | "library" | null;
   filtersExpanded: boolean;
@@ -566,10 +628,18 @@ export interface TypeNavOptions {
   typeDisplayName: (item: TypeInventoryRow) => string;
   typeLibraryLabel: (item: TypeInventoryRow) => string;
   kindIcon: (kind: string) => string;
-  typeLeverageCue?: (item: TypeInventoryRow) => TypeNavLeverageCue | null;
+  itemAchievements?: (
+    item: TypeInventoryRow,
+  ) => readonly ItemAchievement[];
   namespaceLeverageCue?: (
     exactNamespace: string,
   ) => TypeNavNamespaceLeverageCue | null;
+}
+
+export interface TypeSelectorOption {
+  value: string;
+  label: string;
+  count: number;
 }
 
 export interface TypeNavNamespaceLeverageCue {
@@ -577,26 +647,21 @@ export interface TypeNavNamespaceLeverageCue {
   description: string;
 }
 
-export interface TypeNavLeverageCue {
-  pole: TypeLeveragePole;
-  description: string;
-}
-
 export function renderTypeNav(options: TypeNavOptions): string {
   const {
     current, visible, typeGroups, typeFilter, namespaceFilter, kindFilter,
-    namespaceCount, namespaceOptionsHtml, kindFilters, accessibilityControlHtml,
-    leverageControlHtml = "",
+    accessibilityFilter, traitFilter, namespaceCount, namespaceOptionsHtml,
+    kindOptions, accessibilityOptions, traitOptions,
     library, parentSubject, filtersExpanded, filterSummary, escapeHtml,
     typeDisplayName, typeLibraryLabel, kindIcon, statusHtml = "",
   } = options;
-  const typeLeverageCue = options.typeLeverageCue ?? (() => null);
+  const itemAchievements = options.itemAchievements;
   const namespaceLeverageCue =
     options.namespaceLeverageCue ?? (() => null);
   const namespaceSelectionValue =
     options.namespaceSelectionValue ?? (namespace => namespace);
   return `
-    <aside id="content-navigation-pane" class="type-browser" aria-label="Public types">
+    <aside id="content-navigation-pane" class="type-browser${parentSubject ? " has-parent-subject" : ""}${statusHtml ? " has-status" : ""}${itemAchievements ? " has-item-achievement-rail" : ""}" aria-label="Public types">
       <div class="browser-head">
         <div>
           <span class="pane-label">PUBLIC TYPES</span>
@@ -619,22 +684,38 @@ export function renderTypeNav(options: TypeNavOptions): string {
           <input id="type-filter" aria-label="Filter types" value="${escapeHtml(typeFilter)}" placeholder="Filter types" autocomplete="off" spellcheck="false" />
           <kbd>⌘F</kbd>
         </label>
-        <div class="namespace-picker">
-          <select id="namespace-jump" class="scope-select" aria-label="Filter by namespace">
-            <option value="" ${!namespaceFilter ? "selected" : ""}>All namespaces · ${namespaceCount}</option>
-            ${namespaceOptionsHtml}
-          </select>
-        </div>
-        <div class="chip-stack">
-          <div class="namespace-chips kind-chips" aria-label="Type kind filters">
-            <button class="${!kindFilter ? "active" : ""}" data-kind-filter="">all kinds</button>
-            ${kindFilters.map(kind => `<button class="${kindFilter === kind ? "active" : ""}" data-kind-filter="${kind}">${kind}</button>`).join("")}
-          </div>
-          ${accessibilityControlHtml}
-          ${leverageControlHtml}
+        <div class="member-filter-selects type-filter-selects">
+          <label class="member-filter-select">
+            <span>Namespace</span>
+            <select id="namespace-jump" class="scope-select" aria-label="Filter by namespace">
+              <option value="" ${!namespaceFilter ? "selected" : ""}>all namespaces · ${namespaceCount}</option>
+              ${namespaceOptionsHtml}
+            </select>
+          </label>
+          <label class="member-filter-select">
+            <span>Accessibility</span>
+            <select class="scope-select" data-type-access-filter aria-label="Type accessibility">
+              ${accessibilityOptions.map(option =>
+                `<option value="${escapeHtml(option.value)}" ${accessibilityFilter === option.value ? "selected" : ""}>${escapeHtml(option.label)} · ${option.count}</option>`).join("")}
+            </select>
+          </label>
+          <label class="member-filter-select">
+            <span>Kind</span>
+            <select class="scope-select" data-type-kind-filter aria-label="Type kind">
+              ${kindOptions.map(option =>
+                `<option value="${escapeHtml(option.value)}" ${kindFilter === option.value ? "selected" : ""}>${escapeHtml(option.label)} · ${option.count}</option>`).join("")}
+            </select>
+          </label>
+          <label class="member-filter-select">
+            <span>Trait</span>
+            <select class="scope-select" data-type-trait-filter aria-label="Type trait">
+              ${traitOptions.map(option =>
+                `<option value="${escapeHtml(option.value)}" ${traitFilter === option.value ? "selected" : ""}>${escapeHtml(option.label)} · ${option.count}</option>`).join("")}
+            </select>
+          </label>
         </div>
       </details>
-      ${statusHtml}
+      ${statusHtml ? `<div class="type-browser-status">${statusHtml}</div>` : ""}
       <div class="type-list" role="listbox" tabindex="0" id="type-list" data-nav-scope="types" data-nav-selection="${current ? `type:${escapeHtml(current.id)}` : ""}">
         ${[...typeGroups].map(([namespace, types]) => {
           const namespaceLeverage = types.some(
@@ -656,13 +737,14 @@ export function renderTypeNav(options: TypeNavOptions): string {
             ${types.map(item => {
               const selected = item.id === current?.id;
               const definingLibrary = typeLibraryLabel(item);
-              const leverage = typeLeverageCue(item);
-              const leverageClass = leverage ? ` ${leverage.pole}` : "";
-              const leverageHtml = leverage
-                ? `<span class="type-leverage-icon ${leverage.pole}" role="img" aria-label="${escapeHtml(leverage.description)}" title="${escapeHtml(leverage.description)}"><span aria-hidden="true">${leverage.pole === "sea-level" ? "▁" : "▲"}</span></span>`
+              const achievements = itemAchievements?.(item) ?? [];
+              const achievementClasses =
+                itemAchievementClassNames(achievements);
+              const achievementHtml = itemAchievements
+                ? renderItemAchievementRail(achievements, escapeHtml)
                 : "";
-              return `<button class="type-row ${selected ? "selected" : ""}${leverageClass}" data-type="${escapeHtml(item.id)}" role="option" aria-selected="${selected}">
-                ${leverageHtml}
+              return `<button class="type-row ${selected ? "selected" : ""}${achievementClasses ? ` ${achievementClasses}` : ""}" data-type="${escapeHtml(item.id)}" role="option" aria-selected="${selected}">
+                ${achievementHtml}
                 <span class="kind-icon" aria-hidden="true">${isForwardedType(item) ? "↗" : kindIcon(item.kind)}</span>
                 <span class="type-name">${escapeHtml(typeDisplayName(item))}</span>
                 ${isForwardedType(item)
@@ -673,7 +755,6 @@ export function renderTypeNav(options: TypeNavOptions): string {
           </section>`;
         }).join("") || '<div class="empty-list">No public types match this filter.</div>'}
       </div>
-      <footer class="pane-footer"><span>↑↓ types</span><span>←→ lens</span><span>↵ open</span></footer>
     </aside>`;
 }
 
@@ -726,29 +807,43 @@ export interface MemberNavOptions {
   selectedMemberKey: string;
   selectedOverloadIndex: number | null;
   selectedAccessibility?: string;
+  overloadFilterActive?: boolean;
   escapeHtml: EscapeHtml;
   typeDisplayName: (item: TypeSummary) => string;
   shortKind: (kind: string) => string;
   highlight: (value: string) => string;
   overloadHeat?: (group: MemberGroup, index: number) => MemberNavOverloadHeat | null;
   familyHeatCue?: (group: MemberGroup) => MemberNavHeatCue | null;
+  memberAchievements?: (
+    group: MemberGroup,
+    index: number | null,
+  ) => readonly ItemAchievement[];
+  overloadSourceIndex?: (group: MemberGroup, index: number) => number;
+  emptyMessage?: string;
 }
 
 export function renderMemberNav(options: MemberNavOptions): string {
   const {
     type, entries, memberCount, visibleMemberCount, filterControlsHtml,
     selectedMemberKey, selectedOverloadIndex,
-    selectedAccessibility = "public",
+    selectedAccessibility = "public", overloadFilterActive = false,
     escapeHtml, typeDisplayName, shortKind, highlight,
     overloadHeat, familyHeatCue,
   } = options;
+  const memberAchievements = options.memberAchievements;
+  const selectedGroup = entries.find(entry =>
+    entry.kind === "member"
+    && entry.group.key === selectedMemberKey)?.group;
+  const selectedFamilyOpen =
+    memberGroupUsesFamilySurface(selectedGroup)
+    && selectedOverloadIndex != null;
   const navigationSelection = selectedMemberKey
-    ? (selectedOverloadIndex == null
-      ? `member:${selectedMemberKey}`
-      : `overload:${selectedMemberKey}:${selectedOverloadIndex}`)
+    ? (selectedFamilyOpen
+      ? `overload:${selectedMemberKey}:${selectedOverloadIndex}`
+      : `member:${selectedMemberKey}`)
     : "";
   return `
-    <aside id="content-navigation-pane" class="type-browser member-nav" aria-label="Members of ${escapeHtml(typeDisplayName(type))}">
+    <aside id="content-navigation-pane" class="type-browser member-nav${memberAchievements ? " has-item-achievement-rail" : ""}" aria-label="Members of ${escapeHtml(typeDisplayName(type))}">
       <div class="browser-head">
         <div>
           <span class="pane-label">MEMBERS</span>
@@ -766,31 +861,47 @@ export function renderMemberNav(options: MemberNavOptions): string {
         ${entries.map(entry => {
           if (entry.kind === "member") {
             const group = entry.group;
-            const isMulti = group.overloads.length > 1;
+            const overloadCount = group.overloads.length;
+            const isMulti = memberGroupUsesFamilySurface(group);
             const graphOnly =
               group.overloads.some(overload => overload.graphOnly);
             const outsideMarker = familyOutsideMarkerHtml(
               group,
               selectedAccessibility,
-              escapeHtml);
+              escapeHtml,
+              overloadFilterActive);
             const active = group.key === selectedMemberKey;
             const selected = active && (isMulti ? selectedOverloadIndex == null : true);
             const cue = active && isMulti ? familyHeatCue?.(group) ?? null : null;
             // An overload family's name and count take their own color, so a
             // row that holds several members reads apart from a single member.
             const family = isMulti && !graphOnly;
-            return `<button class="type-row member-row${graphOnly ? " graph-member-row" : ""} ${active ? "active-group" : ""} ${selected ? "selected" : ""}" data-nav-member="${escapeHtml(group.key)}" role="option" aria-selected="${selected}">
+            const achievements = memberAchievements?.(
+              group,
+              isMulti ? null : 0,
+            ) ?? [];
+            const achievementClasses =
+              itemAchievementClassNames(achievements);
+            return `<button class="type-row member-row${memberAchievements ? " has-item-achievement-rail" : ""}${graphOnly ? " graph-member-row" : ""}${achievementClasses ? ` ${achievementClasses}` : ""} ${active ? "active-group" : ""} ${selected ? "selected" : ""}" data-nav-member="${escapeHtml(group.key)}" role="option" aria-selected="${selected}">
+              ${memberAchievements
+                ? renderItemAchievementRail(achievements, escapeHtml)
+                : ""}
               <span class="member-icon">${escapeHtml(group.kind?.slice(0, 1)?.toUpperCase() || "M")}</span>
               <span class="type-name${family ? " family-name" : ""}">${graphOnly || isMulti ? escapeHtml(group.name) : singleMemberLabelHtml(group, escapeHtml, highlight)}</span>
-              <small>${graphOnly ? `graph target · ${escapeHtml(shortKind(group.kind))}` : isMulti ? `<span class="family-count">${group.overloads.length}×</span>` : singleMemberDetailHtml(group, escapeHtml, shortKind)}${outsideMarker}${cue === null ? "" : ` <span class="family-heat-cue ${cue.tone}">${escapeHtml(cue.text)}</span>`}</small>
+              <small>${graphOnly ? `graph target · ${escapeHtml(shortKind(group.kind))}` : isMulti ? `<span class="family-count">${overloadCount}×</span>` : singleMemberDetailHtml(group, escapeHtml, shortKind)}${outsideMarker}${cue === null ? "" : ` <span class="family-heat-cue ${cue.tone}">${escapeHtml(cue.text)}</span>`}</small>
             </button>`;
           }
-          const selected = entry.group.key === selectedMemberKey && selectedOverloadIndex === entry.index;
           const overload = entry.group.overloads[entry.index];
           if (!overload) {
             throw new Error(
               `Member group '${entry.group.key}' has no overload ${entry.index}.`);
           }
+          const sourceIndex =
+            options.overloadSourceIndex?.(entry.group, entry.index)
+            ?? entry.index;
+          const selected =
+            entry.group.key === selectedMemberKey
+            && selectedOverloadIndex === sourceIndex;
           const heat = overloadHeat?.(entry.group, entry.index) ?? null;
           const heated = heat?.heatStrength != null;
           const heatStyle = heated
@@ -800,12 +911,21 @@ export function renderMemberNav(options: MemberNavOptions): string {
           const heatDescription = heat === null
             ? ""
             : ` aria-description="${escapeHtml(heat.description)}" title="${escapeHtml(heat.description)}"`;
-          return `<button class="type-row overload-nav-row${heatClasses} ${selected ? " selected" : ""}" data-nav-overload="${entry.index}" role="option" aria-selected="${selected}"${heatStyle}${heatDescription}>
+          const achievements: readonly ItemAchievement[] = [
+            ...(memberAchievements?.(entry.group, entry.index) ?? []),
+            ...(heat?.hub ? [{
+                kind: "implementation-hub",
+                description: "implementation hub",
+              } as const] : []),
+          ];
+          const achievementClasses =
+            itemAchievementClassNames(achievements);
+          return `<button class="type-row overload-nav-row has-item-achievement-rail${heatClasses}${achievementClasses ? ` ${achievementClasses}` : ""} ${selected ? " selected" : ""}" data-nav-overload="${sourceIndex}" role="option" aria-selected="${selected}"${heatStyle}${heatDescription}>
+            ${renderItemAchievementRail(achievements, escapeHtml)}
             <code>${overloadNavLabelHtml(entry.group.name, overload, escapeHtml, highlight)}</code>
           </button>`;
-        }).join("") || '<div class="empty-list">No members match these filters.</div>'}
+        }).join("") || `<div class="empty-list">${escapeHtml(options.emptyMessage ?? "No members match these filters.")}</div>`}
       </div>
-      <footer class="pane-footer"><span>↑↓ members</span>${selectedMemberKey ? "<span>←→ sections</span>" : ""}<span>esc types</span></footer>
     </aside>`;
 }
 
@@ -920,8 +1040,6 @@ export function renderTypeMetadata(options: RenderTypeMetadataOptions): string {
       exactUnavailable
         ? "unavailable"
         : exact?.accessibility || item.accessibility || "public";
-    const coordinate =
-      `${packageContext.activeFramework} · ${item.assembly} · ${packageContext.id}@${packageContext.version}`;
     return `
       <section class="metadata-surface" aria-labelledby="metadata-surface-title">
         <header class="metadata-surface-head">
@@ -931,10 +1049,6 @@ export function renderTypeMetadata(options: RenderTypeMetadataOptions): string {
         <div class="metadata-surface-scroll">
           ${content}
         </div>
-        <footer class="metadata-surface-footer">
-          <span title="${escapeHtml(item.id)}">${escapeHtml(item.id)}</span>
-          <span title="${escapeHtml(coordinate)}">${escapeHtml(coordinate)}</span>
-        </footer>
       </section>`;
   };
   if (metadataState.typeMetadataLoading && fresh) {
@@ -1119,9 +1233,14 @@ export function renderSourceResult(options: RenderSourceResultOptions): string {
     escapeHtml,
     highlightCSharp,
   } = options;
-  return `<section class="source-result" aria-label="Source">
-      ${renderSourceCode(text, highlightCSharp, leftJustify)}
-      <footer class="source-provenance"><strong>${source.provider === "pdb" ? "PDB Source" : "Decompiled source"}</strong><span>${escapeHtml(source.provenance)}</span>${pdbSourceLimitationHtml(source)}</footer>
+  const limitation = pdbSourceLimitationHtml(source);
+  return `<section class="source-result${limitation ? " has-source-diagnostics" : ""}" aria-label="Source">
+      <aside class="source-provenance" aria-label="Source provenance"><strong>${source.provider === "pdb" ? "PDB Source" : "Decompiled source"}</strong><span title="${escapeHtml(source.provenance)}">${escapeHtml(source.provenance)}</span></aside>
+      ${limitation ? `<div class="source-diagnostics">${limitation}</div>` : ""}
+      ${renderSourceCode(
+        text,
+        highlightCSharp,
+        leftJustify || source.provider === "decompiled")}
     </section>`;
 }
 
@@ -1140,8 +1259,10 @@ export interface RenderSourcePageActionsOptions {
   source: TypeSourceResult | null;
   typeCodeView?: BrowserTypeCodeView | null;
   typeView?: TypeSourceView;
+  memberView?: MemberSourceView;
   memberSource?: BrowserMemberSource | null;
   selectedMemberPart?: MemberSourcePartSelection;
+  exploreBusy?: boolean;
   copyButtonId: "copy-source" | "copy-type-source";
   escapeHtml: EscapeHtml;
 }
@@ -1153,8 +1274,10 @@ export function renderSourcePageActions(
     source,
     typeCodeView = null,
     typeView = "source",
+    memberView = "source",
     memberSource = null,
-    selectedMemberPart = "Member",
+    selectedMemberPart = "Declaration",
+    exploreBusy = false,
     copyButtonId,
     escapeHtml,
   } = options;
@@ -1162,6 +1285,14 @@ export function renderSourcePageActions(
     ? []
     : availableMemberSourceParts(memberSource.parts);
   return `
+    ${copyButtonId === "copy-source"
+      ? `<div class="source-origin-selector" role="group" aria-label="Source origin">
+          <button type="button" data-member-source-view="source"
+            aria-pressed="${memberView === "source"}">Authored</button>
+          <button type="button" data-member-source-view="decompiler-source"
+            aria-pressed="${memberView === "decompiler-source"}">Decompiled</button>
+        </div>`
+      : ""}
     ${copyButtonId === "copy-type-source"
       ? `<label class="source-part-picker">
           <span>View</span>
@@ -1190,7 +1321,11 @@ export function renderSourcePageActions(
       || typeView === "source"
       || typeView === "decompiler-source"
       ? `<button id="explore-source" class="primary-action" type="button"
-          title="Explore source options">Explore</button>`
+          title="${copyButtonId === "copy-source"
+            ? "Explore annotated source"
+            : "Explore type source"}"${exploreBusy ? " disabled" : ""}>${
+              exploreBusy ? "Exploring…" : "Explore"
+            }</button>`
       : ""}`;
 }
 
@@ -1308,6 +1443,7 @@ function memberSourcePartSelection(
   value: string | number,
 ): MemberSourcePartSelection | null {
   switch (value) {
+    case "Declaration":
     case "Member":
     case "XmlDocumentation":
     case "Attributes":
@@ -1321,6 +1457,8 @@ function memberSourcePartSelection(
 
 function memberSourcePartLabel(part: MemberSourcePartSelection): string {
   switch (part) {
+    case "Declaration":
+      return "Declaration";
     case "Member":
       return "Member";
     case "XmlDocumentation":
@@ -1365,9 +1503,10 @@ export function renderTypeSource(options: RenderTypeSourceOptions): string {
         if (content.outcome !== "Available" || content.text === null) {
           return `<section class="document-section empty-document"><h2>API Declarations unavailable</h2>${diagnosticHtml}</section>`;
         }
-        return `<section class="source-result" aria-label="API Declarations">
+        return `<section class="source-result${diagnosticHtml ? " has-source-diagnostics" : ""}" aria-label="API Declarations">
+          <aside class="source-provenance" aria-label="Source provenance"><strong>API Declarations</strong><span>${content.scope === "All" ? "All declarations" : "Public and protected API"} · metadata, without implementation bodies</span></aside>
+          ${diagnosticHtml ? `<div class="source-diagnostics">${diagnosticHtml}</div>` : ""}
           ${renderSourceCode(content.text, highlightCSharp)}
-          <footer class="source-provenance"><strong>API Declarations</strong><span>${content.scope === "All" ? "All declarations" : "Public and protected API"} · metadata, without implementation bodies</span>${diagnosticHtml}</footer>
         </section>`;
       }
       return renderSourceResult({

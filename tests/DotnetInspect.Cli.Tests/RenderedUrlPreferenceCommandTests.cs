@@ -60,7 +60,7 @@ public sealed class RenderedUrlPreferenceCommandTests
                 [
                     "library", "address", "0x06000001+0x0",
                     "--library", assemblyPath,
-                    "-S", "Context: Source Location", "--urls", "--tips", "q",
+                    "-S", "Context: Source Location", "--urls",
                     .. preferRendered ? new[] { "--prefer-rendered-urls" } : [],
                 ];
                 var root = CommandLineBuilder.CreateRootCommand();
@@ -105,7 +105,7 @@ public sealed class RenderedUrlPreferenceCommandTests
                 {
                     string[] arguments =
                     [
-                        .. command, "--urls", "--tips", "q",
+                        .. command, "--urls",
                         .. preferRendered ? new[] { "--prefer-rendered-urls" } : [],
                     ];
                     var root = CommandLineBuilder.CreateRootCommand();
@@ -152,7 +152,7 @@ public sealed class RenderedUrlPreferenceCommandTests
                     {
                         string[] arguments =
                         [
-                            .. command, "--print", format, "--tips", "q",
+                            .. command, "--print", format,
                             .. preferRendered ? new[] { "--prefer-rendered-urls" } : [],
                         ];
                         var root = CommandLineBuilder.CreateRootCommand();

@@ -56,7 +56,9 @@ public class CrossBlockSlotMaterializationTests
         var expectedType = variant == "integer" ? Int32 : Boolean;
         Assert.True(decision.WillMaterialize);
         Assert.Equal(expectedType, decision.Type);
-        Assert.Contains($"{(variant == "integer" ? "int" : "bool")} S_0", CSharpPrinter.Print(function).Output);
+        var bound = (IrFunction)function.Clone();
+        new ResidualSlotBindingPass().Run(bound, PassContext.None);
+        Assert.Contains($"{(variant == "integer" ? "int" : "bool")} S_0", DecidedPrint.Print(bound).Output);
         var invariant = SlotMaterializationInvariant.Capture(function);
         new SlotMaterializationPass().Run(function, PassContext.None);
         invariant.Check();
@@ -168,7 +170,7 @@ public class CrossBlockSlotMaterializationTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void CrossBlockCopyComponentsRemainAtomic(bool incomplete)
+    public void CrossBlockCopyComponentsMaterializeSourceClosedMembers(bool incomplete)
     {
         var firstValue = new Constant("first", StringType);
         var secondValue = new Constant("second", StringType);
@@ -194,9 +196,16 @@ public class CrossBlockSlotMaterializationTests
         Assert.Equal(2, decisions.Count);
         if (incomplete)
         {
-            Assert.All(decisions, decision =>
-                Assert.True(decision.Vetoes.HasFlag(SlotMaterializationVeto.IncompleteCopyComponent)));
-            AssertRetained(function);
+            // Decided S_0 copies into S_1, which does not decide: S_0 is
+            // source-closed and materializes; S_1 stays a slot.
+            Assert.True(Assert.Single(decisions, decision => decision.Slot == 0).WillMaterialize);
+            Assert.True(Assert.Single(decisions, decision => decision.Slot == 1).Vetoes
+                .HasFlag(SlotMaterializationVeto.IncompleteCopyComponent));
+            var split = SlotMaterializationInvariant.Capture(function);
+            new SlotMaterializationPass().Run(function, PassContext.None);
+            split.Check();
+            Assert.Single(function.Descendants.OfType<StoreStackSlot>(), store => store.Slot == 1);
+            Assert.DoesNotContain(function.Descendants.OfType<StoreStackSlot>(), store => store.Slot == 0);
             return;
         }
 
@@ -296,7 +305,7 @@ public class CrossBlockSlotMaterializationTests
             Assert.Contains(box, function.Descendants);
             Assert.Equal(Boolean, Assert.IsType<LoadLocal>(box.Operand).Type);
         });
-        Assert.Contains($"bool S_{slot}", CSharpPrinter.Print(function).Output);
+        Assert.Contains($"bool S_{slot}", DecidedPrint.Print(function).Output);
         Assert.Empty(CoercionInvariant.Check(function));
         function.CheckInvariant(includeSemantics: true);
     }

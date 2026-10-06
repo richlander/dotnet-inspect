@@ -390,6 +390,70 @@ public sealed class PackageHouseAcquisitionReceipt
 }
 
 /// <summary>
+/// Resource-free evidence binding one semantic content narrowing to its exact
+/// acquired package generation and any target-selection correspondence.
+/// </summary>
+public sealed class PackageHouseContentNarrowingReceipt
+{
+    internal PackageHouseContentNarrowingReceipt(
+        PackageHouseAcquisitionReceipt acquisition,
+        PackageCompileAssetSelectionReceipt? targetSelection)
+    {
+        ArgumentNullException.ThrowIfNull(acquisition);
+        PackageHouseContentQuery query =
+            acquisition.Decision.Request.ContentQuery
+            ?? throw new ArgumentException(
+                "Content narrowing evidence requires a semantic content query.",
+                nameof(acquisition));
+
+        switch (query.Narrowing)
+        {
+            case PackageHouseContentNarrowing.PackageWide
+                when targetSelection is not null:
+                throw new ArgumentException(
+                    "Package-wide content narrowing has no target selection.",
+                    nameof(targetSelection));
+            case PackageHouseContentNarrowing.TfmWide tfmWide:
+                if (targetSelection is null
+                    || !ReferenceEquals(
+                        targetSelection.Generation,
+                        acquisition.Generation)
+                    || targetSelection.Policy
+                        != PackageCompileAssetSelectionPolicy.ExplicitTarget
+                    || !targetSelection.PackageId.Equals(
+                        acquisition.Candidate.Coordinate.PackageId,
+                        StringComparison.OrdinalIgnoreCase)
+                    || !targetSelection.RequestedTargetFramework!.Equals(
+                        tfmWide.Target.RequestedFramework,
+                        StringComparison.OrdinalIgnoreCase)
+                    || !string.Equals(
+                        targetSelection.RequestedRuntimeIdentifier,
+                        tfmWide.Target.RuntimeIdentifier,
+                        StringComparison.Ordinal))
+                {
+                    throw new ArgumentException(
+                        "TFM-wide content narrowing requires the selector receipt for the acquired package generation and exact target.",
+                        nameof(targetSelection));
+                }
+                break;
+        }
+
+        Acquisition = acquisition;
+        TargetSelection = targetSelection;
+    }
+
+    public PackageHouseAcquisitionReceipt Acquisition { get; }
+
+    public PackageHouseContentNarrowing Narrowing =>
+        Acquisition.Decision.Request.ContentQuery!.Narrowing;
+
+    public PackageContentGenerationIdentity Generation =>
+        Acquisition.Generation;
+
+    public PackageCompileAssetSelectionReceipt? TargetSelection { get; }
+}
+
+/// <summary>
 /// Resource-free package-to-library evidence retaining the complete
 /// acquisition and selector-issued correspondence.
 /// </summary>
@@ -690,11 +754,18 @@ internal static class PackageHouseRealizationCorrespondence
     {
         ArgumentNullException.ThrowIfNull(acquisition);
         ArgumentNullException.ThrowIfNull(receipt);
-        if (acquisition.Decision.Request.AssetSelection
-            != PackageHouseAssetSelectionKind.Compile)
+        PackageHouseRequest request =
+            acquisition.Decision.Request;
+        bool compileRealization =
+            request.AssetSelection
+                == PackageHouseAssetSelectionKind.Compile;
+        bool compositeContent =
+            request.ContentQuery?.LibraryAndInventoryTerminal
+                is not null;
+        if (!compileRealization && !compositeContent)
         {
             throw new ArgumentException(
-                "A compile selection requires a compile realization request.",
+                "A compile selection requires a compile realization or Library-and-inventory content request.",
                 nameof(acquisition));
         }
         if (!ReferenceEquals(
@@ -704,10 +775,10 @@ internal static class PackageHouseRealizationCorrespondence
                 acquisition.Decision.Coordinate!.PackageId,
                 StringComparison.OrdinalIgnoreCase)
             || !PolicyMatches(
-                acquisition.Decision.Request.TargetContext,
+                request.TargetContext,
                 receipt.Policy)
             || !RequestMatches(
-                acquisition.Decision.Request.TargetContext,
+                request.TargetContext,
                 receipt.RequestedTargetFramework,
                 receipt.RequestedRuntimeIdentifier))
         {
@@ -907,7 +978,11 @@ public sealed class PackageHouseEvidence
         PackageHouseDecisionReceipt? decision = null,
         PackageHouseAcquisitionReceipt? acquisition = null,
         PackageHouseRealizationReceipt? realization = null,
-        IEnumerable<PackageHouseFailure>? failures = null)
+        IEnumerable<PackageHouseFailure>? failures = null,
+        PackageHouseFileList? fileList = null,
+        PackageHouseContentNarrowingReceipt? contentNarrowing = null,
+        PackageHouseLibraryAndInventory? libraryAndInventory = null,
+        PackageHouseLibraryInventory? libraryInventory = null)
     {
         ArgumentNullException.ThrowIfNull(request);
         if (decision is not null
@@ -945,11 +1020,68 @@ public sealed class PackageHouseEvidence
                 "Only a Realize operation can retain realization evidence.",
                 nameof(realization));
         }
+        if (fileList is not null
+            && (acquisition is null
+                || request.ContentQuery?.FileListTerminal is null
+                || !ReferenceEquals(
+                    fileList.Narrowing,
+                    contentNarrowing)))
+        {
+            throw new ArgumentException(
+                "File List evidence requires an acquired semantic File List terminal.",
+                nameof(fileList));
+        }
+        if (contentNarrowing is not null
+            && (acquisition is null
+                || request.ContentQuery is null
+                || !ReferenceEquals(
+                    contentNarrowing.Acquisition,
+                    acquisition)))
+        {
+            throw new ArgumentException(
+                "Content narrowing evidence requires the acquired semantic query.",
+                nameof(contentNarrowing));
+        }
+        if (libraryAndInventory is not null
+            && (acquisition is null
+                || request.ContentQuery?.LibraryAndInventoryTerminal is null
+                || !ReferenceEquals(
+                    libraryAndInventory.Inventory.Narrowing,
+                    contentNarrowing)
+                || !ReferenceEquals(
+                    libraryAndInventory.SelectedLibrary.Acquisition,
+                    acquisition)))
+        {
+            throw new ArgumentException(
+                "Library-and-inventory evidence requires its exact acquired composite terminal.",
+                nameof(libraryAndInventory));
+        }
+        if (libraryInventory is not null
+            && (acquisition is null
+                || (request.ContentQuery?.LibraryInventoryTerminal is null
+                    && request.ContentQuery
+                        ?.LibraryAndInventoryTerminal is null)
+                || !ReferenceEquals(
+                    libraryInventory.Narrowing,
+                    contentNarrowing)
+                || (libraryAndInventory is not null
+                    && !ReferenceEquals(
+                        libraryAndInventory.Inventory,
+                        libraryInventory))))
+        {
+            throw new ArgumentException(
+                "Library inventory evidence requires its exact acquired inventory terminal.",
+                nameof(libraryInventory));
+        }
 
         Request = request;
         Decision = decision;
         Acquisition = acquisition;
         Realization = realization;
+        ContentNarrowing = contentNarrowing;
+        FileList = fileList;
+        LibraryAndInventory = libraryAndInventory;
+        LibraryInventory = libraryInventory;
         Failures = failures is null
             ? []
             : [.. failures];
@@ -972,6 +1104,30 @@ public sealed class PackageHouseEvidence
     public PackageHouseAcquisitionReceipt? Acquisition { get; }
 
     public PackageHouseRealizationReceipt? Realization { get; }
+
+    /// <summary>
+    /// The acquired package generation and owner-issued correspondence used to
+    /// resolve a semantic content narrowing.
+    /// </summary>
+    public PackageHouseContentNarrowingReceipt? ContentNarrowing { get; }
+
+    /// <summary>
+    /// The complete physical package-entry inventory projected through the
+    /// resolved narrowing requested by a semantic File List terminal.
+    /// </summary>
+    public PackageHouseFileList? FileList { get; }
+
+    /// <summary>
+    /// The selected Library handoff and complete logical target inventory
+    /// requested by the composite content terminal.
+    /// </summary>
+    public PackageHouseLibraryAndInventory? LibraryAndInventory { get; }
+
+    /// <summary>
+    /// The complete resource-free logical Library inventory requested by an
+    /// inventory terminal.
+    /// </summary>
+    public PackageHouseLibraryInventory? LibraryInventory { get; }
 
     public ImmutableArray<PackageHouseFailure> Failures { get; }
 

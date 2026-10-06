@@ -146,6 +146,34 @@ At type/member scope, `@Audit`, `@Calls`, `@Decompiler`, `@Performance`,
 the broad type view, overload inventory, and exact-member detail view, while
 each resolved catalog exposes only the sections it can render.
 
+### Authored facet sets
+
+A useful domain category may issue an authored View Facet set for the explicit
+query model that replaces section selection. The set has:
+
+- a catalog-scoped, lower-kebab machine identity that is independent of its
+  display title and legacy `@` selector;
+- one display title; and
+- a non-empty, ordered, duplicate-free list of exact Registry-issued View Facet
+  identities.
+
+Identity and membership are authored facts. Equal titles do not imply equal
+identity, and neither section names nor View Facet prefixes add members. Set
+identity is unique within one compiled section catalog.
+
+During migration, the legacy category's section membership and its successor
+facet-set descriptor are one declaration. This preserves existing `-S`
+selection while giving planning and discovery one owner-issued successor
+identity before the atomic CLI cutover. Package `@Dependencies` is the first
+adopter: its `dependencies` set contains `package.dependencies` followed by
+`package.dependency-hierarchy`.
+
+Base categories, computed category poles, and automatic normal/detailed unions
+do not issue facet sets. They are transitional selection machinery rather than
+authored domain promises. A facet-set descriptor also makes no presentation
+shape promise; the View Facet/query composition owns compatible Table
+composition and Document lowering for mixed shapes.
+
 ### Category doors
 
 A category name is a discoverable door, not a rendered pseudo-section.
@@ -203,19 +231,19 @@ A section owned exclusively by a domain generally uses `Domain: Leaf`:
 The prefix is a human-facing family signal. Category membership remains the
 source of truth.
 
-### Noun-phrase families
+### Concise family names
 
-Some established families use a shared noun suffix instead of a prefix. The
+A family may use concise nouns rather than a prefix when the route already
+establishes the coordinate (see the
+[canonical grammar](relationship-section-naming.md#canonical-grammar)). The
 package file family is the primary example:
 
-- `Package files`
-- `Package markdown files`
-- `Package license files`
-- `Package skill files`
-- `Package nuspec file`
-- `Package README file`
+- `Nuspec`
+- `README`
+- `Licenses`
+- `Skills`
 
-The `@Files` category owns the curated subsets. The unfiltered `Package files`
+The `@Files` category owns those curated subsets. The unfiltered `Files`
 superset belongs to `@Package` instead because selecting `@Files` must not
 duplicate every matching path.
 
@@ -264,7 +292,7 @@ The multi-section probe used this command shape:
 
 ```sh
 dnx dotnet-inspect -y -- library --package Npgsql@8.0.4 \
-  -S '@Library,@Surface' --json --tips q
+  -S '@Library,@Surface' --json
 ```
 
 Sections not represented reliably in that JSON projection were measured
@@ -273,7 +301,7 @@ directly:
 ```sh
 dnx dotnet-inspect -y -- library \
   --package SQLitePCLRaw.provider.e_sqlite3@2.1.10 \
-  -S 'P/Invoke Methods' --count --jsonl --tips q
+  -S 'P/Invoke Methods' --count --jsonl
 ```
 
 The audit found four prior declarations outside their stated ranges:
@@ -319,16 +347,16 @@ producer contract with published-package measurements:
 | Section | Evidence | Classification |
 | --- | --- | --- |
 | Target Frameworks | 13 rows in `System.ValueTuple` 4.5.0; one row per uncapped `lib/<tfm>` directory | `Verbose` |
-| Package nuspec file | 31 matching paths in a boundary package | `Verbose` |
+| Nuspec | 31 matching paths in a boundary package | `Verbose` |
 | Dependencies | 150 rows in `Microsoft.AspNetCore.App` 2.2.8 | `Verbose` |
 | Ecosystem Dependencies | 139 rows in `Microsoft.AspNetCore.App` 2.2.8 | `Verbose` |
 | Vulnerabilities | 31 matching advisories in a configured-feed boundary | `Verbose` |
 | Manifest | 36 rows in a tool boundary package with 31 RID-package declarations | `Verbose` |
 | Runtime Dependencies | 44 rows in `dotnet-outdated-tool` 4.8.1; 120 in `Microsoft.DotNet.Interactive` | `Verbose` |
-| Package skill files | 172 rows in `CrestApps.AgentSkills.Mcp.OrchardCore` 1.2.0 | `Verbose` |
+| Skills | 172 rows in `CrestApps.AgentSkills.Mcp.OrchardCore` 1.2.0 | `Verbose` |
 
 Target Frameworks grows with distinct package-authored `lib/<tfm>` directories.
-Package nuspec file grows with every package path ending in `.nuspec`.
+Nuspec grows with every package path ending in `.nuspec`.
 Dependencies grow with package dependency declarations. Ecosystem Dependencies
 can project one or more recognized ecosystem associations for each declaration.
 Vulnerabilities adds every matching advisory from the configured feed.
@@ -828,7 +856,9 @@ writes one stderr line: `This section (<name>) produced no output.`
 ## Output shapes
 
 A concrete section owns a row schema and can be rendered in document or
-row-oriented formats when that schema permits.
+row-oriented formats when that schema permits. Which formats a section
+supports, and which is native when it is selected alone, follow from its
+declared shape under [Section shapes](section-shapes.md).
 
 A category may be heterogeneous. Markdown and JSON document output can
 represent multiple section schemas. Table, TSV, and JSONL require a homogeneous
@@ -874,8 +904,8 @@ The package command's current authored ownership is:
 
 | Category | Members |
 | --- | --- |
-| `@Package` | `Package Info`, `Signals`, `Statistics`, `Target Frameworks`, `Signature`, `Dependencies`, `Ecosystem Dependencies`, `Vulnerabilities`, `Manifest`, `Runtime Dependencies`, `Package files` |
-| `@Files` | `Package nuspec file`, `Package README file`, `Package license files`, `Package skill files` |
+| `@Package` | `Package Info`, `Signals`, `Statistics`, `Target Frameworks`, `Signature`, `Dependencies`, `Ecosystem Dependencies`, `Vulnerabilities`, `Manifest`, `Runtime Dependencies`, `Files` |
+| `@Files` | `Nuspec`, `README`, `Licenses`, `Skills` |
 | `@Dependencies` | `Dependency Hierarchy`, `Dependencies`, `Ecosystem Dependencies`, `Runtime Dependencies` |
 | `@Audit` | `Signals`, `Audit: Artifact Text`, `Audit: Findings`, `Audit: Identifier Confusion`, `Signature`, `Vulnerabilities`, `SourceLink: Availability`, `SourceLink: Missing Files`, `SourceLink: Integrity` |
 | `@SourceLink` | All `SourceLink:*` sections |
@@ -930,28 +960,13 @@ The project command's current authored ownership is:
 
 | Category | Members |
 | --- | --- |
-| `@Project` | `Skills`, `Package README file` |
+| `@Project` | `Skills`, `README` |
 
 `@Project` is the base category and composes the package-authored documents
 available from a restored project's direct dependencies. Exact `Skills`
-selection requests the focused high-value section. `Package README file` is
+selection requests the focused high-value section. `README` is
 explicit and unbounded; selecting `@Project` is the gesture that requests both
 document inventories.
-
-## Vocabulary category map
-
-The vocabulary command's current authored ownership is:
-
-| Category | Members |
-| --- | --- |
-| `@Vocabulary` | `Vocabulary Sections`, `Accessibility`, `C# Style Tiers`, `C# Style Choices`, `C# Body Kinds` |
-| `@API` | `Accessibility` |
-| `@Decompiler` | `C# Body Kinds`, `C# Style Choices`, `C# Style Tiers` |
-
-`@Vocabulary` is the base category and composes the complete product-owned
-vocabulary document. `@API` and `@Decompiler` are domain doors over the
-vocabularies consumed by those query families. Bare output retains the
-self-describing `Vocabulary Sections` index.
 
 ## Ecosystem category map
 
@@ -1026,17 +1041,14 @@ The section pipeline and derived catalog gates enforce these invariants:
    Profiles` sections and overload-inventory `Signature` and `Custom Attributes`
    sections. Every diff comparison section belongs to `@Diff`; `Finding
    Transitions` is its only standalone section. Every project section belongs
-   to `@Project`. Every vocabulary section belongs to `@Vocabulary`, with API
-   and decompiler vocabularies cross-listed in their domain categories. Every
-   ecosystem route places all its available sections, including exact
-   `Integrations`, in `@Ecosystem`. Every Package Query section belongs to
+   to `@Project`. Every ecosystem route places all its available sections,
+   including exact `Integrations`, in `@Ecosystem`. Every Package Query section belongs to
    `@Query`. Gates:
    `LibraryPipeline_UnsafeMembersAndBodyShapesAreTheOnlyUncategorizedSections` and
    `PackagePipeline_EverySelectableSectionBelongsToAnAuthoredCategory`, plus
    `ApiMemberPipelines_UseAuthoredCategoriesWithoutComputedPoles` and
    `DiffPipeline_UsesAuthoredCategoryWithoutComputedPoles` and
    `ProjectPipeline_UsesAuthoredCategoryWithoutComputedPoles` and
-   `VocabularyPipeline_UsesAuthoredCategoriesWithoutComputedPoles` and
    `EcosystemPipelines_UseRouteSpecificAuthoredCategories` and
    `LibraryCallUsePipeline_UsesAuthoredCategoryWithoutComputedPoles` and
    `PackageQueryPipeline_UsesAuthoredCategoryWithoutComputedPoles`.
@@ -1050,6 +1062,12 @@ The section pipeline and derived catalog gates enforce these invariants:
    composed documents in alphabetical section order by default; callers request
    data order only when the owning output contract requires it.
 9. Output-shape compatibility is validated before producers run.
+10. Facet-set identities are unique within a compiled catalog. Their exact
+    memberships resolve through the supplied View Facet Registry, are
+    non-empty and duplicate-free, and preserve authored order.
+    `SectionPipelineSubstrateTests` gates the owner contract, and
+    `PackagePipeline_DependencyDomainIssuesOneExactFacetSet` gates the first
+    production adoption.
 
 Derived tests should compare the authored catalog with the expected ownership
 sets so stale and missing entries both fail.
@@ -1057,7 +1075,7 @@ sets so stale and missing entries both fail.
 ## Migration
 
 The library model is the reference implementation. Package, Package Query, type
-listing, member inspection, diff, project, vocabulary, ecosystem, and
+listing, member inspection, diff, project, ecosystem, and
 `graph libraries` use the same size/cost axes, base-category scope, authored
 category model, and curated discovery. Remaining commands should migrate
 incrementally.
@@ -1066,6 +1084,8 @@ During migration:
 
 - Do not infer category membership from prefixes.
 - Do not add computed `@All`, `@Default`, or `@Hidden` categories.
+- Migrate only useful domain categories to explicit facet sets; do not preserve
+  base-category unions or automatic verbosity presets under new set names.
 - Apply development practices to every proposed or existing legacy section
   alias, and use the CLI change-classification design for removal mechanics;
   section migration does not itself justify retention.

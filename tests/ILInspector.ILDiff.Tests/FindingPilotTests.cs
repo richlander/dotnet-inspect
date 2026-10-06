@@ -3,6 +3,8 @@ using System.Reflection.Metadata;
 
 using Inspector.Findings;
 
+using ILInspector.ILDiff;
+
 namespace ILInspector.ILDiff.Tests;
 
 /// <summary>

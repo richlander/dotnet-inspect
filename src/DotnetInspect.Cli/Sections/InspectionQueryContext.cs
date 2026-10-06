@@ -67,11 +67,22 @@ public sealed class InspectionQueryContext : IDisposable
     /// </summary>
     public bool CountOnly { get; init; }
 
+    /// <summary>
+    /// Effective discovery asks row sections for exact Exists applicability
+    /// instead of acquiring their rows.
+    /// </summary>
+    public bool ApplicabilityOnly { get; init; }
+
     public LibraryNameFamilyPopulationKind NameFamilyPopulation
     { get; init; } =
         LibraryNameFamilyPopulationKind.AllTypes;
 
     public RowSelectionIntent<string>? NameFamilyRowSelection
+    { get; init; }
+
+    public bool ArchitecturalFamilyTypeRows { get; init; }
+
+    public RowSelectionIntent<string>? DependencyStructureRowSelection
     { get; init; }
 
     private MethodBodyInspectionSession? _bodySession;
@@ -213,7 +224,8 @@ public sealed class InspectionQueryContext : IDisposable
         IReadOnlyList<ClassificationQuestion> questions =
             MethodClassificationDemand.QuestionsFor(
                 [.. RequestedQueries ?? [], demand],
-                CountOnly);
+                CountOnly,
+                ApplicabilityOnly);
         if (_methodClassification is { } cached
             && questions.All(_methodClassificationQuestions!.Contains))
         {
@@ -226,8 +238,12 @@ public sealed class InspectionQueryContext : IDisposable
             {
                 try
                 {
+                    PreparedMethodClassificationQuery prepared =
+                        MethodClassificationQuery.Prepare(
+                            session,
+                            questions);
                     return new MethodClassificationBindingResult.Available(
-                        MethodClassificationQuery.Execute(session, questions));
+                        MethodClassificationQuery.Execute(prepared));
                 }
                 catch (Exception ex) when (ex is not ILInspector.Analysis.Planning.ProducerContractException)
                 {

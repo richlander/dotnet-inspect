@@ -467,7 +467,7 @@ Serialization never recaptures evidence or projects Share.
 | Markdown, plaintext, table, TSV, JSONL, tree, Mermaid, or name-only output | Reject competing primary presentations. | Retain the ordinary route's behavior. |
 | `--compact` | Change envelope JSON whitespace only. | Change attachment JSON whitespace; when paired, change both envelopes. |
 | `--share[=url\|packet]` | Preserve the adopting command's current output-channel and exit contract using this envelope's Share. | Preserve the same contract from the enriched value's Share. Package Dependencies retains its known scalar-stdout fast path until the coherent [existing-adopter migration](cli-workspace-sharing.md#status-and-gates); evidence transport does not partially migrate only its output channel. |
-| `--verbose`, `--trace`, `--tips` | Retain their stderr-only role. | Retain their ordinary role; only the evidence option requests service evidence. |
+| `--verbose`, `--trace`, `-E .tips` | Retain their stderr-only role. | Retain their ordinary role; only the evidence option requests service evidence. |
 | Source, endpoints, subject, API scope, traversal, or other semantic inputs | Retain the operation owner's admission, authorization, and semantic meaning. | Retain the same meaning. |
 | `-S`, `-v`, row/query controls, or `--count` | Admit only when the operation binds their complete effect into its owner-issued service result; reject post-service shaping. | Retain ordinary shaping; semantic inputs still bind the service result. |
 | `--fields`, `--columns`, `--raw`, `--no-headers`, `--print`, `--value`, URL/path projections, or rendered-line clipping | Reject post-service presentation or projection requests. | Retain ordinary primary-output behavior without shaping the attachment. |
@@ -737,6 +737,10 @@ eligibility against the resulting Scalar or one count Table as defined below.
 A command may publish owner-issued output-capability metadata for its selectable
 sections. Each section declares the presentation modes supported by its product
 shape, plus any mode that requires the section to be the complete selection.
+Under [Section shapes](section-shapes.md), an adopting command derives those
+modes from the section's declared shape (Table, Hierarchy, or Text) rather
+than declaring them independently; this section continues to own how a complete
+selection is evaluated against them.
 The command also declares any section family that forms one homogeneous Table
 when multiple members are selected.
 
@@ -1047,33 +1051,6 @@ formatters instead consume typed L2 Row-outcomes, Count, or failure results and
 do not establish cardinality. Producers outside Markout, such as metadata
 tables, expose the same declared logical rows to L2 that their renderers
 consume.
-
-### Approved `vocabulary --json` compatibility boundary
-
-The CLI host's plain, unprojected `vocabulary --json` path is an approved
-bounded exception to ordinary Markout lowering. Its typed input is the selected
-owner-issued `VocabularySection` sequence plus the catalog schema version, and
-its lowering boundary is `VocabularyWireDocument` through the generated
-`VocabularyWireJsonContext` or `VocabularyWireCompactJsonContext`. The visible
-result is the established schema-versioned document containing section
-metadata, accepted-command identities, field schemas, operators, and typed
-value cells.
-
-This boundary exists because the lowered Markout table shape intentionally
-contains display rows, not the catalog's schema and typed values. Moving this
-path through Markout would discard that information or change the public wire
-contract. The exception is limited to this CLI host and plain unprojected
-`--json`; Markdown, plain text, table, TSV, JSONL, and projected JSON serialize
-one typed `VocabularyView` through `VocabularyViewContext`. The Release gates
-are
-`VocabularyCommandTests.JsonSerialization_PreservesWireShapeAcrossIndentationModes`,
-`Command_JsonCarriesTypedSchemaAndValues`,
-`Command_DefaultRendersTheSelfDescribingSectionIndex`,
-`Command_PlainTextUsesThePlainTextFormatter`,
-`Command_JsonlUsesProjectedRuntimeColumns`, and
-`Command_PartialMachineKeyProjectionKeepsSectionIdentityAcrossFormats`.
-The focused adoption is tracked by
-[#6811](https://github.com/richlander/dotnet-inspect/issues/6811).
 
 ### Approved cache JSON compatibility boundary
 
@@ -1445,13 +1422,13 @@ folded and their rendering hazards (VT, ANSI escapes, bidi overrides, LS/PS)
 rewritten as visible `\uXXXX`, so they cannot escape a table cell, a code
 fence, a tree gutter, or a diagnostic line (issue #3319).
 
-Printing documents (`-S "Package README file" --print`) and `--content`
+Printing documents (`-S README --print`) and `--content`
 visually encode rendering hazards on stdout. Exact payload transfer is an
 explicit unary file operation: add `--out <path>` to a selection that resolves
 one payload. An unscoped file export preserves the package bytes exactly,
 including encoding, byte order mark, and line endings, except for package skill
 documents: skills are agent instructions, so every route, including
-`project -S Skills --print`, `package -S "Package skill files" --print`,
+`project -S Skills --print`, `package -S Skills --print`,
 `--content`, and a package README declaration, classifies through a
 `TextPolicy.Prose` `InertString` and carries one containment-selected value
 through stdout, structured output, and `--out`. The raw scoped skill is
@@ -1491,7 +1468,7 @@ described by the historical #4677 target. It remains pending focused L3
 payload-projection ownership and gates.
 
 Tool-authored companion output still uses the stream split: for example,
-`package X -S "Package README file" --print` writes the framed, encoded
+`package X -S README --print` writes the framed, encoded
 document to stdout and any tips or diagnostics to stderr.
 
 Two consequences define the boundary:
@@ -1540,7 +1517,7 @@ not a rendering of the service envelope.
 | Flag | Effect |
 | --- | --- |
 | `--markdown` | force the full Markdown Document format |
-| `--json` | render the selected shape as JSON: the whole Document when no narrower shape is selected, otherwise the projected payload (`--print`, `--value`, `--urls`, `--paths`). Accepted lenses and payload projections claim their own output first. Plain document `--json` keeps the pre-lowered typed document; an otherwise-unclaimed, non-empty `--fields`/`--columns` request names lowered vocabulary and opts into the lowered display view (#3494), with the same machine table keys as `--jsonl` and with semantic item/range windows and `--compact` preserved. `find` and `vocabulary` currently wire lowered document paths, while discovery owns projected JSON under its lens contract; unadopted projection-capable routes reject unsupported combinations before typed JSON serialization. Complete structured values for the historical item/line target remain unverified and await focused ownership; `ProjectedJsonWindowingTests` covers only its named current projected-JSON paths. See [Projected JSON output](projected-json.md) for routing, representability, diagnostics, and compatibility. |
+| `--json` | render the selected shape as JSON: the whole Document when no narrower shape is selected, otherwise the projected payload (`--print`, `--value`, `--urls`, `--paths`). Accepted lenses and payload projections claim their own output first. Plain document `--json` keeps the pre-lowered typed document; an otherwise-unclaimed, non-empty `--fields`/`--columns` request names lowered vocabulary and opts into the lowered display view (#3494), with the same machine table keys as `--jsonl` and with semantic item/range windows and `--compact` preserved. `find` currently wires a lowered document path, while discovery owns projected JSON under its lens contract; unadopted projection-capable routes reject unsupported combinations before typed JSON serialization. Complete structured values for the historical item/line target remain unverified and await focused ownership; `ProjectedJsonWindowingTests` covers only its named current projected-JSON paths. See [Projected JSON output](projected-json.md) for routing, representability, diagnostics, and compatibility. |
 | `--tsv` / `--jsonl` | render the single selected section as TSV / JSON Lines (a Table or Vector) |
 | `--table` | render the single selected section as a space-padded pretty table |
 | `--no-header` (`--no-headers`) | drop the Table header row |

@@ -83,10 +83,9 @@ public class E2EFixtureTests
                 BindingFlags.Public | BindingFlags.Static);
         Assert.NotNull(sourceMethod);
         Assert.NotNull(evidenceMethod);
-        var occurrence = Assert.Single(
-            LibraryBodyIndex.Open(assemblyPath)
-                .GetAllocationOccurrences()[
-                    evidenceMethod.MetadataToken]);
+        AllocationOccurrence occurrence = GetAllocationOccurrence(
+            assemblyPath,
+            evidenceMethod.MetadataToken);
         string triagePath = Path.Combine(
             Path.GetTempPath(),
             $"runfaster-triage-{Guid.NewGuid():N}.json");
@@ -147,12 +146,16 @@ public class E2EFixtureTests
                     .CallsSyncSiblingFromAsync),
                 BindingFlags.Public | BindingFlags.Static);
         Assert.NotNull(sourceMethod);
-        var index = LibraryBodyIndex.Open(
-            Path.Combine(
-                AppContext.BaseDirectory,
-                "runfaster.Tests.dll"));
+        LibraryBodyAnalysisExecution analysis =
+            LibraryBodyAnalysisService.ExecutePath(
+                Path.Combine(
+                    AppContext.BaseDirectory,
+                    "runfaster.Tests.dll"),
+                LibraryBodyAnalysisRequest.Create(
+                    LibraryBodyAnalysisFeatures
+                        .AsyncSiblingOpportunities));
         var opportunity = Assert.Single(
-            index.OptimizationOpportunities,
+            analysis.Optimization.Opportunities,
             opportunity =>
                 opportunity.Shape == "sync-call-in-async"
                 && opportunity.Method.MetadataToken
@@ -167,7 +170,7 @@ public class E2EFixtureTests
         Assert.Equal(
             "MoveNext",
             Assert.Single(
-                index.Methods,
+                analysis.CallGraph.Methods,
                 method => method.MetadataToken
                     == evidenceMethodToken).Name);
 
@@ -256,10 +259,9 @@ public class E2EFixtureTests
                 BindingFlags.Public | BindingFlags.Static);
         Assert.NotNull(sourceMethod);
         Assert.NotNull(evidenceMethod);
-        var occurrence = Assert.Single(
-            LibraryBodyIndex.Open(assemblyPath)
-                .GetAllocationOccurrences()[
-                    evidenceMethod.MetadataToken]);
+        AllocationOccurrence occurrence = GetAllocationOccurrence(
+            assemblyPath,
+            evidenceMethod.MetadataToken);
         string triagePath = Path.Combine(
             Path.GetTempPath(),
             $"runfaster-triage-{Guid.NewGuid():N}.json");
@@ -393,10 +395,9 @@ public class E2EFixtureTests
                 BindingFlags.Public | BindingFlags.Static);
         Assert.NotNull(sourceMethod);
         Assert.NotNull(evidenceMethod);
-        var occurrence = Assert.Single(
-            LibraryBodyIndex.Open(assemblyPath)
-                .GetAllocationOccurrences()[
-                    evidenceMethod.MetadataToken]);
+        AllocationOccurrence occurrence = GetAllocationOccurrence(
+            assemblyPath,
+            evidenceMethod.MetadataToken);
         string triagePath = Path.Combine(
             Path.GetTempPath(),
             $"runfaster-triage-{Guid.NewGuid():N}.json");
@@ -496,10 +497,9 @@ public class E2EFixtureTests
                 "AllocateOne",
                 BindingFlags.Public | BindingFlags.Static);
         Assert.NotNull(evidenceMethod);
-        var occurrence = Assert.Single(
-            LibraryBodyIndex.Open(assemblyPath)
-                .GetAllocationOccurrences()[
-                    evidenceMethod.MetadataToken]);
+        AllocationOccurrence occurrence = GetAllocationOccurrence(
+            assemblyPath,
+            evidenceMethod.MetadataToken);
         string triagePath = Path.Combine(
             Path.GetTempPath(),
             $"runfaster-triage-{Guid.NewGuid():N}.json");
@@ -637,10 +637,9 @@ public class E2EFixtureTests
                 "AllocateOne",
                 BindingFlags.Public | BindingFlags.Static);
         Assert.NotNull(evidenceMethod);
-        var occurrence = Assert.Single(
-            LibraryBodyIndex.Open(assemblyPath)
-                .GetAllocationOccurrences()[
-                    evidenceMethod.MetadataToken]);
+        AllocationOccurrence occurrence = GetAllocationOccurrence(
+            assemblyPath,
+            evidenceMethod.MetadataToken);
         string triagePath = Path.Combine(
             Path.GetTempPath(),
             $"runfaster-triage-{Guid.NewGuid():N}.json");
@@ -771,10 +770,9 @@ public class E2EFixtureTests
                 "AllocateTwo",
                 BindingFlags.Public | BindingFlags.Static);
         Assert.NotNull(method);
-        var occurrence = Assert.Single(
-            LibraryBodyIndex.Open(assemblyPath)
-                .GetAllocationOccurrences()[
-                    method.MetadataToken]);
+        AllocationOccurrence occurrence = GetAllocationOccurrence(
+            assemblyPath,
+            method.MetadataToken);
         string triagePath = Path.Combine(
             Path.GetTempPath(),
             $"runfaster-triage-{Guid.NewGuid():N}.json");
@@ -1564,9 +1562,9 @@ public class E2EFixtureTests
                 BindingFlags.Public | BindingFlags.Static);
         Assert.NotNull(allocateOne);
 
-        var index = LibraryBodyIndex.Open(assemblyPath);
-        var occurrence = Assert.Single(
-            index.GetAllocationOccurrences()[allocateOne.MetadataToken]);
+        AllocationOccurrence occurrence = GetAllocationOccurrence(
+            assemblyPath,
+            allocateOne.MetadataToken);
         string triagePath = Path.Combine(
             Path.GetTempPath(),
             $"runfaster-triage-{Guid.NewGuid():N}.json");
@@ -1992,9 +1990,7 @@ public class E2EFixtureTests
             "Performance:*",
             "--top",
             "1",
-            "--jsonl",
-            "--tips",
-            "q");
+            "--jsonl");
         Assert.Equal(0, produced.ExitCode);
         Assert.Empty(produced.Error);
         using (var row = JsonDocument.Parse(produced.Output))
@@ -2407,9 +2403,9 @@ public class E2EFixtureTests
                 "AllocateOne",
                 BindingFlags.Public | BindingFlags.Static);
         Assert.NotNull(allocateOne);
-        var occurrence = Assert.Single(
-            LibraryBodyIndex.Open(assemblyPath)
-                .GetAllocationOccurrences()[allocateOne.MetadataToken]);
+        AllocationOccurrence occurrence = GetAllocationOccurrence(
+            assemblyPath,
+            allocateOne.MetadataToken);
         string triagePath = Path.Combine(
             Path.GetTempPath(),
             $"runfaster-triage-{Guid.NewGuid():N}.json");
@@ -2504,9 +2500,9 @@ public class E2EFixtureTests
                 "AllocateOne",
                 BindingFlags.Public | BindingFlags.Static);
         Assert.NotNull(allocateOne);
-        var occurrence = Assert.Single(
-            LibraryBodyIndex.Open(assemblyPath)
-                .GetAllocationOccurrences()[allocateOne.MetadataToken]);
+        AllocationOccurrence occurrence = GetAllocationOccurrence(
+            assemblyPath,
+            allocateOne.MetadataToken);
         string triagePath = Path.Combine(
             Path.GetTempPath(),
             $"runfaster-triage-{Guid.NewGuid():N}.json");
@@ -2600,10 +2596,9 @@ public class E2EFixtureTests
                     BindingFlags.Public
                         | BindingFlags.Static);
         Assert.NotNull(allocateOne);
-        var occurrence = Assert.Single(
-            LibraryBodyIndex.Open(assemblyPath)
-                .GetAllocationOccurrences()[
-                    allocateOne.MetadataToken]);
+        AllocationOccurrence occurrence = GetAllocationOccurrence(
+            assemblyPath,
+            allocateOne.MetadataToken);
         string triagePath = Path.Combine(
             Path.GetTempPath(),
             $"runfaster-triage-{Guid.NewGuid():N}.json");
@@ -2706,10 +2701,9 @@ public class E2EFixtureTests
                     BindingFlags.Public
                         | BindingFlags.Static);
         Assert.NotNull(allocateOne);
-        var occurrence = Assert.Single(
-            LibraryBodyIndex.Open(assemblyPath)
-                .GetAllocationOccurrences()[
-                    allocateOne.MetadataToken]);
+        AllocationOccurrence occurrence = GetAllocationOccurrence(
+            assemblyPath,
+            allocateOne.MetadataToken);
         string triagePath = Path.Combine(
             Path.GetTempPath(),
             $"runfaster-triage-{Guid.NewGuid():N}.json");
@@ -2844,10 +2838,9 @@ public class E2EFixtureTests
                     BindingFlags.Public
                         | BindingFlags.Static);
         Assert.NotNull(allocateOne);
-        var occurrence = Assert.Single(
-            LibraryBodyIndex.Open(assemblyPath)
-                .GetAllocationOccurrences()[
-                    allocateOne.MetadataToken]);
+        AllocationOccurrence occurrence = GetAllocationOccurrence(
+            assemblyPath,
+            allocateOne.MetadataToken);
         string triagePath = Path.Combine(
             Path.GetTempPath(),
             $"runfaster-triage-{Guid.NewGuid():N}.json");
@@ -2936,10 +2929,9 @@ public class E2EFixtureTests
                     BindingFlags.Public
                         | BindingFlags.Static);
         Assert.NotNull(allocateOne);
-        var occurrence = Assert.Single(
-            LibraryBodyIndex.Open(assemblyPath)
-                .GetAllocationOccurrences()[
-                    allocateOne.MetadataToken]);
+        AllocationOccurrence occurrence = GetAllocationOccurrence(
+            assemblyPath,
+            allocateOne.MetadataToken);
         string triagePath = Path.Combine(
             Path.GetTempPath(),
             $"runfaster-triage-{Guid.NewGuid():N}.json");
@@ -3025,10 +3017,9 @@ public class E2EFixtureTests
                     BindingFlags.Public
                         | BindingFlags.Static);
         Assert.NotNull(allocateOne);
-        var occurrence = Assert.Single(
-            LibraryBodyIndex.Open(assemblyPath)
-                .GetAllocationOccurrences()[
-                    allocateOne.MetadataToken]);
+        AllocationOccurrence occurrence = GetAllocationOccurrence(
+            assemblyPath,
+            allocateOne.MetadataToken);
         string triagePath = Path.Combine(
             Path.GetTempPath(),
             $"runfaster-triage-{Guid.NewGuid():N}.json");
@@ -3147,10 +3138,9 @@ public class E2EFixtureTests
                     BindingFlags.Public
                         | BindingFlags.Static);
         Assert.NotNull(allocateOne);
-        var occurrence = Assert.Single(
-            LibraryBodyIndex.Open(assemblyPath)
-                .GetAllocationOccurrences()[
-                    allocateOne.MetadataToken]);
+        AllocationOccurrence occurrence = GetAllocationOccurrence(
+            assemblyPath,
+            allocateOne.MetadataToken);
         string triagePath = Path.Combine(
             Path.GetTempPath(),
             $"runfaster-triage-{Guid.NewGuid():N}.json");
@@ -3297,9 +3287,9 @@ public class E2EFixtureTests
                 "AllocateOne",
                 BindingFlags.Public | BindingFlags.Static);
         Assert.NotNull(allocateOne);
-        var occurrence = Assert.Single(
-            LibraryBodyIndex.Open(assemblyPath)
-                .GetAllocationOccurrences()[allocateOne.MetadataToken]);
+        AllocationOccurrence occurrence = GetAllocationOccurrence(
+            assemblyPath,
+            allocateOne.MetadataToken);
         string triagePath = Path.Combine(
             Path.GetTempPath(),
             $"runfaster-triage-{Guid.NewGuid():N}.json");
@@ -3375,9 +3365,9 @@ public class E2EFixtureTests
                 "AllocateOne",
                 BindingFlags.Public | BindingFlags.Static);
         Assert.NotNull(allocateOne);
-        var occurrence = Assert.Single(
-            LibraryBodyIndex.Open(assemblyPath)
-                .GetAllocationOccurrences()[allocateOne.MetadataToken]);
+        AllocationOccurrence occurrence = GetAllocationOccurrence(
+            assemblyPath,
+            allocateOne.MetadataToken);
         string triagePath = Path.Combine(
             Path.GetTempPath(),
             $"runfaster-triage-{Guid.NewGuid():N}.json");
@@ -3543,6 +3533,19 @@ public class E2EFixtureTests
             }
             return result;
         }
+    }
+
+    static AllocationOccurrence GetAllocationOccurrence(
+        string assemblyPath,
+        int methodToken)
+    {
+        LibraryBodyAnalysisExecution analysis =
+            LibraryBodyAnalysisService.ExecutePath(
+                assemblyPath,
+                LibraryBodyAnalysisRequest.Create(
+                    LibraryBodyAnalysisFeatures.Allocations));
+        return Assert.Single(
+            analysis.Allocations.Occurrences[methodToken]);
     }
 
     static (int ExitCode, string Output, string Error) RunCorrelate(

@@ -3,6 +3,7 @@ using System.Runtime.Versioning;
 using System.Text.Json;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
+using ILInspector.Research;
 
 using DotnetInspect.Web;
 using DotnetInspect.Web.Interop.Analysis;
@@ -134,27 +135,12 @@ public static partial class AnalysisExports
                 assemblyFileName,
                 pack))
         {
-            LibraryMetricsResult result =
+            AssemblyContextEntry<LibraryMetricsResult> result =
                 resolution.Scope.UseParticipant(
                     resolution.Participant,
                     static (group, participant) =>
                         AssemblyContextLibraryMetricsQuery
-                            .ExecuteParticipant(group, participant))
-                    switch
-                    {
-                        AssemblyContextEntry<LibraryMetricsResult>.Available
-                            available => available.Value,
-                        AssemblyContextEntry<LibraryMetricsResult>.Rejected rejected =>
-                            new LibraryMetricsResult.Failed(
-                                new InvalidOperationException(
-                                    $"{rejected.Subject.Identity.Name}: "
-                                        + $"{rejected.Failure.Kind} "
-                                        + $"({rejected.Failure.Detail})")),
-                        AssemblyContextEntry<LibraryMetricsResult>.Failed failed =>
-                            new LibraryMetricsResult.Failed(failed.Error),
-                        _ => throw new InvalidOperationException(
-                            "Unknown platform Library Metrics result."),
-                    };
+                            .ExecuteParticipant(group, participant));
             metrics = AnalysisExports.ProjectLibraryMetrics(
                 result,
                 new BrowserCompileLibraryAvailability(
@@ -179,13 +165,13 @@ public static partial class AnalysisExports
             pack);
 
     [JSExport]
-    public static async Task<string> QueryPlatformLibraryNamespaceLeverage(
+    public static async Task<string> QueryPlatformLibraryDependencyStructure(
         string targetFramework,
         string platformVersion,
         string assemblyFileName,
         string pack)
     {
-        BrowserLibraryNamespaceLeverage leverage;
+        BrowserLibraryDependencyStructure structure;
         await using (BrowserPlatformScopeResolution resolution =
             await BrowserPlatformWorkspace.OpenAssemblyAsync(
                 targetFramework,
@@ -193,47 +179,40 @@ public static partial class AnalysisExports
                 assemblyFileName,
                 pack))
         {
-            AssemblyContextEntry<LibrarySurfaceLeverageResult> entry =
+            AssemblyContextEntry<LibraryDependencyStructureResult> result =
                 resolution.Scope.UseParticipant(
                     resolution.Participant,
-                    static (group, selectedParticipant) =>
-                        AssemblyContextLibrarySurfaceLeverageQuery
-                            .ExecuteNamespaceIndexParticipant(
-                                group,
-                                selectedParticipant));
-            leverage = AnalysisExports.ProjectLibraryNamespaceLeverage(
-                entry,
-                new BrowserCompileLibraryAvailability(
-                    BrowserCompileLibraryStatus.Selected,
-                    resolution.Scope.Framework,
-                    null));
+                    static (group, participant) =>
+                        AssemblyContextLibraryDependencyStructureQuery
+                            .ExecuteParticipant(group, participant));
+            structure = AnalysisExports.ProjectLibraryDependencyStructure(
+                result);
         }
 
         return JsonSerializer.Serialize(
-            leverage,
+            structure,
             BrowserAnalysisJsonContext.Default
-                .BrowserLibraryNamespaceLeverage);
+                .BrowserLibraryDependencyStructure);
     }
 
-    public static Task<string> QueryPlatformLibraryNamespaceLeverage(
+    public static Task<string> QueryPlatformLibraryDependencyStructure(
         string targetFramework,
         string assemblyFileName,
         string pack) =>
-        QueryPlatformLibraryNamespaceLeverage(
+        QueryPlatformLibraryDependencyStructure(
             targetFramework,
             "",
             assemblyFileName,
             pack);
 
     [JSExport]
-    public static async Task<string> QueryPlatformNamespaceTypeLeverage(
+    public static async Task<string> QueryPlatformLibraryStructuralSalience(
         string targetFramework,
         string platformVersion,
         string assemblyFileName,
-        string pack,
-        string exactNamespace)
+        string pack)
     {
-        BrowserLibraryTypeLeverageShard leverage;
+        BrowserLibraryStructuralSalience salience;
         await using (BrowserPlatformScopeResolution resolution =
             await BrowserPlatformWorkspace.OpenAssemblyAsync(
                 targetFramework,
@@ -241,16 +220,15 @@ public static partial class AnalysisExports
                 assemblyFileName,
                 pack))
         {
-            AssemblyContextEntry<LibrarySurfaceLeverageResult> entry =
+            AssemblyContextEntry<LibraryTypeLeverageResult> entry =
                 resolution.Scope.UseParticipant(
                     resolution.Participant,
-                    (group, selectedParticipant) =>
-                        AssemblyContextLibrarySurfaceLeverageQuery
-                            .ExecuteTypeShardParticipant(
+                    static (group, selectedParticipant) =>
+                        AssemblyContextLibraryTypeLeverageQuery
+                            .ExecuteParticipant(
                                 group,
-                                selectedParticipant,
-                                exactNamespace));
-            leverage = AnalysisExports.ProjectLibraryTypeLeverageShard(
+                                selectedParticipant));
+            salience = AnalysisExports.ProjectLibraryStructuralSalience(
                 entry,
                 new BrowserCompileLibraryAvailability(
                     BrowserCompileLibraryStatus.Selected,
@@ -259,22 +237,20 @@ public static partial class AnalysisExports
         }
 
         return JsonSerializer.Serialize(
-            leverage,
+            salience,
             BrowserAnalysisJsonContext.Default
-                .BrowserLibraryTypeLeverageShard);
+                .BrowserLibraryStructuralSalience);
     }
 
-    public static Task<string> QueryPlatformNamespaceTypeLeverage(
+    public static Task<string> QueryPlatformLibraryStructuralSalience(
         string targetFramework,
         string assemblyFileName,
-        string pack,
-        string exactNamespace) =>
-        QueryPlatformNamespaceTypeLeverage(
+        string pack) =>
+        QueryPlatformLibraryStructuralSalience(
             targetFramework,
             "",
             assemblyFileName,
-            pack,
-            exactNamespace);
+            pack);
 
     [JSExport]
     public static async Task<string> QueryPlatformImplementationProfiles(
@@ -376,6 +352,48 @@ public static partial class AnalysisExports
             heat,
             BrowserAnalysisJsonContext.Default
                 .BrowserTypeImplementationHeat);
+    }
+
+    [JSExport]
+    public static async Task<string> QueryPlatformTypeMethodLeverage(
+        string targetFramework,
+        string platformVersion,
+        string assemblyFileName,
+        string pack,
+        string typeDefinitionId)
+    {
+        BrowserTypeMethodLeverage leverage;
+        await using (BrowserPlatformScopeResolution resolution =
+            await BrowserPlatformWorkspace.OpenAssemblyAsync(
+                targetFramework,
+                platformVersion,
+                assemblyFileName,
+                pack))
+        {
+            InspectionEnvelope<
+                AssemblyContextEntry<
+                    AssemblyTypeMethodLeverageInspection>>
+                    inspection =
+                        resolution.Scope.UseParticipant(
+                            resolution.Participant,
+                            (group, participant) =>
+                                TypeMethodLeverageInspectionOperation.Execute(
+                                    group,
+                                    participant,
+                                    typeDefinitionId));
+            leverage = BrowserImplementationProfileWireProjection
+                .ProjectTypeMethodLeverage(
+                    inspection,
+                    new BrowserCompileLibraryAvailability(
+                        BrowserCompileLibraryStatus.Selected,
+                        resolution.Scope.Framework,
+                        null));
+        }
+
+        return JsonSerializer.Serialize(
+            leverage,
+            BrowserAnalysisJsonContext.Default
+                .BrowserTypeMethodLeverage);
     }
 
     [JSExport]

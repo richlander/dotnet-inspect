@@ -6,6 +6,112 @@ namespace DotnetInspector.Queries.Tests;
 public sealed class NavigationWorkspaceSnapshotTests
 {
     [Fact]
+    public async Task RegisteredEmptyEcosystem_IsActiveWithOverviewAndNoDescendants()
+    {
+        var declaration = new WorkspaceEcosystemRegistrationDeclaration(
+            WorkspaceEcosystemRegistrationId.Create("ecosystem.aspire"),
+            ["Aspire"],
+            [],
+            []);
+        await using var workspace = new InspectionWorkspace(
+            [new WorkspaceRegistration.Ecosystem(declaration)]);
+        WorkspaceRegistrationRevision registrations =
+            Assert.IsType<WorkspaceRegistrationReadResult.Available>(
+                workspace.GetRegistrationSnapshot()).Revision;
+        WorkspaceScopeSnapshot scope =
+            Assert.IsType<WorkspaceScopeReadResult.Available>(
+                await workspace.GetScopeSnapshotAsync()).Snapshot;
+        WorkspaceEcosystemRegistrationOccurrence occurrence =
+            Assert.Single(registrations.EcosystemContributions).Ecosystem;
+        ViewFacetRegistry registry = InspectionViewFacetCatalog.Registry;
+
+        NavigationWorkspaceSnapshot snapshot =
+            NavigationWorkspaceSnapshotEvaluation.Evaluate(
+                new NavigationWorkspaceSnapshotRequest
+                {
+                    Scope = scope,
+                    Ecosystem = new(
+                        registrations,
+                        occurrence),
+                },
+                registry,
+                NavigationSnapshotTestData.AllAvailable(registry));
+
+        var subject =
+            Assert.IsType<StructuralSubjectIdentity.EcosystemSubject>(
+                snapshot.ActiveSubject);
+        Assert.Same(occurrence.Identity, subject.Occurrence);
+        Assert.Same(declaration.Id, subject.Id);
+        Assert.Same(subject, snapshot.Ecosystem);
+        Assert.Null(snapshot.ActiveOccurrence);
+        Assert.Null(snapshot.RetainedContext);
+        Assert.Empty(snapshot.Packages);
+        Assert.Empty(snapshot.Libraries);
+        Assert.Empty(snapshot.Types);
+        Assert.Empty(snapshot.Members);
+        Assert.Equal(
+            [
+                StructuralSubjectKind.Workspace,
+                StructuralSubjectKind.Ecosystem,
+                StructuralSubjectKind.Package,
+                StructuralSubjectKind.Library,
+                StructuralSubjectKind.Type,
+                StructuralSubjectKind.Member,
+            ],
+            snapshot.Hierarchy.Select(slot => slot.Kind));
+        Assert.Equal(
+            [snapshot.Workspace, subject, null, null, null, null],
+            snapshot.Hierarchy.Select(slot => slot.Subject));
+        Assert.Equal(
+            "ecosystem.overview",
+            snapshot.LensOutcome.EffectiveLens!.Facet.Value);
+        Assert.Single(snapshot.Lenses, lens => lens.IsEffective);
+    }
+
+    [Fact]
+    public async Task EcosystemEvaluation_RequiresExactCurrentRegistrationOccurrence()
+    {
+        var initialDeclaration = new WorkspaceEcosystemRegistrationDeclaration(
+            WorkspaceEcosystemRegistrationId.Create("ecosystem.aspire"),
+            ["Aspire"],
+            [],
+            []);
+        var replacementDeclaration =
+            new WorkspaceEcosystemRegistrationDeclaration(
+                WorkspaceEcosystemRegistrationId.Create("ecosystem.aspire"),
+                ["Aspire"],
+                [],
+                []);
+        await using var workspace = new InspectionWorkspace(
+            [new WorkspaceRegistration.Ecosystem(initialDeclaration)]);
+        await using var foreignWorkspace = new InspectionWorkspace(
+            [new WorkspaceRegistration.Ecosystem(initialDeclaration)]);
+        WorkspaceRegistrationRevision initial = Current(workspace);
+        WorkspaceEcosystemRegistrationOccurrence initialOccurrence =
+            Assert.Single(initial.EcosystemContributions).Ecosystem;
+        WorkspaceEcosystemRegistrationOccurrence foreignOccurrence =
+            Assert.Single(Current(foreignWorkspace).EcosystemContributions)
+                .Ecosystem;
+        WorkspaceRegistrationRevision replacement =
+            Assert.IsType<WorkspaceRegistrationOperationResult.Committed>(
+                workspace.ReplaceRegistrations(
+                    initial,
+                    [
+                        new WorkspaceRegistration.Ecosystem(
+                            replacementDeclaration),
+                    ])).Revision;
+
+        Assert.Throws<ArgumentException>(
+            () => new NavigationEcosystemEvaluation(
+                initial,
+                foreignOccurrence));
+        Assert.Throws<ArgumentException>(
+            () => new NavigationEcosystemEvaluation(
+                replacement,
+                initialOccurrence));
+    }
+
+    [Fact]
     public async Task ZeroOneOrManyOccurrences_DoNotInventActiveOccurrence()
     {
         ViewFacetRegistry registry = InspectionViewFacetCatalog.Registry;
@@ -48,8 +154,8 @@ public sealed class NavigationWorkspaceSnapshotTests
                 count == 0
                     ? NavigationDescriptorState.Unavailable
                     : NavigationDescriptorState.SelectionRequired,
-                snapshot.Hierarchy[1].State);
-            Assert.Null(snapshot.Hierarchy[1].Subject);
+                snapshot.Hierarchy[2].State);
+            Assert.Null(snapshot.Hierarchy[2].Subject);
         }
     }
 
@@ -124,14 +230,21 @@ public sealed class NavigationWorkspaceSnapshotTests
         Assert.Equal(
             [
                 snapshot.Workspace,
+                null,
                 context.Package,
                 context.Library,
                 context.Type,
                 context.Member,
             ],
             snapshot.Hierarchy.Select(slot => slot.Subject));
+        Assert.Equal(
+            NavigationDescriptorState.Available,
+            snapshot.Hierarchy[0].State);
+        Assert.Equal(
+            NavigationDescriptorState.Unavailable,
+            snapshot.Hierarchy[1].State);
         Assert.All(
-            snapshot.Hierarchy,
+            snapshot.Hierarchy.Skip(2),
             slot => Assert.Equal(
                 NavigationDescriptorState.Available,
                 slot.State));
@@ -792,6 +905,11 @@ public sealed class NavigationWorkspaceSnapshotTests
             declarationRow.Subject,
             applied.Snapshot.ActiveSubject);
     }
+
+    static WorkspaceRegistrationRevision Current(
+        InspectionWorkspace workspace) =>
+        Assert.IsType<WorkspaceRegistrationReadResult.Available>(
+            workspace.GetRegistrationSnapshot()).Revision;
 
     sealed record TestDiagnosticEvidence(string Value)
         : IViewFacetDiagnosticEvidence;

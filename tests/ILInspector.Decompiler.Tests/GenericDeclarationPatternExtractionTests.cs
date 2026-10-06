@@ -30,7 +30,7 @@ public class GenericDeclarationPatternExtractionTests
         Assert.NotNull(function);
         IrPasses.Run(function!);
         function!.CheckInvariant();
-        return CSharpPrinter.Print(function!).Output!;
+        return DecidedPrint.Print(function!).Output!;
     }
 
     // #2862 slice 1+2: a structured `if (Subject is T t)` whose extractions are
@@ -205,7 +205,7 @@ public class GenericDeclarationPatternExtractionTests
             [],
             body);
 
-        var output = CSharpPrinter.Print(function).Output!;
+        var output = DecidedPrint.Print(function).Output!;
 
         Assert.DoesNotContain("(object)", output);
     }
@@ -238,7 +238,7 @@ public class GenericDeclarationPatternExtractionTests
             [],
             body);
 
-        var output = CSharpPrinter.Print(function).Output!;
+        var output = DecidedPrint.Print(function).Output!;
 
         Assert.DoesNotContain("(object)", output);
     }
@@ -271,7 +271,7 @@ public class GenericDeclarationPatternExtractionTests
             [],
             body);
 
-        var output = CSharpPrinter.Print(function).Output!;
+        var output = DecidedPrint.Print(function).Output!;
 
         Assert.DoesNotContain("(object)", output);
     }
@@ -306,7 +306,7 @@ public class GenericDeclarationPatternExtractionTests
             [objectType],
             body);
 
-        var output = CSharpPrinter.Print(function).Output!;
+        var output = DecidedPrint.Print(function).Output!;
 
         Assert.DoesNotContain("(object)", output);
     }
@@ -346,7 +346,7 @@ public class GenericDeclarationPatternExtractionTests
             [objectType],
             body);
 
-        var output = CSharpPrinter.Print(function).Output!;
+        var output = DecidedPrint.Print(function).Output!;
 
         Assert.DoesNotContain("(object)", output);
     }
@@ -382,7 +382,7 @@ public class GenericDeclarationPatternExtractionTests
             [objectType],
             body);
 
-        var output = CSharpPrinter.Print(function).Output!;
+        var output = DecidedPrint.Print(function).Output!;
 
         Assert.Contains("(T)(object)V_0", output);
         Assert.DoesNotContain("as T", output);
@@ -684,7 +684,7 @@ public class GenericDeclarationPatternExtractionTests
     {
         IrPasses.Run(function);
         function.CheckInvariant();
-        return CSharpPrinter.Print(function).Output!;
+        return DecidedPrint.Print(function).Output!;
     }
     // "jump-target-is-the-success-path" polarity — `if (x is T) goto Success;`
     // — that IsProvenByFlatGuard's non-negated case handles, exercised directly
@@ -719,7 +719,7 @@ public class GenericDeclarationPatternExtractionTests
             [objectType],
             body);
 
-        var output = CSharpPrinter.Print(function).Output!;
+        var output = DecidedPrint.Print(function).Output!;
 
         Assert.Contains("(object)", output);
         Assert.DoesNotContain("as T", output);
@@ -762,7 +762,7 @@ public class GenericDeclarationPatternExtractionTests
             [objectType],
             body);
 
-        var output = CSharpPrinter.Print(function).Output!;
+        var output = DecidedPrint.Print(function).Output!;
 
         Assert.DoesNotContain("(object)", output);
     }
@@ -801,7 +801,7 @@ public class GenericDeclarationPatternExtractionTests
             [objectType, generic],
             body);
 
-        var output = CSharpPrinter.Print(function).Output!;
+        var output = DecidedPrint.Print(function).Output!;
 
         Assert.DoesNotContain("(object)", output);
     }
@@ -830,7 +830,7 @@ public class GenericDeclarationPatternExtractionTests
             [objectType],
             body);
 
-        var output = CSharpPrinter.Print(function).Output!;
+        var output = DecidedPrint.Print(function).Output!;
 
         Assert.DoesNotContain("(object)", output);
     }
@@ -868,7 +868,7 @@ public class GenericDeclarationPatternExtractionTests
             [],
             body);
 
-        var output = CSharpPrinter.Print(function).Output!;
+        var output = DecidedPrint.Print(function).Output!;
 
         Assert.DoesNotContain("(object)", output);
     }
@@ -921,7 +921,7 @@ public class GenericDeclarationPatternExtractionTests
             [],
             body);
 
-        var output = CSharpPrinter.Print(function).Output!;
+        var output = DecidedPrint.Print(function).Output!;
 
         Assert.DoesNotContain("(object)", output);
     }
@@ -973,7 +973,7 @@ public class GenericDeclarationPatternExtractionTests
             [],
             body);
 
-        var output = CSharpPrinter.Print(function).Output!;
+        var output = DecidedPrint.Print(function).Output!;
 
         Assert.Contains("(T)(object)value", output);
     }
@@ -1023,7 +1023,7 @@ public class GenericDeclarationPatternExtractionTests
             [objectType, generic],
             body);
 
-        var output = CSharpPrinter.Print(function).Output!;
+        var output = DecidedPrint.Print(function).Output!;
 
         Assert.Contains("(T)(object)V_0", output);
         Assert.DoesNotContain("as T", output);

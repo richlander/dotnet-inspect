@@ -420,6 +420,8 @@ public sealed record PackageQueryMatch(
     ImmutableArray<PackageQueryAnswer> Answers,
     ImmutableArray<PackageQueryEvidence> Evidence)
 {
+    public PackageQueryEcosystemAdmission? EcosystemAdmission { get; init; }
+
     public PackageQueryMatch(
         PackageProfileMatch Package,
         PackageQueryAcquisitionTier Tier,
@@ -1696,7 +1698,7 @@ public static partial class PackageQuery
             PortableQueryOperator @operator,
             string value) =>
         @operator == PortableQueryOperator.Equal
-        && value.Length is > 0 and <= StringLiteralUseOperand.MaximumLength
+        && value.Length is > 0 and <= StringLiteralUsePredicate.MaximumLength
             ? Bound(
                 PackageQueryPredicateKind.LibraryLiteral,
                 value,
@@ -2108,7 +2110,17 @@ public static partial class PackageQuery
                                     ? PackageQueryAcquisitionTier.Nuspec
                                     : PackageQueryAcquisitionTier.SearchMetadata,
                             answers.ToImmutable(),
-                            evidence.ToImmutable()));
+                            evidence.ToImmutable())
+                        {
+                            EcosystemAdmission =
+                                plan.Ecosystem is { } ecosystem
+                                    && match.Admission is { } ecosystemAdmission
+                                    ? new(
+                                        ecosystem,
+                                        ecosystemAdmission.Basis,
+                                        ecosystemAdmission.Registration)
+                                    : null,
+                        });
                     cancellationToken.ThrowIfCancellationRequested();
                     if (plan.MaximumMatches is int maximumMatches
                         && matches >= maximumMatches)

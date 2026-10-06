@@ -714,14 +714,19 @@ public partial class PackageCommand
             options.IncludeSections is { Count: 1 }
             && options.IncludeSections.Contains(
                 PackageSections.DependencyHierarchy);
+        bool packageChildrenProjection =
+            options.IncludeSections is not { Count: > 0 };
+        // The whole-package file inventory is a Hierarchy, so its tree is a
+        // permitted lowering (docs/design/section-shapes.md#hierarchy).
+        bool filesTreeProjection =
+            options.IncludeSections is { Count: 1 }
+            && options.IncludeSections.Contains(PackageSections.Files);
 
-        if (!dependencyHierarchyProjection)
+        if (!dependencyHierarchyProjection
+            && !packageChildrenProjection
+            && !filesTreeProjection)
         {
-            CommandError.Write(
-                options.IncludeSections is { Count: 1 }
-                && options.IncludeSections.Contains(PackageSections.Dependencies)
-                    ? "Dependencies is direct evidence and cannot be rendered as a hierarchy. Use '-S \"Dependency Hierarchy\" --tree'."
-                    : "--tree requires exactly '-S \"Dependency Hierarchy\"'.");
+            CommandError.Write(DescribeTreeRejection(options.IncludeSections!));
             return false;
         }
 

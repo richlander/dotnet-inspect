@@ -2,6 +2,12 @@ using ILInspector.CSharp;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.DecompilerHarness;
 
+using DotnetInspector.ResearchQueries;
+using DotnetInspector.ResearchSections;
+
+using QuerySpace;
+using QuerySpace.Composition;
+
 using System.Reflection;
 using System.Reflection.Emit;
 using System.Reflection.Metadata;
@@ -42,26 +48,26 @@ public class ReturnToSenderTargetSelectionTests
                     [unavailableAssembly, eligibleAssembly],
                     cap: 1);
 
-            FidelityCheck.CompileBackTarget selected =
+            ReturnToSenderTarget selected =
                 Assert.Single(selection.Targets);
             Assert.Equal(eligibleAssembly, selected.AssemblyPath);
             Assert.IsType<
-                FidelityCheck.ReturnToSenderDeclarationSelection
+                ReturnToSenderDeclarationSelection
                     .OrdinaryMethod>(selected.Declaration);
             Assert.Equal(1, selection.EligibleCount);
 
-            FidelityCheck.ReturnToSenderTargetExclusion exclusion =
+            ReturnToSenderTargetExclusion exclusion =
                 Assert.Single(
                     selection.Exclusions,
                     exclusion => exclusion.Method.EndsWith(
                         ".Transform",
                         StringComparison.Ordinal));
             Assert.Equal(
-                FidelityCheck.ReturnToSenderTargetExclusionReason
+                ReturnToSenderTargetExclusionReason
                     .ExactDeclarationUnavailable,
                 exclusion.Reason);
             Assert.Equal(
-                FidelityCheck.ReturnToSenderDeclarationProducer
+                ReturnToSenderDeclarationProducer
                     .ExactMethodDeclaration,
                 exclusion.Producer);
             var unavailable = Assert.IsType<
@@ -77,6 +83,110 @@ public class ReturnToSenderTargetSelectionTests
                 unavailableAssembly);
             FidelityCheckGeneratedFilterTests.DeleteFixture(
                 eligibleAssembly);
+        }
+    }
+
+    [Fact]
+    public void RankFirstCapMatchesExactPlanAndStopsDeepEvaluation()
+    {
+        string assemblyPath =
+            FidelityCheckGeneratedFilterTests.CompileFixture("""
+                public static class RankedTargetFixture
+                {
+                    public static int Alpha(int value) => value + 1;
+                    public static int Beta(int value) => value + 2;
+                    public static int Gamma(int value) => value + 3;
+                    public static int Delta(int value) => value + 4;
+                    public static int Epsilon(int value) => value + 5;
+                    public static int Zeta(int value) => value + 6;
+                    public static int Eta(int value) => value + 7;
+                    public static int Theta(int value) => value + 8;
+                }
+                """, assemblyName: "RankedTargets");
+        try
+        {
+            FidelityCheck.ReturnToSenderTargetSelection exact =
+                FidelityCheck.SelectReturnToSenderTargetPlan(
+                    [assemblyPath],
+                    cap: 1);
+            FidelityCheck.CappedReturnToSenderTargetSelection ranked =
+                FidelityCheck.SelectReturnToSenderTargetsCapped(
+                    [assemblyPath],
+                    cap: 1);
+
+            Assert.Equal(
+                TargetSnapshot(exact),
+                TargetSnapshot(ranked.Targets));
+            Assert.Equal(1, ranked.EvaluatedBodyCount);
+            Assert.True(
+                ranked.RankedBodyCount
+                    > ranked.EvaluatedBodyCount);
+            Assert.Equal(
+                ranked.EvaluatedBodyCount,
+                ranked.DeclarationCandidateCount);
+            Assert.Equal(
+                0,
+                ranked.ExcludedDeclarationCandidateCount);
+        }
+        finally
+        {
+            FidelityCheckGeneratedFilterTests.DeleteFixture(
+                assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void RankFirstCapMatchesExactPlanAcrossAssemblies()
+    {
+        string firstAssembly =
+            FidelityCheckGeneratedFilterTests.CompileFixture("""
+                public interface IUnavailableContract
+                {
+                    int Transform(int value);
+                }
+
+                public readonly struct UnavailableFixture :
+                    IUnavailableContract
+                {
+                    int IUnavailableContract.Transform(int value) =>
+                        value;
+                }
+                """, assemblyName: "RankedUnavailable");
+        string secondAssembly =
+            FidelityCheckGeneratedFilterTests.CompileFixture("""
+                public static class RankedEligibleFixture
+                {
+                    public static int Alpha(int value) => value + 1;
+                    public static int Beta(int value) => value + 2;
+                }
+                """, assemblyName: "RankedEligible");
+        try
+        {
+            FidelityCheck.ReturnToSenderTargetSelection exact =
+                FidelityCheck.SelectReturnToSenderTargetPlan(
+                    [firstAssembly, secondAssembly],
+                    cap: 1);
+            FidelityCheck.CappedReturnToSenderTargetSelection ranked =
+                FidelityCheck.SelectReturnToSenderTargetsCapped(
+                    [firstAssembly, secondAssembly],
+                    cap: 1);
+
+            Assert.Equal(
+                TargetSnapshot(exact),
+                TargetSnapshot(ranked.Targets));
+            Assert.Single(ranked.Targets);
+            Assert.True(
+                ranked.ExcludedDeclarationCandidateCount > 0);
+            Assert.True(
+                ranked.EvaluatedBodyCount
+                    < exact.ScannedBodyCount);
+        }
+        finally
+        {
+            FidelityCheckGeneratedFilterTests.DeleteFixture(
+                firstAssembly);
+            FidelityCheckGeneratedFilterTests.DeleteFixture(
+                secondAssembly);
         }
     }
 
@@ -125,7 +235,7 @@ public class ReturnToSenderTargetSelectionTests
             Assert.Contains(
                 selection.Targets,
                 target => target.Method == "Good");
-            FidelityCheck.CompileBackTarget[] accessors =
+            ReturnToSenderTarget[] accessors =
             [
                 .. selection.Targets.Where(
                     target => target.Method.Contains(
@@ -147,7 +257,7 @@ public class ReturnToSenderTargetSelectionTests
                 target =>
                 {
                     var exact = Assert.IsType<
-                        FidelityCheck.ReturnToSenderDeclarationSelection
+                        ReturnToSenderDeclarationSelection
                             .ExactAccessor>(target.Declaration);
                     Assert.Equal(
                         target.Address,
@@ -170,23 +280,23 @@ public class ReturnToSenderTargetSelectionTests
             Assert.Equal(
                 2,
                 accessors.Count(target =>
-                    ((FidelityCheck.ReturnToSenderDeclarationSelection
+                    ((ReturnToSenderDeclarationSelection
                         .ExactAccessor)target.Declaration!).Request.Kind
                     == CSharpAccessorDeclarationKind.Property));
             Assert.Equal(
                 2,
                 accessors.Count(target =>
-                    ((FidelityCheck.ReturnToSenderDeclarationSelection
+                    ((ReturnToSenderDeclarationSelection
                         .ExactAccessor)target.Declaration!).Request.Kind
                     == CSharpAccessorDeclarationKind.Indexer));
             Assert.Equal(
                 2,
                 accessors.Count(target =>
-                    ((FidelityCheck.ReturnToSenderDeclarationSelection
+                    ((ReturnToSenderDeclarationSelection
                         .ExactAccessor)target.Declaration!).Request.Kind
                     == CSharpAccessorDeclarationKind.Event));
             Assert.Null(
-                ((FidelityCheck.ReturnToSenderDeclarationSelection
+                ((ReturnToSenderDeclarationSelection
                     .ExactAccessor)Assert.Single(
                         accessors,
                         target => target.Method == "get_OrdinaryValue")
@@ -195,13 +305,13 @@ public class ReturnToSenderTargetSelectionTests
                 accessors.Where(
                     target => target.Method != "get_OrdinaryValue"),
                 target => Assert.NotNull(
-                    ((FidelityCheck.ReturnToSenderDeclarationSelection
+                    ((ReturnToSenderDeclarationSelection
                         .ExactAccessor)target.Declaration!)
                     .Request.ExplicitInterface));
             Assert.DoesNotContain(
                 selection.Exclusions,
                 exclusion => exclusion.Producer
-                    == FidelityCheck.ReturnToSenderDeclarationProducer
+                    == ReturnToSenderDeclarationProducer
                         .ExactAccessorDeclaration);
         }
         finally
@@ -262,14 +372,12 @@ public class ReturnToSenderTargetSelectionTests
             Assert.Contains(
                 oracle.Targets,
                 target => target.Declaration
-                    is FidelityCheck
-                        .ReturnToSenderDeclarationSelection
+                    is ReturnToSenderDeclarationSelection
                         .OrdinaryMethod);
             Assert.Contains(
                 oracle.Targets,
                 target => target.Declaration
-                    is FidelityCheck
-                        .ReturnToSenderDeclarationSelection
+                    is ReturnToSenderDeclarationSelection
                         .ExactAccessor);
             Assert.All(
                 oracle.Targets,
@@ -277,15 +385,13 @@ public class ReturnToSenderTargetSelectionTests
                 {
                     switch (target.Declaration)
                     {
-                        case FidelityCheck
-                            .ReturnToSenderDeclarationSelection
+                        case ReturnToSenderDeclarationSelection
                             .ExactMethod exact:
                             Assert.Equal(
                                 target.Address,
                                 exact.Request.Body);
                             break;
-                        case FidelityCheck
-                            .ReturnToSenderDeclarationSelection
+                        case ReturnToSenderDeclarationSelection
                             .ExactAccessor exact:
                             Assert.Equal(
                                 target.Address,
@@ -299,6 +405,185 @@ public class ReturnToSenderTargetSelectionTests
             FidelityCheckGeneratedFilterTests.DeleteFixture(
                 assemblyPath);
         }
+    }
+
+    [Fact]
+    public void QuerySpaceCountMatchesNLinqWithoutMaterializingRows()
+    {
+        string assemblyPath =
+            FidelityCheckGeneratedFilterTests.CompileFixture("""
+                using System;
+
+                public interface ICountContract
+                {
+                    int Value { get; }
+                    event Action Changed;
+                }
+
+                public sealed class CountPopulationFixture :
+                    ICountContract
+                {
+                    public static int Ordinary(int value) => value + 1;
+
+                    int ICountContract.Value => 8;
+
+                    event Action ICountContract.Changed
+                    {
+                        add { }
+                        remove { }
+                    }
+                }
+                """, assemblyName: "CountPopulation");
+        try
+        {
+            FidelityCheck.ReturnToSenderTargetSelection oracle =
+                FidelityCheck
+                    .QueryReturnToSenderTargetPopulationWithNLinq(
+                        [assemblyPath]);
+            var counted = Assert.IsType<
+                ReturnToSenderTargetCountOutcome.Counted>(
+                    ReturnToSenderTargetCount.Count(
+                        [assemblyPath]));
+
+            Assert.Equal(oracle.EligibleCount, counted.Count);
+            Assert.Equal(
+                oracle.ScannedBodyCount,
+                counted.Receipt.ScannedBodyCount);
+            Assert.Equal(
+                oracle.DeclarationCandidateCount,
+                counted.Receipt.DeclarationCandidateCount);
+            Assert.Equal(0, counted.Receipt.MaterializedRowCount);
+            ReturnToSenderTargetAssemblyCountReceipt assembly =
+                Assert.Single(counted.Receipt.Assemblies);
+            Assert.Equal(assemblyPath, assembly.Identity);
+            Assert.Equal(
+                oracle.EligibleCount,
+                assembly.EligibleCount);
+            Assert.Equal(0, assembly.MaterializedRowCount);
+        }
+        finally
+        {
+            FidelityCheckGeneratedFilterTests.DeleteFixture(
+                assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void QuerySpaceTargetPopulationAdmitsOnlyExactCount()
+    {
+        QuerySpaceRequest request =
+            ReturnToSenderTargetQuery.CreateCountRequest();
+        Assert.IsType<
+            ReturnToSenderTargetQueryResolution.Accepted>(
+                ReturnToSenderTargetQuery.ResolveRequest(request));
+        Assert.Equal(
+            QuerySpaceTerminalRequirement.Count,
+            request.Terminal);
+        Assert.Equal(
+            ReturnToSenderTargetQuery.CountResultContract,
+            request.ResultContract);
+
+        Assert.Throws<ArgumentException>(
+            () => QuerySpaceRequest.Create(
+                ReturnToSenderTargetQuery.QuerySpace.Descriptor,
+                PortableQueryIntent.Empty,
+                [ReturnToSenderTargetQuery.RowSet],
+                [
+                    new(
+                        ReturnToSenderTargetQuery.RowScopeIdentity,
+                        PortableQueryIntent.Empty,
+                        [ReturnToSenderTargetQuery.RowSet]),
+                ],
+                QuerySpaceTerminalRequirement.Rows));
+    }
+
+    [Fact]
+    public void QuerySpaceCountAggregatesAssembliesExactly()
+    {
+        string assemblyPath =
+            FidelityCheckGeneratedFilterTests.CompileFixture("""
+                public static class CountAggregationFixture
+                {
+                    public static int First(int value) => value + 1;
+                    public static int Second(int value) => value + 2;
+                }
+                """, assemblyName: "CountAggregation");
+        try
+        {
+            FidelityCheck.ReturnToSenderTargetSelection oracle =
+                FidelityCheck
+                    .QueryReturnToSenderTargetPopulationWithNLinq(
+                        [assemblyPath]);
+            var counted = Assert.IsType<
+                ReturnToSenderTargetCountOutcome.Counted>(
+                    ReturnToSenderTargetCount.Count(
+                        [assemblyPath, assemblyPath]));
+
+            Assert.Equal(checked(oracle.EligibleCount * 2), counted.Count);
+            Assert.Equal(
+                checked(oracle.ScannedBodyCount * 2),
+                counted.Receipt.ScannedBodyCount);
+            Assert.Equal(
+                checked(oracle.DeclarationCandidateCount * 2),
+                counted.Receipt.DeclarationCandidateCount);
+            Assert.Equal(2, counted.Receipt.Assemblies.Count);
+            Assert.All(
+                counted.Receipt.Assemblies,
+                assembly =>
+                {
+                    Assert.Equal(
+                        oracle.EligibleCount,
+                        assembly.EligibleCount);
+                    Assert.Equal(0, assembly.MaterializedRowCount);
+                });
+            Assert.Equal(0, counted.Receipt.MaterializedRowCount);
+        }
+        finally
+        {
+            FidelityCheckGeneratedFilterTests.DeleteFixture(
+                assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void QuerySpaceCountRejectsForeignRequestsBeforeSourceWork()
+    {
+        QuerySpaceBinding foreign =
+            QuerySpaceBinding.Create(
+                "foreign-return-to-sender/query-space/v1",
+                ReturnToSenderTargetQuery.OperationRoute,
+                [ReturnToSenderTargetQuery.RowScope],
+                [QuerySpaceTerminalRequirement.Count],
+                acceptsContinuation: false,
+                [
+                    new(
+                        QuerySpaceTerminalRequirement.Count,
+                        ReturnToSenderTargetQuery.CountResultContract),
+                ]);
+        QuerySpaceRequest request =
+            QuerySpaceRequest.Create(
+                foreign.Descriptor,
+                PortableQueryIntent.Empty,
+                [ReturnToSenderTargetQuery.RowSet],
+                [
+                    new(
+                        ReturnToSenderTargetQuery.RowScopeIdentity,
+                        PortableQueryIntent.Empty,
+                        [ReturnToSenderTargetQuery.RowSet]),
+                ],
+                QuerySpaceTerminalRequirement.Count);
+
+        var rejected = Assert.IsType<
+            ReturnToSenderTargetCountOutcome.Rejected>(
+                ReturnToSenderTargetInspection.Count(
+                    [],
+                    request));
+        Assert.Equal(
+            ReturnToSenderTargetQueryRejectionKind.QuerySpaceMismatch,
+            Assert.IsType<
+                    ReturnToSenderTargetQueryResolution.Rejected>(
+                    rejected.Resolution)
+                .Kind);
     }
 
     [Fact]
@@ -318,16 +603,15 @@ public class ReturnToSenderTargetSelectionTests
                     typeFilter: "System.Int32");
 
         AssertEquivalent(selector, oracle);
-        FidelityCheck.CompileBackTarget target =
+        ReturnToSenderTarget target =
             Assert.Single(
                 oracle.Targets,
                 target => target.Type == "System.Int32"
                     && target.Declaration is
-                        FidelityCheck
-                            .ReturnToSenderDeclarationSelection
+                        ReturnToSenderDeclarationSelection
                             .ExactMethod);
         var exact = Assert.IsType<
-            FidelityCheck.ReturnToSenderDeclarationSelection
+            ReturnToSenderDeclarationSelection
                 .ExactMethod>(target.Declaration);
         Assert.Equal(target.Address, exact.Request.Body);
     }
@@ -357,7 +641,7 @@ public class ReturnToSenderTargetSelectionTests
                 exclusion =>
                 {
                     Assert.Equal(
-                        FidelityCheck.ReturnToSenderTargetExclusionReason
+                        ReturnToSenderTargetExclusionReason
                             .ExactAccessorDeclarationUnrepresentable,
                         exclusion.Reason);
                     var refusal = Assert.IsType<
@@ -395,10 +679,10 @@ public class ReturnToSenderTargetSelectionTests
                         [unavailableAssembly]);
 
             AssertEquivalent(selector, oracle);
-            FidelityCheck.ReturnToSenderTargetExclusion exclusion =
+            ReturnToSenderTargetExclusion exclusion =
                 Assert.Single(oracle.Exclusions);
             Assert.Equal(
-                FidelityCheck.ReturnToSenderTargetExclusionReason
+                ReturnToSenderTargetExclusionReason
                     .ExactAccessorDeclarationUnavailable,
                 exclusion.Reason);
             var unavailable = Assert.IsType<
@@ -481,16 +765,16 @@ public class ReturnToSenderTargetSelectionTests
                     [assemblyPath],
                     cap: int.MaxValue);
 
-            FidelityCheck.ReturnToSenderTargetExclusion raiser =
+            ReturnToSenderTargetExclusion raiser =
                 Assert.Single(
                     selection.Exclusions,
                     exclusion => exclusion.Method == raiserName);
             Assert.Equal(
-                FidelityCheck.ReturnToSenderTargetExclusionReason
+                ReturnToSenderTargetExclusionReason
                     .ExactAccessorDeclarationUnrepresentable,
                 raiser.Reason);
             Assert.Equal(
-                FidelityCheck.ReturnToSenderDeclarationProducer
+                ReturnToSenderDeclarationProducer
                     .ExactAccessorDeclaration,
                 raiser.Producer);
             var refusal = Assert.IsType<
@@ -533,16 +817,16 @@ public class ReturnToSenderTargetSelectionTests
                     [refusedAssembly, eligibleAssembly],
                     cap: 1);
 
-            FidelityCheck.CompileBackTarget selected =
+            ReturnToSenderTarget selected =
                 Assert.Single(selection.Targets);
             Assert.Equal(eligibleAssembly, selected.AssemblyPath);
             Assert.Equal("get_Value", selected.Method);
             Assert.IsType<
-                FidelityCheck.ReturnToSenderDeclarationSelection
+                ReturnToSenderDeclarationSelection
                     .ExactAccessor>(selected.Declaration);
             Assert.Equal(1, selection.EligibleCount);
 
-            FidelityCheck.ReturnToSenderTargetExclusion[] exclusions =
+            ReturnToSenderTargetExclusion[] exclusions =
             [
                 .. selection.Exclusions.Where(
                     exclusion => exclusion.AssemblyPath
@@ -554,11 +838,11 @@ public class ReturnToSenderTargetSelectionTests
                 exclusion =>
                 {
                     Assert.Equal(
-                        FidelityCheck.ReturnToSenderTargetExclusionReason
+                        ReturnToSenderTargetExclusionReason
                             .ExactAccessorDeclarationUnrepresentable,
                         exclusion.Reason);
                     Assert.Equal(
-                        FidelityCheck.ReturnToSenderDeclarationProducer
+                        ReturnToSenderDeclarationProducer
                             .ExactAccessorDeclaration,
                         exclusion.Producer);
                     var refusal = Assert.IsType<
@@ -570,7 +854,7 @@ public class ReturnToSenderTargetSelectionTests
                             .UnsupportedSemanticOccurrence,
                         refusal.Reason);
                 });
-            FidelityCheck.ReturnToSenderTargetExclusion raiser =
+            ReturnToSenderTargetExclusion raiser =
                 Assert.Single(
                     exclusions,
                     exclusion => exclusion.Method == "raise_Changed");
@@ -605,15 +889,15 @@ public class ReturnToSenderTargetSelectionTests
                     cap: int.MaxValue);
 
             Assert.Empty(selection.Targets);
-            FidelityCheck.ReturnToSenderTargetExclusion exclusion =
+            ReturnToSenderTargetExclusion exclusion =
                 Assert.Single(selection.Exclusions);
             Assert.Equal("add_Changed", exclusion.Method);
             Assert.Equal(
-                FidelityCheck.ReturnToSenderTargetExclusionReason
+                ReturnToSenderTargetExclusionReason
                     .ExactAccessorDeclarationUnavailable,
                 exclusion.Reason);
             Assert.Equal(
-                FidelityCheck.ReturnToSenderDeclarationProducer
+                ReturnToSenderDeclarationProducer
                     .ExactAccessorDeclaration,
                 exclusion.Producer);
             var unavailable = Assert.IsType<
@@ -707,9 +991,13 @@ public class ReturnToSenderTargetSelectionTests
 
     static TargetSelectionSnapshot[] TargetSnapshot(
         FidelityCheck.ReturnToSenderTargetSelection selection)
+        => TargetSnapshot(selection.Targets);
+
+    static TargetSelectionSnapshot[] TargetSnapshot(
+        IReadOnlyList<ReturnToSenderTarget> targets)
         =>
         [
-            .. selection.Targets.Select(
+            .. targets.Select(
                 target => new TargetSelectionSnapshot(
                     target.AssemblyPath,
                     target.Type,
@@ -719,23 +1007,48 @@ public class ReturnToSenderTargetSelectionTests
                     target.Address,
                     target.Declaration switch
                     {
-                        FidelityCheck
-                            .ReturnToSenderDeclarationSelection
+                        ReturnToSenderDeclarationSelection
                             .OrdinaryMethod =>
-                            FidelityCheck
-                                .ReturnToSenderDeclarationProducer
+                            ReturnToSenderDeclarationProducer
                                 .OrdinaryTypeArtifact,
-                        FidelityCheck
-                            .ReturnToSenderDeclarationSelection
+                        ReturnToSenderDeclarationSelection
                             .ExactMethod =>
-                            FidelityCheck
-                                .ReturnToSenderDeclarationProducer
+                            ReturnToSenderDeclarationProducer
                                 .ExactMethodDeclaration,
-                        FidelityCheck
-                            .ReturnToSenderDeclarationSelection
+                        ReturnToSenderDeclarationSelection
                             .ExactAccessor =>
-                            FidelityCheck
-                                .ReturnToSenderDeclarationProducer
+                            ReturnToSenderDeclarationProducer
+                                .ExactAccessorDeclaration,
+                        _ => throw new InvalidOperationException(
+                            "Unknown RTS declaration selection."),
+                    })),
+        ];
+
+    static TargetSelectionSnapshot[] TargetSnapshot(
+        IReadOnlyList<FidelityCheck.CompileBackTarget> targets)
+        =>
+        [
+            .. targets.Select(
+                target => new TargetSelectionSnapshot(
+                    target.AssemblyPath,
+                    target.Type,
+                    target.Method,
+                    target.Overload,
+                    target.Signature,
+                    target.Address,
+                    target.Declaration switch
+                    {
+                        ReturnToSenderDeclarationSelection
+                            .OrdinaryMethod =>
+                            ReturnToSenderDeclarationProducer
+                                .OrdinaryTypeArtifact,
+                        ReturnToSenderDeclarationSelection
+                            .ExactMethod =>
+                            ReturnToSenderDeclarationProducer
+                                .ExactMethodDeclaration,
+                        ReturnToSenderDeclarationSelection
+                            .ExactAccessor =>
+                            ReturnToSenderDeclarationProducer
                                 .ExactAccessorDeclaration,
                         _ => throw new InvalidOperationException(
                             "Unknown RTS declaration selection."),
@@ -749,7 +1062,7 @@ public class ReturnToSenderTargetSelectionTests
         int Overload,
         string Signature,
         ILInspector.MetadataPrimitives.MetadataMethodAddress? Address,
-        FidelityCheck.ReturnToSenderDeclarationProducer Producer);
+        ReturnToSenderDeclarationProducer Producer);
 
     static string CreateGeneratedEventRaiserFixture(
         string raiserName,

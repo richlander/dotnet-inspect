@@ -269,9 +269,13 @@ public static partial class ApiSurfaceExtractor
         PrimitiveDefinitionClassifications = new();
 
     /// <summary>
-    /// Extracts API Types in metadata order until one retained Type satisfies
-    /// <paramref name="stopAfterType"/>.
+    /// Extracts declaration-only API Types in metadata order until one retained
+    /// Type satisfies <paramref name="stopAfterType"/>.
     /// </summary>
+    /// <remarks>
+    /// A finite prefix cannot project extensions declared after its stopping
+    /// point, so this path never attaches receiver-contextual members.
+    /// </remarks>
     public static ApiSurface ExtractUntil(
         PEReader peReader,
         bool includeAll,
@@ -286,6 +290,7 @@ public static partial class ApiSurfaceExtractor
                 : ApiSurfaceExtractionScope.Public,
             typesOnly,
             includeCompilerGenerated: false,
+            includeLocalExtensionProjections: false,
             budget: null,
             constraintResolution: null,
             stopAfterType: stopAfterType);
@@ -366,6 +371,7 @@ public static partial class ApiSurfaceExtractor
                         typeDef.GetCustomAttributes());
                 CountSummaryMembers(
                     reader,
+                    typeDefHandle,
                     typeDef,
                     apiType,
                     surface,
@@ -515,6 +521,7 @@ public static partial class ApiSurfaceExtractor
                         typeDef.GetCustomAttributes());
                 CountSummaryMembers(
                     reader,
+                    typeDefHandle,
                     typeDef,
                     apiType: null,
                     surface,
@@ -635,6 +642,41 @@ public static partial class ApiSurfaceExtractor
             scope,
             typesOnly,
             includeCompilerGenerated,
+            includeLocalExtensionProjections: true,
+            budget: null,
+            constraintResolution: null);
+
+    /// <summary>
+    /// Extracts declarations physically owned by each retained Type.
+    /// </summary>
+    public static ApiSurface ExtractDeclarations(
+        PEReader peReader,
+        bool includeAll = false,
+        bool typesOnly = false,
+        bool includeCompilerGenerated = false)
+        => ExtractDeclarations(
+            peReader,
+            includeAll
+                ? ApiSurfaceExtractionScope.IncludeAll
+                : ApiSurfaceExtractionScope.Public,
+            typesOnly,
+            includeCompilerGenerated);
+
+    /// <summary>
+    /// Extracts declarations physically owned by each retained Type at one
+    /// explicit visibility scope.
+    /// </summary>
+    public static ApiSurface ExtractDeclarations(
+        PEReader peReader,
+        ApiSurfaceExtractionScope scope,
+        bool typesOnly = false,
+        bool includeCompilerGenerated = false)
+        => Extract(
+            peReader,
+            scope,
+            typesOnly,
+            includeCompilerGenerated,
+            includeLocalExtensionProjections: false,
             budget: null,
             constraintResolution: null);
 
@@ -676,6 +718,43 @@ public static partial class ApiSurfaceExtractor
         ApiSurfaceExtractionScope scope,
         bool typesOnly = false,
         bool includeCompilerGenerated = false)
+        => ExtractResolved(
+            peReader,
+            source,
+            catalog,
+            bindingPolicy,
+            scope,
+            typesOnly,
+            includeCompilerGenerated,
+            includeLocalExtensionProjections: true);
+
+    internal static ApiSurface ExtractDeclarations(
+        PEReader peReader,
+        ResolvedAssemblyReference source,
+        TypeResolutionCatalog catalog,
+        IAssemblyBindingPolicy bindingPolicy,
+        ApiSurfaceExtractionScope scope,
+        bool typesOnly = false,
+        bool includeCompilerGenerated = false)
+        => ExtractResolved(
+            peReader,
+            source,
+            catalog,
+            bindingPolicy,
+            scope,
+            typesOnly,
+            includeCompilerGenerated,
+            includeLocalExtensionProjections: false);
+
+    static ApiSurface ExtractResolved(
+        PEReader peReader,
+        ResolvedAssemblyReference source,
+        TypeResolutionCatalog catalog,
+        IAssemblyBindingPolicy bindingPolicy,
+        ApiSurfaceExtractionScope scope,
+        bool typesOnly,
+        bool includeCompilerGenerated,
+        bool includeLocalExtensionProjections)
     {
         ArgumentNullException.ThrowIfNull(peReader);
         ArgumentNullException.ThrowIfNull(source);
@@ -694,6 +773,7 @@ public static partial class ApiSurfaceExtractor
             scope,
             typesOnly,
             includeCompilerGenerated,
+            includeLocalExtensionProjections,
             budget: null,
             constraintResolution);
         CompleteConstraintResolution(
@@ -799,6 +879,22 @@ public static partial class ApiSurfaceExtractor
         bool includeCompilerGenerated = false)
         => ExtractBoundedCore(
             peReader, scope, bounds, typesOnly, includeCompilerGenerated,
+            includeLocalExtensionProjections: true,
+            source: null, catalog: null, bindingPolicy: null);
+
+    /// <summary>
+    /// Extracts declarations physically owned by each retained Type under hard
+    /// retention bounds.
+    /// </summary>
+    public static ApiSurfaceExtractionResult ExtractDeclarationsBounded(
+        PEReader peReader,
+        ApiSurfaceExtractionScope scope,
+        ApiSurfaceExtractionBounds bounds,
+        bool typesOnly = false,
+        bool includeCompilerGenerated = false)
+        => ExtractBoundedCore(
+            peReader, scope, bounds, typesOnly, includeCompilerGenerated,
+            includeLocalExtensionProjections: false,
             source: null, catalog: null, bindingPolicy: null);
 
     internal static ApiSurfaceExtractionResult ExtractBounded(
@@ -816,6 +912,26 @@ public static partial class ApiSurfaceExtractor
         return ExtractBoundedCore(
             peReader, scope, bounds,
             typesOnly: false, includeCompilerGenerated,
+            includeLocalExtensionProjections: true,
+            source, catalog, bindingPolicy);
+    }
+
+    internal static ApiSurfaceExtractionResult ExtractDeclarationsBounded(
+        PEReader peReader,
+        ResolvedAssemblyReference source,
+        TypeResolutionCatalog catalog,
+        IAssemblyBindingPolicy bindingPolicy,
+        ApiSurfaceExtractionScope scope,
+        ApiSurfaceExtractionBounds bounds,
+        bool includeCompilerGenerated = false)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(catalog);
+        ArgumentNullException.ThrowIfNull(bindingPolicy);
+        return ExtractBoundedCore(
+            peReader, scope, bounds,
+            typesOnly: false, includeCompilerGenerated,
+            includeLocalExtensionProjections: false,
             source, catalog, bindingPolicy);
     }
 
@@ -825,6 +941,7 @@ public static partial class ApiSurfaceExtractor
         ApiSurfaceExtractionBounds bounds,
         bool typesOnly,
         bool includeCompilerGenerated,
+        bool includeLocalExtensionProjections,
         ResolvedAssemblyReference? source,
         TypeResolutionCatalog? catalog,
         IAssemblyBindingPolicy? bindingPolicy)
@@ -848,6 +965,7 @@ public static partial class ApiSurfaceExtractor
                 scope,
                 typesOnly,
                 includeCompilerGenerated,
+                includeLocalExtensionProjections,
                 budget,
                 constraintResolution,
                 operationContext);
@@ -873,6 +991,7 @@ public static partial class ApiSurfaceExtractor
         ApiSurfaceExtractionScope scope,
         bool typesOnly,
         bool includeCompilerGenerated,
+        bool includeLocalExtensionProjections,
         ExtractionBudget? budget,
         TypeParameterConstraintResolution? constraintResolution,
         MetadataOperationContext? operationContext = null,
@@ -1472,7 +1591,11 @@ public static partial class ApiSurfaceExtractor
                     tokens.Add(MetadataTokens.GetToken(methodHandle));
                 }
                 var methodAccess = method.Attributes & MethodAttributes.MemberAccessMask;
-                var isExplicitInterfaceImplementation = explicitImplementationBodies.Contains(methodHandle);
+                bool isExplicitInterfaceImplementation =
+                    IsExplicitInterfaceImplementationBody(
+                        methodHandle,
+                        methodAccess,
+                        explicitImplementationBodies);
                 var effectiveAccess = MethodEffectiveAccess(
                     methodAccess,
                     methodHandle,
@@ -1597,6 +1720,8 @@ public static partial class ApiSurfaceExtractor
                         methodName,
                         isFinalizer,
                         isExplicitInterfaceImplementation),
+                    IsExplicitInterfaceImplementation =
+                        isExplicitInterfaceImplementation && !isFinalizer,
                     IsHidden = isHiddenMethod,
                     PhysicalMethodAccess = methodAccess,
                     MethodSemantics = accessorAssociationsAvailable
@@ -1860,6 +1985,15 @@ public static partial class ApiSurfaceExtractor
                         prop.Name,
                         observeDecodeWork),
                     Kind = "property",
+                    IsExplicitInterfaceImplementation =
+                        IsExplicitInterfaceImplementationBody(
+                            reader,
+                            accessors.Getter,
+                            explicitImplementationBodies)
+                        || IsExplicitInterfaceImplementationBody(
+                            reader,
+                            accessors.Setter,
+                            explicitImplementationBodies),
                     IsHidden = isHiddenProperty,
                     DeclarationMetadataToken =
                         MetadataTokens.GetToken(propHandle),
@@ -2371,6 +2505,15 @@ public static partial class ApiSurfaceExtractor
                 {
                     Name = eventName,
                     Kind = "event",
+                    IsExplicitInterfaceImplementation =
+                        IsExplicitInterfaceImplementationBody(
+                            reader,
+                            accessors.Adder,
+                            explicitImplementationBodies)
+                        || IsExplicitInterfaceImplementationBody(
+                            reader,
+                            accessors.Remover,
+                            explicitImplementationBodies),
                     IsHidden = isHiddenEvent,
                     DeclarationMetadataToken = MetadataTokens.GetToken(eventHandle),
                     MemorySafety = ApiMemorySafetyFacts.Read(
@@ -2520,10 +2663,13 @@ public static partial class ApiSurfaceExtractor
                 indexFailure);
         }
 
-        AttachLocalExtensionMethods(
-            surface,
-            extensionReceiverDefinitions,
-            budget);
+        if (includeLocalExtensionProjections)
+        {
+            AttachLocalExtensionMethods(
+                surface,
+                extensionReceiverDefinitions,
+                budget);
+        }
 
         // Extract type forwarders (ExportedTypes that are forwarded to other assemblies)
         ExtractTypeForwarders(reader, surface, budget);

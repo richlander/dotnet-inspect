@@ -13,9 +13,50 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageDownload Include="System.Text.Json"
+                     Version="[10.0.0]" />
+    <PackageDownload Include="Microsoft.NETCore.App.Ref"
+                     Version="[10.0.10]" />
+    <PackageDownload Include="Microsoft.NETCore.App.Runtime.linux-x64"
+                     Version="[11.0.0-rc.1.26425.128]" />
     <PackageReference Include="xunit.v3" />
     <Using Include="Xunit" />
+    <ProjectReference Include="../../src/DotnetInspector.Libraries/DotnetInspector.Libraries.csproj" />
     <ProjectReference Include="../../src/DotnetInspector.PlatformHouse/DotnetInspector.PlatformHouse.csproj" />
+    <ProjectReference Include="../../src/DotnetInspector.PlatformQueries/DotnetInspector.PlatformQueries.csproj" />
+    <ProjectReference Include="../../src/DotnetInspector.Sections/DotnetInspector.Sections.csproj" />
+    <ProjectReference Include="../../src/Inspector.Artifacts.Workspaces/Inspector.Artifacts.Workspaces.csproj" />
+    <ProjectReference Include="../../src/Inspector.Resources/Inspector.Resources.csproj" />
+    <ProjectReference Include="../DotnetInspector.FixtureInfrastructure/DotnetInspector.FixtureInfrastructure.csproj" />
+    <ProjectReference Include="../../fixtures/queries/DotnetInspector.SourceDiff.V1/DotnetInspector.SourceDiff.V1.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="../../fixtures/queries/DotnetInspector.SourceDiff.V2/DotnetInspector.SourceDiff.V2.csproj" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="$(NuGetPackageRoot)system.text.json/10.0.0/lib/net10.0/System.Text.Json.dll"
+          Link="RealAssets/PlatformTypeCatalog/System.Text.Json.dll"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NuGetPackageRoot)microsoft.netcore.app.ref/10.0.10/ref/net10.0/netstandard.dll"
+          Link="RealAssets/PlatformTypeCatalog/netstandard.dll"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NuGetPackageRoot)microsoft.netcore.app.runtime.linux-x64/11.0.0-rc.1.26425.128/runtimes/linux-x64/lib/net11.0/System.Xml.dll"
+          Link="RealAssets/PlatformTypeResolution/System.Xml.dll"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NuGetPackageRoot)microsoft.netcore.app.runtime.linux-x64/11.0.0-rc.1.26425.128/runtimes/linux-x64/lib/net11.0/System.Xml.ReaderWriter.dll"
+          Link="RealAssets/PlatformTypeResolution/System.Xml.ReaderWriter.dll"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NuGetPackageRoot)microsoft.netcore.app.runtime.linux-x64/11.0.0-rc.1.26425.128/runtimes/linux-x64/lib/net11.0/System.Private.Xml.dll"
+          Link="RealAssets/PlatformTypeResolution/System.Private.Xml.dll"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NuGetPackageRoot)microsoft.netcore.app.runtime.linux-x64/11.0.0-rc.1.26425.128/runtimes/linux-x64/lib/net11.0/System.Private.CoreLib.dll"
+          Link="RealAssets/PlatformTypeResolution/System.Private.CoreLib.dll"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NuGetPackageRoot)microsoft.netcore.app.runtime.linux-x64/11.0.0-rc.1.26425.128/runtimes/linux-x64/lib/net11.0/System.dll"
+          Link="RealAssets/PlatformTypeResolution/System.dll"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NuGetPackageRoot)microsoft.netcore.app.runtime.linux-x64/11.0.0-rc.1.26425.128/runtimes/linux-x64/lib/net11.0/System.ObjectModel.dll"
+          Link="RealAssets/PlatformTypeResolution/System.ObjectModel.dll"
+          CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

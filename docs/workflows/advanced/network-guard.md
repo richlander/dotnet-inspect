@@ -110,6 +110,7 @@ Source: Platform
 
 ## Implementation and background
 
-See the [network observation skill](../../../skills/workflow-scenarios/network-guard.md)
+See the
+[network observation reference](../../../.github/skills/workflow-scenarios/network-guard.md)
 for implementation details and the
 [offline workflow](offline-usage.md) for deterministic enforcement.

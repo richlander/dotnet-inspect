@@ -357,7 +357,7 @@ public sealed class ExactPackageWorkspaceRouteTests
         {
             PackageArgs = [SelectedPackage],
             WorkspacePacket = packet,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
             Verbosity = Verbosity.Quiet,
         };
         InspectionOptions options = ordinaryOptions with
@@ -381,8 +381,8 @@ public sealed class ExactPackageWorkspaceRouteTests
         Assert.Equal(0, ordinary.ExitCode);
         Assert.Empty(ordinary.Error);
         Assert.Equal(ordinary.Output, output);
-        Assert.Contains(
-            $"# {SelectedPackage}",
+        Assert.StartsWith(
+            $"{SelectedPackage} {Version} (",
             output,
             StringComparison.Ordinal);
         Assert.DoesNotContain(
@@ -428,7 +428,7 @@ public sealed class ExactPackageWorkspaceRouteTests
             PackageArgs = [SelectedPackage],
             WorkspacePacket = packet,
             ListLayout = true,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
         };
 
         var result = await ConsoleCapture.RunAsync(
@@ -485,7 +485,7 @@ public sealed class ExactPackageWorkspaceRouteTests
             PackageArgs = [SelectedPackage],
             WorkspacePacket = packet,
             IncludeSections = [PackageSections.DependencyHierarchy],
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
             Verbosity = Verbosity.Quiet,
         };
 
@@ -549,7 +549,7 @@ public sealed class ExactPackageWorkspaceRouteTests
             PackageArgs = [SelectedPackage],
             WorkspacePacket = packet,
             IncludeSections = [PackageSections.DependencyHierarchy],
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
             Verbosity = Verbosity.Quiet,
         };
 
@@ -615,7 +615,7 @@ public sealed class ExactPackageWorkspaceRouteTests
             PackageArgs = [SelectedPackage],
             WorkspacePacket = packet,
             IncludeSections = [PackageSections.DependencyHierarchy],
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
             Verbosity = Verbosity.Quiet,
         };
 
@@ -666,7 +666,7 @@ public sealed class ExactPackageWorkspaceRouteTests
             PackageArgs = [SelectedPackage],
             WorkspacePacket = packet,
             IncludeSections = [PackageSections.DependencyHierarchy],
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
             Verbosity = Verbosity.Quiet,
         };
 
@@ -701,8 +701,11 @@ public sealed class ExactPackageWorkspaceRouteTests
             WorkspacePacket = packet,
             ShareFormat = WorkspaceShareFormat.Packet,
             Select = [PackageSections.PackageInfo],
+            // The route tests pin the Markdown document; a lone section
+            // otherwise renders in its shape's native format.
+            FormatExplicitlySet = true,
             SelectExplicitlySet = true,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
             Verbosity = Verbosity.Quiet,
         };
 
@@ -743,8 +746,11 @@ public sealed class ExactPackageWorkspaceRouteTests
             PackageArgs = [SelectedPackage],
             WorkspacePacket = packet,
             Select = [PackageSections.PackageInfo],
+            // The route tests pin the Markdown document; a lone section
+            // otherwise renders in its shape's native format.
+            FormatExplicitlySet = true,
             SelectExplicitlySet = true,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
             Verbosity = Verbosity.Quiet,
         };
 
@@ -796,8 +802,11 @@ public sealed class ExactPackageWorkspaceRouteTests
             PackageArgs = [SelectedPackage],
             WorkspacePacket = packet,
             Select = [PackageSections.PackageInfo],
+            // The route tests pin the Markdown document; a lone section
+            // otherwise renders in its shape's native format.
+            FormatExplicitlySet = true,
             SelectExplicitlySet = true,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
             Verbosity = Verbosity.Quiet,
         };
 
@@ -819,6 +828,7 @@ public sealed class ExactPackageWorkspaceRouteTests
         InspectionOptions detailOptions = infoOptions with
         {
             Select = [PackageSections.EcosystemDependencies],
+            FormatExplicitlySet = true,
         };
         var details = await ConsoleCapture.RunAsync(
             () => PackageCommand.ExecuteAsync(
@@ -863,8 +873,11 @@ public sealed class ExactPackageWorkspaceRouteTests
             PackageArgs = [SelectedPackage],
             WorkspacePacket = packet,
             Select = [PackageSections.PackageInfo],
+            // The route tests pin the Markdown document; a lone section
+            // otherwise renders in its shape's native format.
+            FormatExplicitlySet = true,
             SelectExplicitlySet = true,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
             Verbosity = Verbosity.Quiet,
         };
 
@@ -917,7 +930,7 @@ public sealed class ExactPackageWorkspaceRouteTests
             ShareFormat = WorkspaceShareFormat.Packet,
             ListLayout = true,
             ListLayoutExplicitlySet = true,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
         };
 
         var result = await ConsoleCapture.RunAsync(
@@ -966,7 +979,7 @@ public sealed class ExactPackageWorkspaceRouteTests
             ListLayout = true,
             ListLayoutExplicitlySet = true,
             ScopeTools = true,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
         };
 
         var result = await ConsoleCapture.RunAsync(
@@ -1001,7 +1014,7 @@ public sealed class ExactPackageWorkspaceRouteTests
             WorkspacePacket = packet,
             ShareFormat = WorkspaceShareFormat.Packet,
             IncludeSections = [PackageSections.Files],
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
         };
 
         var result = await ConsoleCapture.RunAsync(
@@ -1040,7 +1053,7 @@ public sealed class ExactPackageWorkspaceRouteTests
         {
             PackageArgs = ["missing.package"],
             WorkspacePacket = packet,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
         };
 
         var result = await ConsoleCapture.RunAsync(
@@ -1072,7 +1085,7 @@ public sealed class ExactPackageWorkspaceRouteTests
         {
             PackageArgs = [$"{SelectedPackage}@2.0.0"],
             WorkspacePacket = packet,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
         };
 
         (int exitCode, string output, string error) =
@@ -1106,7 +1119,7 @@ public sealed class ExactPackageWorkspaceRouteTests
             PackageArgs = [$"{SelectedPackage}@{Version}"],
             WorkspacePacket = packet,
             ShareFormat = WorkspaceShareFormat.Packet,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
             Verbosity = Verbosity.Quiet,
         };
 
@@ -1118,8 +1131,8 @@ public sealed class ExactPackageWorkspaceRouteTests
                     LoadOptions(client, store)));
 
         Assert.Equal(1, exitCode);
-        Assert.Contains(
-            $"# {SelectedPackage}",
+        Assert.StartsWith(
+            $"{SelectedPackage} {Version} (",
             output,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -1148,7 +1161,7 @@ public sealed class ExactPackageWorkspaceRouteTests
         {
             PackageArgs = [SelectedPackage],
             WorkspacePacket = packet,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
         };
 
         (int exitCode, string output, string error) =
@@ -1173,7 +1186,7 @@ public sealed class ExactPackageWorkspaceRouteTests
         {
             PackageArgs = [SelectedPackage],
             WorkspacePacket = "https://dotnet-inspect.net/?w=packet",
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
         };
 
         (int exitCode, string output, string error) =
@@ -1206,7 +1219,7 @@ public sealed class ExactPackageWorkspaceRouteTests
             WorkspacePacket = "not-restored",
             Discover = [],
             Schema = true,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
         };
 
         var result = await ConsoleCapture.RunAsync(
@@ -1239,7 +1252,7 @@ public sealed class ExactPackageWorkspaceRouteTests
         {
             PackageArgs = [package],
             WorkspacePacket = "not-restored",
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
         };
         using var client = new HttpClient(new FailingHandler());
 
@@ -1277,7 +1290,7 @@ public sealed class ExactPackageWorkspaceRouteTests
             WorkspacePacket = "not-restored",
             OutputPath = outputPath,
             EvidenceEnvelopePath = evidencePath,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
         };
 
         var result = await ConsoleCapture.RunAsync(
@@ -1315,7 +1328,7 @@ public sealed class ExactPackageWorkspaceRouteTests
             WorkspacePacket = "not-restored",
             OutputPath = outputPath,
             EvidenceEnvelopePath = evidencePath,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
         };
 
         var result = await ConsoleCapture.RunAsync(
@@ -1359,7 +1372,7 @@ public sealed class ExactPackageWorkspaceRouteTests
         {
             PackageArgs = [SelectedPackage],
             WorkspacePacket = packet,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
             Verbosity = Verbosity.Quiet,
         };
         InspectionOptions evidenceOptions = ordinaryOptions with
@@ -1443,7 +1456,7 @@ public sealed class ExactPackageWorkspaceRouteTests
                 Path.GetTempPath(),
                 "package-workspace-evidence.json"),
             ListLayout = true,
-            TipLevel = TipLevel.Quiet,
+            CompanionOutput = CompanionOutput.None,
         };
 
         var result = await ConsoleCapture.RunAsync(

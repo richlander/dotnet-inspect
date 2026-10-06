@@ -9,6 +9,8 @@ using ILInspector.MetadataPrimitives;
 using ILInspector.Research;
 using DecompilerMetadataSource = ILInspector.Decompiler.Pipeline.MetadataSource;
 
+using ILInspector.ILDiff;
+
 namespace DotnetInspector.RoundTripCompilation;
 
 internal sealed record RoundTripBodyEvidence(

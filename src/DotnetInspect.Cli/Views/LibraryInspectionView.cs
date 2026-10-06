@@ -1,3 +1,4 @@
+using DotnetInspect.Cli.Commands;
 using System.Diagnostics.CodeAnalysis;
 using System.Text.Json.Serialization;
 using DotnetInspect.Cli.Inspectors;
@@ -19,18 +20,33 @@ namespace DotnetInspect.Cli.Views;
 public class LibraryInspectionView
 {
     private readonly LibraryInspection _data;
+    private readonly LibraryDocumentInspection? _documentInspection;
     private readonly bool _topFieldsOnly;
     private LibraryScalarFields? _scalars;
 
     // One projection feeds Library Info, the -v:q summary, and the Library
     // summary field, so they cannot disagree (docs/design/library-info-composition.md).
-    private LibraryScalarFields? Scalars => _scalars ??= LibraryScalarFields.From(_data);
+    private LibraryScalarFields? Scalars =>
+        _scalars ??= LibraryScalarFields.From(
+            _data,
+            _documentInspection);
     private readonly Dictionary<LibraryIntegrationDescriptor, List<(string Kind, string Name, string Shape)>> _integrationSignals = [];
 
-    public LibraryInspectionView(LibraryInspection data, bool topFieldsOnly = false)
+    public LibraryInspectionView(
+        LibraryInspection data,
+        bool topFieldsOnly = false)
+        : this(data, topFieldsOnly, null)
+    {
+    }
+
+    internal LibraryInspectionView(
+        LibraryInspection data,
+        bool topFieldsOnly,
+        LibraryDocumentInspection? documentInspection)
     {
         _data = data;
         _topFieldsOnly = topFieldsOnly;
+        _documentInspection = documentInspection;
     }
 
     [MarkoutIgnore]
@@ -189,13 +205,14 @@ public class LibraryInspectionView
         Architecture = fields.Architecture,
         AssemblyVersion = fields.AssemblyVersion,
         AsyncMethods = _data.AsyncMethodCount,
-        ClassifiedMethods = _data.MethodClassificationFailureOf(MethodClassificationDemand.AsyncAnalyzer),
+        ClassifiedMethods = _data.MethodClassificationFailureOf(MethodClassificationDemand.AsyncAnalyzer)
+            ?? _data.MethodClassificationFailureOf(MethodClassificationAnalyzer.Extension),
         Company = fields.Company,
         Compilation = fields.Compilation,
         Copyright = fields.Copyright,
         CustomAttributes = _data.AssemblyAttributeInspection.FindingCount(),
         Deterministic = _data.IsDeterministic,
-        ExtensionMethods = CountExtensionMethods(_data.ExtensionMethods),
+        ExtensionMethods = _data.ExtensionMethodCount,
         Facade = _data.IsFacadeAssembly,
         Enabled = fields.Enabled,
         FileSize = fields.FileSize,
@@ -210,7 +227,7 @@ public class LibraryInspectionView
         Resources = _data.ResourceInspection.FindingCount(),
         Signed = fields.Signed ? "Yes" : null,
         Source = _data.Source,
-        Switches = CountSwitches(_data),
+        Switches = _data.SwitchCount,
         TargetFramework = fields.TargetFramework,
         TypeForwarders = _data.TypeForwarderInspection.FindingCount(),
         Types = info.TypeDefinitionCount > 0 ? info.TypeDefinitionCount.ToString("N0") : null,
@@ -225,6 +242,9 @@ public class LibraryInspectionView
         nameof(EcosystemDependencyCoverageIsComplete),
         nameof(PackageEcosystemDependencyRow.Coverage))]
     [MarkoutIgnoreColumnWhen(
+        nameof(EcosystemDependencyAssemblyEvidenceIsEmpty),
+        nameof(PackageEcosystemDependencyRow.AssemblyEvidence))]
+    [MarkoutIgnoreColumnWhen(
         nameof(EcosystemDependencyRequestedTargetFrameworkIsEmpty),
         nameof(PackageEcosystemDependencyRow.RequestedTargetFramework))]
     [MarkoutIgnoreColumnWhen(
@@ -236,7 +256,7 @@ public class LibraryInspectionView
     public List<PackageEcosystemDependencyRow>? EcosystemDependenciesSection =>
         RecognitionDocument is { } document
             ? (_data.EcosystemDependencyRows
-                    ?? document.Classification.Recognized)
+                    ?? document.Classification.Matches)
                 .Select(entry =>
                     PackageEcosystemDependencyRow.Create(
                         entry,
@@ -247,6 +267,10 @@ public class LibraryInspectionView
     public static bool EcosystemDependencyCoverageIsComplete(
         List<PackageEcosystemDependencyRow>? rows) =>
         InspectionResultView.EcosystemDependencyCoverageIsComplete(rows);
+
+    public static bool EcosystemDependencyAssemblyEvidenceIsEmpty(
+        List<PackageEcosystemDependencyRow>? rows) =>
+        InspectionResultView.EcosystemDependencyAssemblyEvidenceIsEmpty(rows);
 
     public static bool EcosystemDependencyRequestedTargetFrameworkIsEmpty(
         List<PackageEcosystemDependencyRow>? rows) =>
@@ -291,6 +315,21 @@ public class LibraryInspectionView
                 projection.HierarchyRows,
                 markWindowedFragments: true)
             : null;
+
+    [MarkoutIgnore]
+    public bool HasDependencyStructure =>
+        _data.DependencyStructureQueryResult
+            is LibraryDependencyStructureQueryResult.Available;
+
+    [MarkoutSection(
+        Name = SectionNames.DependencyStructure,
+        EmptyText = "No internal namespace dependencies.",
+        ShowWhenProperty = nameof(HasDependencyStructure))]
+    public Markout.Graph? DependencyStructureSection =>
+        _data.DependencyStructureQueryResult
+            is LibraryDependencyStructureQueryResult.Available available
+                ? LibraryDependencyStructureOutputAdapter.ToGraph(available)
+                : null;
 
     private EcosystemDependencyRecognitionDocument? RecognitionDocument =>
         _data.EcosystemDependencyRecognitionInspection?.Content switch
@@ -998,6 +1037,88 @@ public class LibraryInspectionView
         }
     }
 
+    public bool HasArchitecturalFamilies =>
+        _data.ArchitecturalFamilyQueryResult
+            is LibraryArchitecturalFamilyQueryResult.Available
+        { FamilyRows.IsEmpty: false };
+
+    [MarkoutSection(
+        Name = SectionNames.ArchitecturalFamilies,
+        ShowWhenProperty = nameof(HasArchitecturalFamilies))]
+    public List<ArchitecturalFamilyRow>? ArchitecturalFamiliesSection
+    {
+        get
+        {
+            if (_data.ArchitecturalFamilyQueryResult
+                is not LibraryArchitecturalFamilyQueryResult.Available available)
+            {
+                return null;
+            }
+
+            return
+            [
+                .. available.FamilyRows.Select(family =>
+                    new ArchitecturalFamilyRow(
+                        MarkoutInline.Code(FamilyName(family.Identity)),
+                        FamilyKind(family.Identity.Kind),
+                        family.TypeCount,
+                        family.FoundationCount,
+                        family.HubCount,
+                        family.OrchestratorCount,
+                        family.NoIssuedStructuralRoleCount,
+                        family.SeaLevelCount,
+                        family.MountainPeakCount,
+                        family.DistinctNamespaceCount,
+                        LibraryArchitecturalFamilyQuery.PopulationToken(
+                            available.Population.Kind),
+                        available.Population.Provenance.State.ToString(),
+                        family.StructuralDisposition.ToString())),
+            ];
+        }
+    }
+
+    public bool HasArchitecturalFamilyTypes =>
+        _data.ArchitecturalFamilyQueryResult
+            is LibraryArchitecturalFamilyQueryResult.Available
+        { TypeRows.IsEmpty: false };
+
+    [MarkoutSection(
+        Name = SectionNames.ArchitecturalFamilyTypes,
+        ShowWhenProperty = nameof(HasArchitecturalFamilyTypes))]
+    public List<ArchitecturalFamilyTypeRow>? ArchitecturalFamilyTypesSection
+    {
+        get
+        {
+            if (_data.ArchitecturalFamilyQueryResult
+                is not LibraryArchitecturalFamilyQueryResult.Available available)
+            {
+                return null;
+            }
+
+            return
+            [
+                .. available.TypeRows.Select(type =>
+                    new ArchitecturalFamilyTypeRow(
+                        MarkoutInline.Code(
+                            type.Name.ToMetadataFullName()),
+                        type.Type.ModuleVersionId.ToString("N")
+                            + ":0x"
+                            + type.Type.Definition.Value.ToString("X8"),
+                        type.DefinitionKind.ToString(),
+                        FamilyName(type.OneWordSuffix),
+                        FamilyName(type.TwoWordSuffix),
+                        type.SourceDisposition?.ToString(),
+                        type.SignatureIncomingDegree,
+                        type.SignatureOutgoingDegree,
+                        type.StructuralRole?.ToString(),
+                        type.StructuralPole?.ToString(),
+                        LibraryArchitecturalFamilyQuery.PopulationToken(
+                            available.Population.Kind),
+                        type.StructuralDisposition.ToString())),
+            ];
+        }
+    }
+
     [MarkoutSection(
         Name = SectionNames.MemberMetrics,
         ShowWhenProperty = nameof(HasImplementationProfiles))]
@@ -1070,6 +1191,22 @@ public class LibraryInspectionView
             return rows.Count > 0 ? rows : null;
         }
     }
+
+    private static string FamilyName(
+        LibraryNameFamilyIdentity? family) =>
+        family is null
+            ? string.Empty
+            : family.Kind == LibraryNameFamilyKind.OneWordSuffix
+            ? family.Words[0]
+            : family.Words[0]
+                + family.Separator
+                + family.Words[1];
+
+    private static string FamilyKind(
+        LibraryNameFamilyKind kind) =>
+        kind == LibraryNameFamilyKind.OneWordSuffix
+            ? "one word"
+            : "two word";
 
     private static List<LibraryMetricRow> LibraryMetricRows(
         LibraryStructuralReportDocument document)
@@ -1557,8 +1694,9 @@ public class LibraryInspectionView
     // Each section is absent when its kind has no findings (il-offset context-section model).
     private List<PerformanceRow>? PerformanceRowsFor(string section)
     {
-        var rows = _data.PerformanceTriageOpportunities
-            .Where(o => PerformanceKinds.SectionForShape(o.Shape) == section)
+        var rows = PerformanceKinds.Select(
+                section,
+                _data.PerformanceTriageOpportunities)
             .Select(o => new PerformanceRow(
                 MarkoutInline.CodeText(LibraryViewText.Field(
                     LibraryMetadataService.FormatMethod(o.Method))),
@@ -1680,7 +1818,8 @@ public class LibraryInspectionView
     private IEnumerable<ResourceTriageSummary> ResourceTriageSummaries()
     {
         if (_data.ResourceTriageQueryResult
-            is ResourceTriageResult.Available)
+            is ResourceTriageResult.Available
+                or ResourceTriageResult.Incomplete)
         {
             var drillByToken = _data.ResourceTriageDrillMap
                 ?? throw new InvalidOperationException(
@@ -1702,9 +1841,6 @@ public class LibraryInspectionView
 
     private static int CountOrZero<T>(List<T>? values) => values?.Count ?? 0;
 
-    private static int CountExtensionMethods(List<LibraryExtensionMethodJson>? methods)
-        => methods?.Sum(m => m.Overloads ?? 1) ?? 0;
-
     private static int CountIntegrations(LibraryInspection inspection)
     {
         var findingCount = LibraryIntegrationCatalog.All.Count(
@@ -1716,12 +1852,6 @@ public class LibraryInspectionView
             return inspection.IntegrationCount;
 
         return LibraryIntegrationCatalog.CountPresence(inspection);
-    }
-
-    private static int CountSwitches(LibraryInspection inspection)
-    {
-        var count = inspection.SwitchInspection.FindingCount();
-        return count > 0 ? count : inspection.SwitchCount;
     }
 
     private List<(string Kind, string Name, string Shape)> Signals(
@@ -3019,7 +3149,7 @@ public class LibraryInfoSection
     public string? AssemblyVersion { get => field; init => field = LibraryViewText.Contain(value); }
     /// <summary>The async analyzer's Count; absent when it failed, and <see cref="ClassifiedMethods"/> says why.</summary>
     public int? AsyncMethods { get; init; }
-    /// <summary>Why the async count is unavailable, or null when the analyzer answered.</summary>
+    /// <summary>Why the async or extension count is unavailable, or null when both analyzers answered.</summary>
     /// <inheritdoc cref="LibraryViewText"/>
     public string? ClassifiedMethods { get => field; init => field = LibraryViewText.Contain(value); }
     /// <inheritdoc cref="LibraryViewText"/>
@@ -3037,7 +3167,12 @@ public class LibraryInfoSection
     public string? EcosystemDependencyStatus { get => field; init => field = LibraryViewText.Contain(value); }
     /// <summary>Enabled enablement labels (<c>docs/design/library-info-composition.md</c>).</summary>
     public string? Enabled { get => field; init => field = LibraryViewText.Contain(value); }
-    public int ExtensionMethods { get; init; }
+    /// <summary>
+    /// The extension analyzer's Count: public static extension methods on
+    /// static extension types, not hidden. Extension properties are not
+    /// counted. Absent when the analyzer failed, and <see cref="ClassifiedMethods"/> says why.
+    /// </summary>
+    public int? ExtensionMethods { get; init; }
     [MarkoutBoolFormat("Yes", "No")]
     public bool? Facade { get; init; }
     /// <inheritdoc cref="LibraryViewText"/>

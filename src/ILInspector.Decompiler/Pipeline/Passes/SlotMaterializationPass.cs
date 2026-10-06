@@ -39,15 +39,21 @@ public readonly record struct SlotMaterializationDecision(
 /// retain their slot provenance because their legacy declaration order and
 /// scope remain part of the output contract. Its <see cref="StoreStackSlot"/>/
 /// <see cref="LoadStackSlot"/> nodes stop reaching the printer. What remains
-/// on slots is the counted residual the printer's unifier still owns:
+/// on slots is the counted residual that <see cref="ResidualSlotBindingPass"/>
+/// binds with the printer's frozen legacy policy at the end of the pipeline:
 /// ambiguous testimony, cross-family (true disjoint ranges), and nested-body
-/// scopes (this increment materializes function-scope slots only). Direct
-/// slot-copy webs retire as one connected component only when every member is
-/// independently decided; an undecided member keeps the whole component on
-/// slots. The terminus is C2: when the residual census reaches zero, the
-/// print-time unifier deletes cleanly. The component boundary is gated by
-/// <c>MaterializesCompleteDirectCopyComponent</c> and
-/// <c>DefersWholeDirectCopyComponentWhenOneSlotIsUndecided</c>.
+/// scopes (this increment materializes function-scope slots only). A direct
+/// slot-copy web whose members are all decided retires as one connected
+/// component. When some member is undecided, the decided members still retire
+/// if they are source-closed: no copy chain reaches them from an undecided
+/// member, and every copy they make into an undecided peer already reads the
+/// decided type. Members downstream of an undecided one stay on slots, and a
+/// component holding a managed reference stays atomic. The burn-down target is
+/// the residual-binding census: each class it reports is a candidate for this
+/// pass to admit. The component boundary is gated by
+/// <c>MaterializesCompleteDirectCopyComponent</c>,
+/// <c>MaterializesSourceClosedMembersOfAnIncompleteComponent</c>, and
+/// <c>DefersMembersDownstreamOfAnUndecidedSlot</c>.
 /// </summary>
 public sealed class SlotMaterializationPass : IIrPass
 {
@@ -209,7 +215,7 @@ public sealed class SlotMaterializationPass : IIrPass
             if (!CoercionDomain.InDomain(slotType, function.TypeShapes))
             {
                 bool supportedStorage = candidate.Stores.All(store =>
-                        HasSupportedStorageAssignment(store.Value, slotType, function.TypeShapes))
+                        HasSupportedStorageAssignment(store.Value, slotType, function.TypeShapes, function.ProvenReferenceWidenings))
                     && (slotType.Kind == TypeRefKind.Definition
                         && (MemberIdentity.IsCoreLibraryType(slotType, "System", "String")
                             || MemberIdentity.IsCoreLibraryType(slotType, "System", "Object"))
@@ -226,7 +232,7 @@ public sealed class SlotMaterializationPass : IIrPass
                     candidate.Vetoes |= SlotMaterializationVeto.PendingStorageSwap;
             }
             if (candidate.Stores.Any(store =>
-                    !HasSupportedStorageAssignment(store.Value, slotType, function.TypeShapes)
+                    !HasSupportedStorageAssignment(store.Value, slotType, function.TypeShapes, function.ProvenReferenceWidenings)
                     && !CoercionRendering.CanSpellSlotCoercion(
                         store.Value.ResultType, slotType, function.TypeShapes, function.EnumUnderlyingTypes)))
                 candidate.Vetoes |= SlotMaterializationVeto.UnrenderableStoreType;
@@ -237,7 +243,11 @@ public sealed class SlotMaterializationPass : IIrPass
                 candidate.Vetoes |= SlotMaterializationVeto.ElementStoreIdentityRecovery;
         }
 
-        MarkIncompleteCopyComponents(stores, candidates);
+        MarkIncompleteCopyComponents(
+            stores,
+            candidates,
+            CoercionSinks.TestifiedSlotTypes(function.Body, function.Signature.ReturnType, function.TypeShapes),
+            function);
         return new MaterializationPlan(
             candidates,
             [.. candidates.Select(static candidate => candidate.Decision), .. nestedDecisions]);
@@ -269,10 +279,10 @@ public sealed class SlotMaterializationPass : IIrPass
         static bool HasSupportedStorageAssignment(
             IrExpression value,
             TypeRef target,
-            IReadOnlyDictionary<TypeRef, TypeShape> shapes)
+            IReadOnlyDictionary<TypeRef, TypeShape> shapes,
+            IReadOnlySet<ReferenceWidening>? provenWidenings = null)
             => CoercionDomain.IsAtTarget(value, target)
-                || value is Conditional conditional
-                    && conditional.CanAssignReferenceArmsTo(target, shapes);
+                || ReferenceAssignmentTargets.CanAssignStorageTo(value, target, shapes, provenWidenings);
 
         static TypeRef? UnanimousManagedReferenceStoreType(
             IReadOnlyList<StoreStackSlot> stores)
@@ -291,12 +301,26 @@ public sealed class SlotMaterializationPass : IIrPass
             return type;
         }
 
+        // A direct-copy component materializes as a unit when every member is
+        // decided. When some member is not, its decided members still
+        // materialize if they are source-closed: no copy chain reaches them
+        // from an undecided member, so their identity rests on their own
+        // producers and loads alone. Values may flow out of the decided set
+        // into an undecided peer, whose copy store then reads a typed local
+        // instead of a slot. A slot load is exempt from slot-store coercion
+        // but a local load is not, so a source whose local load the peer's
+        // store would coerce stays undecided; otherwise the peer's own frozen
+        // residual decision sees the same store as before. A component holding a
+        // managed reference stays atomic (exact managed-reference storage).
         static void MarkIncompleteCopyComponents(
             IReadOnlyDictionary<int, List<StoreStackSlot>> stores,
-            IReadOnlyList<MaterializationCandidate> candidates)
+            IReadOnlyList<MaterializationCandidate> candidates,
+            IReadOnlyDictionary<int, TypeRef> storeSinkTypes,
+            IrFunction function)
         {
             var bySlot = candidates.ToDictionary(static candidate => candidate.Slot);
             var graph = new Dictionary<int, HashSet<int>>();
+            var copies = new List<(int Source, int Destination)>();
 
             HashSet<int> Neighbors(int slot)
                 => graph.TryGetValue(slot, out var neighbors)
@@ -311,6 +335,7 @@ public sealed class SlotMaterializationPass : IIrPass
                 {
                     Neighbors(destination).Add(source.Slot);
                     Neighbors(source.Slot).Add(destination);
+                    copies.Add((source.Slot, destination));
                 }
             }
 
@@ -334,11 +359,46 @@ public sealed class SlotMaterializationPass : IIrPass
                     }
                 }
 
-                if (component.Any(slot => bySlot[slot].Vetoes != SlotMaterializationVeto.None))
+                var undecided = component
+                    .Where(slot => bySlot[slot].Vetoes != SlotMaterializationVeto.None)
+                    .ToHashSet();
+                if (undecided.Count == 0)
+                    continue;
+
+                if (component.Any(slot => bySlot[slot].Type is { Kind: TypeRefKind.ByRef }))
                 {
-                    foreach (int slot in component)
-                        bySlot[slot].Vetoes |= SlotMaterializationVeto.IncompleteCopyComponent;
+                    undecided.UnionWith(component);
                 }
+                else
+                {
+                    bool grew = true;
+                    while (grew)
+                    {
+                        grew = false;
+                        foreach (var (source, destination) in copies)
+                        {
+                            if (!component.Contains(destination))
+                                continue;
+                            // Flow from an undecided member: the destination's identity
+                            // depends on a value no decision covers.
+                            if (undecided.Contains(source) && undecided.Add(destination))
+                                grew = true;
+                            // Flow into an undecided peer whose store would coerce the
+                            // source's local load: a slot load is exempt from that
+                            // coercion, so materializing would change the peer's store.
+                            else if (!undecided.Contains(source)
+                                && undecided.Contains(destination)
+                                && storeSinkTypes.TryGetValue(destination, out var sinkType)
+                                && bySlot[source].Type is { } sourceType
+                                && CoercionSinks.RequiresSlotStoreCoercion(sourceType, sinkType, function)
+                                && undecided.Add(source))
+                                grew = true;
+                        }
+                    }
+                }
+
+                foreach (int slot in undecided)
+                    bySlot[slot].Vetoes |= SlotMaterializationVeto.IncompleteCopyComponent;
             }
         }
     }

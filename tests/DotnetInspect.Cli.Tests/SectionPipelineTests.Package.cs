@@ -105,6 +105,34 @@ public partial class SectionPipelineTests
             categories[SectionCategoryNames.Audit]);
     }
 
+    [Fact]
+    public void PackagePipeline_DependencyDomainIssuesOneExactFacetSet()
+    {
+        SectionCatalog<InspectionResult> catalog =
+            PackageSectionDescriptors.SectionCatalog;
+
+        ViewFacetSetDescriptor set = Assert.Single(catalog.AuthoredFacetSets);
+        Assert.Same(PackageSectionDescriptors.DependenciesFacetSet, set);
+        Assert.Equal("dependencies", set.Id.Value);
+        Assert.Equal("Dependencies", set.Title);
+        Assert.Equal(
+            ["package.dependencies", "package.dependency-hierarchy"],
+            set.Facets.Select(static facet => facet.Value));
+        Assert.DoesNotContain(
+            set.Facets,
+            static facet => facet.Value == "package.overview");
+
+        CompiledSectionCategory category = Assert.Single(
+            catalog.AuthoredCategories,
+            static category =>
+                category.Name == SectionCategoryNames.Dependencies);
+        Assert.Same(set, category.FacetSet);
+        Assert.All(
+            catalog.AuthoredCategories.Where(
+                static category => category.Role == SectionCategoryRole.Base),
+            static category => Assert.Null(category.FacetSet));
+    }
+
     [Theory]
     [InlineData("ordinary text", false)]
     [InlineData("C:\\tmp\\package", false)]
@@ -370,20 +398,20 @@ public partial class SectionPipelineTests
 
         Assert.Contains("Summary", names);
         Assert.Contains("Package Info", names);
-        Assert.Contains("Package README file", names);
+        Assert.Contains("README", names);
         Assert.Contains("Signals", names);
         Assert.Contains(PackageSections.AuditArtifactText, names);
         Assert.Contains(PackageSections.AuditFindings, names);
         Assert.Contains(PackageSections.AuditIdentifierConfusion, names);
         Assert.Contains("Target Frameworks", names);
-        Assert.Contains("Package nuspec file", names);
-        Assert.Contains("Package license files", names);
+        Assert.Contains("Nuspec", names);
+        Assert.Contains("Licenses", names);
         Assert.Contains("Statistics", names);
         Assert.Contains(PackageSections.DependencyHierarchy, names);
         Assert.Contains("Dependencies", names);
         Assert.Contains(PackageSections.EcosystemDependencies, names);
-        Assert.Contains("Package files", names);
-        Assert.Contains("Package skill files", names);
+        Assert.Contains("Files", names);
+        Assert.Contains("Skills", names);
         Assert.Contains(PackageSections.SourceLinkFiles, names);
         Assert.Contains(PackageSections.SourceLinkAvailability, names);
         Assert.Contains(PackageSections.SourceLinkMissingFiles, names);
@@ -451,7 +479,7 @@ public partial class SectionPipelineTests
         // Vulnerabilities is Detailed
         Assert.DoesNotContain("Vulnerabilities", effective);
         // Files is Detailed
-        Assert.DoesNotContain("Package files", effective);
+        Assert.DoesNotContain("Files", effective);
     }
 
     [Fact]
@@ -631,8 +659,6 @@ public partial class SectionPipelineTests
 
         Assert.True(
             PackageCommand.RequiresPackageMetadata(options, pipeline));
-        Assert.True(
-            PackageCommand.AllowsVulnerabilityTraffic(options));
         Assert.Equal(
             Verbosity.Detailed,
             pipeline.GetRequiredVerbosity(options.IncludeSections));
@@ -689,7 +715,7 @@ public partial class SectionPipelineTests
         var include = pipeline.ComputeIncludeSections(model, Verbosity.Detailed);
 
         Assert.NotNull(include);
-        Assert.DoesNotContain("Package files", include);
+        Assert.DoesNotContain("Files", include);
         Assert.DoesNotContain("SourceLink: Files", include);
         Assert.DoesNotContain(PackageSections.DependencyHierarchy, include);
     }
@@ -713,7 +739,7 @@ public partial class SectionPipelineTests
 
         Assert.Equal("Package Info", sections[0]);
         Assert.DoesNotContain("Summary", sections);
-        // SourceLink: Files and Package files are reached through their door or by exact name,
+        // SourceLink: Files and Files are reached through their door or by exact name,
         // so they are not members of the visible @All pole.
         Assert.Equal(["Dependencies", "Manifest", "Signals", "Statistics", "Target Frameworks"], sections.Skip(1).ToArray());
     }

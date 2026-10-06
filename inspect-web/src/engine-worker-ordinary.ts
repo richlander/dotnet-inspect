@@ -54,6 +54,7 @@ type PackageOperationName =
   | "prefetchPlatformPacks"
   | "queryPackage"
   | "queryPackageRoot"
+  | "queryPackageSummary"
   | "loadRuntimePack"
   | "loadRuntimePackAssembly"
   | "getPackageDocument"
@@ -62,7 +63,7 @@ type PackageOperationName =
   | "queryMemberDocumentation"
   | "queryPlatformMemberDocumentation"
   | "queryPackageDependencies"
-  | "queryPackagePruning"
+  | "queryPackageVulnerabilities"
   | "queryPackageVersions"
   | "queryWorkspacePackageOccurrences"
   | "resolvePackageDependencyVersion";
@@ -104,14 +105,16 @@ type AnalysisOperationName =
   | "queryPackageOpportunities"
   | "queryPlatformOpportunities"
   | "queryPackagePerformance"
+  | "queryPackageLibraryDependencyStructure"
   | "queryPackageLibraryMetrics"
-  | "queryPackageLibraryNamespaceLeverage"
-  | "queryPackageNamespaceTypeLeverage"
+  | "queryPackageLibraryStructuralSalience"
   | "queryPackageTypeImplementationHeat"
+  | "queryPackageTypeMethodLeverage"
   | "queryPlatformTypeImplementationHeat"
+  | "queryPlatformTypeMethodLeverage"
+  | "queryPlatformLibraryDependencyStructure"
   | "queryPlatformLibraryMetrics"
-  | "queryPlatformLibraryNamespaceLeverage"
-  | "queryPlatformNamespaceTypeLeverage"
+  | "queryPlatformLibraryStructuralSalience"
   | "queryPlatformPerformance";
 
 type SourceOperationName =
@@ -126,13 +129,16 @@ type SourceOperationName =
   | "cancelMethodBodyComparison"
   | "queryMemberSourceComparison"
   | "cancelMemberSourceComparison"
-  | "queryMemberFindingCensus";
+  | "queryMemberFindingCensus"
+  | "queryPlatformMemberFindingCensus";
 
 type CallGraphOperationName =
   | "queryMemberCallGraph"
+  | "queryDirectUseClusters"
   | "expandPlatformCallGraph";
 
 type CatalogOperationName =
+  | "admitEcosystemPackageToWorkspace"
   | "admitRetainedWorkspacePackage"
   | "admitRetainedWorkspacePlatform"
   | "abandonRetainedWorkspaceNavigation"
@@ -150,7 +156,9 @@ type CatalogOperationName =
   | "describeWorkspacePackageSources"
   | "decodeWorkspaceShareState"
   | "encodeWorkspaceShareState"
+  | "explainVocabularies"
   | "observeRetainedWorkspaceSettlement"
+  | "prepareEcosystemWorkspaceDefinition"
   | "preparePackageQueryWorkspaceDefinition"
   | "prepareRetainedWorkspaceDefinition"
   | "prepareRetainedWorkspaceDefinitionWithCredentials"
@@ -1093,6 +1101,14 @@ export const engineWorkerOrdinaryOperations = {
         ...args: Parameters<PackageFacade["queryPackageRoot"]>
       ) => facades.package.queryPackageRoot(...args),
     ),
+    queryPackageSummary: valueOperation(
+      "ordinary-package-query-package-summary",
+      3,
+      (
+        facades,
+        ...args: Parameters<PackageFacade["queryPackageSummary"]>
+      ) => facades.package.queryPackageSummary(...args),
+    ),
     loadRuntimePack: valueOperation(
       "ordinary-package-load-runtime-pack",
       2,
@@ -1175,13 +1191,13 @@ export const engineWorkerOrdinaryOperations = {
         ...args: Parameters<PackageFacade["queryPackageDependencies"]>
       ) => facades.package.queryPackageDependencies(...args),
     ),
-    queryPackagePruning: valueOperation(
-      "ordinary-package-query-pruning",
-      4,
+    queryPackageVulnerabilities: valueOperation(
+      "ordinary-package-query-vulnerabilities",
+      2,
       (
         facades,
-        ...args: Parameters<PackageFacade["queryPackagePruning"]>
-      ) => facades.package.queryPackagePruning(...args),
+        ...args: Parameters<PackageFacade["queryPackageVulnerabilities"]>
+      ) => facades.package.queryPackageVulnerabilities(...args),
     ),
     queryPackageVersions: valueOperation(
       "ordinary-package-query-versions",
@@ -1494,6 +1510,16 @@ export const engineWorkerOrdinaryOperations = {
         >
       ) => facades.analysis.queryPackageTypeImplementationHeat(...args),
     ),
+    queryPackageTypeMethodLeverage: valueOperation(
+      "ordinary-analysis-query-package-type-method-leverage",
+      5,
+      (
+        facades,
+        ...args: Parameters<
+          AnalysisFacade["queryPackageTypeMethodLeverage"]
+        >
+      ) => facades.analysis.queryPackageTypeMethodLeverage(...args),
+    ),
     queryPlatformTypeImplementationHeat: valueOperation(
       "ordinary-analysis-query-platform-type-implementation-heat",
       5,
@@ -1503,6 +1529,16 @@ export const engineWorkerOrdinaryOperations = {
           AnalysisFacade["queryPlatformTypeImplementationHeat"]
         >
       ) => facades.analysis.queryPlatformTypeImplementationHeat(...args),
+    ),
+    queryPlatformTypeMethodLeverage: valueOperation(
+      "ordinary-analysis-query-platform-type-method-leverage",
+      5,
+      (
+        facades,
+        ...args: Parameters<
+          AnalysisFacade["queryPlatformTypeMethodLeverage"]
+        >
+      ) => facades.analysis.queryPlatformTypeMethodLeverage(...args),
     ),
     queryMemberFacts: valueOperation(
       "ordinary-analysis-query-member-facts",
@@ -1552,6 +1588,17 @@ export const engineWorkerOrdinaryOperations = {
         ...args: Parameters<AnalysisFacade["queryPackagePerformance"]>
       ) => facades.analysis.queryPackagePerformance(...args),
     ),
+    queryPackageLibraryDependencyStructure: valueOperation(
+      "ordinary-analysis-query-package-library-dependency-structure",
+      4,
+      (
+        facades,
+        ...args: Parameters<
+          AnalysisFacade["queryPackageLibraryDependencyStructure"]
+        >
+      ) =>
+        facades.analysis.queryPackageLibraryDependencyStructure(...args),
+    ),
     queryPackageLibraryMetrics: valueOperation(
       "ordinary-analysis-query-package-library-metrics",
       4,
@@ -1560,25 +1607,26 @@ export const engineWorkerOrdinaryOperations = {
         ...args: Parameters<AnalysisFacade["queryPackageLibraryMetrics"]>
       ) => facades.analysis.queryPackageLibraryMetrics(...args),
     ),
-    queryPackageLibraryNamespaceLeverage: valueOperation(
-      "ordinary-analysis-query-package-library-namespace-leverage",
+    queryPackageLibraryStructuralSalience: valueOperation(
+      "ordinary-analysis-query-package-library-structural-salience",
       4,
       (
         facades,
         ...args: Parameters<
-          AnalysisFacade["queryPackageLibraryNamespaceLeverage"]
+          AnalysisFacade["queryPackageLibraryStructuralSalience"]
         >
-      ) => facades.analysis.queryPackageLibraryNamespaceLeverage(...args),
+      ) => facades.analysis.queryPackageLibraryStructuralSalience(...args),
     ),
-    queryPackageNamespaceTypeLeverage: valueOperation(
-      "ordinary-analysis-query-package-namespace-type-leverage",
-      5,
+    queryPlatformLibraryDependencyStructure: valueOperation(
+      "ordinary-analysis-query-platform-library-dependency-structure",
+      4,
       (
         facades,
         ...args: Parameters<
-          AnalysisFacade["queryPackageNamespaceTypeLeverage"]
+          AnalysisFacade["queryPlatformLibraryDependencyStructure"]
         >
-      ) => facades.analysis.queryPackageNamespaceTypeLeverage(...args),
+      ) =>
+        facades.analysis.queryPlatformLibraryDependencyStructure(...args),
     ),
     queryPlatformLibraryMetrics: valueOperation(
       "ordinary-analysis-query-platform-library-metrics",
@@ -1588,25 +1636,15 @@ export const engineWorkerOrdinaryOperations = {
         ...args: Parameters<AnalysisFacade["queryPlatformLibraryMetrics"]>
       ) => facades.analysis.queryPlatformLibraryMetrics(...args),
     ),
-    queryPlatformLibraryNamespaceLeverage: valueOperation(
-      "ordinary-analysis-query-platform-library-namespace-leverage",
+    queryPlatformLibraryStructuralSalience: valueOperation(
+      "ordinary-analysis-query-platform-library-structural-salience",
       4,
       (
         facades,
         ...args: Parameters<
-          AnalysisFacade["queryPlatformLibraryNamespaceLeverage"]
+          AnalysisFacade["queryPlatformLibraryStructuralSalience"]
         >
-      ) => facades.analysis.queryPlatformLibraryNamespaceLeverage(...args),
-    ),
-    queryPlatformNamespaceTypeLeverage: valueOperation(
-      "ordinary-analysis-query-platform-namespace-type-leverage",
-      5,
-      (
-        facades,
-        ...args: Parameters<
-          AnalysisFacade["queryPlatformNamespaceTypeLeverage"]
-        >
-      ) => facades.analysis.queryPlatformNamespaceTypeLeverage(...args),
+      ) => facades.analysis.queryPlatformLibraryStructuralSalience(...args),
     ),
     queryPlatformPerformance: valueOperation(
       "ordinary-analysis-query-platform-performance",
@@ -1620,7 +1658,7 @@ export const engineWorkerOrdinaryOperations = {
   source: {
     queryMemberSource: valueOperation(
       "ordinary-source-query-member",
-      9,
+      11,
       (
         facades,
         ...args: Parameters<SourceFacade["queryMemberSource"]>
@@ -1628,7 +1666,7 @@ export const engineWorkerOrdinaryOperations = {
     ),
     queryPlatformMemberSource: valueOperation(
       "ordinary-source-query-platform-member",
-      10,
+      12,
       (
         facades,
         ...args: Parameters<SourceFacade["queryPlatformMemberSource"]>
@@ -1726,6 +1764,14 @@ export const engineWorkerOrdinaryOperations = {
         ...args: Parameters<SourceFacade["queryMemberFindingCensus"]>
       ) => facades.source.queryMemberFindingCensus(...args),
     ),
+    queryPlatformMemberFindingCensus: valueOperation(
+      "ordinary-source-query-platform-member-finding-census",
+      12,
+      (
+        facades,
+        ...args: Parameters<SourceFacade["queryPlatformMemberFindingCensus"]>
+      ) => facades.source.queryPlatformMemberFindingCensus(...args),
+    ),
   },
   callGraph: {
     queryMemberCallGraph: valueOperation(
@@ -1735,6 +1781,14 @@ export const engineWorkerOrdinaryOperations = {
         facades,
         ...args: Parameters<CallGraphFacade["queryMemberCallGraph"]>
       ) => facades.callGraph.queryMemberCallGraph(...args),
+    ),
+    queryDirectUseClusters: valueOperation(
+      "ordinary-call-graph-query-direct-use-clusters",
+      9,
+      (
+        facades,
+        ...args: Parameters<CallGraphFacade["queryDirectUseClusters"]>
+      ) => facades.callGraph.queryDirectUseClusters(...args),
     ),
     expandPlatformCallGraph: valueOperation(
       "ordinary-call-graph-expand-platform",
@@ -1775,6 +1829,16 @@ export const engineWorkerOrdinaryOperations = {
           CatalogFacade["admitRetainedWorkspacePackage"]
         >
       ) => facades.catalog.admitRetainedWorkspacePackage(...args),
+    ),
+    admitEcosystemPackageToWorkspace: valueOperation(
+      "ordinary-catalog-admit-ecosystem-package-to-workspace",
+      7,
+      (
+        facades,
+        ...args: Parameters<
+          CatalogFacade["admitEcosystemPackageToWorkspace"]
+        >
+      ) => facades.catalog.admitEcosystemPackageToWorkspace(...args),
     ),
     admitRetainedWorkspacePlatform: valueOperation(
       "ordinary-catalog-admit-retained-workspace-platform",
@@ -1898,6 +1962,14 @@ export const engineWorkerOrdinaryOperations = {
         >
       ) => facades.catalog.describeWorkspacePackageSources(...args),
     ),
+    explainVocabularies: valueOperation(
+      "ordinary-catalog-explain-vocabularies",
+      2,
+      (
+        facades,
+        ...args: Parameters<CatalogFacade["explainVocabularies"]>
+      ) => facades.catalog.explainVocabularies(...args),
+    ),
     resolveHomeDemo: valueOperation(
       "ordinary-catalog-resolve-home-demo",
       1,
@@ -1931,6 +2003,29 @@ export const engineWorkerOrdinaryOperations = {
           CatalogFacade["observeRetainedWorkspaceSettlement"]
         >
       ) => facades.catalog.observeRetainedWorkspaceSettlement(...args),
+    ),
+    prepareEcosystemWorkspaceDefinition: valueOperation(
+      "ordinary-catalog-prepare-ecosystem-workspace-definition",
+      4,
+      (
+        facades,
+        ...args: Parameters<
+          CatalogFacade["prepareEcosystemWorkspaceDefinition"]
+        >
+      ) => facades.catalog.prepareEcosystemWorkspaceDefinition(...args),
+      async (facades, result) => {
+        if (result.status !== "prepared" || result.receipt === null) return;
+        const cancellation =
+          await facades.catalog.cancelRetainedWorkspaceActivation(
+            result.receipt,
+          );
+        if (cancellation.status === "failed") {
+          throw new Error(
+            cancellation.failure?.message
+              ?? "Rejected Ecosystem Workspace preparation could not be cleaned up.",
+          );
+        }
+      },
     ),
     preparePackageQueryWorkspaceDefinition: valueOperation(
       "ordinary-catalog-prepare-package-query-workspace-definition",
@@ -2156,6 +2251,9 @@ export function bindEngineWorkerOrdinaryClient(
       queryPackageRoot: bind(
         engineWorkerOrdinaryOperations.package.queryPackageRoot,
       ),
+      queryPackageSummary: bind(
+        engineWorkerOrdinaryOperations.package.queryPackageSummary,
+      ),
       loadRuntimePack: bind(
         engineWorkerOrdinaryOperations.package.loadRuntimePack,
       ),
@@ -2190,8 +2288,8 @@ export function bindEngineWorkerOrdinaryClient(
       queryPackageDependencies: bind(
         engineWorkerOrdinaryOperations.package.queryPackageDependencies,
       ),
-      queryPackagePruning: bind(
-        engineWorkerOrdinaryOperations.package.queryPackagePruning,
+      queryPackageVulnerabilities: bind(
+        engineWorkerOrdinaryOperations.package.queryPackageVulnerabilities,
       ),
       queryPackageVersions: bind(
         engineWorkerOrdinaryOperations.package.queryPackageVersions,
@@ -2291,9 +2389,17 @@ export function bindEngineWorkerOrdinaryClient(
         engineWorkerOrdinaryOperations.analysis
           .queryPackageTypeImplementationHeat,
       ),
+      queryPackageTypeMethodLeverage: bind(
+        engineWorkerOrdinaryOperations.analysis
+          .queryPackageTypeMethodLeverage,
+      ),
       queryPlatformTypeImplementationHeat: bind(
         engineWorkerOrdinaryOperations.analysis
           .queryPlatformTypeImplementationHeat,
+      ),
+      queryPlatformTypeMethodLeverage: bind(
+        engineWorkerOrdinaryOperations.analysis
+          .queryPlatformTypeMethodLeverage,
       ),
       queryMemberFacts: bind(
         engineWorkerOrdinaryOperations.analysis.queryMemberFacts,
@@ -2318,29 +2424,29 @@ export function bindEngineWorkerOrdinaryClient(
         engineWorkerOrdinaryOperations.analysis
           .queryPackagePerformance,
       ),
+      queryPackageLibraryDependencyStructure: bind(
+        engineWorkerOrdinaryOperations.analysis
+          .queryPackageLibraryDependencyStructure,
+      ),
       queryPackageLibraryMetrics: bind(
         engineWorkerOrdinaryOperations.analysis
           .queryPackageLibraryMetrics,
       ),
-      queryPackageLibraryNamespaceLeverage: bind(
+      queryPackageLibraryStructuralSalience: bind(
         engineWorkerOrdinaryOperations.analysis
-          .queryPackageLibraryNamespaceLeverage,
+          .queryPackageLibraryStructuralSalience,
       ),
-      queryPackageNamespaceTypeLeverage: bind(
+      queryPlatformLibraryDependencyStructure: bind(
         engineWorkerOrdinaryOperations.analysis
-          .queryPackageNamespaceTypeLeverage,
+          .queryPlatformLibraryDependencyStructure,
       ),
       queryPlatformLibraryMetrics: bind(
         engineWorkerOrdinaryOperations.analysis
           .queryPlatformLibraryMetrics,
       ),
-      queryPlatformLibraryNamespaceLeverage: bind(
+      queryPlatformLibraryStructuralSalience: bind(
         engineWorkerOrdinaryOperations.analysis
-          .queryPlatformLibraryNamespaceLeverage,
-      ),
-      queryPlatformNamespaceTypeLeverage: bind(
-        engineWorkerOrdinaryOperations.analysis
-          .queryPlatformNamespaceTypeLeverage,
+          .queryPlatformLibraryStructuralSalience,
       ),
       queryPlatformPerformance: bind(
         engineWorkerOrdinaryOperations.analysis
@@ -2390,10 +2496,17 @@ export function bindEngineWorkerOrdinaryClient(
       queryMemberFindingCensus: bind(
         engineWorkerOrdinaryOperations.source.queryMemberFindingCensus,
       ),
+      queryPlatformMemberFindingCensus: bind(
+        engineWorkerOrdinaryOperations.source
+          .queryPlatformMemberFindingCensus,
+      ),
     },
     callGraph: {
       queryMemberCallGraph: bind(
         engineWorkerOrdinaryOperations.callGraph.queryMemberCallGraph,
+      ),
+      queryDirectUseClusters: bind(
+        engineWorkerOrdinaryOperations.callGraph.queryDirectUseClusters,
       ),
       expandPlatformCallGraph: bind(
         engineWorkerOrdinaryOperations.callGraph
@@ -2412,6 +2525,10 @@ export function bindEngineWorkerOrdinaryClient(
       admitRetainedWorkspacePackage: bind(
         engineWorkerOrdinaryOperations.catalog
           .admitRetainedWorkspacePackage,
+      ),
+      admitEcosystemPackageToWorkspace: bind(
+        engineWorkerOrdinaryOperations.catalog
+          .admitEcosystemPackageToWorkspace,
       ),
       admitRetainedWorkspacePlatform: bind(
         engineWorkerOrdinaryOperations.catalog
@@ -2461,6 +2578,9 @@ export function bindEngineWorkerOrdinaryClient(
         engineWorkerOrdinaryOperations.catalog
           .describeWorkspacePackageSources,
       ),
+      explainVocabularies: bind(
+        engineWorkerOrdinaryOperations.catalog.explainVocabularies,
+      ),
       resolveHomeDemo: bind(
         engineWorkerOrdinaryOperations.catalog.resolveHomeDemo,
       ),
@@ -2475,6 +2595,10 @@ export function bindEngineWorkerOrdinaryClient(
       observeRetainedWorkspaceSettlement: bind(
         engineWorkerOrdinaryOperations.catalog
           .observeRetainedWorkspaceSettlement,
+      ),
+      prepareEcosystemWorkspaceDefinition: bind(
+        engineWorkerOrdinaryOperations.catalog
+          .prepareEcosystemWorkspaceDefinition,
       ),
       preparePackageQueryWorkspaceDefinition: bind(
         engineWorkerOrdinaryOperations.catalog

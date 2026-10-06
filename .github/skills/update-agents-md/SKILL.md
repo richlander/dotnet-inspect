@@ -1,109 +1,75 @@
 ---
 name: update-agents-md
-description: Use before adding, growing, or restructuring content in AGENTS.md — keeps it under its 600-line cap, protects operator templates, and limits it to cross-cutting binding rules.
+description: Use before editing AGENTS.md — enforces the 120-line launch and Steward boundaries, protected operator templates, and focused-document ownership.
 ---
 
 # Updating AGENTS.md
 
-Goal: keep AGENTS.md small, skimmable, and limited to binding cross-cutting
-rules. Read this before any edit to AGENTS.md, not just during a cleanup pass.
+Use this skill before every `AGENTS.md` edit.
 
 ## Hard constraints
 
-- **600-line cap.** `wc -l AGENTS.md` must stay at or under 600, checked as
-  part of every edit — not deferred to a later cleanup.
-- **Offset growth in the same edit.** If a change would push the file over the
-  cap, remove or move at least as many lines as you add before finishing the
-  edit. Do not land growth and plan to trim later.
-- **No large table of contents.** The "Task-specific guidance" pointer table
-  stays at 12 rows or fewer, holding only the highest-value entries.
-  `docs/README.md` provides immediate acquisition and curates broader routes,
-  but does not catalog every focused document. Do not grow a second TOC inside
-  AGENTS.md.
-- **Protect the root README boundary.** If an AGENTS edit changes documentation
-  entrypoint guidance, preserve `README.md` as a product landing page of 120
-  lines or fewer. It features only daily-driver and delightful demo
-  capabilities; every featured capability has a runnable CLI command and a
-  `https://dotnet-inspect.net/?w=...` packet URL for the same view. Detailed
-  behavior belongs in `docs/cli-reference.md`, a focused guide, or a product
-  skill.
-- **Protect operator templates.** The theme/status reminder, tmux command and
-  state block, round report, and their invocation rules must remain directly
-  in `AGENTS.md`. Never remove, shorten to a pointer, or move them to meet the
-  line cap; extract another whole section instead.
+- **120-line cap.** Run `wc -l AGENTS.md` before and after every edit. Never
+  land growth above 120 or defer extraction.
+- **120-line Steward cap.** When routing or PR-lifecycle ownership changes,
+  keep `.claude/skills/steward/SKILL.md` at or below 120 lines.
+- **Caps are ceilings.** Do not add prose merely to consume available lines.
+  Acquire guidance progressively: launch rules in `AGENTS.md`, PR decisions in
+  Steward, and mechanics in focused documents.
+- **Launch contract only.** Keep the repository mission, immediate routing,
+  universal non-negotiables, and protected operator templates. Detailed
+  mechanics, rationale, examples, edge cases, command inventories, and
+  subsystem rules belong in focused documents.
+- **No second index.** `docs/README.md` owns curated navigation. AGENTS may
+  link the small set of entrypoints needed to begin work but never grows a
+  task catalog.
+- **Protect the root README boundary.** When entrypoint guidance changes,
+  confirm `README.md` remains a product landing page of at most 120 lines.
+  Featured capabilities require both a runnable CLI command and matching
+  `https://dotnet-inspect.net/?w=...` packet URL.
+- **Protect operator templates.** Keep the theme/status reminder, post-merge
+  handoff, tmux command/state block, round report, and their invocation rules
+  directly in `AGENTS.md`. Do not shorten or move them to satisfy the cap.
 
-## What belongs in AGENTS.md vs. a doc
+## Ownership test
 
-AGENTS.md holds binding, cross-cutting rules: things nearly every session needs
-regardless of which subsystem it touches. Everything else — mechanics, worked
-examples, tables of edge cases, rationale, historical context — belongs in a
-focused doc under `docs/`, `docs/design/`, `docs/runbooks/`, or
-`docs/templates/`, with a short pointer left in AGENTS.md.
+Keep a statement in AGENTS only when an unrelated session needs it before it
+can identify and open the focused owner. Put these elsewhere:
 
-Test before adding prose: would an agent doing unrelated work (say, a
-decompiler fix) need this fact in the next 30 seconds? If yes, state the rule
-in one or two sentences and stop there. If the value only shows up once an
-agent is deep in a specific task, it belongs in that task's owning doc instead.
+- repository worktrees, history, documentation, engineering, and publication
+  mechanics: `docs/repository-workflow.md`;
+- development posture: `docs/development-practices.md`;
+- design scope: `docs/design-scope.md`;
+- evidence: `docs/evidence-and-validation.md`;
+- SDK, build, and testing: `docs/dev-environment.md`;
+- PR rounds and state transitions: `docs/round-orchestration.md`;
+- point-of-use PR decisions: the `steward` skill;
+- subsystem behavior: its owning design or implementation guide.
 
-## Workflow for changing AGENTS.md
+The focused document owns the contract. AGENTS routes to it and may retain only
+the launch-critical invariant needed before acquisition.
 
-1. Run `wc -l AGENTS.md` to record the baseline before editing.
-2. Write new binding policy as the shortest statement of the rule itself — not
-   its rationale, mechanics, or examples.
-3. Put any accompanying detail (steps, tables, worked cases) in the owning doc
-   and link to it. Prefer creating a new focused doc over inflating an
-   unrelated one or leaving the detail in AGENTS.md.
-4. Confirm the protected theme/status, tmux, and round-report templates and
-   their invocation rules are still present verbatim enough to use without
-   opening another file.
-5. Re-run `wc -l AGENTS.md`. If still over 600, migrate another whole section
-   or subsection to its owning doc — see the extraction checklist below.
-   Repeat with a full section each time; do not switch to shaving individual
-   lines to close a small remaining gap.
-6. When documentation entrypoint guidance changed, run `wc -l README.md` and
-   confirm the landing-page boundary above still holds.
-7. Run `npx markdownlint-cli AGENTS.md` (and any doc you edited) before
-   committing.
+## Workflow
 
-## Extraction checklist when over budget
+1. Record the baseline with `wc -l AGENTS.md`.
+2. Identify the focused owner for every changed claim.
+3. Edit the owner first when behavior or policy changes.
+4. Keep only the shortest launch-time rule or route in AGENTS.
+5. Repair incoming links and ownership statements; never leave a focused
+   document claiming a removed AGENTS section is normative.
+6. Confirm every protected template remains directly usable.
+7. Check the AGENTS and root README caps.
+8. Run Markdown lint for every changed Markdown file.
 
-Move content in whole, section-sized blocks, not by trimming prose word by
-word. A block move is legible as a genuine reorganization; shaving a line here
-and there to squeak under the cap is not — it reads as gaming the number and
-tends to fuse unrelated sentences, drop headings that readers or other docs
-depend on, or otherwise degrade the file it was supposed to keep skimmable.
-
-- A whole subsection whose detail belongs in a focused doc: cut the entire
-  subsection over, leave one summary paragraph plus a pointer in AGENTS.md.
-- A bullet that restates a longer explanation already in the linked doc: keep
-  the bullet, delete the restatement.
-- A rarely invoked scenario (well under one PR in twenty): reduce to a single
-  pointer sentence, as with the Markout co-development loop.
-- The protected operator templates are never extraction candidates. If they
-  create pressure, move a different whole subsection.
-
-If after moving the obvious block-sized candidates the file is still over (or
-barely under) 600, that is a signal to find one more whole section to
-relocate — not to start merging headings into prose, deleting blank lines
-between unrelated paragraphs, or rewording sentences purely to save a line.
-Never remove or fold a heading to save space; if it is not clearly
-disposable as a whole subsection, leave it and find a different block to
-move instead.
-
-## Table of contents discipline
-
-- Keep the "Task-specific guidance" table at 12 rows or fewer. Choose entries
-  by how often an agent needs them, not by comprehensiveness.
-- When a new entry would push the table past 12, swap out a lower-value row.
-  Add a `docs/README.md` route only when the destination is itself a
-  high-value entrypoint; otherwise rely on focused owner and consumer links.
-- Update `docs/README.md` only when its acquisition block, a curated route, or
-  an entrypoint role changes.
+When the cap is exceeded, move a whole concern to its focused owner. Never
+compress by deleting headings, fusing unrelated prose, removing blank lines,
+or shaving wording solely to save lines.
 
 ## Validation
 
 ```bash
-wc -l AGENTS.md   # must be <= 600
+wc -l AGENTS.md   # must be <= 120
+wc -l .claude/skills/steward/SKILL.md   # must be <= 120
 wc -l README.md   # must be <= 120
-npx markdownlint-cli AGENTS.md
+npx markdownlint-cli AGENTS.md <other-changed-markdown>
 ```

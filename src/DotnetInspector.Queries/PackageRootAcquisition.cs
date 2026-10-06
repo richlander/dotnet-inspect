@@ -250,6 +250,33 @@ public sealed class PackageRootReacquisitionRequest :
     public bool UsesCompatibleImplementationSelection =>
         _request.UsesCompatibleImplementationSelection;
 
+    internal bool MatchesCompileSelectionRequest(
+        PackageCompileAssetSelectionReceipt receipt)
+    {
+        ArgumentNullException.ThrowIfNull(receipt);
+        return Coordinate.PackageId.Equals(
+                receipt.PackageId,
+                StringComparison.OrdinalIgnoreCase)
+            && string.Equals(
+                CompileTargetFramework,
+                PackageRootBinding.ReceiptCompileTargetFramework(receipt),
+                StringComparison.OrdinalIgnoreCase)
+            && string.Equals(
+                SelectionTargetFramework,
+                PackageRootBinding.ReceiptSelectionTargetFramework(receipt),
+                StringComparison.OrdinalIgnoreCase)
+            && string.Equals(
+                SelectionRuntimeIdentifier,
+                receipt.RequestedRuntimeIdentifier,
+                StringComparison.OrdinalIgnoreCase)
+            && AllowsCompatibleTargetSelection
+                == (receipt.Policy
+                    == PackageCompileAssetSelectionPolicy.ExplicitTarget)
+            && UsesCompatibleImplementationSelection
+                == PackageRootBinding
+                    .ReceiptUsesCompatibleImplementationSelection(receipt);
+    }
+
     /// <summary>
     /// Encodes this request as one owner-authored, credential-free token a
     /// host may hand across a transport boundary and back.

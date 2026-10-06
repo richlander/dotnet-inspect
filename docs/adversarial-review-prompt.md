@@ -144,6 +144,12 @@ merge, published in both the visible agent session and PR body. Review may run
 while measurement is pending, but do not report the candidate as merge-ready
 until both publication surfaces contain the numbers.
 
+Treat performance evidence asymmetrically. One valid machine showing a credible
+miss of the stated goal or a regression — especially a large gap — is enough to
+stop review for operator direction; do not recommend another review round or a
+second machine merely to confirm that bad result. Additional machines validate
+apparently good performance, and one good run does not outweigh a bad one.
+
 For an Analysis producer, review fidelity and safety as separate properties.
 Fidelity is exact agreement on the owner-named Roslyn-produced assembly
 patterns. Safety is bounded, inert behavior for every supported ECMA-335 input;

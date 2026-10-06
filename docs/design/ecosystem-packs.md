@@ -156,6 +156,8 @@ build.
 One pack registration may contain:
 
 - stable ecosystem identity and product-owned discovery metadata;
+- one optional parent pack, `DependsOn`, defined by
+  [Ecosystem hierarchy](ecosystem-hierarchy.md);
 - compact namespace hints and ordered registered core-package roots;
 - explicit tool-package references;
 - one optional package-set identity;
@@ -255,6 +257,7 @@ EcosystemPackRegistration
   Prefixes     immutable ordered EcosystemPackagePrefix sequence
   Scanner      EcosystemIntegrationScannerBinding?
   Loader       EcosystemPopulationLoaderBinding?
+  DependsOn    EcosystemPackId?
   Demos        immutable ordered EcosystemDemoRegistration sequence
 
 EcosystemPackDescriptor
@@ -262,6 +265,7 @@ EcosystemPackDescriptor
   Title        string
   Summary      string
   Order        int
+  DependsOn    EcosystemPackId?
 
 EcosystemPackagePrefix
   Id           EcosystemPackagePrefixId
@@ -1216,9 +1220,9 @@ packs; neither pack gains exclusive ownership or triggers traversal by prefix.
 
 The initial Workspace projection is implemented under
 [the focused handoff](workspace-ecosystem-registration-handoff.md). Its
-application-owned platform order is .NET Runtime, ASP.NET Core, then
-Microsoft.Extensions, which deliberately differs from ordinary pack discovery
-order. .NET Runtime requires a source-owned runtime population declaration and retains
+application-owned platform order is .NET Runtime, Microsoft.Extensions, then
+ASP.NET Core: the parent-first order required by
+[the ecosystem hierarchy](ecosystem-hierarchy.md#workspace-plan-construction). .NET Runtime requires a source-owned runtime population declaration and retains
 the inert `System.` package prefix;
 ASP.NET Core requires its source-owned shared-framework population and
 retains the inert `Microsoft.AspNetCore.` package prefix; Microsoft.Extensions

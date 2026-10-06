@@ -101,7 +101,7 @@ public sealed partial class AssemblyContextSourceQueryTests
                 group.UseAssemblySession(
                     assembly.Assembly,
                     static session =>
-                        session.ApiSurface().Types.Count));
+                        session.CompatibilityApiSurface().Types.Count));
     }
 
     [Fact]

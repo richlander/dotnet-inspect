@@ -484,7 +484,7 @@ public class CommandErrorOwnershipTests
 
             // Markout views of the tips and the legend; every field of both
             // rows is contained where the row is built.
-            ["dotnet-inspect!DotnetInspect.Cli.Output.Hints.WriteTips(DotnetInspect.Cli.Options.TipLevel, DotnetInspect.Cli.Output.Tip[], bool)"] = 1,
+            ["dotnet-inspect!DotnetInspect.Cli.Output.Hints.WriteTips(DotnetInspect.Cli.Options.CompanionOutput, System.Func<DotnetInspect.Cli.Output.Tip[]>)"] = 1,
             ["dotnet-inspect!DotnetInspect.Cli.Output.Hints.WriteLegend(DotnetInspect.Cli.Views.LegendEntry[])"] = 1,
 
             // The network traffic log. Its caller is behind #if DEBUG, but this

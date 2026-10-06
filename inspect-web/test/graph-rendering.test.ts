@@ -3,6 +3,7 @@ import test from "node:test";
 import { mermaidLabel } from "../src/data.ts";
 import {
   buildAnnotatedRelationshipGraphMermaid,
+  buildAssemblyReferenceGraphMermaid,
   buildDependencyGraphMermaid,
   buildTypeGraphMermaid,
   resolveMermaidCssVariables,
@@ -136,6 +137,7 @@ test("type graph rendering contains artifact labels", () => {
     ],
     graphEdges: [{ fromId: "self", toId: "base" }]
   });
+
   assert.ok(definition, "the fixture graph must render a mermaid definition");
 
   assert.match(
@@ -146,6 +148,33 @@ test("type graph rendering contains artifact labels", () => {
   assert.match(
     definition,
     /classDef self fill:var\(--graph-target-fill\),stroke:var\(--graph-target-stroke\),color:var\(--graph-target-text\)/);
+});
+
+test("assembly-reference graphs retain typed names and bound the preview", () => {
+  const references = Array.from({ length: 81 }, (_, index) => ({
+    name: index === 0
+      ? "Dependency\u200D\uDC00-Caf\u00E9\u{1F600}"
+      : `Dependency.${index}`,
+    version: `${index}.0.0.0`,
+    culture: null,
+    publicKeyToken: null,
+  }));
+  const graph = buildAssemblyReferenceGraphMermaid(
+    "Example\u202E\uD800-Caf\u00E9\u{1F600}",
+    { references });
+  assert.ok(graph);
+  assert.equal(graph.referenceCount, 81);
+  assert.equal(graph.shownReferenceCount, 79);
+  assert.equal(graph.truncated, true);
+  assert.match(
+    graph.definition,
+    /r0\["Example&#92;u202E&#92;uD800-Café😀"\]:::inspected/);
+  assert.match(
+    graph.definition,
+    /r1\["Dependency&#92;u200D&#92;uDC00-Café😀 0\.0\.0\.0"\]:::reference/);
+  assert.equal(graph.definition.includes("\u202E"), false);
+  assert.equal(graph.definition.includes("\uDC00"), false);
+  assert.doesNotMatch(graph.definition, /Dependency\.79|Dependency\.80/);
 });
 
 test("Mermaid resolves the current theme without inventing missing colors", () => {

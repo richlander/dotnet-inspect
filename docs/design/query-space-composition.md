@@ -66,17 +66,43 @@ cardinalities without Rows, executes residual shaping only for sufficient row
 handoffs, and returns every source outcome without entering a residual cohort
 when any set is insufficient. Exact zero remains a first-class result.
 
+The immutable request-set reference planner now validates the complete set
+before acquisition, retains caller association and owner resource identities,
+and groups only exact owner-issued resource/source pairs. Method Query Source
+is the first source consumer: it issues compatible source bindings, preserves
+terminal-specialized lanes, and records one physical all-MethodDef traversal
+beside each request's independent result, outcome, source completion, and
+Producer Planning receipt. Incompatible or sparse requests remain separate;
+sharing is never required for acceptance.
+
+Method Classification is the first mixed-terminal production adopter. Its
+session-backed query lowers independent analyzer Rows, Count, Exists, and Head
+requests into the Method request set, while its PEReader overload remains the
+direct reference. CLI effective discovery uses exact Exists for Async Methods
+and P/Invoke Methods instead of projecting their rows. At that metadata-only
+slice, the adoption did not shrink the temporary Library Body Analysis
+remainder; the unsafe-evidence-plus-live-body-producer adoption below remained
+required before reducing the aggregate compatibility surface.
+
 Because the current structural descriptor cannot distinguish unqualified Top
 from explicit-ranking-only Top, a scope advertises Top only when its executable
 vocabulary supplies a default Top ranking. A future richer capability may
 represent the explicit-ranking-only form separately.
 
 Transitional Query Operation route order and stage capabilities are not
-operation-scope capabilities. Multiple row-intent associations, request-set
-collapse, source delegation planning, projection stages, continuation binding,
-the full structural-plan meaning record, and the remaining gates in
+operation-scope capabilities. Multiple row-intent associations, residual-over-
+covering-read request satisfaction, source delegation planning, projection
+stages, continuation binding, the full structural-plan meaning record, and the
+remaining gates in
 [Required gates](#required-gates) remain **unverified** until their named
 implementation slices land and run in Release.
+
+[Query Space Producer Capabilities](query-space-producer-capabilities.md) owns
+the deeper contract through which a complete requirement set reaches one
+producer, that producer chooses among direct and covering provisions, and each
+requirement retains its own satisfaction path. This design continues to own
+the surrounding query-space request associations and source-plan groups; it
+does not define producer capabilities, coverage, or strategy selection.
 
 ## Owner and exact claim
 
@@ -124,6 +150,8 @@ This owner does not define:
 - any Package, Library, Type, Member, Dependency, Graph, or Find semantics;
 - subject or source authority, acquisition, pagination, retry, caching, or
   completion-evidence construction;
+- producer capability identities, covering relationships, provision
+  strategies, or producer-owned plan selection;
 - timed batching, cross-operation collection windows, retention, or cost
   estimation;
 - row predicate, order, Head, Tail, Window, Top, projection, Count, or Exists
@@ -331,6 +359,30 @@ result-contract mismatch rejects the set as a whole with typed reasons and
 starts no work. Different valid source bindings remain in the same request set
 and form separate groups. Request order is retained only for deterministic
 result publication. It neither supplies identity nor chooses planning priority.
+
+### Cost class of a request set
+
+A request set shares one physical traversal, so its cost is set by its most
+expensive lane, not its cheapest. Lanes fall into two cost classes: ones that
+read metadata tables and custom-attribute constructor names, and ones that
+decode IL bodies. One body-decoding lane moves the whole set into the
+body-decode regime, because the shared traversal must open every method body
+the lane needs even when every other lane would have finished without it.
+
+Compose a request set within one cost class. A set whose bulk requires IL may
+include IL lanes freely. A small, nice-to-have body-decoding lane does not join
+a metadata-only set: it becomes its own request, an opt-in question, or a
+separate section, so the default answer keeps the cheaper class. The Library
+Info Switches row is the motivating case: its attribute half is metadata-only,
+and its AppContext half walks every method body, so the multi-question Count
+scorecard ([#9153](https://github.com/richlander/dotnet-inspect/issues/9153))
+excluded the row rather than let one slice set the cost of the set.
+
+Sharing within a class is bounded by the lanes' per-row work, not by the
+traversal. The Library Info scorecard measured a hand-fused one-pass fold at
+0.95× of three independent NLinq folds over metadata-only lanes, so a request
+set over such lanes cannot earn more than that ceiling; its value there is
+one shared plan and settlement, not shared reads.
 
 ### Two satisfaction paths
 
@@ -548,7 +600,7 @@ exposed together use distinct canonical query keys. A displayed field or
 section name never creates a facet or supplies a portable lookup key.
 
 An external value-vocabulary reference points to the stable legal-value domain
-owned by the `vocabulary` subsystem. The query-space descriptor does not copy
+owned by [Product Vocabulary](vocabulary.md). The query-space descriptor does not copy
 that domain's complete value catalog. Open-ended facets expose their typed
 domain, constraints, and examples without claiming an enumerated value
 vocabulary.
@@ -558,7 +610,7 @@ vocabulary.
 In this design, **query vocabulary** means the keys, operators, families,
 bounds, stages, and orders accepted by one `PortableQueryIntent`.
 **Value vocabulary** means an independently owned stable legal-value domain
-such as the existing `VocabularyDocument`. Unqualified *vocabulary* is avoided
+such as the `csharp.body-kinds` product vocabulary. Unqualified *vocabulary* is avoided
 when the distinction matters.
 
 Query Space does not merge owner vocabularies into one universal
@@ -1067,12 +1119,15 @@ Implementation proceeds as focused owner adoptions:
    per-request result contract in this owner.
 15. Implement the host-neutral reference request-set planner and let the Method
    source consume one request-set plan without changing Producer Planning.
-16. Move one mixed CLI library operation through the plan, shrinking the
-   temporary Library Body Analysis remainder and recording exact terminal
-   evidence.
-17. Move one Browser/Wasm Analysis operation through the same host-neutral
+16. Move Method Classification as the first mixed-terminal CLI library
+   operation, retaining its direct PEReader path as the reference and using
+   exact Exists for section applicability.
+17. Compose unsafe-evidence presence with one still-live body producer,
+   shrinking the temporary Library Body Analysis remainder and recording exact
+   terminal evidence.
+18. Move one Browser/Wasm Analysis operation through the same host-neutral
    result without adding a TypeScript planner.
-18. Adopt one non-Analysis row source to prove that request collapse remains a
+19. Adopt one non-Analysis row source to prove that request collapse remains a
    general Query Space capability.
 
 Each step names one adopting owner and retains every other owner's contract.

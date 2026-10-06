@@ -88,6 +88,12 @@ public static class WorkspaceCommandDefinitions
             Description =
                 "Evaluate one exact committed Package occurrence by its one-based Workspace order",
         };
+        var activeEcosystemOption =
+            new Option<string?>("--active-ecosystem")
+            {
+                Description =
+                    "Evaluate one exact registered Ecosystem by short or canonical ID",
+            };
         var libraryOption = new Option<string?>("--library")
         {
             Description =
@@ -111,7 +117,8 @@ public static class WorkspaceCommandDefinitions
         var lensOption = new Option<string?>("--lens")
         {
             Description =
-                "Exact destination view-facet id, such as type.compare or member.compare",
+                "Exact destination view-facet id or contextual name, "
+                    + "such as type.compare or .compare",
         };
         var shareOption = WorkspaceShareOption.Create(
             "Emit the complete portable Workspace definition as a canonical packet or URL");
@@ -155,6 +162,7 @@ public static class WorkspaceCommandDefinitions
         command.Options.Add(kindOption);
         command.Options.Add(rootRequestOption);
         command.Options.Add(activePackageOption);
+        command.Options.Add(activeEcosystemOption);
         command.Options.Add(libraryOption);
         command.Options.Add(allLibrariesOption);
         command.Options.Add(typeOption);
@@ -176,6 +184,7 @@ public static class WorkspaceCommandDefinitions
                 !IsTopLevelInventory(
                     result,
                     activePackageOption,
+                    activeEcosystemOption,
                     libraryOption,
                     allLibrariesOption,
                     typeOption,
@@ -215,6 +224,8 @@ public static class WorkspaceCommandDefinitions
             string? rootRequest = parseResult.GetValue(rootRequestOption);
             int? activePackage =
                 parseResult.GetValue(activePackageOption);
+            string? activeEcosystem =
+                parseResult.GetValue(activeEcosystemOption);
             string? library = parseResult.GetValue(libraryOption);
             bool allLibraries =
                 parseResult.GetValue(allLibrariesOption);
@@ -270,6 +281,7 @@ public static class WorkspaceCommandDefinitions
                     InventoryKinds = inventoryKinds,
                     RootRequest = rootRequest,
                     ActivePackage = activePackage,
+                    ActiveEcosystem = activeEcosystem,
                     Library = library,
                     AllLibraries = allLibraries,
                     Type = type,
@@ -315,6 +327,7 @@ public static class WorkspaceCommandDefinitions
                 IsTopLevelInventory(
                     result.CommandResult,
                     activePackageOption,
+                    activeEcosystemOption,
                     libraryOption,
                     allLibrariesOption,
                     typeOption,
@@ -336,6 +349,7 @@ public static class WorkspaceCommandDefinitions
     static bool IsTopLevelInventory(
         CommandResult commandResult,
         Option<int?> activePackageOption,
+        Option<string?> activeEcosystemOption,
         Option<string?> libraryOption,
         Option<bool> allLibrariesOption,
         Option<string?> typeOption,
@@ -343,6 +357,7 @@ public static class WorkspaceCommandDefinitions
         Option<string?> lensOption,
         Option<string?> shareOption) =>
         commandResult.GetValue(activePackageOption) is null
+        && commandResult.GetValue(activeEcosystemOption) is null
         && commandResult.GetValue(libraryOption) is null
         && !commandResult.GetValue(allLibrariesOption)
         && commandResult.GetValue(typeOption) is null

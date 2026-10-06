@@ -115,12 +115,14 @@ internal static class MetadataTypeMemberCompositionInspection
             // The same receiver rule as the MemberGroup receiver filter.
             ApiSurfaceExtractor.ClassifyDeclaredMembers(
                 reader,
+                typeHandle,
                 typeDef,
                 spelling,
                 publicOnly: false,
                 extensionContainer: AttributeReader.HasExtensionAttribute(
                     reader,
                     typeDef.GetCustomAttributes()),
+                classifyLogicalMethodKinds: false,
                 ref counts);
             if (spelling == MetadataMemberSpelling.CSharp)
             {

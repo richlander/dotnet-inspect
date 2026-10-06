@@ -54,6 +54,24 @@ public class NamedReferenceSlotMaterializationTests
         AssertRetained(function);
     }
 
+    [Fact]
+    public void NullLiteralAssignsToProvenNamedReference()
+    {
+        var function = Function(Reference,
+            new StoreStackSlot(0, new Constant(null, Object)),
+            new Return(new LoadStackSlot(0, Reference)));
+        function.TypeShapes = new Dictionary<TypeRef, TypeShape> { [Reference] = TypeShape.Reference };
+
+        Assert.True(Assert.Single(SlotMaterializationPass.Analyze(function)).WillMaterialize);
+
+        new SlotMaterializationPass().Run(function, PassContext.None);
+
+        Assert.Equal(Reference, Assert.Single(function.Locals));
+        Assert.Empty(function.Descendants.OfType<StoreStackSlot>());
+        Assert.Empty(function.Descendants.OfType<LoadStackSlot>());
+        function.CheckInvariant(includeSemantics: true);
+    }
+
     [Theory]
     [InlineData("open-generic")]
     [InlineData("wrong-arity")]
@@ -63,8 +81,10 @@ public class NamedReferenceSlotMaterializationTests
     [InlineData("name")]
     public void UnspellableReferenceTypesRemainSlots(string shape)
     {
+        // A non-generated unspellable name; a compiler-generated (`<`-prefixed)
+        // name is admitted by GeneratedNameReferenceStorageTests.
         var definition = shape == "name"
-            ? TypeRef.Definition("Samples", "Samples", "<Invalid>") : GenericReference;
+            ? TypeRef.Definition("Samples", "Samples", "Invalid-Name") : GenericReference;
         var type = shape switch
         {
             "open-generic" or "name" => definition,
@@ -91,7 +111,7 @@ public class NamedReferenceSlotMaterializationTests
     {
         var statements = new List<IrNode>
         {
-            new StoreStackSlot(0, new Constant(null, Object)),
+            new StoreStackSlot(0, new Coerce(Object, new Constant(null, Object))),
             new Return(new LoadStackSlot(0, Reference)),
         };
         if (mixed)
@@ -110,7 +130,7 @@ public class NamedReferenceSlotMaterializationTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void NamedReferenceCopyComponentsRemainAtomic(bool incomplete)
+    public void NamedReferenceCopyComponentsMaterializeSourceClosedMembers(bool incomplete)
     {
         var function = Function(Reference,
             new StoreStackSlot(0, new Constant(null, Reference)),
@@ -123,9 +143,16 @@ public class NamedReferenceSlotMaterializationTests
         Assert.Equal(2, decisions.Count);
         if (incomplete)
         {
-            Assert.All(decisions, decision =>
-                Assert.True(decision.Vetoes.HasFlag(SlotMaterializationVeto.IncompleteCopyComponent)));
-            AssertRetained(function);
+            // Decided S_0 copies into S_1, which does not decide: S_0 is
+            // source-closed and materializes; S_1 stays a slot.
+            Assert.True(Assert.Single(decisions, decision => decision.Slot == 0).WillMaterialize);
+            Assert.True(Assert.Single(decisions, decision => decision.Slot == 1).Vetoes
+                .HasFlag(SlotMaterializationVeto.IncompleteCopyComponent));
+            var split = SlotMaterializationInvariant.Capture(function);
+            new SlotMaterializationPass().Run(function, PassContext.None);
+            split.Check();
+            Assert.Single(function.Descendants.OfType<StoreStackSlot>(), store => store.Slot == 1);
+            Assert.DoesNotContain(function.Descendants.OfType<StoreStackSlot>(), store => store.Slot == 0);
             return;
         }
 
