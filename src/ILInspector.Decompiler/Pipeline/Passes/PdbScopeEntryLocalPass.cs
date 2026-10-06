@@ -8,8 +8,16 @@ public sealed class PdbScopeEntryLocalPass : IIrPass
 {
     public string Name => "pdb-scope-entry-locals";
 
+    public PassAnalysisKind RequiredAnalyses
+        => PassAnalysisKind.BranchTargets;
+
+    public PassAnalysisKind PreservedAnalyses
+        => PassAnalysisKind.BranchTargets;
+
     public void Run(IrFunction function, PassContext context)
     {
+        IReadOnlySet<int> branchTargets =
+            context.BranchTargets(function);
         var groups = Enumerable.Range(0, function.LocalNames.Length)
             .Where(index => ExactBinding(function, index) is not null
                 && function.LocalNames[index] is { } name
@@ -26,7 +34,10 @@ public sealed class PdbScopeEntryLocalPass : IIrPass
             .Select(group => (
                 Group: group,
                 Candidates: group
-                    .Where(index => CanMaterialize(function, index))
+                    .Where(index => CanMaterialize(
+                        function,
+                        index,
+                        branchTargets))
                     .ToArray()))
             .Where(plan => plan.Candidates.Length != 0)
             .ToArray();
@@ -48,7 +59,10 @@ public sealed class PdbScopeEntryLocalPass : IIrPass
         Materialize(function, candidates, context);
     }
 
-    static bool CanMaterialize(IrFunction function, int index)
+    static bool CanMaterialize(
+        IrFunction function,
+        int index,
+        IReadOnlySet<int> branchTargets)
     {
         if (!function.IsLocalDeclaredInNestedScope(index)
             || ExactBinding(function, index) is not { } binding)
@@ -93,8 +107,7 @@ public sealed class PdbScopeEntryLocalPass : IIrPass
             .Where(block => block.StartOffset == binding.Scope.StartOffset)
             .ToArray();
         return entries.Length == 1
-            && ReferenceOwnership.CollectBranchTargets(function)
-                .Contains(binding.Scope.StartOffset);
+            && branchTargets.Contains(binding.Scope.StartOffset);
     }
 
     static bool TrialPreservesExactNames(

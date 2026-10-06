@@ -854,7 +854,18 @@ surface; the Overview warning provides persistent package context rather than
 replacing the failure.
 
 Package Overview retains package facts, Libraries, and document links in its
-full-width content, with Documentation directly beneath Libraries. Frameworks
+full-width content, with Documentation directly beneath Libraries. Each document
+occupies one clickable row showing its file name and first rendered H1 title.
+Document content is read asynchronously after Overview paints, using the existing
+package document query. Title reads do not delay package facts or Libraries.
+Titles belong to the exact admitted package model and document path; delayed
+reads from an earlier coordinate cannot overwrite the active coordinate's rows.
+Documents without an H1 retain their file name without an invented title;
+failed reads show title unavailability while retaining the document action.
+`Newtonsoft.Json@13.0.3` motivates the titled row: its `README.md` has the
+first H1 `Json.NET` (with an inline logo). `System.Text.Json@10.0.0` motivates
+the untitled fallback: its `PACKAGE.md` has no H1.
+Frameworks
 and versions remain in the master pane for both Overview and Compare. The icon and package name identify the subject without an additional
 Package label. Package Compare uses the same full-width frame, content alignment,
 as Overview, starts directly with Comparison targets without repeating

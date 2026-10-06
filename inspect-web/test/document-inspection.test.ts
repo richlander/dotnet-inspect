@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   createDocumentInspectionCoordinator,
+  createPackageDocumentTitles,
   documentViewerIsOpen,
   normalizeDocumentViewerSnapshot,
   type DocumentInspectionDependencies,
@@ -925,4 +926,44 @@ test("snapshot normalization preserves settled and closed states", () => {
   for (const state of states) {
     assert.equal(normalizeDocumentViewerSnapshot(state), state);
   }
+});
+
+
+test("Overview titles are deduplicated per exact package owner and settle independently", async () => {
+  const first = deferred<BrowserPackageDocumentContent>();
+  const second = deferred<BrowserPackageDocumentContent>();
+  let calls = 0;
+  const titles = createPackageDocumentTitles({
+    queryDocument: () => ++calls === 1 ? first.promise : second.promise,
+    renderMarkdown: async body => body,
+    firstHeading: html => html.startsWith("# ") ? html.slice(2) : null,
+    describeError: String, render: () => {},
+  });
+  const oldOwner = {}, newOwner = {};
+  const request = { packageId: "Example", version: "1.0.0", document };
+  const oldRead = titles.load(oldOwner, [request]);
+  await titles.load(oldOwner, [request]);
+  assert.equal(calls, 1);
+  const newRead = titles.load(newOwner, [{ ...request, version: "2.0.0" }]);
+  second.resolve(content("---\nname: ignored\n---\n# Current"));
+  await newRead;
+  first.resolve(content("# Previous"));
+  await oldRead;
+  assert.deepEqual(titles.get(newOwner, document.path), { status: "ready", title: "Current" });
+  assert.deepEqual(titles.get(oldOwner, document.path), { status: "ready", title: "Previous" });
+});
+
+test("Overview titles distinguish no heading from a failed read", async () => {
+  const owner = {};
+  const titles = createPackageDocumentTitles({
+    queryDocument: async request => {
+      if (request.document.path === guideDocument.path) throw new Error("Read failed");
+      return content("No heading");
+    },
+    renderMarkdown: async text => text, firstHeading: () => null,
+    describeError: String, render: () => {},
+  });
+  await titles.load(owner, [document, guideDocument].map(item => ({ packageId: "Example", version: "1", document: item })));
+  assert.deepEqual(titles.get(owner, document.path), { status: "ready", title: null });
+  assert.deepEqual(titles.get(owner, guideDocument.path), { status: "failed", error: "Error: Read failed" });
 });

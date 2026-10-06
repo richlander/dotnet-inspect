@@ -192,7 +192,7 @@ runs and clear the ID before querying GitHub. Follow
 [GitHub status queries](github-status-queries.md) for the request and
 response contract and
 [Status discovery](round-orchestration.md#status-discovery) for round
-transitions and the 60-minute budget.
+transitions and the 30-minute budget.
 
 ## Signal when you need a person
 

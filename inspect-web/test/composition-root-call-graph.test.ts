@@ -1517,7 +1517,7 @@ test("Package and Library Overview share the named identity frame", () => {
   assert.match(renderPackage,
     /return packageLensBody\(\);/);
   assert.match(renderOverview,
-    /renderPackageDocuments\(pkg\.documents \|\| \[\], escapeHtml\)/);
+    /renderPackageDocuments\(pkg\.documents \|\| \[\], escapeHtml,/);
   assert.match(renderOverview,
     /renderPackageInfo\(pkg\.packageInfo, escapeHtml\)/);
   assert.doesNotMatch(renderOverview,

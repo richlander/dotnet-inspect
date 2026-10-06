@@ -150,14 +150,11 @@ test("package document list renders live escaped chips and file counts", () => {
   assert.ok(html.includes(
     `title="&lt;docs&gt;/README.md · ${localizedSize} bytes"`));
   assert.match(html, /<span class="doc-name">&lt;README&gt;\.md<\/span>/);
-  assert.match(html, /<span class="doc-kind">Readme<\/span>/);
   assert.match(html, /class="doc-chip doc-&lt;skill&gt;"/);
-  assert.match(html, /<span class="doc-kind">&lt;skill&gt;<\/span>/);
-  assert.match(html, /<span class="doc-glyph">◆<\/span>/);
-  assert.match(html, /<span class="doc-kind">Skill<\/span>/);
+  assert.match(html, /<span class="doc-glyph" aria-hidden="true">◆<\/span>/);
   assert.match(
     html,
-    /doc-constructor[\s\S]*?<span class="doc-glyph">▤<\/span>[\s\S]*?<span class="doc-kind">constructor<\/span>/);
+    /doc-constructor[\s\S]*?<span class="doc-glyph" aria-hidden="true">▤<\/span>/);
   assert.doesNotMatch(html, /<docs>/);
   assert.doesNotMatch(html, /<README>/);
   assert.doesNotMatch(html, /<skill>/);
@@ -316,4 +313,18 @@ test("empty ready content remains a successful empty document", () => {
 
   assert.match(html, /<article class="markdown-body"><\/article>/);
   assert.doesNotMatch(html, /doc-viewer-status/);
+});
+
+
+test("document rows escape titles and preserve untitled and failed entries", () => {
+  const docs = ["ready", "untitled", "failed"].map(name => ({ kind: "readme", name: `${name}.md`, path: `${name}.md`, size: 1 }));
+  const html = renderPackageDocuments(docs, escapeHtml, path => path === "ready.md"
+    ? { status: "ready", title: '<Title> & "name"' }
+    : path === "untitled.md" ? { status: "ready", title: null }
+    : { status: "failed", error: "Read <failed>" });
+  assert.equal(html.match(/<li>/g)?.length, 3);
+  assert.match(html, /&lt;Title&gt; &amp; &quot;name&quot;/);
+  assert.match(html, /Title unavailable/);
+  assert.match(html, /Read &lt;failed&gt;/);
+  assert.doesNotMatch(html, /Loading title/);
 });
