@@ -14,7 +14,6 @@ public sealed partial class PackageHouse
 
     private sealed record PackageHouseLibraryInventoryResolution(
         IReadOnlyList<PackageHouseLibraryInventoryRowResolution> Rows,
-        IReadOnlyList<string> MaterializedEntryPaths,
         int SelectedRowIndex,
         InertString? SelectionFailure,
         PackageHouseContentNarrowingCompletion Completion,
@@ -31,7 +30,6 @@ public sealed partial class PackageHouse
         {
             return new(
                 [],
-                [],
                 0,
                 SelectionFailure: null,
                 narrowing.Completion,
@@ -47,7 +45,6 @@ public sealed partial class PackageHouse
                     == PackageCompileAssetSelectionStatus
                         .EmptyCompileGroup;
             return new(
-                [],
                 [],
                 0,
                 SelectionFailure: null,
@@ -72,7 +69,6 @@ public sealed partial class PackageHouse
                     out InertString? entryFailure))
             {
                 return new(
-                    [],
                     [],
                     0,
                     SelectionFailure: null,
@@ -100,7 +96,6 @@ public sealed partial class PackageHouse
                 {
                     return new(
                         [],
-                        [],
                         0,
                         SelectionFailure: null,
                         PackageHouseContentNarrowingCompletion.Rejected,
@@ -126,7 +121,6 @@ public sealed partial class PackageHouse
                     if (matches.Length > 1)
                     {
                         return new(
-                            [],
                             [],
                             0,
                             SelectionFailure: null,
@@ -176,7 +170,6 @@ public sealed partial class PackageHouse
         {
             return new(
                 [],
-                [],
                 0,
                 SelectionFailure: null,
                 PackageHouseContentNarrowingCompletion.NoMatch,
@@ -186,7 +179,6 @@ public sealed partial class PackageHouse
 
         return new(
             ordered,
-            [ordered[0].CompileEntry.Path],
             SelectedRowIndex: 0,
             SelectionFailure: null,
             PackageHouseContentNarrowingCompletion.Settled,
@@ -233,12 +225,10 @@ public sealed partial class PackageHouse
         return false;
     }
 
-    private static PackageHouseLibraryAndInventory
-        CreateLibraryAndInventory(
-            PackageHouseAcquisitionReceipt acquisition,
+    private static PackageHouseLibraryInventory
+        CreateLibraryInventory(
             PackageHouseContentNarrowingReceipt narrowing,
-            PackageHouseLibraryInventoryResolution resolution,
-            string packageId)
+            PackageHouseLibraryInventoryResolution resolution)
     {
         PackageCompileAssetSelectionReceipt targetSelection =
             narrowing.TargetSelection
@@ -257,9 +247,23 @@ public sealed partial class PackageHouse
                     row.PortablePdbEvidence,
                     row.PortablePdbEntry)),
         ];
-        var inventory = new PackageHouseLibraryInventory(
+        return new PackageHouseLibraryInventory(
             narrowing,
             rows);
+    }
+
+    private static PackageHouseLibraryAndInventory
+        CreateLibraryAndInventory(
+            PackageHouseAcquisitionReceipt acquisition,
+            PackageHouseLibraryInventory inventory,
+            PackageHouseLibraryInventoryResolution resolution,
+            string packageId)
+    {
+        PackageCompileAssetSelectionReceipt targetSelection =
+            inventory.Narrowing.TargetSelection
+            ?? throw new InvalidOperationException(
+                "Library inventory requires target-selection evidence.");
+        PackageHouseLibraryInventoryRow[] rows = [.. inventory.Rows];
         PackageHouseLibraryInventoryRow selectedRow =
             rows[resolution.SelectedRowIndex];
         var handoff = new PackageHouseLibraryHandoff.Compile(

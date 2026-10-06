@@ -196,7 +196,8 @@ public static class CoercionSinks
 
     /// <summary>
     /// The target type of the sink directly consuming an untyped slot load,
-    /// where one is derivable: a typed store, the body's return, a call or
+    /// where one is derivable: a typed store, an array-literal element (the
+    /// literal's element type), the body's return, a call or
     /// object-creation argument's declared parameter type (after MethodSpec
     /// substitution, so an open generic parameter never testifies), or the
     /// other operand of a comparison when that operand is not a constant and
@@ -218,6 +219,7 @@ public static class CoercionSinks
             StoreField store when ReferenceEquals(store.Value, load) => store.Field.Type,
             StoreIndirect store when ReferenceEquals(store.Value, load) => store.Type,
             StoreElement store when ReferenceEquals(store.Value, load) => StoreElementTarget(store, shapes),
+            ArrayLiteral literal => literal.ElementType,
             Return ret when ReferenceEquals(ret.Value, load) => returnType,
             Call call => ArgumentParameterType(call.Callee.ParameterTypes, call.Callee.HasThis ? 1 : 0, call.Arguments, load),
             NewObject ctor => ArgumentParameterType(ctor.Constructor.ParameterTypes, 0, ctor.Arguments, load),
@@ -472,6 +474,14 @@ public static class CoercionSinks
                 case StoreElement store when store.Value is { } value
                     && StoreElementTarget(store, function.TypeShapes) is { } elementType:
                     yield return new(value, elementType);
+                    break;
+                // A raised array literal's elements keep the element-store
+                // sink they had before the raise: the literal's element type is
+                // the `newarr` token, the semantic target StoreElementTarget
+                // derives from the array, never a `stelem` storage width.
+                case ArrayLiteral literal:
+                    foreach (var element in literal.Elements)
+                        yield return new(element, literal.ElementType);
                     break;
                 // StoreIndirect is deliberately absent: the printer's target
                 // derivation (IndirectStoreType) carries special cases this

@@ -185,6 +185,13 @@ test.describe("published authored Source comparison transport", () => {
           headers: { "access-control-allow-origin": "*" },
         }));
       await page.route(
+        "https://symbols.nuget.org/download/symbols/System.Text.Json.pdb/**",
+        route => route.fulfill({
+          path: systemTextJsonPdb!,
+          contentType: "application/octet-stream",
+          headers: { "access-control-allow-origin": "*" },
+        }));
+      await page.route(
         "https://raw.githubusercontent.com/dotnet/dotnet/e2c1e00b3d0f96afb892fb261d5921565b400246/src/runtime/src/libraries/System.Text.Json/src/System/Text/Json/Document/JsonDocument.Parse.cs",
         route => route.fulfill({
           path: systemTextJsonSource!,
