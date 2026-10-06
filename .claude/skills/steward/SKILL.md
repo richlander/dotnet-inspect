@@ -52,7 +52,8 @@ Then apply the matching transition.
 | Merge conflict | Recover immediately; conflicts never wait. Merge the effective base, resolve, and push. Pause only for a scope/split decision or when either semantic choice loses behavior. |
 | Base moved without conflict | Do not invalidate a locked candidate. For a clean head, classify interaction before mutation or merge; only no interaction preserves review and authorization. |
 | Base recovered | Integrate and push so CI reruns against the recovered base. |
-| Human or bot feedback | Verify it. Carry blocking findings into reconciliation and the next candidate; do not push solely for optional feedback. |
+| Review-bot feedback | Verify it. Carry blocking findings into reconciliation and the next candidate; do not push solely for optional feedback. |
+| Human review comment | Small and local: implement in the next candidate and reply. Large or ambiguous: propose the scope and wait for the author. Re-request a reviewer after fixing a changes-requested review. |
 | Current-head CI green | Dispatch the planned reviewer only when the eligibility rule is satisfied. |
 | Reviewer returned | Reconcile publicly, synchronize `review-clean`, emit the complete round report, then follow its recommendation. |
 | Six-round boundary | Stop for the required checkpoint; fresh green CI and positive mergeability gate any next block. |
@@ -83,7 +84,10 @@ Then apply the matching transition.
   status wait in Round orchestration: one schedule, one snapshot per wake, and
   an explicit expiry report.
 - Waiting on people uses the separate safety-net cadence: first check near 50
-  minutes, later checks near four hours, and the documented quiet-stop rule.
+  minutes and later checks near four hours. New activity resets the quiet
+  count. Stop after three quiet checks, merge or close, a user stop, or when
+  the user has not written since publication and the first check finds nothing.
+  Cancel the schedule and announce the stop once in one line.
 - Never merge without explicit authorization for that exact head and base ref.
   Green CI, clean review, labels, readiness comments, and auto-merge state are
   not authorization.
