@@ -243,32 +243,41 @@ public static class TypeDocumentInspectionOperation
         return Envelope(
             new TypeDocumentInspectionOutcome.Available(
                 new(
-                    new(
-                        correspondence.Subject,
-                        assembly,
-                        document.Subject.Type.ModuleVersionId,
+                    ProjectSubject(
+                        correspondence,
                         plan.Type,
-                        document.Subject.Type.Definition.Value,
-                        new(
-                            ImmutableArray.CreateRange(
-                                document.Subject.Signature
-                                    .GenericParameters
-                                    .Select(parameter =>
-                                        new TypeDocumentGenericParameter(
-                                            parameter
-                                                .DefinitionSegmentIndex,
-                                            parameter.MetadataIndex,
-                                            parameter.Name,
-                                            parameter.Attributes)))),
-                        document.Subject.Category,
-                        document.Subject.Attributes,
-                        document.Subject.IsByRefLike,
-                        document.Subject.IsReadOnly,
-                        document.Subject.DefinesCoreLibraryRoot,
-                        document.Subject.DeclaringType?.Definition.Value),
+                        document.Subject,
+                        assembly),
                     declarations,
                     correspondence.AssemblyBytes)));
     }
+
+    internal static TypeSubject ProjectSubject(
+        LibraryTypeDocumentCorrespondence correspondence,
+        MetadataTypeDefinitionName type,
+        MetadataTypeDeclarationEvidence subject,
+        LibraryAssemblyIdentity assembly) =>
+        new(
+            correspondence.Subject,
+            assembly,
+            subject.Type.ModuleVersionId,
+            type,
+            subject.Type.Definition.Value,
+            new(
+                ImmutableArray.CreateRange(
+                    subject.Signature.GenericParameters.Select(
+                        parameter =>
+                            new TypeDocumentGenericParameter(
+                                parameter.DefinitionSegmentIndex,
+                                parameter.MetadataIndex,
+                                parameter.Name,
+                                parameter.Attributes)))),
+            subject.Category,
+            subject.Attributes,
+            subject.IsByRefLike,
+            subject.IsReadOnly,
+            subject.DefinesCoreLibraryRoot,
+            subject.DeclaringType?.Definition.Value);
 
     private static TypeDocumentDeclarations ProjectDeclarations(
         LibraryTypeDocumentCorrespondence correspondence,

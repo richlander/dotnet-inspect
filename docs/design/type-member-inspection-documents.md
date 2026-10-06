@@ -245,6 +245,21 @@ Its Member declarations are declaration rows, not embedded `MemberDocument`
 values. Exact-subject documentation, source, metrics, Analysis, and other
 attachments remain independently requested.
 
+`CompleteTypeDocumentInspectionOperation` resolves the exact Type once through
+the existing Library and Metadata Type-document path. Metadata projects every
+admitted declaration during the same classified-Member scan that defines the
+compact Type population. The scan applies spelling, accessibility, receiver,
+and hidden admission before signature materialization, then issues each
+declaration's MemberGroup identity, Metadata ordinal and token, anchor,
+display and canonical signatures, documentation identity, fingerprint,
+accessibility, and receiver.
+
+The operation does not reopen the assembly per MemberGroup or materialize the
+legacy rich API surface. Its closed outcome promotes exact-Type, Metadata-row,
+Member, retained-text, and malformed-Metadata non-success to the complete
+document boundary. It preserves the source Share and diagnostics and returns
+only resource-free inert data.
+
 ## MemberOverviewDocument
 
 `MemberOverviewDocument` is the complete declaration overview for one
@@ -361,7 +376,7 @@ production adoption as focused slices:
 4. Adopt the resolved Member subject mapping in Contextual Resource
    Explanation. Complete.
 5. Implement compact `TypeOverviewDocument`. Complete.
-6. Implement complete `TypeDocument`.
+6. Implement complete `TypeDocument`. Complete.
 7. Adopt the documents independently in CLI and Browser/Wasm.
 8. Retire transitional document names and superseded host-local composition.
 

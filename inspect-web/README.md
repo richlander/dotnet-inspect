@@ -1009,6 +1009,15 @@ the browser does not open another assembly session. Package Dependencies shows
 only NuGet dependency groups; Library References shows only the selected
 Library's assembly references.
 
+Each NuGet dependency row displays the package's embedded icon when its exact
+version resolves and the icon passes the existing package-icon bounds.
+`QueryPackageIcon` reads only the archive directory, root nuspec, and declared
+icon entry through byte ranges; it never acquires the complete nupkg as a
+fallback and never follows deprecated nuspec icon URLs. Rows use the NuGet
+default icon immediately and retain it when version resolution, range access,
+or icon admission is unavailable. Navigation matching completes before icon
+requests begin.
+
 `QueryPackageVulnerabilities` is a separate operation used by the Package
 Vulnerabilities lens for exact nuget.org package coordinates. It delegates
 advisory acquisition and range evaluation to `GitHubNuGetAdvisoryService`, then
