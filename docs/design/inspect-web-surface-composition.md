@@ -262,7 +262,7 @@ actions in the result:
 
 - Source places its applicable selectors, `Copy`, optional `Open`, and
   `Explore` in the working-surface action region while source content starts at
-  the top of its pane and compact provenance stays attached to the bottom. Type
+  the top of its pane below compact provenance. Type
   Source `Explore` requests the routed whole-Type experience owned by
   [Inspect Web Type Explorer](inspect-web-type-explorer.md); this document owns
   only the action's placement. Member Source `Explore` opens the transient
@@ -338,6 +338,13 @@ surfaces rather than documents inset inside a general page. Annotated Source is
 a transient full-bleed viewer reached from Source or exact Finding actions, not
 a persistent Member inspector. The Metadata Explorer retains its separately
 owned full-bleed composition.
+
+Regular inspector content and navigation panes end directly at the data bar.
+They have no fixed bottom context, keyboard-hint, or provenance bar. The subject
+path and selected navigation rows provide context. The overload picker keeps
+its Back action in the heading, and Source keeps origin, provenance, limitations,
+and diagnostics above the code. Result-local disclosures and transient viewer
+footers remain part of their owning content rather than inspector chrome.
 
 The package-query surface's internal query behavior remains owned by
 `package-query-experience.md`; product facet identities, ordering, evidence,
@@ -701,8 +708,8 @@ cover truncation diagnostics.
 
 Type Metadata uses the same viewer when its current projection contains a
 relationship graph. Only that graph and its relationship warnings move; type
-shape, member composition, related-type lists, attributes, and the coordinate
-footer stay inline. Pending diagram rendering can complete in either placement.
+shape, member composition, related-type lists, and attributes stay inline.
+Pending diagram rendering can complete in either placement.
 Browsable nodes use the shared keyboard activation and drag suppression;
 unavailable types remain non-interactive with an accessible explanation. Type
 activation closes Explore before the existing typed navigation path runs. It
@@ -778,7 +785,6 @@ The surface contains:
 Metadata                                  kind · accessibility
 type shape rows
 member composition and relationship sections
-exact type identity            TFM · library · package@version
 ```
 
 The quiet header labels the lens and reports type kind and accessibility
@@ -788,13 +794,11 @@ composition, interfaces, derived types, attributes, relationship graphs, and
 inspection warnings retain their owned semantics and follow in the same
 scroller.
 
-The fixed bottom context row preserves the exact type identity and package
-coordinate needed to compare or capture the projection without restoring a
-large duplicate heading. Loading and failure states retain the same header,
-scroll owner, and bottom context row; they remain visibly distinct from a
-successful empty projection.
+Loading and failure states retain the same header and scroll owner; they remain
+visibly distinct from a successful empty projection. Type Metadata has no bottom
+context row.
 
-At narrow widths, header status and both context values may elide as complete
+At narrow widths, header status may elide as complete
 strings. The surface retains one scroll owner and creates no page-level
 horizontal overflow.
 
@@ -810,7 +814,6 @@ Overview identity.
 platform compatibility warning              (when present)
 icon · subject name
 subject-specific identity details and content
-Library only: package@version                     active framework
 ```
 
 Package Overview starts directly with its identity and content rather than
@@ -884,15 +887,15 @@ summary.
 Package navigation and inspectors end directly at the data bar, without a
 bottom keyboard-hint or repeated-coordinate row. The persistent subject path
 and selected navigation rows retain package, version, and framework context.
-Library Overview retains its bottom context row. At narrow widths the
+Library Overview also has no bottom context row. At narrow widths the
 Frameworks & versions (Package), Libraries (Library), or Types (Type and Member)
 return control remains available above the working surface; Overview retains
 its local name and icon in the content below it.
-Controls wrap within their row, and header/footer values may elide as complete
+Controls wrap within their row, and header values may elide as complete
 strings. Local subject names wrap rather than disappearing.
 Long identifiers, asset paths, and document names remain contained without
 page-level horizontal overflow. Many rows scroll inside Overview while its
-header and any controls remain in place; Library coordinates stay in its footer.
+header and any controls remain in place.
 
 Overview presents the already-loaded package. Changing its version from the Package
 navigation pane, or its selected TFM from that pane, keeps the
@@ -992,7 +995,7 @@ the same header, controls, and scroll owner. Failures remain visibly distinct fr
 empty results.
 
 At narrow widths, the `Types` return control shares the quiet header, controls
-wrap within their row, and header and footer values may elide as complete
+wrap within their row, and header values may elide as complete
 strings. The surface creates no page-level horizontal overflow. This slice
 does not change graph construction or navigation, Package Overview,
 Integrations, Analysis, Package Metadata, or the Metadata Explorer.
@@ -1045,11 +1048,10 @@ inference. The preview is capped at 80 total nodes; when a Library exceeds that
 bound, the graph reports its shown count and the complete list remains
 authoritative immediately below it.
 
-The graph and list use the available width. The quiet header and bottom context
-remain in place while the content scrolls. Full Library assembly identity and
-asset path remain available in the footer rather than being discarded with the
-old heading. This follows the Package Dependencies composition: structural
-graph first, complete direct-answer list second.
+The graph and list use the available width. The quiet header remains in place
+while the content scrolls; References has no bottom context row. This follows
+the Package Dependencies composition: structural graph first, complete
+direct-answer list second.
 
 Loading, query failure, inspection failure, and successful zero-reference results
 retain the same frame and remain visibly distinct. Existing Library selection,
@@ -1058,7 +1060,7 @@ are unchanged.
 
 At narrow widths the existing Types return control shares the quiet header.
 The graph uses the constrained inline height at narrow widths. Reference names
-and identity fields wrap within rows; header status and footer values may elide
+and identity fields wrap within rows; header status may elide
 as complete strings with their full text retained. Long values and many rows
 create local scrolling, not page-level horizontal overflow.
 
@@ -1125,8 +1127,8 @@ defined by
 [Library structural report](library-structural-report.md#browserwasm).
 
 The platform selector stays above scrolling results and keeps its existing
-acquisition behavior. The footer retains asset path, full assembly identity,
-and package/version/framework context. Browser HTML lowering consumes the
+acquisition behavior. Analysis has no bottom context row. Browser HTML lowering
+consumes the
 existing typed mode results; no producer, query, acquisition, CLI section, or
 result contract changes.
 
@@ -1158,13 +1160,12 @@ package summary. Each assembly retains its format, header facts, heaps, and
 populated-table controls, and those controls continue to open the separately
 owned Metadata Explorer.
 
-The fixed bottom context row preserves the exact package coordinate, target
-framework, and optional scoped library. Library-required, loading, failure,
-partial-failure, and no-image states retain the same header, controls, scroll
-owner, and context row. Failures remain visibly distinct from a successful
+Library-required, loading, failure, partial-failure, and no-image states retain
+the same header, controls, and scroll owner, without a bottom context row.
+Failures remain visibly distinct from a successful
 empty result.
 
-At narrow widths, controls wrap within their row and header and footer values
+At narrow widths, controls wrap within their row and header values
 may elide as complete strings. The surface creates no page-level horizontal
 overflow. This slice does not change the Metadata Explorer or other package
 lenses.
@@ -1274,12 +1275,12 @@ Their layout is:
 
 ```text
 Working-surface actions   Authored | Decompiled   View   Copy   Open   Explore
-Types or Members | source content
-                 | source provenance
+Types or Members | source provenance
+                 | source content
 ```
 
 Source gives the page-owned working-surface action region its contextual
-actions and keeps compact provenance as a footer attached to the source pane.
+actions and places compact provenance above the code in the source pane.
 It adds no visible title or presentation summary inside the pane. The
 navigation pane and source content may scroll independently. Collapsing
 navigation gives the working surface the full viewport width.
@@ -1678,7 +1679,7 @@ with the absence of a synthesized `Default feed` control.
    frame, that failures remain visible, and that only the content region
    scrolls.
 3. Repeat with a long generic type identity, long package coordinate, and a
-   narrow viewport. Confirm that header and footer values elide as complete
+   narrow viewport. Confirm that header values elide as complete
    strings without selective loss or page-level horizontal overflow.
 
 ### Package Metadata working surface

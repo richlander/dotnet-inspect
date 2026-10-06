@@ -581,7 +581,7 @@ for (const width of [1440, 800, 390]) {
       .toContainText("No public types.");
     await expect(libraryOverview.locator(
       "[data-namespace-jump], [data-kind-jump]")).toHaveCount(0);
-    await expect(libraryOverview.locator(".overview-surface-footer")).toBeVisible();
+    await expect(libraryOverview.locator(".overview-surface-footer")).toHaveCount(0);
   });
 }
 
@@ -827,11 +827,15 @@ test("filtered non-public overload navigation retains its established detail rou
   const pickerRows = page.locator(".member-surface-list .overload-row");
   await expect(pickerRows).toHaveCount(2);
   await expect(pickerRows.nth(1)).toContainText("value3");
+  await expect(page.locator(".member-surface-head #member-back")).toBeVisible();
   await pickerRows.nth(1).click();
   await expect(page.locator('[data-nav-overload="2"]'))
     .toHaveAttribute("aria-selected", "true");
   await expect(page.locator(".member-surface"))
     .toContainText("void Example.Widget.Hidden(int value3)");
+  await page.locator("[data-nav-member]").filter({ hasText: "Hidden" }).click();
+  await page.locator(".member-surface-head #member-back").click();
+  await expect(subjectTab(page, "type")).toHaveAttribute("aria-selected", "true");
 });
 
 test("aggregate Library remains active through Spotlight Type and Member results", async ({ page }) => {
