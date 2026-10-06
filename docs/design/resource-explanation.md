@@ -1020,9 +1020,11 @@ A CLI query key whose values are one vocabulary's identities, such as the
 Body Shapes `Kind` key, carries that vocabulary's name and canonical path on
 its query-key descriptor, and query discovery presents the path. This is a
 navigation link for the key's legal values, not a Query Space facet
-relationship. The initial query adapter
-preserves an optional opaque value-vocabulary identity and query-local operand
-constraints as separate facts. It does not claim whole-vocabulary acceptance
+relationship.
+
+For Query Space facets, the initial query adapter preserves an optional
+opaque value-vocabulary identity and query-local operand constraints as
+separate facts. It does not claim whole-vocabulary acceptance
 or a reusable subset identity. A later query-owner adoption may issue a typed
 complete, constrained-subset, or open-domain relationship for explanation to
 preserve.

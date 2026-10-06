@@ -122,9 +122,9 @@ canonical explanation path, derived from the owner's identity constant and
 `explain vocabularies/csharp.body-kinds` for the key. Each composed
 vocabulary is explainable at `vocabularies/<id>` under
 [Resource Explanation](resource-explanation.md#value-vocabulary-resources),
-which names its accepted query inputs. The product vocabulary document, its sections,
-fields, operators, rows, and wire projection are declared section schemas
-owned by `DotnetInspector.Sections`.
+which names its accepted query inputs. The product vocabulary document, its
+sections, fields, operators, rows, and wire projection are declared section
+schemas owned by `DotnetInspector.Sections`.
 
 Each host composes the vocabularies it ships. The CLI and Inspect Web each
 pass their own list of owner declarations, with the product query inputs that
