@@ -124,14 +124,11 @@ export function renderPackageVulnerabilities(
   options: PackageVulnerabilitiesOptions,
 ): string {
   const {
-    packageId,
-    packageVersion,
     loading,
     error,
     result,
     escapeHtml,
   } = options;
-  const coordinate = `${packageId}@${packageVersion}`;
   const status = loading
     ? "checking"
     : error
@@ -158,9 +155,5 @@ export function renderPackageVulnerabilities(
       </section>
       ${content}
     </div>
-    <footer class="api-surface-footer package-vulnerabilities-footer">
-      <span title="${escapeHtml(coordinate)}">${escapeHtml(coordinate)}</span>
-      <span>GitHub reviewed advisories</span>
-    </footer>
   </section>`;
 }

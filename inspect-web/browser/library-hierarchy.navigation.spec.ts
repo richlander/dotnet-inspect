@@ -469,9 +469,7 @@ for (const width of [1440, 800, 390]) {
     await expect(overview.locator("#framework")).toHaveCount(0);
     const packageIconSource = await overview.locator("[data-package-icon]").getAttribute("src");
     await expect(overview.locator(".overview-surface-head")).toHaveCount(0);
-    await expect(page.locator(".overview-surface-footer span")).toHaveText([
-      "Example.Package@1.0.0", "net10.0",
-    ]);
+    await expect(overview.locator("footer")).toHaveCount(0);
     await expect(overview.locator(".library-row, [data-lib-scope]")).toHaveCount(0);
     const libraryList = await overview.locator(".package-children").boundingBox();
     const documentLink = await overview.locator('[data-doc-path="README.md"]').boundingBox();

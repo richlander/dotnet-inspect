@@ -137,17 +137,14 @@ async function expectPackageCoordinateView(
     await expect(page.locator("html")).toHaveAttribute(
       "data-package-dependencies-request",
       JSON.stringify(["System.Text.Json", version, framework]));
-    await expect(page.locator(".package-dependencies-surface footer"))
-      .toContainText(`System.Text.Json@${version}`);
-    await expect(page.locator(".package-dependencies-surface footer")).toContainText(framework);
+    await expect(page.locator(".package-dependencies-surface footer")).toHaveCount(0);
   } else if (view.id === "vulnerabilities") {
     await expect(page.locator("html")).toHaveAttribute(
       "data-package-vulnerabilities-request",
       JSON.stringify(["System.Text.Json", version]));
     await expect(page.locator(".package-vulnerabilities-surface"))
       .toContainText("No matching reviewed advisories");
-    await expect(page.locator(".package-vulnerabilities-footer"))
-      .toContainText(`System.Text.Json@${version}`);
+    await expect(page.locator(".package-vulnerabilities-footer")).toHaveCount(0);
   }
 }
 

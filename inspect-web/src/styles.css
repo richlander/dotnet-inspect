@@ -1053,7 +1053,7 @@ body:has(:not([hidden]) > [role="dialog"][aria-modal="true"])
   grid-template-rows: 40px auto minmax(0, 1fr) 27px;
 }
 .type-browser.package-version-nav {
-  grid-template-rows: minmax(0, auto) auto minmax(0, 1fr) 27px;
+  grid-template-rows: minmax(0, auto) auto minmax(0, 1fr);
 }
 .package-version-nav [hidden] { display: none; }
 .package-navigation-controls label { display: block; margin-bottom: 8px; color: var(--muted); font: 11px var(--mono); }
@@ -1771,13 +1771,13 @@ kbd {
 .package-dependencies-surface,
 .package-vulnerabilities-surface,
 .package-metadata-surface { min-width: 0; min-height: 0; height: 100%; display: grid; grid-template-rows: 40px auto minmax(0, 1fr) 34px; background: var(--bg); }
-.package-vulnerabilities-surface { grid-template-rows: 40px minmax(0, 1fr) 34px; }
+.package-vulnerabilities-surface { grid-template-rows: 40px minmax(0, 1fr); }
 .package-dependencies-surface {
   container: package-dependencies / inline-size;
-  grid-template-rows: 40px minmax(0, 1fr) 34px;
+  grid-template-rows: 40px minmax(0, 1fr);
 }
 .overview-surface { min-width: 0; min-height: 0; height: 100%; display: grid; grid-template-rows: 40px minmax(0, 1fr) 34px; container: overview-surface / inline-size; background: var(--bg); }
-.package-overview-surface { grid-template-rows: minmax(0, 1fr) 34px; }
+.package-overview-surface { grid-template-rows: minmax(0, 1fr); }
 .overview-surface-label { color: var(--muted); font: 10px var(--mono); letter-spacing: .12em; text-transform: uppercase; }
 .overview-identity { display: flex; align-items: flex-start; gap: 14px; padding: 24px 16px 0; }
 .overview-identity .subject-icon { flex: 0 0 40px; width: 40px; height: 40px; font-size: 30px; }

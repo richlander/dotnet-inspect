@@ -100,9 +100,9 @@ export function renderOverviewSurface(
       </header>` : ""}
       ${contentHtml}
     </div>
-    <footer class="api-surface-footer overview-surface-footer">
+    ${subject === "library" ? `<footer class="api-surface-footer overview-surface-footer">
       <span title="${escapeHtml(coordinate)}">${escapeHtml(coordinate)}</span>
       <span title="${escapeHtml(activeFramework)}">${escapeHtml(activeFramework)}</span>
-    </footer>
+    </footer>` : ""}
   </section>`;
 }
