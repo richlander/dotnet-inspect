@@ -8,11 +8,14 @@ the reusable-reference projection proposed by
 [#8148](https://github.com/richlander/dotnet-inspect/issues/8148), and the
 compact related-gesture `.tips` projection.
 
-The first two composition slices are implemented for Member: host-neutral
+The first composition slices are implemented for Member: host-neutral
 related-operation affordance identities join to lazy CLI-owned bindings for
 `.tips`, and one lazy paired registration admits command-level
 `--explain`, resolved-subject `--explain`, resolved-subject
-`--explain .tips`, and resolved-subject bare `-E`. Other
+`--explain .tips`, and resolved-subject bare `-E`. The command resource and
+detached MemberGroup or exact-Member snapshots now produce the common
+`ResourceExplanationDocument`; there is no Member-specific Document wrapper.
+Other
 commands retain their existing imperative tip construction and reserved bare
 `-E` behavior until adopted one owner at a time. The
 [companion-family grammar](view-facet-query-composition.md#companion-family)
@@ -881,16 +884,19 @@ replacement, retry, or scheduling semantics.
 6. Preserve bare-name MemberGroup identity in complete and `.tips`
    contextual explanation at both placements while retaining exact ordinal and
    digest identity. **Owned by #9290.**
-7. Have #7916 define the reusable reference and subject-affordance contracts,
+7. Migrate the Member command resource and detached resolved subjects to the
+   common Resource Explanation Document, representing context and related
+   operations as owner-issued facts and relationships. **Complete in #9418.**
+8. Have #7916 define the reusable reference and subject-affordance contracts,
    including shell-safe generic identity.
-8. Add Member Index `.references` as the first row projection at both
+9. Add Member Index `.references` as the first row projection at both
    placements and demonstrate
    unchanged consumption by `explain`.
-9. Adopt the same composition one command owner at a time for Type, Library,
+10. Adopt the same composition one command owner at a time for Type, Library,
    Package, Findings, occurrences, and clusters.
-10. Add a Browser/Wasm binding over the shared related-operation affordances
+11. Add a Browser/Wasm binding over the shared related-operation affordances
    and contextual-explanation input without consuming CLI command syntax.
-11. Update the shipped skill after production behavior exists so it teaches
+12. Update the shipped skill after production behavior exists so it teaches
    capability search for unfamiliar text, exact-path explanation, direct
    `--explain`, its dotted projections, reusable-reference composition, and
    explicit companion continuation.
