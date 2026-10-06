@@ -252,6 +252,25 @@ public sealed record MemberDocument : MemberDeclaration
 [JsonSerializable(typeof(MemberOverviewDocument))]
 [JsonSerializable(typeof(MemberDocument))]
 [JsonSerializable(
+    typeof(CompleteTypeDocumentInspectionOutcome),
+    TypeInfoPropertyName = "CompleteTypeDocumentInspectionOutcome")]
+[JsonSerializable(
+    typeof(CompleteTypeDocumentInspectionOutcome.Available),
+    TypeInfoPropertyName =
+        "CompleteTypeDocumentInspectionAvailableOutcome")]
+[JsonSerializable(
+    typeof(CompleteTypeDocumentInspectionOutcome.Rejected),
+    TypeInfoPropertyName =
+        "CompleteTypeDocumentInspectionRejectedOutcome")]
+[JsonSerializable(
+    typeof(CompleteTypeDocumentInspectionOutcome.Incomplete),
+    TypeInfoPropertyName =
+        "CompleteTypeDocumentInspectionIncompleteOutcome")]
+[JsonSerializable(
+    typeof(CompleteTypeDocumentInspectionOutcome.Failed),
+    TypeInfoPropertyName =
+        "CompleteTypeDocumentInspectionFailedOutcome")]
+[JsonSerializable(
     typeof(TypeOverviewDocumentInspectionOutcome),
     TypeInfoPropertyName = "TypeOverviewDocumentInspectionOutcome")]
 [JsonSerializable(

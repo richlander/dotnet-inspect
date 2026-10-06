@@ -12,6 +12,27 @@ namespace ILInspector.Metadata;
 
 public static partial class ApiSurfaceExtractor
 {
+    internal static (string Text, ApiSignature Model, bool IsDegraded)
+        GetPropertySignatureForIdentity(
+            MetadataReader reader,
+            GenericContext context,
+            PropertyDefinition property,
+            PropertyAccessors accessors,
+            IReadOnlySet<MethodDefinitionHandle>
+                explicitImplementationBodies,
+            byte typeNullableContext,
+            Action<string>? beforeRetainText = null,
+            Action<int>? beforeDecodeWork = null) =>
+        GetPropertySignature(
+            reader,
+            context,
+            property,
+            accessors,
+            typeNullableContext,
+            explicitImplementationBodies,
+            beforeRetainText: beforeRetainText,
+            beforeDecodeWork: beforeDecodeWork,
+            beforeAttributeMaterialize: beforeDecodeWork);
 
     private static (string Text, ApiSignature Model, bool IsDegraded) GetPropertySignature(
         MetadataReader reader,
