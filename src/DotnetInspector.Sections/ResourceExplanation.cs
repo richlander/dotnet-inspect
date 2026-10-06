@@ -425,6 +425,19 @@ public sealed record ResourceExplanationRelationship
 
 public sealed record ResourceExplanationRequest
 {
+    /// <summary>The resource limit every product host applies.</summary>
+    public const int HostResourceLimit = 256;
+
+    /// <summary>The relationship limit every product host applies.</summary>
+    public const int HostRelationshipLimit = 2048;
+
+    /// <summary>
+    /// The request every product host issues for <paramref name="depth"/>,
+    /// so equal catalogs explain to equal Content in each host.
+    /// </summary>
+    public static ResourceExplanationRequest ForHost(int depth) =>
+        new(depth, HostResourceLimit, HostRelationshipLimit);
+
     public ResourceExplanationRequest(
         int depth,
         int resourceLimit,

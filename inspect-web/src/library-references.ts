@@ -13,9 +13,6 @@ export interface LibraryReferencesOptions {
 
 export function renderLibraryReferencesSurface(options: LibraryReferencesOptions): string {
   const {
-    assemblyIdentity,
-    assetPath,
-    coordinate,
     loading,
     error,
     data,
@@ -55,16 +52,11 @@ export function renderLibraryReferencesSurface(options: LibraryReferencesOptions
         </section>`
       : `<section class="document-section empty-document"><h2>No direct references</h2><p>This assembly declares no direct AssemblyRef rows.</p></section>`;
   }
-  const identity = assetPath ? `${assetPath} \u00b7 ${assemblyIdentity}` : assemblyIdentity;
   return `<section class="library-references-surface" aria-labelledby="library-references-title">
     <header class="api-surface-head">
       <h1 id="library-references-title">References</h1>
       <p>${escapeHtml(status)}</p>
     </header>
     <div class="library-references-scroll">${content}</div>
-    <footer class="metadata-surface-footer">
-      <span title="${escapeHtml(identity)}">${escapeHtml(identity)}</span>
-      <span title="${escapeHtml(coordinate)}">${escapeHtml(coordinate)}</span>
-    </footer>
   </section>`;
 }

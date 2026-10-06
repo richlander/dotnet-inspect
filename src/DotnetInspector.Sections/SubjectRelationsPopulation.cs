@@ -235,6 +235,19 @@ public sealed class SubjectRelationsInspectionRequest
         StructuralSubjectIdentity focus,
         SubjectRelationPopulationAuthority population,
         SubjectRelationPopulationRequest request)
+        : this(
+            route,
+            SubjectRelationFocusAuthority.Capture(focus),
+            population,
+            request)
+    {
+    }
+
+    public SubjectRelationsInspectionRequest(
+        SubjectRelationsRouteKind route,
+        SubjectRelationFocusAuthority focus,
+        SubjectRelationPopulationAuthority population,
+        SubjectRelationPopulationRequest request)
     {
         if (!Enum.IsDefined(route))
             throw new ArgumentOutOfRangeException(nameof(route));
@@ -259,7 +272,7 @@ public sealed class SubjectRelationsInspectionRequest
 
     public SubjectRelationsRouteKind Route { get; }
 
-    public StructuralSubjectIdentity Focus { get; }
+    public SubjectRelationFocusAuthority Focus { get; }
 
     public SubjectRelationPopulationAuthority Population { get; }
 
@@ -267,24 +280,44 @@ public sealed class SubjectRelationsInspectionRequest
 
     private static bool MatchesRoute(
         SubjectRelationsRouteKind route,
-        StructuralSubjectIdentity focus) =>
+        SubjectRelationFocusAuthority focus) =>
         (route, focus) switch
         {
             (
                 SubjectRelationsRouteKind.Package,
-                StructuralSubjectIdentity.PackageSubject) =>
+                SubjectRelationFocusAuthority.Structural
+                {
+                    Subject:
+                        StructuralSubjectIdentity.PackageSubject,
+                }) =>
                 true,
             (
                 SubjectRelationsRouteKind.Library,
-                StructuralSubjectIdentity.LibrarySubject) =>
+                SubjectRelationFocusAuthority.Structural
+                {
+                    Subject:
+                        StructuralSubjectIdentity.LibrarySubject,
+                }) =>
                 true,
             (
                 SubjectRelationsRouteKind.Type,
-                StructuralSubjectIdentity.TypeSubject) =>
+                SubjectRelationFocusAuthority.Structural
+                {
+                    Subject:
+                        StructuralSubjectIdentity.TypeSubject,
+                }) =>
+                true,
+            (
+                SubjectRelationsRouteKind.Type,
+                SubjectRelationFocusAuthority.AcquiredType) =>
                 true,
             (
                 SubjectRelationsRouteKind.Member,
-                StructuralSubjectIdentity.MemberSubject) =>
+                SubjectRelationFocusAuthority.Structural
+                {
+                    Subject:
+                        StructuralSubjectIdentity.MemberSubject,
+                }) =>
                 true,
             _ => false,
         };
@@ -294,7 +327,7 @@ public sealed class SubjectRelationsInspectionRequest
 public sealed record SubjectRelationPopulationBinding
 {
     internal SubjectRelationPopulationBinding(
-        StructuralSubjectIdentity focus,
+        SubjectRelationFocusAuthority focus,
         SubjectRelationPopulationAuthority population,
         SubjectRelationPopulationSelection selection)
     {
@@ -303,7 +336,7 @@ public sealed record SubjectRelationPopulationBinding
         Selection = selection;
     }
 
-    public StructuralSubjectIdentity Focus { get; }
+    public SubjectRelationFocusAuthority Focus { get; }
 
     public SubjectRelationPopulationAuthority Population { get; }
 
@@ -318,7 +351,7 @@ public sealed class SubjectRelationPopulationContinuationAuthority
 {
     private SubjectRelationPopulationContinuationAuthority(
         SubjectRelationPopulationContinuation continuation,
-        StructuralSubjectIdentity focus,
+        SubjectRelationFocusAuthority focus,
         SubjectRelationPopulationAuthority population,
         SubjectRelationPopulationSelection selection,
         SubjectRelationPopulationOrdering ordering,
@@ -349,7 +382,7 @@ public sealed class SubjectRelationPopulationContinuationAuthority
 
     public SubjectRelationPopulationContinuation Continuation { get; }
 
-    public StructuralSubjectIdentity Focus { get; }
+    public SubjectRelationFocusAuthority Focus { get; }
 
     public SubjectRelationPopulationAuthority Population { get; }
 
@@ -364,6 +397,23 @@ public sealed class SubjectRelationPopulationContinuationAuthority
     public static SubjectRelationPopulationContinuationAuthority Capture(
         SubjectRelationPopulationContinuation continuation,
         StructuralSubjectIdentity focus,
+        SubjectRelationPopulationAuthority population,
+        SubjectRelationPopulationSelection selection,
+        SubjectRelationPopulationOrdering ordering,
+        SubjectRelationRowProjection projection,
+        int nextOrdinal) =>
+        new(
+            continuation,
+            SubjectRelationFocusAuthority.Capture(focus),
+            population,
+            selection,
+            ordering,
+            projection,
+            nextOrdinal);
+
+    public static SubjectRelationPopulationContinuationAuthority Capture(
+        SubjectRelationPopulationContinuation continuation,
+        SubjectRelationFocusAuthority focus,
         SubjectRelationPopulationAuthority population,
         SubjectRelationPopulationSelection selection,
         SubjectRelationPopulationOrdering ordering,
@@ -720,7 +770,7 @@ public static class SubjectRelationsPopulationOperation
         var identities = new HashSet<CanonicalRelationIdentity>();
         foreach (SubjectRelationRow row in rows.Items)
         {
-            if (row.Correspondence.Focus != request.Focus
+            if (row.Correspondence.FocusAuthority != request.Focus
                 || !ReferenceEquals(
                     row.Correspondence.Population,
                     request.Population)

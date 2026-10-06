@@ -56,9 +56,22 @@ public partial class ApiCommand
         }
 
         WriteSourceNotes(source);
+        string content = source.Content;
+        // --rows selects Source line rows (Source document cardinality), so
+        // every rendering of the section -- native payload, Markdown, plain
+        // text -- shows the selected lines rather than ignoring the window.
+        if (options.Rows is not null)
+        {
+            if (!TryProjectSourceLines(options, out var lines, out string linesFailure))
+            {
+                CommandError.Write(linesFailure);
+                return false;
+            }
+            content = SelectedSourceLineText(options.Rows, lines);
+        }
         view.MemberCode ??= new MemberCodeView();
         view.MemberCode.SourceCode =
-            new CodeSection("csharp", source.Content);
+            new CodeSection("csharp", content);
         return true;
     }
 
@@ -67,6 +80,16 @@ public partial class ApiCommand
         if (IsColumnProjectionRequested(options))
             return RejectColumnProjectionUnderJson(
                 suggestPayloadProjection: true);
+        // The Source JSON document carries the complete view; it has no shape
+        // for a line selection, so a --rows window fails visibly rather than
+        // being dropped.
+        if (options.Rows is not null)
+        {
+            CommandError.Write(
+                "Source --json carries the complete document and cannot represent a --rows selection.",
+                "Use --jsonl for the selected line rows, or omit --rows.");
+            return 1;
+        }
 
         if (!TryCreateSourceDocument(
                 options,

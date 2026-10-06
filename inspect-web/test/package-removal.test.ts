@@ -337,6 +337,7 @@ function removalGraph(packages: readonly typeof alpha[]): BrowserCallGraph {
       calleeScope: "target assembly",
     },
     targets: [],
+    boundaries: [],
     diagnostics: {
       incompleteNodes: 0,
       incompleteEdges: 0,
@@ -464,6 +465,7 @@ function graphRemovalHarness() {
     {
       registerHost: (api: typeof host) => { host = api; },
       state, callGraphInspection: coordinator,
+      directUseClusterInspection: { reset: () => {} },
       selectedForwarder: () => null,
       createPackageRemoval, packageIdentityKey, memberRequestKey,
       partitionGraphMembers, searchableMemberGroups, filterMemberGroups,

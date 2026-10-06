@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Globalization;
 using DotnetInspector.Queries;
 using ILInspector.Metadata;
 using QuerySpace.Explanation;
@@ -28,13 +29,50 @@ public sealed record ResolvedMemberGroupExplanationBasis
     public InspectionSemanticDemand SemanticDemand { get; }
 }
 
+public sealed record ResolvedMemberExplanationBasis
+{
+    public ResolvedMemberExplanationBasis(
+        ResolvedInspectionSource source,
+        MemberDocumentResolutionOutcome resolution,
+        ViewFacetId? defaultFacet,
+        InspectionSemanticDemand semanticDemand,
+        IEnumerable<string> defaultSections)
+    {
+        Source = source
+            ?? throw new ArgumentNullException(nameof(source));
+        Resolution = resolution
+            ?? throw new ArgumentNullException(nameof(resolution));
+        if (resolution
+            is not (MemberDocumentResolutionOutcome.Overview
+                or MemberDocumentResolutionOutcome.Exact))
+        {
+            throw new ArgumentException(
+                "A resolved Member explanation requires an available "
+                    + "Member overview or exact Member document.",
+                nameof(resolution));
+        }
+
+        DefaultFacet = defaultFacet;
+        SemanticDemand = semanticDemand
+            ?? throw new ArgumentNullException(nameof(semanticDemand));
+        ArgumentNullException.ThrowIfNull(defaultSections);
+        DefaultSections = [.. defaultSections];
+    }
+
+    public ResolvedInspectionSource Source { get; }
+    public MemberDocumentResolutionOutcome Resolution { get; }
+    public ViewFacetId? DefaultFacet { get; }
+    public InspectionSemanticDemand SemanticDemand { get; }
+    public ImmutableArray<string> DefaultSections { get; }
+}
+
 public static class MemberContextualExplanationOperation
 {
     private static readonly ExplanationOwnerIdentity Owner =
         new("member");
     private static readonly ExplanationSchemaIdentity SchemaIdentity =
         new(Owner, "contextual-explanation");
-    private static readonly ExplanationSchemaVersion Version = new(1);
+    private static readonly ExplanationSchemaVersion Version = new(2);
     private static readonly ExplanationResourceTypeIdentity CommandType =
         new(SchemaIdentity, "command");
     private static readonly ExplanationResourceTypeIdentity MemberGroupType =
@@ -89,6 +127,22 @@ public static class MemberContextualExplanationOperation
     }
 
     public static InspectionEnvelope<ResourceExplanationDocument>
+        ExplainResolvedMember(ResolvedMemberExplanationBasis basis)
+    {
+        ArgumentNullException.ThrowIfNull(basis);
+
+        return basis.Resolution switch
+        {
+            MemberDocumentResolutionOutcome.Overview overview =>
+                ExplainMemberOverview(basis, overview.Document),
+            MemberDocumentResolutionOutcome.Exact exact =>
+                ExplainMemberDocument(basis, exact.Document),
+            _ => throw new InvalidOperationException(
+                "A resolved Member explanation basis contained a non-success outcome."),
+        };
+    }
+
+    public static InspectionEnvelope<ResourceExplanationDocument>
         ExplainMemberGroup(
             ResolvedMemberGroupExplanationBasis basis,
             IEnumerable<string> defaultSections)
@@ -130,6 +184,11 @@ public static class MemberContextualExplanationOperation
                     MemberGroupType,
                     "group-role",
                     basis.Subject.Role.ToString()),
+                TextFact(
+                    MemberGroupType,
+                    "group-spelling",
+                    basis.Subject.Spelling.ToString()),
+                .. PopulationFacts(MemberGroupType, population: null),
             ],
             RelatedOperations(MemberGroupType));
         return Explain(root, OperationSnapshots());
@@ -180,6 +239,114 @@ public static class MemberContextualExplanationOperation
                     ExactMemberType,
                     "fingerprint",
                     basis.Target.Member.Fingerprint),
+                .. ExactCorrespondenceFacts(subject: null),
+            ],
+            RelatedOperations(ExactMemberType));
+        return Explain(root, OperationSnapshots());
+    }
+
+    private static InspectionEnvelope<ResourceExplanationDocument>
+        ExplainMemberOverview(
+            ResolvedMemberExplanationBasis basis,
+            MemberOverviewDocument document)
+    {
+        MemberGroupSubject group = document.Subject;
+        string typeName = group.DeclaringType.ToMetadataFullName();
+        string subject =
+            $"{group.Category} / {group.Role} / {group.Spelling}";
+        ExplanationResourceSnapshot root = DetachedSnapshot(
+            Key(
+                MemberGroupType,
+                ResolvedIdentity(
+                    basis.Source,
+                    document.Population,
+                    exactMetadataToken: null)),
+            [
+                .. CommonFacts(
+                    MemberGroupType,
+                    group.Name,
+                    $"Explain {typeName}.{group.Name}",
+                    "MemberGroup",
+                    typeName,
+                    basis.Source.LibraryKey,
+                    FormatPackage(basis.Source),
+                    basis.Source.Framework,
+                    basis.DefaultFacet?.Value,
+                    SelectSections(
+                        basis.SemanticDemand,
+                        basis.DefaultSections)),
+                TextFact(MemberGroupType, "subject", subject),
+                TextFact(
+                    MemberGroupType,
+                    "group-name",
+                    group.Name),
+                TextFact(
+                    MemberGroupType,
+                    "group-category",
+                    group.Category.ToString()),
+                TextFact(
+                    MemberGroupType,
+                    "group-role",
+                    group.Role.ToString()),
+                TextFact(
+                    MemberGroupType,
+                    "group-spelling",
+                    group.Spelling.ToString()),
+                .. PopulationFacts(
+                    MemberGroupType,
+                    document.Population),
+            ],
+            RelatedOperations(MemberGroupType));
+        return Explain(root, OperationSnapshots());
+    }
+
+    private static InspectionEnvelope<ResourceExplanationDocument>
+        ExplainMemberDocument(
+            ResolvedMemberExplanationBasis basis,
+            MemberDocument document)
+    {
+        MemberSubject subject = document.Subject;
+        string typeName =
+            subject.Group.DeclaringType.ToMetadataFullName();
+        string selector = subject.Anchor.StableSelector;
+        ExplanationResourceSnapshot root = DetachedSnapshot(
+            Key(
+                ExactMemberType,
+                ResolvedIdentity(
+                    basis.Source,
+                    subject.Population,
+                    subject.MetadataToken)),
+            [
+                .. CommonFacts(
+                    ExactMemberType,
+                    selector,
+                    $"Explain {typeName}.{selector}",
+                    "Exact Member",
+                    typeName,
+                    basis.Source.LibraryKey,
+                    FormatPackage(basis.Source),
+                    basis.Source.Framework,
+                    basis.DefaultFacet?.Value,
+                    SelectSections(
+                        basis.SemanticDemand,
+                        basis.DefaultSections)),
+                TextFact(
+                    ExactMemberType,
+                    "subject",
+                    document.CanonicalSignature.ToString()),
+                TextFact(
+                    ExactMemberType,
+                    "stable-selector",
+                    selector),
+                TextFact(
+                    ExactMemberType,
+                    "canonical-signature",
+                    document.CanonicalSignature.ToString()),
+                TextFact(
+                    ExactMemberType,
+                    "fingerprint",
+                    subject.Fingerprint.ToString()),
+                .. ExactCorrespondenceFacts(subject),
             ],
             RelatedOperations(ExactMemberType));
         return Explain(root, OperationSnapshots());
@@ -285,6 +452,146 @@ public static class MemberContextualExplanationOperation
         $"{FormatPackage(source) ?? "platform"}|{source.LibraryKey}|"
             + (source.Framework ?? "");
 
+    private static string ResolvedIdentity(
+        ResolvedInspectionSource source,
+        MemberOverloadPopulationBinding population,
+        int? exactMetadataToken) =>
+        Identity(
+            FormatPackage(source) ?? "platform",
+            source.LibraryKey,
+            source.Framework,
+            population.Assembly.Name.ToString(),
+            population.Assembly.Version.ToString(),
+            population.Assembly.Culture?.ToString(),
+            population.Assembly.PublicKeyToken?.ToString(),
+            population.ModuleVersionId.ToString("N"),
+            HexToken(population.TypeDefinitionToken),
+            population.Name,
+            population.Category.ToString(),
+            population.Role.ToString(),
+            population.Spelling.ToString(),
+            population.Ordering.ToString(),
+            population.Accessibility.ToString(),
+            population.Receiver.ToString(),
+            population.IncludeHidden.ToString(),
+            exactMetadataToken is { } token
+                ? HexToken(token)
+                : null);
+
+    private static string Identity(params string?[] components)
+    {
+        var identity = new System.Text.StringBuilder();
+        foreach (string? component in components)
+        {
+            if (component is null)
+            {
+                identity.Append("-;");
+                continue;
+            }
+
+            identity
+                .Append(
+                    component.Length.ToString(
+                        CultureInfo.InvariantCulture))
+                .Append(':')
+                .Append(component)
+                .Append(';');
+        }
+
+        return identity.ToString();
+    }
+
+    private static ImmutableArray<ExplanationFactObservation>
+        ExactCorrespondenceFacts(MemberSubject? subject) =>
+    [
+        OptionalTextFact(
+            ExactMemberType,
+            "group-name",
+            subject?.Group.Name),
+        OptionalTextFact(
+            ExactMemberType,
+            "group-category",
+            subject?.Group.Category.ToString()),
+        OptionalTextFact(
+            ExactMemberType,
+            "group-role",
+            subject?.Group.Role.ToString()),
+        OptionalTextFact(
+            ExactMemberType,
+            "group-spelling",
+            subject?.Group.Spelling.ToString()),
+        .. PopulationFacts(
+            ExactMemberType,
+            subject?.Population),
+        OptionalTextFact(
+            ExactMemberType,
+            "metadata-token",
+            subject is null
+                ? null
+                : HexToken(subject.MetadataToken)),
+        OptionalTextFact(
+            ExactMemberType,
+            "baseline-ordinal",
+            subject?.BaselineOrdinal.ToString(
+                CultureInfo.InvariantCulture)),
+        OptionalTextFact(
+            ExactMemberType,
+            "documentation-id",
+            subject?.DocumentationId.ToString()),
+    ];
+
+    private static ImmutableArray<ExplanationFactObservation>
+        PopulationFacts(
+            ExplanationResourceTypeIdentity type,
+            MemberOverloadPopulationBinding? population) =>
+    [
+        OptionalTextFact(
+            type,
+            "population-assembly-name",
+            population?.Assembly.Name.ToString()),
+        OptionalTextFact(
+            type,
+            "population-assembly-version",
+            population?.Assembly.Version.ToString()),
+        OptionalTextFact(
+            type,
+            "population-assembly-culture",
+            population?.Assembly.Culture?.ToString()),
+        OptionalTextFact(
+            type,
+            "population-public-key-token",
+            population?.Assembly.PublicKeyToken?.ToString()),
+        OptionalTextFact(
+            type,
+            "population-module-version-id",
+            population?.ModuleVersionId.ToString("D")),
+        OptionalTextFact(
+            type,
+            "population-type-definition-token",
+            population is null
+                ? null
+                : HexToken(population.TypeDefinitionToken)),
+        OptionalTextFact(
+            type,
+            "population-ordering",
+            population?.Ordering.ToString()),
+        OptionalTextFact(
+            type,
+            "population-accessibility",
+            population?.Accessibility.ToString()),
+        OptionalTextFact(
+            type,
+            "population-receiver",
+            population?.Receiver.ToString()),
+        OptionalTextFact(
+            type,
+            "population-include-hidden",
+            population?.IncludeHidden.ToString()),
+    ];
+
+    private static string HexToken(int token) =>
+        token.ToString("X8", CultureInfo.InvariantCulture);
+
     private static ExplanationResourceKey Key(
         ExplanationResourceTypeIdentity type,
         string value) =>
@@ -342,6 +649,11 @@ public static class MemberContextualExplanationOperation
                         MemberGroupType,
                         "group-role",
                         "Group role"),
+                    RequiredText(
+                        MemberGroupType,
+                        "group-spelling",
+                        "Group spelling"),
+                    .. PopulationFactDeclarations(MemberGroupType),
                 ],
                 relatedOperations: true);
         ExplanationResourceTypeDeclaration exact =
@@ -367,6 +679,35 @@ public static class MemberContextualExplanationOperation
                         ExactMemberType,
                         "fingerprint",
                         "Fingerprint"),
+                    OptionalText(
+                        ExactMemberType,
+                        "group-name",
+                        "Group name"),
+                    OptionalText(
+                        ExactMemberType,
+                        "group-category",
+                        "Group category"),
+                    OptionalText(
+                        ExactMemberType,
+                        "group-role",
+                        "Group role"),
+                    OptionalText(
+                        ExactMemberType,
+                        "group-spelling",
+                        "Group spelling"),
+                    .. PopulationFactDeclarations(ExactMemberType),
+                    OptionalText(
+                        ExactMemberType,
+                        "metadata-token",
+                        "Metadata token"),
+                    OptionalText(
+                        ExactMemberType,
+                        "baseline-ordinal",
+                        "Baseline ordinal"),
+                    OptionalText(
+                        ExactMemberType,
+                        "documentation-id",
+                        "Documentation identity"),
                 ],
                 relatedOperations: true);
         ExplanationResourceTypeDeclaration operation =
@@ -392,6 +733,43 @@ public static class MemberContextualExplanationOperation
             resourceTypes: [command, group, exact, operation],
             addressKinds: []);
     }
+
+    private static ImmutableArray<ExplanationFactDeclaration>
+        PopulationFactDeclarations(
+            ExplanationResourceTypeIdentity type) =>
+    [
+        OptionalText(type, "population-assembly-name", "Population assembly name"),
+        OptionalText(
+            type,
+            "population-assembly-version",
+            "Population assembly version"),
+        OptionalText(
+            type,
+            "population-assembly-culture",
+            "Population assembly culture"),
+        OptionalText(
+            type,
+            "population-public-key-token",
+            "Population public key token"),
+        OptionalText(
+            type,
+            "population-module-version-id",
+            "Population module version identity"),
+        OptionalText(
+            type,
+            "population-type-definition-token",
+            "Population Type definition token"),
+        OptionalText(type, "population-ordering", "Population ordering"),
+        OptionalText(
+            type,
+            "population-accessibility",
+            "Population accessibility"),
+        OptionalText(type, "population-receiver", "Population receiver"),
+        OptionalText(
+            type,
+            "population-include-hidden",
+            "Population hidden admission"),
+    ];
 
     private static ImmutableArray<ExplanationFactDeclaration>
         CommonFactDeclarations(

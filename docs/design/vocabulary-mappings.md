@@ -11,8 +11,9 @@ adoption and retirement of its superseded local shape are tracked by
 [#8755](https://github.com/richlander/dotnet-inspect/issues/8755) and implemented
 by [#8861](https://github.com/richlander/dotnet-inspect/pull/8861).
 
-[Product Vocabulary](vocabulary.md) is the first adopter. Its existing CLI
-output and Browser catalog prove the need and supply the first production data.
+[Product Vocabulary](vocabulary.md) is the first adopter. Its former CLI
+output and Browser catalog proved the need and supplied the first production
+data.
 The later [JSON Schema Vocabulary Bindings](json-schema-vocabulary-bindings.md)
 design consumes this pattern without extending its claim.
 
@@ -86,9 +87,9 @@ implicit:
 
 The first production outcome keeps the existing Settings experience while
 removing those reconstructions. Each host composes one typed snapshot from the
-owners' declarations; the CLI projects its established vocabulary document from
-its snapshot, and Inspect Web groups choices through the declared `tier` term
-map.
+owners' declarations; both hosts explain it through
+[Resource Explanation](resource-explanation.md#value-vocabulary-resources), and
+Inspect Web groups choices through the declared `tier` term map.
 
 Conceptually, the C# host supplies:
 
@@ -308,11 +309,11 @@ longer identity can be declared but cannot be a term-map target; constructing
 the value fails visibly.
 
 Construction rejects anything outside the subset. The snapshot identity
-encoding, the CLI document, and the Browser export each lower exactly these
-cases. The identity encoding and the Browser export carry signed 64-bit
-integers, which is the width map integers had before this grammar was adopted;
-the CLI document narrows to 32 bits with a checked conversion that fails
-visibly. Admitting another kind or structured values is a contract change to
+encoding and the Browser export each lower exactly these cases. Both carry
+signed 64-bit integers, which is the width map integers had before this grammar
+was adopted. The former CLI document, which narrowed them to 32 bits with a
+checked conversion that failed visibly, retired with the `vocabulary` command
+under [Product Vocabulary](vocabulary.md#retirement). Admitting another kind or structured values is a contract change to
 this document and to every lowering, not permission to carry arbitrary values.
 
 Three map-level facts stay owned here rather than taken from the explanation
@@ -498,19 +499,20 @@ The adoption projects the existing catalog as follows:
 | `csharp.style-choices.tier` | Complete, exactly-one term-reference map to `csharp.style-tiers` |
 | Existing section and row sequence | Owner-issued vocabulary and term order |
 
-The compatibility projection retains the existing Product Vocabulary field
-IDs, operators, selected-section behavior, JSON shape, and schema version
-until it retires with the `vocabulary` command under
-[Product Vocabulary](vocabulary.md#retirement). It
-is a projection of the new snapshot, not a second catalog. In particular,
-`tier` remains the same string in existing CLI JSON while the core snapshot
-also authenticates it as a term reference.
+The first adoption's compatibility projection retained the existing Product
+Vocabulary field IDs, operators, selected-section behavior, JSON shape, and
+schema version until it retired with the `vocabulary` command under
+[Product Vocabulary](vocabulary.md#retirement). It was a projection of the new
+snapshot, not a second catalog. In particular, `tier` remained the same string
+in the former CLI JSON while the core snapshot also authenticated it as a term
+reference.
 
-Query operators are Product Vocabulary behavior, not general map metadata. Its
-compatibility adapter retains the existing field-to-operator declarations and
-combines them with the snapshot's term values; those declarations retire with
-the adapter. The adapter does not duplicate
-term IDs, labels, summaries, order, defaults, or map targets.
+Query operators are not general map metadata. The former compatibility adapter
+retained the existing field-to-operator declarations and combined them with
+the snapshot's term values; those declarations retired with the adapter. The
+operators a query input accepts belong to that input and are presented by `-Q`.
+The adapter did not duplicate term IDs, labels, summaries, order, defaults, or
+map targets.
 
 The Browser replaces its generic `JsonElement` row handling and handwritten
 `StyleTier`/`StyleOption` semantic twins with the generated Vocabulary
@@ -524,7 +526,7 @@ The snapshot is data, not rendered output.
 
 - Both hosts present Product Vocabulary through Resource Explanation's
   [value-vocabulary resources](resource-explanation.md#value-vocabulary-resources).
-  The former CLI `vocabulary` view and its typed compatibility JSON retire
+  The former CLI `vocabulary` view and its typed compatibility JSON retired
   under [Product Vocabulary](vocabulary.md#retirement).
 - Browser/Wasm receives generated JSON-wire declarations and owns interaction
   and HTML presentation.
@@ -549,9 +551,7 @@ snapshot identity receive a typed rejection at their operation boundary.
 
 A missing vocabulary service is a visible host failure. Browser code may show
 an unavailable state, as it does today, but must not silently substitute a
-compiled TypeScript catalog. CLI compatibility projection failure likewise
-fails the command rather than rendering an empty vocabulary, until that
-projection retires.
+compiled TypeScript catalog.
 
 ## Platform and trust boundary
 
@@ -577,7 +577,8 @@ The implementation must gate:
 - one source term mapping to several ordered targets without target loss;
 - equal snapshots producing equal identities and one changed label, order,
   cardinality, or target producing a different identity;
-- Product Vocabulary's existing CLI formats and JSON remaining unchanged;
+- Product Vocabulary's explanation Content remaining equal in both hosts under
+  `ProductVocabularyPin.ExplanationContent`;
 - Inspect Web grouping every style choice through the declared tier map;
 - removal or corruption of the tier map causing the Browser production gate to
   fail rather than falling back to `choice.tier` string matching; and
@@ -588,19 +589,23 @@ The implementation must gate:
 The typed construction and identity cases belong in the `QuerySpace.Primitives`
 Release suite once [#9250](https://github.com/richlander/dotnet-inspect/issues/9250)
 moves the declaration contracts there; until then they stay in the existing
-CLI suite. Existing `VocabularyCommandTests` retain CLI compatibility.
+CLI suite.
 `BrowserStyleOptionsTests`, strict generated-TypeScript compilation, and the
 Inspect Web test/build gates own the Browser adoption.
 
 ## Physical placement
 
-This owner's contracts are split by role across two existing owners' assemblies;
-semantic authority stays here.
+This owner's contracts live in an existing owner's assembly; semantic
+authority stays here.
 
 | Contract | Assembly | Reason |
 | --- | --- | --- |
 | Catalog, vocabulary, term, map, and snapshot identities; `VocabularyDefinition`, `VocabularyTerm`, map definitions and entries carrying `QuerySpace.Explanation` values, cardinality, coverage; `VocabularySnapshot` and its construction-time validation | `QuerySpace.Primitives` | A declaration a term owner must be able to produce from any family; the floor is dependency-free under the [QuerySpace library boundary](query-space-library.md#two-assemblies-and-two-participation-tiers) |
-| `VocabularyDocument`, sections, fields, operators, rows, the wire document, and `VocabularyJson` | `DotnetInspector.Sections` | Product Vocabulary's declared section schema and compatibility wire projection; not part of the reusable mapping pattern. Retires with the `vocabulary` command under [Product Vocabulary](vocabulary.md#retirement) |
+
+Product Vocabulary's former section schema and compatibility wire projection
+in `DotnetInspector.Sections` were not part of the reusable mapping pattern.
+They retired with the `vocabulary` command under
+[Product Vocabulary](vocabulary.md#retirement).
 
 Owners declare; hosts compose, under the composition rule the
 [QuerySpace library boundary](query-space-library.md#two-assemblies-and-two-participation-tiers)
@@ -648,9 +653,10 @@ This shared substrate has a counted four-step path to both production hosts:
 Step 3 resolves the allocation follow-up in
 [#4494](https://github.com/richlander/dotnet-inspect/issues/4494) if its
 before/after NativeAOT evidence demonstrates that the double materialization
-has been removed without a regression. The existing CLI wire projection is a
-public compatibility surface and remains intentionally; it is not a second
-semantic catalog.
+has been removed without a regression. The CLI wire projection, which remained
+as a public compatibility surface rather than a second semantic catalog,
+retired with the `vocabulary` command under
+[Product Vocabulary](vocabulary.md#retirement).
 
 After these steps,
 [JSON Schema Vocabulary Bindings](json-schema-vocabulary-bindings.md) may bind

@@ -6,24 +6,14 @@ hosts present them through
 [Resource Explanation](resource-explanation.md#value-vocabulary-resources).
 There is no separate vocabulary command, document, or wire format.
 
-**Status.** This is the target set by
-[#9250](https://github.com/richlander/dotnet-inspect/issues/9250) step 8.
-`explain vocabularies` and `explain vocabularies/<id>` ship in the CLI today.
-The step's remaining slices, in order, are:
-
-1. Values as resources. Explanation also stops reading through
-   `ProductVocabularyProjection` and reads the composed snapshot generically,
-   and its next step for a vocabulary becomes `--depth 1` instead of the
-   `vocabulary` command.
-   Until then, explanation and the `vocabulary` command name each vocabulary's
-   section, so adding a vocabulary also takes a projection section and a CLI
-   section descriptor.
-2. The Inspect Web export.
-3. The [retirement](#retirement) of the `vocabulary` command. Until it lands,
-   the command still runs.
-
-Statements below about generic reading, the export, and retired parts describe
-that target.
+**Status.** [#9250](https://github.com/richlander/dotnet-inspect/issues/9250)
+step 8 is complete. In the CLI, `explain vocabularies`,
+`explain vocabularies/<id>`, and `explain vocabularies/<id>/values/<value>`
+explain every vocabulary and value by reading the composed snapshot
+generically, and Inspect Web requests the same explanation through
+`CatalogExports.ExplainVocabularies`. The `vocabulary` command is
+[retired](#retirement). Explanation and the Inspect Web export are the product
+surface.
 
 ## Product surface
 
@@ -54,17 +44,20 @@ A value's path segment is its exact identity in ASCII lower case with `:`
 replaced by `.`, under
 [Value-vocabulary resources](resource-explanation.md#value-vocabulary-resources).
 The path segment is the only path spelling. The exact identity, which queries
-accept, is the value's identity fact, so the vocabulary's depth-1 listing
-shows both.
+accept, is the value's identity fact, so the vocabulary's depth-1 Document
+carries both. Its expanded value rows show the identity beside the display
+name, and JSON output and each value's own explanation present it.
 
-Inspect Web requests the same explanation. A catalog-facade export resolves a
-`vocabularies` path against the Browser-composed snapshot and returns the same
+Inspect Web requests the same explanation. The catalog-facade export
+`CatalogExports.ExplainVocabularies(path, depth)` resolves a `vocabularies`
+path against the Browser-composed snapshot and returns the same
 `ResourceExplanationDocument` Content the CLI produces for the same path and
-depth. Both hosts use one host-neutral set of traversal limits, so equal
-snapshots yield equal Content. An unknown path, a path outside `vocabularies`,
-or an invalid path or depth is a typed non-success result, never an empty Document.
-Inspect Web's existing snapshot export for the Settings style picker is
-unchanged.
+depth. Both hosts use `ResourceExplanationRequest.ForHost`, so equal snapshots
+yield equal Content, and `ProductVocabularyPin.ExplanationContent` pins that
+Content for both suites. A non-canonical path, a path outside
+`vocabularies`, an unknown path, or a negative depth is a typed rejection,
+never an empty Document. Inspect Web's existing snapshot export for the
+Settings style picker is unchanged.
 
 A CLI query key whose values come from one vocabulary links to that
 vocabulary's resource. `-Q` presents the link, for example
@@ -72,35 +65,45 @@ vocabulary's resource. `-Q` presents the link, for example
 
 ### Retirement
 
-The `dotnet-inspect vocabulary` command retires, with the parts only it uses:
+The `dotnet-inspect vocabulary` command is retired, with the parts only it
+used:
 
 - the CLI command, its options, section descriptors (`VocabularySections`),
   and views;
 - the `@Vocabulary` selection category;
 - the Product Vocabulary document (`VocabularyDocument` and
   `ProductVocabularyProjection`) and its schema-versioned JSON wire projection
-  (`VocabularyJson` and the `VocabularyWire*` types).
+  (`VocabularyJson` and the `VocabularyWire*` types);
+- the command's tests (`VocabularyCommandTests`,
+  `SectionPipelineTests.Vocabulary`, and `CliVocabularyDocument`).
 
-Each map's per-field query operators retire with the document. Only the
-document's JSON and the explanation `fields` fact read them, and no
-predicate enforces them. The operators a query input accepts belong to that
-input and are presented by `-Q`.
+The `@API` category, which only the command's sections used, retired with
+it. Its sections also left `@Decompiler`, which remains for other commands.
+
+Each map's per-field query operators retired with the document. Only the
+document's JSON read them, and no predicate enforced them. Resource
+Explanation does not present them. The operators a query input accepts belong
+to that input and are presented by `-Q`.
 
 `vocabulary` stays a reserved command name. Invoking it fails with an error
-that names `explain vocabularies`. The retirement is a disclosed CLI breaking
-change. Explanation output is Markdown, plain text, or JSON, so every other
-option of the command retires too, including table, TSV, and JSONL output;
-`--columns`, `--fields`, and `--no-headers`; `-n`, `--head`, `--tail`,
-`--rows`, `--lines`, and `--tail-lines`; `--count`; `-D`, `--schema`, and
-`--tree`; and selecting several vocabularies with a glob or an `@` category
-`-S`. The release notes list them. The information
-stays reachable. The retirement lands only after values are explainable
-resources and Inspect Web can request the explanation, so no information or
-host loses access in between. The retirement slice also retargets every
-remaining pointer to the command or the `@Vocabulary` category: the Body
-Shapes `Kind` error hint, the `DiscoveryDocumentFactory` category arm, the
-design and reference documents that describe the command, and shipped skill
-guidance, which is proposed on the release tracker.
+that names `explain vocabularies` to list product vocabularies,
+`explain vocabularies/<id> --depth 1` for every value, and
+`explain vocabularies/<id>/values/<value>` for one value. The retirement is a
+disclosed CLI breaking change. Explanation output is Markdown, plain text, or
+JSON, so every other option of the command retired too, including table, TSV,
+and JSONL output; `--columns`, `--fields`, and `--no-headers`; `-n`, `--head`,
+`--tail`, `--rows`, `--lines`, and `--tail-lines`; `--count`; `-D`,
+`--schema`, and `--tree`; and selecting several vocabularies with a glob or an
+`@` category `-S`. The release entry proposed on the release tracker lists
+them. The information stays
+reachable. The retirement landed only after values were explainable resources
+and Inspect Web could request the explanation, so no information or host lost
+access in between. The retirement also retargeted every remaining pointer to
+the command or the `@Vocabulary` category: the Body Shapes `Kind` error hint
+now names `explain vocabularies/csharp.body-kinds --depth 1`, the
+`DiscoveryDocumentFactory` category arm is removed, and the design and
+reference documents no longer describe the command. Shipped skill guidance
+changes are proposed on the release tracker.
 
 What stays is the substrate: owner declarations, host composition, the
 `ProductVocabularyPin` digest, and Inspect Web's snapshot export for Settings.
@@ -124,9 +127,7 @@ identity, display label, maps, terms, and order are the owner's, and equal
 inputs yield equal declarations. A host composes the declarations it ships into
 one exactly identified snapshot, under the tier-1 composition rule the
 [QuerySpace library boundary](query-space-library.md#two-assemblies-and-two-participation-tiers)
-states. In the target, no component owns the complete list of product
-vocabularies; until the values slice lands, the document projection and the
-CLI section descriptors also name them.
+states. No component owns the complete list of product vocabularies.
 
 The term owners, and therefore the declaring owners, are:
 
@@ -181,13 +182,12 @@ Web lane.
 The declaration types live in `QuerySpace.Primitives`. The composition
 (`ProductVocabularyComposition`) and the inspection wrapper live in
 `DotnetInspector.Sections`, beside Resource Explanation's
-`ResourceExplanationCatalog.CreateVocabularies`, which in the target explains
-a composed snapshot generically. Each host holds its contribution list, and in
-the target no assembly between the owners and the hosts restates their values
-or names their sections. Once explanation reads the snapshot generically, adding a
-vocabulary takes an owner declaration and a contribution in each host that
-ships it; explanation, the Browser export, and the snapshot pin pick it up
-without another list.
+`ResourceExplanationCatalog.CreateVocabularies`, which explains a composed
+snapshot generically. Each host holds its contribution list, and no
+assembly between the owners and the hosts restates their values or names
+their sections. Adding a vocabulary takes an owner declaration and a
+contribution in each host that ships it; explanation, the
+Browser export, and the snapshot pin pick it up without another list.
 
 ## Vocabulary Mappings adoption
 
@@ -198,7 +198,7 @@ inputs, and their product presentation; the mapping pattern defines only
 how those owner-issued facts become an immutable, exactly identified snapshot.
 
 The first adoption preserved the former CLI structured document as a
-compatibility projection; that projection retires with the `vocabulary`
+compatibility projection; that projection retired with the `vocabulary`
 command. The adoption additionally authenticates
 `csharp.style-choices.tier` as a complete, exactly-one term map to
 `csharp.style-tiers`, allowing Inspect Web to group choices without treating an

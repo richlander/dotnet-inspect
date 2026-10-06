@@ -11,8 +11,6 @@ namespace DotnetInspect.Cli.Commands;
 public static class ResourceExplanationCommand
 {
     public const string Name = "explain";
-    private const int ResourceLimit = 256;
-    private const int RelationshipLimit = 2048;
 
     public static int Execute(
         string operand,
@@ -340,10 +338,7 @@ public static class ResourceExplanationCommand
         InspectionEnvelope<ResourceExplanationDocument> explanation =
             catalog.Explain(
                 resolution,
-                new(
-                    depth,
-                    ResourceLimit,
-                    RelationshipLimit));
+                ResourceExplanationRequest.ForHost(depth));
         ResourceExplanationDocument document = explanation.Content;
         OutputDestination.Write(
             outputPath,

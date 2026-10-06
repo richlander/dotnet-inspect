@@ -191,3 +191,46 @@ export function createDocumentInspectionCoordinator(
     },
   };
 }
+
+
+export type PackageDocumentTitle =
+  | { readonly status: "loading" }
+  | { readonly status: "ready"; readonly title: string | null }
+  | { readonly status: "failed"; readonly error: string };
+
+export function createPackageDocumentTitles(dependencies: {
+  queryDocument: DocumentInspectionDependencies["queryDocument"];
+  renderMarkdown: DocumentInspectionDependencies["renderMarkdown"];
+  firstHeading: (html: string) => string | null;
+  describeError: DocumentInspectionDependencies["describeError"];
+  render: () => void;
+}) {
+  const packages = new WeakMap<object, Map<string, PackageDocumentTitle>>();
+  const get = (owner: object, path: string) => packages.get(owner)?.get(path);
+  return {
+    get,
+    async load(owner: object, requests: readonly PackageDocumentRequest[]) {
+      let titles = packages.get(owner);
+      if (!titles) {
+        titles = new Map();
+        packages.set(owner, titles);
+      }
+      const entries = titles;
+      await Promise.all(requests.map(async request => {
+        const path = request.document.path;
+        if (entries.has(path)) return;
+        entries.set(path, { status: "loading" });
+        try {
+          const content = await dependencies.queryDocument(request);
+          if (typeof content.text !== "string")
+            throw new TypeError("The document content did not contain text.");
+          const html = await dependencies.renderMarkdown(splitFrontmatter(content.text).body);
+          entries.set(path, { status: "ready", title: dependencies.firstHeading(html) });
+        } catch (error) {
+          entries.set(path, { status: "failed", error: dependencies.describeError(error) });
+        }
+        dependencies.render();
+      }));
+    },
+  };
+}

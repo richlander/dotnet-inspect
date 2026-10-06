@@ -49,4 +49,19 @@ public static class AssemblyReferencesQuery
         ArgumentNullException.ThrowIfNull(session);
         return session.AssemblyReferenceIdentities().ToImmutableArray();
     }
+
+    internal static ImmutableArray<AssemblyReferenceRow> ReadRows(
+        AssemblyInspectionSession session)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        return
+        [
+            .. session.AssemblyReferenceIdentities().Select(static reference =>
+                new AssemblyReferenceRow(
+                    reference.Name,
+                    reference.Version?.ToString() ?? "",
+                    reference.Culture ?? "neutral",
+                    reference.PublicKeyToken)),
+        ];
+    }
 }
