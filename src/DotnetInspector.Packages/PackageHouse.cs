@@ -770,6 +770,9 @@ public sealed partial class PackageHouse
                             contentNarrowingResolution.EntryPaths);
                         if (request.ContentQuery
                                 .LibraryAndInventoryTerminal
+                                is not null
+                            || request.ContentQuery
+                                .LibraryInventoryTerminal
                                 is not null)
                         {
                             libraryInventoryResolution =
@@ -810,11 +813,15 @@ public sealed partial class PackageHouse
                     IReadOnlyList<string> selectedSemanticEntries =
                         contentFiles?.SelectedEntries ?? [];
                     if (libraryInventoryResolution is
-                        {
-                            Completion:
-                                PackageHouseContentNarrowingCompletion.Settled,
-                            SelectionFailure: null,
-                        } projectedInventory)
+                            {
+                                Completion:
+                                    PackageHouseContentNarrowingCompletion
+                                        .Settled,
+                                SelectionFailure: null,
+                            } projectedInventory
+                        && request.ContentQuery
+                            .LibraryAndInventoryTerminal
+                            is not null)
                     {
                         selectedSemanticEntries =
                         [
@@ -858,7 +865,7 @@ public sealed partial class PackageHouse
                         : null;
                 PackageHouseLibraryAndInventory? libraryAndInventory =
                     request.ContentQuery?.LibraryAndInventoryTerminal
-                            is { } selectedLibraryTerminal
+                            is not null
                     && libraryInventoryResolution is
                         {
                             Completion:
@@ -868,10 +875,28 @@ public sealed partial class PackageHouse
                     && contentNarrowing is not null
                         ? CreateLibraryAndInventory(
                             acquisition,
-                            contentNarrowing,
+                            CreateLibraryInventory(
+                                contentNarrowing,
+                                selectedInventoryResolution),
                             selectedInventoryResolution,
                             rangedPackageId)
                         : null;
+                PackageHouseLibraryInventory? libraryInventory =
+                    libraryAndInventory?.Inventory
+                    ?? (request.ContentQuery?.LibraryInventoryTerminal
+                                is not null
+                            && libraryInventoryResolution is
+                            {
+                                Completion:
+                                    PackageHouseContentNarrowingCompletion
+                                        .Settled,
+                                SelectionFailure: null,
+                            } inventoryResolution
+                            && contentNarrowing is not null
+                        ? CreateLibraryInventory(
+                            contentNarrowing,
+                            inventoryResolution)
+                        : null);
                 if (semanticManifestUnavailable)
                 {
                     InertString reason = Reason(
@@ -1074,7 +1099,8 @@ public sealed partial class PackageHouse
                         failures: failures,
                         fileList: fileList,
                         contentNarrowing: contentNarrowing,
-                        libraryAndInventory: libraryAndInventory);
+                        libraryAndInventory: libraryAndInventory,
+                        libraryInventory: libraryInventory);
                     return new PackageHouseSettlement.Acquired(
                         new PackageHouseResult.Settled(
                             acquiredEvidence),
@@ -1838,14 +1864,23 @@ public sealed partial class PackageHouse
                 packageId,
                 directory,
                 [.. directory.EnumerateEntries()]);
-            if (contentQuery.LibraryAndInventoryTerminal
-                    is { } libraryTerminal)
+            if (contentQuery.LibraryAndInventoryTerminal is not null
+                || contentQuery.LibraryInventoryTerminal is not null)
             {
                 libraryInventory = ResolveLibraryInventory(
                     contentNarrowing,
                     SnapshotEntries(directory));
                 return new PackageRangedSelection(
-                    libraryInventory.MaterializedEntryPaths);
+                    contentQuery.LibraryAndInventoryTerminal is not null
+                    && libraryInventory.Completion
+                        == PackageHouseContentNarrowingCompletion.Settled
+                        ? [
+                            libraryInventory
+                                .Rows[libraryInventory.SelectedRowIndex]
+                                .CompileEntry
+                                .Path,
+                        ]
+                        : []);
             }
             return new PackageRangedSelection(
                 contentQuery.FilesTerminal?.Resolve(
@@ -1938,6 +1973,10 @@ public sealed partial class PackageHouse
             or
             {
                 LibraryAndInventoryTerminal: not null
+            }
+            or
+            {
+                LibraryInventoryTerminal: not null
             }
             ? PackagePayloadAccess.Ranged
             : throw new NotSupportedException(

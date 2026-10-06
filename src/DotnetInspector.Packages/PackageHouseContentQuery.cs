@@ -147,6 +147,15 @@ public abstract class PackageHouseContentTerminal
         : PackageHouseContentTerminal
     {
     }
+
+    /// <summary>
+    /// The complete logical Library inventory for one exact target, without
+    /// expanding any Library content.
+    /// </summary>
+    public sealed class LibraryInventoryForTarget
+        : PackageHouseContentTerminal
+    {
+    }
 }
 
 internal sealed record PackageHouseFilesResolution(
@@ -280,18 +289,32 @@ public sealed class PackageHouseContentQuery
                 PackageHouseContentTerminal
                     .LibraryAndInventoryForTarget>()
             .SingleOrDefault();
-        if (LibraryAndInventoryTerminal is not null
+        LibraryInventoryTerminal = values
+            .OfType<
+                PackageHouseContentTerminal
+                    .LibraryInventoryForTarget>()
+            .SingleOrDefault();
+        if ((LibraryAndInventoryTerminal is not null
+                || LibraryInventoryTerminal is not null)
             && narrowing is not PackageHouseContentNarrowing.TfmWide)
         {
             throw new ArgumentException(
-                "Library-and-inventory selection requires TFM-wide narrowing.",
+                "Library inventory requires TFM-wide narrowing.",
                 nameof(narrowing));
         }
-        if (LibraryAndInventoryTerminal is not null
+        if ((LibraryAndInventoryTerminal is not null
+                || LibraryInventoryTerminal is not null)
             && FilesTerminal is not null)
         {
             throw new ArgumentException(
-                "Library-and-inventory selection cannot be combined with a Files terminal; use its issued inventory references in a later exact Files query.",
+                "Library inventory cannot be combined with a Files terminal; use its issued inventory references in a later exact Files query.",
+                nameof(terminals));
+        }
+        if (LibraryAndInventoryTerminal is not null
+            && LibraryInventoryTerminal is not null)
+        {
+            throw new ArgumentException(
+                "A content query cannot request both Library inventory terminals.",
                 nameof(terminals));
         }
     }
@@ -310,6 +333,9 @@ public sealed class PackageHouseContentQuery
 
     internal PackageHouseContentTerminal.LibraryAndInventoryForTarget?
         LibraryAndInventoryTerminal { get; }
+
+    internal PackageHouseContentTerminal.LibraryInventoryForTarget?
+        LibraryInventoryTerminal { get; }
 
     internal PackageHouseLibraryInventory? RetainedLibraryInventory { get; }
 
@@ -373,5 +399,19 @@ public sealed class PackageHouseContentQuery
             [
                 new PackageHouseContentTerminal
                     .LibraryAndInventoryForTarget(),
+            ]);
+
+    /// <summary>
+    /// Creates one TFM-wide logical Library inventory query without
+    /// materializing Library content.
+    /// </summary>
+    public static PackageHouseContentQuery
+        GetLibraryInventoryForTarget(
+            PackageHouseTargetContext target) =>
+        new(
+            new PackageHouseContentNarrowing.TfmWide(target),
+            [
+                new PackageHouseContentTerminal
+                    .LibraryInventoryForTarget(),
             ]);
 }

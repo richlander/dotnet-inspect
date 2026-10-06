@@ -477,6 +477,7 @@ independently decides *to* call the family, and *which target type* to hand it:
 | retyped enum constant | route through `EnumConstantText` |
 | `switch` case label | route through `EnumConstantText` |
 | array-element store | derive the semantic element type (`StoreElementTargetType`), route through `Coerce` |
+| array-literal element | route through `Coerce` at the literal's `newarr` element type (the sink its raised element store had; [array literal fill raise](array-literal-fill-raise.md#element-coercion)) |
 | `box` / `return` / call args / stores | route through `Coerce` with the sink's declared type |
 | constant typing | `TypedConstantsPass` retypes **`int`-only**, does not pierce `Convert` |
 
