@@ -185,7 +185,6 @@
     <Project Path="src/DotnetInspector.SourceHouse/DotnetInspector.SourceHouse.csproj" />
     <Project Path="src/DotnetInspector.SourceSelection/DotnetInspector.SourceSelection.csproj" />
     <Project Path="src/DotnetInspector.Services/DotnetInspector.Services.csproj" />
-    <Project Path="src/DotnetInspector.Vocabulary/DotnetInspector.Vocabulary.csproj" />
     <Project Path="src/Inspector.Artifacts/Inspector.Artifacts.csproj" />
     <Project Path="src/Inspector.Artifacts.Local/Inspector.Artifacts.Local.csproj" />
     <Project Path="src/Inspector.Artifacts.Workspaces/Inspector.Artifacts.Workspaces.csproj" />
@@ -309,7 +308,7 @@
     <Project Path="tools/PackageHouse.CliBenchmarks/PackageHouse.CliBenchmarks.csproj" />
     <Project Path="tools/MethodClassificationScorecard/MethodClassificationScorecard.csproj" />
     <Project Path="tools/LibraryInfoCountScorecard/LibraryInfoCountScorecard.csproj" />
-    <Project Path="tools/LibraryFamilyRoleScorecard/LibraryFamilyRoleScorecard.csproj" />
+    <Project Path="tools/LibraryArchitecturalFamilyScorecard/LibraryArchitecturalFamilyScorecard.csproj" />
     <Project Path="tools/OwnershipIncidenceScorecard/OwnershipIncidenceScorecard.csproj" />
     <Project Path="tools/QuerySpaceScorecard/QuerySpaceScorecard.csproj" />
     <Project Path="tools/ReturnToSenderTargetScorecard/ReturnToSenderTargetScorecard.csproj" />

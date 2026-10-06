@@ -52,6 +52,8 @@ public sealed class ExpressionInliningPass : IIrPass
 
     readonly bool _slotsOnly;
 
+    internal bool SlotsOnly => _slotsOnly;
+
     /// <param name="slotsOnly">
     /// When true, <see cref="InlineOnce"/> considers only synthetic stack slots,
     /// not user locals — the F2 late-run contract (#2386). Defaults to false so

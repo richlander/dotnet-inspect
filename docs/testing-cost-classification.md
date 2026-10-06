@@ -73,18 +73,26 @@ public void SomeExpensiveTheory(string assemblyName)
 
 ## Existing consumers (no workflow changes needed to add a tag)
 
+The CI workflow has a ceiling of **16 runner jobs** for any event. Count matrix
+entries separately and include the always-run `changes` and `ci-required` jobs.
+The workflow contract counts even path-gated jobs to maintain a safe upper
+bound as routing changes. The current fully selected PR expands to 15 jobs;
+the remaining definition is the push-only dependency-policy job.
+
 - `ci.yml`'s PR-blocking fast leg filters `Speed=Slow` from the CLI and
-  Analysis suites. The CLI selection is split across six parallel matrix
-  entries: five select non-overlapping class-name prefix ranges, and the
-  sixth selects their complement. The complement makes the partition
-  exhaustive even when a future test class uses an unexpected identifier.
+  Analysis suites. Six CLI selections run across two matrix jobs: five
+  select non-overlapping class-name prefix ranges, and the sixth selects
+  their complement. The complement makes the partition exhaustive even when
+  a future test class uses an unexpected identifier.
   `deep-inspect.yml` runs both suites fully unfiltered once on Linux, so a newly
   tagged test automatically keeps running daily. Its Windows/macOS lane uses
   the same fast CLI population as PR CI.
-- The CSharp text and inspection-query suites use the same PR filter. Deep
-  Inspect's exhaustive Linux lane runs both suites fully unfiltered; the
-  Windows/macOS platform lane also runs the full inspection-query suite because
-  runtime layout and filesystem behavior reach that owner.
+- The CSharp text suite uses the same PR filter. The inspection-query suite
+  runs a nonempty set of planning, workspace, graph, and package contracts in
+  PR CI; the complete suite runs in the daily Linux Deep Inspect test lane.
+  Deep Inspect's Windows/macOS platform lane also runs the full
+  inspection-query suite because runtime layout and filesystem behavior reach
+  that owner.
 - The offline NuGet suite excludes both `Network=Live` and `Speed=Slow` in PR
   CI. Deep Inspect's exhaustive Linux lane and Windows/macOS platform lane
   retain the offline boundary but do not exclude `Speed=Slow`. The focused
@@ -96,6 +104,9 @@ public void SomeExpensiveTheory(string assemblyName)
   its full suite on the exhaustive Linux lane and the Windows/macOS platform
   lane, including the pinned custom-attribute package gate, and retains that
   gate's per-platform evidence report.
+- Inspect Web keeps platform, engine, frontend, browser, and managed API
+  checks in PR CI. Its daily Deep Inspect lane owns complete facade and
+  canary checks, browser coverage, and published-application validation.
 - The decompiler suite uses the same MTP trait options behind discoverable
   presets: `dotnet run --project tests/ILInspector.Decompiler.Tests -c Release
   -- --gate fast` expands to `--filter-not-trait "Speed=Slow"`, while `--gate

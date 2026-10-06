@@ -919,7 +919,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Library_NameFamilyRoleTypeSelectionCountsExactTypes()
+    public async Task Library_ArchitecturalFamilyTypeSelectionCountsExactTypes()
     {
         string fixture =
             FixtureCatalog.ResearchNameFamilies.AssemblyPath();
@@ -927,13 +927,13 @@ public partial class CommandExecutionTests
             "library",
             fixture,
             "-S",
-            SectionNames.NameFamilyRoles,
+            SectionNames.ArchitecturalFamilies,
             "--json");
         var count = await RunAppAsync(
             "library",
             fixture,
             "-S",
-            SectionNames.NameFamilyRoleTypes,
+            SectionNames.ArchitecturalFamilyTypes,
             "--count");
 
         Assert.Equal(0, content.Exit);
@@ -953,7 +953,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Library_NameFamilyRoleRowScopesCannotCompete()
+    public async Task Library_ArchitecturalFamilyRowScopesCannotCompete()
     {
         string fixture =
             FixtureCatalog.ResearchNameFamilies.AssemblyPath();
@@ -961,9 +961,9 @@ public partial class CommandExecutionTests
             "library",
             fixture,
             "-S",
-            SectionNames.NameFamilyRoles,
+            SectionNames.ArchitecturalFamilies,
             "-S",
-            SectionNames.NameFamilyRoleTypes);
+            SectionNames.ArchitecturalFamilyTypes);
 
         Assert.Equal(1, result.Exit);
         Assert.Empty(result.Output);

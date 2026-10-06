@@ -3,6 +3,7 @@ using System.Collections.Immutable;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using QuerySpace.Explanation;
 
 namespace QuerySpace.Vocabulary;
 
@@ -37,14 +38,6 @@ internal static class VocabularyText
             remaining = remaining[charsConsumed..];
         }
     }
-}
-
-/// <summary>The primitive kind of values in one scalar vocabulary map.</summary>
-public enum VocabularyScalarKind
-{
-    Text,
-    Integer,
-    Boolean,
 }
 
 /// <summary>The number of values one map permits for each source term.</summary>
@@ -168,43 +161,6 @@ public readonly record struct VocabularySnapshotIdentity
     public override string ToString() => Value;
 }
 
-/// <summary>One typed primitive value in a scalar vocabulary map.</summary>
-public readonly record struct VocabularyScalarValue
-{
-    private VocabularyScalarValue(
-        VocabularyScalarKind kind,
-        string? text,
-        long integer,
-        bool boolean)
-    {
-        Kind = kind;
-        Text = text;
-        Integer = integer;
-        Boolean = boolean;
-    }
-
-    public VocabularyScalarKind Kind { get; }
-
-    public string? Text { get; }
-
-    public long Integer { get; }
-
-    public bool Boolean { get; }
-
-    public static VocabularyScalarValue FromText(string value)
-    {
-        ArgumentNullException.ThrowIfNull(value);
-        VocabularyText.ThrowIfIllFormed(value, nameof(value));
-        return new(VocabularyScalarKind.Text, value, 0, false);
-    }
-
-    public static VocabularyScalarValue FromInteger(long value) =>
-        new(VocabularyScalarKind.Integer, null, value, false);
-
-    public static VocabularyScalarValue FromBoolean(bool value) =>
-        new(VocabularyScalarKind.Boolean, null, 0, value);
-}
-
 /// <summary>The target kind of one vocabulary map.</summary>
 public abstract record VocabularyMapTarget
 {
@@ -212,7 +168,13 @@ public abstract record VocabularyMapTarget
     {
     }
 
-    public sealed record Scalar(VocabularyScalarKind Kind)
+    /// <summary>
+    /// Values of one explanation scalar kind. Maps admit
+    /// <see cref="ExplanationScalarKind.Text"/>,
+    /// <see cref="ExplanationScalarKind.Integer"/> within the signed 64-bit
+    /// range, and <see cref="ExplanationScalarKind.Boolean"/>.
+    /// </summary>
+    public sealed record Scalar(ExplanationScalarKind Kind)
         : VocabularyMapTarget;
 
     public sealed record Terms(VocabularyTermSetReference Reference)
@@ -233,32 +195,6 @@ public abstract record VocabularyTermSetReference
         VocabularySnapshotIdentity Snapshot,
         VocabularyIdentity Vocabulary)
         : VocabularyTermSetReference;
-}
-
-/// <summary>One typed value in a vocabulary map entry.</summary>
-public abstract record VocabularyMapValue
-{
-    private VocabularyMapValue()
-    {
-    }
-
-    public sealed record Scalar(VocabularyScalarValue Value)
-        : VocabularyMapValue;
-
-    public sealed record Term(VocabularyTermIdentity Identity)
-        : VocabularyMapValue;
-
-    /// <summary>One text scalar value.</summary>
-    public static VocabularyMapValue Text(string value) =>
-        new Scalar(VocabularyScalarValue.FromText(value));
-
-    /// <summary>One integer scalar value.</summary>
-    public static VocabularyMapValue Integer(long value) =>
-        new Scalar(VocabularyScalarValue.FromInteger(value));
-
-    /// <summary>One boolean scalar value.</summary>
-    public static VocabularyMapValue Boolean(bool value) =>
-        new Scalar(VocabularyScalarValue.FromBoolean(value));
 }
 
 /// <summary>The declared contract of one map on a source vocabulary.</summary>
@@ -307,7 +243,7 @@ public sealed record VocabularyMapDefinition
         string identity,
         string displayLabel,
         string summary,
-        VocabularyScalarKind kind,
+        ExplanationScalarKind kind,
         VocabularyMapCardinality cardinality =
             VocabularyMapCardinality.ExactlyOne) =>
         new(
@@ -319,12 +255,15 @@ public sealed record VocabularyMapDefinition
             VocabularyMapCoverage.Complete);
 }
 
-/// <summary>The values one source term declares for one map.</summary>
+/// <summary>
+/// The values one source term declares for one map. Values are explanation
+/// scalar or vocabulary-term values.
+/// </summary>
 public sealed record VocabularyMapEntry
 {
     public VocabularyMapEntry(
         VocabularyMapIdentity map,
-        IEnumerable<VocabularyMapValue> values)
+        IEnumerable<ExplanationValue> values)
     {
         VocabularyText.ThrowIfNullOrWhiteSpace(map.Value, nameof(map));
         ArgumentNullException.ThrowIfNull(values);
@@ -335,7 +274,7 @@ public sealed record VocabularyMapEntry
     /// <summary>The values one term declares for <paramref name="map"/>.</summary>
     public VocabularyMapEntry(
         VocabularyMapDefinition map,
-        params VocabularyMapValue[] values)
+        params ExplanationValue[] values)
         : this(
             (map ?? throw new ArgumentNullException(nameof(map))).Identity,
             values)
@@ -344,7 +283,7 @@ public sealed record VocabularyMapEntry
 
     public VocabularyMapIdentity Map { get; }
 
-    public ImmutableArray<VocabularyMapValue> Values { get; }
+    public ImmutableArray<ExplanationValue> Values { get; }
 }
 
 /// <summary>One stable term and its typed map values.</summary>
@@ -379,7 +318,7 @@ public sealed record VocabularyTerm
 
     public bool TryGetValues(
         VocabularyMapIdentity map,
-        out ImmutableArray<VocabularyMapValue> values)
+        out ImmutableArray<ExplanationValue> values)
     {
         foreach (VocabularyMapEntry entry in MapEntries)
         {
@@ -394,9 +333,9 @@ public sealed record VocabularyTerm
         return false;
     }
 
-    public ImmutableArray<VocabularyMapValue> GetRequiredValues(
+    public ImmutableArray<ExplanationValue> GetRequiredValues(
         VocabularyMapIdentity map) =>
-        TryGetValues(map, out ImmutableArray<VocabularyMapValue> values)
+        TryGetValues(map, out ImmutableArray<ExplanationValue> values)
             ? values
             : throw new KeyNotFoundException(
                 $"Term '{Identity}' has no entry for map '{map}'.");
@@ -623,7 +562,7 @@ public sealed class VocabularySnapshot
                         + "or coverage value.");
                 }
                 if (map.Target is VocabularyMapTarget.Scalar scalar
-                    && !Enum.IsDefined(scalar.Kind))
+                    && !IsAdmittedScalarKind(scalar.Kind))
                 {
                     throw new InvalidOperationException(
                         $"Map '{map.Identity}' has an unsupported scalar kind.");
@@ -769,8 +708,8 @@ public sealed class VocabularySnapshot
                 + $"'{map.Identity}', violating {map.Cardinality} cardinality.");
         }
 
-        var values = new HashSet<VocabularyMapValue>();
-        foreach (VocabularyMapValue value in entry.Values)
+        var values = new HashSet<ExplanationValue>();
+        foreach (ExplanationValue value in entry.Values)
         {
             if (!values.Add(value))
             {
@@ -783,20 +722,22 @@ public sealed class VocabularySnapshot
             {
                 case (
                     VocabularyMapTarget.Scalar scalar,
-                    VocabularyMapValue.Scalar scalarValue)
+                    ExplanationValue.Scalar scalarValue)
                     when scalar.Kind == scalarValue.Value.Kind:
-                    if (scalar.Kind == VocabularyScalarKind.Text
-                        && scalarValue.Value.Text is null)
+                    if (scalar.Kind == ExplanationScalarKind.Integer
+                        && (scalarValue.Value.Integer < long.MinValue
+                            || scalarValue.Value.Integer > long.MaxValue))
                     {
                         throw new InvalidOperationException(
-                            $"Term '{term.Identity}' supplies an invalid text "
-                            + $"value for map '{map.Identity}'.");
+                            $"Term '{term.Identity}' supplies an integer "
+                            + $"outside the signed 64-bit range for map "
+                            + $"'{map.Identity}'.");
                     }
                     break;
 
                 case (
                     VocabularyMapTarget.Terms terms,
-                    VocabularyMapValue.Term termValue):
+                    ExplanationValue.VocabularyTerm termValue):
                     ValidateTermReference(
                         map,
                         terms.Reference,
@@ -962,7 +903,7 @@ public sealed class VocabularySnapshot
             writer.WriteStartObject();
             writer.WriteString("identity", entry.Map.Value);
             writer.WriteStartArray("values");
-            foreach (VocabularyMapValue value in entry.Values)
+            foreach (ExplanationValue value in entry.Values)
                 WriteValue(writer, value);
             writer.WriteEndArray();
             writer.WriteEndObject();
@@ -973,31 +914,35 @@ public sealed class VocabularySnapshot
 
     private static void WriteValue(
         Utf8JsonWriter writer,
-        VocabularyMapValue value)
+        ExplanationValue value)
     {
         writer.WriteStartObject();
         switch (value)
         {
-            case VocabularyMapValue.Scalar scalar:
+            case ExplanationValue.Scalar scalar:
                 writer.WriteString("kind", "scalar");
                 writer.WriteString(
                     "scalarKind",
                     Name(scalar.Value.Kind));
                 switch (scalar.Value.Kind)
                 {
-                    case VocabularyScalarKind.Text:
+                    case ExplanationScalarKind.Text:
                         writer.WriteString("value", scalar.Value.Text);
                         break;
-                    case VocabularyScalarKind.Integer:
-                        writer.WriteNumber("value", scalar.Value.Integer);
+                    case ExplanationScalarKind.Integer:
+                        writer.WriteNumber(
+                            "value",
+                            (long)scalar.Value.Integer!.Value);
                         break;
-                    case VocabularyScalarKind.Boolean:
-                        writer.WriteBoolean("value", scalar.Value.Boolean);
+                    case ExplanationScalarKind.Boolean:
+                        writer.WriteBoolean(
+                            "value",
+                            scalar.Value.Boolean!.Value);
                         break;
                 }
                 break;
 
-            case VocabularyMapValue.Term term:
+            case ExplanationValue.VocabularyTerm term:
                 writer.WriteString("kind", "term");
                 writer.WriteString(
                     "catalog",
@@ -1011,11 +956,16 @@ public sealed class VocabularySnapshot
         writer.WriteEndObject();
     }
 
-    private static string Name(VocabularyScalarKind value) => value switch
+    private static bool IsAdmittedScalarKind(ExplanationScalarKind value) =>
+        value is ExplanationScalarKind.Text
+            or ExplanationScalarKind.Integer
+            or ExplanationScalarKind.Boolean;
+
+    private static string Name(ExplanationScalarKind value) => value switch
     {
-        VocabularyScalarKind.Text => "text",
-        VocabularyScalarKind.Integer => "integer",
-        VocabularyScalarKind.Boolean => "boolean",
+        ExplanationScalarKind.Text => "text",
+        ExplanationScalarKind.Integer => "integer",
+        ExplanationScalarKind.Boolean => "boolean",
         _ => throw new InvalidOperationException(
             $"Unsupported vocabulary scalar kind '{value}'."),
     };

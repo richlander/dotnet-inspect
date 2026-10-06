@@ -555,16 +555,16 @@ public class LibraryInspection
         }
     }
 
-    private LibraryFamilyRoleQueryResult? _familyRoleQueryResult;
+    private LibraryArchitecturalFamilyQueryResult? _architecturalFamilyQueryResult;
 
-    /// <summary>Typed name-family structural-role result.</summary>
+    /// <summary>Typed Architectural Families result.</summary>
     [JsonIgnore]
-    public LibraryFamilyRoleQueryResult? FamilyRoleQueryResult
+    public LibraryArchitecturalFamilyQueryResult? ArchitecturalFamilyQueryResult
     {
-        get => _familyRoleQueryResult;
+        get => _architecturalFamilyQueryResult;
         set
         {
-            _familyRoleQueryResult = value;
+            _architecturalFamilyQueryResult = value;
             ResetFindingProjectionCaches();
         }
     }
@@ -1167,13 +1167,13 @@ public class LibraryInspection
                         LibraryNameFamilyQuery.Definition.Name,
                         nameFamilyFailure.Error.Message));
                 }
-                if (FamilyRoleQueryResult
-                    is LibraryFamilyRoleQueryResult.Failed familyRoleFailure)
+                if (ArchitecturalFamilyQueryResult
+                    is LibraryArchitecturalFamilyQueryResult.Failed architecturalFamilyFailure)
                 {
                     failures.Add(new LibraryInspectionFailureJson(
-                        SectionNames.NameFamilyRoles,
-                        LibraryFamilyRoleQuery.Definition.Name,
-                        familyRoleFailure.Error.Message));
+                        SectionNames.ArchitecturalFamilies,
+                        LibraryArchitecturalFamilyQuery.Definition.Name,
+                        architecturalFamilyFailure.Error.Message));
                 }
                 if (DependencyStructureQueryResult
                     is LibraryDependencyStructureQueryResult.Failed

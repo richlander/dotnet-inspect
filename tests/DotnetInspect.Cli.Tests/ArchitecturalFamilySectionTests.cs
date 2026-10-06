@@ -10,7 +10,7 @@ using ILInspector.Research.NameFamilyFixtures;
 namespace DotnetInspect.Cli.Tests;
 
 [Collection("Console")]
-public sealed class NameFamilyRoleSectionTests
+public sealed class ArchitecturalFamilySectionTests
 {
     private static string FixturePath =>
         typeof(CustomerValidator).Assembly.Location;
@@ -22,7 +22,7 @@ public sealed class NameFamilyRoleSectionTests
             () => LibraryCommand.ExecuteAsync(new LibraryOptions
             {
                 AssemblyName = FixturePath,
-                IncludeSections = [SectionNames.NameFamilyRoles],
+                IncludeSections = [SectionNames.ArchitecturalFamilies],
                 Markdown = true,
                 NameFamilyRowSelection =
                     RowSelectionIntent<string>.Create(
@@ -31,7 +31,7 @@ public sealed class NameFamilyRoleSectionTests
 
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
-        Assert.Contains("## Name Family Roles", result.Output);
+        Assert.Contains("## Architectural Families", result.Output);
         Assert.Contains("| `Validator` | one word | 8 |", result.Output);
         Assert.Contains("No Role", result.Output);
         Assert.Equal(
@@ -47,7 +47,7 @@ public sealed class NameFamilyRoleSectionTests
             () => LibraryCommand.ExecuteAsync(new LibraryOptions
             {
                 AssemblyName = FixturePath,
-                IncludeSections = [SectionNames.NameFamilyRoleTypes],
+                IncludeSections = [SectionNames.ArchitecturalFamilyTypes],
                 Markdown = true,
                 NameFamilyRowSelection =
                     RowSelectionIntent<string>.Create(
@@ -56,7 +56,7 @@ public sealed class NameFamilyRoleSectionTests
 
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
-        Assert.Contains("## Name Family Role Types", result.Output);
+        Assert.Contains("## Architectural Family Types", result.Output);
         Assert.Contains(
             "`ILInspector.Research.NameFamilyFixtures.Validator`",
             result.Output);
@@ -74,21 +74,21 @@ public sealed class NameFamilyRoleSectionTests
             () => LibraryCommand.ExecuteAsync(new LibraryOptions
             {
                 AssemblyName = FixturePath,
-                IncludeSections = [SectionNames.NameFamilyRoles],
+                IncludeSections = [SectionNames.ArchitecturalFamilies],
                 JsonOutput = true,
             }));
         var familyCount = await ConsoleCapture.RunAsync(
             () => LibraryCommand.ExecuteAsync(new LibraryOptions
             {
                 AssemblyName = FixturePath,
-                IncludeSections = [SectionNames.NameFamilyRoles],
+                IncludeSections = [SectionNames.ArchitecturalFamilies],
                 Count = true,
             }));
         var typeCount = await ConsoleCapture.RunAsync(
             () => LibraryCommand.ExecuteAsync(new LibraryOptions
             {
                 AssemblyName = FixturePath,
-                IncludeSections = [SectionNames.NameFamilyRoleTypes],
+                IncludeSections = [SectionNames.ArchitecturalFamilyTypes],
                 Count = true,
             }));
 
@@ -112,8 +112,8 @@ public sealed class NameFamilyRoleSectionTests
     }
 
     [Theory]
-    [InlineData(SectionNames.NameFamilyRoles, 20)]
-    [InlineData(SectionNames.NameFamilyRoleTypes, 22)]
+    [InlineData(SectionNames.ArchitecturalFamilies, 20)]
+    [InlineData(SectionNames.ArchitecturalFamilyTypes, 22)]
     public async Task MultiSectionCount_UsesQuerySpaceCount(
         string roleSection,
         int expectedCount)
@@ -138,8 +138,8 @@ public sealed class NameFamilyRoleSectionTests
     }
 
     [Theory]
-    [InlineData(SectionNames.NameFamilyRoles)]
-    [InlineData(SectionNames.NameFamilyRoleTypes)]
+    [InlineData(SectionNames.ArchitecturalFamilies)]
+    [InlineData(SectionNames.ArchitecturalFamilyTypes)]
     public async Task MultiSectionCount_AppliesSharedRowWindow(
         string roleSection)
     {
@@ -168,14 +168,14 @@ public sealed class NameFamilyRoleSectionTests
             () => LibraryCommand.ExecuteAsync(new LibraryOptions
             {
                 AssemblyName = FixturePath,
-                IncludeSections = [SectionNames.NameFamilyRoles],
+                IncludeSections = [SectionNames.ArchitecturalFamilies],
                 JsonOutput = true,
             }));
         var envelope = await ConsoleCapture.RunAsync(
             () => LibraryCommand.ExecuteAsync(new LibraryOptions
             {
                 AssemblyName = FixturePath,
-                IncludeSections = [SectionNames.NameFamilyRoles],
+                IncludeSections = [SectionNames.ArchitecturalFamilies],
                 EnvelopeOutput = true,
             }));
 
@@ -190,7 +190,7 @@ public sealed class NameFamilyRoleSectionTests
                 contentDocument.RootElement,
                 envelopeDocument.RootElement.GetProperty("content")));
         Assert.Equal(
-            "library-family-roles",
+            "architectural-families",
             envelopeDocument.RootElement
                 .GetProperty("result_kind")
                 .GetString());
@@ -207,8 +207,8 @@ public sealed class NameFamilyRoleSectionTests
                         AssemblyName = FixturePath,
                         IncludeSections =
                         [
-                            SectionNames.NameFamilyRoles,
-                            SectionNames.NameFamilyRoleTypes,
+                            SectionNames.ArchitecturalFamilies,
+                            SectionNames.ArchitecturalFamilyTypes,
                         ],
                         Markdown = true,
                     }));
@@ -236,7 +236,7 @@ public sealed class NameFamilyRoleSectionTests
                         IncludeSections =
                         [
                             SectionNames.LibraryInfo,
-                            SectionNames.NameFamilyRoleTypes,
+                            SectionNames.ArchitecturalFamilyTypes,
                         ],
                         Markdown = true,
                     }));
@@ -244,7 +244,7 @@ public sealed class NameFamilyRoleSectionTests
         Assert.Equal(0, exitCode);
         Assert.Empty(error);
         Assert.Contains("## Library Info", output);
-        Assert.Contains("## Name Family Role Types", output);
+        Assert.Contains("## Architectural Family Types", output);
         Assert.Contains(
             "`ILInspector.Research.NameFamilyFixtures.Validator`",
             output);

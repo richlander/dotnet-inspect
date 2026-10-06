@@ -27,6 +27,10 @@ on:
   schedule:
     # Daily authored-corpus regression detection, separate from certification.
     - cron: '0 9 * * *'
+    # Full Linux test coverage after the authored-corpus window.
+    - cron: '30 11 * * *'
+    # Browser, facade, and published-application breadth after the test window.
+    - cron: '0 13 * * *'
     # Weekly discovery: current packages.
     - cron: '0 9 * * 1'
 
@@ -137,6 +141,7 @@ jobs:
     # fast CLI behavior and code with real OS, filesystem, runtime-layout, or
     # external-tool boundaries.
     if: >-
+      (github.event_name == 'schedule' && github.event.schedule == '30 11 * * *') ||
       inputs.lane == 'test' ||
       inputs.lane == 'release-candidate' ||
       inputs.lane == 'all'
@@ -443,10 +448,10 @@ jobs:
 
   inspect-web:
     name: Inspect Web comprehensive
-    # Complete mutation and dual-runtime evidence runs daily and on demand.
-    # Ordinary PRs retain fast boundary coverage; direct changes to these
-    # harnesses or their owners select the same comprehensive modes in CI.
+    # Complete facade, canary, browser, and published evidence runs daily and
+    # on demand. PR CI keeps focused platform, frontend, browser, and API tests.
     if: >-
+      (github.event_name == 'schedule' && github.event.schedule == '0 13 * * *') ||
       inputs.lane == 'inspect-web' ||
       inputs.lane == 'release-candidate' ||
       inputs.lane == 'all'
@@ -483,6 +488,34 @@ jobs:
 
       - name: Test complete managed-operation bridge canary
         run: eng/test-inspect-web-managed-operation-bridge-canary.sh
+
+      - name: Typecheck generated ts-jsexport facade
+        run: eng/test-ts-jsexport-typescript.sh
+
+      - name: Install Firefox
+        working-directory: inspect-web
+        run: npx playwright install --with-deps firefox
+
+      - name: Test browser UI in Firefox
+        working-directory: inspect-web
+        run: npm run test:browser
+
+      - name: Publish browser application
+        run: >-
+          dotnet publish src/DotnetInspect.Web/DotnetInspect.Web.csproj
+          -c Release --output artifacts/inspect-web-publish
+          -p:InspectWebIncludeFrontend=true
+
+      - name: Publish Inspect Web managed API
+        run: >-
+          dotnet publish src/MsdlProxy/MsdlProxy.csproj
+          -c Release --output artifacts/inspect-web-publish/api
+
+      - name: Verify published site artifact
+        run: eng/verify-inspect-web-site-artifact.sh artifacts/inspect-web-publish
+
+      - name: Test published browser application
+        run: eng/test-inspect-web-published-application.sh
 
   census:
     name: Census lane
