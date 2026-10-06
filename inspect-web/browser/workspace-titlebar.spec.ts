@@ -533,11 +533,9 @@ test("the narrow return control integrates with Metadata and Source frames", asy
   await expect(page.locator(".package-dependencies-surface-head h1"))
     .toHaveText("Dependencies");
   await expect(page.locator(
-    ".package-dependencies-controls #package-version")).toBeVisible();
+    ".package-dependencies-controls #package-version")).toHaveCount(0);
   await expect(page.locator(
     ".package-dependencies-controls #framework")).toHaveCount(0);
-  await expect(page.locator('[data-package-framework="net10.0"]'))
-    .toHaveAttribute("aria-current", "page");
   const packageDependenciesFooter = await box(
     page,
     ".package-dependencies-surface-footer");
@@ -653,21 +651,17 @@ for (const [subject, width] of [
           summary.y + summary.height);
       }
       await expect(page.locator(".package-overview-resources")).toContainText(
-        "Comparison targets");
-      await expect(page.locator(".package-overview-resources")).toContainText(
-        "Documentation");
-      await expect(page.locator(
-        ".package-overview-resources .section-title h2")).toHaveText([
-          "Comparison targets",
-          "Documentation",
-        ]);
+        "Target frameworks");
+      await expect(page.locator(".package-overview-summary")).toContainText("Documentation");
+      await expect(page.locator(".package-overview-resources .section-title h2"))
+        .toHaveText("Target frameworks");
       if (width === 390) {
         await page.getByRole(
           "button",
-          { name: "Frameworks", exact: true }).click();
+          { name: "Versions", exact: true }).click();
       }
-      await page.getByRole("combobox", { name: "Version", exact: true }).selectOption("9.0.0");
-      await expect(page.locator("#package-version")).toHaveValue("9.0.0");
+      await page.locator('[data-package-version="9.0.0"]').focus();
+      await expect(page.locator('[data-package-version="9.0.0"]')).toBeFocused();
       if (width === 390) {
         await page.getByRole(
           "button",
@@ -731,8 +725,8 @@ for (const [subject, width] of [
         expect(toggle.y + toggle.height)
           .toBeLessThanOrEqual(header.y + header.height);
       }
-      await page.getByRole("button", { name: subject === "package" ? "Frameworks" : "Libraries", exact: true }).click();
-      await expect(page.locator(subject === "package" ? ".package-framework-list" : ".type-list")).toBeFocused();
+      await page.getByRole("button", { name: subject === "package" ? "Versions" : "Libraries", exact: true }).click();
+      await expect(page.locator(subject === "package" ? "#package-version-list" : ".type-list")).toBeFocused();
       await expect(page.locator(".detail-pane")).toBeHidden();
     }
   });
@@ -799,7 +793,7 @@ test("Package Overview resources retain focus across allocation changes", async 
   const resources = await box(page, ".package-overview-resources");
   expect(resources.y).toBeGreaterThanOrEqual(summary.y + summary.height);
 
-  const diffTarget = page.locator("#package-diff-target");
+  const diffTarget = page.locator('[data-package-framework="net10.0"]');
   await diffTarget.focus();
   await page.setViewportSize({ width: 1440, height: 900 });
   await expect(diffTarget).toBeFocused();
@@ -2021,7 +2015,7 @@ test("the inspected target occupies the second row and package selectors stay in
   );
   await expect(page.locator(".titlebar #package-version")).toHaveCount(0);
   await expect(page.locator(".titlebar #framework")).toHaveCount(0);
-  await expect(page.locator(".detail-scroll #package-version")).toBeVisible();
+  await expect(page.locator(".package-version-nav [data-package-version]")).toHaveCount(2);
   await expect(page.locator(".detail-scroll #framework")).toHaveCount(0);
   await expect(page.locator('[data-package-framework="net10.0"]'))
     .toHaveAttribute("aria-current", "page");

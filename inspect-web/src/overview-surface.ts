@@ -33,7 +33,7 @@ function renderOverviewEnablements(
 export interface PackageOverviewContentOptions {
   packageInfoHtml: string;
   packageChildrenHtml: string;
-  comparisonHtml: string;
+  frameworksHtml: string;
   documentsHtml: string;
 }
 
@@ -49,10 +49,10 @@ export function renderPackageOverviewContent(
     <div class="package-overview-summary">
       ${options.packageInfoHtml}
       ${options.packageChildrenHtml}
+      ${options.documentsHtml}
     </div>
     <aside class="package-overview-resources" aria-label="Package resources">
-      ${options.comparisonHtml}
-      ${options.documentsHtml}
+      ${options.frameworksHtml}
     </aside>
   </div>`;
 }
@@ -95,7 +95,7 @@ export function renderOverviewSurface(
       <header class="overview-identity">
         ${iconHtml}
         <div class="overview-identity-text">
-          <p class="overview-subject-label">${escapeHtml(subjectLabel)}</p>
+          ${subject === "package" ? "" : `<p class="overview-subject-label">${escapeHtml(subjectLabel)}</p>`}
           <h1 id="${subject}-overview-title">${escapeHtml(displayName)}</h1>
           ${details.map(detail => `<p class="overview-identity-detail">${escapeHtml(detail)}</p>`).join("")}
           ${renderOverviewEnablements(enablements, escapeHtml)}
