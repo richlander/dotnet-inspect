@@ -563,21 +563,23 @@ public sealed class PackageRoleMemberCallGraphQueryTests
             PackageAssemblyContextRoleProjection role =
                 projection.ImplementationRole
                 ?? projection.SurfaceRole;
+            Assert.NotNull(
+                available.IntrinsicCoreLibraryIneligibility);
+            PackageIntrinsicCoreLibraryIneligibilityReceipt
+                coreLibraryIneligibility =
+                    available.IntrinsicCoreLibraryIneligibility;
             Assert.Same(
                 role.GroupIdentity,
-                available.IntrinsicCoreLibraryIneligibility.Group);
+                coreLibraryIneligibility.Group);
             Assert.Same(
                 role.Use(group => group.BindingPolicyVersion),
-                available.IntrinsicCoreLibraryIneligibility
-                    .BindingPolicyVersion);
+                coreLibraryIneligibility.BindingPolicyVersion);
             Assert.Equal(
                 role.Participants.Length,
-                available.IntrinsicCoreLibraryIneligibility
-                    .Participants.Length);
+                coreLibraryIneligibility.Participants.Length);
             Assert.All(
                 role.Participants.Zip(
-                    available.IntrinsicCoreLibraryIneligibility
-                        .Participants),
+                    coreLibraryIneligibility.Participants),
                 pair =>
                 {
                     Assert.Same(
@@ -596,7 +598,7 @@ public sealed class PackageRoleMemberCallGraphQueryTests
             return (
                 available.Document,
                 available.NodePackages,
-                available.IntrinsicCoreLibraryIneligibility,
+                coreLibraryIneligibility,
                 available.IntrinsicCoreLibraryOccurrences);
         }
         finally

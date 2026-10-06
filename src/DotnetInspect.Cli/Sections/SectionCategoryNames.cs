@@ -37,11 +37,6 @@ public static class SectionCategoryNames
     public const string Project = "@Project";
 
     /// <summary>
-    /// Product-owned query vocabularies. This is the vocabulary command's base category.
-    /// </summary>
-    public const string Vocabulary = "@Vocabulary";
-
-    /// <summary>
     /// Product-configured knowledge available on the selected ecosystem route.
     /// This is the ecosystem command's base category.
     /// </summary>
@@ -58,9 +53,6 @@ public static class SectionCategoryNames
     /// <c>package query</c> command's base category.
     /// </summary>
     public const string Query = "@Query";
-
-    /// <summary>Vocabularies consumed by API type and member queries.</summary>
-    public const string Api = "@API";
 
     /// <summary>
     /// Safety, provenance, integrity, and vulnerability evidence at package, library, type, or
@@ -115,11 +107,11 @@ public static class SectionCategoryNames
     public const string Integrations = "@Integrations";
 
     /// <summary>
-    /// Package file listings scoped to a layout root or document kind. This is a package base
-    /// category alongside <see cref="Package"/>. Its members are the
-    /// <c>Package &lt;X&gt; file(s)</c> members. The plain <c>Package files</c> section is the
-    /// whole-package listing rather than a subset, so it is deliberately not a member;
-    /// including it would render most rows twice.
+    /// Package file sections scoped to one document kind: <c>Nuspec</c>, <c>README</c>,
+    /// <c>Licenses</c>, and <c>Skills</c>. This is a package base category alongside
+    /// <see cref="Package"/>. The plain <c>Files</c> section is the whole-package listing
+    /// rather than a subset, so it is deliberately not a member; including it would render
+    /// most rows twice.
     /// </summary>
     public const string Files = "@Files";
 

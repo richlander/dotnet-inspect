@@ -175,6 +175,7 @@ import {
   bindPackageDependencyList,
   bindPackageView,
   renderPackageNav,
+  packageNavigationVersions,
   type PackageViewBindingActions,
 } from "./package-view.ts";
 import {
@@ -322,7 +323,13 @@ import {
   type PlatformStackEntry,
 } from "./call-graph-inspection.ts";
 import {
+  bindDirectUseClusterInspection,
+  createDirectUseClusterInspectionController,
+  renderDirectUseClusterInspection,
+} from "./direct-use-cluster-inspection.ts";
+import {
   createDocumentInspectionCoordinator,
+  createPackageDocumentTitles,
   documentViewerIsOpen,
   normalizeDocumentViewerSnapshot,
   type DocumentViewerState,
@@ -333,18 +340,22 @@ import {
   renderPackageOverviewContent,
 } from "./overview-surface.ts";
 import { renderPackageInfo } from "./package-info.ts";
+import { renderPackageVulnerabilities } from "./package-vulnerabilities.ts";
 import { renderLibraryReferencesSurface } from "./library-references.ts";
 import { renderLibraryIntegrationsSurface } from "./library-integrations.ts";
 import {
   bindAnalysisTabs,
+  defaultAnalysisMode,
   isAnalysisMode,
   restoreAnalysisTabFocus,
-  type AnalysisMode,
 } from "./analysis-inspector.ts";
 import { renderLibraryAnalysisSurface } from "./library-analysis.ts";
 import {
   bindLibraryMetricsInteractions,
+  renderLibraryDependencyStructureSurface,
   renderLibraryMetricsSurface,
+  type LibraryAnalysisOptions,
+  type LibraryDependencyStructureState,
   type LibraryMetricsMode,
   type LibraryMetricsRelationshipState,
 } from "./library-metrics.ts";
@@ -356,6 +367,7 @@ import {
 } from "./member-focus.ts";
 import {
   buildAnnotatedRelationshipGraphMermaid,
+  buildAssemblyReferenceGraphMermaid,
   buildDependencyGraphMermaid,
   buildTypeGraphMermaid,
   resolveMermaidCssVariables,
@@ -457,7 +469,6 @@ import {
 } from "./annotated-source.ts";
 import {
   bindPackageOpportunities,
-  renderPackageOpportunities as renderPackageOpportunitiesPure,
 } from "./package-opportunities.ts";
 import {
   bindContentFrame,
@@ -536,9 +547,8 @@ import {
   type ProductDestination,
 } from "./brand.ts";
 import {
-  isExactPlatformPruningFramework,
   loadPlatformIndex, parsePlatformCatalogTarget,
-  platformCatalogFramework, requirePlatformPackageSupplies,
+  platformCatalogFramework,
   type PlatformAssemblyRow, type PlatformIndex, type PlatformCatalogTarget,
 } from "./platform-index.ts";
 import {
@@ -602,6 +612,7 @@ import {
   bindLibraryApiDiffRows,
   createLibraryApiDiffCoordinator,
   libraryApiDiffPresence,
+  libraryApiDiffDataBarResult,
   libraryApiDiffMemberExploreContext,
   renderLibraryApiDiff,
   type LibraryApiDiffMemberExploreContext,
@@ -626,7 +637,7 @@ import {
   type CompareCloneSelection,
   type CompareCloneState,
 } from "./compare-clone.ts";
-import { dataBarHtml, fmtBytes } from "./data-bar.ts";
+import { createDataBarFeedback, dataBarHtml, fmtBytes } from "./data-bar.ts";
 import {
   DIAGNOSTICS_PATH,
   diagnosticsHistoryState,
@@ -773,8 +784,8 @@ import type {
   BrowserPackageCacheStats,
   BrowserPackageDependencies,
   BrowserPackageDependencyGroup,
-  BrowserPackagePruningResult,
   BrowserPackageSurface,
+  BrowserPackageVulnerabilityResult,
   BrowserPlatformForwarderRow,
   BrowserPlatformForwarderView,
   BrowserExactLibraryApiInspection,
@@ -801,6 +812,7 @@ import type {
 } from "./facades/inspect-web-analysis.d.ts";
 import {
   createTypeLeverageCoordinator,
+  typeLeverageFeedback,
 } from "./type-leverage.ts";
 import type {
   BrowserMemberSource,
@@ -856,8 +868,8 @@ let inspectLibraryDocument: EngineClient["library"]["inspectLibrary"];
 let inspectLibraryApi: EngineClient["package"]["queryLibraryApi"];
 let inspectPackageDependencies:
   EngineClient["package"]["queryPackageDependencies"];
-let inspectPackagePruning:
-  EngineClient["package"]["queryPackagePruning"];
+let inspectPackageVulnerabilities:
+  EngineClient["package"]["queryPackageVulnerabilities"];
 let inspectPackageVersions: EngineClient["package"]["queryPackageVersions"];
 let resolveDependencyVersion:
   EngineClient["package"]["resolvePackageDependencyVersion"];
@@ -967,6 +979,8 @@ let inspectExpandPlatformCallGraph:
   EngineClient["callGraph"]["expandPlatformCallGraph"];
 let inspectMemberCallGraph:
   EngineClient["callGraph"]["queryMemberCallGraph"];
+let inspectDirectUseClusters:
+  EngineClient["callGraph"]["queryDirectUseClusters"];
 let inspectDecodeWorkspaceShareState:
   EngineClient["catalog"]["decodeWorkspaceShareState"];
 let inspectEncodeWorkspaceShareState:
@@ -989,6 +1003,7 @@ async function loadEngineModule() {
       await worker.ready;
       return;
     }
+
     worker = workerModule.createProductionEngineWorkerClient(origin, {
       callbacks: {
         failure: failure => {
@@ -1068,7 +1083,7 @@ async function loadEngineModule() {
       queryPackageRoot: inspectPackageRoot,
       queryPackageSummary: inspectPackageSummary,
       queryPackageDependencies: inspectPackageDependencies,
-      queryPackagePruning: inspectPackagePruning,
+      queryPackageVulnerabilities: inspectPackageVulnerabilities,
       queryPackageVersions: inspectPackageVersions,
       resolvePackageDependencyVersion: resolveDependencyVersion,
       runPackageActivity: inspectRunPackageActivity,
@@ -1153,6 +1168,7 @@ async function loadEngineModule() {
     } = engineClient.source);
     ({
       expandPlatformCallGraph: inspectExpandPlatformCallGraph,
+      queryDirectUseClusters: inspectDirectUseClusters,
       queryMemberCallGraph: inspectMemberCallGraph,
     } = engineClient.callGraph);
     ({
@@ -1430,11 +1446,10 @@ const initialState = {
   packageDependenciesLoading: false,
   packageDependenciesError: "",
   packageDependenciesKey: "",
-  packagePruning: null,
-  packagePruningLoading: false,
-  packagePruningError: "",
-  packagePruningKey: "",
-  packagePruningFamily: "Microsoft.NETCore.App",
+  packageVulnerabilities: null,
+  packageVulnerabilitiesLoading: false,
+  packageVulnerabilitiesError: "",
+  packageVulnerabilitiesKey: "",
   dependenciesGroupIndex: null,
   workspaceDependencies: {},
   workspaceDependencyErrors: {},
@@ -1457,6 +1472,12 @@ const initialState = {
   packageLibraryMetricsKey: "",
   packageLibraryMetricsRelationshipState:
     null as LibraryMetricsRelationshipState | null,
+  packageLibraryDependencyStructureState: {
+    includeGlobalNamespace: false,
+    selectedSourceNamespace: null,
+    selectedTargetNamespace: null,
+  } as LibraryDependencyStructureState,
+  packageLibraryDependencyStructureStateKey: "",
   packageLibraryDependencyStructure: null,
   packageLibraryDependencyStructureLoading: false,
   packageLibraryDependencyStructureError: "",
@@ -1472,6 +1493,12 @@ const initialState = {
   memberCallGraphError: "",
   graphMemberNavigationError: "",
   memberCallGraphKey: "",
+  directUseClusterGraphKey: "",
+  directUseClusterBoundary: null,
+  directUseClusterResult: null,
+  directUseClusterLoading: false,
+  directUseClusterError: "",
+  directUseClusterSeq: 0,
   callGraphTraversalFramework: "net12.0",
   memberCallGraphExpanding: false,
   memberCallGraphSeq: 0,
@@ -1502,7 +1529,7 @@ const initialState = {
   libraryApiDiff: { status: "idle" as const },
   compareClone: { status: "idle" as const } as CompareCloneState,
   compareCloneSelectedRank: null as number | null,
-  analysisMode: "performance" as AnalysisMode,
+  analysisMode: defaultAnalysisMode,
   workspaceOccurrences: null,
   workspaceOccurrenceSignature: "",
   workspaceOccurrenceLoading: false,
@@ -1604,7 +1631,7 @@ interface StateOverrides {
   libraryEnablements: Map<string, BrowserLibraryEnablements | null>;
   libraryEnablementLoads: Set<string>;
   packageDependencies: BrowserPackageDependencies | null;
-  packagePruning: BrowserPackagePruningResult | null;
+  packageVulnerabilities: BrowserPackageVulnerabilityResult | null;
   dependenciesGroupIndex: number | null;
   workspaceDependencies: Record<string, DependencyGroupData>;
   workspaceDependencyErrors: Record<string, string>;
@@ -1615,6 +1642,11 @@ interface StateOverrides {
   packageMetadata: PackageMetadata | null;
   explorer: AppExplorerState | null;
   memberCallGraph: InspectedCallGraph | null;
+  directUseClusterBoundary:
+    import("./call-graph-inspection.ts").InspectedCallGraphBoundary | null;
+  directUseClusterResult:
+    import("./facades/inspect-web-call-graph.d.ts").BrowserDirectUseClusterInspection
+    | null;
   pendingGraphMemberDeepLink: PendingGraphMemberDeepLink | null;
   platformStack: PlatformStackEntry[];
   memberFacts: MemberFacts | null;
@@ -1884,7 +1916,8 @@ function normalizeWorkspaceAsyncSnapshotState(
   const memberAnnotatedLoading = snapshotState.memberAnnotatedLoading;
   const typeMetadataLoading = snapshotState.typeMetadataLoading;
   const packageDependenciesLoading = snapshotState.packageDependenciesLoading;
-  const packagePruningLoading = snapshotState.packagePruningLoading;
+  const packageVulnerabilitiesLoading =
+    snapshotState.packageVulnerabilitiesLoading;
   const packageIntegrationsLoading = snapshotState.packageIntegrationsLoading;
   const packageOpportunitiesLoading = snapshotState.packageOpportunitiesLoading;
   const packagePerformanceLoading = snapshotState.packagePerformanceLoading;
@@ -1901,13 +1934,14 @@ function normalizeWorkspaceAsyncSnapshotState(
   snapshotState.memberAnnotatedLoading = false;
   snapshotState.typeMetadataLoading = false;
   snapshotState.packageDependenciesLoading = false;
-  snapshotState.packagePruningLoading = false;
+  snapshotState.packageVulnerabilitiesLoading = false;
   snapshotState.packageIntegrationsLoading = false;
   snapshotState.packageOpportunitiesLoading = false;
   snapshotState.packagePerformanceLoading = false;
   snapshotState.packageMetadataLoading = false;
   snapshotState.memberCallGraphLoading = false;
   snapshotState.memberCallGraphExpanding = false;
+  snapshotState.directUseClusterLoading = false;
   snapshotState.platformDrillLoading = false;
   snapshotState.memberFactsLoading = false;
   snapshotState.memberDocumentationLoading = false;
@@ -1942,12 +1976,15 @@ function normalizeWorkspaceAsyncSnapshotState(
   snapshotState.workspaceDependencyLoads = new Set();
   snapshotState.typeMetadataGeneration++;
   snapshotState.memberCallGraphSeq++;
+  snapshotState.directUseClusterSeq++;
   snapshotState.graphMemberNavigationSeq++;
 
   if (memberAnnotatedLoading) snapshotState.memberAnnotatedKey = "";
   if (typeMetadataLoading) snapshotState.typeMetadataKey = "";
   if (packageDependenciesLoading) snapshotState.packageDependenciesKey = "";
-  if (packagePruningLoading) snapshotState.packagePruningKey = "";
+  if (packageVulnerabilitiesLoading) {
+    snapshotState.packageVulnerabilitiesKey = "";
+  }
   if (packageIntegrationsLoading) snapshotState.packageIntegrationsKey = "";
   if (packageOpportunitiesLoading) snapshotState.packageOpportunitiesKey = "";
   if (packagePerformanceLoading) snapshotState.packagePerformanceKey = "";
@@ -1981,6 +2018,7 @@ function restoreCanonicalWorkspaceRestoreSnapshot(
 ) {
   const typeMetadataGeneration = state.typeMetadataGeneration;
   const memberCallGraphSeq = state.memberCallGraphSeq;
+  const directUseClusterSeq = state.directUseClusterSeq;
   const graphMemberNavigationSeq = state.graphMemberNavigationSeq;
   const platformIndex = state.platformIndex ?? snapshot.state.platformIndex;
   clearWorkspaceOccurrenceView();
@@ -1990,6 +2028,8 @@ function restoreCanonicalWorkspaceRestoreSnapshot(
     Math.max(typeMetadataGeneration, snapshot.state.typeMetadataGeneration) + 1;
   state.memberCallGraphSeq =
     Math.max(memberCallGraphSeq, snapshot.state.memberCallGraphSeq) + 1;
+  state.directUseClusterSeq =
+    Math.max(directUseClusterSeq, snapshot.state.directUseClusterSeq) + 1;
   state.graphMemberNavigationSeq =
     Math.max(graphMemberNavigationSeq, snapshot.state.graphMemberNavigationSeq) + 1;
   state.platformIndex = platformIndex;
@@ -2073,6 +2113,7 @@ function invalidateWorkspaceAsyncOwners(): void {
   memberDetailInspection.invalidate();
   invalidateGraphMemberNavigation();
   invalidateMemberCallGraphWork(state);
+  directUseClusterInspection.reset();
   packageInspection.invalidatePackageResults();
   clearWorkspaceOccurrenceView();
 }
@@ -3415,6 +3456,17 @@ const typeAnalysisWorkspaceGenerations =
   new WeakMap<AppPackage, string>();
 const typeLeverageWorkspaceGenerations =
   new WeakMap<AppPackage, string>();
+const dataBarFeedback = createDataBarFeedback();
+const typeLeverageFeedbackTickets = new Map<string, number>();
+
+function dataBarViewKey(): string {
+  return JSON.stringify([
+    location.pathname,
+    viewSignature(),
+    state.typeExplorerOpen,
+  ]);
+}
+
 const typeLeverage = createTypeLeverageCoordinator<TypeLeverageTarget>({
   operationAuthority,
   key: target => target.key,
@@ -3428,15 +3480,33 @@ const typeLeverage = createTypeLeverageCoordinator<TypeLeverageTarget>({
     return undefined;
   },
   publish: published => {
+    const generation = dataBarFeedback.synchronize(dataBarViewKey());
     switch (published.status) {
       case "loading":
         state.typeLeverageErrors.delete(published.key);
+        typeLeverageFeedbackTickets.set(published.key, generation);
+        dataBarFeedback.publish(published.key, generation, null);
         break;
       case "ready":
         state.typeLeverageErrors.delete(published.key);
+        dataBarFeedback.publish(
+          published.key,
+          typeLeverageFeedbackTickets.get(published.key) ?? -1,
+          typeLeverageFeedback(published.presentation),
+        );
+        typeLeverageFeedbackTickets.delete(published.key);
         break;
       case "failed":
         state.typeLeverageErrors.set(published.key, published.message);
+        dataBarFeedback.publish(
+          published.key,
+          typeLeverageFeedbackTickets.get(published.key) ?? -1,
+          {
+            message: `Structural salience is unavailable: ${published.message}`,
+            retry: "type-leverage",
+          },
+        );
+        typeLeverageFeedbackTickets.delete(published.key);
         break;
     }
     renderPreservingMemberFocus();
@@ -3885,6 +3955,22 @@ const callGraphInspection = createCallGraphInspectionCoordinator({
     await renderMermaidCallGraph();
   },
 });
+const directUseClusterInspection =
+  createDirectUseClusterInspectionController({
+    state,
+    query: request => inspectDirectUseClusters(
+      request.sourcePackageId,
+      request.sourceVersion,
+      request.sourceFramework,
+      request.sourceAssembly,
+      request.targetPackageId,
+      request.targetVersion,
+      request.targetFramework,
+      request.targetAssembly,
+      request.selectedCluster),
+    describeError: errorMessage,
+    render,
+  });
 const documentInspection = createDocumentInspectionCoordinator({
   state,
   queryDocument: request => inspectPackageDocument(
@@ -3896,6 +3982,37 @@ const documentInspection = createDocumentInspectionCoordinator({
   describeError: errorMessage,
   render,
 });
+
+const packageDocumentTitles = createPackageDocumentTitles({
+  queryDocument: request => inspectPackageDocument(request.packageId, request.version, request.document.path),
+  renderMarkdown,
+  firstHeading: html => {
+    const template = document.createElement("template");
+    template.innerHTML = html;
+    return template.content.querySelector("h1")?.textContent?.trim() || null;
+  },
+  describeError: errorMessage,
+  render,
+});
+let packageDocumentationScheduled = false;
+function schedulePackageDocumentTitles() {
+  const pkg = state.package;
+  if (packageDocumentationScheduled || !pkg
+    || !document.querySelector(".package-document-list")
+    || !pkg.documents.some(doc => !packageDocumentTitles.get(pkg, doc.path))) return;
+  packageDocumentationScheduled = true;
+  requestAnimationFrame(() => setTimeout(() => {
+    packageDocumentationScheduled = false;
+    if (state.package !== pkg) {
+      schedulePackageDocumentTitles();
+      return;
+    }
+    if (!document.querySelector(".package-document-list")) return;
+    observeAsync(packageDocumentTitles.load(pkg, pkg.documents.map(document => ({
+      packageId: pkg.id, version: pkg.version, document,
+    }))), "Reading package documentation titles");
+  }, 0));
+}
 
 function captureView(): WorkspaceView | null {
   if (!state.package && !state.platformSelection) return null;
@@ -4699,6 +4816,8 @@ const loadMarkdownModules =
   retainSuccessfulImport<[MarkedModule, DomPurifyModule]>(
     () => Promise.all([import("marked"), import("dompurify")]));
 const depGraphRenderSequence = createDependencyGraphRenderSequence();
+const libraryReferenceGraphRenderSequence =
+  createDependencyGraphRenderSequence();
 let mermaidRenderSequence = 0;
 let callGraphRenderSeq = 0;
 type CallGraphRenderResult =
@@ -5180,7 +5299,13 @@ const packageControls = createPackageControls({
         source === "legacy" ? "framework" : "package-framework"),
       "Switching the package framework");
   },
+  retryVersionInventory: () => {
+    const pkg = currentPackage();
+    catalogRequests.forgetPackage(pkg);
+    observeAsync(ensurePackageVersions(pkg), "Loading package versions");
+  },
   selectVersion: version => {
+    if (contentFrameUsesPush()) contentFramePane = "detail";
     if (state.package?.isRuntimePack)
       observeAsync(
         switchPlatformVersion(version),
@@ -5255,9 +5380,10 @@ function createTypeLeverageTarget(
     const row = platformLibraryForRequest(pkg, library.id);
     const assemblyFileName = platformAssemblyRequest(row);
     const salienceLibraryKey = JSON.stringify([
-      "library-structural-salience",
+      "library-type-leverage",
+      2,
       "structural-salience.v3",
-      "signature",
+      "signature+body-use",
       generation,
       "platform",
       pkg.activeFramework,
@@ -5280,9 +5406,10 @@ function createTypeLeverageTarget(
   }
 
   const salienceLibraryKey = JSON.stringify([
-    "library-structural-salience",
+    "library-type-leverage",
+    2,
     "structural-salience.v3",
-    "signature",
+    "signature+body-use",
     generation,
     "package",
     pkg.id,
@@ -5375,6 +5502,11 @@ function loadTypeLeverage(retry = false) {
   try {
     const targets = createCurrentTypeLeverageTargets();
     state.typeLeverageSetupError = "";
+    dataBarFeedback.publish(
+      "type-leverage-setup",
+      dataBarFeedback.synchronize(dataBarViewKey()),
+      null,
+    );
     for (const target of targets) {
       state.typeLeverageErrors.delete(target.key);
       if (retry) typeLeverage.retry(target);
@@ -5382,6 +5514,14 @@ function loadTypeLeverage(retry = false) {
     }
   } catch (error) {
     state.typeLeverageSetupError = errorMessage(error);
+    dataBarFeedback.publish(
+      "type-leverage-setup",
+      dataBarFeedback.synchronize(dataBarViewKey()),
+      {
+        message: `Structural salience is unavailable: ${state.typeLeverageSetupError}`,
+        retry: "type-leverage",
+      },
+    );
     renderPreservingMemberFocus();
   } finally {
     typeLeverageBatchLoading = false;
@@ -6108,7 +6248,7 @@ function clearWorkspacePackages() {
   state.platformPresentedAsRoot = false;
   state.platformSlot = -1;
   state.rootKind = "package";
-  state.analysisMode = "performance";
+  state.analysisMode = defaultAnalysisMode;
   for (const packageModel of discarded) {
     packageModel.platformContextId = null;
     releasePackageModelCaches(packageModel);
@@ -6437,42 +6577,6 @@ function typeAccessibilityIncludesForwarders() {
   const selected = selectedTypeAccessibility();
   return !selected || accessibilityBuckets().some(
     descriptor => descriptor.id === selected && descriptor.isDefault);
-}
-
-function typeLeverageStatus() {
-  const failures = [
-    ...(state.typeLeverageSetupError
-      ? [state.typeLeverageSetupError]
-      : []),
-    ...currentTypeLeverageTargets().flatMap(target => {
-      const error = state.typeLeverageErrors.get(target.key);
-      return error ? [error] : [];
-    }),
-  ];
-  if (failures.length > 0) {
-    return `<div class="metadata-warning" aria-live="polite">
-      <small>Structural salience is unavailable: ${failures.map(escapeHtml).join("<br>")}</small>
-      <button type="button" class="tiny-button" data-type-leverage-retry>Retry</button>
-    </div>`;
-  }
-  const qualified = currentTypeLeveragePresentations().filter(
-    ({ presentation }) =>
-      presentation.disposition.toLowerCase() !== "complete"
-      || presentation.diagnostics.length > 0,
-  );
-  if (qualified.length === 0) return "";
-  const diagnostics = qualified.flatMap(
-    ({ presentation }) => presentation.diagnostics);
-  const examined = qualified.reduce(
-    (sum, { presentation }) => sum + presentation.coverage.examined,
-    0);
-  const considered = qualified.reduce(
-    (sum, { presentation }) => sum + presentation.coverage.considered,
-    0);
-  return `<div class="metadata-warning" aria-live="polite">
-    <small>Structural salience has qualified evidence · ${examined}/${considered} examined${diagnostics.length ? `<br>${diagnostics.map(escapeHtml).join("<br>")}` : ""}</small>
-    <button type="button" class="tiny-button" data-type-leverage-retry>Retry</button>
-  </div>`;
 }
 
 function typeFilterSummary() {
@@ -7123,10 +7227,14 @@ function selectScopeLensByIndex(index: number, workspaceScope: WorkspaceScope): 
   }
 }
 
-// The resident runtime pseudo-package has no NuGet package dependency graph.
+// The resident runtime pseudo-package has no NuGet package evidence. Uploaded
+// packages have no GitHub-to-source authority correspondence.
 function packageLensesFor(pkg: AppPackage | null) {
-  if (!pkg?.isRuntimePack) return packageLenses;
-  return packageLenses.filter(([id]) => id === "overview");
+  return packageLenses.filter(([id]) => {
+    if (pkg?.isRuntimePack) return id === "overview";
+    if (id === "vulnerabilities") return pkg?.source.kind === "nuget.org";
+    return true;
+  });
 }
 
 function libraryLensesFor(pkg: AppPackage | null) {
@@ -7608,6 +7716,15 @@ function renderLibraryDiffTools(subject: CompareSubject): string {
   </div>`;
 }
 
+function currentDataBarResult() {
+  const subject = currentCompareSubject();
+  if (subject?.kind !== "library" || currentCompareMode() !== "diff") return null;
+  return libraryApiDiffDataBarResult(
+    state.libraryApiDiff,
+    currentLibraryApiDiffSelection(),
+  );
+}
+
 function renderCompareSurface(): string {
   const subject = currentCompareSubject();
   if (!subject) return "";
@@ -7631,6 +7748,7 @@ function renderCompareSurface(): string {
   );
   return renderLibraryApiDiff(state.libraryApiDiff, escapeHtml, {
     ...options,
+    resultSummaryInDataBar: currentDataBarResult() !== null,
     subjectLabel,
     targetText,
     ...(subject.kind === "library"
@@ -8385,13 +8503,12 @@ function stepPackageFrameworkFocus(
   eventTarget: EventTarget | null,
 ) {
   const target = eventTarget instanceof Element ? eventTarget : null;
-  const list = target?.closest<HTMLElement>('[data-nav-scope="frameworks"]');
+  const list = target?.closest<HTMLElement>('[data-nav-scope="frameworks"], [data-nav-scope="versions"]');
   if (!list) return false;
-  const rows = [
-    ...list.querySelectorAll<HTMLElement>("[data-package-framework]"),
-  ];
+  const rows = [...list.querySelectorAll<HTMLElement>(
+    "[data-package-framework], [data-package-version]")].filter(row => !row.hidden);
   if (!rows.length) return true;
-  const focused = target?.closest<HTMLElement>("[data-package-framework]");
+  const focused = target?.closest<HTMLElement>("[data-package-framework], [data-package-version]");
   const focusedIndex = focused ? rows.indexOf(focused) : -1;
   const activeIndex = rows.findIndex(
     row => row.getAttribute("aria-current") === "page");
@@ -8665,12 +8782,14 @@ function settingsOwnsHomeFocusTarget(target: HomeFocusTarget | null): boolean {
 }
 
 function render(options: { synchronizeUrl?: boolean } = {}) {
+  dataBarFeedback.synchronize(dataBarViewKey());
   productNavigationBinding.beforeRender();
   try {
     renderCore(options);
   } finally {
     productNavigationBinding.afterRender();
     memberListRevealer.afterRender(document);
+    schedulePackageDocumentTitles();
     scheduleTypeHeat();
     scheduleTypeMethodLeverage();
     memberDiffExplorer.afterRender(
@@ -8722,13 +8841,20 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
     ? focusedElement?.dataset.packageLoadingControl
     : packageFrameworkHadFocus
       ? "package-framework"
-      : focusedElement?.id;
+      : focusedElement?.dataset.packageVersion !== undefined
+        || (scope() === "package" && focusedElement?.id === "content-navigation-toggle")
+        ? "package-version"
+        : focusedElement?.id;
   const packageLoadingFramework = packageLoadingHadFocus
     ? focusedElement?.dataset.packageLoadingFramework
     : focusedElement?.dataset.packageFramework;
-  const packageControlHadFocus = packageLoadingControl === "framework"
+  const packageLoadingFocusControl: PackageLoadingFocusControl | null =
+    packageLoadingControl === "framework"
     || packageLoadingControl === "package-framework"
-    || packageLoadingControl === "package-version";
+    || packageLoadingControl === "package-version"
+      ? packageLoadingControl
+      : null;
+  const packageControlHadFocus = packageLoadingFocusControl !== null;
   const packageRetryHadFocus = loadingPackageContent
     && focusedElement?.id === "retry-notice";
   const homeFocus =
@@ -9011,10 +9137,13 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
     activeScope === "type" && state.lens === "metadata";
   const overviewWorkingSurface =
     (activeScope === "package" && state.packageLens === "overview")
+    || (activeScope === "package" && state.packageLens === "compare")
     || (activeScope === "library" && state.libraryLens === "overview")
     || (activeScope === "type" && forwarder !== null);
   const packageDependenciesWorkingSurface =
     activeScope === "package" && state.packageLens === "dependencies";
+  const packageVulnerabilitiesWorkingSurface =
+    activeScope === "package" && state.packageLens === "vulnerabilities";
   const libraryMetadataWorkingSurface =
     activeScope === "library" && state.libraryLens === "metadata";
   const compareWorkingSurface = currentCompareSubject() !== null;
@@ -9042,7 +9171,7 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
   const contentFrameEnabled = activeScope !== "workspace";
   const contentNavigationLabel =
     activeScope === "package"
-      ? "Frameworks"
+      ? "Frameworks & versions"
       : activeScope === "library" && state.rootKind === "library"
         ? "Types"
       : activeScope === "library" && state.rootKind !== "platform"
@@ -9134,7 +9263,7 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
           ${contentFrameEnabled
             ? renderContentNavigationBar(contentNavigationLabel)
             : ""}
-          <article id="inspector-panel" ${loadingPackageContent ? 'aria-busy="true"' : ""} class="detail-scroll${sourceWorkingSurface ? " source-working-surface" : ""}${apiWorkingSurface ? " api-working-surface" : ""}${metadataWorkingSurface ? " metadata-working-surface" : ""}${overviewWorkingSurface ? " overview-working-surface" : ""}${packageDependenciesWorkingSurface ? " package-dependencies-working-surface" : ""}${compareWorkingSurface ? " library-api-diff-working-surface" : ""}${libraryMetadataWorkingSurface ? " package-metadata-working-surface" : ""}${libraryReferencesWorkingSurface ? " library-references-working-surface" : ""}${libraryAnalysisWorkingSurface ? " library-analysis-working-surface" : ""}${memberWorkingSurface ? " member-working-surface" : ""}">
+          <article id="inspector-panel" ${loadingPackageContent ? 'aria-busy="true"' : ""} class="detail-scroll${sourceWorkingSurface ? " source-working-surface" : ""}${apiWorkingSurface ? " api-working-surface" : ""}${metadataWorkingSurface ? " metadata-working-surface" : ""}${overviewWorkingSurface ? " overview-working-surface" : ""}${packageDependenciesWorkingSurface ? " package-dependencies-working-surface" : ""}${packageVulnerabilitiesWorkingSurface ? " package-vulnerabilities-working-surface" : ""}${compareWorkingSurface ? " library-api-diff-working-surface" : ""}${libraryMetadataWorkingSurface ? " package-metadata-working-surface" : ""}${libraryReferencesWorkingSurface ? " library-references-working-surface" : ""}${libraryAnalysisWorkingSurface ? " library-analysis-working-surface" : ""}${memberWorkingSurface ? " member-working-surface" : ""}">
             ${loadingPackageContent
               ? `<div id="package-content-loading" class="package-content-loading" role="status" tabindex="-1" data-package-loading-control="${packageContentLoadingFocusControl ?? (state.requestedVersion !== pkg.version ? "package-version" : "package-framework")}"${state.requestedVersion !== pkg.version ? "" : ` data-package-loading-framework="${escapeHtml(state.requestedFramework)}"`}><span class="loader" aria-hidden="true"></span><span>Loading ${state.requestedVersion !== pkg.version ? `version ${escapeHtml(state.requestedVersion)}` : escapeHtml(state.requestedFramework)} content…</span></div>`
               : renderLens(current)}
@@ -9144,6 +9273,8 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
 
       ${dataBarHtml({
         buildIdentity: state.buildIdentity,
+        errors: dataBarFeedback.errors(),
+        result: currentDataBarResult(),
         producer: {
           kind: pkg.source.kind === "platform"
             || state.rootKind === "library"
@@ -9202,21 +9333,14 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
   } else if (isCompareMode(compareTabFocus)) {
     restoreCompareTabFocus(document, compareTabFocus);
   } else if (packageRetryHadFocus || packageControlHadFocus) {
-    const packageFrameworkControl = () =>
-      contentFrameMedia.matches
-        ? document.querySelector<HTMLElement>("#content-navigation-toggle")
-        : [...document.querySelectorAll<HTMLElement>("[data-package-framework]")]
-            .find(button =>
-              button.dataset.packageFramework === packageLoadingFramework);
-    const packageControl = loadingPackageContent
-      ? document.querySelector<HTMLElement>("#package-content-loading")
-      : packageLoadingControl === "package-framework"
-        ? packageFrameworkControl()
-        : document.querySelector<HTMLElement>(`#${packageLoadingControl}`)
-          ?? (packageLoadingControl === "framework"
-            ? packageFrameworkControl()
-            : null);
-    packageControl?.focus({ preventScroll: true });
+    if (loadingPackageContent) {
+      document.querySelector<HTMLElement>("#package-content-loading")
+        ?.focus({ preventScroll: true });
+    } else if (packageLoadingFocusControl) {
+      focusPackageCoordinateControl(
+        packageLoadingFocusControl,
+        packageLoadingFramework ?? "");
+    }
   }
   if (scopeBarOwnsFocus) {
     let restored = false;
@@ -9250,8 +9374,8 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
     maybeAutoLoadLibraryApi();
     maybeAutoLoadLibraryEnablements();
     maybeAutoLoadPackageDependencies();
+    maybeAutoLoadPackageVulnerabilities();
     maybeAutoLoadPackageIntegrations();
-    maybeAutoLoadPackageOpportunities();
     maybeAutoLoadPackagePerformance();
     maybeAutoLoadPackageLibraryMetrics();
     maybeAutoLoadTypeLeverage();
@@ -9828,9 +9952,18 @@ function renderNavPane(
   if (scope() === "workspace") return renderWorkspaceNavPane();
   if (scope() === "package") {
     const pkg = currentPackage();
+    const entry = catalogRequests.packageVersions(pkg);
+    const versions = packageNavigationVersions(pkg.version, entry);
     return renderPackageNav({
       frameworks: pkg.frameworks,
       activeFramework: pkg.activeFramework,
+      versions,
+      activeVersion: pkg.version,
+      statusHtml: pkg.source.kind !== "nuget.org"
+        ? '<p>Version discovery is unavailable for this package source.</p>'
+        : entry.status === "failed"
+        ? `<p role="status">${escapeHtml(entry.message)}</p><button type="button" id="package-versions-retry">Retry</button>`
+        : entry.status === "available" ? "" : '<p role="status">Reading available versions…</p>',
       escapeHtml,
     });
   }
@@ -10060,13 +10193,12 @@ function renderTypeNavPane(
     itemAchievements: (item: TypeInventoryRow) => {
       if (isForwardedType(item)) return [];
       const presentation = currentTypeLeveragePresentation(item);
-      const leverage = presentation?.byType.get(
-        item.definitionId ?? item.id,
-      );
       const achievements: ItemAchievement[] = [];
-      if (leverage) {
+      for (const leverage of presentation?.byType.get(
+        item.definitionId ?? item.id,
+      ) ?? []) {
         achievements.push({
-          kind: leverage.pole,
+          kind: `${leverage.evidenceMode}-${leverage.pole}`,
           description: leverage.description,
         });
       }
@@ -10074,8 +10206,7 @@ function renderTypeNavPane(
         achievements.push(apiDiffAchievement);
       return achievements;
     },
-    statusHtml:
-      `${typeLeverageStatus()}${platformForwarderInventoryStatus()}`,
+    statusHtml: platformForwarderInventoryStatus(),
   });
 }
 
@@ -10210,15 +10341,29 @@ function renderScopeBar(
   return assertNever(sc, "workspace scope");
 }
 
-function packageVersionField() {
-  if (state.rootKind !== "package") return "";
-  const pkg = currentPackage();
-  return `<label class="version-select">
-    <span>Version</span>
-    <select id="package-version">
-      ${versionOptionsHtml(pkg)}
-    </select>
-  </label>`;
+function focusPackageCoordinateControl(
+  control: PackageLoadingFocusControl,
+  framework: string,
+) {
+  const navigationToggle =
+    document.querySelector<HTMLElement>("#content-navigation-toggle");
+  if (control === "package-version") {
+    if (contentFrameMedia.matches && contentFramePane !== "navigation") {
+      navigationToggle?.focus({ preventScroll: true });
+      return;
+    }
+    const version =
+      document.querySelector<HTMLElement>('[data-package-version][aria-current="page"]');
+    (version?.checkVisibility() ? version : navigationToggle)
+      ?.focus({ preventScroll: true });
+    return;
+  }
+  const frameworkControl =
+    [...document.querySelectorAll<HTMLElement>("[data-package-framework]")]
+      .find(button => button.dataset.packageFramework === framework);
+  (frameworkControl?.checkVisibility()
+    ? frameworkControl
+    : navigationToggle)?.focus({ preventScroll: true });
 }
 
 function renderPackageView() {
@@ -10326,7 +10471,28 @@ function renderWorkspaceView() {
 function packageLensBody() {
   switch (state.packageLens) {
     case "overview": return renderPackageOverview();
+    case "compare": return renderOverviewSurface({
+      subject: "package", subjectLabel: "Compare", displayName: packageDisplayName(currentPackage()),
+      iconHtml: "", showIdentity: false,
+      packageId: currentPackage().id, packageVersion: currentPackage().version,
+      activeFramework: currentPackage().activeFramework, totalTypes: null, totalMembers: null,
+      contentHtml: `<section id="package-comparison-targets" class="document-section">${packageComparisonControlsHtml(currentPackage())}</section>`,
+      escapeHtml,
+    });
     case "dependencies": return renderPackageDependencies();
+    case "vulnerabilities": {
+      const pkg = currentPackage();
+      const fresh =
+        state.packageVulnerabilitiesKey === packageVulnerabilitiesSignature();
+      return renderPackageVulnerabilities({
+        packageId: pkg.id,
+        packageVersion: pkg.version,
+        loading: fresh && state.packageVulnerabilitiesLoading,
+        error: fresh ? state.packageVulnerabilitiesError : "",
+        result: fresh ? state.packageVulnerabilities : null,
+        escapeHtml,
+      });
+    }
   }
   // `packageLenses` drives the rendered strip directly, so a new catalog entry is offered
   // to users the moment it is added. It used to fall through to a "not available"
@@ -10355,9 +10521,10 @@ function libraryLensBody() {
           return renderPackageLibraryMetrics("complexity");
         case "relationships":
           return renderPackageLibraryMetrics("relationships");
+        case "dependencies":
+          return renderPackageLibraryDependencyStructure();
         case "performance": return renderPackagePerformance();
         case "integrations": return renderPackageIntegrations();
-        case "opportunities": return renderPackageOpportunities();
         default: return assertNever(state.analysisMode, "analysis mode");
       }
     case "metadata": return renderPackageMetadata();
@@ -10372,23 +10539,14 @@ function packageDependenciesSignature() {
 }
 
 function renderPackageDependenciesSurface(content: string, status: string) {
-  const pkg = currentPackage();
-  const coordinate = `${pkg.id}@${pkg.version}`;
   return `<section class="package-dependencies-surface" aria-labelledby="package-dependencies-surface-title">
     <header class="api-surface-head package-dependencies-surface-head">
       <h1 id="package-dependencies-surface-title">Dependencies</h1>
       <p data-package-dependencies-status>${escapeHtml(status)}</p>
     </header>
-    <section class="package-dependencies-controls" aria-label="Dependency coordinate">
-      <div class="package-coordinate-fields">${packageVersionField()}</div>
-    </section>
     <div class="package-dependencies-scroll">
       ${content}
     </div>
-    <footer class="api-surface-footer package-dependencies-surface-footer">
-      <span title="${escapeHtml(coordinate)}">${escapeHtml(coordinate)}</span>
-      <span title="${escapeHtml(pkg.activeFramework)}">${escapeHtml(pkg.activeFramework)}</span>
-    </footer>
   </section>`;
 }
 
@@ -10410,11 +10568,6 @@ function packageDependenciesStatus(
 
 const DEPENDENCY_GRAPH_SUMMARY =
   "callers above · dependencies below · click a package to open";
-
-const PACKAGE_PRUNING_FAMILIES = [
-  { value: "Microsoft.NETCore.App", label: ".NET Runtime" },
-  { value: "Microsoft.AspNetCore.App", label: "ASP.NET Core" },
-] as const;
 
 function packageDeclarationFailureReason(
   failure: BrowserPackageDependencies["declarationFailures"][number],
@@ -10443,7 +10596,7 @@ function renderPackageDeclarationFailures(
   failures: BrowserPackageDependencies["declarationFailures"],
 ) {
   if (!failures.length) return "";
-  return `<div class="package-pruning-status package-pruning-error">
+  return `<div class="package-declaration-failures">
     <strong>Dependency declarations incomplete</strong>
     <ul>${failures.map(failure =>
       `<li>${escapeHtml(packageDeclarationFailureReason(failure))}</li>`)
@@ -10451,112 +10604,9 @@ function renderPackageDeclarationFailures(
   </div>`;
 }
 
-function packagePruningSignature(family = state.packagePruningFamily) {
+function packageVulnerabilitiesSignature() {
   const pkg = currentPackage();
-  return `${pkg.id}@${pkg.version}/${pkg.activeFramework}#${family}`;
-}
-
-function packagePruningReason(row: BrowserPackagePruningResult["rows"][number]) {
-  if (row.disposition === "PlatformDelegation") {
-    return "The platform supplies the candidate version or a newer one.";
-  }
-  if (row.disposition === "PackageRetained") {
-    return row.platformSuppliedVersion
-      ? "The selected candidate is newer than the platform-supplied version."
-      : "The platform does not supply this package.";
-  }
-  if (row.disposition === "CandidateUnavailable") {
-    return `Candidate resolution did not complete (${row.reason}).`;
-  }
-  return `Pruning was not evaluated (${row.reason}).`;
-}
-
-function packagePruningDisposition(
-  row: BrowserPackagePruningResult["rows"][number],
-) {
-  switch (row.disposition) {
-    case "PlatformDelegation": return "Use platform";
-    case "PackageRetained": return "Keep package";
-    case "CandidateUnavailable": return "Candidate unavailable";
-    case "NotEvaluated": return "Not evaluated";
-    default: return "Not evaluated";
-  }
-}
-
-function renderPackagePruningSection(
-  data: BrowserPackageDependencies,
-): string {
-  const pkg = currentPackage();
-  const exactPlatformFramework =
-    isExactPlatformPruningFramework(pkg.activeFramework);
-  const activeGroup = data.dependencyGroups.find(group => group.isActive);
-  if (pkg.isRuntimePack
-    || !exactPlatformFramework
-    || !activeGroup?.dependencies.length) {
-    return "";
-  }
-
-  const signature = packagePruningSignature();
-  const fresh = state.packagePruningKey === signature;
-  const result = fresh ? state.packagePruning : null;
-  const loading = fresh && state.packagePruningLoading;
-  const error = fresh ? state.packagePruningError : "";
-  const familyOptions = PACKAGE_PRUNING_FAMILIES.map(family =>
-    `<option value="${family.value}"${family.value === state.packagePruningFamily ? " selected" : ""}>${family.label}</option>`)
-    .join("");
-  const resultRows = result?.rows.map(row => `
-      <tr>
-        <td><code>${escapeHtml(row.package)}</code><small>${escapeHtml(row.requestedRange || "*")}</small></td>
-        <td>${row.candidateVersion ? `<code>${escapeHtml(row.candidateVersion)}</code>` : "—"}</td>
-        <td>${row.platformSuppliedVersion ? `<code>${escapeHtml(row.platformSuppliedVersion)}</code>` : "—"}</td>
-        <td><strong>${escapeHtml(packagePruningDisposition(row))}</strong><small>${escapeHtml(packagePruningReason(row))}</small></td>
-      </tr>`)
-    .join("") ?? "";
-  const declarationFailures = result
-    ? renderPackageDeclarationFailures(result.declarationFailures)
-    : "";
-  const basis = result
-    ? `Evaluated active group <code>${escapeHtml(
-      result.selectedFramework || activeGroup.framework,
-    )}</code> against <code>${escapeHtml(
-      result.family,
-    )}</code> at <code>${escapeHtml(
-      `${result.targetFramework}@${result.platformVersion}`,
-    )}</code>.`
-    : `Evaluation uses the active normalized group <code>${escapeHtml(
-      activeGroup.framework,
-    )}</code> and the selected platform family; choosing another displayed group does not change that input. Candidate version discovery may query nuget.org.`;
-  const resultHtml = loading
-    ? `<div class="package-pruning-status source-progress"><span class="loader"></span><span>Resolving dependency candidates…</span></div>`
-    : error
-      ? `<div class="package-pruning-status package-pruning-error"><strong>Pruning query failed</strong><span>${escapeHtml(error)}</span></div>`
-      : result
-        ? result.message
-          ? `<div class="package-pruning-status"><span>${escapeHtml(result.message)}</span></div>${declarationFailures}`
-          : `<div class="package-pruning-result">
-              <p><strong>${result.summary.delegated}</strong> platform · <strong>${result.summary.retained}</strong> package · <strong>${result.summary.notEvaluated}</strong> not evaluated · <strong>${result.summary.failed}</strong> unresolved · <strong>${result.summary.declarationFailures}</strong> declaration failures</p>
-              <div class="package-pruning-table-scroll">
-                <table class="package-pruning-table">
-                  <thead><tr><th>Dependency</th><th>Candidate</th><th>Supplied</th><th>Disposition</th></tr></thead>
-                  <tbody>${resultRows}</tbody>
-                </table>
-              </div>
-              ${declarationFailures}
-            </div>`
-        : "";
-
-  return `
-    <section class="document-section package-pruning-section">
-      <div class="section-title"><h2>Platform pruning</h2><span>explicit evaluation · no graph changes</span></div>
-      <div class="package-pruning-controls">
-        <label>Platform family
-          <select data-pruning-family${loading ? " disabled" : ""}>${familyOptions}</select>
-        </label>
-        <button type="button" data-pruning-evaluate${loading ? " disabled" : ""}>${result || error ? "Evaluate again" : "Evaluate"}</button>
-      </div>
-      <p class="package-pruning-intro">${basis}</p>
-      ${resultHtml}
-    </section>`;
+  return `${pkg.id.toLowerCase()}@${pkg.version.toLowerCase()}`;
 }
 
 function renderPackageDependencies() {
@@ -10615,10 +10665,8 @@ function renderPackageDependencies() {
       <div id="dependency-graph-diagram" class="call-graph-diagram"><span class="loader"></span><p>Rendering graph…</p></div>
       ${dependencyGraphLegendHtml()}
     </section>`;
-  const pruningSection = renderPackagePruningSection(data);
-
   return renderPackageDependenciesSurface(
-    `<div data-dependency-graph-surface>${dependencyGroupNotice}${declarationFailureNotice}${selector}${graphSection}</div>${pruningSection}${depList}`,
+    `<div data-dependency-graph-surface>${dependencyGroupNotice}${declarationFailureNotice}${selector}${graphSection}</div>${depList}`,
     packageDependenciesStatus(data, selectedGroupIndex));
 }
 
@@ -10751,20 +10799,9 @@ const packageInspection = createPackageInspectionCoordinator({
     packageModel.version,
     packageModel.activeFramework,
     packageQueryAssemblyId(packageModel)),
-  queryPruning: async (packageModel, family) => {
-    const target = await ensurePlatformCatalog(packageModel.activeFramework);
-    return await inspectPackagePruning(
-      packageModel.id,
-      packageModel.version,
-      packageModel.activeFramework,
-      {
-        schemaVersion: 1,
-        family,
-        targetFramework: target.tfm,
-        platformVersion: target.version,
-        supplies: requirePlatformPackageSupplies(target),
-      });
-  },
+  queryVulnerabilities: packageModel => inspectPackageVulnerabilities(
+    packageModel.id,
+    packageModel.version),
   queryPackageIntegrations: (packageModel, library) => inspectPackageIntegrations(
     packageModel.id,
     packageModel.version,
@@ -10898,10 +10935,31 @@ function maybeAutoLoadPackageDependencies() {
       observeAsync(renderPackageDependencyList(), "Matching dependency packages");
       observeAsync(renderDependencyGraph(), "Rendering the dependency graph");
       observeAsync(ensureWorkspaceDependencies(), "Loading workspace dependencies");
+    } else if (libraryReferences && state.packageDependencies) {
+      observeAsync(
+        renderLibraryReferenceGraph(),
+        "Rendering the assembly-reference graph");
     }
     return;
   }
   observeAsync(loadPackageDependencies(), "Loading package dependencies");
+}
+
+function maybeAutoLoadPackageVulnerabilities() {
+  if (scope() !== "package"
+    || !state.atPackageRoot
+    || state.packageLens !== "vulnerabilities"
+    || state.package?.source.kind !== "nuget.org") return;
+  const signature = packageVulnerabilitiesSignature();
+  if (state.packageVulnerabilitiesKey === signature
+    && (state.packageVulnerabilitiesLoading
+      || state.packageVulnerabilities
+      || state.packageVulnerabilitiesError)) return;
+  observeAsync(
+    packageInspection.loadVulnerabilities(
+      currentPackage(),
+      signature),
+    "Checking package vulnerabilities");
 }
 
 // Fetches dependency manifests for every other open package so the dependency graph can
@@ -10931,6 +10989,8 @@ function packageIntegrationsSignature() {
   return `${pkg.id}@${pkg.version}/${pkg.activeFramework}${lib ? `#${lib}` : ""}`;
 }
 
+let startingPackageIntegrations = false;
+
 function renderPackageIntegrations() {
   const pkg = currentPackage();
   const library = selectedLibrary();
@@ -10943,12 +11003,17 @@ function renderPackageIntegrations() {
     assetPath: library?.asset ?? "",
     coordinate: `${pkg.activeFramework} · ${pkg.id}@${pkg.version}`,
     requireLibrary: pkg.isRuntimePack && !scopedLib,
-    pickerHtml: pkg.isRuntimePack && state.rootKind !== "platform"
+    pickerHtml: pkg.isRuntimePack
       ? platformLibrarySelectHtml({ dataAttr: "data-platform-analysis-library", selected: scopedLib || "" })
       : "",
-    loading: state.packageIntegrationsLoading && fresh,
-    error: fresh ? state.packageIntegrationsError : "",
-    data: fresh ? state.packageIntegrations : null,
+    integrationsFresh: fresh,
+    integrationsLoading: state.packageIntegrationsLoading,
+    integrationsError: state.packageIntegrationsError,
+    integrationsData: state.packageIntegrations,
+    suggestionsFresh: state.packageOpportunitiesKey === current,
+    suggestionsLoading: state.packageOpportunitiesLoading,
+    suggestionsError: state.packageOpportunitiesError,
+    suggestionsData: state.packageOpportunities,
     escapeHtml,
   });
 }
@@ -10956,17 +11021,32 @@ function renderPackageIntegrations() {
 async function loadPackageIntegrations() {
   const pkg = currentPackage();
   const scopedLib = selectedLibraryRequest() || null;
-  return packageInspection.loadIntegrations(
-    pkg,
-    packageIntegrationsSignature(),
-    scopedLib);
+  const signature = packageIntegrationsSignature();
+  if (startingPackageIntegrations
+    || (state.packageIntegrationsKey === signature
+      && state.packageOpportunitiesKey === signature)) return;
+  let integrationsLoad: Promise<void>;
+  let suggestionsLoad: Promise<void>;
+  startingPackageIntegrations = true;
+  try {
+    integrationsLoad =
+      packageInspection.loadIntegrations(pkg, signature, scopedLib);
+    suggestionsLoad =
+      packageInspection.loadOpportunities(pkg, signature, scopedLib);
+  } finally {
+    startingPackageIntegrations = false;
+  }
+  await Promise.all([integrationsLoad, suggestionsLoad]);
 }
 
 function maybeAutoLoadPackageIntegrations() {
   if (!state.atLibraryRoot || state.libraryLens !== "analysis") return;
   if (aggregateLibrarySubjectIsActive()) return;
   if (state.analysisMode !== "integrations") return;
-  if (state.packageIntegrationsKey === packageIntegrationsSignature()) return;
+  const signature = packageIntegrationsSignature();
+  if (startingPackageIntegrations) return;
+  if (state.packageIntegrationsKey === signature
+    && state.packageOpportunitiesKey === signature) return;
   observeAsync(loadPackageIntegrations(), "Loading package integrations");
 }
 
@@ -10974,46 +11054,6 @@ function packageScopeSignature() {
   const pkg = currentPackage();
   const lib = selectedLibraryShareKey();
   return `${pkg.id}@${pkg.version}/${pkg.activeFramework}${lib ? `#${lib}` : ""}`;
-}
-
-function renderPackageOpportunities() {
-  const pkg = currentPackage();
-  const library = selectedLibrary();
-  const scopedLib = scopedPlatformLibrary();
-  const current = packageScopeSignature();
-  return renderPackageOpportunitiesPure({
-    libraryName: library?.name ?? "",
-    assemblyIdentity: library ? libraryIdentity(library) : "No library selected",
-    assetPath: library?.asset ?? "",
-    coordinate: `${pkg.activeFramework} · ${pkg.id}@${pkg.version}`,
-    requireLibrary: pkg.isRuntimePack && !scopedLib,
-    pickerHtml: pkg.isRuntimePack
-      ? platformLibrarySelectHtml({ dataAttr: "data-platform-analysis-library", selected: scopedLib || "" })
-      : "",
-    fresh: state.packageOpportunitiesKey === current,
-    loading: state.packageOpportunitiesLoading,
-    error: state.packageOpportunitiesError,
-    data: state.packageOpportunities,
-    escapeHtml,
-  });
-}
-
-async function loadPackageOpportunities() {
-  const pkg = currentPackage();
-  const scopedLib = selectedLibraryRequest() || null;
-  return packageInspection.loadOpportunities(
-    pkg,
-    packageScopeSignature(),
-    scopedLib);
-}
-
-function maybeAutoLoadPackageOpportunities() {
-  if (!state.atLibraryRoot || state.libraryLens !== "analysis") return;
-  if (aggregateLibrarySubjectIsActive()) return;
-  if (state.analysisMode !== "opportunities") return;
-  if (Boolean(state.package?.isRuntimePack) && !scopedPlatformLibrary()) return;
-  if (state.packageOpportunitiesKey === packageScopeSignature()) return;
-  observeAsync(loadPackageOpportunities(), "Loading package opportunities");
 }
 
 function renderPackagePerformance() {
@@ -11041,12 +11081,12 @@ function renderPackagePerformance() {
   });
 }
 
-function renderPackageLibraryMetrics(mode: LibraryMetricsMode) {
+function packageLibraryAnalysisOptions(): LibraryAnalysisOptions {
   const pkg = currentPackage();
   const library = selectedLibrary();
   const scopedLib = scopedPlatformLibrary();
   const current = packageScopeSignature();
-  return renderLibraryMetricsSurface({
+  return {
     libraryName: library?.name ?? "",
     assemblyIdentity: library ? libraryIdentity(library) : "No library selected",
     assetPath: library?.asset ?? "",
@@ -11054,7 +11094,7 @@ function renderPackageLibraryMetrics(mode: LibraryMetricsMode) {
     requireLibrary: pkg.isRuntimePack && !scopedLib,
     pickerHtml: pkg.isRuntimePack
       ? platformLibrarySelectHtml({
-        dataAttr: "data-platform-analysis-library",
+          dataAttr: "data-platform-analysis-library",
           selected: scopedLib || "",
         })
       : "",
@@ -11072,8 +11112,22 @@ function renderPackageLibraryMetrics(mode: LibraryMetricsMode) {
       state.packageLibraryDependencyStructure,
     relationshipState:
       state.packageLibraryMetricsRelationshipState,
+    dependencyState:
+      state.packageLibraryDependencyStructureStateKey === current
+        ? state.packageLibraryDependencyStructureState
+        : null,
     escapeHtml,
-  }, mode);
+  };
+}
+
+function renderPackageLibraryMetrics(mode: LibraryMetricsMode) {
+  return renderLibraryMetricsSurface(packageLibraryAnalysisOptions(), mode);
+}
+
+function renderPackageLibraryDependencyStructure() {
+  return renderLibraryDependencyStructureSurface(
+    packageLibraryAnalysisOptions(),
+  );
 }
 
 function activateLibraryMetricsType(typeKey: string) {
@@ -11964,11 +12018,8 @@ function enabledLibraryEnablements(
 function renderPackageOverview() {
   const pkg = currentPackage();
   const documentsSection =
-    renderPackageDocuments(pkg.documents || [], escapeHtml);
-  const comparisonHtml = `
-    <section id="package-comparison-targets" class="document-section">
-      ${packageComparisonControlsHtml(pkg)}
-    </section>`;
+    renderPackageDocuments(pkg.documents || [], escapeHtml,
+      path => packageDocumentTitles.get(pkg, path));
   const contentHtml = renderPackageOverviewContent({
     packageInfoHtml: pkg.packageInfo
       ? renderPackageInfo(pkg.packageInfo, escapeHtml)
@@ -11977,7 +12028,6 @@ function renderPackageOverview() {
           <p class="empty-list">Package metadata is unavailable for this coordinate.</p>
         </section>`,
     packageChildrenHtml: renderPackageChildren(pkg),
-    comparisonHtml,
     documentsHtml: documentsSection,
   });
 
@@ -11991,7 +12041,6 @@ function renderPackageOverview() {
     activeFramework: pkg.activeFramework,
     totalTypes: pkg.totalTypes,
     totalMembers: pkg.totalMembers,
-    coordinateFieldsHtml: packageVersionField(),
     contentHtml,
     escapeHtml,
   });
@@ -12476,9 +12525,6 @@ function renderApiLens(item: AppTypeSurface) {
             </section>`
           : ""}
       </div>
-      <footer class="api-surface-footer">
-        <span>Select a row to inspect its API</span>
-      </footer>
     </section>`;
 }
 
@@ -12499,6 +12545,7 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
           <header class="api-surface-head member-surface-head">
             <h1 id="member-surface-title">${escapeHtml(member.name)}</h1>
             <p>${count} ${count === 1 ? "overload" : "overloads"} <span>· ${escapeHtml(member.kind)}</span></p>
+            <button class="member-back" id="member-back" title="Back to ${escapeHtml(typeDisplayName(type))}">← Type</button>
           </header>
           <div class="member-surface-scroll">
             <div class="api-list api-surface-list member-surface-list">
@@ -12569,6 +12616,7 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
         <header class="api-surface-head member-surface-head">
           <h1 id="member-surface-title">${escapeHtml(member.name)}</h1>
           <p>${document.count} ${document.count === 1 ? "overload" : "overloads"} <span>· ${escapeHtml(member.kind)}</span></p>
+          <button class="member-back" id="member-back" title="Back to ${escapeHtml(typeDisplayName(type))}">← Type</button>
         </header>
         <div class="member-surface-scroll">
           <div class="api-list api-surface-list member-surface-list">
@@ -12590,10 +12638,6 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
             }).join("")}
           </div>
         </div>
-        <footer class="api-surface-footer member-surface-footer">
-          <button class="member-back" id="member-back">← ${escapeHtml(typeDisplayName(type))}</button>
-          <span>Choose an overload to inspect</span>
-        </footer>
       </section>`;
   }
   const overload = selectedOverload ?? member.overloads[0];
@@ -12719,6 +12763,13 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
     const incompleteGraph = diagnosticsMessage
       ? `<div class="graph-drill-error graph-diagnostics">${escapeHtml(diagnosticsMessage)}</div>`
       : "";
+    const directUseClusters = active && !platformView
+      ? renderDirectUseClusterInspection(
+          active,
+          state.memberCallGraphKey,
+          state,
+          escapeHtml)
+      : "";
     content = state.memberCallGraphLoading
       ? `<section class="document-section source-progress"><span class="loader"></span><h2>Building dependency-aware call graph…</h2><p>Resolving package dependencies under ${escapeHtml(state.callGraphTraversalFramework)} and scanning implementation IL.</p></section>`
       : active && active.noBody
@@ -12744,6 +12795,7 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
             ${scopeLine}
             <div id="call-graph-diagram" class="call-graph-diagram"><span class="loader"></span><p>Rendering graph…</p></div>
             ${callGraphLegendHtml(supplyChainGraph)}
+            ${directUseClusters}
           </section>`
         : `<section class="document-section empty-member-section"><h2>Call graph query failed</h2><p>${escapeHtml(callGraphError || "No call graph result was returned.")}</p></section>`;
     content = `<div data-call-graph-surface>${content}</div>`;
@@ -12908,21 +12960,6 @@ const packageViewActions: PackageViewBindingActions = {
     if (state.dependenciesGroupIndex === index) return;
     state.dependenciesGroupIndex = index;
     patchDependenciesGroup();
-  },
-  onPruningEvaluate: () =>
-    observeAsync(
-      packageInspection.loadPruning(
-        currentPackage(),
-        packagePruningSignature(),
-        state.packagePruningFamily),
-      "Evaluating platform pruning"),
-  onPruningFamilySelect: family => {
-    if (state.packagePruningFamily === family) return;
-    state.packagePruningFamily = family;
-    state.packagePruning = null;
-    state.packagePruningError = "";
-    state.packagePruningKey = "";
-    renderPreservingMemberFocus();
   },
   onDependencyLoad: (id, version) =>
     observeAsync(
@@ -13125,11 +13162,13 @@ async function openPlatformLensLibrary(
     if (state.analysisMode === "performance") await loadPackagePerformance();
     else if (state.analysisMode === "integrations")
       await loadPackageIntegrations();
-    else if (state.analysisMode === "opportunities")
-      await loadPackageOpportunities();
     else if (state.analysisMode === "complexity"
       || state.analysisMode === "relationships")
       await loadPackageLibraryMetrics();
+    else if (state.analysisMode === "dependencies") {
+      render();
+      return;
+    }
     else assertNever(state.analysisMode, "analysis mode");
   } else await loadPackageMetadata();
 }
@@ -14117,8 +14156,9 @@ const workbenchShellActions: WorkbenchShellBindingActions = {
     state.workspaceSubjectOpen = false;
     state.atPackageRoot = true;
     state.atLibraryRoot = false;
+    state.packageLens = "overview";
     render();
-    afterCurrentNavigationFrame(() => focusContentNavigation(document));
+    afterCurrentNavigationFrame(() => focusPackageCoordinateControl("package-framework", currentPackage().activeFramework));
   },
   onDismissNotice: dismissQueryNotice,
   onDismissPackageNotice: () => {
@@ -14213,12 +14253,41 @@ function bindEvents() {
     updateRelationshipState: relationshipState => {
       state.packageLibraryMetricsRelationshipState = relationshipState;
     },
+    updateDependencyState: dependencyState => {
+      const current = packageScopeSignature();
+      const presentationChanged =
+        (state.packageLibraryDependencyStructureStateKey === current
+          ? state.packageLibraryDependencyStructureState
+            .includeGlobalNamespace
+          : false)
+          !== dependencyState.includeGlobalNamespace;
+      state.packageLibraryDependencyStructureState = dependencyState;
+      state.packageLibraryDependencyStructureStateKey = current;
+      if (presentationChanged) render();
+    },
   });
   workbenchShellBinding =
     bindWorkbenchShell(document, workbenchShellActions);
   bindGraphBack(document, graphBackActions);
   bindGraphExplore(document, openGraphExplorer);
   bindCallGraphTraversalFramework();
+  bindDirectUseClusterInspection(document, {
+    selectBoundary: id => {
+      const graph = currentCallGraph();
+      const boundary = graph?.boundaries.find(item => item.id === id);
+      if (!graph || !boundary) return;
+      observeAsync(
+        directUseClusterInspection.selectBoundary(
+          state.memberCallGraphKey,
+          boundary),
+        "Inspecting a Library dependency boundary");
+    },
+    selectCluster: ordinal => {
+      observeAsync(
+        directUseClusterInspection.selectCluster(ordinal),
+        "Inspecting a Direct-Use Cluster");
+    },
+  });
   bindContentFrameEvents();
   bindPlatformForwarderEvents();
   observeAsync(ensurePackageVersions(state.package), "Loading package versions");
@@ -14237,6 +14306,7 @@ function bindCallGraphTraversalFramework() {
     state.memberCallGraph = null;
     state.memberCallGraphError = "";
     state.graphMemberNavigationError = "";
+    directUseClusterInspection.reset();
     render();
     observeAsync(
       loadSelectedMemberCallGraph(),
@@ -14266,6 +14336,14 @@ function setTheme(theme: "light" | "dark", renderView = true) {
   if (depGraph) {
     depGraph.dataset.graphDef = "";
     observeAsync(renderDependencyGraph(), "Rendering the dependency graph");
+  }
+  const referenceGraph =
+    document.querySelector<HTMLElement>("#library-reference-graph-diagram");
+  if (referenceGraph) {
+    referenceGraph.dataset.graphDef = "";
+    observeAsync(
+      renderLibraryReferenceGraph(),
+      "Rendering the assembly-reference graph");
   }
 }
 
@@ -15148,20 +15226,6 @@ async function querySpotlightPackages(query: string): Promise<SpotlightPackageHi
   }));
 }
 
-// Build the <option> list for the version selector. Always includes the currently loaded
-// version (even before the version inventory arrives) so the control is never empty.
-function versionOptionsHtml(pkg: AppPackage) {
-  const entry = catalogRequests.packageVersions(pkg);
-  const versions = entry.status === "available" ? [...entry.inventory.versions] : [pkg.version];
-  if (entry.status === "available"
-      && !versions.some(v => v.toLowerCase() === pkg.version.toLowerCase())) {
-    versions.splice(entry.inventory.currentVersionInsertionIndex, 0, pkg.version);
-  }
-  return versions
-    .map(v => `<option value="${escapeHtml(v)}" ${v.toLowerCase() === pkg.version.toLowerCase() ? "selected" : ""}>${escapeHtml(v)}</option>`)
-    .join("");
-}
-
 // Switch the resident Platform to a different .NET major (by TFM). Drops the current
 // pseudo-package and its accumulated drilled libraries, then loads a fresh Platform for the
 // chosen TFM and lands on its overview — mirroring the in-place version switch for ordinary
@@ -15299,14 +15363,14 @@ function bindCompareEvents() {
   bindCompareFrame(document, {
     selectMode: selectCompareMode,
     changeTarget: () => {
-      // Change target returns to Package Overview's Comparison targets work
+      // Change target returns to Package Compare's Comparison targets work
       // area; Compare renders no second target editor of its own.
       const control = currentCompareMode() === "clone"
         ? "#package-clone-target"
         : "#package-diff-target";
       state.atPackageRoot = true;
       state.atLibraryRoot = false;
-      state.packageLens = "overview";
+      state.packageLens = "compare";
       contentFramePane = "detail";
       render();
       afterCurrentNavigationFrame(() => {
@@ -15358,16 +15422,41 @@ function bindCompareEvents() {
   });
 }
 
-// Repaint just the version <select> options without a full re-render, so an async index
-// fetch never disturbs focus, scroll, or the rest of the workbench.
+// Refresh version navigation independently from the inspector content.
 function updateVersionSelect(pkg: CatalogPackage) {
   if (!state.package || state.package !== pkg) return;
   if (currentCompareSubject() !== null) {
     render();
     return;
   }
-  const select = document.querySelector("#package-version");
-  if (select) select.innerHTML = versionOptionsHtml(state.package);
+  const pane = document.querySelector(".package-version-nav");
+  if (pane) {
+    const filter = document.querySelector<HTMLInputElement>("#package-version-filter")?.value ?? "";
+    const prerelease = document.querySelector<HTMLInputElement>("#package-version-prerelease")?.checked ?? true;
+    const focused = document.activeElement instanceof HTMLElement && pane.contains(document.activeElement)
+      ? { id: document.activeElement.id, version: document.activeElement.dataset.packageVersion, framework: document.activeElement.dataset.packageFramework } : null;
+    const scrollTop = document.querySelector("#package-version-list")?.scrollTop ?? 0;
+    pane.outerHTML = renderNavPane(null, []);
+    const nextFilter = document.querySelector<HTMLInputElement>("#package-version-filter");
+    const nextPrerelease = document.querySelector<HTMLInputElement>("#package-version-prerelease");
+    if (nextFilter) nextFilter.value = filter;
+    if (nextPrerelease) nextPrerelease.checked = prerelease;
+    const nextPane = document.querySelector(".package-version-nav");
+    if (nextPane) {
+      packageControls.bind(nextPane);
+      bindContentFrame(nextPane, { onShowDetail: showContentDetail, onShowNavigation: showContentNavigation });
+    }
+    const list = document.querySelector("#package-version-list");
+    if (list) list.scrollTop = scrollTop;
+    if (focused) {
+      const target = focused.id ? document.getElementById(focused.id)
+        : [...document.querySelectorAll<HTMLElement>("[data-package-framework], [data-package-version]")]
+          .find(row => focused.framework !== undefined
+            ? row.dataset.packageFramework === focused.framework
+            : focused.version !== undefined && row.dataset.packageVersion === focused.version);
+      target?.focus({ preventScroll: true });
+    }
+  }
   updatePackageComparisonControls();
 }
 
@@ -15405,13 +15494,21 @@ async function switchPackageVersion(newVersion: string) {
   const oldVersion = pkg.version;
   if (!newVersion || newVersion.toLowerCase() === oldVersion.toLowerCase()) return;
   const framework = pkg.activeFramework;
-  await loadPackage(id, newVersion, framework, {
+  const navigationSeq = navigationSequence.begin();
+  const loaded = await loadPackage(id, newVersion, framework, {
+    navigationSeq,
     replacePackage: pkg,
     ...capturePackageCoordinateView(),
     invalidateWorkspaceShareBasis: true,
     loadingPresentation: "content",
     loadingFocusControl: "package-version",
   });
+  if (loaded
+    && navigationSequence.isCurrent(navigationSeq)
+    && packageIdentityEquals(state.package, loaded))
+    focusPackageCoordinateControl(
+      "package-version",
+      loaded.activeFramework);
 }
 
 async function switchPackageFramework(
@@ -15422,17 +15519,25 @@ async function switchPackageFramework(
   if (!pkg || pkg.isRuntimePack) return;
   if (!newFramework
     || newFramework.toLowerCase() === pkg.activeFramework.toLowerCase()) return;
-  await loadPackage(
+  const navigationSeq = navigationSequence.begin();
+  const loaded = await loadPackage(
     pkg.id,
     pkg.version,
     newFramework,
     {
+      navigationSeq,
       replacePackage: pkg,
       ...capturePackageCoordinateView(),
       invalidateWorkspaceShareBasis: true,
       loadingPresentation: "content",
       loadingFocusControl,
     });
+  if (loaded
+    && navigationSequence.isCurrent(navigationSeq)
+    && packageIdentityEquals(state.package, loaded))
+    focusPackageCoordinateControl(
+      loadingFocusControl,
+      loaded.activeFramework);
 }
 
 
@@ -21596,6 +21701,79 @@ async function renderDependencyGraph() {
   }
 }
 
+async function renderLibraryReferenceGraph() {
+  const container =
+    document.querySelector<HTMLElement>("#library-reference-graph-diagram");
+  if (!container) return;
+  const assemblyReferences = state.packageDependencies?.assemblyReferences;
+  if (!assemblyReferences || typeof assemblyReferences === "string") {
+    libraryReferenceGraphRenderSequence.invalidate();
+    return;
+  }
+  const assemblyName = selectedLibrary()?.name ?? "Selected assembly";
+  const built = buildAssemblyReferenceGraphMermaid(
+    assemblyName,
+    assemblyReferences);
+  if (!built) {
+    libraryReferenceGraphRenderSequence.invalidate();
+    return;
+  }
+  const signature = built.definition;
+  if (container.dataset.graphDef === signature
+    && container.querySelector(".graph-viewport")) {
+    container.querySelector(".graph-render-error")?.remove();
+    return;
+  }
+  const pending = createDependencyGraphPendingState(container.dataset);
+  if (pending.isPending(signature)) return;
+  const seq = libraryReferenceGraphRenderSequence.begin();
+  pending.begin(signature, seq);
+  try {
+    const { default: mermaid } = await loadMermaidModule();
+    if (!libraryReferenceGraphRenderSequence.isCurrent(seq)) return;
+    mermaid.initialize({
+      startOnLoad: false,
+      securityLevel: "strict",
+      theme: state.theme === "light" ? "default" : "dark",
+      themeVariables: { fontSize: "16px" },
+      flowchart: { htmlLabels: false, curve: "basis" }
+    });
+    const id =
+      `reference-graph-${seq.toString(36)}-${Date.now().toString(36)}`;
+    const rootStyle = getComputedStyle(document.documentElement);
+    const resolved = resolveMermaidCssVariables(
+      built.definition,
+      name => rootStyle.getPropertyValue(name));
+    const { svg } = await mermaid.render(id, resolved);
+    if (!libraryReferenceGraphRenderSequence.isCurrent(seq)
+      || document.querySelector("#library-reference-graph-diagram")
+        !== container) return;
+    container.innerHTML =
+      '<div class="dependency-graph-stage"><div class="graph-viewport"></div>'
+      + graphControlsHtml()
+      + "</div>"
+      + (built.truncated
+        ? `<div class="graph-drill-error graph-diagnostics" role="status">Reference graph shows ${built.shownReferenceCount.toLocaleString()} of ${built.referenceCount.toLocaleString()} direct references. The complete list follows.</div>`
+        : "");
+    const viewport =
+      container.querySelector<HTMLElement>(".graph-viewport");
+    if (!viewport) return;
+    viewport.innerHTML = svg;
+    container.dataset.graphDef = signature;
+    bindGraphPanZoom(container, viewport, { keybindings });
+  } catch (error) {
+    if (libraryReferenceGraphRenderSequence.isCurrent(seq)
+      && document.querySelector("#library-reference-graph-diagram")
+        === container) {
+      container.dataset.graphDef = "";
+      container.innerHTML =
+        `<div class="graph-render-error" role="alert"><strong>Diagram rendering failed</strong><p>${escapeHtml(errorMessage(error))}</p></div>`;
+    }
+  } finally {
+    pending.complete(signature, seq);
+  }
+}
+
 function switchToPackageForDependencies(packageKey: string) {
   navigationSequence.invalidate();
   const target = state.packages.find(item =>
@@ -21701,6 +21879,9 @@ async function loadSelectedMemberCallGraph() {
     memberRequestSignature(type, overload, true);
   const signature =
     `${memberSignature}|traversal:${traversalFramework}`;
+  if (state.memberCallGraphKey !== signature) {
+    directUseClusterInspection.reset();
+  }
   const pkg = currentPackage();
   const platformAssembly = assemblyDescriptorForType(pkg.assemblies, type);
   return callGraphInspection.load({
@@ -24300,6 +24481,7 @@ function applyProductHomeDemoSelection(
   state.packageLens = "overview";
   resetMemberFilters();
   resetMemberSectionState();
+  directUseClusterInspection.reset();
   state.platformStack = [];
   state.memberBrowseTypeId = member ? type.id : "";
   state.selectedMemberKey = member?.key ?? "";

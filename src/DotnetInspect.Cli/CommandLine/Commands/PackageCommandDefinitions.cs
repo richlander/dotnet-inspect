@@ -55,7 +55,7 @@ public static class PackageCommandDefinitions
         var layoutOption = new Option<bool>("--layout") { Description = "Show package file tree" };
         var pathOption = new Option<string[]>("--path")
         {
-            Description = "List package files with sizes (the Package files section), scoped to a file, directory, glob, @readme (README.md > PACKAGE.md), or @agents. Can repeat. Pass --path with no value for the whole package.",
+            Description = "List package files with sizes (the Files section), scoped to a file, directory, glob, @readme (README.md > PACKAGE.md), or @agents. Can repeat. Pass --path with no value for the whole package.",
             Arity = ArgumentArity.ZeroOrMore,
             AllowMultipleArgumentsPerToken = false
         };
@@ -64,7 +64,7 @@ public static class PackageCommandDefinitions
         var rootsOption = new Option<bool>("--roots")
         {
             Description =
-                "Project ordered distinct top-level roots represented by selected Package files rows"
+                "Project ordered distinct top-level roots represented by selected Files rows"
         };
         var tfmsOption = new Option<bool>("--tfms")
         {

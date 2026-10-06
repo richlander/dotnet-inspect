@@ -1,3 +1,4 @@
+import type { DataBarResult } from "./data-bar.ts";
 import type {
   BrowserLibraryApiDiffChange,
   BrowserLibraryApiDiffEndpoint,
@@ -251,6 +252,39 @@ function stateMatchesSelection(
     compileAssetId: selection.compileAssetId,
     query: effectiveQuery(selection),
   });
+}
+
+export function libraryApiDiffDataBarResult(
+  state: LibraryApiDiffState,
+  selection: LibraryApiDiffSelection | null,
+): DataBarResult | null {
+  if (selection === null || state.status !== "ready"
+    || !stateMatchesSelection(state, selection)
+    || !sameQuery(effectiveQuery(selection), defaultQuery)
+    || state.result.kind !== "Succeeded" || state.result.value === null) {
+    return null;
+  }
+  const value = state.result.value;
+  if (!value.target.isComplete || !value.current.isComplete) return null;
+  const aggregate = value.aggregate;
+  const notices = state.result.inspection?.diagnostics.filter(
+    diagnostic => diagnostic.severity > 0,
+  ).length ?? 0;
+  return {
+    subject: value.libraryDisplay,
+    title: "Public API comparison",
+    context: `${value.target.version} → ${value.current.version}`,
+    facts: [
+      { value: aggregate.changedTypeCount, label: "changed Types" },
+      { value: aggregate.addedTypeCount, label: "added Types" },
+      { value: aggregate.removedTypeCount, label: "removed Types" },
+      { value: aggregate.changedMemberCount, label: "changed Members" },
+      { value: aggregate.breakingCount, label: "breaking" },
+      { value: aggregate.additiveCount, label: "additive" },
+      { value: aggregate.potentiallyBreakingCount, label: "potentially breaking" },
+    ],
+    ...(notices > 0 ? { qualification: `${notices} inspection ${notices === 1 ? "notice" : "notices"}` } : {}),
+  };
 }
 
 function createRequest(
@@ -1410,6 +1444,7 @@ export type LibraryApiDiffSubject =
     };
 
 export interface LibraryApiDiffRenderOptions {
+  readonly resultSummaryInDataBar?: boolean;
   readonly subject?: LibraryApiDiffSubject;
   readonly subjectLabel?: string;
   // Exact current-side identities the Browser has joined to loaded Navigation
@@ -1911,7 +1946,7 @@ function renderLibrarySubject(
   ].filter(Boolean);
   if (value.types.length === 0) {
     return {
-      status: "Comparison complete. No changed Types.",
+      status: options.resultSummaryInDataBar ? "" : "Comparison complete. No changed Types.",
       content: renderCompareEmpty(
         "No public API changes",
         "The selected Library is unchanged between these versions.",
@@ -1920,9 +1955,11 @@ function renderLibrarySubject(
     };
   }
   return {
-    status: `Comparison complete. ${aggregate.changedTypeCount.toLocaleString()} changed Types.`,
-    content: `<div class="library-api-diff-metrics">${metrics.map(metric =>
-      `<span>${escapeHtml(metric)}</span>`).join("")}</div>
+    status: options.resultSummaryInDataBar
+      ? "" : `Comparison complete. ${aggregate.changedTypeCount.toLocaleString()} changed Types.`,
+    content: `${options.resultSummaryInDataBar ? ""
+      : `<div class="library-api-diff-metrics">${metrics.map(metric =>
+        `<span>${escapeHtml(metric)}</span>`).join("")}</div>`}
       <ol class="library-api-diff-types" aria-label="Changed Types">${value.types.map(type =>
         renderTypeRow(type, escapeHtml, options.activatableTypes)).join("")}</ol>`,
   };

@@ -50,13 +50,30 @@ public sealed record TypeDocumentGenericParameter(
         InertString Name,
     GenericParameterAttributes Attributes);
 
-public sealed record TypeDocumentDeclarationSignature(
-    ImmutableArray<TypeDocumentGenericParameter> GenericParameters);
+public sealed record TypeDocumentDeclarationSignature
+{
+    [JsonConstructor]
+    public TypeDocumentDeclarationSignature(
+        ImmutableArray<TypeDocumentGenericParameter> genericParameters)
+    {
+        if (genericParameters.IsDefault)
+        {
+            throw new ArgumentException(
+                "A Type declaration signature requires an explicit generic-parameter population.",
+                nameof(genericParameters));
+        }
+
+        GenericParameters = genericParameters;
+    }
+
+    public ImmutableArray<TypeDocumentGenericParameter>
+        GenericParameters { get; }
+}
 
 public sealed record TypeSubject
 {
+    [JsonConstructor]
     public TypeSubject(
-        LibraryTypeDocumentSubjectCorrespondence libraryCorrespondence,
         LibraryAssemblyIdentity assembly,
         Guid moduleVersionId,
         MetadataTypeDefinitionName type,
@@ -68,9 +85,6 @@ public sealed record TypeSubject
         bool definesCoreLibraryRoot,
         int? declaringTypeDefinitionToken)
     {
-        LibraryCorrespondence = libraryCorrespondence
-            ?? throw new ArgumentNullException(
-                nameof(libraryCorrespondence));
         Assembly = assembly
             ?? throw new ArgumentNullException(nameof(assembly));
         if (moduleVersionId == Guid.Empty)
@@ -86,6 +100,11 @@ public sealed record TypeSubject
             ?? throw new ArgumentNullException(nameof(signature));
         if (!Enum.IsDefined(category))
             throw new ArgumentOutOfRangeException(nameof(category));
+        if (declaringTypeDefinitionToken is { } declaringToken)
+        {
+            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
+                declaringToken);
+        }
 
         ModuleVersionId = moduleVersionId;
         TypeDefinitionToken = typeDefinitionToken;
@@ -96,17 +115,49 @@ public sealed record TypeSubject
         DeclaringTypeDefinitionToken = declaringTypeDefinitionToken;
     }
 
+    public TypeSubject(
+        LibraryTypeDocumentSubjectCorrespondence libraryCorrespondence,
+        LibraryAssemblyIdentity assembly,
+        Guid moduleVersionId,
+        MetadataTypeDefinitionName type,
+        int typeDefinitionToken,
+        TypeDocumentDeclarationSignature signature,
+        MetadataTypeDeclarationCategory category,
+        TypeAttributes attributes,
+        bool isByRefLike,
+        bool definesCoreLibraryRoot,
+        int? declaringTypeDefinitionToken)
+        : this(
+            assembly,
+            moduleVersionId,
+            type,
+            typeDefinitionToken,
+            signature,
+            category,
+            attributes,
+            isByRefLike,
+            definesCoreLibraryRoot,
+            declaringTypeDefinitionToken)
+    {
+        LibraryCorrespondence = libraryCorrespondence
+            ?? throw new ArgumentNullException(
+                nameof(libraryCorrespondence));
+    }
+
     [JsonIgnore]
-    public LibraryTypeDocumentSubjectCorrespondence LibraryCorrespondence { get; }
+    public LibraryTypeDocumentSubjectCorrespondence? LibraryCorrespondence
+    {
+        get;
+    }
     [JsonIgnore]
-    public LibraryReference RequestedLibrary =>
-        LibraryCorrespondence.RequestedLibrary;
+    public LibraryReference? RequestedLibrary =>
+        LibraryCorrespondence?.RequestedLibrary;
     [JsonIgnore]
-    public LibraryReference DefiningLibrary =>
-        LibraryCorrespondence.DefiningLibrary;
+    public LibraryReference? DefiningLibrary =>
+        LibraryCorrespondence?.DefiningLibrary;
     [JsonIgnore]
-    public LibraryContentReference DefiningApiContent =>
-        LibraryCorrespondence.DefiningApiContent;
+    public LibraryContentReference? DefiningApiContent =>
+        LibraryCorrespondence?.DefiningApiContent;
     public LibraryAssemblyIdentity Assembly { get; }
     public Guid ModuleVersionId { get; }
     public MetadataTypeDefinitionName Type { get; }
@@ -162,9 +213,9 @@ public abstract record TypeDocumentDeclarations
         : TypeDocumentDeclarations;
 }
 
-public sealed record TypeDocument
+public sealed record TypeDocumentInspectionContent
 {
-    public TypeDocument(
+    public TypeDocumentInspectionContent(
         TypeSubject subject,
         TypeDocumentDeclarations declarations,
         int assemblyBytes)
@@ -243,7 +294,7 @@ public abstract record TypeDocumentInspectionOutcome
     {
     }
 
-    public sealed record Available(TypeDocument Document)
+    public sealed record Available(TypeDocumentInspectionContent Document)
         : TypeDocumentInspectionOutcome;
 
     public sealed record Rejected(TypeDocumentInspectionRejection Reason)

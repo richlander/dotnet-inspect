@@ -56,7 +56,7 @@ static class Program
         string? emitRenderAbStructuralDiffs = null;
         bool idempotenceCheck = false;
         bool slotResidualCensus = false;
-        bool slotUnifierCensus = false;
+        bool residualBindingCensus = false;
         bool fixtureSourceInventory = false;
         string? structuralReview = null;
 
@@ -77,6 +77,7 @@ static class Program
         string? diffValidityDefects = null;
         bool fidelityCheck = false;
         bool returnToSender = false;
+        bool returnToSenderTargetCount = false;
         bool fuzzSignatures = false;
         bool fuzzUnguarded = false;
         int fuzzIterations = 100_000;
@@ -216,6 +217,9 @@ static class Program
                     case "--diff-validity-defects": diffValidityDefects = NextArg(args, ref i, flag); break;
                     case "--fidelity-check": fidelityCheck = true; break;
                     case "--return-to-sender": returnToSender = true; break;
+                    case "--return-to-sender-target-count":
+                        returnToSenderTargetCount = true;
+                        break;
                     case "--return-address": returnAddress = true; break;
                     case "--fuzz-signatures": fuzzSignatures = true; break;
                     case "--fuzz-unguarded": fuzzSignatures = true; fuzzUnguarded = true; break;
@@ -360,7 +364,7 @@ static class Program
                     case "--emit-render-ab-structural-diffs": emitRenderAbStructuralDiffs = NextArg(args, ref i, flag); break;
                     case "--idempotence-check": idempotenceCheck = true; break;
                     case "--slot-residual-census": slotResidualCensus = true; break;
-                    case "--slot-unifier-census": slotUnifierCensus = true; break;
+                    case "--residual-binding-census": residualBindingCensus = true; break;
                     case "--fixture-source-inventory": fixtureSourceInventory = true; break;
                     case "--structural-review": structuralReview = NextArg(args, ref i, flag); break;
                     case "--help" or "-h": showHelp = true; break;
@@ -446,6 +450,8 @@ static class Program
             ("--validity-check", validityCheckMode),
             ("--validity-predicate-scan", validityPredicateScan),
             ("--fidelity-check", fidelityCheckMode),
+            ("--return-to-sender-target-count",
+                returnToSenderTargetCount),
             ("--return-to-sender", returnToSender),
             ("--return-address", returnAddress),
             ("--not-my-type", notMyType),
@@ -614,6 +620,9 @@ static class Program
 
         if (fidelityCheck)
             return FidelityCheck.Run(assemblies, compileCap, maxExamples, lowered, fidelityTimings, fidelityZeroSignalGuard);
+
+        if (returnToSenderTargetCount)
+            return ReturnToSenderTargetCount.Run(assemblies);
 
         if (returnToSender)
             return await ReturnToSender.Run(assemblies, cap, maxExamples);
@@ -786,9 +795,9 @@ static class Program
                     corpusMethodCap,
                     maxExamples));
 
-        if (slotUnifierCensus)
+        if (residualBindingCensus)
             return RunAggregate(
-                () => SlotUnifierCensus.Run(
+                () => ResidualBindingCensus.Run(
                     assemblies,
                     corpusMethodCap,
                     maxExamples));
@@ -1278,9 +1287,9 @@ static class Program
     /// number of corpus methods it changed (the "which passes carry the load"
     /// roadmap). With a pass named, lists every method that pass changed (its
     /// blast radius), optionally with the per-method diff hunk (<c>--show-diff</c>).
-    /// <paramref name="cap"/> stops the sweep after that many methods —
-    /// RunWithStages over whole CoreLib is not free, and a cap is the same
-    /// bound the compiling checks use.
+    /// <paramref name="cap"/> stops the sweep after that many methods. The
+    /// name-only path streams manager-issued receipts; <c>--show-diff</c>
+    /// retains stages because it presents their text.
     /// </summary>
     static int PassImpact(List<string> assemblies, string? passFilter, bool showDiff, int cap)
     {
@@ -1311,10 +1320,20 @@ static class Program
                 if (total >= cap) { capped = true; break; }
                 total++;
 
-                IReadOnlyList<PipelineStage> stages;
+                IReadOnlyCollection<string> changed;
+                IReadOnlyList<PipelineStage>? stages = null;
                 try
                 {
-                    stages = IrPasses.RunWithStages(function, ImportSeam(source));
+                    if (showDiff && canonicalPass is not null)
+                    {
+                        stages = IrPasses.RunWithStages(function, ImportSeam(source));
+                        changed = StageDump.PassesThatChanged(stages);
+                    }
+                    else
+                    {
+                        var receipts = IrPasses.RunWithReceipts(function, ImportSeam(source));
+                        changed = PassExecutionReceipts.ChangedPasses(receipts);
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -1325,8 +1344,6 @@ static class Program
                             function.Signature, function.MetadataToken));
                     continue;
                 }
-                var changed = StageDump.PassesThatChanged(stages);
-
                 if (canonicalPass is null)
                 {
                     foreach (var name in changed)
@@ -1340,7 +1357,7 @@ static class Program
                 Console.WriteLine($"{typeName}::{methodName}");
                 if (showDiff)
                 {
-                    Console.Write(StageDump.FormatPassDiff(stages, canonicalPass));
+                    Console.Write(StageDump.FormatPassDiff(stages!, canonicalPass));
                     Console.WriteLine();
                 }
             }
@@ -2394,9 +2411,12 @@ static class Program
                                 intervening-pass, and materialization deltas,
                                 plus post-F2 classes and entry decisions.
                                 Uses --corpus-method-cap to bound the sweep.
-          --slot-unifier-census   run the full pipeline and report the
-                                CSharpPrinter's own stack-slot unifier telemetry.
-                                Uses --corpus-method-cap to bound the sweep.
+          --residual-binding-census
+                                run the full pipeline and report the locals
+                                ResidualSlotBindingPass issued for webs that
+                                materialization declined, grouped by binding kind
+                                and veto flags. Uses --corpus-method-cap to bound
+                                the sweep.
           --fixture-source-inventory
                                 list the registered source-backed fixtures: Built
                                 (FixtureCatalog) and Generated
@@ -2415,6 +2435,10 @@ static class Program
                                 build module/type shells for the first property
                                 getter in each assembly, compile, and compare IL
                                 opcodes.
+          --return-to-sender-target-count
+                                query the exact eligible raised RTS target Count
+                                without materializing candidate rows or running
+                                artifact, compilation, or comparison work.
           --return-address        equivalence census: compare the two product
                                 member-identity producers (GetMemberAnchor vs
                                 CreateMethodAnchor) per member and report the

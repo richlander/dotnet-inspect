@@ -55,6 +55,17 @@ public enum CapabilityCatalogSearchMatchSource
     ProductionBinding,
 }
 
+[JsonConverter(
+    typeof(JsonStringEnumConverter<CapabilityCatalogSearchResourceKind>))]
+public enum CapabilityCatalogSearchResourceKind
+{
+    InspectionDocument,
+    HostNeutralRoute,
+    QuerySpace,
+    QueryFacet,
+    ConsumerBinding,
+}
+
 public sealed record CapabilityCatalogSearchRoute(
     string Identity,
     string Name,
@@ -73,7 +84,7 @@ public sealed record CapabilityCatalogSearchResult(
     CapabilityCatalogSearchMatchSource MatchSource,
     bool IsSegment,
     InspectionCapabilityResourceIdentity ResourceIdentity,
-    ResourceExplanationResourceKind ResourceKind,
+    CapabilityCatalogSearchResourceKind ResourceKind,
     string ResourceName,
     ImmutableArray<string> CanonicalKeys,
     string ResourcePath,
@@ -107,7 +118,9 @@ public static class CapabilityCatalogSearch
         IReadOnlyDictionary<
             InspectionCapabilityResourceIdentity,
             ResourceExplanationResource> resources =
-                IndexCapabilityResources(explanationCatalog);
+                IndexCapabilityResources(
+                    explanationCatalog,
+                    capabilityCatalog);
         ImmutableArray<Candidate> candidates =
             CreateCandidates(
                 capabilityCatalog,
@@ -125,7 +138,7 @@ public static class CapabilityCatalogSearch
                 .ThenBy(static match => Strength(match.Term.Source))
                 .ThenBy(static match => match.Term.IsSegment)
                 .ThenBy(
-                    static match => match.Candidate.Resource.Path.Value,
+                    static match => match.Candidate.Resource.Path!.Value,
                     StringComparer.Ordinal)
                 .ThenBy(
                     static match => match.Term.Value,
@@ -159,25 +172,58 @@ public static class CapabilityCatalogSearch
     private static IReadOnlyDictionary<
         InspectionCapabilityResourceIdentity,
         ResourceExplanationResource> IndexCapabilityResources(
-            ResourceExplanationCatalog catalog)
+            ResourceExplanationCatalog catalog,
+            InspectionCapabilityCatalog capabilityCatalog)
     {
+        InspectionCapabilityResourceIdentity[] identities =
+        [
+            .. capabilityCatalog.Documents.Select(
+                ResourceExplanationCatalog.DocumentIdentity),
+            .. capabilityCatalog.Routes.Select(
+                ResourceExplanationCatalog.RouteIdentity),
+            .. capabilityCatalog.Routes
+                .Select(static route => route.QuerySpace)
+                .DistinctBy(
+                    static querySpace => querySpace.Descriptor.Identity,
+                    StringComparer.Ordinal)
+                .SelectMany(querySpace =>
+                    new[]
+                    {
+                        ResourceExplanationCatalog.QuerySpaceIdentity(
+                            querySpace),
+                    }.Concat(
+                        querySpace.Descriptor.Operation.Terms.Select(term =>
+                            ResourceExplanationCatalog.QueryFacetIdentity(
+                                querySpace,
+                                term)))),
+            .. capabilityCatalog.Bindings.Select(
+                ResourceExplanationCatalog.ConsumerBindingIdentity),
+        ];
+        IReadOnlyDictionary<
+            QuerySpace.Explanation.ExplanationResourceKey,
+            ResourceExplanationResource> resourcesByKey =
+                catalog.Resources.ToDictionary(static resource =>
+                    resource.Key);
         var resources =
             new Dictionary<
                 InspectionCapabilityResourceIdentity,
                 ResourceExplanationResource>();
-        foreach (ResourceExplanationResource resource in catalog.Resources)
+        foreach (InspectionCapabilityResourceIdentity identity in identities)
         {
-            if (resource.Identity
-                is not ResourceExplanationIdentity.Capability capability)
+            if (!resourcesByKey.TryGetValue(
+                    ResourceExplanationCatalog.CapabilityKey(identity),
+                    out ResourceExplanationResource? resource))
             {
-                continue;
+                throw new ArgumentException(
+                    $"Capability resource identity '{identity.Identity}' "
+                    + "has no Resource Explanation resource.",
+                    nameof(catalog));
             }
-            if (!resources.TryAdd(capability.Resource, resource))
+            if (!resources.TryAdd(identity, resource))
             {
                 throw new ArgumentException(
                     $"Capability resource identity "
-                    + $"'{capability.Resource.Identity}' has more than one "
-                    + "Resource Explanation path.",
+                    + $"'{identity.Identity}' occurs more than once.",
                     nameof(catalog));
             }
         }
@@ -243,7 +289,7 @@ public static class CapabilityCatalogSearch
                     identity => resources.TryGetValue(
                         identity,
                         out ResourceExplanationResource? resource)
-                            ? resource.Path.Value
+                            ? resource.Path!.Value
                             : identity.Identity,
                     StringComparer.Ordinal)
                 .Select(identity =>
@@ -257,13 +303,12 @@ public static class CapabilityCatalogSearch
                             nameof(resources));
                     }
                     ResourcePathResolution pathResolution =
-                        explanationCatalog.Resolve(resource.Path.Value);
+                        explanationCatalog.Resolve(resource.Path!.Value);
                     if (pathResolution
                         is not ResourcePathResolution.Resolved resolved
-                        || resolved.Identity
-                            is not ResourceExplanationIdentity.Capability
-                                capability
-                        || capability.Resource != identity)
+                        || resolved.Key
+                            != ResourceExplanationCatalog.CapabilityKey(
+                                identity))
                     {
                         throw new ArgumentException(
                             $"Capability resource '{identity.Identity}' "
@@ -290,7 +335,7 @@ public static class CapabilityCatalogSearch
                                 return new CapabilityCatalogSearchRoute(
                                     route.Descriptor.Identity,
                                     route.Descriptor.Name,
-                                    routeResource.Path.Value);
+                                    routeResource.Path!.Value);
                             }),
                     ];
                     CapabilityCatalogSearchBinding[] bindings =
@@ -313,10 +358,11 @@ public static class CapabilityCatalogSearch
                                     binding.Descriptor.Owner,
                                     binding.Descriptor.Kind,
                                     binding.Descriptor.Gesture,
-                                    bindingResource.Path.Value);
+                                    bindingResource.Path!.Value);
                             }),
                     ];
                     return Candidate.Create(
+                        identity,
                         resource,
                         routes,
                         bindings);
@@ -382,6 +428,7 @@ public static class CapabilityCatalogSearch
         double Similarity);
 
     private sealed record Candidate(
+        InspectionCapabilityResourceIdentity ResourceIdentity,
         ResourceExplanationResource Resource,
         string Name,
         ImmutableArray<string> CanonicalKeys,
@@ -390,6 +437,7 @@ public static class CapabilityCatalogSearch
         ImmutableArray<SearchTerm> Terms)
     {
         public static Candidate Create(
+            InspectionCapabilityResourceIdentity identity,
             ResourceExplanationResource resource,
             IEnumerable<CapabilityCatalogSearchRoute> routes,
             IEnumerable<CapabilityCatalogSearchBinding> bindings)
@@ -397,68 +445,56 @@ public static class CapabilityCatalogSearch
             var terms =
                 new Dictionary<string, SearchTerm>(
                     StringComparer.OrdinalIgnoreCase);
-            InspectionCapabilityResourceIdentity identity =
-                ((ResourceExplanationIdentity.Capability)resource.Identity)
-                    .Resource;
             AddTerms(
                 terms,
                 identity.Identity,
                 CapabilityCatalogSearchMatchSource.OwnerIdentity);
 
-            string name;
-            string? summary;
-            ImmutableArray<string> canonicalKeys;
-            switch (resource.Details)
+            string name =
+                ResourceExplanationVocabulary.RequiredText(
+                    resource,
+                    "name");
+            string? summary = identity.Kind is
+                InspectionCapabilityResourceKind.Document
+                or InspectionCapabilityResourceKind.Route
+                or InspectionCapabilityResourceKind.QueryFacet
+                    ? ResourceExplanationVocabulary.RequiredText(
+                        resource,
+                        "summary")
+                    : null;
+            ImmutableArray<string> canonicalKeys =
+                identity.Kind == InspectionCapabilityResourceKind.QueryFacet
+                    ? [
+                        ResourceExplanationVocabulary.RequiredText(
+                            resource,
+                            "key"),
+                    ]
+                    : [];
+            foreach (string key in canonicalKeys)
             {
-                case ResourceExplanationDetail.InspectionDocumentDetails
-                    details:
-                    name = details.Name;
-                    summary = details.Summary;
-                    canonicalKeys = [];
-                    break;
-                case ResourceExplanationDetail.HostNeutralRouteDetails
-                    details:
-                    name = details.Name;
-                    summary = details.Summary;
-                    canonicalKeys = [];
-                    break;
-                case ResourceExplanationDetail.QuerySpaceDetails details:
-                    name = details.Name;
-                    summary = null;
-                    canonicalKeys = [];
-                    break;
-                case ResourceExplanationDetail.QueryFacetDetails details:
-                    name = details.Name;
-                    summary = details.Summary;
-                    canonicalKeys = [details.Key];
+                AddTerms(
+                    terms,
+                    key,
+                    CapabilityCatalogSearchMatchSource.CanonicalKey);
+            }
+            if (identity.Kind
+                == InspectionCapabilityResourceKind.QueryFacet)
+            {
+                foreach (string example
+                         in ResourceExplanationVocabulary.Texts(
+                             resource,
+                             "examples"))
+                {
                     AddTerms(
                         terms,
-                        details.Key,
-                        CapabilityCatalogSearchMatchSource.CanonicalKey);
-                    foreach (string example in details.Examples)
-                    {
-                        AddTerms(
-                            terms,
-                            example,
-                            CapabilityCatalogSearchMatchSource.ExampleValue);
-                    }
-                    break;
-                case ResourceExplanationDetail.ConsumerBindingDetails
-                    details:
-                    name = details.Name;
-                    summary = null;
-                    canonicalKeys = [];
-                    break;
-                default:
-                    throw new ArgumentException(
-                        "Capability Catalog Search accepts only capability "
-                        + "resources.",
-                        nameof(resource));
+                        example,
+                        CapabilityCatalogSearchMatchSource.ExampleValue);
+                }
             }
 
             AddTerms(
                 terms,
-                resource.Path.Value,
+                resource.Path!.Value,
                 CapabilityCatalogSearchMatchSource.ResourcePath);
             AddTerms(
                 terms,
@@ -499,6 +535,7 @@ public static class CapabilityCatalogSearch
             }
 
             return new Candidate(
+                identity,
                 resource,
                 name,
                 canonicalKeys,
@@ -523,12 +560,11 @@ public static class CapabilityCatalogSearch
                 term.Value,
                 term.Source,
                 term.IsSegment,
-                ((ResourceExplanationIdentity.Capability)Resource.Identity)
-                    .Resource,
-                Resource.ResourceKind,
+                ResourceIdentity,
+                SearchKind(ResourceIdentity.Kind),
                 Name,
                 CanonicalKeys,
-                Resource.Path.Value,
+                Resource.Path!.Value,
                 Routes,
                 Bindings);
 
@@ -586,6 +622,27 @@ public static class CapabilityCatalogSearch
                 nameof(source),
                 source,
                 "Unknown capability-search match source."),
+        };
+
+    private static CapabilityCatalogSearchResourceKind SearchKind(
+        InspectionCapabilityResourceKind kind) =>
+        kind switch
+        {
+            InspectionCapabilityResourceKind.Document =>
+                CapabilityCatalogSearchResourceKind.InspectionDocument,
+            InspectionCapabilityResourceKind.Route =>
+                CapabilityCatalogSearchResourceKind.HostNeutralRoute,
+            InspectionCapabilityResourceKind.QuerySpace =>
+                CapabilityCatalogSearchResourceKind.QuerySpace,
+            InspectionCapabilityResourceKind.QueryFacet =>
+                CapabilityCatalogSearchResourceKind.QueryFacet,
+            InspectionCapabilityResourceKind.ConsumerBinding =>
+                CapabilityCatalogSearchResourceKind.ConsumerBinding,
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(kind),
+                kind,
+                "Capability Catalog Search accepts only searchable "
+                + "capability resources."),
         };
 }
 

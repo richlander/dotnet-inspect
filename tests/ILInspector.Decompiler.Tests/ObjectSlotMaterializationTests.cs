@@ -35,7 +35,7 @@ public class ObjectSlotMaterializationTests
         Assert.Same(value, Assert.Single(function.Descendants.OfType<StoreLocal>()).Value);
         Assert.Empty(function.Descendants.OfType<StoreStackSlot>());
         Assert.Empty(function.Descendants.OfType<LoadStackSlot>());
-        Assert.Contains("object S_0", CSharpPrinter.Print(function).Output);
+        Assert.Contains("object S_0", DecidedPrint.Print(function).Output);
         Assert.Empty(CoercionInvariant.Check(function));
         function.CheckInvariant(includeSemantics: true);
     }
@@ -78,7 +78,7 @@ public class ObjectSlotMaterializationTests
         Assert.Equal(Object, Assert.Single(function.Locals));
         Assert.Empty(function.Descendants.OfType<StoreStackSlot>());
         Assert.Empty(function.Descendants.OfType<LoadStackSlot>());
-        Assert.Contains("object S_0", CSharpPrinter.Print(function).Output);
+        Assert.Contains("object S_0", DecidedPrint.Print(function).Output);
         function.CheckInvariant(includeSemantics: true);
     }
 
@@ -153,7 +153,7 @@ public class ObjectSlotMaterializationTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void ObjectCopyComponentsRemainAtomic(bool incomplete)
+    public void ObjectCopyComponentsMaterializeSourceClosedMembers(bool incomplete)
     {
         var value = new Box(Int32, new Constant(42, Int32));
         var function = Function(incomplete ? Void : Object,
@@ -166,9 +166,16 @@ public class ObjectSlotMaterializationTests
         Assert.Equal(2, decisions.Count);
         if (incomplete)
         {
-            Assert.All(decisions, decision =>
-                Assert.True(decision.Vetoes.HasFlag(SlotMaterializationVeto.IncompleteCopyComponent)));
-            AssertRetained(function);
+            // Decided S_0 copies into S_1, whose only load is untyped: S_0 is
+            // source-closed and materializes; S_1 stays a slot.
+            Assert.True(Assert.Single(decisions, decision => decision.Slot == 0).WillMaterialize);
+            Assert.True(Assert.Single(decisions, decision => decision.Slot == 1).Vetoes
+                .HasFlag(SlotMaterializationVeto.IncompleteCopyComponent));
+            var split = SlotMaterializationInvariant.Capture(function);
+            new SlotMaterializationPass().Run(function, PassContext.None);
+            split.Check();
+            Assert.Single(function.Descendants.OfType<StoreStackSlot>(), store => store.Slot == 1);
+            Assert.DoesNotContain(function.Descendants.OfType<StoreStackSlot>(), store => store.Slot == 0);
             return;
         }
 
@@ -225,7 +232,7 @@ public class ObjectSlotMaterializationTests
 
         Assert.DoesNotContain(function.Descendants.OfType<StoreStackSlot>(), store => store.Slot == 1);
         Assert.DoesNotContain(function.Descendants.OfType<LoadStackSlot>(), load => load.Slot == 1);
-        Assert.Contains("object S_1", CSharpPrinter.Print(function).Output);
+        Assert.Contains("object S_1", DecidedPrint.Print(function).Output);
         function.CheckInvariant(includeSemantics: true);
     }
 
@@ -266,7 +273,7 @@ public class ObjectSlotMaterializationTests
         new SwapIdiomPass().Run(function, PassContext.None);
 
         Assert.Single(function.Descendants.OfType<DeconstructionAssignment>());
-        Assert.Contains("(first, second) = (second, first);", CSharpPrinter.Print(function).Output);
+        Assert.Contains("(first, second) = (second, first);", DecidedPrint.Print(function).Output);
         function.CheckInvariant(includeSemantics: true);
     }
 

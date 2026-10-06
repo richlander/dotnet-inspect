@@ -100,7 +100,7 @@ The exact target may equal the current version. That is a valid neighboring
 case and produces a successful empty comparison when the selected Library is
 unchanged.
 
-**Change target** returns to Package Overview's Comparison targets area. The
+**Change target** returns to Package Compare's Comparison targets area. The
 Library surface does not duplicate Package target controls.
 
 ## Request and result association
@@ -254,26 +254,30 @@ diagnostics add no persistent UI.
 
 ## Library presentation
 
-The Library surface uses one quiet Compare frame. A compact content picker in
-the right side of the frame header chooses Public API or String literals. The
-literal choice exposes only its operator and bounded value; content remains
-nearly full-width below the header.
+The Library surface uses one quiet Compare frame. This owner supplies Public
+API and String Literal to the compact content picker in the right side of the
+frame header. The separately owned
+[Member Body Diff](inspect-web-member-body-diff.md) extends that same picker
+without changing either operation defined here. The literal choice exposes
+only its operator and bounded value; content remains nearly full-width below
+the header.
 
 ```text
 Compare Example.Library                              Diff
 1.0.0 -> 2.0.0                             Change target
 
-3 changed Types  ·  1 breaking  ·  4 additive
-
 Changed   Example.Widget             2 members  1 breaking
 Added     Example.WidgetOptions       3 additive
 Removed   Example.LegacyWidget        1 breaking
+
+Data bar: Example.Library · Public API comparison · 1.0.0 -> 2.0.0 · 3 changed Types · ...
 ```
 
 The frame renders:
 
 - the exact effective target and current version;
-- aggregate owner-issued counts;
+- aggregate owner-issued counts in the data bar, under
+  [Data bar and Diagnostics](inspect-web-surface-composition.md#data-bar-and-diagnostics);
 - one row for every changed Type in producer order;
 - added, removed, or changed state;
 - Type-definition change status when present;

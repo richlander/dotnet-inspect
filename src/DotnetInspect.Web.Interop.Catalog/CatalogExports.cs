@@ -6,9 +6,7 @@ using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
 using DotnetInspector.Sections;
-using DotnetInspector.Vocabulary;
 using ILInspector.Metadata;
-using Analysis = ILInspector.Analysis;
 
 using DotnetInspect.Web;
 using DotnetInspect.Web.Interop.Catalog;
@@ -30,13 +28,36 @@ public static partial class CatalogExports
     private static readonly Lazy<BrowserVocabularyInspection>
         VocabularyInspection =
             new(() => BrowserVocabulary.ToBrowserInspection(
-                ProductVocabularyInspection.Execute()));
+                ProductVocabularyInspection.Execute(
+                    BrowserVocabularyComposition.Snapshot)));
 
     [JSExport]
     public static string InspectVocabulary() =>
         JsonSerializer.Serialize(
             VocabularyInspection.Value,
             BrowserCatalogJsonContext.Default.BrowserVocabularyInspection);
+
+    private static readonly Lazy<VocabularyExplanation> VocabularyExplainer =
+        new(() => new VocabularyExplanation(
+            BrowserVocabularyComposition.Snapshot));
+
+    /// <summary>
+    /// Explains one <c>vocabularies</c> resource path to <paramref name="depth"/>
+    /// with the same Document Content the CLI's <c>explain</c> produces. Every
+    /// other path, and a negative depth, is a typed rejection.
+    /// </summary>
+    [JSExport]
+    public static string ExplainVocabularies(string path, int depth) =>
+        JsonSerializer.Serialize(
+            ExplainVocabulariesCore(path, depth),
+            BrowserCatalogJsonContext.Default
+                .BrowserVocabularyExplanationResult);
+
+    internal static BrowserVocabularyExplanationResult ExplainVocabulariesCore(
+        string path,
+        int depth) =>
+        BrowserVocabulary.ToBrowserExplanation(
+            VocabularyExplainer.Value.Explain(path ?? "", depth));
 
     // Home demos are product-owned closed presets. Catalog listing is metadata-only; resolve
     // allocates one demo's definition graph. The browser builds share links / runners from the
@@ -235,18 +256,6 @@ public static partial class CatalogExports
                 member.Name,
                 member.GraphSelectorKey,
                 member.MetadataToken ?? 0);
-        BrowserWorkspaceParticipant participant = resolvedMember.ImplementationParticipant;
-        Analysis.CallGraphMemberResolution memberResolution = resolvedMember.Member;
-        MemberCallGraphView view = scope.UseImplementation(group =>
-        {
-            using var session = new MemberCallGraphSession(
-                group,
-                participant.Assembly,
-                memberResolution.BodyToken);
-            return session.HasCrossLibraryScope
-                ? session.CrossLibrary()
-                : session.Callers();
-        });
 
         return new BrowserHomeDemoRunResult(
             true,
@@ -267,7 +276,9 @@ public static partial class CatalogExports
                 member.AnchorDigest,
                 memberPlan.MemberSection),
             BrowserCatalogWireProjection.Project(
-                BrowserCallGraphProjection.Project(scope, view)));
+                BrowserCallGraphProjection.Project(
+                    scope,
+                    resolvedMember)));
     }
 
     static async Task<BrowserHomeDemoRunResult> RunPackageHomeDemoAsync(

@@ -36,18 +36,20 @@ function render(overrides: Partial<LibraryReferencesOptions> = {}) {
   });
 }
 
-test("References uses a single compact heading, direct list, and complete bottom context", () => {
+test("References uses a compact heading, graph followed by list, and complete bottom context", () => {
   const html = render();
   assert.equal(html.match(/<h1\b/g)?.length, 1);
   assert.match(html, /<h1 id="library-references-title">References<\/h1>/);
   assert.match(html, /2 direct references/);
-  assert.match(html, /library-references-scroll"><ul class="dep-list"/);
+  assert.match(html, /<h2>Reference graph<\/h2>/);
+  assert.match(html, /id="library-reference-graph-diagram"/);
+  assert.match(html, /<h2>Assembly references<\/h2>/);
+  assert.ok(html.indexOf("Reference graph") < html.indexOf("Assembly references"));
   assert.match(html, /System\.Runtime[\s\S]*10\.0\.0\.0.*neutral.*pkt b03f5f7f11d50a3a/);
   assert.match(html, /Example\.Other[\s\S]*1\.2\.3\.4.*fr.*unsigned/);
   assert.ok(html.indexOf("System.Runtime") < html.indexOf("Example.Other"));
-  assert.match(html, /<footer[\s\S]*lib\/net10\.0\/Example.Core.dll.*Example.Core, Version=1.0.0.0/);
-  assert.match(html, /<footer[\s\S]*net10.0 \/ Example.Package@1.0.0/);
-  assert.doesNotMatch(html, /type-heading|section-title|<h2>/);
+  assert.doesNotMatch(html, /<footer/);
+  assert.doesNotMatch(html, /type-heading/);
 });
 
 test("a single direct reference uses a singular count", () => {
@@ -62,21 +64,21 @@ test("successful zero references retain the frame and explicit empty result", ()
   assert.match(html, /0 direct references/);
   assert.match(html, /No direct references/);
   assert.match(html, /This assembly declares no direct AssemblyRef rows/);
-  assert.match(html, /<footer/);
+  assert.doesNotMatch(html, /<footer/);
   assert.doesNotMatch(html, /<ul|failed/);
 });
 
 test("reading state takes precedence over retained data or error", () => {
   const html = render({ loading: true, error: "earlier failure" });
   assert.match(html, /Reading direct AssemblyRef rows/);
-  assert.match(html, /<footer/);
+  assert.doesNotMatch(html, /<footer/);
   assert.doesNotMatch(html, /System.Runtime|earlier failure|2 direct references/);
 });
 
 test("initial pending state is not rendered as successful zero references", () => {
   const html = render({ data: null });
   assert.match(html, /Loading/);
-  assert.match(html, /<footer/);
+  assert.doesNotMatch(html, /<footer/);
   assert.doesNotMatch(html, /0 direct references|No direct references|<ul/);
 });
 
@@ -84,7 +86,7 @@ test("query failure remains visible instead of exposing retained rows", () => {
   const html = render({ error: "The reference query is unavailable." });
   assert.match(html, /Query failed/);
   assert.match(html, /The reference query is unavailable/);
-  assert.match(html, /<footer/);
+  assert.doesNotMatch(html, /<footer/);
   assert.doesNotMatch(html, /<ul|2 direct references/);
 });
 
@@ -92,7 +94,7 @@ test("inspection failure is not a zero-reference result", () => {
   const html = render({ data: { ...data, assemblyReferences: "Cannot decode AssemblyRef." } });
   assert.match(html, /Inspection failed/);
   assert.match(html, /Cannot decode AssemblyRef/);
-  assert.match(html, /<footer/);
+  assert.doesNotMatch(html, /<footer/);
   assert.doesNotMatch(html, /<ul|0 direct references|2 direct references/);
 });
 
@@ -105,7 +107,7 @@ for (const [result, message] of [
 
     assert.match(html, /Inspection failed/);
     assert.ok(html.includes(message));
-    assert.match(html, /<footer/);
+    assert.doesNotMatch(html, /<footer/);
     assert.doesNotMatch(html, /declares no direct|loader|Loading|<ul/);
   });
 }
@@ -119,8 +121,6 @@ test("identity, reference fields, and diagnostics use the existing escape bounda
       { name: "Example<Other>", version: "1&2", culture: "a&b", publicKeyToken: "c&d" },
     ] } },
   });
-  assert.match(html, /title="lib\/Example&amp;Core.dll.*Example.&quot;Core&quot;"/);
-  assert.match(html, /Example&lt;Package&gt;/);
   assert.match(html, /Example&lt;Other&gt;/);
   assert.match(html, /1&amp;2.*a&amp;b.*c&amp;d/);
   assert.match(render({ error: "Read <failed>" }), /Read &lt;failed&gt;/);

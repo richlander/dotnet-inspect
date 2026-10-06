@@ -53,6 +53,7 @@ Three shared systems keep the command core small while inspection stays deep:
 | [`ComparisonDocument<T>`](design/comparison-document.md) | Composition of compared subjects and their comparison payloads |
 | [`InspectionGraphDocument`](design/inspection-graph-document.md) | Topology |
 | `AnnotatedSourceDocument` ([Member body substrate](design/member-body-substrate.md)) | Placement at source and IL coordinates |
+| [`IInspectionHierarchySink<TNode>`](design/host-neutral-hierarchy-projection.md) | Synchronous host-neutral hierarchy projection without a retained presentation tree |
 | Markout | Format lowering |
 
 New analyses and operations reach users through these structures. An analysis
@@ -776,9 +777,10 @@ producers that will extend that space.
 
 ## Engineering guidance
 
-[AGENTS.md](../AGENTS.md) is the source of truth for repository-wide
-engineering and workflow rules. This document describes subsystem ownership;
-use the task map in `AGENTS.md` to find the focused guidance for a change.
+[AGENTS.md](../AGENTS.md) is the launch constitution.
+[Repository workflow](repository-workflow.md) owns cross-cutting contributor
+rules, this document describes subsystem ownership, and
+[the documentation index](README.md) routes focused guidance.
 
 ## Important systems
 
@@ -934,6 +936,10 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Multi-part inspection documents](design/multi-part-inspection-documents.md):
   one authoritative typed Document for correlated semantic parts, with
   independent section projections and optional authored-category composition.
+- [Type and Member inspection documents](design/type-member-inspection-documents.md):
+  compact and complete Type declarations, complete same-named Member
+  populations, exact Member declarations, and their resolved explanation
+  handoff.
 - [Source delegation](design/source-delegation.md): delegated source
   execution — the effect protocol, result algebra, completion-evidence
   binding, and exact upstream Count acceptance.

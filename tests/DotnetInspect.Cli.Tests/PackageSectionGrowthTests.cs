@@ -30,7 +30,7 @@ public sealed class PackageSectionGrowthTests
         44)]
     [InlineData(
         "crestapps.agentskills.mcp.orchardcore.1.2.0.nupkg",
-        "Package skill files",
+        "Skills",
         172)]
     public async Task PackageBaseInventory_RealPackagePreservesMeasuredRows(
         string archive,
@@ -110,13 +110,21 @@ public sealed class PackageSectionGrowthTests
 
         try
         {
+            // The nuspec section is scalar, so its single row is observed
+            // through the row stream rather than Count.
+            var nuspec = await Run(
+                "package",
+                packagePath,
+                "-S",
+                "Nuspec",
+                "--tsv");
+            Assert.True(nuspec.ExitCode == 0, nuspec.Error);
+            Assert.Equal(
+                2,
+                nuspec.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries).Length);
             await AssertCountAsync(
                 packagePath,
-                "Package nuspec file",
-                1);
-            await AssertCountAsync(
-                packagePath,
-                "Package files",
+                "Files",
                 31);
         }
         finally

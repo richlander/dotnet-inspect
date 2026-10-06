@@ -178,20 +178,35 @@ public sealed class PackageAssemblyContextRealizationTests
     }
 
     [Fact]
-    public void PackageRootIdentity_DistinguishesRequestedFrameworksByReference()
+    public void PackageBinding_RetainsRequestAcrossCompatibleSelection()
     {
-        PackageRootRealization net10 = RootSelection(
+        byte[] image =
+            File.ReadAllBytes(
+                typeof(PackageAssemblyContextRealizationTests)
+                    .Assembly.Location);
+        PackageRootBinding net10 = CompatibleBinding(
             "Multi.Targeted",
             "net10.0",
-            ("tools/net10.0/any/Multi.Targeted.dll", [0x01]));
-        PackageRootRealization net11 = RootSelection(
+            ("lib/net8.0/Multi.Targeted.dll", image));
+        PackageRootBinding net11 = CompatibleBinding(
             "Multi.Targeted",
             "net11.0",
-            ("tools/net11.0/any/Multi.Targeted.dll", [0x01]));
+            ("lib/net8.0/Multi.Targeted.dll", image));
 
-        Assert.NotSame(net10.Identity, net11.Identity);
-        Assert.Equal("net10.0", net10.Identity.RequestedTargetFramework);
-        Assert.Equal("net11.0", net11.Identity.RequestedTargetFramework);
+        Assert.Equal(
+            "net8.0",
+            net10.Root.Identity.RequestedTargetFramework);
+        Assert.Equal(
+            "net8.0",
+            net11.Root.Identity.RequestedTargetFramework);
+        Assert.Equal("net10.0", net10.CompileTargetFramework);
+        Assert.Equal("net11.0", net11.CompileTargetFramework);
+        Assert.Equal(
+            net10.Root.AssetSelection.Assets.Select(
+                static asset => asset.Path),
+            net11.Root.AssetSelection.Assets.Select(
+                static asset => asset.Path));
+        Assert.NotEmpty(net10.Root.AssetSelection.Assets);
     }
 
     [Fact]
@@ -1765,12 +1780,68 @@ public sealed class PackageAssemblyContextRealizationTests
                 secondParticipant.Participant.Assembly.Provenance);
         Assert.Equal("First.Package", firstProvenance.PackageId);
         Assert.Equal("Second.Package", secondProvenance.PackageId);
+        Assert.Equal("net11.0", firstProvenance.Tfm);
+        Assert.Null(firstProvenance.Rid);
+        Assert.Equal(
+            "lib/net11.0/Common.dll",
+            firstProvenance.AssetPath);
+        Assert.Equal(
+            "lib/net11.0/Common.dll",
+            secondProvenance.AssetPath);
         Assert.Equal(
             "lib/net11.0/Common.dll",
             firstParticipant.Asset.Path);
         Assert.Equal(
             "lib/net11.0/Common.dll",
             secondParticipant.Asset.Path);
+    }
+
+    [Fact]
+    public async Task SelectedAssetPath_RemainsExactPackageProvenance()
+    {
+        byte[] image =
+            File.ReadAllBytes(
+                typeof(PackageAssemblyContextRealizationTests)
+                    .Assembly.Location);
+        PackageRootRealization first = Selection(
+            "Selected.Asset",
+            ("lib/net11.0/First.dll", image));
+        PackageRootRealization second = Selection(
+            "Selected.Asset",
+            ("lib/net11.0/Second.dll", image));
+        await using var workspace = new InspectionWorkspace();
+        using PackageAssemblyContextRealization firstRealization =
+            workspace.RealizePackageAssemblyContextRoles(
+                [first],
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+        using PackageAssemblyContextRealization secondRealization =
+            workspace.RealizePackageAssemblyContextRoles(
+                [second],
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        PackageAssemblyRoleParticipant firstParticipant =
+            Assert.Single(firstRealization.SurfaceParticipants);
+        PackageAssemblyRoleParticipant secondParticipant =
+            Assert.Single(secondRealization.SurfaceParticipants);
+        var firstProvenance =
+            Assert.IsType<AssemblyResolutionProvenance.PackageAsset>(
+                firstParticipant.Participant.Assembly.Provenance);
+        var secondProvenance =
+            Assert.IsType<AssemblyResolutionProvenance.PackageAsset>(
+                secondParticipant.Participant.Assembly.Provenance);
+
+        Assert.Equal(
+            firstParticipant.Participant.Assembly.Identity,
+            secondParticipant.Participant.Assembly.Identity);
+        Assert.Equal(
+            "lib/net11.0/First.dll",
+            firstProvenance.AssetPath);
+        Assert.Equal(
+            "lib/net11.0/Second.dll",
+            secondProvenance.AssetPath);
+        Assert.NotEqual(firstProvenance, secondProvenance);
     }
 
     [Fact]
@@ -2520,6 +2591,26 @@ public sealed class PackageAssemblyContextRealizationTests
             packageId,
             "1.0.0",
             targetFramework);
+
+    static PackageRootBinding CompatibleBinding(
+        string packageId,
+        string targetFramework,
+        params (string Path, byte[] Content)[] entries)
+    {
+        const string version = "1.0.0";
+        const string producer = "tests";
+        var payload = new AcquiredPackageSourcePayload(
+            PackageSourceCoordinate.Create(packageId, version),
+            new InMemoryPackageContent(
+                Archive(entries),
+                fromCache: false,
+                producerKey: producer),
+            producer,
+            PackagePayloadOrigin.Download);
+        return PackageRootBinding.CreateFromSourceWithCompatibleSelection(
+            payload,
+            targetFramework);
+    }
 
     static PackageRootBinding Binding(
         string packageId,

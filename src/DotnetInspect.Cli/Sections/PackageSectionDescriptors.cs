@@ -120,7 +120,7 @@ public static class PackageSectionDescriptors
                 PackageSections.Manifest,
                 PackageSections.RuntimeDependencies,
                 PackageSections.Files)
-            // The package file family. Plain "Package files" is the whole-package listing,
+            // The package file family. Plain "Files" is the whole-package listing,
             // so it is deliberately not a member: including it would make
             // -S @Files render most rows twice.
             .AddBaseCategory(SectionCategoryNames.Files, PackageFileFamily.SectionNames)
@@ -415,11 +415,11 @@ public static class PackageSectionDescriptors
             model.EcosystemDependencyRecognitionInspection?.Content
                 is EcosystemDependencyRecognitionOutcome.Complete
                     {
-                        Document.Classification.Recognized.Length: > 0,
+                        Document.Classification.Matches.Length: > 0,
                     }
                 or EcosystemDependencyRecognitionOutcome.Incomplete
                     {
-                        Document.Classification.Recognized.Length: > 0,
+                        Document.Classification.Matches.Length: > 0,
                     };
     }
 

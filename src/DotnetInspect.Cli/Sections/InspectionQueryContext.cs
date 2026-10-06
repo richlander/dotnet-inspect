@@ -80,6 +80,8 @@ public sealed class InspectionQueryContext : IDisposable
     public RowSelectionIntent<string>? NameFamilyRowSelection
     { get; init; }
 
+    public bool ArchitecturalFamilyTypeRows { get; init; }
+
     public RowSelectionIntent<string>? DependencyStructureRowSelection
     { get; init; }
 
@@ -279,15 +281,15 @@ public sealed class InspectionQueryContext : IDisposable
     /// <summary>
     /// Refuses a shared resource to a query that did not declare it could afford one.
     ///
-    /// Body analysis is a whole-assembly IL build. The registry cannot see that an executor
-    /// touches it because focused results and the compatibility <see cref="BodyIndex"/> are
-    /// acquired lazily, so the declaration is enforced at acquisition rather than inferred from
+    /// Body analysis is a whole-assembly IL build. The registry cannot see that
+    /// an executor touches it because focused results are acquired lazily, so
+    /// the declaration is enforced at acquisition rather than inferred from
     /// delegate shape.
     ///
     /// So the declaration is enforced where the cost is actually incurred. Adding a body-analysis
     /// call to a producer that still claims to be cheap fails loudly instead of quietly restoring
     /// the defect. Gates:
-    /// <c>SectionPipelineTests.Query_CannotTakeTheBodyIndexWithoutDeclaringItsCost</c>.
+    /// The section-pipeline cost-declaration tests gate this boundary.
     /// </summary>
     private void RequireUnboundedDeclaration(string resource)
     {
@@ -340,12 +342,16 @@ public sealed class InspectionQueryContext : IDisposable
         var start = System.Diagnostics.Stopwatch.GetTimestamp();
         try
         {
+            Analysis.LibraryBodyAnalysisRequest request =
+                BodyAnalysisRequest
+                    ?? Analysis.LibraryBodyAnalysisRequest.Create(
+                        BodyAnalysisFeatures);
+            if (Trace is not null)
+                request = request.WithStageParticipation();
             _bodySession = MethodBodyInspectionSession.OpenWithPrefetchedImage(
                 AssemblyPath,
                 GetMetadataContext().GetPrefetchedImage(),
-                BodyAnalysisRequest
-                    ?? Analysis.LibraryBodyAnalysisRequest.Create(
-                        BodyAnalysisFeatures),
+                request,
                 BodyReferenceResolver,
                 assembly: AssemblyReference);
         }
@@ -367,6 +373,22 @@ public sealed class InspectionQueryContext : IDisposable
                 + $"{BodyAnalysisRequest?.Features ?? BodyAnalysisFeatures}; "
                 + $"resource lifecycle: "
                 + $"{BodyAnalysisRequest?.IncludesResourceLifecycle == true})"));
+        if (_bodySession.AnalysisExecution.Receipt.StageParticipation
+            is { } participation)
+        {
+            Trace?.RecordResource(
+                "body analysis stages",
+                new InertString(
+                    TextPolicy.Field,
+                    string.Join(
+                        "; ",
+                        participation.Stages.Select(
+                            static stage =>
+                                $"{stage.Stage} "
+                                + $"{stage.Completions}/"
+                                + $"{stage.Attempts} complete, "
+                                + $"{stage.Failures} failed"))));
+        }
     }
 
     private static string Elapsed(long start)

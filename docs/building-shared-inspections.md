@@ -680,6 +680,17 @@ command.
 
 ## Worked pattern: MemberGroup documents
 
+The compact Type declaration path now follows the same ownership split.
+[`TypeOverviewDocumentInspectionOperation`](../src/DotnetInspector.Sections/TypeOverviewDocumentInspection.cs)
+projects the existing exact-Type and Type MemberGroup population operation into
+one final `TypeOverviewDocument`. Its request requires compact Rows with a
+nested exact-Member Count for every MemberGroup, and its closed outcome
+promotes Type, population, and Rows non-successes rather than exposing
+success-shaped partial content. The operation preserves the owner-issued exact
+Type and population binding, filtering intent, ordering, continuation, Share,
+and diagnostics; it does not spell complete Member signatures or adopt host
+rendering.
+
 The capability-led pilot for
 [#8802](https://github.com/richlander/dotnet-inspect/issues/8802) is the current
 MemberGroup inspection delivered by
@@ -691,7 +702,8 @@ through the QuerySpace route in
   demonstrated by `System.Text.Json.JsonSerializer.Serialize`;
 - Metadata owns the exact declarations, while the
   [Type/Member inspection design](design/type-member-inspection-documents.md)
-  owns `MemberGroupDocument` and its Count/Rows identity;
+  owns the target `MemberOverviewDocument` and its Count/Rows identity; the
+  current implementation name `MemberGroupDocument` is transitional;
 - the exact-overload query binds owner-issued accessibility, receiver, and
   hidden-state facets, then uses QuerySpace for portable intent, Count, Rows,
   continuation, and terminal-directed work;
@@ -711,11 +723,22 @@ through the QuerySpace route in
   Advanced explicit sections and exact-Member drill-down remain only where
   they answer distinct current questions.
 
-The focused singleton `PointerFreeUnsafeMethod` case proves the subject
-boundary: a one-row population remains a MemberGroup rather than silently
-changing into an exact Member. The neighboring 15-row `Serialize` family
-proves that CLI default Tree, explicit Tree, and Browser family views consume
-the same owner-issued population; a missing group remains typed rejection.
+The focused singleton `PointerFreeUnsafeMethod` case proves that the population
+operation can return one exact row.
+[`MemberDocumentResolutionOperation`](../src/DotnetInspector.Sections/MemberDocumentResolution.cs)
+uses that row's owner-issued identity to select `MemberDocument` rather than
+exposing a one-row `MemberOverviewDocument`. The neighboring 15-row `Serialize`
+family proves that the same operation returns the complete
+`MemberOverviewDocument`; a missing group remains typed rejection. CLI default
+Tree, explicit Tree, and Browser family views continue to consume the
+transitional operation until their focused adoption slice.
+
+`MemberContextualExplanationOperation.ExplainResolvedMember` consumes only the
+completed overview or exact success variants from that resolver. It projects
+the same MemberGroup population or exact Member, including population
+correspondence, into the common Resource Explanation document without running
+resolution or an ordinary document plan again. CLI and Browser routing remain
+transitional until their focused host-adoption slice.
 
 This pilot uses the full stack because its question needs the full stack. It
 does not imply that a scalar Query needs a Section, that every Section needs

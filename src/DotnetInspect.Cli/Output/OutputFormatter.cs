@@ -2,6 +2,7 @@ using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Models;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
+using DotnetInspector.ResearchQueries;
 using DotnetInspect.Cli.Views;
 using System.Globalization;
 using System.Text.Json;
@@ -563,13 +564,17 @@ public static class OutputFormatter
     /// windows the same section through <see cref="FormatResult"/> (#3457).
     /// </summary>
     public static void WritePackageTable(InspectionResult result, InspectionOptions options,
+        SectionPipeline<InspectionResult> pipeline, bool showHeader) =>
+        WritePackageTable(Console.Out, result, options, pipeline, showHeader);
+
+    public static void WritePackageTable(TextWriter output, InspectionResult result, InspectionOptions options,
         SectionPipeline<InspectionResult> pipeline, bool showHeader)
     {
         var writerOpts = BuildWriterOptions(result, options, pipeline);
         ConfigureTableWriterOptions(writerOpts, options.Tsv, options.Jsonl);
         var view = new InspectionResultView(
             result);
-        WriteTable(Console.Out, showHeader,
+        WriteTable(output, showHeader,
             (writer, formatter) => MarkoutSerializer.Serialize(view, writer, formatter, InspectionContext.Default, writerOpts),
             options.Rows);
     }
@@ -617,6 +622,24 @@ public static class OutputFormatter
             new LibraryInspectionRenderInput(inspection, null),
             options,
             pipeline);
+
+    internal static void WriteLibraryDocumentContext(
+        LibraryPresentationContext context,
+        LibraryDocumentInspection documentInspection)
+    {
+        var view = new LibraryDocumentContextView(
+            context,
+            documentInspection);
+        var writer = new StringWriter { NewLine = "\n" };
+        MarkoutSerializer.Serialize(
+            view,
+            writer,
+            InspectionContext.Default,
+            new MarkoutWriterOptions());
+        WriteLfLine(
+            Console.Out,
+            writer.ToString().TrimEnd());
+    }
 
     internal static void WriteLibraryResult(
         LibraryInspectionRenderInput input,
@@ -1416,9 +1439,50 @@ public static class OutputFormatter
                 count);
         }
         ApplyClassificationCounts(projection, inspection, writerOptions.IncludeSections, rows);
+        ApplyArchitecturalFamilyCounts(
+            projection,
+            inspection,
+            writerOptions.IncludeSections,
+            rows);
+        ApplyPerformanceCounts(
+            projection,
+            inspection,
+            writerOptions.IncludeSections,
+            rows,
+            fields,
+            columns);
         ApplyILCoordinateCardinality(
             projection, inspection, writerOptions.IncludeSections, rows, fields, columns);
         return projection;
+    }
+
+    internal static void ApplyArchitecturalFamilyCounts(
+        CountProjection projection,
+        LibraryInspection inspection,
+        IReadOnlyCollection<string>? includedSections,
+        RowWindow? rows)
+    {
+        if (includedSections is null
+            || inspection.ArchitecturalFamilyQueryResult
+                is not LibraryArchitecturalFamilyQueryResult.Available
+                { Count: int count })
+        {
+            return;
+        }
+
+        if (includedSections.Contains(SectionNames.ArchitecturalFamilies))
+        {
+            projection.SetRows(
+                SectionNames.ArchitecturalFamilies,
+                WindowedCount(count, rows));
+        }
+        else if (includedSections.Contains(
+                     SectionNames.ArchitecturalFamilyTypes))
+        {
+            projection.SetRows(
+                SectionNames.ArchitecturalFamilyTypes,
+                WindowedCount(count, rows));
+        }
     }
 
     /// <summary>
@@ -1448,13 +1512,65 @@ public static class OutputFormatter
         {
             projection.SetRows(SectionNames.PInvokeMethods, WindowedCount(pInvokeCount, rows));
         }
+    }
 
-        static int WindowedCount(int count, RowWindow? rows)
+    private static int WindowedCount(int count, RowWindow? rows)
+    {
+        if (rows is not { IsUnlimited: false } window)
+            return count;
+        (int keepStart, int keepEnd) = window.Resolve(count);
+        return keepEnd - keepStart;
+    }
+
+    internal static void ApplyPerformanceCounts(
+        CountProjection projection,
+        LibraryInspection inspection,
+        IReadOnlyCollection<string>? includedSections,
+        RowWindow? rows,
+        string[]? fields = null,
+        string[]? columns = null)
+    {
+        if (includedSections is null
+            || inspection.PerformanceTriageCounts is not
+                { } counts)
         {
-            if (rows is not { IsUnlimited: false } window)
-                return count;
-            (int keepStart, int keepEnd) = window.Resolve(count);
-            return keepEnd - keepStart;
+            return;
+        }
+
+        DocumentSchema? schema =
+            fields is { Length: > 0 }
+            || columns is { Length: > 0 }
+                ? InspectionContext.Default
+                    .GetSchemaInfo<LibraryInspectionView>()!
+                    .ToDocumentSchema()
+                : null;
+        foreach (string section in includedSections)
+        {
+            if (!PerformanceKinds.Sections.Contains(
+                    section,
+                    StringComparer.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            bool projected = schema is null
+                || ProjectionMatchesSection(
+                    schema,
+                    section,
+                    fields,
+                    columns);
+            int count = projected
+                ? counts.Count(
+                    PerformanceKinds.KindForSection(section))
+                : 0;
+            if (rows is { IsUnlimited: false } window)
+            {
+                (int keepStart, int keepEnd) =
+                    window.Resolve(count);
+                count = keepEnd - keepStart;
+            }
+
+            projection.SetRows(section, count);
         }
     }
 

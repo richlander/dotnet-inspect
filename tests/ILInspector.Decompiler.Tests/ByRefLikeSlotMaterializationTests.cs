@@ -128,7 +128,7 @@ public class ByRefLikeSlotMaterializationTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void ByRefLikeCopyComponentsRemainAtomic(bool incomplete)
+    public void ByRefLikeCopyComponentsMaterializeSourceClosedMembers(bool incomplete)
     {
         var function = Function(SpanInt32,
             new StoreStackSlot(0, new DefaultValue(SpanInt32)),
@@ -142,9 +142,16 @@ public class ByRefLikeSlotMaterializationTests
         Assert.Equal(2, decisions.Count);
         if (incomplete)
         {
-            Assert.All(decisions, decision => Assert.True(
-                decision.Vetoes.HasFlag(SlotMaterializationVeto.IncompleteCopyComponent)));
-            AssertRetained(function);
+            // Decided S_0 copies into S_1, whose only load is untyped: S_0 is
+            // source-closed and materializes; S_1 stays a slot.
+            Assert.True(Assert.Single(decisions, decision => decision.Slot == 0).WillMaterialize);
+            Assert.True(Assert.Single(decisions, decision => decision.Slot == 1).Vetoes
+                .HasFlag(SlotMaterializationVeto.IncompleteCopyComponent));
+            var split = SlotMaterializationInvariant.Capture(function);
+            new SlotMaterializationPass().Run(function, PassContext.None);
+            split.Check();
+            Assert.Single(function.Descendants.OfType<StoreStackSlot>(), store => store.Slot == 1);
+            Assert.DoesNotContain(function.Descendants.OfType<StoreStackSlot>(), store => store.Slot == 0);
             return;
         }
 
@@ -168,13 +175,13 @@ public class ByRefLikeSlotMaterializationTests
             new StoreStackSlot(0, second),
             new Return(new LoadStackSlot(0, SpanInt32)));
         KnowByRefLikeValue(function, Span);
-        string before = CSharpPrinter.Print(function).Output!;
+        string before = ResidualRender(function);
         var invariant = SlotMaterializationInvariant.Capture(function);
 
         new SlotMaterializationPass().Run(function, PassContext.None);
 
         invariant.Check();
-        Assert.Equal(before, CSharpPrinter.Print(function).Output);
+        Assert.Equal(before, DecidedPrint.Print(function).Output);
         Assert.Same(first, function.Descendants.OfType<StoreLocal>().First().Value);
         Assert.Same(second, function.Descendants.OfType<StoreLocal>().Last().Value);
         function.CheckInvariant(includeSemantics: true);
@@ -210,11 +217,11 @@ public class ByRefLikeSlotMaterializationTests
             [],
             body);
         KnowByRefLikeValue(function, Span);
-        string before = CSharpPrinter.Print(function).Output!;
+        string before = ResidualRender(function);
 
         new SlotMaterializationPass().Run(function, PassContext.None);
 
-        string after = CSharpPrinter.Print(function).Output!;
+        string after = DecidedPrint.Print(function).Output!;
         Assert.Equal(before, after);
         Assert.Contains("Span<int> S_0;", after);
         function.CheckInvariant(includeSemantics: true);
@@ -264,12 +271,12 @@ public class ByRefLikeSlotMaterializationTests
                 Kind: TypeRefKind.GenericInstance,
                 ElementType.Name: "ReadOnlySpan`1",
             });
-        string before = CSharpPrinter.Print(function).Output!;
+        string before = ResidualRender(function);
 
         Assert.True(decision.WillMaterialize, decision.Vetoes.ToString());
         new SlotMaterializationPass().Run(function, PassContext.None);
 
-        string after = CSharpPrinter.Print(function).Output!;
+        string after = DecidedPrint.Print(function).Output!;
         Assert.Equal(before, after);
         Assert.Contains("ReadOnlySpan<char> S_256 = (ReadOnlySpan<char>)s;", after);
         Assert.DoesNotContain(function.Descendants.OfType<StoreStackSlot>(),
@@ -291,6 +298,17 @@ public class ByRefLikeSlotMaterializationTests
         Assert.All(results, result => Assert.True(
             result.Status == FidelityCheck.CompileBackStatus.Exact,
             $"{result.Method}: {result.Status}: {result.Detail}"));
+    }
+
+    /// <summary>
+    /// The legacy residual rendering of a slot web: the printer's frozen policy
+    /// now runs as <see cref="ResidualSlotBindingPass"/>, so render a bound clone.
+    /// </summary>
+    static string ResidualRender(IrFunction function)
+    {
+        var clone = (IrFunction)function.Clone();
+        new ResidualSlotBindingPass().Run(clone, PassContext.None);
+        return DecidedPrint.Print(clone).Output!;
     }
 
     static void KnowByRefLikeValue(IrFunction function, TypeRef definition)

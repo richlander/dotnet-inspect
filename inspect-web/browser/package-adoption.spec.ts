@@ -1213,8 +1213,7 @@ test.describe("Package Query website over real Wasm", () => {
     await expect(overview.locator("h1")).toHaveText(
       literalCoordinate.packageId.toLowerCase(),
     );
-    await expect(overview.locator(".overview-surface-footer"))
-      .toContainText(literalCoordinate.version);
+    await expect(overview.locator(".overview-surface-footer")).toHaveCount(0);
     const packageUrl = page.url();
     const retainedWorkspaceId = await currentHistoryWorkspaceId(page);
     expect(retainedWorkspaceId).not.toBeNull();
@@ -2706,17 +2705,21 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
       fixtureFramework,
       library.id,
     );
-    expect(salience.outcome).toBe("available");
-    expect(salience.methodologyVersion).toBe("structural-salience.v3");
-    expect(salience.evidenceMode).toBe("signature");
-    expect(salience.failure).toBeNull();
-    expect(salience.namespaceIndex).not.toBeNull();
-    const namespaces = salience.namespaceIndex!.namespaces;
+    expect(salience.surface.outcome).toBe("available");
+    expect(salience.surface.methodologyVersion)
+      .toBe("structural-salience.v3");
+    expect(salience.surface.evidenceMode).toBe("signature");
+    expect(salience.surface.failure).toBeNull();
+    expect(salience.surface.namespaceIndex).not.toBeNull();
+    expect(salience.implementation.outcome).toBe("available");
+    expect(salience.implementation.evidenceMode).toBe("body-use");
+    const namespaces = salience.surface.namespaceIndex!.namespaces;
     expect(namespaces.length).toBeGreaterThan(0);
-    expect(salience.typeLeverageShards.map(shard => shard.namespace)).toEqual(
-      namespaces.map(row => row.namespace),
-    );
-    for (const shard of salience.typeLeverageShards) {
+    for (const channel of [salience.surface, salience.implementation]) {
+      expect(channel.typeLeverageShards.map(shard => shard.namespace))
+        .toEqual(namespaces.map(row => row.namespace));
+    }
+    for (const shard of salience.surface.typeLeverageShards) {
       expect(
         new Set(shard.types.map(row => row.typeDefinitionId)).size,
       ).toBe(shard.types.length);
@@ -2897,7 +2900,7 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     // "Inspection failed" instead.
     await expect(panel.locator(".api-surface-head"))
       .toContainText("1 direct reference");
-    await expect(panel.locator("footer")).toContainText(healthyAssemblyFileName);
+    await expect(panel.locator("footer")).toHaveCount(0);
     await expect(panel).not.toContainText("Inspection failed");
   });
 
@@ -3347,8 +3350,7 @@ test.describe("deterministic two-host Workspace demo", () => {
       await expect(overview).toBeVisible({ timeout: 180_000 });
       await expect(overview.locator("h1"))
         .toHaveText(retainedWorkspace.packageId);
-      await expect(overview.locator(".overview-surface-footer"))
-        .toContainText(retainedWorkspace.version);
+      await expect(overview.locator(".overview-surface-footer")).toHaveCount(0);
     };
 
     await page.setViewportSize({ width: 1440, height: 900 });
@@ -4003,17 +4005,22 @@ test.describe("bounded network-backed Worker smoke", () => {
       return ordered[Math.floor(ordered.length / 2)] ?? 0;
     };
     const measured = measurements.at(-1)?.value;
-    if (measured === undefined || measured.namespaceIndex === null) {
+    if (measured === undefined) {
       throw new Error("Expected structural salience measurements.");
     }
-    expect(measured.outcome).toBe("available");
-    const topNamespace = measured.namespaceIndex.namespaces.find(
+    const surfaceLeverage = measured.surface;
+    const namespaceIndex = surfaceLeverage.namespaceIndex;
+    if (namespaceIndex === null) {
+      throw new Error("Expected structural salience namespace evidence.");
+    }
+    expect(surfaceLeverage.outcome).toBe("available");
+    const topNamespace = namespaceIndex.namespaces.find(
       row => row.topLeverage,
     );
     if (topNamespace === undefined) {
       throw new Error("Expected a top-leverage System.Text.Json namespace.");
     }
-    const topShard = measured.typeLeverageShards.find(
+    const topShard = surfaceLeverage.typeLeverageShards.find(
       shard => shard.namespace === topNamespace.namespace,
     );
     if (topShard === undefined) {
@@ -4023,20 +4030,42 @@ test.describe("bounded network-backed Worker smoke", () => {
     expect(
       topShard.types.some(row => row.pole === "MountainPeak"),
     ).toBe(true);
+    expect(measured.implementation.outcome).toBe("available");
+    const implementationTypes =
+      measured.implementation.typeLeverageShards.flatMap(
+        shard => shard.types,
+      );
+    expect(implementationTypes.find(
+      row => row.typeDefinitionId
+        === "System.Text.Json.ThrowHelper",
+    )?.pole).toBe("SeaLevel");
+    expect(implementationTypes.find(
+      row => row.typeDefinitionId
+        === "System.Text.Json.JsonSerializer",
+    )?.pole).toBe("MountainPeak");
+    expect(implementationTypes.find(
+      row => row.typeDefinitionId
+        === "System.Text.Json.JsonDocument",
+    )?.pole).toBe("MountainPeak");
     console.log("STRUCTURAL_SALIENCE_BROWSER_WASM", JSON.stringify({
       asset: "System.Text.Json@10.0.0/net10.0",
-      namespaceCount: measured.namespaceIndex.namespaces.length,
+      namespaceCount: namespaceIndex.namespaces.length,
       topNamespace: topNamespace.namespace,
-      typeRows: measured.typeLeverageShards.reduce(
+      typeRows: surfaceLeverage.typeLeverageShards.reduce(
         (sum, shard) => sum + shard.types.length,
         0,
       ),
       seaLevelDesignations:
-        measured.typeLeverageShards.flatMap(shard => shard.types)
+        surfaceLeverage.typeLeverageShards.flatMap(shard => shard.types)
           .filter(row => row.pole === "SeaLevel").length,
       mountainPeakDesignations:
-        measured.typeLeverageShards.flatMap(shard => shard.types)
+        surfaceLeverage.typeLeverageShards.flatMap(shard => shard.types)
           .filter(row => row.pole === "MountainPeak").length,
+      bodySeaLevelDesignations:
+        implementationTypes.filter(row => row.pole === "SeaLevel").length,
+      bodyMountainPeakDesignations:
+        implementationTypes.filter(
+          row => row.pole === "MountainPeak").length,
       exhaustiveMedianMilliseconds: median(
         measurements.map(measurement => measurement.milliseconds),
       ),
@@ -4076,18 +4105,23 @@ test.describe("bounded network-backed Worker smoke", () => {
       return ordered[Math.floor(ordered.length / 2)] ?? 0;
     };
     const measured = measurements.at(-1)?.value;
-    if (measured === undefined || measured.namespaceIndex === null) {
+    if (measured === undefined) {
       throw new Error("Expected CoreLib structural salience measurements.");
     }
-    expect(measured.outcome).toBe("available");
-    expect(measured.namespaceIndex.namespaces.length).toBeGreaterThan(50);
-    const topNamespace = measured.namespaceIndex.namespaces.find(
+    const surface = measured.surface;
+    const namespaceIndex = surface.namespaceIndex;
+    if (namespaceIndex === null) {
+      throw new Error("Expected CoreLib namespace evidence.");
+    }
+    expect(surface.outcome).toBe("available");
+    expect(namespaceIndex.namespaces.length).toBeGreaterThan(50);
+    const topNamespace = namespaceIndex.namespaces.find(
       row => row.topLeverage,
     );
     if (topNamespace === undefined) {
       throw new Error("Expected a top-leverage CoreLib namespace.");
     }
-    const topShard = measured.typeLeverageShards.find(
+    const topShard = surface.typeLeverageShards.find(
       shard => shard.namespace === topNamespace.namespace,
     );
     if (topShard === undefined) {
@@ -4097,20 +4131,38 @@ test.describe("bounded network-backed Worker smoke", () => {
     expect(
       topShard.types.some(row => row.pole === "MountainPeak"),
     ).toBe(true);
+    expect(measured.implementation.outcome).toBe("available");
+    const implementationTypes =
+      measured.implementation.typeLeverageShards.flatMap(
+        shard => shard.types,
+      );
+    expect(implementationTypes).toHaveLength(1_907);
+    expect(
+      implementationTypes.filter(row => row.pole === "SeaLevel"),
+    ).toHaveLength(29);
+    expect(
+      implementationTypes.filter(row => row.pole === "MountainPeak"),
+    ).toHaveLength(35);
     console.log("STRUCTURAL_SALIENCE_BROWSER_WASM", JSON.stringify({
       asset: "System.Private.CoreLib/.NET 11 RC1",
-      namespaceCount: measured.namespaceIndex.namespaces.length,
+      namespaceCount: namespaceIndex.namespaces.length,
       topNamespace: topNamespace.namespace,
-      typeRows: measured.typeLeverageShards.reduce(
+      typeRows: surface.typeLeverageShards.reduce(
         (sum, shard) => sum + shard.types.length,
         0,
       ),
       seaLevelDesignations:
-        measured.typeLeverageShards.flatMap(shard => shard.types)
+        surface.typeLeverageShards.flatMap(shard => shard.types)
           .filter(row => row.pole === "SeaLevel").length,
       mountainPeakDesignations:
-        measured.typeLeverageShards.flatMap(shard => shard.types)
+        surface.typeLeverageShards.flatMap(shard => shard.types)
           .filter(row => row.pole === "MountainPeak").length,
+      bodyTypeRows: implementationTypes.length,
+      bodySeaLevelDesignations:
+        implementationTypes.filter(row => row.pole === "SeaLevel").length,
+      bodyMountainPeakDesignations:
+        implementationTypes.filter(
+          row => row.pole === "MountainPeak").length,
       exhaustiveMedianMilliseconds: median(
         measurements.map(measurement => measurement.milliseconds),
       ),

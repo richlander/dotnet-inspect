@@ -1,3 +1,4 @@
+import type { PackageVersionState } from "./catalog-requests.ts";
 import { renderContentNavigationCloseButton } from "./content-frame.ts";
 
 // DOM bindings for package-level navigation surfaces. The application root owns
@@ -22,8 +23,6 @@ export interface PackageViewBindingActions
     packageVersion: string,
   ) => void;
   onDependencyGroupSelect: (index: number) => void;
-  onPruningEvaluate: () => void;
-  onPruningFamilySelect: (family: string) => void;
   onGraphTypeSelect: (typeId: string) => void;
   onKindJump: (kind: string) => void;
   onLibraryScopeSelect: (
@@ -34,35 +33,46 @@ export interface PackageViewBindingActions
   onPerformanceMemberSelect: (target: PackagePerformanceTarget) => void;
 }
 
+export function packageNavigationVersions(activeVersion: string, entry: PackageVersionState): string[] {
+  const versions = entry.status === "available" ? [...entry.inventory.versions] : [activeVersion];
+  if (!versions.some(version => version.toLowerCase() === activeVersion.toLowerCase())) {
+    versions.splice(entry.status === "available" ? entry.inventory.currentVersionInsertionIndex : 0, 0, activeVersion);
+  }
+  return versions;
+}
+
 export interface PackageNavOptions {
   frameworks: readonly string[];
   activeFramework: string;
+  versions: readonly string[];
+  activeVersion: string;
+  statusHtml?: string;
   escapeHtml: (value: unknown) => string;
 }
 
 export function renderPackageNav(options: PackageNavOptions): string {
-  const { frameworks, activeFramework, escapeHtml } = options;
-  return `
-    <aside id="content-navigation-pane" class="type-browser package-framework-nav" aria-label="Frameworks">
-      <div class="browser-head">
-        <div>
-          <span class="pane-label">TARGET FRAMEWORKS</span>
-          <span class="result-count">${frameworks.length}</span>
-        </div>
-        ${renderContentNavigationCloseButton()}
-      </div>
-      <div class="type-list package-framework-list" role="group" aria-label="Target framework navigation" tabindex="-1" data-nav-scope="frameworks" data-nav-selection="${activeFramework ? `framework:${escapeHtml(activeFramework)}` : ""}">
-        ${frameworks.map(framework => {
-          const selected = framework === activeFramework;
-          return `<button type="button" class="type-row package-framework-row ${selected ? "selected" : ""}" data-package-framework="${escapeHtml(framework)}"${selected ? ' aria-current="page"' : ""} title="Use ${escapeHtml(framework)}">
-            <span class="kind-icon">T</span>
-            <span class="type-name">${escapeHtml(framework)}</span>
-            <small>${selected ? "current" : "available"}</small>
-          </button>`;
-        }).join("") || '<div class="empty-list">No target frameworks are available for this package version.</div>'}
-      </div>
-      <footer class="pane-footer"><span>choose a TFM</span><span>↵ load</span></footer>
-    </aside>`;
+  const { versions, activeVersion, statusHtml = "", escapeHtml } = options;
+  return `<aside id="content-navigation-pane" class="type-browser package-version-nav" aria-label="Frameworks &amp; versions">
+    ${renderPackageFrameworks(options.frameworks, options.activeFramework, escapeHtml, renderContentNavigationCloseButton())}
+    <section class="package-navigation-controls" aria-label="Version filters">
+      <div class="section-title"><h2>Versions</h2><span>${versions.length}</span></div>
+      <label>Filter versions<input id="package-version-filter" type="search" placeholder="Find a version"></label>
+      <label><input id="package-version-prerelease" type="checkbox" checked> Include prerelease</label>
+      ${statusHtml}
+    </section>
+    <div id="package-version-list" class="type-list" role="group" aria-label="Package version navigation" tabindex="-1" data-nav-scope="versions" data-nav-selection="version:${escapeHtml(activeVersion)}">
+      ${versions.map(version => `<button type="button" class="type-row ${version.toLowerCase() === activeVersion.toLowerCase() ? "selected" : ""}" data-package-version="${escapeHtml(version)}"${version.toLowerCase() === activeVersion.toLowerCase() ? ' aria-current="page"' : ""} title="Use ${escapeHtml(version)}"><span class="kind-icon">V</span><span class="type-name">${escapeHtml(version)}</span></button>`).join("")}
+    </div>
+  </aside>`;
+}
+
+export function renderPackageFrameworks(
+  frameworks: readonly string[], activeFramework: string,
+  escapeHtml: (value: unknown) => string,
+  navigationCloseHtml = "",
+): string {
+  return `<section class="document-section package-frameworks"><div class="section-title"><h2>Target frameworks</h2><div class="browser-head-actions"><span>${frameworks.length}</span>${navigationCloseHtml}</div></div>
+    <div role="group" aria-label="Target frameworks" tabindex="-1" data-nav-scope="frameworks">${frameworks.map(framework => `<button type="button" class="type-row ${framework === activeFramework ? "selected" : ""}" data-package-framework="${escapeHtml(framework)}"${framework === activeFramework ? ' aria-current="page"' : ""}><span class="kind-icon">T</span><span class="type-name">${escapeHtml(framework)}</span></button>`).join("") || '<p class="empty-list">No target frameworks are available for this package version.</p>'}</div></section>`;
 }
 
 export function bindPackageDependencyList(
@@ -102,12 +112,6 @@ export function bindPackageView(
       () => actions.onRuntimeIdentifierPackageLoad(
         button.dataset.packageChildPackage ?? "",
         button.dataset.packageChildVersion ?? "")));
-  root.querySelectorAll<HTMLSelectElement>("[data-pruning-family]").forEach(select =>
-    select.addEventListener(
-      "change",
-      () => actions.onPruningFamilySelect(select.value)));
-  root.querySelectorAll<HTMLElement>("[data-pruning-evaluate]").forEach(button =>
-    button.addEventListener("click", actions.onPruningEvaluate));
   bindPackageDependencyList(root, actions);
   root.querySelectorAll<HTMLElement>("[data-kind-jump]").forEach(button =>
     button.addEventListener(

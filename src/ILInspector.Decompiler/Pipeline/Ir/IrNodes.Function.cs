@@ -210,6 +210,36 @@ public sealed class IrFunction : IrNode
     internal ImmutableDictionary<int, MaterializedStackSlotLocal>
         MaterializedStackSlotLocals => _materializedStackSlotLocals;
 
+    ImmutableDictionary<int, ResidualSlotBinding> _residualSlotBindings =
+        ImmutableDictionary<int, ResidualSlotBinding>.Empty;
+
+    /// <summary>
+    /// Typed provenance for locals issued by <see cref="ResidualSlotBindingPass"/>,
+    /// keyed by local index: the originating slot, the binding kind, and the
+    /// materialization vetoes the web carried. A side fact for hosts and the
+    /// residual-binding census; it widens no local declaration and is never
+    /// identity.
+    /// </summary>
+    public ImmutableDictionary<int, ResidualSlotBinding> ResidualSlotBindings => _residualSlotBindings;
+
+    internal void RecordResidualSlotBinding(int index, ResidualSlotBinding binding)
+    {
+        if (index < 0 || index >= Locals.Length)
+            throw new ArgumentOutOfRangeException(nameof(index));
+        _residualSlotBindings = _residualSlotBindings.SetItem(index, binding);
+    }
+
+    /// <summary>
+    /// The up-front locals whose declaration keeps its <c>= default</c>
+    /// initializer, issued by <see cref="DefiniteAssignmentPass"/>: the locals
+    /// definite assignment cannot prove assigned before every read, minus the
+    /// residual-bound locals (a residual piece read with no reaching store is a
+    /// binding gap that must stay CS0165-visible). Null means undecided; the
+    /// printer refuses to declare a non-ref up-front local from an undecided
+    /// body (value-typed-emission.md, Instance 3).
+    /// </summary>
+    public ImmutableHashSet<int>? ZeroInitializedLocals { get; internal set; }
+
     internal void RestoreMaterializedStackSlotLocals(
         ImmutableDictionary<int, MaterializedStackSlotLocal>
             materialized)
@@ -221,6 +251,17 @@ public sealed class IrFunction : IrNode
                 "Materialized stack-slot local provenance does not match the local table.");
         }
         _materializedStackSlotLocals = materialized;
+    }
+
+    internal void RestoreResidualSlotBindings(
+        ImmutableDictionary<int, ResidualSlotBinding> bindings)
+    {
+        if (bindings.Keys.Any(index => index < 0 || index >= Locals.Length))
+        {
+            throw new ArgumentException(
+                "Residual slot binding provenance does not match the local table.");
+        }
+        _residualSlotBindings = bindings;
     }
 
     internal bool IsProducerOnlySlotLocal(int index)
@@ -256,6 +297,8 @@ public sealed class IrFunction : IrNode
         Locals = locals;
         _materializedStackSlotLocals =
             ImmutableDictionary<int, MaterializedStackSlotLocal>.Empty;
+        _residualSlotBindings =
+            ImmutableDictionary<int, ResidualSlotBinding>.Empty;
         var aligned = names;
         while (aligned.Length < locals.Length)
             aligned = aligned.Add(null);
@@ -411,7 +454,7 @@ public sealed class IrFunction : IrNode
         ForeachStatement foreachStatement => foreachStatement.LocalIndex == index,
         UsingStatement usingStatement =>
             usingStatement.DeclaresResourceVariable && usingStatement.LocalIndex == index,
-        Fixed fixedStatement => !fixedStatement.LocalIsStackSlot && fixedStatement.LocalIndex == index,
+        Fixed fixedStatement => fixedStatement.LocalIndex == index,
         IsPattern isPattern => isPattern.LocalIndex == index,
         RecursivePropertyDeclarationPattern recursiveProperty => recursiveProperty.LocalIndex == index,
         UnionSwitchExpressionArm unionArm => unionArm.LocalIndex == index,

@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <LangVersion>preview</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <MSBuildWarningsAsMessages>$(MSBuildWarningsAsMessages);MSB3243</MSBuildWarningsAsMessages>
+    <IsPackable>false</IsPackable>
+    <IsAotCompatible>false</IsAotCompatible>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ILInspector.Analysis.CallerGraphVersionSkewTargetV1\ILInspector.Analysis.CallerGraphVersionSkewTargetV1.csproj">
+      <Aliases>V1</Aliases>
+      <Private>false</Private>
+    </ProjectReference>
+    <ProjectReference Include="..\ILInspector.Analysis.CallerGraphVersionSkewTargetV2\ILInspector.Analysis.CallerGraphVersionSkewTargetV2.csproj">
+      <Aliases>V2</Aliases>
+      <Private>false</Private>
+    </ProjectReference>
+  </ItemGroup>
+
+</Project>

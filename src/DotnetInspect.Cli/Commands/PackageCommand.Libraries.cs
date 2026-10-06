@@ -969,6 +969,8 @@ public partial class PackageCommand
                 options.NameFamilyPopulation,
             NameFamilyRowSelection =
                 options.NameFamilyRowSelection,
+            ArchitecturalFamilyTypeRows =
+                options.ArchitecturalFamilyTypeRows,
             DependencyStructureRowSelection =
                 options.DependencyStructureRowSelection,
             IntegrationQuery = options.IntegrationQuery,
@@ -2066,6 +2068,13 @@ public partial class PackageCommand
                     InspectionContext.Default,
                     CreateAllLibrariesWriterOptions(section, options));
                 OutputFormatter.ApplyClassificationCounts(library, inspection, [section], options.Rows);
+                OutputFormatter.ApplyPerformanceCounts(
+                    library,
+                    inspection,
+                    [section],
+                    options.Rows,
+                    options.Fields,
+                    options.Columns);
                 projection.Merge(library);
             }
         }

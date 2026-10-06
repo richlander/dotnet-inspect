@@ -4,6 +4,7 @@ import { stripTypeScriptTypes } from "node:module";
 import { runInNewContext } from "node:vm";
 import test from "node:test";
 import { parseSync } from "oxc-parser";
+import { defaultAnalysisMode } from "../src/analysis-inspector.ts";
 import { createCatalogRequests } from "../src/catalog-requests.ts";
 import {
   createPackageComparisonTargets,
@@ -329,6 +330,7 @@ function packageLoadResult(
       },
       diagnostics: [],
     },
+    documents: surface.documents,
     surface,
   };
 }
@@ -413,6 +415,12 @@ function harness() {
     spotlightOpen: false,
     memberCallGraph: null as object | null, memberCallGraphError: "", memberCallGraphKey: "",
     memberCallGraphLoading: false, memberCallGraphExpanding: false, memberCallGraphSeq: 0,
+    directUseClusterGraphKey: "",
+    directUseClusterBoundary: null as object | null,
+    directUseClusterResult: null as object | null,
+    directUseClusterLoading: false,
+    directUseClusterError: "",
+    directUseClusterSeq: 0,
     memberGroupDocumentLoading: false, memberGroupDocumentKey: "",
     memberSource: { status: "idle" } as SourceResultState,
     typeSource: { status: "idle" } as SourceResultState,
@@ -551,7 +559,12 @@ function harness() {
     },
   };
   const context = {
-    state, location, history, document, workspaceLocation: asyncWorkspaceLocation,
+    state,
+    location,
+    history,
+    document,
+    defaultAnalysisMode,
+    workspaceLocation: asyncWorkspaceLocation,
     engineClient: {
       catalog: {
         captureCompleteWorkspaceShareState: async (
@@ -718,6 +731,16 @@ function harness() {
     },
     cancelFindingCensusRequest: () => {},
     memberDetailInspection: { invalidate: () => {} },
+    directUseClusterInspection: {
+      reset: () => {
+        state.directUseClusterSeq++;
+        state.directUseClusterGraphKey = "";
+        state.directUseClusterBoundary = null;
+        state.directUseClusterResult = null;
+        state.directUseClusterLoading = false;
+        state.directUseClusterError = "";
+      },
+    },
     persistRecentPackages: () => {},
     persistPlatformRecent: () => {},
     refreshPackageStats: () => {},
@@ -2286,6 +2309,57 @@ function inspectionSelection(h: ReturnType<typeof harness>) {
     memberTraitFilter: s.memberTraitFilter, memberTextFilter: s.memberTextFilter,
   };
 }
+
+test("retained Workspace restoration settles cluster work and preserves its request sequence", () => {
+  const h = harness();
+  const boundary = { id: "edge-a" };
+  const result = { clusters: [{ ordinal: 1 }] };
+  Object.assign(h.state, {
+    directUseClusterGraphKey: "member-request-a",
+    directUseClusterBoundary: boundary,
+    directUseClusterResult: result,
+    directUseClusterLoading: true,
+    directUseClusterSeq: 7,
+  });
+
+  const snapshots: { state: typeof h.state }[] = [];
+  runInNewContext(
+    "capture(captureCanonicalWorkspaceRestoreSnapshot())",
+    {
+      ...h.context,
+      capture: (snapshot: { state: typeof h.state }) =>
+        snapshots.push(snapshot),
+    },
+  );
+  const snapshot = snapshots[0];
+  assert.ok(snapshot);
+  assert.equal(snapshot.state.directUseClusterLoading, false);
+  assert.equal(snapshot.state.directUseClusterSeq, 8);
+  assert.deepEqual(snapshot.state.directUseClusterBoundary, boundary);
+  assert.deepEqual(snapshot.state.directUseClusterResult, result);
+
+  runInNewContext("invalidateWorkspaceAsyncOwners()", h.context);
+  assert.equal(h.state.directUseClusterLoading, false);
+  assert.equal(h.state.directUseClusterSeq, 8);
+  assert.equal(h.state.directUseClusterGraphKey, "");
+  assert.equal(h.state.directUseClusterBoundary, null);
+  assert.equal(h.state.directUseClusterResult, null);
+  Object.assign(h.state, {
+    directUseClusterGraphKey: "member-request-b",
+    directUseClusterLoading: false,
+    directUseClusterSeq: 41,
+  });
+  runInNewContext(
+    "restoreCanonicalWorkspaceRestoreSnapshot(snapshot)",
+    { ...h.context, snapshot },
+  );
+
+  assert.equal(h.state.directUseClusterLoading, false);
+  assert.equal(h.state.directUseClusterSeq, 42);
+  assert.equal(h.state.directUseClusterGraphKey, "member-request-a");
+  assert.deepEqual(h.state.directUseClusterBoundary, boundary);
+  assert.deepEqual(h.state.directUseClusterResult, result);
+});
 
 function seedInspectionSelection(h: ReturnType<typeof harness>) {
   Object.assign(h.state, {

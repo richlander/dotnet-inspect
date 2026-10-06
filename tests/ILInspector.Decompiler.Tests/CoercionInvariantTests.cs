@@ -33,7 +33,7 @@ public class CoercionInvariantTests
         container.Add(second);
         var function = Function(container, boolType, new Parameter("flag", boolType));
 
-        string output = CSharpPrinter.Print(function).Output!.Replace("\r", "");
+        string output = DecidedPrint.Print(function.BindResidualSlots()).Output!.Replace("\r", "");
 
         Assert.DoesNotContain("S_0_1", output);   // no split
         Assert.DoesNotContain("int S_0", output); // slot is bool, not int
@@ -59,7 +59,7 @@ public class CoercionInvariantTests
         container.Add(second);
         var function = Function(container, boolType, new Parameter("flag", boolType));
 
-        string output = CSharpPrinter.Print(function).Output!.Replace("\r", "");
+        string output = DecidedPrint.Print(function.BindResidualSlots()).Output!.Replace("\r", "");
 
         Assert.DoesNotContain("S_0_1", output);
         Assert.DoesNotContain("int S_0", output);
@@ -107,7 +107,7 @@ public class CoercionInvariantTests
         Assert.Empty(CoercionInvariant.Check(function));
         var coerce = Assert.IsType<Coerce>(Assert.Single(function.Descendants.OfType<Return>()).Value);
         Assert.Equal(Enum32, coerce.Target);
-        Assert.Contains("return (E32)raw;", CSharpPrinter.Print(function).Output);
+        Assert.Contains("return (E32)raw;", DecidedPrint.Print(function.BindResidualSlots()).Output);
     }
 
     [Fact]
@@ -189,7 +189,7 @@ public class CoercionInvariantTests
         Assert.IsType<Coerce>(live.WhenTrue);
         Assert.IsType<LoadArgument>(live.WhenFalse);
         Assert.Empty(CoercionInvariant.Check(function));
-        Assert.Contains("(E32)raw", CSharpPrinter.Print(function).Output);
+        Assert.Contains("(E32)raw", DecidedPrint.Print(function.BindResidualSlots()).Output);
     }
 
     [Fact]
@@ -217,7 +217,7 @@ public class CoercionInvariantTests
         Assert.Equal(Enum32, coerced.Target);
         Assert.Empty(CoercionInvariant.Check(function));
 
-        string output = CSharpPrinter.Print(function).Output!;
+        string output = DecidedPrint.Print(function.BindResidualSlots()).Output!;
         Assert.Contains("(E32)raw", output);
         Assert.DoesNotContain("S_3_1", output);
     }
@@ -244,7 +244,7 @@ public class CoercionInvariantTests
             Assert.Single(function.Descendants.OfType<StoreStackSlot>()).Value);
         Assert.Equal(Int32Type, coerced.Target);
 
-        string output = CSharpPrinter.Print(function).Output!;
+        string output = DecidedPrint.Print(function.BindResidualSlots()).Output!;
         Assert.DoesNotContain("S_0_1", output);
         Assert.Contains("(int)e", output);
     }
@@ -272,7 +272,7 @@ public class CoercionInvariantTests
         new CoercionInsertionPass().Run(function, PassContext.None);
 
         Assert.Empty(function.Descendants.OfType<Coerce>());
-        string output = CSharpPrinter.Print(function).Output!;
+        string output = DecidedPrint.Print(function.BindResidualSlots()).Output!;
         Assert.DoesNotContain("bool S_0;\n\nS_0 = intValue;", output.Replace("\r", ""));
         Assert.Contains("int S_0", output);
     }
@@ -305,7 +305,7 @@ public class CoercionInvariantTests
         new CoercionInsertionPass().Run(function, PassContext.None);
 
         Assert.Single(function.Descendants.OfType<Coerce>());
-        string output = CSharpPrinter.Print(function).Output!;
+        string output = DecidedPrint.Print(function.BindResidualSlots()).Output!;
         Assert.Contains("(OtherE32)e", output);
         Assert.DoesNotContain("S_0_1", output);
     }
@@ -329,7 +329,7 @@ public class CoercionInvariantTests
         new CoercionInsertionPass().Run(function, PassContext.None);
 
         Assert.Single(function.Descendants.OfType<Coerce>());
-        string output = CSharpPrinter.Print(function).Output!;
+        string output = DecidedPrint.Print(function.BindResidualSlots()).Output!;
         Assert.Contains("(byte)(boolValue ? 1 : 0)", output);
         Assert.DoesNotContain("S_0_1", output);
     }
@@ -352,7 +352,7 @@ public class CoercionInvariantTests
         new CoercionInsertionPass().Run(function, PassContext.None);
 
         Assert.Single(function.Descendants.OfType<Coerce>());
-        string output = CSharpPrinter.Print(function).Output!;
+        string output = DecidedPrint.Print(function.BindResidualSlots()).Output!;
         Assert.Contains("(int)e", output);
         Assert.DoesNotContain("S_0_1", output);
     }
@@ -389,9 +389,12 @@ public class CoercionInvariantTests
 
         // Split naming gives each range its own correctly-typed variable —
         // never Gemini's `int S_0; S_0 = longValue;` (CS0266).
-        string output = CSharpPrinter.Print(function).Output!;
-        Assert.Contains("long S_0;", output);
+        // Bound pieces are plan-owned locals, so the first range takes its
+        // initializer at the declaration.
+        string output = DecidedPrint.Print(function.BindResidualSlots()).Output!;
+        Assert.Contains("long S_0 = longValue;", output);
         Assert.Contains("int S_0_1;", output);
+        Assert.Contains("S_0_1 = intValue;", output);
         Assert.DoesNotContain("int S_0;", output);
     }
 

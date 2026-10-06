@@ -119,7 +119,7 @@ public static class ArgumentPreprocessor
         // section rather than a lens of its own, so a flag naming one document competed with the
         // section selection for the same question.
         return "'--readme' is no longer valid. Printing a document is a projection over a "
-            + "selected section: use '-S \"Package README file\" --print' for one package, "
+            + "selected section: use '-S \"README\" --print' for one package, "
             + "or '--content --path @readme' to survey several.";
     }
 
@@ -225,6 +225,17 @@ public static class ArgumentPreprocessor
             error = "'dependency-evidence' is no longer valid. Use 'depends' "
                 + "with the same root options; add '-S Dependencies' for "
                 + "declaration evidence without traversal.";
+            return true;
+        }
+        if (command >= 0
+            && args[command].Equals(
+                "vocabulary",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            error = "'vocabulary' has been removed. Use "
+                + "'explain vocabularies' to list product vocabularies, "
+                + "'explain vocabularies/<id> --depth 1' for every value, or "
+                + "'explain vocabularies/<id>/values/<value>' for one value.";
             return true;
         }
         if (command >= 0

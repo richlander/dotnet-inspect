@@ -5,6 +5,7 @@ using DotnetInspector.Ecosystems;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
+using DotnetInspector.ResearchQueries;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.SourceSelection;
@@ -236,24 +237,50 @@ public static class ExternalCallGraphCommand
                 options.Verbose
                     ? CommandError.WriteLine
                     : null);
+        var source = new PackageDependencyMemberCallGraphInspectionSource(
+            new PackageDependencyTraversalCandidateAdapter(
+                candidateSource),
+            new DesktopPackageDependencyTraversalManifestSource(
+                composition),
+            composition.CreateDependencySettlementHouse(
+                (_, _) => new FileSystemPackageStore(),
+                options.SourceOptions,
+                options.Verbose
+                    ? CommandError.WriteLine
+                    : null),
+            (operation, token) =>
+                composition.IssueSettlementOperation(token));
+        await using var continuationSource =
+            new DesktopPackageDependencyMemberCallGraphContinuationSource(
+                source,
+                request.RealizationOperation,
+                () => new DesktopPackageSourceComposition(
+                    fetchOptions.RequestTimeout),
+                options.SourceOptions);
+        var continuation =
+            new PackageDependencyMemberCallGraphContinuation(
+                continuationSource,
+                CreateContinuationBudget(request));
         return await PackageDependencyMemberCallGraphInspection.ExecuteAsync(
                 request,
-                new PackageDependencyMemberCallGraphInspectionSource(
-                    new PackageDependencyTraversalCandidateAdapter(
-                        candidateSource),
-                    new DesktopPackageDependencyTraversalManifestSource(
-                        composition),
-                    composition.CreateDependencySettlementHouse(
-                        (_, _) => new FileSystemPackageStore(),
-                        options.SourceOptions,
-                        options.Verbose
-                            ? CommandError.WriteLine
-                            : null),
-                    (operation, token) =>
-                        composition.IssueSettlementOperation(token)),
+                source,
+                continuation,
                 cancellationToken)
             .ConfigureAwait(false);
     }
+
+    static AssemblyReferenceResolutionWorkBudget CreateContinuationBudget(
+        PackageDependencyMemberCallGraphInspectionRequest request) =>
+        new(
+            maxPackageRouteOccurrences: 4_096,
+            maxPackageCandidateOperations: 4_096,
+            maxSourceOperations: 64,
+            maxAcquisitions: 32,
+            maxRealizedAssemblies: 8_192,
+            maxTransferBytes: 2L * 1024 * 1024 * 1024,
+            maxRetainedAssemblyBytes: 2L * 1024 * 1024 * 1024,
+            maxWorkspaceReplacements: 16,
+            deadline: request.WorkspaceDeadline);
 
     static bool TryResolveFocus(
         AssemblyContextGroup group,

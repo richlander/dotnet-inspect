@@ -14,13 +14,20 @@ public sealed class PassContext
 {
     const int MaxCrossMethodPipelineDepth = 64;
     readonly List<string> _activeCrossMethodPipelines;
+    readonly PassAnalysisManager? _analysisManager;
 
     public PassContext(
         Stepper stepper,
         StructuringDiagnostics? structuringDiagnostics = null,
         Func<MethodRef, IrFunction?>? importMethodBody = null,
         Func<TypeRef, TypeRef, bool>? typesProvablyDisjoint = null)
-        : this(stepper, structuringDiagnostics, importMethodBody, typesProvablyDisjoint, [])
+        : this(
+            stepper,
+            structuringDiagnostics,
+            importMethodBody,
+            typesProvablyDisjoint,
+            [],
+            analysisManager: null)
     {
     }
 
@@ -29,13 +36,15 @@ public sealed class PassContext
         StructuringDiagnostics? structuringDiagnostics,
         Func<MethodRef, IrFunction?>? importMethodBody,
         Func<TypeRef, TypeRef, bool>? typesProvablyDisjoint,
-        List<string> activeCrossMethodPipelines)
+        List<string> activeCrossMethodPipelines,
+        PassAnalysisManager? analysisManager)
     {
         Stepper = stepper;
         StructuringDiagnostics = structuringDiagnostics;
         ImportMethodBody = importMethodBody;
         TypesProvablyDisjoint = typesProvablyDisjoint;
         _activeCrossMethodPipelines = activeCrossMethodPipelines;
+        _analysisManager = analysisManager;
     }
 
     public Stepper Stepper { get; }
@@ -95,15 +104,61 @@ public sealed class PassContext
 
     PassContext NestedPipelineContext()
     {
-        if (!Stepper.IsEnabled && StructuringDiagnostics is null)
+        if (!Stepper.IsEnabled
+            && StructuringDiagnostics is null
+            && _analysisManager is null)
             return this;
 
         // Nested cross-method pipelines are implementation detail of the parent
         // method's reconstruction. Keep stepper output and structuring-stop
         // accounting scoped to the requested method; imported siblings are
         // scanned as their own top-level methods by whole-assembly sweeps.
-        return new PassContext(new Stepper(enabled: false), structuringDiagnostics: null, ImportMethodBody, TypesProvablyDisjoint, _activeCrossMethodPipelines);
+        return new PassContext(
+            new Stepper(enabled: false),
+            structuringDiagnostics: null,
+            ImportMethodBody,
+            TypesProvablyDisjoint,
+            _activeCrossMethodPipelines,
+            analysisManager: null);
     }
+
+    internal PassContext ForPipeline(
+        IrFunction function,
+        List<PassAnalysisReceipt>? receipts)
+    {
+        return new PassContext(
+            Stepper,
+            StructuringDiagnostics,
+            ImportMethodBody,
+            TypesProvablyDisjoint,
+            _activeCrossMethodPipelines,
+            new PassAnalysisManager(function, receipts));
+    }
+
+    internal void BeginPass(int ordinal, IIrPass pass)
+        => (_analysisManager
+            ?? throw new InvalidOperationException(
+                "The pass context has no active analysis manager."))
+            .BeginPass(ordinal, pass);
+
+    internal void CompletePass()
+        => (_analysisManager
+            ?? throw new InvalidOperationException(
+                "The pass context has no active analysis manager."))
+            .CompletePass();
+
+    /// <summary>
+    /// Returns the current function's control-transfer target offsets. A pass
+    /// running under <see cref="IrPasses"/> must declare
+    /// <see cref="PassAnalysisKind.BranchTargets"/> in
+    /// <see cref="IIrPass.RequiredAnalyses"/>; direct focused-pass execution
+    /// receives an ephemeral result.
+    /// </summary>
+    public IReadOnlySet<int> BranchTargets(
+        IrFunction function)
+        => _analysisManager is null
+            ? ReferenceOwnership.CollectBranchTargets(function)
+            : _analysisManager.BranchTargets(function);
 
     /// <summary>
     /// Marks a sibling method active across any raw inspection and nested pass run

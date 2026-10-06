@@ -7,7 +7,7 @@ public sealed record ProjectDiscoveryModel;
 public static class ProjectSections
 {
     public const string SkillsName = "Skills";
-    public const string PackageReadmeName = "Package README file";
+    public const string PackageReadmeName = "README";
 
     public static SectionCatalog<ProjectDiscoveryModel> Catalog { get; } =
         CreatePipeline().Compile();

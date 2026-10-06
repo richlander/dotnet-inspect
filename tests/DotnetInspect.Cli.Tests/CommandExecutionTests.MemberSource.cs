@@ -1,5 +1,6 @@
 using DotnetInspect.Cli.Commands;
 using System.Globalization;
+using System.IO.Compression;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Text;
@@ -26,7 +27,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonSerializer", "--platform", "System.Text.Json",
-            "-m", "Serialize", "-S", "Source Locations", "--rows", "6");
+            "-m", "Serialize", "-S", "Source Locations", "--rows", "6", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -43,7 +44,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonSerializer", "--platform", "System.Text.Json",
-            "Serialize:1", "-S", "Source Locations");
+            "Serialize:1", "-S", "Source Locations", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -92,7 +93,7 @@ public partial class CommandExecutionTests
             [
                 "member", "JsonSerializerOptions", "--platform", "System.Text.Json",
                 "MaxDepth", "-S", "Source Locations",
-                .. print ? new[] { "--print", "--row", "first", "--json" } : [],
+                .. print ? new[] { "--print", "--row", "first", "--json" } : ["--markdown"],
             ]);
 
         Assert.Equal(0, exit);
@@ -1118,23 +1119,13 @@ public partial class CommandExecutionTests
                     ? ApiCommand.BodylessMemberNote
                     : "Source diff unavailable",
                 native.Output);
-            if (section == SectionNames.PdbSource)
-            {
-                Assert.Equal(0, count.Exit);
-                Assert.Empty(count.Error);
-                Assert.Equal("0\n", count.Output);
-            }
-            else
-            {
-                Assert.Equal(1, count.Exit);
-                Assert.Empty(count.Output);
-                Assert.Contains(
-                    "Source diff unavailable",
-                    count.Error);
-                Assert.Contains(
-                    "cannot represent this code-section failure",
-                    count.Error);
-            }
+            // Both are scalar Texts under Section shapes: --count is rejected
+            // before acquisition, so the non-canonical path never matters here.
+            Assert.Equal(1, count.Exit);
+            Assert.Empty(count.Output);
+            Assert.Contains(
+                $"Section '{section}' is scalar and does not support --count",
+                count.Error);
         }
     }
 
@@ -1185,8 +1176,10 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("has no IL body", output);
     }
 
+    // --count is no longer an exact-output case here: Source Diff is a scalar Text
+    // under Section shapes and rejects --count before acquisition (see
+    // Member_LoneSection_RendersInItsDeclaredShape).
     [Theory]
-    [InlineData("--count")]
     [InlineData("--json")]
     public async Task Member_SourceDiff_BodylessMemberUnderExactOutputFailsVisibly(
         string outputOption)
@@ -1203,8 +1196,10 @@ public partial class CommandExecutionTests
             error);
     }
 
+    // --count is no longer an exact-output case here: Source Diff is a scalar Text
+    // under Section shapes and rejects --count before acquisition (see
+    // Member_LoneSection_RendersInItsDeclaredShape).
     [Theory]
-    [InlineData("--count")]
     [InlineData("--json")]
     public async Task Member_SourceDiff_NoVouchedDeclarationUnderExactOutputFailsVisibly(
         string outputOption)
@@ -1806,6 +1801,182 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task
+        Member_SourceLocations_PackageLocalPdbUsesSettlementRoute()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "Instant",
+            "--package", "NodaTime@3.3.5",
+            "ToString:1",
+            "-S", "Source Locations",
+            "--verbose");
+
+        Assert.Equal(0, exit);
+        Assert.Contains(
+            "Settling package Portable PDB for: "
+                + "lib/net8.0/NodaTime.dll",
+            error);
+        Assert.Contains(
+            "Loaded PDB: Portable, Settlement",
+            error);
+        Assert.Contains(
+            "/_/src/NodaTime/Instant.cs",
+            output);
+        Assert.Contains(
+            "raw.githubusercontent.com/nodatime/nodatime/",
+            output);
+    }
+
+    [Fact]
+    public async Task
+        Member_SourceLocations_ReferencePrimaryUsesImplementationToken()
+    {
+        string referenceAssembly =
+            FixtureCatalog.AnalysisMethodCorrespondenceSurface
+                .AssemblyPath();
+        string implementationAssembly =
+            FixtureCatalog.AnalysisMethodCorrespondenceRuntime
+                .AssemblyPath();
+        Assert.NotEqual(
+            FindMethodToken(
+                referenceAssembly,
+                "MethodCorrespondenceFixture.Widget",
+                "Transform",
+                parameterCount: 1),
+            FindMethodToken(
+                implementationAssembly,
+                "MethodCorrespondenceFixture.Widget",
+                "Transform",
+                parameterCount: 1));
+
+        string tempDir = CreateMethodCorrespondencePackage();
+
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "member", "Widget",
+                "--package",
+                $"{MethodCorrespondencePackageId}@1.0.0",
+                "--source", tempDir,
+                "Transform:1",
+                "-S", "Source Locations",
+                "--json",
+                "--verbose");
+
+            Assert.True(exit == 0, error);
+            Assert.Contains(
+                $"Settling package Portable PDB for: "
+                + "lib/net11.0/"
+                + MethodCorrespondenceAssemblyFileName,
+                error);
+            using var document = JsonDocument.Parse(output);
+            Assert.EndsWith(
+                "MethodCorrespondenceRuntimeFixtures/Widget.cs",
+                document.RootElement
+                .GetProperty("document")
+                .GetProperty("path")
+                .GetString(),
+                StringComparison.Ordinal);
+            Assert.Equal(
+                11,
+                document.RootElement
+                .GetProperty("pdb_span")
+                .GetProperty("start_line")
+                .GetInt32());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task
+        Member_SourceLocations_IncompleteImplementationMappingUsesLegacyRoute()
+    {
+        string tempDir = CreateMethodCorrespondencePackage();
+
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "member", "Widget",
+                "--package",
+                $"{MethodCorrespondencePackageId}@1.0.0",
+                "--source", tempDir,
+                "SurfaceOnly:1",
+                "-S", "Source Locations", "--markdown",
+                "--verbose");
+
+            Assert.Equal(0, exit);
+            Assert.Contains(
+                "No SourceLink source locations found for "
+                    + "the selected member(s).",
+                output);
+            Assert.Contains(
+                "PackageHouse implementation metadata could not "
+                    + "correspond every selected member; retaining "
+                    + "the existing source-location route.",
+                error);
+            Assert.DoesNotContain(
+                "Settling package Portable PDB for:",
+                error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    private const string MethodCorrespondencePackageId =
+        "MethodCorrespondence.Package";
+
+    private const string MethodCorrespondenceAssemblyFileName =
+        "ILInspector.Analysis.MethodCorrespondenceFixture.dll";
+
+    private static string CreateMethodCorrespondencePackage()
+    {
+        string tempDir = Directory.CreateTempSubdirectory(
+            "member-source-reference-primary-").FullName;
+        string content = Path.Combine(tempDir, "content");
+        string referenceDirectory =
+            Path.Combine(content, "ref", "net11.0");
+        string implementationDirectory =
+            Path.Combine(content, "lib", "net11.0");
+        Directory.CreateDirectory(referenceDirectory);
+        Directory.CreateDirectory(implementationDirectory);
+        File.Copy(
+            FixtureCatalog.AnalysisMethodCorrespondenceSurface
+                .AssemblyPath(),
+            Path.Combine(
+                referenceDirectory,
+                MethodCorrespondenceAssemblyFileName));
+        string implementationAssembly =
+            FixtureCatalog.AnalysisMethodCorrespondenceRuntime
+                .AssemblyPath();
+        File.Copy(
+            implementationAssembly,
+            Path.Combine(
+                implementationDirectory,
+                MethodCorrespondenceAssemblyFileName));
+        File.Copy(
+            Path.ChangeExtension(implementationAssembly, ".pdb"),
+            Path.Combine(
+                implementationDirectory,
+                Path.ChangeExtension(
+                    MethodCorrespondenceAssemblyFileName,
+                    ".pdb")));
+        WriteAddressPackageManifest(
+            content,
+            MethodCorrespondencePackageId);
+        ZipFile.CreateFromDirectory(
+            content,
+            Path.Combine(
+                tempDir,
+                $"{MethodCorrespondencePackageId}.1.0.0.nupkg"));
+        return tempDir;
+    }
+
+    [Fact]
     public async Task Member_SourceLocations_UrlsGroup_EmitsUrlColumn()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -2104,7 +2275,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonConvert", "--package", "Newtonsoft.Json",
-            "-m", "SerializeObject", "-S", "Source Locations", "--rows", "6");
+            "-m", "SerializeObject", "-S", "Source Locations", "--rows", "6", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);

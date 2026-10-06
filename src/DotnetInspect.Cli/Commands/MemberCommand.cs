@@ -1127,8 +1127,7 @@ public static class MemberCommand
                     apiType,
                     locationDllPath,
                     sourceAssembly,
-                    packageName,
-                    packageVersion,
+                    source,
                     effectiveOptions,
                     context.HttpClient,
                     logger);
@@ -1660,7 +1659,7 @@ public static class MemberCommand
     private static int WriteSelectedContextualExplanation(
         MemberOptions options,
         Func<
-            InspectionEnvelope<MemberContextualExplanationDocument>>
+            InspectionEnvelope<ResourceExplanationDocument>>
             explain,
         Func<Tip[]> tips)
     {
@@ -1668,7 +1667,7 @@ public static class MemberCommand
             options.Explanation
             ?? throw new InvalidOperationException(
                 "Primary contextual explanation requires one projection.");
-        InspectionEnvelope<MemberContextualExplanationDocument>?
+        InspectionEnvelope<ResourceExplanationDocument>?
             explanation =
                 projection == ExplanationProjection.Complete
                     || options.CompanionOutput

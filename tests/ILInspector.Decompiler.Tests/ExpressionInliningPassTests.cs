@@ -140,7 +140,7 @@ public class ExpressionInliningPassTests
         new ExpressionInliningPass().Run(function, PassContext.None);
 
         Assert.Single(function.Descendants.OfType<StoreLocal>());
-        var output = CSharpPrinter.Print(function).Output;
+        var output = DecidedPrint.Print(function).Output;
         Assert.Contains("unsafe\n{\n    V_0 = holder.Risky;", output);
         Assert.Contains("return await", output);
         Assert.Contains("FromResult(V_0);", output);
@@ -188,7 +188,7 @@ public class ExpressionInliningPassTests
         new ExpressionInliningPass().Run(function, PassContext.None);
 
         Assert.Single(function.Descendants.OfType<StoreLocal>());
-        var output = CSharpPrinter.Print(function).Output;
+        var output = DecidedPrint.Print(function).Output;
         Assert.Contains("int V_0 = await task;", output);
         Assert.Contains("return unsafe(Risky(V_0));", output);
         Assert.DoesNotContain("Risky(await", output);
@@ -256,7 +256,7 @@ public class ExpressionInliningPassTests
         new ExpressionInliningPass().Run(function, PassContext.None);
 
         Assert.Single(function.Descendants.OfType<StoreLocal>());
-        var output = CSharpPrinter.Print(function).Output;
+        var output = DecidedPrint.Print(function).Output;
         Assert.Contains("V_0 = holder.Risky;", output);
         Assert.Contains("if (V_0)", output);
         Assert.DoesNotContain("if (holder.Risky)", output);

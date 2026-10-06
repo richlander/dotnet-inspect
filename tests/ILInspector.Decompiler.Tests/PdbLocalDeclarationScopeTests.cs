@@ -186,12 +186,12 @@ public sealed class PdbLocalDeclarationScopeTests
         var function = IrImporter.Import(source, typeof(PdbScopeFixtures).FullName!,
             nameof(PdbScopeFixtures.DisjointScopeLocals))!;
         IrPasses.Run(function, [.. IrPasses.Default.Where(pass => pass is not PdbLocalScopePass)]);
-        string before = CSharpPrinter.Print(function).Output!;
+        string before = DecidedPrint.Print(function).Output!;
 
         new PdbLocalScopePass().Run(function, PassContext.None);
         function.CheckInvariant();
 
-        Assert.Equal(before, CSharpPrinter.Print(function).Output);
+        Assert.Equal(before, DecidedPrint.Print(function).Output);
         Assert.DoesNotContain("same", before);
     }
 
@@ -221,7 +221,7 @@ public sealed class PdbLocalDeclarationScopeTests
 
         new PdbLocalScopePass().Run(function, PassContext.None);
         function.CheckInvariant();
-        var result = CSharpPrinter.Print(function);
+        var result = DecidedPrint.Print(function);
 
         Assert.Equal(blocks, function.Descendants.OfType<Block>().Count());
         Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
@@ -239,7 +239,7 @@ public sealed class PdbLocalDeclarationScopeTests
         function.CheckInvariant();
 
         Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
-        Assert.Contains("V_1", CSharpPrinter.Print(function).Output);
+        Assert.Contains("V_1", DecidedPrint.Print(function).Output);
     }
 
     [Fact]
@@ -251,7 +251,7 @@ public sealed class PdbLocalDeclarationScopeTests
         function.CheckInvariant();
 
         Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
-        string output = CSharpPrinter.Print(function).Output!;
+        string output = DecidedPrint.Print(function).Output!;
         Assert.Contains("int V_0 = 1;", output);
         Assert.Contains("int V_1 = 2;", output);
     }
@@ -263,12 +263,12 @@ public sealed class PdbLocalDeclarationScopeTests
         var function = IrImporter.Import(source, typeof(PdbScopeFixtures).FullName!,
             nameof(PdbScopeFixtures.DisjointScopeLocals))!;
         IrPasses.Run(function);
-        string before = CSharpPrinter.Print(function).Output!;
+        string before = DecidedPrint.Print(function).Output!;
 
         new PdbLocalScopePass().Run(function, PassContext.None);
         function.CheckInvariant();
 
-        Assert.Equal(before, CSharpPrinter.Print(function).Output);
+        Assert.Equal(before, DecidedPrint.Print(function).Output);
     }
 
     [Fact]
@@ -278,12 +278,12 @@ public sealed class PdbLocalDeclarationScopeTests
         var function = IrImporter.Import(source, typeof(PdbScopeFixtures).FullName!,
             nameof(PdbScopeFixtures.SequentialStackCarry))!;
         IrPasses.Run(function, [.. IrPasses.Default.Where(pass => pass is not PdbLocalScopePass)]);
-        string before = CSharpPrinter.Print(function).Output!;
+        string before = DecidedPrint.Print(function).Output!;
 
         new PdbLocalScopePass().Run(function, PassContext.None);
         function.CheckInvariant();
 
-        Assert.Equal(before, CSharpPrinter.Print(function).Output);
+        Assert.Equal(before, DecidedPrint.Print(function).Output);
         Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
     }
 
@@ -363,7 +363,7 @@ public sealed class PdbLocalDeclarationScopeTests
 
         new PdbLocalScopePass().Run(function, PassContext.None);
         function.CheckInvariant();
-        var result = CSharpPrinter.Print(function);
+        var result = DecidedPrint.Print(function);
 
         Assert.Equal(DecompilationFidelity.Partial, result.Fidelity);
         Assert.Contains("V_1", result.Output);
@@ -379,7 +379,7 @@ public sealed class PdbLocalDeclarationScopeTests
 
         new PdbLocalScopePass().Run(function, PassContext.None);
         function.CheckInvariant();
-        var result = CSharpPrinter.Print(function);
+        var result = DecidedPrint.Print(function);
 
         Assert.Equal(DecompilationFidelity.Partial, result.Fidelity);
         Assert.Contains("V_1", result.Output);
@@ -416,7 +416,7 @@ public sealed class PdbLocalDeclarationScopeTests
 
         new PdbLocalScopePass().Run(function, PassContext.None);
         function.CheckInvariant();
-        var result = CSharpPrinter.Print(function);
+        var result = DecidedPrint.Print(function);
 
         Assert.Equal(DecompilationFidelity.Partial, result.Fidelity);
         Assert.Contains("V_1", result.Output);
@@ -478,7 +478,7 @@ public sealed class PdbLocalDeclarationScopeTests
 
         new PdbLocalScopePass().Run(function, PassContext.None);
         function.CheckInvariant();
-        var result = CSharpPrinter.Print(function);
+        var result = DecidedPrint.Print(function);
 
         Assert.Equal(DecompilationFidelity.Partial, result.Fidelity);
         Assert.Contains("V_1", result.Output);
@@ -563,7 +563,7 @@ public sealed class PdbLocalDeclarationScopeTests
         };
 
         function.CheckInvariant();
-        string output = CSharpPrinter.Print(function).Output!;
+        string output = DecidedPrint.Print(function).Output!;
 
         Assert.StartsWith("int value;\n\n{\n", output);
         Assert.DoesNotContain("{\n    int value;", output);
@@ -600,7 +600,7 @@ public sealed class PdbLocalDeclarationScopeTests
 
         new PdbLocalScopePass().Run(function, PassContext.None);
         function.CheckInvariant();
-        var result = CSharpPrinter.Print(function);
+        var result = DecidedPrint.Print(function);
 
         Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
         Assert.Equal(2, result.Output!.Split(
@@ -623,7 +623,7 @@ public sealed class PdbLocalDeclarationScopeTests
 
         new PdbLocalScopePass().Run(function, PassContext.None);
         function.CheckInvariant();
-        var result = CSharpPrinter.Print(function);
+        var result = DecidedPrint.Print(function);
 
         Assert.Contains(
             function.Descendants.OfType<LabelAnchor>(),
@@ -635,7 +635,7 @@ public sealed class PdbLocalDeclarationScopeTests
 
         new PdbLocalScopePass().Run(function, PassContext.None);
         function.CheckInvariant();
-        Assert.Equal(result.Output, CSharpPrinter.Print(function).Output);
+        Assert.Equal(result.Output, DecidedPrint.Print(function).Output);
     }
 
     [Fact]
@@ -701,7 +701,7 @@ public sealed class PdbLocalDeclarationScopeTests
 
         new PdbLocalScopePass().Run(function, PassContext.None);
         function.CheckInvariant();
-        var result = CSharpPrinter.Print(function);
+        var result = DecidedPrint.Print(function);
 
         Assert.Contains(
             function.Descendants.OfType<LabelAnchor>(),
@@ -716,7 +716,7 @@ public sealed class PdbLocalDeclarationScopeTests
 
         new PdbLocalScopePass().Run(function, PassContext.None);
         function.CheckInvariant();
-        Assert.Equal(result.Output, CSharpPrinter.Print(function).Output);
+        Assert.Equal(result.Output, DecidedPrint.Print(function).Output);
     }
 
     [Theory]
@@ -734,7 +734,7 @@ public sealed class PdbLocalDeclarationScopeTests
 
         new PdbLocalScopePass().Run(function, PassContext.None);
         function.CheckInvariant();
-        var result = CSharpPrinter.Print(function);
+        var result = DecidedPrint.Print(function);
 
         Assert.DoesNotContain(
             function.Descendants.OfType<LabelAnchor>(),
@@ -785,7 +785,7 @@ public sealed class PdbLocalDeclarationScopeTests
 
         new PdbLocalScopePass().Run(function, PassContext.None);
         function.CheckInvariant();
-        var result = CSharpPrinter.Print(function);
+        var result = DecidedPrint.Print(function);
 
         Assert.Equal(2, function.Descendants.OfType<Block>().Count(
             block => block.Parent is Block));
@@ -796,7 +796,7 @@ public sealed class PdbLocalDeclarationScopeTests
 
         new PdbLocalScopePass().Run(function, PassContext.None);
         function.CheckInvariant();
-        Assert.Equal(result.Output, CSharpPrinter.Print(function).Output);
+        Assert.Equal(result.Output, DecidedPrint.Print(function).Output);
     }
 
     [Fact]
@@ -833,7 +833,7 @@ public sealed class PdbLocalDeclarationScopeTests
 
         new PdbLocalScopePass().Run(function, PassContext.None);
         function.CheckInvariant();
-        var result = CSharpPrinter.Print(function);
+        var result = DecidedPrint.Print(function);
 
         Assert.Same(first, firstStore.Parent);
         Assert.Equal(DecompilationFidelity.Partial, result.Fidelity);
@@ -882,7 +882,7 @@ public sealed class PdbLocalDeclarationScopeTests
 
         new PdbLocalScopePass().Run(function, PassContext.None);
         function.CheckInvariant();
-        var result = CSharpPrinter.Print(function);
+        var result = DecidedPrint.Print(function);
 
         Assert.Equal(2, function.Descendants.OfType<Block>().Count(
             block => block.Parent is Block));
@@ -952,7 +952,7 @@ public sealed class PdbLocalDeclarationScopeTests
 
         new PdbLocalScopePass().Run(function, PassContext.None);
         function.CheckInvariant();
-        var result = CSharpPrinter.Print(function);
+        var result = DecidedPrint.Print(function);
 
         Assert.NotSame(declaration, firstStore.Parent);
         Assert.Contains(
@@ -966,7 +966,7 @@ public sealed class PdbLocalDeclarationScopeTests
 
         new PdbLocalScopePass().Run(function, PassContext.None);
         function.CheckInvariant();
-        Assert.Equal(result.Output, CSharpPrinter.Print(function).Output);
+        Assert.Equal(result.Output, DecidedPrint.Print(function).Output);
     }
 
     [Theory]
@@ -985,7 +985,7 @@ public sealed class PdbLocalDeclarationScopeTests
 
         new PdbLocalScopePass().Run(function, PassContext.None);
         function.CheckInvariant();
-        var result = CSharpPrinter.Print(function);
+        var result = DecidedPrint.Print(function);
 
         Assert.Equal(blocks, function.Descendants.OfType<Block>().Count());
         Assert.Contains(
@@ -999,7 +999,7 @@ public sealed class PdbLocalDeclarationScopeTests
 
         new PdbLocalScopePass().Run(function, PassContext.None);
         function.CheckInvariant();
-        Assert.Equal(result.Output, CSharpPrinter.Print(function).Output);
+        Assert.Equal(result.Output, DecidedPrint.Print(function).Output);
     }
 
     [Theory]
@@ -1017,7 +1017,7 @@ public sealed class PdbLocalDeclarationScopeTests
 
         new PdbLocalScopePass().Run(function, PassContext.None);
         function.CheckInvariant();
-        var result = CSharpPrinter.Print(function);
+        var result = DecidedPrint.Print(function);
 
         Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
         Assert.Equal(2, result.Output!.Split(
@@ -1061,7 +1061,7 @@ public sealed class PdbLocalDeclarationScopeTests
 
         new PdbLocalScopePass().Run(function, PassContext.None);
         function.CheckInvariant();
-        var result = CSharpPrinter.Print(function);
+        var result = DecidedPrint.Print(function);
 
         Assert.Equal(retainsPdbLocalScope, !ReferenceEquals(first, firstStore.Parent));
         Assert.Same(anchor, first.Children[0]);
@@ -1076,7 +1076,7 @@ public sealed class PdbLocalDeclarationScopeTests
 
         new PdbLocalScopePass().Run(function, PassContext.None);
         function.CheckInvariant();
-        Assert.Equal(result.Output, CSharpPrinter.Print(function).Output);
+        Assert.Equal(result.Output, DecidedPrint.Print(function).Output);
     }
 
     [Fact]
@@ -1127,7 +1127,7 @@ public sealed class PdbLocalDeclarationScopeTests
 
         new PdbLocalScopePass().Run(function, PassContext.None);
         function.CheckInvariant();
-        var result = CSharpPrinter.Print(function);
+        var result = DecidedPrint.Print(function);
 
         Assert.True(
             result.Fidelity == DecompilationFidelity.Full,
@@ -1140,7 +1140,7 @@ public sealed class PdbLocalDeclarationScopeTests
 
         new PdbLocalScopePass().Run(function, PassContext.None);
         function.CheckInvariant();
-        Assert.Equal(result.Output, CSharpPrinter.Print(function).Output);
+        Assert.Equal(result.Output, DecidedPrint.Print(function).Output);
 
         static PdbLocalDeclaration PdbDeclaration(
             int variableRow,
@@ -1196,7 +1196,7 @@ public sealed class PdbLocalDeclarationScopeTests
 
         new PdbLocalScopePass().Run(function, PassContext.None);
         function.CheckInvariant();
-        var result = CSharpPrinter.Print(function);
+        var result = DecidedPrint.Print(function);
 
         Assert.True(
             result.Fidelity == DecompilationFidelity.Full,
@@ -1209,7 +1209,7 @@ public sealed class PdbLocalDeclarationScopeTests
 
         new PdbLocalScopePass().Run(function, PassContext.None);
         function.CheckInvariant();
-        Assert.Equal(result.Output, CSharpPrinter.Print(function).Output);
+        Assert.Equal(result.Output, DecidedPrint.Print(function).Output);
 
         static void AddScope(Block block, MethodRef callee, int region, int exits)
         {
@@ -1290,7 +1290,7 @@ public sealed class PdbLocalDeclarationScopeTests
 
         new PdbLocalScopePass().Run(function, PassContext.None);
         function.CheckInvariant();
-        var result = CSharpPrinter.Print(function);
+        var result = DecidedPrint.Print(function);
 
         Assert.DoesNotContain(
             function.Descendants.OfType<LabelAnchor>(),
@@ -1325,7 +1325,7 @@ public sealed class PdbLocalDeclarationScopeTests
         };
 
         function.CheckInvariant();
-        string output = CSharpPrinter.Print(function).Output!;
+        string output = DecidedPrint.Print(function).Output!;
 
         Assert.StartsWith("int exact = default;\n\n{\n", output);
         Assert.DoesNotContain("{\n    int exact =", output);
@@ -1373,7 +1373,7 @@ public sealed class PdbLocalDeclarationScopeTests
 
         new PdbLocalScopePass().Run(function, PassContext.None);
         function.CheckInvariant();
-        var result = CSharpPrinter.Print(function);
+        var result = DecidedPrint.Print(function);
 
         Assert.Same(declaration, firstStore.Parent);
         Assert.DoesNotContain(
@@ -1417,7 +1417,7 @@ public sealed class PdbLocalDeclarationScopeTests
 
         new PdbLocalScopePass().Run(function, PassContext.None);
         function.CheckInvariant();
-        var result = CSharpPrinter.Print(function);
+        var result = DecidedPrint.Print(function);
 
         Assert.NotSame(first, firstStore.Parent);
         Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
@@ -1470,7 +1470,7 @@ public sealed class PdbLocalDeclarationScopeTests
 
         new PdbLocalScopePass().Run(function, PassContext.None);
         function.CheckInvariant();
-        var result = CSharpPrinter.Print(function);
+        var result = DecidedPrint.Print(function);
 
         Assert.Same(declaration, firstStore.Parent);
         Assert.Equal(DecompilationFidelity.Partial, result.Fidelity);
@@ -1510,7 +1510,7 @@ public sealed class PdbLocalDeclarationScopeTests
 
         new PdbLocalScopePass().Run(function, PassContext.None);
         function.CheckInvariant();
-        var result = CSharpPrinter.Print(function);
+        var result = DecidedPrint.Print(function);
 
         Assert.Same(entry, firstDeclaration.Parent);
         Assert.Equal(DecompilationFidelity.Partial, result.Fidelity);
@@ -1548,7 +1548,7 @@ public sealed class PdbLocalDeclarationScopeTests
 
         new PdbLocalScopePass().Run(function, PassContext.None);
         function.CheckInvariant();
-        var result = CSharpPrinter.Print(function);
+        var result = DecidedPrint.Print(function);
 
         Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
         Assert.Equal(2, result.Output!.Split(
@@ -1609,7 +1609,7 @@ public sealed class PdbLocalDeclarationScopeTests
 
         new PdbLocalScopePass().Run(function, PassContext.None);
         function.CheckInvariant();
-        var result = CSharpPrinter.Print(function);
+        var result = DecidedPrint.Print(function);
 
         Assert.Equal(DecompilationFidelity.Partial, result.Fidelity);
         Assert.Contains("is string same", result.Output);
@@ -1649,7 +1649,7 @@ public sealed class PdbLocalDeclarationScopeTests
 
         new PdbLocalScopePass().Run(function, PassContext.None);
         function.CheckInvariant();
-        var result = CSharpPrinter.Print(function);
+        var result = DecidedPrint.Print(function);
 
         Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
         Assert.Equal(2, result.Output!.Split(

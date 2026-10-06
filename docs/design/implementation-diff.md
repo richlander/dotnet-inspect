@@ -2257,8 +2257,10 @@ view.
 
 The document contains:
 
-- the requested C#, IL/body, and complexity mechanisms plus normalized type and
-  member selectors;
+- the independently requested C#, IL/body, and complexity mechanisms plus
+  normalized type filters and an explicit `All` or `Selected` Member
+  population. `Selected([])` is complete zero-Member work and never falls back
+  to whole-Library work;
 - one Before and one After endpoint carrying exact assembly identity, MVID, and
   a Research-owned source-kind projection of acquisition provenance. The
   projection is constructed by an explicit case mapping and carries no
@@ -2306,10 +2308,12 @@ document as Content and initially reports Share as non-projectable at
 the ordered pair faithfully. Diagnostics remain envelope-level operation
 diagnostics, not a second home for member evidence.
 
-The portable transport is `implementation-diff` schema 2. Schema 2 records
-semantic `memberSelections` as declaring-type and selector pairs; it replaces
-schema 1's internal `memberTargetIdentities`, which were not a portable request
-currency.
+The portable transport is `implementation-diff` schema 3. Schema 3 replaces
+schema 2's ambiguous `memberSelections` with an explicit `population`
+discriminator and semantic declaring-type/selector pairs for `Selected`.
+Requested mechanisms are independent: unrequested mechanisms do not execute,
+appear in coverage, or serialize their result. Schema 2 replaced schema 1's
+internal `memberTargetIdentities`, which were not a portable request currency.
 
 The first host adoption is complete CLI transport for
 `diff --library before.dll..after.dll -S "Implementation Diff" --json` and

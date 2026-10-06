@@ -220,8 +220,31 @@ public class QueryDiscoveryTests
         Assert.Empty(result.Error);
         Assert.Contains("C# Body Kinds", result.Output);
         Assert.Contains(
-            "vocabulary -S \"C# Body Kinds\"",
+            "explain vocabularies/csharp.body-kinds",
             result.Output);
+    }
+
+    [Fact]
+    public async Task BodyShapeQuery_KindLinksToAnExplainableValueVocabulary()
+    {
+        var discovery = await Run("type", "-Q", "Body Shapes", "--json");
+
+        Assert.Equal(0, discovery.ExitCode);
+        using var json = JsonDocument.Parse(discovery.Output);
+        JsonElement vocabulary = json.RootElement
+            .GetProperty("sections")[0]
+            .GetProperty("facets")[0]
+            .GetProperty("value_vocabulary");
+        Assert.Equal("C# Body Kinds", vocabulary.GetProperty("name").GetString());
+        string path = vocabulary.GetProperty("resource_path").GetString()!;
+        Assert.Equal("vocabularies/csharp.body-kinds", path);
+
+        var explanation = await Run("explain", path, "--json");
+        Assert.Equal(0, explanation.ExitCode);
+        using var explained = JsonDocument.Parse(explanation.Output);
+        Assert.Equal(
+            path,
+            explained.RootElement.GetProperty("requested_path").GetString());
     }
 
     [Fact]
@@ -870,8 +893,25 @@ public class QueryDiscoveryTests
             PerformanceTriageRowQuery.QueryKeys;
 
         Assert.Equal(
-            [.. vocabulary.Keys.Select(key => key.Key), "Triage"],
+            [
+                .. vocabulary.Keys
+                    .Where(key => key.Key
+                        != ILInspector.Analysis
+                            .OptimizationOpportunityRowSpace.KindKey)
+                    .Select(key => key.Key),
+                "Triage",
+            ],
             keys.Select(key => key.Name));
+        Assert.Contains(
+            vocabulary.Keys,
+            key => key.Key
+                == ILInspector.Analysis
+                    .OptimizationOpportunityRowSpace.KindKey);
+        Assert.DoesNotContain(
+            keys,
+            key => key.Name
+                == ILInspector.Analysis
+                    .OptimizationOpportunityRowSpace.KindKey);
         Assert.Contains(
             vocabulary.NamedOrders,
             order => order.Key == "AllocationFanout");
@@ -882,6 +922,13 @@ public class QueryDiscoveryTests
         foreach (RowQueryKey<ILInspector.Analysis.OptimizationOpportunity>
             key in vocabulary.Keys)
         {
+            if (key.Key
+                == ILInspector.Analysis
+                    .OptimizationOpportunityRowSpace.KindKey)
+            {
+                continue;
+            }
+
             SectionQueryKey projection = Assert.Single(
                 keys,
                 candidate => candidate.Name == key.Key);

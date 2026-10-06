@@ -46,7 +46,7 @@ type PackageOperations =
   | "queryPackageRoot"
   | "queryPackageSummary"
   | "queryPackageDependencies"
-  | "queryPackagePruning"
+  | "queryPackageVulnerabilities"
   | "queryPackageVersions"
   | "queryWorkspacePackageOccurrences"
   | "resolvePackageDependencyVersion"
@@ -118,6 +118,7 @@ type SourceOperations =
 
 type CallGraphOperations =
   | "expandPlatformCallGraph"
+  | "queryDirectUseClusters"
   | "queryMemberCallGraph";
 
 type CatalogOperations =
@@ -139,6 +140,7 @@ type CatalogOperations =
   | "describeWorkspacePackageSources"
   | "decodeWorkspaceShareState"
   | "encodeWorkspaceShareState"
+  | "explainVocabularies"
   | "inspectVocabulary"
   | "listEcosystems"
   | "listHomeDemos"

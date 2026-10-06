@@ -115,7 +115,7 @@ public partial class CommandExecutionTests
             Assert.Equal(1, packageExit);
             Assert.Empty(packageOutput);
             Assert.Contains(
-                "selected section must be exactly '-S \"Dependency Hierarchy\"'",
+                "--tree renders exactly one Hierarchy section",
                 packageError);
         }
         finally
@@ -863,8 +863,7 @@ public partial class CommandExecutionTests
         Assert.Equal(1, section.Exit);
         Assert.Empty(section.Output);
         Assert.Contains(
-            "accepts only the exact \"Library Metrics\" or \"Name Families\" "
-                + "section selection",
+            "accepts only the exact \"Library Metrics\", \"Name Families\"",
             section.Error,
             StringComparison.Ordinal);
         Assert.DoesNotContain(
@@ -916,6 +915,66 @@ public partial class CommandExecutionTests
                 result.Error,
                 StringComparison.Ordinal);
         }
+
+    }
+
+    [Fact]
+    public async Task Library_ArchitecturalFamilyTypeSelectionCountsExactTypes()
+    {
+        string fixture =
+            FixtureCatalog.ResearchNameFamilies.AssemblyPath();
+        var content = await RunAppAsync(
+            "library",
+            fixture,
+            "-S",
+            SectionNames.ArchitecturalFamilies,
+            "--json");
+        var count = await RunAppAsync(
+            "library",
+            fixture,
+            "-S",
+            SectionNames.ArchitecturalFamilyTypes,
+            "--count");
+
+        Assert.Equal(0, content.Exit);
+        Assert.Equal(0, count.Exit);
+        Assert.Empty(content.Error);
+        Assert.Empty(count.Error);
+        using JsonDocument document =
+            JsonDocument.Parse(content.Output);
+        Assert.Equal(
+            document.RootElement
+                .GetProperty("receipt")
+                .GetProperty("typeCount")
+                .GetInt32(),
+            int.Parse(
+                count.Output.Trim(),
+                CultureInfo.InvariantCulture));
+    }
+
+    [Fact]
+    public async Task Library_ArchitecturalFamilyRowScopesCannotCompete()
+    {
+        string fixture =
+            FixtureCatalog.ResearchNameFamilies.AssemblyPath();
+        var result = await RunAppAsync(
+            "library",
+            fixture,
+            "-S",
+            SectionNames.ArchitecturalFamilies,
+            "-S",
+            SectionNames.ArchitecturalFamilyTypes);
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "cannot be selected together",
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "one row scope",
+            result.Error,
+            StringComparison.Ordinal);
     }
 
     [Fact]

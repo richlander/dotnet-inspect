@@ -184,7 +184,7 @@ public sealed record StructuralDiscoveryRequest(
             options.Verbosity,
             null,
             options.Schema,
-            false,
+            options.DiscoverDetails,
             options);
 
     public static StructuralDiscoveryRequest From(
@@ -227,7 +227,7 @@ public sealed record StructuralDiscoveryRequest(
             options.ParseVerbosity(parseResult),
             null,
             options.ParseSchema(parseResult),
-            false,
+            options.ParseDiscoverDetails(parseResult),
             ProjectionAudit.Requested(parseResult, options));
     }
 }
@@ -952,6 +952,10 @@ public static class StructuralViewRegistry
                     pipeline.GetListedCategoryDoors();
                 catalogHiddenSections =
                     pipeline.GetCatalogHiddenSections();
+                // Type and member adopt Section shapes: formats derive from
+                // the declared shapes rather than a hand-kept list.
+                sectionShapes = pipeline.SectionShapes;
+                outputCapabilities = ApiOutputCapabilities.For(route);
                 sectionCardinalities =
                     ApiTypeSectionCardinality.Declarations;
                 break;
@@ -987,6 +991,10 @@ public static class StructuralViewRegistry
                     ApiMemberSectionPipelines.GetExactOnlySections(
                         route.Catalog
                             == InspectionCatalogIdentity.ApiMemberOverload);
+                sectionShapes = pipeline.SectionShapes;
+                outputCapabilities = ApiOutputCapabilities.For(route);
+                sectionCardinalities =
+                    ApiMemberSectionCardinality.For(selectableSections);
                 break;
             }
             default:
@@ -1066,7 +1074,10 @@ public static class StructuralViewRegistry
 
     /// <summary>
     /// The resource-path catalog segment for a structural catalog, as in
-    /// <c>library/sections/...</c> or <c>package/sections/...</c>.
+    /// <c>library/sections/...</c> or <c>package/sections/...</c>. The three
+    /// member catalogs keep the names the contextual member explanation
+    /// already publishes, so <c>member-detail/sections/source</c> names the
+    /// exact-member Source and never collides with the single-type catalog.
     /// </summary>
     internal static string CatalogPathName(InspectionCatalogIdentity catalog) =>
         catalog switch
@@ -1075,7 +1086,13 @@ public static class StructuralViewRegistry
             InspectionCatalogIdentity.Library
                 or InspectionCatalogIdentity.LibraryAggregate => "library",
             InspectionCatalogIdentity.ApiType => "type",
-            _ => "member",
+            InspectionCatalogIdentity.ApiMember => "member",
+            InspectionCatalogIdentity.ApiMemberOverload => "member-overload",
+            InspectionCatalogIdentity.ApiMemberDetail => "member-detail",
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(catalog),
+                catalog,
+                "Unknown structural catalog."),
         };
 
     public static int Execute(

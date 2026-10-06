@@ -630,6 +630,59 @@ public partial class LibraryCommand
             IncludeSections =
                 nameFamilySelection.Sections,
         };
+        var architecturalFamilySelection =
+            SelectResolver.NormalizeExactOnlySection(
+                options.Select,
+                options.IncludeSections,
+                options.ExactIncludeSections,
+                sections.SelectableSectionNames,
+                SectionNames.ArchitecturalFamilies);
+        if (architecturalFamilySelection.Error is not null)
+        {
+            CommandError.Write(
+                architecturalFamilySelection.Error);
+            return 1;
+        }
+        options = options with
+        {
+            IncludeSections =
+                architecturalFamilySelection.Sections,
+        };
+        var architecturalFamilyTypeSelection =
+            SelectResolver.NormalizeExactOnlySection(
+                options.Select,
+                options.IncludeSections,
+                options.ExactIncludeSections,
+                sections.SelectableSectionNames,
+                SectionNames.ArchitecturalFamilyTypes);
+        if (architecturalFamilyTypeSelection.Error is not null)
+        {
+            CommandError.Write(
+                architecturalFamilyTypeSelection.Error);
+            return 1;
+        }
+        options = options with
+        {
+            IncludeSections =
+                architecturalFamilyTypeSelection.Sections,
+            ArchitecturalFamilyTypeRows =
+                architecturalFamilyTypeSelection.Sections?.Contains(
+                    SectionNames.ArchitecturalFamilyTypes)
+                == true,
+        };
+        if (architecturalFamilyTypeSelection.Sections
+                is { } architecturalSections
+            && architecturalSections.Contains(
+                SectionNames.ArchitecturalFamilies)
+            && architecturalSections.Contains(
+                SectionNames.ArchitecturalFamilyTypes))
+        {
+            CommandError.Write(
+                "Architectural Families and Architectural Family Types cannot "
+                    + "be selected together because one architectural-family "
+                    + "query selects one row scope.");
+            return 1;
+        }
         var dependencyStructureSelection =
             SelectResolver.NormalizeExactOnlySection(
                 options.Select,
@@ -791,6 +844,7 @@ public partial class LibraryCommand
             && options.IncludeSections is { Count: > 0 }
             && !RequestsLibraryMetricsTransport(options)
             && !RequestsNameFamilyTransport(options)
+            && !RequestsArchitecturalFamilyTransport(options)
             && !RequestsDependencyStructureTransport(options)
             && !LibraryOutputCapabilities.Catalog.Supports(
                 DiscoveryOutputMode.Json,
@@ -817,6 +871,17 @@ public partial class LibraryCommand
                     "Document --json cannot represent projected Name "
                     + "Families rows. Select exactly Name Families for "
                     + "complete Content JSON.");
+            }
+            else if (options.IncludeSections.Contains(
+                    SectionNames.ArchitecturalFamilies)
+                || options.IncludeSections.Contains(
+                    SectionNames.ArchitecturalFamilyTypes))
+            {
+                CommandError.Write(
+                    "Document --json cannot represent projected Architectural "
+                        + "Families rows. Select exactly Architectural Families "
+                        + "or Architectural Family Types for complete Content "
+                        + "JSON.");
             }
             else
             {
@@ -1356,8 +1421,18 @@ public partial class LibraryCommand
                     return WriteLibraryMetricsTransport(inspection, options);
                 if (RequestsNameFamilyTransport(options))
                     return WriteNameFamilyTransport(inspection, options);
+                if (RequestsArchitecturalFamilyTransport(options))
+                    return WriteArchitecturalFamilyTransport(
+                        inspection,
+                        options);
                 if (RejectUnavailableNameFamilies(inspection, options))
                     return 1;
+                if (RejectUnavailableArchitecturalFamilies(
+                        inspection,
+                        options))
+                {
+                    return 1;
+                }
                 if (RequestsDependencyStructureTransport(options))
                     return WriteDependencyStructureTransport(
                         inspection,
@@ -1716,6 +1791,18 @@ public partial class LibraryCommand
                         inspections[0],
                         options);
                 }
+                if (RequestsArchitecturalFamilyTransport(options))
+                {
+                    if (inspections.Count != 1)
+                    {
+                        CommandError.Write(
+                            "Architectural Families requires one exact Library.");
+                        return 1;
+                    }
+                    return WriteArchitecturalFamilyTransport(
+                        inspections[0],
+                        options);
+                }
                 if (RequestsDependencyStructureTransport(options))
                 {
                     if (inspections.Count != 1)
@@ -1731,6 +1818,13 @@ public partial class LibraryCommand
                 }
                 if (inspections.Count == 1
                     && RejectUnavailableNameFamilies(
+                        inspections[0],
+                        options))
+                {
+                    return 1;
+                }
+                if (inspections.Count == 1
+                    && RejectUnavailableArchitecturalFamilies(
                         inspections[0],
                         options))
                 {
@@ -1875,6 +1969,28 @@ public partial class LibraryCommand
                         options,
                         rootPackageDirectory: null);
                 }
+                if (subject.AssemblyReference is { } exactAssembly
+                    && CanExecuteDirectLibraryDocumentOnly(
+                        options,
+                        discoveryInspection,
+                        fullEffectiveDiscovery,
+                        sectionPlan,
+                        queries))
+                {
+                    // A complete direct compact context is exactly the
+                    // facts-only Library document plus host provenance.
+                    LibraryDocumentInspection directDocumentInspection =
+                        await LibraryDocumentInspection.ReadExactAsync(
+                            exactAssembly,
+                            AssemblyContextLibraryRole.ApiOnly);
+
+                    OutputFormatter.WriteLibraryDocumentContext(
+                        new LibraryPresentationContext(
+                            Path.GetFileName(assemblyPath),
+                            SourceKind.File),
+                        directDocumentInspection);
+                    return 0;
+                }
 
                 // Network-free SourceLink availability probe (see platform branch).
                 bool sourceLinkAvailable = fullEffectiveDiscovery
@@ -1973,8 +2089,18 @@ public partial class LibraryCommand
                     return WriteLibraryMetricsTransport(inspection, options);
                 if (RequestsNameFamilyTransport(options))
                     return WriteNameFamilyTransport(inspection, options);
+                if (RequestsArchitecturalFamilyTransport(options))
+                    return WriteArchitecturalFamilyTransport(
+                        inspection,
+                        options);
                 if (RejectUnavailableNameFamilies(inspection, options))
                     return 1;
+                if (RejectUnavailableArchitecturalFamilies(
+                        inspection,
+                        options))
+                {
+                    return 1;
+                }
                 if (RequestsDependencyStructureTransport(options))
                     return WriteDependencyStructureTransport(
                         inspection,
@@ -2872,14 +2998,14 @@ public partial class LibraryCommand
         if (intent is null)
             return true;
 
-        IReadOnlyList<EcosystemDependencyRecognitionEntry> rows =
+        IReadOnlyList<EcosystemDependencyMatchEntry> rows =
             inspection.EcosystemDependencyRecognitionInspection?.Content
                 switch
             {
                 EcosystemDependencyRecognitionOutcome.Complete complete =>
-                    complete.Document.Classification.Recognized,
+                    complete.Document.Classification.Matches,
                 EcosystemDependencyRecognitionOutcome.Incomplete incomplete =>
-                    incomplete.Document.Classification.Recognized,
+                    incomplete.Document.Classification.Matches,
                 _ => [],
             };
         if (!CliSemanticRowSelection.TrySelect(
@@ -2892,8 +3018,7 @@ public partial class LibraryCommand
                     + $"{failure.Failure.RequiredPosition}, but only "
                     + $"{failure.Failure.AvailableCount} "
                     + $"{(failure.Failure.AvailableCount == 1 ? "row is" : "rows are")} available.",
-                out IReadOnlyList<
-                    EcosystemDependencyRecognitionEntry> selected))
+                out IReadOnlyList<EcosystemDependencyMatchEntry> selected))
         {
             return false;
         }
@@ -2950,7 +3075,7 @@ public partial class LibraryCommand
             && result.Content switch
             {
                 EcosystemDependencyRecognitionOutcome.Incomplete incomplete =>
-                    incomplete.Document.Classification.Recognized.IsEmpty,
+                    incomplete.Document.Classification.Matches.IsEmpty,
                 EcosystemDependencyRecognitionOutcome.Unavailable => true,
                 _ => false,
             };
@@ -4314,6 +4439,45 @@ public partial class LibraryCommand
         }
         PersistentCache.Set(EffectiveCategory, key, sb.ToString(), extension: "tsv");
     }
+
+    private static bool CanExecuteDirectLibraryDocumentOnly(
+        LibraryOptions options,
+        bool discoveryInspection,
+        bool fullEffectiveDiscovery,
+        SectionQueryPlan sectionPlan,
+        IReadOnlyCollection<InspectionQueryDefinition> queries) =>
+        options.Verbosity == Verbosity.Quiet
+        && options.IncludeSections is not { Count: > 0 }
+        && options.Select is not { Length: > 0 }
+        && !options.SelectDefault
+        && options.Discover is null
+        && !options.Effective
+        && !options.FixedOverview
+        && !discoveryInspection
+        && !fullEffectiveDiscovery
+        && options.AddressRequest is null
+        && sectionPlan.Demands.IsEmpty
+        && queries.Count == 0
+        && !options.IsRawOutput
+        && !options.PlainText
+        && !options.TabularExplicitlySet
+        && !options.Trace
+        && !options.Verbose
+        && options.Columns is null
+        && options.Fields is null
+        && options.Rows is null
+        && !options.Schema
+        && !options.Tree
+        && !options.IncludeReferences
+        && !options.IncludeDependencies
+        && !options.CollectIdentifierConfusionReferenceTree
+        && options.ReferenceHierarchyDepth is null
+        && options.TypeFilter is null
+        && !options.PreferRenderedUrls
+        && string.IsNullOrEmpty(options.ExtractResources)
+        && !options.IntegrationQuery.HasFilter
+        && !options.PerformanceTriage.HasFilters
+        && !options.BodyKindQuery.HasFilter;
 
     /// <summary>
     /// SHA-256 of an assembly's bytes, or <see langword="null"/> when they cannot be read.

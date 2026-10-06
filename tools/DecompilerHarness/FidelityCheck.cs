@@ -16,6 +16,7 @@ using ILInspector.Decompiler.Pipeline;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
+using DotnetInspector.ResearchQueries;
 
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -213,10 +214,81 @@ static partial class FidelityCheck
         IReadOnlyList<string> assemblies,
         int cap,
         string? typeFilter = null)
-        => SelectReturnToSenderTargetPlan(
+        => SelectReturnToSenderTargetsCapped(
             assemblies,
             cap,
             typeFilter).Targets;
+
+    internal static CappedReturnToSenderTargetSelection
+        SelectReturnToSenderTargetsCapped(
+            IReadOnlyList<string> assemblies,
+            int cap,
+            string? typeFilter = null)
+    {
+        ArgumentNullException.ThrowIfNull(assemblies);
+        if (cap <= 0 || assemblies.Count == 0)
+            return new([], 0, 0, 0, 0);
+
+        var selected =
+            new List<CompileBackTarget>(Math.Min(cap, 4096));
+        int rankedBodyCount = 0;
+        int evaluatedBodyCount = 0;
+        int declarationCandidateCount = 0;
+        int excludedDeclarationCandidateCount = 0;
+        using var metadata = CorpusMetadata.Create(assemblies);
+        foreach (string assemblyPath in assemblies)
+        {
+            int remaining = cap - selected.Count;
+            if (remaining <= 0)
+                break;
+
+            using MetadataSource source =
+                MetadataSource.Open(
+                    assemblyPath,
+                    context: metadata);
+            RegisterSourceContext(source, metadata);
+            using var assembly =
+                AssemblyInspectionSession.Open(assemblyPath);
+            using var targetSource =
+                new ReturnToSenderTargetSourceSession(
+                    assemblyPath,
+                    assembly);
+            ReturnToSenderCappedTargetSelection selection =
+                targetSource.SelectCappedTargets(
+                    source,
+                    remaining,
+                    typeFilter);
+            selected.AddRange(
+                selection.Targets.Select(
+                    static target => new CompileBackTarget(
+                        target.AssemblyPath,
+                        target.Type,
+                        target.Method,
+                        target.Overload,
+                        target.Signature,
+                        target.Address,
+                        target.Declaration)));
+            rankedBodyCount = checked(
+                rankedBodyCount
+                + selection.RankedBodyCount);
+            evaluatedBodyCount = checked(
+                evaluatedBodyCount
+                + selection.EvaluatedBodyCount);
+            declarationCandidateCount = checked(
+                declarationCandidateCount
+                + selection.DeclarationCandidateCount);
+            excludedDeclarationCandidateCount = checked(
+                excludedDeclarationCandidateCount
+                + selection.ExcludedDeclarationCandidateCount);
+        }
+
+        return new(
+            selected,
+            rankedBodyCount,
+            evaluatedBodyCount,
+            declarationCandidateCount,
+            excludedDeclarationCandidateCount);
+    }
 
     internal static ReturnToSenderTargetSelection SelectReturnToSenderTargetPlan(
         IReadOnlyList<string> assemblies,
@@ -227,7 +299,8 @@ static partial class FidelityCheck
         if (cap <= 0)
             return new([], [], 0, 0, 0);
 
-        var selected = new List<CompileBackTarget>(Math.Min(cap, 4096));
+        var selected =
+            new List<ReturnToSenderTarget>(Math.Min(cap, 4096));
         var exclusions = new List<ReturnToSenderTargetExclusion>();
         int scannedBodyCount = 0;
         int declarationCandidateCount = 0;
@@ -244,32 +317,25 @@ static partial class FidelityCheck
 
             using var source = MetadataSource.Open(assemblyPath, context: metadata);
             RegisterSourceContext(source, metadata);
-            var reader = source.Reader;
-            // Preserve generated MethodSemantics until this selector applies
-            // its own generated-method policy.
-            TargetApiEvidence targetApiEvidence =
-                CreateTargetApiEvidence(
-                    source.Pe,
-                    includeCompilerGenerated: true);
-            using var declarations =
-                new ReturnToSenderDeclarationSession(assemblyPath);
+            using var assembly =
+                AssemblyInspectionSession.Open(assemblyPath);
+            using var targetSource =
+                new ReturnToSenderTargetSourceSession(
+                    assemblyPath,
+                    assembly,
+                    profile);
             var decisions =
-                new Dictionary<int, ReturnToSenderCandidateDecision>();
+                new Dictionary<int, ReturnToSenderTargetDecision>();
             foreach (var candidate in IrImporter.GetStableSampleCandidates(
                          source,
                          remaining,
                          candidate =>
                          {
                              scannedBodyCount++;
-                             ReturnToSenderCandidateDecision? decision =
-                                 DecideStandaloneReturnToSenderCandidate(
-                                     assemblyPath,
-                                     reader,
+                             ReturnToSenderTargetDecision? decision =
+                                 targetSource.Decide(
                                      candidate,
                                      typeFilter,
-                                     targetApiEvidence,
-                                     declarations,
-                                     profile,
                                      out bool declarationCandidate);
                              if (declarationCandidate)
                                  declarationCandidateCount++;
@@ -318,328 +384,6 @@ static partial class FidelityCheck
             scannedBodyCount,
             declarationCandidateCount,
             eligibleCount);
-    }
-
-    static ReturnToSenderCandidateDecision?
-        DecideStandaloneReturnToSenderCandidate(
-        string assemblyPath,
-        MetadataReader reader,
-        IrImporter.StableSampleCandidate candidate,
-        string? typeFilter,
-        TargetApiEvidence targetApiEvidence,
-        ReturnToSenderDeclarationSession declarations,
-        CSharpLanguageProfile languageProfile,
-        out bool declarationCandidate)
-    {
-        declarationCandidate = false;
-        var typeDef = reader.GetTypeDefinition(candidate.TypeDefHandle);
-        if (!typeDef.GetDeclaringType().IsNil
-            || ShapeOf(reader, typeDef) is not (TypeKind.Class or TypeKind.Struct)
-            || (typeFilter is not null
-                && !candidate.TypeName.Contains(typeFilter, StringComparison.Ordinal))
-            || IsGeneratedType(reader, typeDef, candidate.TypeName))
-        {
-            return null;
-        }
-
-        var method = reader.GetMethodDefinition(candidate.MethodHandle);
-        int token = System.Reflection.Metadata.Ecma335.MetadataTokens.GetToken(
-            candidate.MethodHandle);
-        bool mappedAccessor =
-            targetApiEvidence.AccessorTokens.Contains(token);
-        bool hasApiEntry =
-            targetApiEvidence.Index.TryGetValue(token, out var entry);
-        bool requiresMethodSemanticsDecision = mappedAccessor
-            || (hasApiEntry
-                && entry.Member.MethodSemantics is not
-                    ApiMethodSemanticsKind.None);
-        MetadataMethodAddress address =
-            MetadataMethodAddress.Create(reader, candidate.MethodHandle);
-        CSharpAccessorDeclarationPost? accessorPost = null;
-        if (requiresMethodSemanticsDecision
-            || (method.Attributes & MethodAttributes.SpecialName) != 0)
-        {
-            accessorPost = declarations.CaptureAccessor(
-                MetadataTypeDefinitionAddress.FromHandle(
-                    reader,
-                    candidate.TypeDefHandle),
-                address);
-        }
-        bool hasAccessorAssociation =
-            accessorPost?.Association is not null
-                and not MetadataAccessorAssociationResult.Absent;
-        if (!requiresMethodSemanticsDecision
-            && !hasAccessorAssociation
-            && IsGeneratedMethod(
-                reader,
-                method,
-                candidate.MethodName,
-                allowEmbeddedAngleBrackets: true))
-            return null;
-
-        declarationCandidate = true;
-        string stableIdentitySuffix = "generic-arity:"
-            + method.GetGenericParameters().Count.ToString(
-                CultureInfo.InvariantCulture);
-        MemberSignatureShapeResult signatureShape =
-            MetadataMemberSignatureShape.Create(
-                reader,
-                candidate.MethodHandle);
-        string? signature = signatureShape.Shape is { } shape
-            ? MemberSignatureShapeCodec.Encode(shape)
-            : null;
-
-        ReturnToSenderTargetExclusion Exclude(
-            ReturnToSenderTargetExclusionReason reason,
-            ReturnToSenderDeclarationProducer? producer = null,
-            CSharpDeclarationRepresentabilityResult? exactOutcome = null,
-            CSharpAccessorDeclarationRepresentabilityResult?
-                accessorOutcome = null)
-            => new(
-                assemblyPath,
-                candidate.TypeName,
-                candidate.MethodName,
-                candidate.Overload,
-                signature,
-                address,
-                reason,
-                producer,
-                exactOutcome,
-                accessorOutcome);
-
-        ReturnToSenderDeclarationSelection declaration;
-        CSharpDeclarationRepresentabilityResult? exactResult = null;
-        CSharpAccessorDeclarationRepresentabilityResult?
-            accessorResult = null;
-        if (requiresMethodSemanticsDecision || hasAccessorAssociation)
-        {
-            accessorPost ??= declarations.CaptureAccessor(
-                MetadataTypeDefinitionAddress.FromHandle(
-                    reader,
-                    candidate.TypeDefHandle),
-                address);
-            accessorResult =
-                CSharpAccessorDeclarationRepresentability.Decide(
-                    accessorPost,
-                    languageProfile);
-            switch (accessorResult)
-            {
-                case CSharpAccessorDeclarationRepresentabilityResult
-                    .Representable represented:
-                    declaration =
-                        new ReturnToSenderDeclarationSelection.ExactAccessor(
-                            represented.Request);
-                    break;
-                case CSharpAccessorDeclarationRepresentabilityResult
-                    .Unrepresentable:
-                    return new(
-                        null,
-                        Exclude(
-                            ReturnToSenderTargetExclusionReason
-                                .ExactAccessorDeclarationUnrepresentable,
-                            ReturnToSenderDeclarationProducer
-                                .ExactAccessorDeclaration,
-                            accessorOutcome: accessorResult),
-                        stableIdentitySuffix);
-                case CSharpAccessorDeclarationRepresentabilityResult
-                    .Unavailable:
-                    return new(
-                        null,
-                        Exclude(
-                            ReturnToSenderTargetExclusionReason
-                                .ExactAccessorDeclarationUnavailable,
-                            ReturnToSenderDeclarationProducer
-                                .ExactAccessorDeclaration,
-                            accessorOutcome: accessorResult),
-                        stableIdentitySuffix);
-                default:
-                    throw new InvalidOperationException(
-                        "Unknown C# accessor declaration representability "
-                        + "result.");
-            }
-        }
-        else
-        {
-            CSharpMethodDeclarationPost? exactPost = null;
-            bool inspectExactDeclaration =
-                !hasApiEntry
-                || entry.Member.Kind is
-                    "explicit-interface-implementation" or "operator";
-            bool requiresExactDeclaration =
-                hasApiEntry
-                && entry.Member.Kind == "explicit-interface-implementation";
-            if (inspectExactDeclaration)
-            {
-                exactPost = declarations.CaptureMethod(
-                    MetadataTypeDefinitionAddress.FromHandle(
-                        reader,
-                        candidate.TypeDefHandle),
-                    address);
-                requiresExactDeclaration |=
-                    exactPost.Implementations is not
-                        MetadataMethodImplementationResult.Absent;
-            }
-
-            if (requiresExactDeclaration)
-            {
-                exactPost ??= declarations.CaptureMethod(
-                    MetadataTypeDefinitionAddress.FromHandle(
-                        reader,
-                        candidate.TypeDefHandle),
-                    address);
-                exactResult = CSharpDeclarationRepresentability.Decide(
-                    exactPost,
-                    languageProfile);
-                switch (exactResult)
-                {
-                    case CSharpDeclarationRepresentabilityResult.Representable
-                        represented:
-                        declaration =
-                            new ReturnToSenderDeclarationSelection.ExactMethod(
-                                represented.Request);
-                        break;
-                    case CSharpDeclarationRepresentabilityResult
-                        .Unrepresentable:
-                        return new(
-                            null,
-                            Exclude(
-                                ReturnToSenderTargetExclusionReason
-                                    .ExactDeclarationUnrepresentable,
-                                ReturnToSenderDeclarationProducer
-                                    .ExactMethodDeclaration,
-                                exactResult),
-                            stableIdentitySuffix);
-                    case CSharpDeclarationRepresentabilityResult.Unavailable:
-                        return new(
-                            null,
-                            Exclude(
-                                ReturnToSenderTargetExclusionReason
-                                    .ExactDeclarationUnavailable,
-                                ReturnToSenderDeclarationProducer
-                                    .ExactMethodDeclaration,
-                                exactResult),
-                            stableIdentitySuffix);
-                    default:
-                        throw new InvalidOperationException(
-                            "Unknown C# declaration representability result.");
-                }
-            }
-            else
-            {
-                if (!hasApiEntry)
-                {
-                    return new(
-                        null,
-                        Exclude(
-                            ReturnToSenderTargetExclusionReason
-                                .ProductMemberUnavailable,
-                            ReturnToSenderDeclarationProducer
-                                .OrdinaryTypeArtifact,
-                            exactResult),
-                        stableIdentitySuffix);
-                }
-
-                if (!CSharpMemberArtifactEligibility.IsRepresentable(
-                        entry.Type,
-                        entry.Member))
-                {
-                    return new(
-                        null,
-                        Exclude(
-                            ReturnToSenderTargetExclusionReason
-                                .OrdinaryDeclarationUnrepresentable,
-                            ReturnToSenderDeclarationProducer
-                                .OrdinaryTypeArtifact),
-                        stableIdentitySuffix);
-                }
-
-                declaration =
-                    new ReturnToSenderDeclarationSelection.OrdinaryMethod();
-            }
-        }
-
-        if (signature is null)
-        {
-            return new(
-                null,
-                Exclude(
-                    ReturnToSenderTargetExclusionReason
-                        .CanonicalSignatureUnavailable,
-                    declaration switch
-                    {
-                        ReturnToSenderDeclarationSelection.ExactMethod =>
-                            ReturnToSenderDeclarationProducer
-                                .ExactMethodDeclaration,
-                        ReturnToSenderDeclarationSelection.ExactAccessor =>
-                            ReturnToSenderDeclarationProducer
-                                .ExactAccessorDeclaration,
-                        _ => ReturnToSenderDeclarationProducer
-                            .OrdinaryTypeArtifact,
-                    },
-                    exactResult,
-                    accessorOutcome: accessorResult),
-                stableIdentitySuffix);
-        }
-
-        return new(
-            new CompileBackTarget(
-                assemblyPath,
-                candidate.TypeName,
-                candidate.MethodName,
-                candidate.Overload,
-                signature,
-                address,
-                declaration),
-            null,
-            stableIdentitySuffix);
-    }
-
-    sealed class ReturnToSenderDeclarationSession : IDisposable
-    {
-        readonly string _assemblyPath;
-        AssemblyInspectionSession? _assembly;
-        MetadataOperationContext? _operation;
-        MetadataDeclarationSession? _declarations;
-
-        internal ReturnToSenderDeclarationSession(string assemblyPath)
-            => _assemblyPath = assemblyPath;
-
-        internal CSharpMethodDeclarationPost CaptureMethod(
-            MetadataTypeDefinitionAddress type,
-            MetadataMethodAddress method)
-        {
-            _assembly ??= AssemblyInspectionSession.Open(_assemblyPath);
-            _operation ??= new(
-                MetadataOperationPolicy.Unbounded);
-            _declarations ??=
-                _assembly.CreateDeclarationSession(_operation);
-            return CSharpMethodDeclarationPost.Capture(
-                _declarations,
-                type,
-                method);
-        }
-
-        internal CSharpAccessorDeclarationPost CaptureAccessor(
-            MetadataTypeDefinitionAddress type,
-            MetadataMethodAddress method)
-        {
-            _assembly ??= AssemblyInspectionSession.Open(_assemblyPath);
-            _operation ??= new(
-                MetadataOperationPolicy.Unbounded);
-            _declarations ??=
-                _assembly.CreateDeclarationSession(_operation);
-            return CSharpAccessorDeclarationPost.Capture(
-                _declarations,
-                type,
-                method);
-        }
-
-        public void Dispose()
-        {
-            _declarations?.Dispose();
-            _operation?.Dispose();
-            _assembly?.Dispose();
-        }
     }
 
     public static async Task<int> RunMethodDelta(
@@ -838,66 +582,19 @@ static partial class FidelityCheck
         MetadataMethodAddress? Address = null,
         ReturnToSenderDeclarationSelection? Declaration = null);
 
-    internal abstract record ReturnToSenderDeclarationSelection
-    {
-        private ReturnToSenderDeclarationSelection()
-        {
-        }
-
-        internal sealed record OrdinaryMethod
-            : ReturnToSenderDeclarationSelection;
-
-        internal sealed record ExactMethod(
-            CSharpAcceptedDeclarationRequest Request)
-            : ReturnToSenderDeclarationSelection;
-
-        internal sealed record ExactAccessor(
-            CSharpAcceptedAccessorDeclarationRequest Request)
-            : ReturnToSenderDeclarationSelection;
-    }
-
-    internal enum ReturnToSenderDeclarationProducer
-    {
-        OrdinaryTypeArtifact,
-        ExactMethodDeclaration,
-        ExactAccessorDeclaration,
-    }
-
-    internal enum ReturnToSenderTargetExclusionReason
-    {
-        ProductMemberUnavailable,
-        OrdinaryDeclarationUnrepresentable,
-        ExactDeclarationUnrepresentable,
-        ExactDeclarationUnavailable,
-        ExactAccessorDeclarationUnrepresentable,
-        ExactAccessorDeclarationUnavailable,
-        CanonicalSignatureUnavailable,
-    }
-
-    internal sealed record ReturnToSenderTargetExclusion(
-        string AssemblyPath,
-        string Type,
-        string Method,
-        int Overload,
-        string? Signature,
-        MetadataMethodAddress Address,
-        ReturnToSenderTargetExclusionReason Reason,
-        ReturnToSenderDeclarationProducer? Producer = null,
-        CSharpDeclarationRepresentabilityResult? ExactOutcome = null,
-        CSharpAccessorDeclarationRepresentabilityResult? AccessorOutcome =
-            null);
-
     internal sealed record ReturnToSenderTargetSelection(
-        IReadOnlyList<CompileBackTarget> Targets,
+        IReadOnlyList<ReturnToSenderTarget> Targets,
         IReadOnlyList<ReturnToSenderTargetExclusion> Exclusions,
         int ScannedBodyCount,
         int DeclarationCandidateCount,
         int EligibleCount);
 
-    sealed record ReturnToSenderCandidateDecision(
-        CompileBackTarget? Target,
-        ReturnToSenderTargetExclusion? Exclusion,
-        string StableIdentitySuffix);
+    internal sealed record CappedReturnToSenderTargetSelection(
+        IReadOnlyList<CompileBackTarget> Targets,
+        int RankedBodyCount,
+        int EvaluatedBodyCount,
+        int DeclarationCandidateCount,
+        int ExcludedDeclarationCandidateCount);
 
     /// <summary>
     /// Runs the fidelity check loop over one assembly and returns a structured result
@@ -1206,7 +903,8 @@ static partial class FidelityCheck
         string Method,
         int Overload,
         string Signature,
-        string DisplayMethod)
+        string DisplayMethod,
+        MetadataMethodAddress? Address)
     {
         public static MethodTarget From(CorpusMethodSnapshot method)
             => new(
@@ -1216,7 +914,8 @@ static partial class FidelityCheck
                 method.Method,
                 method.Overload,
                 method.Signature,
-                method.DisplayMethod);
+                method.DisplayMethod,
+                Address: null);
     }
 
     sealed record TargetedCompileBackResult(MethodTarget Target, CompileBackResult Result);
@@ -1408,7 +1107,8 @@ static partial class FidelityCheck
                 Method: target.Method,
                 Overload: target.Overload,
                 Signature: target.Signature,
-                DisplayMethod: $"{target.Type}::{target.Method}"))
+                DisplayMethod: $"{target.Type}::{target.Method}",
+                Address: target.Address))
             .ToArray();
 
         return EvaluateTargets(assemblies, methodTargets, lowered, options, readSymbols)
@@ -1431,7 +1131,8 @@ static partial class FidelityCheck
                 Method: target.Method,
                 Overload: target.Overload,
                 Signature: target.Signature,
-                DisplayMethod: $"{target.Type}::{target.Method}"))
+                DisplayMethod: $"{target.Type}::{target.Method}",
+                Address: target.Address))
             .ToArray();
         return (await EvaluateChangedMethodTargets(assemblies, methodTargets))
             .Select(row => row.Result)
@@ -1659,21 +1360,67 @@ static partial class FidelityCheck
                             if (entries.Count == 0 || !assemblyTargets.TryGetValue(fullType, out var typeTargets))
                                 continue;
 
-                            var typeTargetMap = typeTargets.ToDictionary(
-                                target => $"{target.Method}{target.Signature}",
-                                StringComparer.Ordinal);
-                            var matched = entries
-                                .Where(entry => typeTargetMap.ContainsKey($"{entry.Name}{entry.Signature}"))
-                                .ToArray();
-                            if (matched.Length == 0)
+                            var targetsByHandle =
+                                new Dictionary<MethodDefinitionHandle, MethodTarget>();
+                            var targetsBySignature =
+                                new Dictionary<string, MethodTarget>(StringComparer.Ordinal);
+                            foreach (var target in typeTargets)
+                            {
+                                if (target.Address is { } address
+                                    && address.TryResolve(reader, out var handle))
+                                {
+                                    targetsByHandle.Add(handle, target);
+                                }
+                                else
+                                {
+                                    targetsBySignature.Add(
+                                        $"{target.Method}{target.Signature}",
+                                        target);
+                                }
+                            }
+
+                            var matchedEntries = new List<Entry>();
+                            var matchedTargets = new List<MethodTarget>();
+                            foreach (var entry in entries)
+                            {
+                                if (!targetsByHandle.TryGetValue(
+                                        entry.Handle,
+                                        out MethodTarget? target)
+                                    && !targetsBySignature.TryGetValue(
+                                        $"{entry.Name}{entry.Signature}",
+                                        out target))
+                                {
+                                    continue;
+                                }
+
+                                matchedEntries.Add(entry);
+                                matchedTargets.Add(target);
+                            }
+                            if (matchedEntries.Count == 0)
                                 continue;
 
-                            var typeResults = EvaluateGrouped(reader, pe, references, featureOptions, compileOptions, fullType, treeHandle, matched);
-                            for (int i = 0; i < matched.Length && i < typeResults.Count; i++)
+                            var typeResults = EvaluateGrouped(
+                                reader,
+                                pe,
+                                references,
+                                featureOptions,
+                                compileOptions,
+                                fullType,
+                                treeHandle,
+                                matchedEntries);
+                            for (int i = 0;
+                                i < matchedEntries.Count && i < typeResults.Count;
+                                i++)
                             {
-                                var entry = matched[i];
-                                var target = typeTargetMap[$"{entry.Name}{entry.Signature}"];
-                                rows.Add(new TargetedCompileBackResult(target, typeResults[i]));
+                                var target = matchedTargets[i];
+                                CompileBackResult result = typeResults[i] with
+                                {
+                                    Type = target.Type,
+                                    Method = target.Method,
+                                    Overload = target.Overload,
+                                    Signature = target.Signature,
+                                };
+                                rows.Add(new TargetedCompileBackResult(target, result));
                                 pending.Remove(TargetKey(target));
                             }
                         }

@@ -1,5 +1,8 @@
 namespace DotnetInspect.Cli.Sections;
 
+using System.Collections.Immutable;
+using ILInspector.Analysis;
+
 /// <summary>
 /// Maps optimization-opportunity shapes onto the kind-scoped performance sections and
 /// provides the canonical ordered section list plus the structured (JSON) key per section.
@@ -26,43 +29,77 @@ public static class PerformanceKinds
     /// Resolves the section that renders a given opportunity shape. Unmapped shapes route to
     /// <see cref="SectionNames.PerformanceOther"/> so the scan is never silently lossy.
     /// </summary>
-    public static string SectionForShape(string? shape) => NormalizeShape(shape) switch
+    public static string SectionForShape(string? shape) =>
+        SectionForKind(
+            OptimizationOpportunityRowSpace.KindForShape(shape));
+
+    public static OptimizationOpportunityCuratedQuery QueryForSection(
+        string section) =>
+        section switch
+        {
+            SectionNames.PerformanceBoxing =>
+                OptimizationOpportunityRowSpace.Boxing,
+            SectionNames.PerformanceArrays =>
+                OptimizationOpportunityRowSpace.Arrays,
+            SectionNames.PerformanceClosures =>
+                OptimizationOpportunityRowSpace.ClosuresAndDelegates,
+            SectionNames.PerformanceEnumerators =>
+                OptimizationOpportunityRowSpace.Enumerators,
+            SectionNames.PerformanceStrings =>
+                OptimizationOpportunityRowSpace.Strings,
+            SectionNames.PerformanceLoops =>
+                OptimizationOpportunityRowSpace.LoopHotPaths,
+            SectionNames.PerformanceHotspots =>
+                OptimizationOpportunityRowSpace.AllocationHotspots,
+            SectionNames.PerformanceAsync =>
+                OptimizationOpportunityRowSpace.Async,
+            SectionNames.PerformanceOther =>
+                OptimizationOpportunityRowSpace.Other,
+            _ => throw new ArgumentOutOfRangeException(nameof(section)),
+        };
+
+    public static OptimizationOpportunityKind KindForSection(
+        string section) =>
+        QueryForSection(section).Kind
+        ?? throw new ArgumentOutOfRangeException(nameof(section));
+
+    public static ImmutableArray<OptimizationOpportunity> Select(
+        string section,
+        IEnumerable<OptimizationOpportunity> opportunities) =>
+        OptimizationOpportunityRowSpace.SelectPartition(
+            QueryForSection(section),
+            opportunities);
+
+    public static bool Any(
+        string section,
+        IEnumerable<OptimizationOpportunity> opportunities) =>
+        OptimizationOpportunityRowSpace.Any(
+            QueryForSection(section),
+            opportunities);
+
+    private static string SectionForKind(
+        OptimizationOpportunityKind kind) => kind switch
     {
-        "box-value-type"
-        or "generic-parameter-object-box" => SectionNames.PerformanceBoxing,
-
-        "small-array"
-        or "temporary-byte-array-copy"
-        or "span-to-array-copy"
-        or "stackalloc-candidate" => SectionNames.PerformanceArrays,
-
-        "cache-lookup-factory-delegate"
-        or "capturing-delegate"
-        or "instance-method-group-delegate" => SectionNames.PerformanceClosures,
-
-        "enumerator-allocation" => SectionNames.PerformanceEnumerators,
-
-        "string-materialization" => SectionNames.PerformanceStrings,
-
-        "linq-scan-in-loop"
-        or "materialize-in-loop"
-        or "scan-method-in-loop-call"
-        or "scan-method-in-recursive-traversal"
-        or "string-build-in-loop" => SectionNames.PerformanceLoops,
-
-        "allocation-hotspot"
-        or "allocation-fanout" => SectionNames.PerformanceHotspots,
-
-        "async-state-machine"
-        or "sync-call-in-async" => SectionNames.PerformanceAsync,
-
-        _ => SectionNames.PerformanceOther,
+        OptimizationOpportunityKind.Boxing =>
+            SectionNames.PerformanceBoxing,
+        OptimizationOpportunityKind.Arrays =>
+            SectionNames.PerformanceArrays,
+        OptimizationOpportunityKind.ClosuresAndDelegates =>
+            SectionNames.PerformanceClosures,
+        OptimizationOpportunityKind.Enumerators =>
+            SectionNames.PerformanceEnumerators,
+        OptimizationOpportunityKind.Strings =>
+            SectionNames.PerformanceStrings,
+        OptimizationOpportunityKind.LoopHotPaths =>
+            SectionNames.PerformanceLoops,
+        OptimizationOpportunityKind.AllocationHotspots =>
+            SectionNames.PerformanceHotspots,
+        OptimizationOpportunityKind.Async =>
+            SectionNames.PerformanceAsync,
+        OptimizationOpportunityKind.Other =>
+            SectionNames.PerformanceOther,
+        _ => throw new ArgumentOutOfRangeException(nameof(kind)),
     };
-
-    // Shape validation and row filtering are case-insensitive, so a differently-cased shape (e.g.
-    // "BOX-VALUE-TYPE") must resolve to the same kind section its findings bucket into; otherwise
-    // the accepted shape would silently route to Performance: Other and hide the matching rows.
-    private static string? NormalizeShape(string? shape) => shape?.ToLowerInvariant();
 
     /// <summary>
     /// The short kind label for a performance section (the part after <c>"Performance: "</c>), used

@@ -2715,15 +2715,18 @@ public static class ApiOutputFormatter
                     || memberTokens.Contains(
                         diagnostic.SourceMethodToken
                             ?? diagnostic.MethodToken)));
-        var rows = LibraryMetadataService.FilterAndOrderTriageOpportunities(
-                LibraryMetadataService.TriageOpportunities(optimization, options)
+        ImmutableArray<Analysis.OptimizationOpportunity> candidates =
+            Analysis.OptimizationOpportunityRowSpace.PerformanceCandidates(
+                optimization.Opportunities,
+                optimization.AllocationFanoutOpportunities,
+                optimization.GeneratedFrameworkTypes,
+                options?.IncludesAllocationFanout == true);
+        var rows = PerformanceTriageRowQuery.Apply(
+                candidates
                     .Where(opportunity => ApiAnalysisInspection.SameType(
                         (opportunity.SourceOwner ?? opportunity.Method)
                             .DeclaringType,
                         type))
-                    .Where(opportunity => LibraryMetadataService.IncludePerformanceOpportunity(
-                        opportunity,
-                        optimization.GeneratedFrameworkTypes))
                     .Where(opportunity => memberTokens is null
                         || memberTokens.Contains(
                             (opportunity.SourceOwner ?? opportunity.Method)
@@ -3022,7 +3025,7 @@ public static class ApiOutputFormatter
         if (!profiles.WasRequested)
         {
             throw new InvalidOperationException(
-                "Implementation profiles were not requested for this body index.");
+                "Implementation profiles were not requested for this body analysis execution.");
         }
 
         var drillByToken = BuildMemberDrillMap(type);

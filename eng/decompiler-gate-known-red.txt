@@ -1,7 +1,7 @@
 # Decompiler gate: pinned known-red cases
 #
-# Cases listed here are known to fail and are allowed to fail in the pre-merge
-# `decompiler-gates` CI job. Everything else in `--gate pre-merge` must pass.
+# Cases listed here are known to fail and are allowed to fail in the daily
+# Deep Inspect bounded receipt. Everything else in `--gate pre-merge` must pass.
 #
 # This list is a ratchet in both directions. `eng/check-decompiler-gate.cs`
 # fails the job when a case fails that is NOT listed here (new breakage) and

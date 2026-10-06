@@ -231,7 +231,8 @@ public sealed record PackageAssemblyReferenceSupplierAssociationRequest
         int rootOccurrenceIndex,
         ImmutableArray<PackageDependencyEdgeRealizationExecution>
             edgeExecutions,
-        PackageAssemblyReferenceSupplierLimits? limits = null)
+        PackageAssemblyReferenceSupplierLimits? limits = null,
+        int? originProjectionIndex = null)
     {
         ArgumentNullException.ThrowIfNull(generation);
         ArgumentNullException.ThrowIfNull(focalScope);
@@ -255,7 +256,8 @@ public sealed record PackageAssemblyReferenceSupplierAssociationRequest
                     focalScope,
                     traversal,
                     rootOccurrenceIndex,
-                    edgeExecutions));
+                    edgeExecutions,
+                    originProjectionIndex));
         Limits = limits ?? new();
         Limits.Validate();
     }
@@ -387,7 +389,9 @@ public sealed class PackageAssemblyReferenceSupplierAssociation
             AssemblyBindingRequest request,
             AssemblyBindingSelection referencingContextSelection,
             PackageHouse house,
-            PackageSourceOperationLease sourceOperation)
+            PackageSourceOperationLease sourceOperation,
+            Action<AssemblyReferenceResolutionWorkKind, long>? chargeWork =
+                null)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(referencingContextSelection);
@@ -462,7 +466,8 @@ public sealed class PackageAssemblyReferenceSupplierAssociation
                     PackageAssemblyReferenceSupplierTier.ExactPackageId,
                     house,
                     sourceOperation,
-                    evaluated)
+                    evaluated,
+                    chargeWork)
                 .ConfigureAwait(false);
         if (exactResult.Terminal is not null)
             return exactResult.Terminal;
@@ -489,7 +494,8 @@ public sealed class PackageAssemblyReferenceSupplierAssociation
                     request,
                     house,
                     sourceOperation,
-                    evaluated)
+                    evaluated,
+                    chargeWork)
                 .ConfigureAwait(false);
         if (inventoryTerminal is not null)
             return inventoryTerminal;
@@ -522,7 +528,8 @@ public sealed class PackageAssemblyReferenceSupplierAssociation
                     PackageAssemblyReferenceSupplierTier.PackageFamilyPrefix,
                     house,
                     sourceOperation,
-                    evaluated)
+                    evaluated,
+                    chargeWork)
                 .ConfigureAwait(false);
         if (prefixResult.Terminal is not null)
             return prefixResult.Terminal;
@@ -564,7 +571,8 @@ public sealed class PackageAssemblyReferenceSupplierAssociation
                     PackageAssemblyReferenceSupplierTier.SelectedFileName,
                     house,
                     sourceOperation,
-                    evaluated)
+                    evaluated,
+                    chargeWork)
                 .ConfigureAwait(false);
         if (remainingResult.Terminal is not null)
             return remainingResult.Terminal;
@@ -613,7 +621,8 @@ public sealed class PackageAssemblyReferenceSupplierAssociation
         PackageSourceOperationLease sourceOperation,
         ImmutableArray<
             PackageAssemblyReferenceSupplierCandidateEvidence>.Builder
-            evaluated)
+            evaluated,
+        Action<AssemblyReferenceResolutionWorkKind, long>? chargeWork)
     {
         var selections =
             ImmutableArray.CreateBuilder<
@@ -628,7 +637,8 @@ public sealed class PackageAssemblyReferenceSupplierAssociation
                         request,
                         house,
                         sourceOperation,
-                        evaluated)
+                        evaluated,
+                        chargeWork)
                     .ConfigureAwait(false);
             if (inventory.Terminal is not null)
             {
@@ -651,7 +661,8 @@ public sealed class PackageAssemblyReferenceSupplierAssociation
                             tier,
                             house,
                             sourceOperation,
-                            evaluated)
+                            evaluated,
+                            chargeWork)
                         .ConfigureAwait(false);
                 if (memberResult.Terminal is not null)
                 {
@@ -680,7 +691,8 @@ public sealed class PackageAssemblyReferenceSupplierAssociation
             PackageSourceOperationLease sourceOperation,
             ImmutableArray<
                 PackageAssemblyReferenceSupplierCandidateEvidence>.Builder
-                evaluated)
+                    evaluated,
+            Action<AssemblyReferenceResolutionWorkKind, long>? chargeWork)
     {
         if (_completeNamesakeIndex is not null)
             return null;
@@ -694,7 +706,8 @@ public sealed class PackageAssemblyReferenceSupplierAssociation
                         request,
                         house,
                         sourceOperation,
-                        evaluated)
+                        evaluated,
+                        chargeWork)
                     .ConfigureAwait(false);
             if (inventory.Terminal is not null)
                 return inventory.Terminal;
@@ -734,7 +747,8 @@ public sealed class PackageAssemblyReferenceSupplierAssociation
         PackageSourceOperationLease sourceOperation,
         ImmutableArray<
             PackageAssemblyReferenceSupplierCandidateEvidence>.Builder
-            evaluated)
+            evaluated,
+        Action<AssemblyReferenceResolutionWorkKind, long>? chargeWork)
     {
         if (state.InventoryInitialized)
         {
@@ -747,6 +761,12 @@ public sealed class PackageAssemblyReferenceSupplierAssociation
                     evaluated.ToImmutable()));
         }
 
+        chargeWork?.Invoke(
+            AssemblyReferenceResolutionWorkKind.PackageCandidateOperation,
+            1);
+        chargeWork?.Invoke(
+            AssemblyReferenceResolutionWorkKind.SourceOperation,
+            1);
         var query = PackageHouseContentQuery.TfmFileList(state.Target);
         var packageRequest = new PackageHouseRequest(
             new PackageHouseDemand.Candidate(state.Candidate),
@@ -888,7 +908,8 @@ public sealed class PackageAssemblyReferenceSupplierAssociation
         PackageSourceOperationLease sourceOperation,
         ImmutableArray<
             PackageAssemblyReferenceSupplierCandidateEvidence>.Builder
-            evaluated)
+            evaluated,
+        Action<AssemblyReferenceResolutionWorkKind, long>? chargeWork)
     {
         sourceOperation.CancellationToken.ThrowIfCancellationRequested();
         if (!member.State.DecodedMembers.TryGetValue(
@@ -908,6 +929,26 @@ public sealed class PackageAssemblyReferenceSupplierAssociation
                         evaluated.ToImmutable()));
             }
 
+            chargeWork?.Invoke(
+                AssemblyReferenceResolutionWorkKind
+                    .PackageCandidateOperation,
+                1);
+            chargeWork?.Invoke(
+                AssemblyReferenceResolutionWorkKind.SourceOperation,
+                1);
+            chargeWork?.Invoke(
+                AssemblyReferenceResolutionWorkKind.Acquisition,
+                1);
+            chargeWork?.Invoke(
+                AssemblyReferenceResolutionWorkKind.TransferBytes,
+                member.Entry.Length);
+            chargeWork?.Invoke(
+                AssemblyReferenceResolutionWorkKind.RealizedAssembly,
+                1);
+            chargeWork?.Invoke(
+                AssemblyReferenceResolutionWorkKind
+                    .RetainedAssemblyBytes,
+                member.Entry.Length);
             PackageHouseContentQuery query =
                 member.State.FileList!.CreateFilesQuery([member.Entry]);
             var packageRequest = new PackageHouseRequest(

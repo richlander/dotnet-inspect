@@ -1399,7 +1399,7 @@ test("member API uses full-area overload and selected-member surfaces", () => {
     /class="member-surface-scroll"[\s\S]*?class="api-list api-surface-list member-surface-list"/);
   assert.match(
     renderMember,
-    /class="api-surface-footer member-surface-footer"[\s\S]*?id="member-back"[\s\S]*?Choose an overload to inspect/);
+    /class="api-surface-head member-surface-head"[\s\S]*?id="member-back"/);
   assert.match(
     renderMember,
     /if \(!memberSectionUsesWorkingSurface\(state\.memberSection\)\) return content;/);
@@ -1437,7 +1437,7 @@ test("member API uses full-area overload and selected-member surfaces", () => {
     /\.detail-scroll\.api-working-surface,\s*\.detail-scroll\.metadata-working-surface,\s*\.detail-scroll\.member-working-surface \{[^}]*overflow: hidden;[^}]*padding: 0;/s);
   assert.match(
     stylesSource,
-    /\.member-surface \{[^}]*height: 100%;[^}]*grid-template-rows: 40px minmax\(0, 1fr\);/s);
+    /\.member-surface \{[^}]*height: 100%;[^}]*grid-template-rows: var\(--content-heading-height\) minmax\(0, 1fr\);/s);
   assert.match(
     stylesSource,
     /\.member-surface \.learn-overview \{ max-width: none; \}/);
@@ -1495,7 +1495,7 @@ test("type metadata uses a full-area working surface without the inset type head
     /\.detail-scroll\.api-working-surface,\s*\.detail-scroll\.metadata-working-surface,\s*\.detail-scroll\.member-working-surface \{[^}]*overflow: hidden;[^}]*padding: 0;/s);
   assert.match(
     stylesSource,
-    /\.metadata-surface \{[^}]*height: 100%;[^}]*grid-template-rows: 40px minmax\(0, 1fr\) 34px;/s);
+    /\.metadata-surface \{[^}]*height: 100%;[^}]*grid-template-rows: var\(--content-heading-height\) minmax\(0, 1fr\);/s);
   assert.match(
     stylesSource,
     /\.metadata-surface-scroll \{[^}]*overflow: auto;/s);
@@ -1517,13 +1517,16 @@ test("Package and Library Overview share the named identity frame", () => {
   assert.match(renderPackage,
     /return packageLensBody\(\);/);
   assert.match(renderOverview,
-    /renderPackageDocuments\(pkg\.documents \|\| \[\], escapeHtml\)/);
+    /renderPackageDocuments\(pkg\.documents \|\| \[\], escapeHtml,/);
   assert.match(renderOverview,
     /renderPackageInfo\(pkg\.packageInfo, escapeHtml\)/);
   assert.doesNotMatch(renderOverview,
     /platformLibrarySelectHtml|packageLibraries\(\)|data-lib-scope|library-list/);
   assert.match(renderOverview,
-    /renderOverviewSurface\(\{[\s\S]*subject: "package",[\s\S]*displayName: packageDisplayName\(pkg\),[\s\S]*iconHtml: renderInspectedSubjectIcon\(pkg\),[\s\S]*coordinateFieldsHtml: packageVersionField\(\),[\s\S]*contentHtml,/);
+    /renderOverviewSurface\(\{[\s\S]*subject: "package",[\s\S]*displayName: packageDisplayName\(pkg\),[\s\S]*iconHtml: renderInspectedSubjectIcon\(pkg\),[\s\S]*contentHtml,/);
+  assert.doesNotMatch(renderOverview, /coordinateFieldsHtml:/);
+  assert.match(appSource,
+    /renderPackageNav\(\{[\s\S]*versions,[\s\S]*activeVersion: pkg\.version/);
   const renderLibraryOverview =
     appSource.match(/function renderLibraryOverview\([\s\S]*?\n}\n\nfunction renderGraphMemberPendingHtml/)?.[0]
     ?? "";
@@ -1586,7 +1589,7 @@ test("library metadata uses compact coordinates in a full-area working surface",
     /\.detail-scroll\.package-metadata-working-surface \{[^}]*overflow: hidden;[^}]*padding: 0;/s);
   assert.match(
     stylesSource,
-    /\.package-metadata-surface \{[^}]*height: 100%;[^}]*grid-template-rows: 40px auto minmax\(0, 1fr\) 34px;/s);
+    /\.package-metadata-surface \{[^}]*height: 100%;[^}]*grid-template-rows: var\(--content-heading-height\) auto minmax\(0, 1fr\);/s);
   assert.match(
     stylesSource,
     /\.package-metadata-scroll \{[^}]*overflow: auto;/s);
@@ -1625,7 +1628,7 @@ test("package dependencies use compact coordinates in a full-area working surfac
     /return packageLensBody\(\);/);
   assert.match(
     appSource,
-    /function renderPackageDependenciesSurface\([\s\S]*?package-dependencies-surface[\s\S]*?packageVersionField\(\)[\s\S]*?package-dependencies-scroll[\s\S]*?package-dependencies-surface-footer/);
+    /function renderPackageDependenciesSurface\([\s\S]*?package-dependencies-surface[\s\S]*?package-dependencies-scroll/);
   assert.equal(
     renderDependencies.match(/renderPackageDependenciesSurface\(/g)?.length,
     5);
@@ -1637,7 +1640,7 @@ test("package dependencies use compact coordinates in a full-area working surfac
     /\.detail-scroll\.package-dependencies-working-surface,[\s\S]*?overflow: hidden;[^}]*padding: 0;/s);
   assert.match(
     stylesSource,
-    /\.package-dependencies-surface,[\s\S]*?grid-template-rows: 40px auto minmax\(0, 1fr\) 34px;/s);
+    /\.package-dependencies-surface,[\s\S]*?grid-template-rows: var\(--content-heading-height\) auto minmax\(0, 1fr\);/s);
   assert.match(
     stylesSource,
     /\.package-dependencies-scroll,[\s\S]*?overflow: auto;/s);
@@ -1649,7 +1652,7 @@ test("Dependencies adopts the shared graph viewer without moving the package lis
     /id="dependency-graph-explore" data-graph-explore\$\{dependencyGraphAvailable\(\)/);
   assert.match(
     appSource,
-    /<div data-dependency-graph-surface>\$\{dependencyGroupNotice\}\$\{declarationFailureNotice\}\$\{selector\}\$\{graphSection\}<\/div>\$\{pruningSection\}\$\{depList\}/);
+    /<div data-dependency-graph-surface>\$\{dependencyGroupNotice\}\$\{declarationFailureNotice\}\$\{selector\}\$\{graphSection\}<\/div>\$\{depList\}/);
   assert.match(
     appSource,
     /graphExplorer\.beforeRender\(graphExplorerKey\(\)\)/);

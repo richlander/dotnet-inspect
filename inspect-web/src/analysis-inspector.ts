@@ -1,18 +1,20 @@
 export type AnalysisMode =
   | "complexity"
+  | "dependencies"
   | "relationships"
   | "performance"
-  | "integrations"
-  | "opportunities";
+  | "integrations";
+
+export const defaultAnalysisMode: AnalysisMode = "relationships";
 
 export function isAnalysisMode(
   value: string | undefined,
 ): value is AnalysisMode {
   return value === "complexity"
+    || value === "dependencies"
     || value === "relationships"
     || value === "performance"
-    || value === "integrations"
-    || value === "opportunities";
+    || value === "integrations";
 }
 
 export interface AnalysisInspectorContext {
@@ -24,11 +26,11 @@ export interface AnalysisInspectorContext {
 }
 
 const modes = [
+  [defaultAnalysisMode, "Relationships"],
+  ["dependencies", "Dependencies"],
   ["complexity", "Complexity"],
-  ["relationships", "Relationships"],
   ["performance", "Performance"],
   ["integrations", "Integrations"],
-  ["opportunities", "Opportunities"],
 ] as const satisfies readonly (readonly [AnalysisMode, string])[];
 
 export function renderAnalysisInspector(
@@ -37,8 +39,7 @@ export function renderAnalysisInspector(
   status: string,
   content: string,
 ): string {
-  const { assemblyIdentity, assetPath, coordinate, pickerHtml, escapeHtml } = context;
-  const identity = assetPath ? `${assetPath} \u00b7 ${assemblyIdentity}` : assemblyIdentity;
+  const { pickerHtml, escapeHtml } = context;
   const tabs = modes.map(([value, label]) =>
     `<button type="button" role="tab" id="analysis-mode-${value}" data-analysis-mode="${value}" aria-selected="${value === mode}" aria-controls="analysis-results" tabindex="${value === mode ? 0 : -1}">${label}</button>`
   ).join("");
@@ -50,10 +51,6 @@ export function renderAnalysisInspector(
     </header>
     ${pickerHtml ? `<section class="library-analysis-controls library-${mode}-controls" aria-label="Analysis library">${pickerHtml}</section>` : ""}
     <div id="analysis-results" role="tabpanel" aria-labelledby="analysis-mode-${mode}" tabindex="0" class="library-analysis-scroll library-${mode}-scroll">${content}</div>
-    <footer class="metadata-surface-footer">
-      <span title="${escapeHtml(identity)}">${escapeHtml(identity)}</span>
-      <span title="${escapeHtml(coordinate)}">${escapeHtml(coordinate)}</span>
-    </footer>
   </section>`;
 }
 

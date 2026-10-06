@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { stripTypeScriptTypes } from "node:module";
 import { runInNewContext } from "node:vm";
 import { parseSync } from "oxc-parser";
+import { defaultAnalysisMode } from "../src/analysis-inspector.ts";
 import { memberRequestKey } from "../src/data.ts";
 import type {
   MemberCallGraphRequest,
@@ -302,6 +303,7 @@ test("actual app activation, member reload, drill and workspace reset preserve c
   const drills: PlatformDrillRequest[] = [];
   const context = {
     state,
+    defaultAnalysisMode,
     prepared,
     activation: demo.activation,
     drillTarget: {
@@ -326,6 +328,7 @@ test("actual app activation, member reload, drill and workspace reset preserve c
       load: async (request: MemberCallGraphRequest) => { loads.push(request); },
       drill: async (request: PlatformDrillRequest) => { drills.push(request); },
     },
+    directUseClusterInspection: { reset: () => {} },
     platformCatalogFramework: () => "net10.0",
     runtimePackPackage: () => pkg,
     runtimePackForFramework: () => pkg,

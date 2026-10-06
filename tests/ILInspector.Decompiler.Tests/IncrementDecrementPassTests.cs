@@ -323,7 +323,7 @@ public class IncrementDecrementPassTests
     }
 
     [Fact]
-    public void BoolPrefixValueProducingDupShape_RendersPartialUnsupported()
+    public void BoolPrefixValueProducingDupShape_FailsVisiblyAtResidualBinding()
     {
         var function = FunctionWithSignature(Boolean, [Boolean],
             new StoreStackSlot(0,
@@ -333,11 +333,15 @@ public class IncrementDecrementPassTests
 
         var result = CSharpPrinter.PrintRaised(function);
 
-        Assert.Equal(DecompilationFidelity.Partial, result.Fidelity);
-        Assert.DoesNotContain("V_0++", result.Output);
-        Assert.DoesNotContain("V_0 + 1", result.Output);
-        Assert.DoesNotContain("S_0 + 1", result.Output);
-        Assert.Contains("Unsupported", result.Output);
+        // The pass still declines the shape (no `V_0++`), and the slot web it
+        // leaves behind has no decided type, so residual storage binding fails
+        // visibly instead of the printer spelling an unsupported placeholder.
+        Assert.Equal(DecompilationFidelity.Failed, result.Fidelity);
+        Assert.Null(result.Output);
+        var diagnostic = Assert.Single(result.Diagnostics);
+        Assert.Equal(
+            "InvalidOperationException: M: stack slot 0 has no decided type at residual storage binding (S_0).",
+            diagnostic.Message);
     }
 
     [Fact]

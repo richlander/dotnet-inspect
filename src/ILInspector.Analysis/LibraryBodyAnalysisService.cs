@@ -173,6 +173,10 @@ public static class LibraryBodyAnalysisService
                     : new(
                         metricPlan,
                         plan.RequestedFeatures);
+        LibraryBodyAnalysisStageRecorder? stageRecorder =
+            plan.CapturesStageParticipation
+                ? new()
+                : null;
         using var builder = new LibraryBodyAnalysisBuilder(
             sourceName,
             reader,
@@ -186,7 +190,9 @@ public static class LibraryBodyAnalysisService
             implementationMetricWork:
                 implementationMetricWork,
             implementationMetricRecorder:
-                implementationMetricRecorder);
+                implementationMetricRecorder,
+            stageRecorder:
+                stageRecorder);
         LibraryBodyAnalysisResult analysis =
             builder.Build(plan);
         return new LibraryBodyAnalysisExecution(
@@ -195,7 +201,8 @@ public static class LibraryBodyAnalysisService
             reader.GetString(
                 reader.GetModuleDefinition().Name),
             analysis,
-            plan);
+            plan,
+            stageRecorder?.Snapshot());
     }
 
     private static bool UsesReferenceResolution(

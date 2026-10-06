@@ -114,7 +114,6 @@
     <ProjectReference Include="..\DotnetInspector.PlatformHouse\DotnetInspector.PlatformHouse.csproj" />
     <ProjectReference Include="..\DotnetInspector.PlatformQueries\DotnetInspector.PlatformQueries.csproj" />
     <ProjectReference Include="..\DotnetInspector.Platforms\DotnetInspector.Platforms.csproj" />
-    <ProjectReference Include="..\DotnetInspector.DocumentationHouse.Direct\DotnetInspector.DocumentationHouse.Direct.csproj" />
     <ProjectReference Include="..\DotnetInspector.LibraryMetadata\DotnetInspector.LibraryMetadata.csproj" />
     <ProjectReference Include="..\DotnetInspector.Libraries\DotnetInspector.Libraries.csproj" />
     <ProjectReference Include="..\DotnetInspector.Presentation\DotnetInspector.Presentation.csproj" />
@@ -125,7 +124,6 @@
     <ProjectReference Include="..\DotnetInspector.Networking\DotnetInspector.Networking.csproj" />
     <ProjectReference Include="..\DotnetInspector.Sections.Local\DotnetInspector.Sections.Local.csproj" />
     <ProjectReference Include="..\DotnetInspector.Services\DotnetInspector.Services.csproj" />
-    <ProjectReference Include="..\DotnetInspector.Vocabulary\DotnetInspector.Vocabulary.csproj" />
     <ProjectReference Include="..\DotnetInspector.Sections\DotnetInspector.Sections.csproj" />
     <ProjectReference Include="..\Inspector.Artifacts.Local\Inspector.Artifacts.Local.csproj" />
     <ProjectReference Include="..\Inspector.Artifacts.Workspaces\Inspector.Artifacts.Workspaces.csproj" />

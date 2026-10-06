@@ -440,12 +440,19 @@ public static class MetadataExtensionSubjectRelationsOperation
                     + "source acquisition.",
                 nameof(source));
         }
+        NavigationAssemblyIdentity? focusAssembly = null;
+        NavigationTypeIdentity? focusType = null;
+        if (request.Focus.Kind == StructuralSubjectKind.Type)
+        {
+            focusAssembly = request.Focus.RequireTypeAssembly();
+            focusType = request.Focus.RequireTypeIdentity();
+        }
         if (request.Route != SubjectRelationsRouteKind.Type
-            || request.Focus
-                is not StructuralSubjectIdentity.TypeSubject focus
-            || !focus.Library.Identity.Assembly.IsEquivalentTo(
+            || focusAssembly is null
+            || focusType is null
+            || !focusAssembly.Assembly.IsEquivalentTo(
                 receiver.Assembly)
-            || focus.Identity.Type != receiver.Type)
+            || focusType.Type != receiver.Type)
         {
             throw new ArgumentException(
                 "Extension relation execution requires receiver selection "

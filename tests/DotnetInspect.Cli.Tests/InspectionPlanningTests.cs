@@ -1770,9 +1770,13 @@ public sealed class InspectionPlanningTests
                     StructuralViewIdentity.Type,
                     InspectionCatalogIdentity.ApiType));
 
-        Assert.False(
-            projection.SectionCardinalities?.ContainsKey(
-                SectionNames.ApiInfo));
+        // API Info is the listing's identity fact table: a scalar record with
+        // no row terminals, like Type Info on the single-type catalog.
+        SectionCardinalityDeclaration apiInfo =
+            Assert.IsType<SectionCardinalityDeclaration>(
+                projection.SectionCardinalities?[SectionNames.ApiInfo]);
+        Assert.Equal(SectionCardinalityKind.Scalar, apiInfo.Kind);
+        Assert.Empty(apiInfo.Terminals);
 
         foreach (string section in new[]
                  {
@@ -3264,7 +3268,8 @@ public sealed class InspectionPlanningTests
             "-S",
             SectionNames.Signature,
             "-S",
-            SectionNames.Methods);
+            SectionNames.Methods,
+            "--markdown");
 
         Assert.Equal(0, result.Exit);
         Assert.Contains(SectionNames.Signature, result.Output);
