@@ -691,7 +691,8 @@ through the QuerySpace route in
   demonstrated by `System.Text.Json.JsonSerializer.Serialize`;
 - Metadata owns the exact declarations, while the
   [Type/Member inspection design](design/type-member-inspection-documents.md)
-  owns `MemberGroupDocument` and its Count/Rows identity;
+  owns the target `MemberOverviewDocument` and its Count/Rows identity; the
+  current implementation name `MemberGroupDocument` is transitional;
 - the exact-overload query binds owner-issued accessibility, receiver, and
   hidden-state facets, then uses QuerySpace for portable intent, Count, Rows,
   continuation, and terminal-directed work;
@@ -711,11 +712,13 @@ through the QuerySpace route in
   Advanced explicit sections and exact-Member drill-down remain only where
   they answer distinct current questions.
 
-The focused singleton `PointerFreeUnsafeMethod` case proves the subject
-boundary: a one-row population remains a MemberGroup rather than silently
-changing into an exact Member. The neighboring 15-row `Serialize` family
-proves that CLI default Tree, explicit Tree, and Browser family views consume
-the same owner-issued population; a missing group remains typed rejection.
+The focused singleton `PointerFreeUnsafeMethod` case proves that the population
+operation can return one exact row. The target document-resolution contract
+uses that row's owner-issued identity to select `MemberDocument` rather than
+exposing a one-row `MemberOverviewDocument`. The neighboring 15-row `Serialize`
+family proves that CLI default Tree, explicit Tree, and Browser family views
+consume the same owner-issued population; a missing group remains typed
+rejection.
 
 This pilot uses the full stack because its question needs the full stack. It
 does not imply that a scalar Query needs a Section, that every Section needs
