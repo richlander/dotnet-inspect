@@ -635,7 +635,7 @@ import {
   type CompareCloneSelection,
   type CompareCloneState,
 } from "./compare-clone.ts";
-import { dataBarHtml, fmtBytes } from "./data-bar.ts";
+import { createDataBarFeedback, dataBarHtml, fmtBytes } from "./data-bar.ts";
 import {
   DIAGNOSTICS_PATH,
   diagnosticsHistoryState,
@@ -810,6 +810,7 @@ import type {
 } from "./facades/inspect-web-analysis.d.ts";
 import {
   createTypeLeverageCoordinator,
+  typeLeverageFeedback,
 } from "./type-leverage.ts";
 import type {
   BrowserMemberSource,
@@ -3453,6 +3454,17 @@ const typeAnalysisWorkspaceGenerations =
   new WeakMap<AppPackage, string>();
 const typeLeverageWorkspaceGenerations =
   new WeakMap<AppPackage, string>();
+const dataBarFeedback = createDataBarFeedback();
+const typeLeverageFeedbackTickets = new Map<string, number>();
+
+function dataBarViewKey(): string {
+  return JSON.stringify([
+    location.pathname,
+    viewSignature(),
+    state.typeExplorerOpen,
+  ]);
+}
+
 const typeLeverage = createTypeLeverageCoordinator<TypeLeverageTarget>({
   operationAuthority,
   key: target => target.key,
@@ -3466,15 +3478,33 @@ const typeLeverage = createTypeLeverageCoordinator<TypeLeverageTarget>({
     return undefined;
   },
   publish: published => {
+    const generation = dataBarFeedback.synchronize(dataBarViewKey());
     switch (published.status) {
       case "loading":
         state.typeLeverageErrors.delete(published.key);
+        typeLeverageFeedbackTickets.set(published.key, generation);
+        dataBarFeedback.publish(published.key, generation, null);
         break;
       case "ready":
         state.typeLeverageErrors.delete(published.key);
+        dataBarFeedback.publish(
+          published.key,
+          typeLeverageFeedbackTickets.get(published.key) ?? -1,
+          typeLeverageFeedback(published.presentation),
+        );
+        typeLeverageFeedbackTickets.delete(published.key);
         break;
       case "failed":
         state.typeLeverageErrors.set(published.key, published.message);
+        dataBarFeedback.publish(
+          published.key,
+          typeLeverageFeedbackTickets.get(published.key) ?? -1,
+          {
+            message: `Structural salience is unavailable: ${published.message}`,
+            retry: "type-leverage",
+          },
+        );
+        typeLeverageFeedbackTickets.delete(published.key);
         break;
     }
     renderPreservingMemberFocus();
@@ -5439,6 +5469,11 @@ function loadTypeLeverage(retry = false) {
   try {
     const targets = createCurrentTypeLeverageTargets();
     state.typeLeverageSetupError = "";
+    dataBarFeedback.publish(
+      "type-leverage-setup",
+      dataBarFeedback.synchronize(dataBarViewKey()),
+      null,
+    );
     for (const target of targets) {
       state.typeLeverageErrors.delete(target.key);
       if (retry) typeLeverage.retry(target);
@@ -5446,6 +5481,14 @@ function loadTypeLeverage(retry = false) {
     }
   } catch (error) {
     state.typeLeverageSetupError = errorMessage(error);
+    dataBarFeedback.publish(
+      "type-leverage-setup",
+      dataBarFeedback.synchronize(dataBarViewKey()),
+      {
+        message: `Structural salience is unavailable: ${state.typeLeverageSetupError}`,
+        retry: "type-leverage",
+      },
+    );
     renderPreservingMemberFocus();
   } finally {
     typeLeverageBatchLoading = false;
@@ -6501,40 +6544,6 @@ function typeAccessibilityIncludesForwarders() {
   const selected = selectedTypeAccessibility();
   return !selected || accessibilityBuckets().some(
     descriptor => descriptor.id === selected && descriptor.isDefault);
-}
-
-function typeLeverageStatus() {
-  const failures = [
-    ...(state.typeLeverageSetupError
-      ? [state.typeLeverageSetupError]
-      : []),
-    ...currentTypeLeverageTargets().flatMap(target => {
-      const error = state.typeLeverageErrors.get(target.key);
-      return error ? [error] : [];
-    }),
-  ];
-  if (failures.length > 0) {
-    return `<div class="metadata-warning" aria-live="polite">
-      <small>Structural salience is unavailable: ${failures.map(escapeHtml).join("<br>")}</small>
-      <button type="button" class="tiny-button" data-type-leverage-retry>Retry</button>
-    </div>`;
-  }
-  const qualified = currentTypeLeveragePresentations().filter(
-    ({ presentation }) =>
-      presentation.disposition.toLowerCase() !== "complete"
-      || presentation.diagnostics.length > 0
-      || presentation.warnings.length > 0,
-  );
-  if (qualified.length === 0) return "";
-  const diagnostics = qualified.flatMap(
-    ({ presentation }) => [
-      ...presentation.warnings,
-      ...presentation.diagnostics,
-    ]);
-  return `<div class="metadata-warning" aria-live="polite">
-    <small>Structural salience has qualified evidence${diagnostics.length ? `<br>${diagnostics.map(escapeHtml).join("<br>")}` : ""}</small>
-    <button type="button" class="tiny-button" data-type-leverage-retry>Retry</button>
-  </div>`;
 }
 
 function typeFilterSummary() {
@@ -8730,6 +8739,7 @@ function settingsOwnsHomeFocusTarget(target: HomeFocusTarget | null): boolean {
 }
 
 function render(options: { synchronizeUrl?: boolean } = {}) {
+  dataBarFeedback.synchronize(dataBarViewKey());
   productNavigationBinding.beforeRender();
   try {
     renderCore(options);
@@ -9219,6 +9229,7 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
 
       ${dataBarHtml({
         buildIdentity: state.buildIdentity,
+        errors: dataBarFeedback.errors(),
         producer: {
           kind: pkg.source.kind === "platform"
             || state.rootKind === "library"
@@ -10150,8 +10161,7 @@ function renderTypeNavPane(
         achievements.push(apiDiffAchievement);
       return achievements;
     },
-    statusHtml:
-      `${typeLeverageStatus()}${platformForwarderInventoryStatus()}`,
+    statusHtml: platformForwarderInventoryStatus(),
   });
 }
 

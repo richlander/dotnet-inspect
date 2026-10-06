@@ -4,6 +4,7 @@ import {
   AGENT_SKILL_URL,
   CLI_TOOL_URL,
   dataBarHtml,
+  createDataBarFeedback,
   fmtBytes,
 } from "../src/data-bar.ts";
 
@@ -92,4 +93,40 @@ test("shared byte formatting keeps its existing compact contract", () => {
   assert.equal(fmtBytes(0), "—");
   assert.equal(fmtBytes(1536), "1.5 KB");
   assert.equal(fmtBytes(8 * 1024 * 1024), "8.0 MB");
+});
+
+
+test("feedback takes precedence and escapes every message", () => {
+  const html = dataBarHtml({
+    producer: { kind: "package", label: "NuGet.org" },
+    errors: [
+      { message: 'Qualified: <body> & "owner"', retry: "type-leverage" },
+      { message: "Another Library failed." },
+    ],
+  }, escapeHtml);
+  assert.match(html, /data-bar-errors/);
+  assert.match(html, /role="status"/);
+  assert.match(html, /&lt;body&gt; &amp; &quot;owner&quot;/);
+  assert.match(html, /Another Library failed/);
+  assert.equal(html.match(/data-type-leverage-retry/g)?.length, 1);
+  assert.doesNotMatch(html, /CLI tool|Package source|dotnet-inspect/);
+  assert.match(dataBarHtml({ errors: [] }, escapeHtml), /Product information/);
+});
+
+test("feedback survives rerenders, clears on traversal, and rejects late results", () => {
+  const feedback = createDataBarFeedback();
+  const first = feedback.synchronize("JsonCommentHandling/api");
+  feedback.publish("salience", first, { message: "Qualified" });
+  assert.equal(feedback.synchronize("JsonCommentHandling/api"), first);
+  assert.deepEqual(feedback.errors(), [{ message: "Qualified" }]);
+  const next = feedback.synchronize("JsonSerializer/api");
+  assert.deepEqual(feedback.errors(), []);
+  feedback.publish("salience", first, { message: "Late failure" });
+  assert.deepEqual(feedback.errors(), []);
+  feedback.publish("salience", next, { message: "New failure" });
+  feedback.publish("another", next, { message: "Another failure" });
+  feedback.publish("salience", next, null);
+  assert.deepEqual(feedback.errors(), [{ message: "Another failure" }]);
+  feedback.synchronize("JsonCommentHandling/api");
+  assert.deepEqual(feedback.errors(), []);
 });

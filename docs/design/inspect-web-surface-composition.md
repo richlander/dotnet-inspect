@@ -1489,9 +1489,34 @@ navigation band. It never scrolls or obscures the Application menu.
 
 ## Data bar and Diagnostics
 
-The bottom data bar is one compact 30 CSS-pixel product-information line. Its
-grid row remains allocated when the notice stack is empty. It does not wrap,
-expand, or host runtime diagnostics:
+The bottom data bar is one compact 30 CSS-pixel line with two presentations:
+default product information and transient inspection feedback. Feedback takes
+precedence over product information. Its grid row remains allocated in either
+state; long messages scroll horizontally without wrapping or expansion.
+
+Optional enrichment failures and qualifications must not consume inventory or
+inspector space or obstruct the core inspection journey. Structural salience
+is the first consumer: its diagnostic and existing Retry action replace the
+data bar's default content, while Type rows and owner-issued cues remain
+available. Feedback clears on subject or inspector traversal, including back
+and forward navigation. Rerendering the same view retains feedback; a late
+result started in a preceding view cannot restore cleared feedback. Clearing
+presentation does not clear retained evidence or automatically retry work.
+
+Home retains default product information. This slice adds feedback only;
+subject- and inspector-issued result summaries remain future work.
+
+The motivating asset is
+[System.Text.Json 7.0.0](https://www.nuget.org/packages/System.Text.Json/7.0.0),
+`net7.0`, entered through a shared workspace at
+`System.Text.Json.JsonCommentHandling`. Its physical-only body qualification
+was printed above Type rows and reduced the inventory's available space.
+Data-bar rendering and lifecycle tests plus Browser journeys at desktop and
+narrow widths gate feedback precedence, invariant geometry, traversal clearing,
+stale-result suppression, and Retry. The published real-package journey is
+also checked against the same shared-link entry.
+
+Default product information:
 
 <!-- markdownlint-disable MD013 -->
 ```text
