@@ -774,9 +774,14 @@ test("typed package view owns package navigation bindings", () => {
   const namespaceJump = actionSource("onNamespaceJump");
   const packageChildLibrary =
     actionSource("onPackageChildLibrarySelect");
+  const libraryReference =
+    actionSource("onLibraryReferenceSelect");
   assert.match(
     packageChildLibrary,
     /navigationSequence\.begin\(\)[\s\S]*selectLibrarySubject\(assetId\)/);
+  assert.match(
+    libraryReference,
+    /state\.packages\.find[\s\S]*packageIdentityKey\(candidate\) === packageKey[\s\S]*selectWorkspacePackage\(target, \{ renderSelection: false \}\)[\s\S]*selectLibrarySubject\(libraryId\)/);
   assert.match(
     kindJump,
     /state\.atPackageRoot = false;[\s\S]*state\.kindFilter = kind;[\s\S]*state\.namespaceFilter = ""/);

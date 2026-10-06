@@ -18,6 +18,10 @@ export interface PackagePerformanceTarget {
 export interface PackageViewBindingActions
   extends PackageDependencyBindingActions {
   onPackageChildLibrarySelect: (assetId: string) => void;
+  onLibraryReferenceSelect: (
+    packageKey: string,
+    libraryId: string,
+  ) => void;
   onRuntimeIdentifierPackageLoad: (
     packageId: string,
     packageVersion: string,
@@ -106,6 +110,12 @@ export function bindPackageView(
       "click",
       () => actions.onPackageChildLibrarySelect(
         button.dataset.packageChildLibrary ?? "")));
+  root.querySelectorAll<HTMLElement>("[data-library-reference-package]").forEach(
+    button => button.addEventListener(
+      "click",
+      () => actions.onLibraryReferenceSelect(
+        button.dataset.libraryReferencePackage ?? "",
+        button.dataset.libraryReferenceLibrary ?? "")));
   root.querySelectorAll<HTMLElement>("[data-package-child-package]").forEach(
     button => button.addEventListener(
       "click",
