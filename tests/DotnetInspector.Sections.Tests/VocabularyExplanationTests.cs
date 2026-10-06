@@ -35,12 +35,12 @@ public sealed class VocabularyExplanationTests
             catalog.Resources
                 .Where(resource =>
                     resource.ResourceType.Value == "value-vocabulary")
-                .Select(resource => resource.Path.Value));
+                .Select(resource => resource.Path?.Value ?? ""));
         Assert.DoesNotContain(
             catalog.Resources,
-            resource => resource.Path.Value.Contains(
+            resource => resource.Path?.Value.Contains(
                 ProductVocabularyComposition.SectionsId,
-                StringComparison.Ordinal));
+                StringComparison.Ordinal) == true);
 
         ResourceExplanationDocument document = Explain(catalog, "vocabularies", depth: 1);
         ResourceExplanationRelationship members = Assert.Single(
@@ -119,7 +119,7 @@ public sealed class VocabularyExplanationTests
         Assert.Equal(StyleOptionVocabularies.StyleTiersId, KeyIdentity(target.Resource));
         Assert.Contains(
             choices.Resources,
-            resource => resource.Path.Value
+            resource => resource.Path?.Value
                 == $"vocabularies/{StyleOptionVocabularies.StyleTiersId}");
 
         ResourceExplanationDocument tiers = Explain(
