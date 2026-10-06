@@ -1061,18 +1061,24 @@ are the shared host limits. In the target, no separate command or document
 carries vocabulary values; the `vocabulary` command retires under
 [Product Vocabulary](vocabulary.md#retirement).
 
-Both hosts request the same explanation. The CLI's `explain` and an Inspect
-Web catalog-facade export resolve the same path against their own composed
-snapshots and return the same Document Content under one host-neutral set of
-traversal limits. A shared fixture asserts equal Content for equal snapshots,
-as `ProductVocabularyPin` does for the snapshot: a linked-file pinned Content
-digest that each host's suite computes through one shared Sections entry point
-taking the snapshot, path, and depth under the shared limits. The Browser
-export carries the completed Document as owner-issued content in a
-facade-local envelope record, the established form for owner content that
-crosses a facade boundary; its Share and diagnostics are projected into
-facade-local records too. An unknown path, a path outside `vocabularies`, or
-an invalid path or depth is a typed non-success result.
+Both hosts request the same explanation. The CLI's `explain` and Inspect
+Web's catalog-facade export `CatalogExports.ExplainVocabularies(path, depth)`
+resolve the same path against their own composed snapshots and return the
+same Document Content under `ResourceExplanationRequest.ForHost`. Inspect Web
+calls `VocabularyExplanation` in `DotnetInspector.Sections`, the host-neutral
+request surface over `CreateVocabularies`; the CLI dispatches its
+`vocabularies` root to `CreateVocabularies` with the same request. Equal
+Content is gated the way `ProductVocabularyPin` gates the snapshot:
+`ProductVocabularyPin.ExplanationContent`, a linked file, pins the SHA-256 of
+the Document JSON for representative requests, and the CLI suite hashes
+`explain --json` output while the Inspect Web suite hashes the export's
+Content. The Browser export carries the completed Document, serialized by
+`ResourceExplanationJsonContext`, as owner-issued content in the facade-local
+`BrowserVocabularyExplanation` record, the established form for owner content
+that crosses a facade boundary; its Share and diagnostics reuse the
+facade-local vocabulary records. A non-canonical path, a path outside
+`vocabularies`, an unknown path with its suggestions, or a negative depth is a
+typed rejection rather than an empty Document.
 
 A CLI query key whose values are one vocabulary's identities, such as the
 Body Shapes `Kind` key, carries that vocabulary's name and canonical path on
@@ -1334,8 +1340,9 @@ The original installed-resource slices remain:
    [Value-vocabulary resources](#value-vocabulary-resources), and a CLI query
    key that accepts a value vocabulary links to its resource. Vocabulary and
    value resources, generic snapshot reading, and the query-key link are
-   complete for the CLI. The Inspect Web export follows, after which the
-   `vocabulary` command retires.
+   complete for the CLI, and Inspect Web requests the same explanation
+   through its catalog-facade export. The `vocabulary` command retires
+   next.
 8. Register the stable explanation result contract; then let the focused
    envelope-contract catalog adopt explanation paths and machine-readable
    schemas.

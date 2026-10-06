@@ -175,6 +175,7 @@ import {
   bindPackageDependencyList,
   bindPackageView,
   renderPackageNav,
+  packageNavigationVersions,
   type PackageViewBindingActions,
 } from "./package-view.ts";
 import {
@@ -5194,6 +5195,11 @@ const packageControls = createPackageControls({
         source === "legacy" ? "framework" : "package-framework"),
       "Switching the package framework");
   },
+  retryVersionInventory: () => {
+    const pkg = currentPackage();
+    catalogRequests.forgetPackage(pkg);
+    observeAsync(ensurePackageVersions(pkg), "Loading package versions");
+  },
   selectVersion: version => {
     if (contentFrameUsesPush()) contentFramePane = "detail";
     if (state.package?.isRuntimePack)
@@ -8404,13 +8410,12 @@ function stepPackageFrameworkFocus(
   eventTarget: EventTarget | null,
 ) {
   const target = eventTarget instanceof Element ? eventTarget : null;
-  const list = target?.closest<HTMLElement>('[data-nav-scope="frameworks"]');
+  const list = target?.closest<HTMLElement>('[data-nav-scope="frameworks"], [data-nav-scope="versions"]');
   if (!list) return false;
-  const rows = [
-    ...list.querySelectorAll<HTMLElement>("[data-package-framework]"),
-  ];
+  const rows = [...list.querySelectorAll<HTMLElement>(
+    "[data-package-framework], [data-package-version]")].filter(row => !row.hidden);
   if (!rows.length) return true;
-  const focused = target?.closest<HTMLElement>("[data-package-framework]");
+  const focused = target?.closest<HTMLElement>("[data-package-framework], [data-package-version]");
   const focusedIndex = focused ? rows.indexOf(focused) : -1;
   const activeIndex = rows.findIndex(
     row => row.getAttribute("aria-current") === "page");
@@ -8741,7 +8746,10 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
     ? focusedElement?.dataset.packageLoadingControl
     : packageFrameworkHadFocus
       ? "package-framework"
-      : focusedElement?.id;
+      : focusedElement?.dataset.packageVersion !== undefined
+        || (scope() === "package" && focusedElement?.id === "content-navigation-toggle")
+        ? "package-version"
+        : focusedElement?.id;
   const packageLoadingFramework = packageLoadingHadFocus
     ? focusedElement?.dataset.packageLoadingFramework
     : focusedElement?.dataset.packageFramework;
@@ -9034,6 +9042,7 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
     activeScope === "type" && state.lens === "metadata";
   const overviewWorkingSurface =
     (activeScope === "package" && state.packageLens === "overview")
+    || (activeScope === "package" && state.packageLens === "compare")
     || (activeScope === "library" && state.libraryLens === "overview")
     || (activeScope === "type" && forwarder !== null);
   const packageDependenciesWorkingSurface =
@@ -9067,7 +9076,7 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
   const contentFrameEnabled = activeScope !== "workspace";
   const contentNavigationLabel =
     activeScope === "package"
-      ? "Frameworks"
+      ? "Frameworks & versions"
       : activeScope === "library" && state.rootKind === "library"
         ? "Types"
       : activeScope === "library" && state.rootKind !== "platform"
@@ -9846,13 +9855,18 @@ function renderNavPane(
   if (scope() === "workspace") return renderWorkspaceNavPane();
   if (scope() === "package") {
     const pkg = currentPackage();
+    const entry = catalogRequests.packageVersions(pkg);
+    const versions = packageNavigationVersions(pkg.version, entry);
     return renderPackageNav({
       frameworks: pkg.frameworks,
       activeFramework: pkg.activeFramework,
-      versionFieldHtml: state.packageLens === "overview"
-        || state.packageLens === "vulnerabilities"
-        ? packageVersionField()
-        : "",
+      versions,
+      activeVersion: pkg.version,
+      statusHtml: pkg.source.kind !== "nuget.org"
+        ? '<p>Version discovery is unavailable for this package source.</p>'
+        : entry.status === "failed"
+        ? `<p role="status">${escapeHtml(entry.message)}</p><button type="button" id="package-versions-retry">Retry</button>`
+        : entry.status === "available" ? "" : '<p role="status">Reading available versions…</p>',
       escapeHtml,
     });
   }
@@ -10231,17 +10245,6 @@ function renderScopeBar(
   return assertNever(sc, "workspace scope");
 }
 
-function packageVersionField() {
-  if (state.rootKind !== "package") return "";
-  const pkg = currentPackage();
-  return `<label class="version-select">
-    <span>Version</span>
-    <select id="package-version">
-      ${versionOptionsHtml(pkg)}
-    </select>
-  </label>`;
-}
-
 function focusPackageCoordinateControl(
   control: PackageLoadingFocusControl,
   framework: string,
@@ -10249,14 +10252,12 @@ function focusPackageCoordinateControl(
   const navigationToggle =
     document.querySelector<HTMLElement>("#content-navigation-toggle");
   if (control === "package-version") {
-    if (contentFrameMedia.matches
-      && (state.packageLens === "overview"
-        || state.packageLens === "vulnerabilities")) {
+    if (contentFrameMedia.matches && contentFramePane !== "navigation") {
       navigationToggle?.focus({ preventScroll: true });
       return;
     }
     const version =
-      document.querySelector<HTMLElement>("#package-version");
+      document.querySelector<HTMLElement>('[data-package-version][aria-current="page"]');
     (version?.checkVisibility() ? version : navigationToggle)
       ?.focus({ preventScroll: true });
     return;
@@ -10374,6 +10375,14 @@ function renderWorkspaceView() {
 function packageLensBody() {
   switch (state.packageLens) {
     case "overview": return renderPackageOverview();
+    case "compare": return renderOverviewSurface({
+      subject: "package", subjectLabel: "Compare", displayName: packageDisplayName(currentPackage()),
+      iconHtml: "", showIdentity: false,
+      packageId: currentPackage().id, packageVersion: currentPackage().version,
+      activeFramework: currentPackage().activeFramework, totalTypes: null, totalMembers: null,
+      contentHtml: `<section id="package-comparison-targets" class="document-section">${packageComparisonControlsHtml(currentPackage())}</section>`,
+      escapeHtml,
+    });
     case "dependencies": return renderPackageDependencies();
     case "vulnerabilities": {
       const pkg = currentPackage();
@@ -10434,23 +10443,14 @@ function packageDependenciesSignature() {
 }
 
 function renderPackageDependenciesSurface(content: string, status: string) {
-  const pkg = currentPackage();
-  const coordinate = `${pkg.id}@${pkg.version}`;
   return `<section class="package-dependencies-surface" aria-labelledby="package-dependencies-surface-title">
     <header class="api-surface-head package-dependencies-surface-head">
       <h1 id="package-dependencies-surface-title">Dependencies</h1>
       <p data-package-dependencies-status>${escapeHtml(status)}</p>
     </header>
-    <section class="package-dependencies-controls" aria-label="Dependency coordinate">
-      <div class="package-coordinate-fields">${packageVersionField()}</div>
-    </section>
     <div class="package-dependencies-scroll">
       ${content}
     </div>
-    <footer class="api-surface-footer package-dependencies-surface-footer">
-      <span title="${escapeHtml(coordinate)}">${escapeHtml(coordinate)}</span>
-      <span title="${escapeHtml(pkg.activeFramework)}">${escapeHtml(pkg.activeFramework)}</span>
-    </footer>
   </section>`;
 }
 
@@ -11923,10 +11923,6 @@ function renderPackageOverview() {
   const pkg = currentPackage();
   const documentsSection =
     renderPackageDocuments(pkg.documents || [], escapeHtml);
-  const comparisonHtml = `
-    <section id="package-comparison-targets" class="document-section">
-      ${packageComparisonControlsHtml(pkg)}
-    </section>`;
   const contentHtml = renderPackageOverviewContent({
     packageInfoHtml: pkg.packageInfo
       ? renderPackageInfo(pkg.packageInfo, escapeHtml)
@@ -11935,7 +11931,6 @@ function renderPackageOverview() {
           <p class="empty-list">Package metadata is unavailable for this coordinate.</p>
         </section>`,
     packageChildrenHtml: renderPackageChildren(pkg),
-    comparisonHtml,
     documentsHtml: documentsSection,
   });
 
@@ -14061,8 +14056,9 @@ const workbenchShellActions: WorkbenchShellBindingActions = {
     state.workspaceSubjectOpen = false;
     state.atPackageRoot = true;
     state.atLibraryRoot = false;
+    state.packageLens = "overview";
     render();
-    afterCurrentNavigationFrame(() => focusContentNavigation(document));
+    afterCurrentNavigationFrame(() => focusPackageCoordinateControl("package-framework", currentPackage().activeFramework));
   },
   onDismissNotice: dismissQueryNotice,
   onDismissPackageNotice: () => {
@@ -15112,20 +15108,6 @@ async function querySpotlightPackages(query: string): Promise<SpotlightPackageHi
   }));
 }
 
-// Build the <option> list for the version selector. Always includes the currently loaded
-// version (even before the version inventory arrives) so the control is never empty.
-function versionOptionsHtml(pkg: AppPackage) {
-  const entry = catalogRequests.packageVersions(pkg);
-  const versions = entry.status === "available" ? [...entry.inventory.versions] : [pkg.version];
-  if (entry.status === "available"
-      && !versions.some(v => v.toLowerCase() === pkg.version.toLowerCase())) {
-    versions.splice(entry.inventory.currentVersionInsertionIndex, 0, pkg.version);
-  }
-  return versions
-    .map(v => `<option value="${escapeHtml(v)}" ${v.toLowerCase() === pkg.version.toLowerCase() ? "selected" : ""}>${escapeHtml(v)}</option>`)
-    .join("");
-}
-
 // Switch the resident Platform to a different .NET major (by TFM). Drops the current
 // pseudo-package and its accumulated drilled libraries, then loads a fresh Platform for the
 // chosen TFM and lands on its overview — mirroring the in-place version switch for ordinary
@@ -15263,14 +15245,14 @@ function bindCompareEvents() {
   bindCompareFrame(document, {
     selectMode: selectCompareMode,
     changeTarget: () => {
-      // Change target returns to Package Overview's Comparison targets work
+      // Change target returns to Package Compare's Comparison targets work
       // area; Compare renders no second target editor of its own.
       const control = currentCompareMode() === "clone"
         ? "#package-clone-target"
         : "#package-diff-target";
       state.atPackageRoot = true;
       state.atLibraryRoot = false;
-      state.packageLens = "overview";
+      state.packageLens = "compare";
       contentFramePane = "detail";
       render();
       afterCurrentNavigationFrame(() => {
@@ -15322,16 +15304,41 @@ function bindCompareEvents() {
   });
 }
 
-// Repaint just the version <select> options without a full re-render, so an async index
-// fetch never disturbs focus, scroll, or the rest of the workbench.
+// Refresh version navigation independently from the inspector content.
 function updateVersionSelect(pkg: CatalogPackage) {
   if (!state.package || state.package !== pkg) return;
   if (currentCompareSubject() !== null) {
     render();
     return;
   }
-  const select = document.querySelector("#package-version");
-  if (select) select.innerHTML = versionOptionsHtml(state.package);
+  const pane = document.querySelector(".package-version-nav");
+  if (pane) {
+    const filter = document.querySelector<HTMLInputElement>("#package-version-filter")?.value ?? "";
+    const prerelease = document.querySelector<HTMLInputElement>("#package-version-prerelease")?.checked ?? true;
+    const focused = document.activeElement instanceof HTMLElement && pane.contains(document.activeElement)
+      ? { id: document.activeElement.id, version: document.activeElement.dataset.packageVersion, framework: document.activeElement.dataset.packageFramework } : null;
+    const scrollTop = document.querySelector("#package-version-list")?.scrollTop ?? 0;
+    pane.outerHTML = renderNavPane(null, []);
+    const nextFilter = document.querySelector<HTMLInputElement>("#package-version-filter");
+    const nextPrerelease = document.querySelector<HTMLInputElement>("#package-version-prerelease");
+    if (nextFilter) nextFilter.value = filter;
+    if (nextPrerelease) nextPrerelease.checked = prerelease;
+    const nextPane = document.querySelector(".package-version-nav");
+    if (nextPane) {
+      packageControls.bind(nextPane);
+      bindContentFrame(nextPane, { onShowDetail: showContentDetail, onShowNavigation: showContentNavigation });
+    }
+    const list = document.querySelector("#package-version-list");
+    if (list) list.scrollTop = scrollTop;
+    if (focused) {
+      const target = focused.id ? document.getElementById(focused.id)
+        : [...document.querySelectorAll<HTMLElement>("[data-package-framework], [data-package-version]")]
+          .find(row => focused.framework !== undefined
+            ? row.dataset.packageFramework === focused.framework
+            : focused.version !== undefined && row.dataset.packageVersion === focused.version);
+      target?.focus({ preventScroll: true });
+    }
+  }
   updatePackageComparisonControls();
 }
 

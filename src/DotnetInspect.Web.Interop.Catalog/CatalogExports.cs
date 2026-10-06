@@ -37,6 +37,28 @@ public static partial class CatalogExports
             VocabularyInspection.Value,
             BrowserCatalogJsonContext.Default.BrowserVocabularyInspection);
 
+    private static readonly Lazy<VocabularyExplanation> VocabularyExplainer =
+        new(() => new VocabularyExplanation(
+            BrowserVocabularyComposition.Snapshot));
+
+    /// <summary>
+    /// Explains one <c>vocabularies</c> resource path to <paramref name="depth"/>
+    /// with the same Document Content the CLI's <c>explain</c> produces. Every
+    /// other path, and a negative depth, is a typed rejection.
+    /// </summary>
+    [JSExport]
+    public static string ExplainVocabularies(string path, int depth) =>
+        JsonSerializer.Serialize(
+            ExplainVocabulariesCore(path, depth),
+            BrowserCatalogJsonContext.Default
+                .BrowserVocabularyExplanationResult);
+
+    internal static BrowserVocabularyExplanationResult ExplainVocabulariesCore(
+        string path,
+        int depth) =>
+        BrowserVocabulary.ToBrowserExplanation(
+            VocabularyExplainer.Value.Explain(path ?? "", depth));
+
     // Home demos are product-owned closed presets. Catalog listing is metadata-only; resolve
     // allocates one demo's definition graph. The browser builds share links / runners from the
     // projected coordinates rather than a hand-maintained TypeScript twin.

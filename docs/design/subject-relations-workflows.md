@@ -355,10 +355,13 @@ The Workspace operation executes one incoming hierarchy form at a time:
 interface matching backs `Implementers`, and base-Type matching backs
 `Derived Types`. It aggregates the singleton producer's coverage and
 diagnostics into one producer outcome, preserves independently exact Count
-when Rows are partial, and retains unavailable candidates rather than
-converting them to empty matches. Canonical relation rows remain the source of
-the focused candidate rows; the coordinator does not recreate hierarchy
-matching or scan Metadata independently.
+when Rows are partial, and retains unavailable candidates and unrealized
+selected contexts rather than converting them to empty matches. An unrealized
+context contributes one unavailable coverage unit and its complete typed
+failure evidence, makes requested Count incomplete, and does not discard useful
+Rows from realized candidates. Canonical relation rows remain the source of the
+focused candidate rows; the coordinator does not recreate hierarchy matching
+or scan Metadata independently.
 
 Workspace Rows continuation binds the exact focus and captured population,
 selection, ordering, projection, visibility policy, Metadata operation policy,

@@ -474,6 +474,109 @@ public sealed partial class ExactTypeInspectionOperationTests
     }
 
     [Fact]
+    public async Task WorkspaceHierarchy_RetainsFailedContextEvidence()
+    {
+        ResolvedAssemblyReference candidate =
+            ResolvedImage(
+                "HierarchyAvailable",
+                BuildAssembly(
+                    "HierarchyAvailable",
+                    "Hierarchy.Available",
+                    typeof(IDisposable)));
+        ResolvedAssemblyReference core =
+            ResolvedRuntime(typeof(IDisposable).Assembly);
+        await using var workspace = new InspectionWorkspace();
+        (
+            WorkspaceDeclarationContext availableContext,
+            _) =
+            CreatePopulation(
+                workspace,
+                candidate,
+                core);
+        WorkspaceMemberCoordinate failedMember =
+            WorkspaceMemberCoordinate.Package(
+                "hierarchy.unavailable",
+                Version);
+        var failedInput =
+            new WorkspaceContextInput
+            {
+                Framework = Framework,
+                Members = [failedMember],
+            };
+        var contextFailure =
+            new WorkspaceContextLoadFailure(
+                WorkspaceContextLoadFailureKind.PackageUnavailable,
+                failedMember,
+                "The hierarchy test package is unavailable.");
+        WorkspaceDeclarationContext failedContext =
+            workspace.CompleteDeclarationContext(
+                workspace.BeginDeclarationContext(),
+                failedInput,
+                new WorkspaceContextLoadOutcome.Failed(
+                    [contextFailure]));
+        WorkspaceDeclarationPopulation population =
+            Assert.IsType<
+                WorkspaceDeclarationPopulationCapture.Captured>(
+                    workspace.CaptureDeclarationPopulation(
+                        [availableContext, failedContext]))
+                .Population;
+
+        WorkspaceTypeHierarchySubjectRelationsExecution execution =
+            WorkspaceTypeHierarchySubjectRelationsOperation.Execute(
+                population,
+                new(
+                    new(
+                        population.Receipt.Members[1].Occurrence,
+                        TypeName("System", "IDisposable")),
+                    new(
+                        HierarchySelection(
+                            SubjectRelationForm.Interface),
+                        count:
+                            new SubjectRelationPopulationCountRequest(),
+                        rows:
+                            new SubjectRelationPopulationRowsRequest(1))),
+                MetadataOperationPolicy.Unbounded,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            "Available",
+            CandidateName(
+                Assert.Single(
+                    execution.Inspection.Content.Implementers)));
+        Assert.IsType<
+            SubjectRelationPopulationRowsOutcome.Read>(
+                execution.Inspection.Content.Relations.Rows);
+        Assert.IsType<
+            SubjectRelationPopulationCountOutcome.Incomplete>(
+                execution.Inspection.Content.Relations.Count);
+        SubjectRelationProducerOutcome producer =
+            Assert.Single(
+                execution.Inspection.Content.Relations.Evidence.Producers);
+        Assert.Equal(
+            SubjectRelationProducerDisposition.Partial,
+            producer.Disposition);
+        Assert.Equal(1, producer.Coverage.Unavailable);
+        WorkspaceTypeHierarchyContextFailure retained =
+            Assert.IsType<WorkspaceTypeHierarchyContextFailure>(
+                Assert.Single(
+                    producer.Diagnostics,
+                    diagnostic => diagnostic.Evidence
+                        is WorkspaceTypeHierarchyContextFailure)
+                .Evidence);
+        Assert.Same(failedContext.Receipt, retained.Context);
+        Assert.Same(
+            contextFailure,
+            Assert.IsType<WorkspaceDeclarationFailure.ContextLoad>(
+                    Assert.Single(retained.Context.Failures))
+                .Failure);
+        Assert.Contains(
+            execution.Inspection.Diagnostics,
+            diagnostic => diagnostic.Code
+                == "workspace-hierarchy-context-unavailable");
+    }
+
+    [Fact]
     public async Task WorkspaceHierarchy_BorrowsAdmittedLibraryCandidate()
     {
         byte[] image =
