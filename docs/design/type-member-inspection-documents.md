@@ -9,7 +9,8 @@ document family tracked by
 The design is approved. The four public document declarations, their shared
 exact-Member declaration shape, population correspondence guards,
 source-generated JSON contracts, and selector-driven Member document
-resolution are implemented. Existing production operations still return
+resolution and contextual explanation subject mapping are implemented.
+Existing production operations still return
 explicitly named transitional content shapes; later adoption slices must
 switch those producers without presenting the target contract as current
 behavior.
@@ -307,7 +308,7 @@ production adoption as focused slices:
 3. Implement `MemberOverviewDocument` and exact `MemberDocument` resolution.
    Complete.
 4. Adopt the resolved Member subject mapping in Contextual Resource
-   Explanation.
+   Explanation. Complete.
 5. Implement compact `TypeOverviewDocument`.
 6. Implement complete `TypeDocument`.
 7. Adopt the documents independently in CLI and Browser/Wasm.

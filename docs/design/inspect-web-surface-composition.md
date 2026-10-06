@@ -1489,10 +1489,10 @@ navigation band. It never scrolls or obscures the Application menu.
 
 ## Data bar and Diagnostics
 
-The bottom data bar is one compact 30 CSS-pixel line with two presentations:
-default product information and transient inspection feedback. Feedback takes
-precedence over product information. Its grid row remains allocated in either
-state; long messages scroll horizontally without wrapping or expansion.
+The bottom data bar is one compact 30 CSS-pixel line with three presentations:
+transient inspection feedback, the active inspector's result summary, and
+default product information, in that order of precedence. Its grid row remains
+allocated in every state; long messages scroll horizontally without wrapping or expansion.
 
 Optional enrichment failures and qualifications must not consume inventory or
 inspector space or obstruct the core inspection journey. Structural salience
@@ -1503,8 +1503,30 @@ and forward navigation. Rerendering the same view retains feedback; a late
 result started in a preceding view cannot restore cleared feedback. Clearing
 presentation does not clear retained evidence or automatically retry work.
 
-Home retains default product information. This slice adds feedback only;
-subject- and inspector-issued result summaries remain future work.
+Home retains default product information. Library Compare's Public API Diff
+is the result-summary pilot. On a successful complete comparison it supplies
+the owner-issued Library display, version endpoints, and totals for changed, added, and removed
+Types, changed Members, and breaking, additive, and potentially breaking changes.
+Inspection notices remain named. The completed summary moves from the working
+surface into the persistent bar; comparison targets, row-level evidence, and
+essential loading/failure recovery stay in the inspector.
+
+A result summary must match the active subject, inspector, content, exact
+Library, package generation, framework, and comparison target. Traversal,
+target changes, and loading cannot display a previous result. Returning to the
+same completed comparison may present its retained result; clearing transient
+feedback does not clear valid result data. Other inspectors use default product
+information until separately adopted. No inspector may enqueue background text
+or compete with the active inspector for the result slot.
+
+The pilot's real asset is
+[System.Text.Json 9.0.0](https://www.nuget.org/packages/System.Text.Json/9.0.0)
+to [10.0.0](https://www.nuget.org/packages/System.Text.Json/10.0.0), `net8.0`.
+Its Public API Diff already issues detached aggregate counts and exact version
+endpoints through the normal package comparison route. Unit tests retain these
+currencies through result projection and check feedback precedence, loading,
+and target mismatches. Browser tests cover completion, zero changes, inspector
+traversal, default fallback, and fixed geometry at desktop and narrow widths.
 
 The motivating asset is
 [System.Text.Json 7.0.0](https://www.nuget.org/packages/System.Text.Json/7.0.0),
