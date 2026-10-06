@@ -329,6 +329,7 @@ import {
 } from "./direct-use-cluster-inspection.ts";
 import {
   createDocumentInspectionCoordinator,
+  createPackageDocumentTitles,
   documentViewerIsOpen,
   normalizeDocumentViewerSnapshot,
   type DocumentViewerState,
@@ -3981,6 +3982,37 @@ const documentInspection = createDocumentInspectionCoordinator({
   describeError: errorMessage,
   render,
 });
+
+const packageDocumentTitles = createPackageDocumentTitles({
+  queryDocument: request => inspectPackageDocument(request.packageId, request.version, request.document.path),
+  renderMarkdown,
+  firstHeading: html => {
+    const template = document.createElement("template");
+    template.innerHTML = html;
+    return template.content.querySelector("h1")?.textContent?.trim() || null;
+  },
+  describeError: errorMessage,
+  render,
+});
+let packageDocumentationScheduled = false;
+function schedulePackageDocumentTitles() {
+  const pkg = state.package;
+  if (packageDocumentationScheduled || !pkg
+    || !document.querySelector(".package-document-list")
+    || !pkg.documents.some(doc => !packageDocumentTitles.get(pkg, doc.path))) return;
+  packageDocumentationScheduled = true;
+  requestAnimationFrame(() => setTimeout(() => {
+    packageDocumentationScheduled = false;
+    if (state.package !== pkg) {
+      schedulePackageDocumentTitles();
+      return;
+    }
+    if (!document.querySelector(".package-document-list")) return;
+    observeAsync(packageDocumentTitles.load(pkg, pkg.documents.map(document => ({
+      packageId: pkg.id, version: pkg.version, document,
+    }))), "Reading package documentation titles");
+  }, 0));
+}
 
 function captureView(): WorkspaceView | null {
   if (!state.package && !state.platformSelection) return null;
@@ -8757,6 +8789,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
   } finally {
     productNavigationBinding.afterRender();
     memberListRevealer.afterRender(document);
+    schedulePackageDocumentTitles();
     scheduleTypeHeat();
     scheduleTypeMethodLeverage();
     memberDiffExplorer.afterRender(
@@ -11985,7 +12018,8 @@ function enabledLibraryEnablements(
 function renderPackageOverview() {
   const pkg = currentPackage();
   const documentsSection =
-    renderPackageDocuments(pkg.documents || [], escapeHtml);
+    renderPackageDocuments(pkg.documents || [], escapeHtml,
+      path => packageDocumentTitles.get(pkg, path));
   const contentHtml = renderPackageOverviewContent({
     packageInfoHtml: pkg.packageInfo
       ? renderPackageInfo(pkg.packageInfo, escapeHtml)

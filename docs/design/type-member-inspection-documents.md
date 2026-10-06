@@ -179,6 +179,18 @@ Count-only work constructs no exact-Member rows or signatures. Bounded rows do
 only the work required for the returned compact rows and their requested
 Counts.
 
+`TypeOverviewDocumentInspectionOperation` composes the existing exact-Type and
+Type MemberGroup population operation into this final document. Its plan
+requires Rows with nested exact-Member Counts, while retaining spelling,
+accessibility, receiver, hidden admission, ordering, and continuation as one
+population intent. Bounded Rows remain valid compact documents; the
+continuation retains the same binding and nested-Count demand.
+
+The operation preserves Share and diagnostics from the source inspection. A
+Type or population rejection, bound, or failure remains a closed document
+outcome. Rows rejection, incompleteness, or failure is promoted to that same
+document boundary rather than returned inside success-shaped content.
+
 ## TypeDocument
 
 `TypeDocument` is the complete declaration document for one exact Type. It
@@ -309,7 +321,7 @@ production adoption as focused slices:
    Complete.
 4. Adopt the resolved Member subject mapping in Contextual Resource
    Explanation. Complete.
-5. Implement compact `TypeOverviewDocument`.
+5. Implement compact `TypeOverviewDocument`. Complete.
 6. Implement complete `TypeDocument`.
 7. Adopt the documents independently in CLI and Browser/Wasm.
 8. Retire transitional document names and superseded host-local composition.
