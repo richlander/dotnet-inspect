@@ -784,6 +784,7 @@ import type {
   BrowserPackageCacheStats,
   BrowserPackageDependencies,
   BrowserPackageDependencyGroup,
+  BrowserPackageIconInspection,
   BrowserPackageSurface,
   BrowserPackageVulnerabilityResult,
   BrowserPlatformForwarderRow,
@@ -868,6 +869,7 @@ let inspectLibraryDocument: EngineClient["library"]["inspectLibrary"];
 let inspectLibraryApi: EngineClient["package"]["queryLibraryApi"];
 let inspectPackageDependencies:
   EngineClient["package"]["queryPackageDependencies"];
+let inspectPackageIcon: EngineClient["package"]["queryPackageIcon"];
 let inspectPackageVulnerabilities:
   EngineClient["package"]["queryPackageVulnerabilities"];
 let inspectPackageVersions: EngineClient["package"]["queryPackageVersions"];
@@ -1083,6 +1085,7 @@ async function loadEngineModule() {
       queryPackageRoot: inspectPackageRoot,
       queryPackageSummary: inspectPackageSummary,
       queryPackageDependencies: inspectPackageDependencies,
+      queryPackageIcon: inspectPackageIcon,
       queryPackageVulnerabilities: inspectPackageVulnerabilities,
       queryPackageVersions: inspectPackageVersions,
       resolvePackageDependencyVersion: resolveDependencyVersion,
@@ -9299,12 +9302,7 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
     }, escapeHtml)}
     ${renderAnnotatedSourceModal()}`);
 
-  for (const packageIcon of document.querySelectorAll<HTMLImageElement>("[data-package-icon]")) {
-    packageIcon.onerror = () => {
-      if (packageIcon.getAttribute("src") === NUGET_DEFAULT_PACKAGE_ICON) return;
-      packageIcon.src = NUGET_DEFAULT_PACKAGE_ICON;
-    };
-  }
+  bindPackageIconFallbacks(document);
   bindEvents();
   bindLibraryOpenEvents();
   if (loadingPackageContent) {
@@ -10722,7 +10720,7 @@ function dependencyListSectionHtml(
               : open
               ? `data-dep-open="${escapeHtml(packageIdentityKey(open))}" title="Switch to ${escapeHtml(dependency.id)}"`
               : `data-dep-load="${escapeHtml(dependency.id)}" data-dep-version="${escapeHtml(dependency.versionRange || "")}" title="Open ${escapeHtml(dependency.id)} in a new tab"`;
-            return `<li><button class="dep-name as-link${open ? " is-open" : ""}" ${attrs}>${escapeHtml(dependency.id)}</button><code class="dep-version">${escapeHtml(dependency.versionRange || "*")}</code></li>`;
+            return `<li><img class="dep-icon" src="${NUGET_DEFAULT_PACKAGE_ICON}" alt="" data-package-icon data-dependency-icon="${index}"><button class="dep-name as-link${open ? " is-open" : ""}" ${attrs}>${escapeHtml(dependency.id)}</button><code class="dep-version">${escapeHtml(dependency.versionRange || "*")}</code></li>`;
           }).join("")}</ul>`
         : `<div class="empty-list">No package dependencies declared for ${escapeHtml(group.framework)}.</div>`}
     </section>`;
@@ -10750,6 +10748,11 @@ async function renderPackageDependencyList() {
     if (!isCurrent()) return;
     container.outerHTML = dependencyListSectionHtml(groups, selectedGroupIndex, matches);
     bindPackageDependencyListEvents();
+    await renderPackageDependencyIcons(
+      data,
+      groups,
+      selectedGroupIndex,
+      matches);
   } catch (error) {
     if (!isCurrent()) return;
     container.dataset.dependencyMatchState = "failed";
@@ -10757,6 +10760,77 @@ async function renderPackageDependencyList() {
     container.insertAdjacentHTML("beforeend",
       `<p class="graph-render-error" role="alert">Dependency matching failed: ${escapeHtml(errorMessage(error))}</p>`);
   }
+}
+
+async function renderPackageDependencyIcons(
+  data: BrowserPackageDependencies | null,
+  groups: readonly BrowserPackageDependencyGroup[],
+  selectedGroupIndex: number | null,
+  matches: readonly (AppPackage | null)[],
+) {
+  const container =
+    document.querySelector<HTMLElement>("#dep-list-section");
+  const group =
+    groups.find(candidate => candidate.index === selectedGroupIndex)
+    || groups[0];
+  if (!container || !group) return;
+
+  const dependencies = group.dependencies || [];
+  const images = [
+    ...container.querySelectorAll<HTMLImageElement>("[data-dependency-icon]"),
+  ];
+  const requests =
+    new Map<string, Promise<BrowserPackageIconInspection>>();
+  const signature = packageDependenciesSignature();
+  const isCurrent = () =>
+    document.querySelector("#dep-list-section") === container
+    && state.packageDependencies === data
+    && packageDependenciesSignature() === signature
+    && resolveDependenciesGroupIndex(groups) === selectedGroupIndex;
+  let next = 0;
+
+  const loadNext = async () => {
+    while (true) {
+      const index = next++;
+      if (index >= dependencies.length) return;
+      const dependency = dependencies[index];
+      if (!dependency) continue;
+      const image = images.find(candidate =>
+        candidate.dataset.dependencyIcon === String(index));
+      if (!image) continue;
+
+      try {
+        const version = matches[index]?.version
+          ?? await resolveDependencyVersion(
+            dependency.id,
+            dependency.versionRange ?? null);
+        const key = `${dependency.id.toLowerCase()}@${version}`;
+        let request = requests.get(key);
+        if (!request) {
+          request = inspectPackageIcon(dependency.id, version);
+          requests.set(key, request);
+        }
+        const result = await request;
+        if (!isCurrent()
+          || result.packageId !== dependency.id
+          || result.packageVersion !== version
+          || result.status !== "Available"
+          || !result.icon) {
+          continue;
+        }
+
+        image.src =
+          `data:${result.icon.mediaType};base64,${result.icon.base64}`;
+      } catch {
+        // The default icon is the visible typed failure presentation.
+      }
+    }
+  };
+
+  await Promise.all(
+    Array.from(
+      { length: Math.min(4, dependencies.length) },
+      loadNext));
 }
 
 // Switch the dependency lens to a different target framework without a full page render:
@@ -13179,6 +13253,18 @@ function bindPackageViewEvents() {
 
 function bindPackageDependencyListEvents() {
   bindPackageDependencyList(document, packageViewActions);
+  bindPackageIconFallbacks(document);
+}
+
+function bindPackageIconFallbacks(root: ParentNode) {
+  for (const packageIcon of
+    root.querySelectorAll<HTMLImageElement>("[data-package-icon]")) {
+    packageIcon.onerror = () => {
+      if (packageIcon.getAttribute("src") === NUGET_DEFAULT_PACKAGE_ICON)
+        return;
+      packageIcon.src = NUGET_DEFAULT_PACKAGE_ICON;
+    };
+  }
 }
 
 function bindLibrarySubjectNavEvents() {

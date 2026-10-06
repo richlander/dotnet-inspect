@@ -986,6 +986,16 @@ references, and partial workspace warning. Selecting another manifest group
 patches its list and graph in place without changing the surface frame or
 resetting the package coordinate.
 
+Each direct NuGet dependency row begins with the package's embedded icon when
+the exact dependency version can be resolved and the icon is admitted by
+[Package icon range inspection](package-icon-range-inspection.md). Icon reads
+are range-only and asynchronous: row navigation becomes available after the
+existing package-coordinate match, without waiting for its icon. Missing,
+unavailable, refused, or failed icon reads use the existing NuGet default
+package icon and do not trigger a complete package download. A late icon result
+cannot update another Package, target framework, dependency group, or
+replacement row.
+
 The inline graph is a bounded structural preview so the selected group's direct
 NuGet dependency rows enter the initial result viewport. At wide inspector
 widths its viewport is capped at 360px and yields vertical space as the browser
