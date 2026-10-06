@@ -2235,6 +2235,9 @@ public class CorpusSensorComparisonTests
         {
             Assert.Equal("return-to-sender-cutover; compile-back-floor=false", method.FidelityCapture);
             Assert.NotNull(method.FidelityReference);
+            Assert.NotEqual(
+                FidelityCheck.CompileBackStatus.ContextFail.ToString(),
+                method.FidelityReference);
         });
         Assert.Equal(0, selected.CompileBackFloorAppliedMethods);
         Assert.NotNull(snapshot.RunIdentity);
@@ -2255,6 +2258,48 @@ public class CorpusSensorComparisonTests
             restored.Methods!
                 .Where(method => method.FidelityCheck != "not-sampled")
                 .Select(method => (method.DisplayMethod, method.FidelityCheck, method.FidelityReference)));
+    }
+
+    [Fact]
+    public void ReturnToSenderCutover_LegacyReferenceUsesSelectedMetadataIdentity()
+    {
+        string assemblyPath =
+            Path.GetFullPath(FixtureCatalog.DecompilerLadderRung5.AssemblyPath());
+        IReadOnlyList<FidelityCheck.CompileBackTarget> targets =
+            FidelityCheck.SelectReturnToSenderTargets(
+                [assemblyPath],
+                cap: 2);
+
+        IReadOnlyList<FidelityCheck.CompileBackResult> results =
+            FidelityCheck.EvaluateTargets(
+                [assemblyPath],
+                targets);
+
+        Assert.Equal(2, results.Count);
+        Assert.Equal(
+            targets.Select(target => target.Signature),
+            results.Select(result => result.Signature));
+        Assert.DoesNotContain(
+            results,
+            result => result.Detail == "target-method-not-found");
+    }
+
+    [Fact]
+    public async Task ReturnToSenderCutover_FailsWhenMethodCapOmitsSelectedLedgerRows()
+    {
+        string assemblyPath =
+            Path.GetFullPath(FixtureCatalog.DecompilerLadderRung5.AssemblyPath());
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => CorpusSensor.CaptureReturnToSenderCutoverForTesting(
+                [assemblyPath],
+                fidelityCap: 2,
+                methodCap: 1));
+
+        Assert.Contains(
+            "complete corpus member ledger",
+            exception.Message,
+            StringComparison.Ordinal);
     }
 
     [Fact]

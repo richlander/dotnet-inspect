@@ -1017,7 +1017,10 @@ disabled. The routine `rts-native` oracle ends there: native status is the
 fidelity result, no legacy reference is executed, and no paired cutover metrics
 are emitted. The scheduled `rts-cutover` oracle evaluates legacy compile-back
 after every native assembly has completed, using the same assembly path, type,
-method, overload, and signature only as reference evidence. A legacy outcome
+method, overload, and signature only as reference evidence. Legacy compile-back
+resolves the selected method through its typed metadata address rather than
+requiring its canonical selector signature to equal a rendered display
+signature. A legacy outcome
 cannot admit a target, replace an RTS result, refine its status, or hide a
 missing result. Missing native output remains `ContextFail`. An expected native
 assembly-context failure (I/O, invalid metadata, access, or
@@ -1037,6 +1040,10 @@ The typed snapshot records the repository revision and source state captured
 when the harness was built, Roslyn compiler identity, runtime and platform
 identity, corpus profile, caps, input paths and module MVIDs. An assembly that
 cannot supply the exact requested non-synthesized target cap fails the run.
+After selection and before native evaluation, every selected target must have
+a row in the snapshot's complete member ledger. A finite corpus method cap that
+omits any selected target fails the run visibly rather than emitting fidelity
+metrics whose selected results are absent from the ledger.
 Aggregate cutover evidence records selected methods; native and legacy
 available/unavailable counts; exact and availability losses; the corresponding
 gains; same-status rows; and the number of compile-back-floor applications,

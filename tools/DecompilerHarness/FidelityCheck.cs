@@ -903,7 +903,8 @@ static partial class FidelityCheck
         string Method,
         int Overload,
         string Signature,
-        string DisplayMethod)
+        string DisplayMethod,
+        MetadataMethodAddress? Address)
     {
         public static MethodTarget From(CorpusMethodSnapshot method)
             => new(
@@ -913,7 +914,8 @@ static partial class FidelityCheck
                 method.Method,
                 method.Overload,
                 method.Signature,
-                method.DisplayMethod);
+                method.DisplayMethod,
+                Address: null);
     }
 
     sealed record TargetedCompileBackResult(MethodTarget Target, CompileBackResult Result);
@@ -1105,7 +1107,8 @@ static partial class FidelityCheck
                 Method: target.Method,
                 Overload: target.Overload,
                 Signature: target.Signature,
-                DisplayMethod: $"{target.Type}::{target.Method}"))
+                DisplayMethod: $"{target.Type}::{target.Method}",
+                Address: target.Address))
             .ToArray();
 
         return EvaluateTargets(assemblies, methodTargets, lowered, options, readSymbols)
@@ -1128,7 +1131,8 @@ static partial class FidelityCheck
                 Method: target.Method,
                 Overload: target.Overload,
                 Signature: target.Signature,
-                DisplayMethod: $"{target.Type}::{target.Method}"))
+                DisplayMethod: $"{target.Type}::{target.Method}",
+                Address: target.Address))
             .ToArray();
         return (await EvaluateChangedMethodTargets(assemblies, methodTargets))
             .Select(row => row.Result)
@@ -1356,21 +1360,67 @@ static partial class FidelityCheck
                             if (entries.Count == 0 || !assemblyTargets.TryGetValue(fullType, out var typeTargets))
                                 continue;
 
-                            var typeTargetMap = typeTargets.ToDictionary(
-                                target => $"{target.Method}{target.Signature}",
-                                StringComparer.Ordinal);
-                            var matched = entries
-                                .Where(entry => typeTargetMap.ContainsKey($"{entry.Name}{entry.Signature}"))
-                                .ToArray();
-                            if (matched.Length == 0)
+                            var targetsByHandle =
+                                new Dictionary<MethodDefinitionHandle, MethodTarget>();
+                            var targetsBySignature =
+                                new Dictionary<string, MethodTarget>(StringComparer.Ordinal);
+                            foreach (var target in typeTargets)
+                            {
+                                if (target.Address is { } address
+                                    && address.TryResolve(reader, out var handle))
+                                {
+                                    targetsByHandle.Add(handle, target);
+                                }
+                                else
+                                {
+                                    targetsBySignature.Add(
+                                        $"{target.Method}{target.Signature}",
+                                        target);
+                                }
+                            }
+
+                            var matchedEntries = new List<Entry>();
+                            var matchedTargets = new List<MethodTarget>();
+                            foreach (var entry in entries)
+                            {
+                                if (!targetsByHandle.TryGetValue(
+                                        entry.Handle,
+                                        out MethodTarget? target)
+                                    && !targetsBySignature.TryGetValue(
+                                        $"{entry.Name}{entry.Signature}",
+                                        out target))
+                                {
+                                    continue;
+                                }
+
+                                matchedEntries.Add(entry);
+                                matchedTargets.Add(target);
+                            }
+                            if (matchedEntries.Count == 0)
                                 continue;
 
-                            var typeResults = EvaluateGrouped(reader, pe, references, featureOptions, compileOptions, fullType, treeHandle, matched);
-                            for (int i = 0; i < matched.Length && i < typeResults.Count; i++)
+                            var typeResults = EvaluateGrouped(
+                                reader,
+                                pe,
+                                references,
+                                featureOptions,
+                                compileOptions,
+                                fullType,
+                                treeHandle,
+                                matchedEntries);
+                            for (int i = 0;
+                                i < matchedEntries.Count && i < typeResults.Count;
+                                i++)
                             {
-                                var entry = matched[i];
-                                var target = typeTargetMap[$"{entry.Name}{entry.Signature}"];
-                                rows.Add(new TargetedCompileBackResult(target, typeResults[i]));
+                                var target = matchedTargets[i];
+                                CompileBackResult result = typeResults[i] with
+                                {
+                                    Type = target.Type,
+                                    Method = target.Method,
+                                    Overload = target.Overload,
+                                    Signature = target.Signature,
+                                };
+                                rows.Add(new TargetedCompileBackResult(target, result));
                                 pending.Remove(TargetKey(target));
                             }
                         }

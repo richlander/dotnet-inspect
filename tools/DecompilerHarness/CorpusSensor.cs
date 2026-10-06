@@ -328,13 +328,14 @@ internal static class CorpusSensor
 
     internal static async Task<CorpusSensorSnapshot> CaptureReturnToSenderCutoverForTesting(
         IReadOnlyList<string> assemblies,
-        int fidelityCap)
+        int fidelityCap,
+        int methodCap = int.MaxValue)
         => (await Capture(
             assemblies,
             validityCompileCap: 0,
             fidelityCompileCaps: [fidelityCap],
             maxExamples: 3,
-            methodCap: int.MaxValue,
+            methodCap,
             workers: null,
             sequential: true,
             fidelityOracle: CorpusFidelityOracle.ReturnToSenderCutover,
@@ -1078,9 +1079,11 @@ internal static class CorpusSensor
             var independentRtsEvaluations = IsIndependentReturnToSenderOracle(fidelityOracle)
                 ? await SelectThenEvaluateNativeFirstAsync(
                     assemblies,
-                    assembly => SelectIndependentReturnToSenderTargets(
-                        assembly,
-                        cap),
+                    assembly => EnsureIndependentReturnToSenderTargetsRetained(
+                        SelectIndependentReturnToSenderTargets(
+                            assembly,
+                            cap),
+                        methodKeysByTarget!),
                     targetSet => EvaluateIndependentReturnToSenderTargets(
                         targetSet.AssemblyPath,
                         targetSet.Targets,
@@ -1805,6 +1808,33 @@ internal static class CorpusSensor
             + $"{selection.ExcludedDeclarationCandidateCount} evaluated "
             + $"exclusions.");
         return new(assemblyPath, selection.Targets);
+    }
+
+    static IndependentReturnToSenderTargetSet
+        EnsureIndependentReturnToSenderTargetsRetained(
+            IndependentReturnToSenderTargetSet targetSet,
+            IReadOnlyDictionary<string, string> methodKeysByTarget)
+    {
+        FidelityCheck.CompileBackTarget[] missingTargets =
+        [
+            .. targetSet.Targets.Where(
+                target => !methodKeysByTarget.ContainsKey(
+                    TargetKey(
+                        PortablePath(target.AssemblyPath),
+                        target.Type,
+                        target.Method,
+                        target.Overload)))
+        ];
+        if (missingTargets.Length == 0)
+            return targetSet;
+
+        FidelityCheck.CompileBackTarget first = missingTargets[0];
+        throw new InvalidOperationException(
+            $"Independent RTS selected {missingTargets.Length} targets absent "
+            + $"from the complete corpus member ledger for "
+            + $"'{PortablePath(targetSet.AssemblyPath)}'. Increase or omit "
+            + $"--corpus-method-cap. First missing target: "
+            + $"{first.Type}::{first.Method}#{first.Overload}.");
     }
 
     static IReadOnlyList<FidelityCheck.CompileBackTarget> DeterministicCompileBackTargetAttemptsForAssembly(
