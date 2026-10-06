@@ -46,7 +46,7 @@ defects. Each was reproduced against the shipped C# validators.
 
 | Issue | Lean witness | Consequence |
 | --- | --- | --- |
-| [#9483](https://github.com/richlander/dotnet-inspect/issues/9483) | `Coverage.lastEdge_unsound_preserving` | Path validation takes `ExactCardinality` from the last covering edge only. Under the enum's documented "preserves" reading, a non-exact provision plus an exact edge satisfies an exact Count. |
+| [#9483](https://github.com/richlander/dotnet-inspect/issues/9483) | `Coverage.lastEdge_unsound_preserving` | Path validation takes `ExactCardinality` from the last covering edge only. Under the enum's documented "preserves" reading, a sound provision without the claim plus a sound edge certifying it forms an accepted path whose Count is not exact. The theorem states soundness, acceptance, and the unsatisfied result together. |
 | [#9484](https://github.com/richlander/dotnet-inspect/issues/9484) | `FailureRouting.shared_dependent_of_two_failures_rejected` | When two failed provisions share a dependent, no result set is accepted, whatever the dependent reports. |
 
 The current Package Tree and section-row adopters do not reach either shape.
@@ -60,6 +60,8 @@ The current Package Tree and section-row adopters do not reach either shape.
   statement that the producer remains responsible for its declarations.
 - Requirement-set construction, domain and resource identity checks,
   dependency ordering, and cycle detection are not modeled.
+- `FailureRouting` does not model the C# filter that collects only failures
+  naming a selected provision; the findings use only selected provisions.
 - The Method-body planner is the reference planner in
   `tests/DotnetInspector.PerformanceOracles`; production adoption remains
   unverified, as the owning design states.

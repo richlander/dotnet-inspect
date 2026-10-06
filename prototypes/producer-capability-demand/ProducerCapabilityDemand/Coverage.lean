@@ -217,8 +217,8 @@ def demo : Semantics Nat (Nat × Bool) where
   exactCard v := v.2 = true
   project e v := (e.target, v.2)
 
-/-- Windowed Name rows: key `0`, no exact-cardinality claim. -/
-def windowedNames : Provision Nat := ⟨0, false⟩
+/-- Complete Name rows: key `0`, without an exact-cardinality claim. -/
+def completeNames : Provision Nat := ⟨0, false⟩
 
 /-- Names → Count, certified to preserve its source's cardinality. -/
 def namesToCount : Edge Nat := ⟨0, 1, true⟩
@@ -230,25 +230,42 @@ theorem demo_edge_preserving : EdgeSoundPreserving demo namesToCount := by
   intro v hv
   exact ⟨rfl, fun _ h => h⟩
 
-theorem demo_provision_sound : ProvisionSound demo windowedNames (0, false) :=
+theorem demo_provision_sound : ProvisionSound demo completeNames (0, false) :=
   ⟨rfl, fun h => by cases h⟩
 
 theorem demo_lastEdge_accepts :
-    accepts walkLastEdge windowedNames [namesToCount] exactCount = true := by
+    accepts walkLastEdge completeNames [namesToCount] exactCount = true := by
   decide
 
 theorem demo_conjunctive_rejects :
-    accepts walkConjunctive windowedNames [namesToCount] exactCount = false := by
+    accepts walkConjunctive completeNames [namesToCount] exactCount = false := by
   decide
 
-/--
-Under the preserving reading the validator accepts a Count path whose result
-does not have exact cardinality.
--/
-theorem lastEdge_unsound_preserving :
+theorem demo_count_not_exact :
     ¬ Satisfies demo exactCount (evalPath demo (0, false) [namesToCount]) := by
   intro h
   exact Bool.false_ne_true (h.2 rfl)
+
+/--
+Under the preserving reading the current validator is unsound: a sound
+provision and a sound covering edge form an accepted path whose result does
+not satisfy the requirement's exact cardinality.
+-/
+theorem lastEdge_unsound_preserving :
+    ∃ (S : Semantics Nat (Nat × Bool)) (p : Provision Nat)
+      (path : List (Edge Nat)) (r : Requirement Nat) (v : Nat × Bool),
+      ProvisionSound S p v ∧
+      (∀ e ∈ path, EdgeSoundPreserving S e) ∧
+      accepts walkLastEdge p path r = true ∧
+      ¬ Satisfies S r (evalPath S v path) :=
+  ⟨demo, completeNames, [namesToCount], exactCount, (0, false),
+    demo_provision_sound,
+    (fun e he => by
+      simp only [List.mem_singleton] at he
+      subst he
+      exact demo_edge_preserving),
+    demo_lastEdge_accepts,
+    demo_count_not_exact⟩
 
 end Coverage
 

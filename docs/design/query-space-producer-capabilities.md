@@ -492,8 +492,12 @@ are the appropriate design evidence.
 The
 [producer-capability demand Lean pilot](../../prototypes/producer-capability-demand/)
 adds prototype proof evidence for every requirement set: demand-join laws,
-Method-body source selection, shared-traversal result and charge preservation,
-and covering-path soundness. Its open findings are
+Method-body source selection, and shared-traversal result and charge
+preservation. Covering-path validation is proven sound only when an edge's
+`ExactCardinality` certifies its target unconditionally; under the documented
+"preserves" reading it is unsound, while a rule that conjoins the provision's
+and every edge's properties is sound under either reading. The pilot's open
+findings are
 [#9483](https://github.com/richlander/dotnet-inspect/issues/9483) and
 [#9484](https://github.com/richlander/dotnet-inspect/issues/9484). It does not
 replace the Release gates in [Required evidence](#required-evidence).
