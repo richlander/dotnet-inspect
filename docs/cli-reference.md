@@ -1496,6 +1496,18 @@ alternative; a bare `-n` on it is the rendered-line window. `Signature` is a
 one-row inventory whose row is the resolved member, so `--count` answers `1`.
 Count maps over several sections keep their per-section meaning.
 
+Every other type or member Text with a bare payload (`API Declarations` on the
+`type` command, `Decompiled Source`, `Annotated Source`, `PDB Source`, `IL`,
+and the overlays) has a fact row: `--table`, `--tsv`, and `--jsonl` emit its
+section, line count, and character count. `Source Diff` keeps its own row
+form, the comparison metadata and summary. `--json` on any of them except
+`API Declarations` emits the facts plus the complete payload as `content`;
+`API Declarations` keeps its inspection envelope, whose content carries the
+complete text. A fact row is not
+an inventory, so `--count` and `--rows` stay rejected. Composed Markdown
+still shows each Text's body, so `-S "Decompiled Source,IL"` reads side by
+side.
+
 `Source` is the Text whose rows are its exact lines, per
 [Source document cardinality](design/source-document-cardinality.md):
 `--count` reports the line count, which includes the empty final line after a
