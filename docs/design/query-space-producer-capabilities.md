@@ -499,8 +499,13 @@ preservation. Covering-path validation is proven sound only when an edge's
 and every edge's properties is sound under either reading. The pilot's open
 findings are
 [#9483](https://github.com/richlander/dotnet-inspect/issues/9483) and
-[#9484](https://github.com/richlander/dotnet-inspect/issues/9484). It does not
-replace the Release gates in [Required evidence](#required-evidence).
+[#9484](https://github.com/richlander/dotnet-inspect/issues/9484). Its
+[validator check classification](../../prototypes/producer-capability-demand/README.md#validator-check-classification)
+proves that `MissingDependency` and `DependencyOrder` exclude every dependency
+cycle, and that the satisfaction checks imply `UnknownCapability`. It also
+proves that an "at least" completion check is sound under an owner-certified
+monotone completion order. It does not replace the Release gates in
+[Required evidence](#required-evidence).
 
 Execution settlement, early stopping, and shared failure routing remain owned
 by [Open and closed queries](open-and-closed-queries.md) and its existing TLA+
