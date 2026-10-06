@@ -536,20 +536,7 @@ test("the narrow return control integrates with Metadata and Source frames", asy
     ".package-dependencies-controls #package-version")).toHaveCount(0);
   await expect(page.locator(
     ".package-dependencies-controls #framework")).toHaveCount(0);
-  const packageDependenciesFooter = await box(
-    page,
-    ".package-dependencies-surface-footer");
-  const packageDependenciesCoordinate = await box(
-    page,
-    ".package-dependencies-surface-footer span:first-child");
-  const packageDependenciesFramework = await box(
-    page,
-    ".package-dependencies-surface-footer span:last-child");
-  expect(packageDependenciesCoordinate.x)
-    .toBeLessThan(packageDependenciesFooter.x + packageDependenciesFooter.width / 3);
-  expect(packageDependenciesFramework.x + packageDependenciesFramework.width)
-    .toBeGreaterThan(
-      packageDependenciesFooter.x + packageDependenciesFooter.width * 2 / 3);
+  await expect(page.locator(".package-dependencies-surface footer")).toHaveCount(0);
   expect(await page.evaluate(() =>
     document.documentElement.scrollWidth
     - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
@@ -635,9 +622,11 @@ for (const [subject, width] of [
       await expect(page.locator(".overview-surface-head p"))
         .toHaveText("32 types · 1,234 members");
     }
-    await expect(page.locator(".overview-surface-footer span")).toHaveText([
-      "System.Text.Json@10.0.0", "net10.0",
-    ]);
+    if (subject === "library") {
+      await expect(page.locator(".overview-surface-footer span")).toHaveText([
+        "System.Text.Json@10.0.0", "net10.0",
+      ]);
+    } else await expect(page.locator(".overview-surface-footer")).toHaveCount(0);
     if (subject === "package") {
       await expect(page.locator(".package-overview-resources")).toHaveCount(0);
       await expect(page.locator(".package-overview-summary")).toContainText("Documentation");
@@ -687,7 +676,7 @@ for (const [subject, width] of [
     const header = subject === "library"
       ? await box(page, ".overview-surface-head")
       : null;
-    const footer = await box(page, ".overview-surface-footer");
+    const footer = subject === "library" ? await box(page, ".overview-surface-footer") : null;
     expect(await page.locator(".overview-scroll").evaluate(element =>
       element.scrollHeight > element.clientHeight)).toBe(true);
     await page.locator(".overview-scroll").evaluate(element => {
@@ -701,7 +690,7 @@ for (const [subject, width] of [
     if (header) {
       expect((await box(page, ".overview-surface-head")).y).toBe(header.y);
     }
-    expect((await box(page, ".overview-surface-footer")).y).toBe(footer.y);
+    if (footer) expect((await box(page, ".overview-surface-footer")).y).toBe(footer.y);
     expect(await page.locator(".overview-scroll").evaluate(element =>
       element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(0);
     expect(await page.evaluate(() =>
@@ -727,7 +716,7 @@ test("Package Overview keeps empty totals and available documents", async ({ pag
   await expect(page.locator(".overview-surface-head")).toHaveCount(0);
   await expect(page.locator(".library-row")).toHaveCount(0);
   await expect(page.locator("[data-doc-path='README.md']")).toBeVisible();
-  await expect(page.locator(".overview-surface-footer")).toBeVisible();
+  await expect(page.locator(".overview-surface-footer")).toHaveCount(0);
 });
 
 test("Library Overview keeps explicit empty namespace and type-kind states", async ({ page }) => {

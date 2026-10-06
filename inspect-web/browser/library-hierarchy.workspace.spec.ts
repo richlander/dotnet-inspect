@@ -305,14 +305,16 @@ for (const width of [1440, 390]) {
     await page.goto(root);
     await expect(page.locator("#package-comparison-targets")).toHaveCount(0);
     const overviewContent = await page.locator(".package-overview-content").boundingBox();
-    const overviewFooter = await page.locator(".overview-surface-footer").boundingBox();
+
     await chooseInspector(page, "data-package-lens", "compare", "Compare");
     await expect(page.locator(".overview-identity")).toHaveCount(0);
     const compareContent = await page.locator("#package-comparison-targets").boundingBox();
-    const compareFooter = await page.locator(".overview-surface-footer").boundingBox();
+
     expect(compareContent?.x).toBe(overviewContent?.x);
-    expect(compareFooter?.x).toBe(overviewFooter?.x);
-    expect(compareFooter?.width).toBe(overviewFooter?.width);
+    await expect(page.locator("#inspector-panel footer, .package-version-nav footer")).toHaveCount(0);
+    const scroll = await page.locator(".overview-scroll").boundingBox();
+    const frame = await page.locator("#subject-panel").boundingBox();
+    expect(scroll!.y + scroll!.height).toBeCloseTo(frame!.y + frame!.height, 0);
     await expect(page.locator(".comparison-target-row")).toHaveCount(2);
     const target = page.locator("#package-diff-target");
     await target.focus();

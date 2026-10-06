@@ -1628,7 +1628,7 @@ test("package dependencies use compact coordinates in a full-area working surfac
     /return packageLensBody\(\);/);
   assert.match(
     appSource,
-    /function renderPackageDependenciesSurface\([\s\S]*?package-dependencies-surface[\s\S]*?package-dependencies-scroll[\s\S]*?package-dependencies-surface-footer/);
+    /function renderPackageDependenciesSurface\([\s\S]*?package-dependencies-surface[\s\S]*?package-dependencies-scroll/);
   assert.equal(
     renderDependencies.match(/renderPackageDependenciesSurface\(/g)?.length,
     5);

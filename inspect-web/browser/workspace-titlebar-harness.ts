@@ -571,10 +571,6 @@ function detailHtml() {
           </ul>
         </section>
       </div>
-      <footer class="api-surface-footer package-dependencies-surface-footer">
-        <span>System.Text.Json@10.0.0</span>
-        <span>net10.0</span>
-      </footer>
     </section>`;
   }
   if (packageMetadataMode) {

@@ -10443,8 +10443,6 @@ function packageDependenciesSignature() {
 }
 
 function renderPackageDependenciesSurface(content: string, status: string) {
-  const pkg = currentPackage();
-  const coordinate = `${pkg.id}@${pkg.version}`;
   return `<section class="package-dependencies-surface" aria-labelledby="package-dependencies-surface-title">
     <header class="api-surface-head package-dependencies-surface-head">
       <h1 id="package-dependencies-surface-title">Dependencies</h1>
@@ -10453,10 +10451,6 @@ function renderPackageDependenciesSurface(content: string, status: string) {
     <div class="package-dependencies-scroll">
       ${content}
     </div>
-    <footer class="api-surface-footer package-dependencies-surface-footer">
-      <span title="${escapeHtml(coordinate)}">${escapeHtml(coordinate)}</span>
-      <span title="${escapeHtml(pkg.activeFramework)}">${escapeHtml(pkg.activeFramework)}</span>
-    </footer>
   </section>`;
 }
 
