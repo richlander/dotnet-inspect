@@ -1793,17 +1793,31 @@ internal static class CorpusSensor
             FidelityCheck.SelectReturnToSenderTargetsCapped(
                 [assemblyPath],
                 cap);
-        if (selection.Targets.Count != cap)
+        // The capped plan either settles the cap or exhausts the scoped
+        // population. An exhausted population with fewer owner-eligible
+        // targets than the cap is a recorded shortfall, not a failure; a
+        // short selection that did not exhaust the population is.
+        bool exhausted =
+            selection.EvaluatedBodyCount == selection.RankedBodyCount;
+        if (selection.Targets.Count > cap
+            || (selection.Targets.Count < cap && !exhausted))
         {
             throw new InvalidOperationException(
-                $"Independent RTS requires exactly {cap} eligible targets "
-                + $"for '{PortablePath(assemblyPath)}', but owner-issued "
-                + $"selection settled {selection.Targets.Count}.");
+                $"Independent RTS selection for "
+                + $"'{PortablePath(assemblyPath)}' settled "
+                + $"{selection.Targets.Count} of cap {cap} after "
+                + $"evaluating {selection.EvaluatedBodyCount} of "
+                + $"{selection.RankedBodyCount} ranked bodies; the capped "
+                + $"plan must settle the cap or exhaust the population.");
         }
 
+        string shortfall = selection.Targets.Count < cap
+            ? $" (population exhausted: {selection.Targets.Count} "
+                + $"eligible targets below cap {cap})"
+            : string.Empty;
         HarnessLog.Status(
             $"RTS target selection {PortablePath(assemblyPath)}: "
-            + $"{selection.Targets.Count} selected; "
+            + $"{selection.Targets.Count} selected{shortfall}; "
             + $"{selection.RankedBodyCount} ranked bodies; "
             + $"{selection.EvaluatedBodyCount} deeply evaluated bodies; "
             + $"{selection.DeclarationCandidateCount} declaration "
