@@ -100,6 +100,18 @@ public static class TypeDocumentInspectionOperation
             ResolvedAssemblyReference assembly,
             TypeDocumentInspectionPlan plan,
             CancellationToken cancellationToken = default)
+        => ExecuteWithExtensionPresence(
+            assembly,
+            plan,
+            includeNonPublic: false,
+            cancellationToken);
+
+    public static TypeDocumentExtensionPresenceInspectionResult
+        ExecuteWithExtensionPresence(
+            ResolvedAssemblyReference assembly,
+            TypeDocumentInspectionPlan plan,
+            bool includeNonPublic,
+            CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(assembly);
         ArgumentNullException.ThrowIfNull(plan);
@@ -134,6 +146,7 @@ public static class TypeDocumentInspectionOperation
                     assembly.Identity,
                     plan.Type,
                     plan.Bounds.MaxMetadataRows,
+                    includeNonPublic,
                     cancellationToken,
                     MetadataTypeDefinitionAddress.FromToken(
                         available.Document.Subject.ModuleVersionId,

@@ -178,6 +178,7 @@ public partial class CommandExecutionTests
     [InlineData("System.Collections.Generic.List`1", "Add")]
     [InlineData("System.IDisposable", "Dispose")]
     [InlineData("System.Action", "Invoke")]
+    [InlineData("System.Enum", "HasFlag")]
     public async Task
         Type_DirectLibraryExactType_TypeInfoDiscoveryMatchesLegacyProjection(
             string typeName,
@@ -224,10 +225,49 @@ public partial class CommandExecutionTests
         Assert.Equal(legacyOutput, directOutput);
     }
 
+    [Fact]
+    public async Task
+        Type_DirectLibraryCoreDelegate_TypeInfoDiscoveryMatchesLegacyProjection()
+    {
+        string assemblyPath =
+            typeof(System.Text.StringBuilder).Assembly.Location;
+        var (directExit, directOutput, directError) =
+            await RunAppAsync(
+                "type",
+                "System.MulticastDelegate",
+                "--library",
+                assemblyPath,
+                "-D",
+                SectionNames.TypeInfo,
+                "--tsv");
+        var (legacyExit, legacyOutput, legacyError) =
+            await RunAppAsync(
+                "type",
+                "System.MulticastDelegate",
+                "--library",
+                assemblyPath,
+                "-k",
+                "constructor",
+                "-D",
+                SectionNames.TypeInfo,
+                "--tsv");
+
+        Assert.True(
+            directExit == 0,
+            $"Direct discovery failed: {directError}");
+        Assert.True(
+            legacyExit == 0,
+            $"Legacy discovery failed: {legacyError}");
+        Assert.Empty(directError);
+        Assert.Empty(legacyError);
+        Assert.Equal(legacyOutput, directOutput);
+    }
+
     [Theory]
     [InlineData("System.Text.StringBuilder")]
     [InlineData("System.IDisposable")]
     [InlineData("System.Action")]
+    [InlineData("System.Delegate")]
     public async Task
         Type_DirectLibraryExactType_BareDiscoveryMatchesPlatformProjection(
             string typeName)
@@ -258,6 +298,76 @@ public partial class CommandExecutionTests
         Assert.Empty(directError);
         Assert.Empty(platformError);
         Assert.Equal(platformOutput, directOutput);
+    }
+
+    [Fact]
+    public async Task
+        Type_DirectLibraryExactType_IncludeAllBareDiscoveryMatchesPlatformProjection()
+    {
+        string typeName = "System.Delegate";
+        var (directExit, directOutput, directError) =
+            await RunAppAsync(
+                "type",
+                typeName,
+                "--library",
+                typeof(System.Text.StringBuilder).Assembly.Location,
+                "-D",
+                "--all",
+                "--tsv");
+        var (platformExit, platformOutput, platformError) =
+            await RunAppAsync(
+                "type",
+                typeName,
+                "--platform",
+                "System.Private.CoreLib",
+                "-D",
+                "--all",
+                "--tsv");
+
+        Assert.True(
+            directExit == 0,
+            $"Direct discovery failed: {directError}");
+        Assert.True(
+            platformExit == 0,
+            $"Platform discovery failed: {platformError}");
+        Assert.Empty(directError);
+        Assert.Empty(platformError);
+        Assert.Equal(platformOutput, directOutput);
+        Assert.Contains(
+            $"{SectionNames.ExtensionMethods}\tsection",
+            directOutput);
+    }
+
+    [Fact]
+    public async Task
+        Type_PackageBackedLibraryDiscoveryRetainsPackageMembershipValidation()
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            var (exit, output, error) =
+                await RunAppAsync(
+                    "type",
+                    "DotnetInspect.Cli.Tests.CommandExecutionTests",
+                    "--package",
+                    packagePath,
+                    "--library",
+                    TestAssemblyPath,
+                    "-D",
+                    SectionNames.TypeInfo,
+                    "--tsv");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(
+                "not found in package",
+                error,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
     }
 
     [Fact]

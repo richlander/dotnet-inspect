@@ -32,6 +32,19 @@ public static class TypeExtensionMethodPresenceInspectionOperation
         MetadataTypeDefinitionName receiver,
         long maxMetadataRows,
         CancellationToken cancellationToken = default)
+        => Execute(
+            source,
+            receiver,
+            maxMetadataRows,
+            includeNonPublic: false,
+            cancellationToken);
+
+    public static TypeExtensionMethodPresenceInspectionOutcome Execute(
+        ResolvedAssemblyReference source,
+        MetadataTypeDefinitionName receiver,
+        long maxMetadataRows,
+        bool includeNonPublic,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(receiver);
@@ -48,6 +61,7 @@ public static class TypeExtensionMethodPresenceInspectionOperation
                 source.Identity,
                 receiver,
                 maxMetadataRows,
+                includeNonPublic,
                 cancellationToken);
         }
         catch (Exception exception) when (
@@ -67,6 +81,7 @@ public static class TypeExtensionMethodPresenceInspectionOperation
         AssemblyReferenceIdentity assembly,
         MetadataTypeDefinitionName receiver,
         long maxMetadataRows,
+        bool includeNonPublic,
         CancellationToken cancellationToken,
         MetadataTypeDefinitionAddress? receiverDefinition = null)
     {
@@ -78,6 +93,7 @@ public static class TypeExtensionMethodPresenceInspectionOperation
                         receiver,
                         receiverDefinition),
                     new(maxMetadataRows),
+                    includeNonPublic,
                     sourceAssembly: assembly),
                 cancellationToken);
         return outcome switch

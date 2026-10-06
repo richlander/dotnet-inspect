@@ -221,9 +221,12 @@ internal static partial class MetadataRelationInspection
 
             bool typeExcluded =
                 !includeNonPublic
-                && AttributeReader.HasHiddenAttribute(
-                    reader,
-                    type.GetCustomAttributes());
+                && (!IsPublicExtensionContainer(
+                        reader,
+                        typeHandle)
+                    || AttributeReader.HasHiddenAttribute(
+                        reader,
+                        type.GetCustomAttributes()));
             foreach (TypeDefinitionHandle groupingHandle
                 in type.GetNestedTypes())
             {
@@ -329,6 +332,23 @@ internal static partial class MetadataRelationInspection
         }
 
         return false;
+    }
+
+    private static bool IsPublicExtensionContainer(
+        MetadataReader reader,
+        TypeDefinitionHandle handle)
+    {
+        TypeDefinition definition =
+            reader.GetTypeDefinition(handle);
+        TypeAttributes visibility =
+            definition.Attributes
+            & TypeAttributes.VisibilityMask;
+        if (definition.GetDeclaringType().IsNil)
+            return visibility == TypeAttributes.Public;
+        return visibility == TypeAttributes.NestedPublic
+            && IsPublicExtensionContainer(
+                reader,
+                definition.GetDeclaringType());
     }
 
     private static bool TryReadExtensionDeclaration(

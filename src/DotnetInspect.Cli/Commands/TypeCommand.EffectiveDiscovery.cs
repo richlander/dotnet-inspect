@@ -62,6 +62,7 @@ public static partial class TypeCommand
                     .ExecuteWithExtensionPresence(
                         assembly,
                         inspectionPlan,
+                        options.IncludeAll,
                         cancellationToken)
                 : null;
         InspectionEnvelope<TypeDocumentInspectionOutcome> envelope =
@@ -183,11 +184,8 @@ public static partial class TypeCommand
             ["Field", "Value"]);
         manifest.RecordField(SectionNames.TypeInfo, "Type");
         manifest.RecordField(SectionNames.TypeInfo, "Kind");
-        if (type.IsStatic
-            || type.Kind == "class"
-                && (type.IsAbstract || type.IsSealed)
-            || type.Kind == "struct"
-                && (type.IsReadOnly || type.IsByRefLike))
+        if (ILInspector.Research.ResearchViews
+                .TypeModifiers(type).Count > 0)
         {
             manifest.RecordField(
                 SectionNames.TypeInfo,
@@ -237,6 +235,11 @@ public static partial class TypeCommand
         if (!options.EffectiveDiscovery
             || options.EnvelopeOutput
             || options.DiscoverDeferredToListing
+            || options.PackagePath is not null
+            || options.PackageRangeAddress is not null
+            || options.PlatformAssembly is not null
+            || options.ProjectPath is not null
+            || options.ProjectAssetsPath is not null
             || options.TypeFilter is not null
             || options.MemberFilter.Count > 0
             || options.KindFilter.Count > 0
@@ -286,14 +289,7 @@ public static partial class TypeCommand
             (attributes & TypeAttributes.Abstract) != 0;
         bool isSealed =
             (attributes & TypeAttributes.Sealed) != 0;
-        string kind = subject.Category switch
-        {
-            MetadataTypeDeclarationCategory.Class => "class",
-            MetadataTypeDeclarationCategory.Interface => "interface",
-            MetadataTypeDeclarationCategory.Delegate => "delegate",
-            _ => throw new InvalidOperationException(
-                "Unsupported exact Type discovery declaration category."),
-        };
+        string kind = TypeKind(subject, baseKind);
         return new()
         {
             Namespace = typeName.Namespace.Length == 0
@@ -335,6 +331,44 @@ public static partial class TypeCommand
                 selectorCounts,
                 hasExtensionMethods),
             SourceAssemblyPath = assemblyPath,
+        };
+    }
+
+    static string TypeKind(
+        TypeSubject subject,
+        MetadataTypeDeclarationBaseKind baseKind)
+    {
+        if (subject.Category
+            is MetadataTypeDeclarationCategory.Interface)
+        {
+            return "interface";
+        }
+        if (subject.Category
+            is MetadataTypeDeclarationCategory.Delegate)
+        {
+            return "delegate";
+        }
+        if (baseKind
+            is MetadataTypeDeclarationBaseKind.Enum)
+        {
+            return "enum";
+        }
+        if (baseKind
+            is MetadataTypeDeclarationBaseKind.ValueType)
+        {
+            return "struct";
+        }
+        if (subject.DefinesCoreLibraryRoot
+            && subject.Type.ToMetadataFullName()
+                == "System.MulticastDelegate")
+        {
+            return "delegate";
+        }
+        return subject.Category switch
+        {
+            MetadataTypeDeclarationCategory.Class => "class",
+            _ => throw new InvalidOperationException(
+                "Unsupported exact Type discovery declaration category."),
         };
     }
 

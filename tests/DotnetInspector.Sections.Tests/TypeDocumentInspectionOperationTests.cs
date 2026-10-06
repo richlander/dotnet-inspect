@@ -103,11 +103,27 @@ public sealed class TypeDocumentInspectionOperationTests
     [InlineData(
         "System.Collections.Generic",
         "List`1",
+        false,
         true)]
-    [InlineData("System.Text", "StringBuilder", false)]
+    [InlineData(
+        "System.Text",
+        "StringBuilder",
+        false,
+        false)]
+    [InlineData(
+        "System",
+        "Delegate",
+        false,
+        false)]
+    [InlineData(
+        "System",
+        "Delegate",
+        true,
+        true)]
     public void DirectAssembly_ExtensionPresenceUsesContextualRelations(
         string @namespace,
         string type,
+        bool includeNonPublic,
         bool expectedExtensions)
     {
         ResolvedAssemblyReference assembly =
@@ -122,6 +138,7 @@ public sealed class TypeDocumentInspectionOperationTests
                 new(
                     Name(@namespace, type),
                     s_bounds),
+                includeNonPublic,
                 TestContext.Current.CancellationToken);
 
         _ = Available(result.Document);
