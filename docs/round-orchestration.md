@@ -252,7 +252,7 @@ values.
 
 Every round attempts one current-head snapshot, starting with the local
 conflict probe. When CI is a reviewer-dispatch prerequisite, pending, missing,
-rate-limited, or transient status enters the 60-minute budget below; expiry
+rate-limited, or transient status enters the 30-minute budget below; expiry
 publishes the status report (or, for a probe failure, the classified failure
 described at the end of this section) and stops without dispatch. When CI may remain pending, record that status and continue the
 current review path. A known conflict leaves the wait immediately for
@@ -262,7 +262,7 @@ carries a conflict predicate, and an unreadable API does not hold it (see
 Required CI completed without success or a terminal query failure still takes
 its transition.
 
-A reviewer-dispatch CI prerequisite spends up to a 60-minute status budget
+A reviewer-dispatch CI prerequisite spends up to a 30-minute status budget
 before dispatch. Every third round, and any merge or readiness goal, may use the
 same bound. Every sixth round uses that budget, but fresh green current-head
 `ci-required` and positive mergeability remain prerequisites for the next-block
@@ -291,7 +291,9 @@ its probe records a conflict, leave the wait for conflict recovery at once and
 publish no report: a recorded local conflict never reaches expiry, including
 when the final snapshot is the one that finds it. If its fetched live base
 differs from `conflict-checked-base` (a fetch or probe failure), clear
-`schedule`, classify and surface the failure, and set `rec=stop`. Otherwise
+`schedule`, classify and surface the failure, and set `rec=stop`. If the final
+snapshot observes required CI completed without success, take the applicable
+gate-failure transition rather than publishing an expiry report. Otherwise
 clear `schedule`, keep the unresolved predicates, publish the report, set
 `rec=stop`, and end. This is an informational stop: it ends observation only
 and neither closes nor abandons the PR.
@@ -312,7 +314,7 @@ Status not observed for PR <number> at round <n> after <mm> minutes.
 - Snapshots: <count>, last at <datetime>.
 - This is not a CI result. No failing check was observed. GitHub documents
   hosted-job execution limits up to 6 hours and self-hosted queue limits up to
-  24 hours, so this repository's 60-minute budget can expire first.
+  24 hours, so this repository's 30-minute budget can expire first.
 - Effect: <next round not started | boundary approval withheld>.
 - Next: <what a later user or workflow turn should re-check>.
 Recommendation: stop (status budget exhausted); nothing is closed or abandoned.
