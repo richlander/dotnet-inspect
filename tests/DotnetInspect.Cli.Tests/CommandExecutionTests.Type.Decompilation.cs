@@ -1140,6 +1140,43 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task
+        Type_Tree_FallsBackWhenCompactTypeInventoryExceedsBound()
+    {
+        string directory =
+            Directory.CreateTempSubdirectory(
+                "oversized-type-inventory-").FullName;
+        string path =
+            Path.Combine(directory, "OversizedTypeInventory.dll");
+        try
+        {
+            await File.WriteAllBytesAsync(
+                path,
+                MetadataTestImages.BuildOversizedTypeInventoryImage(
+                    unrelatedTypeCount: 15_001),
+                TestContext.Current.CancellationToken);
+
+            var (exit, output, error) = await RunAppAsync(
+                "type",
+                "Oversized.Target",
+                "--library",
+                path,
+                "--tree");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("Oversized.Target", output);
+            Assert.DoesNotContain(
+                "Library Type Rows",
+                error,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Type_BareStringAlias_RendersCoreLibString()
     {
         var (exit, output, error) = await RunAppAsync(

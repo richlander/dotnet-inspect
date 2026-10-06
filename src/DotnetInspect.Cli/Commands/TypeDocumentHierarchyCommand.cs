@@ -162,9 +162,10 @@ internal static class TypeDocumentHierarchyCommand
                 new(
                     LibraryTypeDeclarationSelection.Definitions,
                     ApiTypeInventoryKinds.All),
-                cancellationToken);
+                cancellationToken,
+                writeFailures: false);
         if (listing is null)
-            return new TypeHierarchyInspectionResult.Failed();
+            return new TypeHierarchyInspectionResult.NotApplicable();
 
         if (!TryResolveType(
                 listing.Rows,

@@ -218,7 +218,8 @@ internal static class LibraryTypeListingCommand
         CancellationToken cancellationToken,
         string? @namespace = null,
         MetadataNamespaceMatch namespaceMatch =
-            MetadataNamespaceMatch.Exact)
+            MetadataNamespaceMatch.Exact,
+        bool writeFailures = true)
     {
         var rows = ImmutableArray.CreateBuilder<LibraryTypeShape>();
         LibraryDocument? firstDocument = null;
@@ -247,7 +248,8 @@ internal static class LibraryTypeListingCommand
                 session.Execute(plan, cancellationToken);
             if (!TryGetDocument(
                     envelope,
-                    out LibraryDocument document))
+                    out LibraryDocument document,
+                    writeFailures))
             {
                 return null;
             }
@@ -256,15 +258,19 @@ internal static class LibraryTypeListingCommand
             binding ??= document.Types!.Binding;
             if (document.Types!.Binding != binding)
             {
-                CommandError.Write(
-                    "The Library Type population changed while rows "
-                        + "were being read.");
+                if (writeFailures)
+                {
+                    CommandError.Write(
+                        "The Library Type population changed while rows "
+                            + "were being read.");
+                }
                 return null;
             }
             if (document.Types.Rows
                 is not LibraryTypePopulationRowsOutcome.Read read)
             {
-                WriteRowsFailure(document.Types.Rows);
+                if (writeFailures)
+                    WriteRowsFailure(document.Types.Rows);
                 return null;
             }
 
@@ -275,9 +281,12 @@ internal static class LibraryTypeListingCommand
                 string current = continuation.Value.ToString();
                 if (!continuations.Add(current))
                 {
-                    CommandError.Write(
-                        "The Library Type population repeated a "
-                            + "continuation.");
+                    if (writeFailures)
+                    {
+                        CommandError.Write(
+                            "The Library Type population repeated a "
+                                + "continuation.");
+                    }
                     return null;
                 }
             }
@@ -293,27 +302,35 @@ internal static class LibraryTypeListingCommand
 
     private static bool TryGetDocument(
         InspectionEnvelope<LibraryInspectionOutcome>? envelope,
-        out LibraryDocument document)
+        out LibraryDocument document,
+        bool writeFailures = true)
     {
         document = null!;
         if (envelope is null)
             return false;
 
-        bool hasErrors = WriteDiagnostics(envelope.Diagnostics);
+        bool hasErrors = writeFailures
+            && WriteDiagnostics(envelope.Diagnostics);
         switch (envelope.Content)
         {
             case LibraryInspectionOutcome.Available available:
                 document = available.Document;
                 return !hasErrors;
             case LibraryInspectionOutcome.Rejected rejected:
-                CommandError.Write(
-                    "The Library inspection request was rejected.",
-                    $"Reason: {rejected.Reason}");
+                if (writeFailures)
+                {
+                    CommandError.Write(
+                        "The Library inspection request was rejected.",
+                        $"Reason: {rejected.Reason}");
+                }
                 return false;
             case LibraryInspectionOutcome.Failed failed:
-                CommandError.Write(
-                    "The Library inspection failed.",
-                    $"Reason: {failed.Reason}");
+                if (writeFailures)
+                {
+                    CommandError.Write(
+                        "The Library inspection failed.",
+                        $"Reason: {failed.Reason}");
+                }
                 return false;
             default:
                 throw new InvalidOperationException(
