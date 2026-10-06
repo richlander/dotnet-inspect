@@ -317,8 +317,12 @@ has settled. The selected set must equal the prefix produced by the complete
 pre-cap plan, and selected targets return in original metadata order. Assembly
 order and the global cross-assembly cap remain host-owned and unchanged.
 DecompilerHarness corpus `rts-native` and `rts-cutover` execution consume this
-plan before native RTS evaluation; their per-assembly fidelity cap must settle
-exactly or the corpus run fails visibly. Corpus result association uses the
+plan before native RTS evaluation. Their per-assembly fidelity cap is an upper
+bound: the plan must either settle the cap or exhaust the scoped population.
+An exhausted population whose owner-eligible targets fall below the cap is a
+recorded shortfall that the status stream names and the snapshot carries as
+its selected count. A short selection that did not exhaust the population
+fails the corpus run visibly. Corpus result association uses the
 selected target's assembly, declaring type, method name, and metadata overload
 ordinal rather than reparsing its display signature. The harness status stream
 reports the capped plan's ranked and deeply evaluated body counts, declaration
@@ -1015,9 +1019,10 @@ paired cutover evidence was developed under
 
 Routine corpus fidelity must measure a target population selected without
 executing or consulting legacy compile-back. For each assembly and positive
-cap, the corpus-owned stable method hash and full stable member key choose
-exactly that many non-synthesized targets. Selection completes before an oracle
-runs. Because one snapshot contains one complete member ledger, an independently
+cap, the owner-issued capped plan in
+[Standalone method target selection](#standalone-method-target-selection)
+chooses up to that many eligible targets, settling the cap or exhausting the
+assembly's eligible population. Selection completes before an oracle runs. Because one snapshot contains one complete member ledger, an independently
 selected RTS invocation accepts at most one distinct positive cap; cap
 comparisons use separate invocations.
 
@@ -1047,8 +1052,9 @@ artifact.
 
 The typed snapshot records the repository revision and source state captured
 when the harness was built, Roslyn compiler identity, runtime and platform
-identity, corpus profile, caps, input paths and module MVIDs. An assembly that
-cannot supply the exact requested non-synthesized target cap fails the run.
+identity, corpus profile, caps, input paths and module MVIDs. An assembly
+whose exhausted eligible population is below the cap contributes every
+eligible target and is reported as a shortfall rather than failing the run.
 After selection and before native evaluation, every selected target must have
 a row in the snapshot's complete member ledger. A finite corpus method cap that
 omits any selected target fails the run visibly rather than emitting fidelity
