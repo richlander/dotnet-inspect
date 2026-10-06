@@ -223,6 +223,28 @@ public sealed class EcosystemPackageClassificationTests
             new("External.Package", "1.0.0"), "net10.0", inventory));
     }
 
+    [Theory]
+    [InlineData("Microsoft.NETCore.App", "ecosystem.runtime", PlatformFamily.DotNetRuntime)]
+    [InlineData("microsoft.netcore.app", "ecosystem.runtime", PlatformFamily.DotNetRuntime)]
+    [InlineData("MICROSOFT.NETCORE.APP", "ecosystem.runtime", PlatformFamily.DotNetRuntime)]
+    [InlineData("Microsoft.AspNetCore.App", "ecosystem.aspnetcore", PlatformFamily.AspNetCore)]
+    [InlineData("microsoft.aspnetcore.app", "ecosystem.aspnetcore", PlatformFamily.AspNetCore)]
+    [InlineData("MICROSOFT.ASPNETCORE.APP", "ecosystem.aspnetcore", PlatformFamily.AspNetCore)]
+    public void PlatformFamilyCasingPreservesOwnershipAndPruning(
+        string family, string ecosystem, PlatformFamily layer)
+    {
+        PlatformPruneInventory inventory = PlatformPruneInventory.FromExactFamily(
+            new(family, "net10.0", NuGetVersion.Parse("10.0.12")),
+            ["External.Package|1.0.0"]);
+
+        EcosystemPackage package = Known(new("External.Package", "1.0.0"), "net10.0", inventory);
+
+        Assert.Equal(ecosystem, package.Ecosystem.Id.Value);
+        Assert.Equal(layer, package.PlatformOwnedInfo!.Layer);
+        Assert.True(package.PlatformOwnedInfo.IsPruned);
+        Assert.Equal(family, package.PlatformOwnedInfo.Evidence.Supply.Family);
+    }
+
     private static EcosystemPackage Known(PackageCoordinate coordinate, string tfm, PlatformPruneInventory inventory) =>
         Assert.IsType<EcosystemPackageResult.Known>(
             EcosystemPackCatalog.IsEcosystemPackage(coordinate, tfm, inventory)).Package;

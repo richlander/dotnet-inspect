@@ -45,8 +45,10 @@ public static partial class EcosystemPackCatalog
         {
             PlatformFamily layer = family switch
             {
-                "Microsoft.NETCore.App" => PlatformFamily.DotNetRuntime,
-                "Microsoft.AspNetCore.App" => PlatformFamily.AspNetCore,
+                _ when family.Equals("Microsoft.NETCore.App", StringComparison.OrdinalIgnoreCase) =>
+                    PlatformFamily.DotNetRuntime,
+                _ when family.Equals("Microsoft.AspNetCore.App", StringComparison.OrdinalIgnoreCase) =>
+                    PlatformFamily.AspNetCore,
                 _ => throw new ArgumentException(
                     $"Unsupported ecosystem platform family '{family}'.",
                     nameof(inventory)),
