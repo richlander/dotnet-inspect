@@ -564,7 +564,7 @@ The lower shared Vocabulary catalog cannot reference
 from the application registry. Any future generic query-value representation
 requires a host-contribution seam owned by the Vocabulary design and cannot
 duplicate package-set identities or membership. Until such a seam exists,
-package sets do not appear as a `vocabulary` section.
+package sets do not appear as a product vocabulary.
 
 ## Demo
 

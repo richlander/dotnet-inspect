@@ -1052,33 +1052,6 @@ do not establish cardinality. Producers outside Markout, such as metadata
 tables, expose the same declared logical rows to L2 that their renderers
 consume.
 
-### Approved `vocabulary --json` compatibility boundary
-
-The CLI host's plain, unprojected `vocabulary --json` path is an approved
-bounded exception to ordinary Markout lowering. Its typed input is the selected
-owner-issued `VocabularySection` sequence plus the catalog schema version, and
-its lowering boundary is `VocabularyWireDocument` through the generated
-`VocabularyWireJsonContext` or `VocabularyWireCompactJsonContext`. The visible
-result is the established schema-versioned document containing section
-metadata, accepted-command identities, field schemas, operators, and typed
-value cells.
-
-This boundary exists because the lowered Markout table shape intentionally
-contains display rows, not the catalog's schema and typed values. Moving this
-path through Markout would discard that information or change the public wire
-contract. The exception is limited to this CLI host and plain unprojected
-`--json`; Markdown, plain text, table, TSV, JSONL, and projected JSON serialize
-one typed `VocabularyView` through `VocabularyViewContext`. The Release gates
-are
-`VocabularyCommandTests.JsonSerialization_PreservesWireShapeAcrossIndentationModes`,
-`Command_JsonCarriesTypedSchemaAndValues`,
-`Command_DefaultRendersTheSelfDescribingSectionIndex`,
-`Command_PlainTextUsesThePlainTextFormatter`,
-`Command_JsonlUsesProjectedRuntimeColumns`, and
-`Command_PartialMachineKeyProjectionKeepsSectionIdentityAcrossFormats`.
-The focused adoption is tracked by
-[#6811](https://github.com/richlander/dotnet-inspect/issues/6811).
-
 ### Approved cache JSON compatibility boundary
 
 The CLI host's `cache --json` and `cache --jsonl` paths are an approved bounded
@@ -1544,7 +1517,7 @@ not a rendering of the service envelope.
 | Flag | Effect |
 | --- | --- |
 | `--markdown` | force the full Markdown Document format |
-| `--json` | render the selected shape as JSON: the whole Document when no narrower shape is selected, otherwise the projected payload (`--print`, `--value`, `--urls`, `--paths`). Accepted lenses and payload projections claim their own output first. Plain document `--json` keeps the pre-lowered typed document; an otherwise-unclaimed, non-empty `--fields`/`--columns` request names lowered vocabulary and opts into the lowered display view (#3494), with the same machine table keys as `--jsonl` and with semantic item/range windows and `--compact` preserved. `find` and `vocabulary` currently wire lowered document paths, while discovery owns projected JSON under its lens contract; unadopted projection-capable routes reject unsupported combinations before typed JSON serialization. Complete structured values for the historical item/line target remain unverified and await focused ownership; `ProjectedJsonWindowingTests` covers only its named current projected-JSON paths. See [Projected JSON output](projected-json.md) for routing, representability, diagnostics, and compatibility. |
+| `--json` | render the selected shape as JSON: the whole Document when no narrower shape is selected, otherwise the projected payload (`--print`, `--value`, `--urls`, `--paths`). Accepted lenses and payload projections claim their own output first. Plain document `--json` keeps the pre-lowered typed document; an otherwise-unclaimed, non-empty `--fields`/`--columns` request names lowered vocabulary and opts into the lowered display view (#3494), with the same machine table keys as `--jsonl` and with semantic item/range windows and `--compact` preserved. `find` currently wires a lowered document path, while discovery owns projected JSON under its lens contract; unadopted projection-capable routes reject unsupported combinations before typed JSON serialization. Complete structured values for the historical item/line target remain unverified and await focused ownership; `ProjectedJsonWindowingTests` covers only its named current projected-JSON paths. See [Projected JSON output](projected-json.md) for routing, representability, diagnostics, and compatibility. |
 | `--tsv` / `--jsonl` | render the single selected section as TSV / JSON Lines (a Table or Vector) |
 | `--table` | render the single selected section as a space-padded pretty table |
 | `--no-header` (`--no-headers`) | drop the Table header row |

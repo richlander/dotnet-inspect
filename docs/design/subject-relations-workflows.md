@@ -215,8 +215,8 @@ definition of enumeration support.
 
 ## Command placement
 
-Retain `ecosystem` as the ecosystem vocabulary, analogous to `vocabulary` for
-the tool's own query vocabulary. It exposes the identities and configured
+Retain `ecosystem` as the ecosystem vocabulary, analogous to
+`explain vocabularies` for the tool's own query vocabularies. It exposes the identities and configured
 knowledge that many queries join against; it is not another relation-specific
 artifact-inspection verb.
 
@@ -229,7 +229,7 @@ workflows and evidence, not necessarily their command tokens.
 
 | Surface | Target role |
 | --- | --- |
-| `vocabulary` | Discover the tool's query terms and their meanings. |
+| `explain vocabularies` | Discover the tool's query terms and their meanings. |
 | `ecosystem` | Discover ecosystem identities, concepts/bindings and configured contributions: the ecosystem vocabulary used across queries. |
 | `find` | Locate packages, libraries, types and members, with exact reopening context. Ecosystem selection narrows its candidate population. |
 | Subject commands plus `@Relations` | Primary local direct-relation experience, with the subject's existing resolution and sharing path. |
@@ -1022,7 +1022,7 @@ incomplete coverage.
 `find -D Results` exposes the result shape. `find -Q Results` should disclose
 the adopted predicate keys, required result kind, combination rules and
 shortcut equivalents; command help advertises the same expansions, and
-`vocabulary` explains the signature family and its alternatives. Discovery is
+`explain vocabularies` explains the signature family and its alternatives. Discovery is
 a separate request, not `-Q` combined with execution flags. This keeps the
 easy gesture teachable while exposing how to build a more specific query.
 
@@ -1199,9 +1199,9 @@ enable it.
 Signature uses, throws and qualified pattern candidates remain available through
 `Relations` and its filters; a `--span` predicate does not introduce a `Span`
 section, and `--throws` does not introduce an `Exceptions` section.
-The current member `Signature` view, Find `Results`, ecosystem
-catalog sections and vocabulary sections do not become category members
-merely because these workflows use them.
+The current member `Signature` view, Find `Results`, and ecosystem
+catalog sections do not become category members merely because these
+workflows use them.
 
 Selecting `@Relations` selects its distinct sections, so a curated section
 may summarize evidence also present in `Relations`. It is not a union whose

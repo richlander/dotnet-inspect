@@ -26,8 +26,7 @@ public inline-to-plain rendering. This string-valued seam is why lowered JSON
 intentionally differs from the pre-lowered typed JSON contract described
 below.
 
-Implementation is partial. `find` type/member search and `vocabulary` have
-lowered JSON paths; the main `type` and `member` document paths still reject
+Implementation is partial. `find` type/member search has a lowered JSON path; the main `type` and `member` document paths still reject
 column projection under `--json`. `project` also rejects projection, while
 `library`, `package`, `diff --history`, `implements`, and `extensions` reject
 otherwise-unclaimed `--json --fields/--columns` requests at the typed-document
@@ -37,8 +36,8 @@ schema under the lens contract; unadopted lens routes such as
 individually rather than treating the existing formatter as evidence that
 every section or route is correct.
 
-The pilots do not yet satisfy the full contract. In particular, the current
-global rendered-line limiter can truncate their lowered JSON, section and field
+The `find` pilot does not yet satisfy the full contract. In particular, the
+current global rendered-line limiter can truncate its lowered JSON, section and field
 keys are still derived from display headings, and section-scoped projection has
 not been proven over broad multi-section documents.
 The historical #4677 target proposed that semantic item/range windows happen
@@ -276,9 +275,9 @@ have the same keys in the same order and the same string values.
 Sections and fields should use declared machine names when the section model
 provides them. While the formatter seam exposes only display names, converting
 them with the shared snake_case policy is an allowed transitional mechanism.
-The keys already emitted by the shipped `find` and `vocabulary` pilots are
-nevertheless compatibility-significant now; changing `results`, `members`, or
-any shipped vocabulary section key requires an explicit migration. Before a
+The keys already emitted by the shipped `find` pilot are nevertheless
+compatibility-significant now; changing `results` or `members` requires an
+explicit migration. Before a
 new command family is adopted, it must either wire declared machine identities
 or publish and gate an explicit machine-key manifest for every emitted root
 field, section, field, and labeled array.
@@ -397,12 +396,6 @@ reconstruct native annotation properties from those strings. A graph lowering
 that cannot deliver the selected cues through a structured tree/graph callback
 is unrepresentable and fails visibly rather than emitting the unannotated
 graph.
-
-`vocabulary` is one explicit shipped compatibility exception. That command
-accepts `--fields` as an alias for table-column projection, so
-`vocabulary --fields Section` and `--columns Section` retain equivalent rows
-and diagnostics. The alias is resolved by the command before the generic
-section plan and must not spread to other table commands.
 
 Within each active family, a requested name is valid when it resolves in at
 least one `Project` section. A `Project` section with no resolved names
@@ -558,9 +551,6 @@ compatibility-significant because both share the root namespace and must remain
 collision-free.
 
 Shipped route semantics are compatibility-significant as well.
-`vocabulary --fields` remains a table-column alias; conforming other commands
-to the default field/column distinction must not remove or generalize that
-exception accidentally.
 
 ## Adoption sequence
 
@@ -569,9 +559,9 @@ Adopt one coherent command family at a time.
 1. **Harden the shared path.** Add dialect routing, section-scoped projection,
    combined-family composition, lens precedence, labeled-array preservation,
    Markout inline-to-plain rendering, pinned machine-key plans, graph-field
-   parity, the pinned `vocabulary --fields` alias, representability preflight,
-   transactional stdout, and integration with the item/range/line limit
-   contract around the existing `find`/`vocabulary` formatter. Move or expose
+   parity, representability preflight, transactional stdout, and integration
+   with the item/range/line limit contract around the existing `find`
+   formatter. Move or expose
    projection decisions at the L2 boundary.
 2. **Audit every projection-capable route.** Prove that each accepted
    `--json --fields/--columns` request is owned by a lens/payload, rendered as
@@ -658,8 +648,8 @@ Existing pilot coverage proves only the currently wired slice:
   `ProjectedJsonRoutingAudit_PackageSearchWindowConflictsFailBeforeNetwork`,
   `ProjectedJsonRoutingAudit_TypeShapeFailsClosed`, and
   `ProjectedJsonRoutingAudit_TypeShapePayloadProjectionsFailClosed`
-  tests, together with the existing `type`, `member`, `project`, `find`,
-  `vocabulary`, and payload-projection tests, gate that every current route
+  tests, together with the existing `type`, `member`, `project`, `find`, and
+  payload-projection tests, gate that every current route
   lowers, rejects, or is claimed before typed-document serialization.
 
 The full contract remains **unverified** until these remaining future gates are
@@ -675,7 +665,6 @@ implemented:
 | `ProjectedJsonInlineValueTests` | Markout semantic inline markup is rendered to plain text in fields, table cells, unlabeled and labeled-array items, and tree text/badges; literal blob/code payloads remain unchanged, and primitive-looking strings remain strings. |
 | `ProjectedJsonSectionScopedProjectionTests` | Multi-section projections honor each section's `Project`/`PassThrough`/`Incompatible` disposition, including graph-plus-table omission, graph-only failure, and simultaneous field/column composition without discarding either family, and preserve requested ordering. |
 | `ProjectedJsonGraphFieldTests` | Requested graph/tree cue fields change lowered `text`/`badge` content exactly as in the display view; unrequested cues stay absent and unsupported graph lowerings fail visibly. |
-| `ProjectedJsonLegacyAliasTests` | Shipped `vocabulary --fields` and equivalent `--columns` requests retain decoded row and diagnostic parity without enabling that alias for other table commands. |
 | `ProjectedJsonMachineKeyTests` | Every shipped or newly adopted root field, section, field, column, and labeled array has a unique pinned machine key independent of display-heading changes. |
 | `ProjectedJsonDiagnosticsTests` | Partial, unmatched, projected-away, all-`PassThrough`, empty, no-result, no-data, and unrepresentable requests have the documented output/stderr/exit behavior; unmatched-name failure requires at least one applicable `Project` section. |
 | `ProjectedJsonAtomicityTests` | Every pre-commit projection/formatter failure leaves stdout empty; removing the buffer fails the test. |
@@ -697,8 +686,7 @@ JSON.
   or `--rows`; silently dropped typed modifiers remain defects.
 - No compatibility waiver for commands that currently drop
   `--fields`/`--columns`; their migration must be explicit.
-- No general field-to-column alias; the shipped `vocabulary` exception is
-  command-owned and gated.
+- No field-to-column alias.
 - No second item-domain, range, line-window, or multi-print contract; any
   adoption here must consume the focused owners sequenced by the [item-and-line
   composition](item-and-line-limits.md#composition).

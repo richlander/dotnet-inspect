@@ -83,7 +83,13 @@ public sealed class BrowserVocabularyCompositionTests
 
         Assert.NotNull(result);
         Assert.Equal(BrowserVocabularyExplanationOutcome.Explained, result.Outcome);
-        JsonElement resource = result.Explanation!.Content
+        Assert.True(JsonElement.DeepEquals(
+            CatalogExports.ExplainVocabulariesCore(
+                    "vocabularies/csharp.style-tiers/values/spelling",
+                    0)
+                .Explanation!.Content,
+            result.Explanation!.Content));
+        JsonElement resource = result.Explanation.Content
             .GetProperty("resources")[0];
         Assert.Equal(
             "vocabularies/csharp.style-tiers/values/spelling",

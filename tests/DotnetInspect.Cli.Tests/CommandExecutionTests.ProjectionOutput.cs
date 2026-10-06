@@ -497,7 +497,6 @@ public partial class CommandExecutionTests
                 "package query",
                 "project",
                 "type",
-                "vocabulary",
             },
             routes);
 

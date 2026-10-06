@@ -37,11 +37,6 @@ public static class SectionCategoryNames
     public const string Project = "@Project";
 
     /// <summary>
-    /// Product-owned query vocabularies. This is the vocabulary command's base category.
-    /// </summary>
-    public const string Vocabulary = "@Vocabulary";
-
-    /// <summary>
     /// Product-configured knowledge available on the selected ecosystem route.
     /// This is the ecosystem command's base category.
     /// </summary>
@@ -58,9 +53,6 @@ public static class SectionCategoryNames
     /// <c>package query</c> command's base category.
     /// </summary>
     public const string Query = "@Query";
-
-    /// <summary>Vocabularies consumed by API type and member queries.</summary>
-    public const string Api = "@API";
 
     /// <summary>
     /// Safety, provenance, integrity, and vulnerability evidence at package, library, type, or
