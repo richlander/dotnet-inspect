@@ -92,7 +92,7 @@ async function selectPackageCoordinate(
   const control = packageCoordinateControl(page, change, value);
   const navigationToggle = page.getByRole(
     "button",
-    { name: "Versions", exact: true });
+    { name: "Frameworks & versions", exact: true });
   await expect.poll(async () =>
     await control.isVisible() || await navigationToggle.isVisible()).toBe(true);
   if (!await control.isVisible()) await navigationToggle.click();
@@ -507,6 +507,10 @@ for (const width of [1280, 390]) {
     await page.setViewportSize({ width, height: 900 });
     await installPackageLoadingFacades(page);
     await page.goto(frameworkRoot);
+    if (width === 390) {
+      await page.getByRole("button", { name: "Frameworks & versions", exact: true }).click();
+      await expect(page.locator('[data-package-framework="net10.0"]')).toBeFocused();
+    }
     const current = page.locator('[data-package-framework="net10.0"]');
     const next = page.locator('[data-package-framework="net9.0"]');
     await current.focus();
@@ -580,8 +584,7 @@ for (const change of packageCoordinateChanges) {
         await expectPackageCoordinateView(
           page, view, change.version, change.framework, width);
         await expect(width === 390
-          && change.name === "version"
-          ? page.getByRole("button", { name: "Versions", exact: true })
+          ? page.getByRole("button", { name: "Frameworks & versions", exact: true })
           : packageCoordinateControl(
               page, change, change.selected)).toBeFocused();
         await expect(page.locator("#inspector-panel")).not.toHaveAttribute("aria-busy", "true");
@@ -593,8 +596,7 @@ for (const change of packageCoordinateChanges) {
         await expectPackageCoordinateView(
           page, view, "10.0.0", "net10.0", width);
         await expect(width === 390
-          && change.name === "version"
-          ? page.getByRole("button", { name: "Versions", exact: true })
+          ? page.getByRole("button", { name: "Frameworks & versions", exact: true })
           : packageCoordinateControl(
               page, change, change.original)).toBeFocused();
         await expect(page.locator("#package-content-loading")).toHaveCount(0);
@@ -621,8 +623,7 @@ for (const change of packageCoordinateChanges) {
         await expectPackageCoordinateView(
           page, view, "10.0.0", "net10.0", width);
         await expect(width === 390
-          && change.name === "version"
-          ? page.getByRole("button", { name: "Versions", exact: true })
+          ? page.getByRole("button", { name: "Frameworks & versions", exact: true })
           : packageCoordinateControl(
               page, change, change.name === "version" ? change.original : change.selected)).toBeFocused();
         await expect(page.locator(".query-notice")).toContainText(change.error);
@@ -640,8 +641,7 @@ for (const change of packageCoordinateChanges) {
           page, view, change.version, change.framework, width);
         await expect(page.locator(".query-notice")).toHaveCount(0);
         await expect(width === 390
-          && change.name === "version"
-          ? page.getByRole("button", { name: "Versions", exact: true })
+          ? page.getByRole("button", { name: "Frameworks & versions", exact: true })
           : packageCoordinateControl(
               page, change, change.selected)).toBeFocused();
       });

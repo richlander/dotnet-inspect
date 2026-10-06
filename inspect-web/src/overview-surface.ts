@@ -33,7 +33,6 @@ function renderOverviewEnablements(
 export interface PackageOverviewContentOptions {
   packageInfoHtml: string;
   packageChildrenHtml: string;
-  frameworksHtml: string;
   documentsHtml: string;
 }
 
@@ -51,9 +50,6 @@ export function renderPackageOverviewContent(
       ${options.packageChildrenHtml}
       ${options.documentsHtml}
     </div>
-    <aside class="package-overview-resources" aria-label="Package resources">
-      ${options.frameworksHtml}
-    </aside>
   </div>`;
 }
 

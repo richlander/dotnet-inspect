@@ -52,7 +52,6 @@ test("Package Overview composes Package info with its owner-issued children", ()
     packageInfoHtml: "<section><h2>Package info</h2></section>",
     packageChildrenHtml:
       '<section><h2>Libraries</h2><button data-package-child-library="lib/net10.0/Example.dll">Example</button></section>',
-    frameworksHtml: "<section><h2>Target frameworks</h2></section>",
     documentsHtml: "<section><h2>Documents</h2></section>",
   });
 
@@ -60,7 +59,7 @@ test("Package Overview composes Package info with its owner-issued children", ()
   assert.match(
     html,
     /Package info[\s\S]*<h2>Libraries<\/h2>[\s\S]*data-package-child-library/);
-  assert.match(html, /Libraries[\s\S]*Documents[\s\S]*package-overview-resources[\s\S]*Target frameworks/);
+  assert.match(html, /Libraries[\s\S]*Documents/);
   assert.doesNotMatch(html, /data-lib-scope/);
 });
 

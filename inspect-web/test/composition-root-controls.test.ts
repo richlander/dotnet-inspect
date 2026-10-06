@@ -982,7 +982,7 @@ test("typed shell controls own workbench, home, and load-error bindings", () => 
     /replaceChildrenPreservingRenderedInteractions\(app, `[\s\S]*bindLoadErrorShell\(document, loadErrorShellActions\)/);
   assert.match(
     workbenchActions,
-    /onApplicationAction: dispatchApplicationAction,\s*onCopySubjectSegment: index => \{[\s\S]*currentInspectedSubjectPath\(\)\[index\][\s\S]*copyText\(segment\.label, `\$\{segment\.kind\} name copied`\)[\s\S]*onOpenPackageTargetFramework: \(\) => \{[\s\S]*contentFramePane = "detail";[\s\S]*state\.atPackageRoot = true;[\s\S]*state\.packageLens = "overview";[\s\S]*render\(\);[\s\S]*focusPackageCoordinateControl\("package-framework", currentPackage\(\)\.activeFramework\)[\s\S]*onDismissNotice: dismissQueryNotice,\n  onDismissPackageNotice:/);
+    /onApplicationAction: dispatchApplicationAction,\s*onCopySubjectSegment: index => \{[\s\S]*currentInspectedSubjectPath\(\)\[index\][\s\S]*copyText\(segment\.label, `\$\{segment\.kind\} name copied`\)[\s\S]*onOpenPackageTargetFramework: \(\) => \{[\s\S]*contentFramePane = "navigation";[\s\S]*state\.atPackageRoot = true;[\s\S]*state\.packageLens = "overview";[\s\S]*render\(\);[\s\S]*focusPackageCoordinateControl\("package-framework", currentPackage\(\)\.activeFramework\)[\s\S]*onDismissNotice: dismissQueryNotice,\n  onDismissPackageNotice:/);
   assert.match(
     workbenchActions,
     /onDismissPackageNotice: \(\) => \{[\s\S]*pkg\.inspectionErrors = \[\];[\s\S]*pkg\.inspectionError = "";[\s\S]*render\(\);\s*\},\n  onNavigateBack:/);

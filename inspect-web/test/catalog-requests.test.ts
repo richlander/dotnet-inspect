@@ -76,6 +76,8 @@ for (const [current, insertionIndex, returned, reason, expected] of [
     h.current.version = current;
     await h.requests.ensurePackageVersions(h.current);
     const html = renderPackageNav({
+      frameworks: ["net10.0"],
+      activeFramework: "net10.0",
       versions: packageNavigationVersions(current, h.requests.packageVersions(h.current)),
       activeVersion: current,
       escapeHtml: text => String(text),

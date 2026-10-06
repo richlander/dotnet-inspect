@@ -304,13 +304,21 @@ for (const width of [1440, 390]) {
       });
     await page.goto(root);
     await expect(page.locator("#package-comparison-targets")).toHaveCount(0);
+    const overviewIdentity = await page.locator(".overview-identity").boundingBox();
+    const overviewFooter = await page.locator(".overview-surface-footer").boundingBox();
     await chooseInspector(page, "data-package-lens", "compare", "Compare");
+    const compareIdentity = await page.locator(".overview-identity").boundingBox();
+    const compareFooter = await page.locator(".overview-surface-footer").boundingBox();
+    expect(compareIdentity?.x).toBe(overviewIdentity?.x);
+    expect(compareIdentity?.y).toBe(overviewIdentity?.y);
+    expect(compareFooter?.x).toBe(overviewFooter?.x);
+    expect(compareFooter?.width).toBe(overviewFooter?.width);
     await expect(page.locator(".comparison-target-row")).toHaveCount(2);
     const target = page.locator("#package-diff-target");
     await target.focus();
     await target.selectOption("exact:0.9.0");
     await expect(target).toBeFocused();
-    if (width === 390) await page.getByRole("button", { name: "Versions", exact: true }).click();
+    if (width === 390) await page.getByRole("button", { name: "Frameworks & versions", exact: true }).click();
     await expect(page.locator("[data-package-version]")).toHaveCount(4);
     await page.locator("#package-version-prerelease").uncheck();
     await expect(page.locator('[data-package-version="1.1.0-preview.1"]')).toBeHidden();
@@ -321,6 +329,6 @@ for (const width of [1440, 390]) {
     if (width === 390) await page.getByRole("button", { name: "Show details", exact: true }).click();
     await chooseInspector(page, "data-package-lens", "overview", "Overview");
     await expect(page.locator("#package-comparison-targets")).toHaveCount(0);
-    await expect(page.locator(".package-frameworks")).toBeVisible();
+    await expect(page.locator(".package-version-nav .package-frameworks")).toHaveCount(1);
   });
 }

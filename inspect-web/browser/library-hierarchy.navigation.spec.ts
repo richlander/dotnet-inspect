@@ -483,8 +483,7 @@ for (const width of [1440, 800, 390]) {
     await expect(overview.locator(
       ".package-info-section > .section-title h2"))
       .toHaveText("Package Info");
-    await expect(overview.locator(
-      ".package-overview-resources .section-title h2"))
+    await expect(page.locator(".package-version-nav .package-frameworks h2"))
       .toHaveText("Target frameworks");
     await expect(overview.locator(".package-info-rows dt")).toHaveText([
       "Package Size (compressed)",
@@ -494,28 +493,16 @@ for (const width of [1440, 800, 390]) {
       "Selected-TFM Size",
       "TFMs",
     ]);
-    if (width === 1440) {
-      const inventory = await overview.locator(".package-overview-summary").boundingBox();
-      const resources = await overview.locator(".package-overview-resources").boundingBox();
-      expect(inventory).not.toBeNull();
-      expect(resources).not.toBeNull();
-      expect(resources!.x).toBeGreaterThanOrEqual(inventory!.x + inventory!.width);
-      expect(resources!.y).toBeCloseTo(inventory!.y, 0);
-    } else {
-      const inventory = await overview.locator(".package-overview-summary").boundingBox();
-      const resources = await overview.locator(".package-overview-resources").boundingBox();
-      expect(inventory).not.toBeNull();
-      expect(resources).not.toBeNull();
-      expect(resources!.x).toBeCloseTo(inventory!.x, 0);
-      expect(resources!.y).toBeGreaterThanOrEqual(inventory!.y + inventory!.height);
-    }
+    await expect(overview.locator(".package-overview-resources")).toHaveCount(0);
+    const inventory = await overview.locator(".package-overview-summary").boundingBox();
+    expect(inventory!.width).toBeGreaterThan((await overview.boundingBox())!.width - 40);
     expect(await overview.locator(".overview-scroll").evaluate(scroll =>
       scroll.scrollWidth - scroll.clientWidth)).toBe(0);
     expect(await page.evaluate(() =>
       document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
     if (width === 390) {
-      await page.getByRole("button", { name: "Versions", exact: true }).click();
-      await expect(page.locator('[data-package-version][aria-current="page"]'))
+      await page.getByRole("button", { name: "Frameworks & versions", exact: true }).click();
+      await expect(page.locator('[data-package-framework][aria-current="page"]'))
         .toBeFocused();
       await page.getByRole("button", { name: "Show details", exact: true }).click();
     }
@@ -997,9 +984,9 @@ for (const [selectedLibrary, activation] of [[core, "click"], [empty, "keyboard"
     await expect(page.locator(".package-overview-surface [data-lib-scope]"))
       .toHaveCount(0);
 
-    const frameworks = page.getByRole("button", { name: "Versions", exact: true });
+    const frameworks = page.getByRole("button", { name: "Frameworks & versions", exact: true });
     await frameworks.click();
-    await expect(page.locator('[data-package-version][aria-current="page"]'))
+    await expect(page.locator('[data-package-framework][aria-current="page"]'))
       .toBeFocused();
     const location = page.url();
     const historyLength = await page.evaluate(() => history.length);

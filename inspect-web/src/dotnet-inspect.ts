@@ -176,7 +176,6 @@ import {
   bindPackageView,
   renderPackageNav,
   packageNavigationVersions,
-  renderPackageFrameworks,
   type PackageViewBindingActions,
 } from "./package-view.ts";
 import {
@@ -9043,6 +9042,7 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
     activeScope === "type" && state.lens === "metadata";
   const overviewWorkingSurface =
     (activeScope === "package" && state.packageLens === "overview")
+    || (activeScope === "package" && state.packageLens === "compare")
     || (activeScope === "library" && state.libraryLens === "overview")
     || (activeScope === "type" && forwarder !== null);
   const packageDependenciesWorkingSurface =
@@ -9076,7 +9076,7 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
   const contentFrameEnabled = activeScope !== "workspace";
   const contentNavigationLabel =
     activeScope === "package"
-      ? "Versions"
+      ? "Frameworks & versions"
       : activeScope === "library" && state.rootKind === "library"
         ? "Types"
       : activeScope === "library" && state.rootKind !== "platform"
@@ -9086,7 +9086,6 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
     apiWorkingSurface
     || metadataWorkingSurface
     || overviewWorkingSurface
-    || (activeScope === "package" && state.packageLens === "compare")
     || packageDependenciesWorkingSurface
     || compareWorkingSurface
     || libraryMetadataWorkingSurface
@@ -9859,6 +9858,8 @@ function renderNavPane(
     const entry = catalogRequests.packageVersions(pkg);
     const versions = packageNavigationVersions(pkg.version, entry);
     return renderPackageNav({
+      frameworks: pkg.frameworks,
+      activeFramework: pkg.activeFramework,
       versions,
       activeVersion: pkg.version,
       statusHtml: pkg.source.kind !== "nuget.org"
@@ -11936,7 +11937,6 @@ function renderPackageOverview() {
           <p class="empty-list">Package metadata is unavailable for this coordinate.</p>
         </section>`,
     packageChildrenHtml: renderPackageChildren(pkg),
-    frameworksHtml: renderPackageFrameworks(pkg.frameworks, pkg.activeFramework, escapeHtml),
     documentsHtml: documentsSection,
   });
 
@@ -14058,7 +14058,7 @@ const workbenchShellActions: WorkbenchShellBindingActions = {
       void copyText(segment.label, `${segment.kind} name copied`);
   },
   onOpenPackageTargetFramework: () => {
-    contentFramePane = "detail";
+    contentFramePane = "navigation";
     state.workspaceSubjectOpen = false;
     state.atPackageRoot = true;
     state.atLibraryRoot = false;
@@ -15322,7 +15322,7 @@ function updateVersionSelect(pkg: CatalogPackage) {
     const filter = document.querySelector<HTMLInputElement>("#package-version-filter")?.value ?? "";
     const prerelease = document.querySelector<HTMLInputElement>("#package-version-prerelease")?.checked ?? true;
     const focused = document.activeElement instanceof HTMLElement && pane.contains(document.activeElement)
-      ? { id: document.activeElement.id, version: document.activeElement.dataset.packageVersion } : null;
+      ? { id: document.activeElement.id, version: document.activeElement.dataset.packageVersion, framework: document.activeElement.dataset.packageFramework } : null;
     const scrollTop = document.querySelector("#package-version-list")?.scrollTop ?? 0;
     pane.outerHTML = renderNavPane(null, []);
     const nextFilter = document.querySelector<HTMLInputElement>("#package-version-filter");
@@ -15331,15 +15331,17 @@ function updateVersionSelect(pkg: CatalogPackage) {
     if (nextPrerelease) nextPrerelease.checked = prerelease;
     const nextPane = document.querySelector(".package-version-nav");
     if (nextPane) {
-      packageControls.bindVersionNavigation(nextPane);
+      packageControls.bind(nextPane);
       bindContentFrame(nextPane, { onShowDetail: showContentDetail, onShowNavigation: showContentNavigation });
     }
     const list = document.querySelector("#package-version-list");
     if (list) list.scrollTop = scrollTop;
     if (focused) {
       const target = focused.id ? document.getElementById(focused.id)
-        : [...document.querySelectorAll<HTMLElement>("[data-package-version]")]
-          .find(row => row.dataset.packageVersion === focused.version);
+        : [...document.querySelectorAll<HTMLElement>("[data-package-framework], [data-package-version]")]
+          .find(row => focused.framework !== undefined
+            ? row.dataset.packageFramework === focused.framework
+            : focused.version !== undefined && row.dataset.packageVersion === focused.version);
       target?.focus({ preventScroll: true });
     }
   }

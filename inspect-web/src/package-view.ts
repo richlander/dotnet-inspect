@@ -42,6 +42,8 @@ export function packageNavigationVersions(activeVersion: string, entry: PackageV
 }
 
 export interface PackageNavOptions {
+  frameworks: readonly string[];
+  activeFramework: string;
   versions: readonly string[];
   activeVersion: string;
   statusHtml?: string;
@@ -50,9 +52,11 @@ export interface PackageNavOptions {
 
 export function renderPackageNav(options: PackageNavOptions): string {
   const { versions, activeVersion, statusHtml = "", escapeHtml } = options;
-  return `<aside id="content-navigation-pane" class="type-browser package-version-nav" aria-label="Versions">
-    <div class="browser-head"><div><span class="pane-label">VERSIONS</span><span class="result-count">${versions.length}</span></div>${renderContentNavigationCloseButton()}</div>
+  return `<aside id="content-navigation-pane" class="type-browser package-version-nav" aria-label="Frameworks &amp; versions">
+    <div class="browser-head"><div><span class="pane-label">PACKAGE NAVIGATION</span></div>${renderContentNavigationCloseButton()}</div>
+    ${renderPackageFrameworks(options.frameworks, options.activeFramework, escapeHtml)}
     <section class="package-navigation-controls" aria-label="Version filters">
+      <div class="section-title"><h2>Versions</h2><span>${versions.length}</span></div>
       <label>Filter versions<input id="package-version-filter" type="search" placeholder="Find a version"></label>
       <label><input id="package-version-prerelease" type="checkbox" checked> Include prerelease</label>
       ${statusHtml}
@@ -69,7 +73,7 @@ export function renderPackageFrameworks(
   escapeHtml: (value: unknown) => string,
 ): string {
   return `<section class="document-section package-frameworks"><div class="section-title"><h2>Target frameworks</h2><span>${frameworks.length}</span></div>
-    <div role="group" aria-label="Target frameworks" data-nav-scope="frameworks">${frameworks.map(framework => `<button type="button" class="type-row ${framework === activeFramework ? "selected" : ""}" data-package-framework="${escapeHtml(framework)}"${framework === activeFramework ? ' aria-current="page"' : ""}><span class="kind-icon">T</span><span class="type-name">${escapeHtml(framework)}</span></button>`).join("") || '<p class="empty-list">No target frameworks are available for this package version.</p>'}</div></section>`;
+    <div role="group" aria-label="Target frameworks" tabindex="-1" data-nav-scope="frameworks">${frameworks.map(framework => `<button type="button" class="type-row ${framework === activeFramework ? "selected" : ""}" data-package-framework="${escapeHtml(framework)}"${framework === activeFramework ? ' aria-current="page"' : ""}><span class="kind-icon">T</span><span class="type-name">${escapeHtml(framework)}</span></button>`).join("") || '<p class="empty-list">No target frameworks are available for this package version.</p>'}</div></section>`;
 }
 
 export function bindPackageDependencyList(

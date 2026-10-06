@@ -387,7 +387,7 @@ function scopeBarHtml() {
 }
 
 const contentNavigationLabel = activeScope === "package"
-  ? "Versions"
+  ? "Frameworks & versions"
   : activeScope === "library"
     ? "Libraries"
   : memberMode ? "Members" : "Types";
@@ -395,6 +395,8 @@ const navigationHtml = workspaceMode
   ? workspaceNavigationHtml()
   : activeScope === "package"
     ? renderPackageNav({
+        frameworks: ["net10.0", "net10.0-windows10.0.19041.0"],
+        activeFramework: "net10.0",
         versions: ["10.0.0", "9.0.0"],
         activeVersion: "10.0.0",
         escapeHtml,
@@ -465,7 +467,6 @@ function detailHtml() {
             ).join("")
           : ""}
       </section>`;
-    const frameworksHtml = renderPackageFrameworks(["net10.0", "net10.0-windows10.0.19041.0"], "net10.0", escapeHtml);
     const documentsHtml = renderPackageDocuments([{
       kind: "readme",
       name: longMode ? `${name}.README.md` : "README.md",
@@ -527,7 +528,6 @@ function detailHtml() {
             packageInfoHtml,
             packageChildrenHtml:
               '<section class="document-section"><div class="section-title"><h2>Libraries</h2><span>1</span></div></section>',
-            frameworksHtml,
             documentsHtml,
           })
         : renderLibraryOverviewContent({

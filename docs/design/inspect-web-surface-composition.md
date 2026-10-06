@@ -814,12 +814,13 @@ package@version                                    active framework
 ```
 
 Package Overview starts directly with its identity and content rather than
-reserving a quiet `Overview` header row. The Package navigation pane lists
+reserving a quiet `Overview` header row. The Package navigation pane lists target frameworks first, then
 versions in owner-issued release order, with the active version selected,
 text filtering, and a prerelease toggle.
 The active coordinate remains visible regardless of filters. Loading and
 failed inventory states retain that coordinate; failure offers explicit retry.
-Target frameworks are selectable rows in Overview, alongside Package facts.
+Target framework selection uses the same navigation pane and updates the active
+coordinate and its Libraries.
 Library Overview retains the shared quiet header and does not gain coordinate controls.
 One independently scrolling content region starts with a larger icon and
 readable name, the surface's single visible level-one heading. Both subjects
@@ -844,10 +845,10 @@ surface; the Overview warning provides persistent package context rather than
 replacing the failure.
 
 Package Overview retains package facts, Libraries, and document links in its
-primary column, with Documentation directly beneath Libraries. Target frameworks
-occupy the secondary column; constrained widths stack the primary content then
-frameworks. The icon and package name identify the subject without an additional
-Package label. Package Compare owns the Comparison targets work area; Library,
+full-width content, with Documentation directly beneath Libraries. Frameworks
+and versions remain in the master pane for both Overview and Compare. The icon and package name identify the subject without an additional
+Package label. Package Compare uses the same full-width frame, identity alignment,
+and footer as Overview and owns the Comparison targets work area; Library,
 Type, and Member **Change target** actions return there. Choosing settings
 continues to configure the existing session-local comparison state.
 
@@ -879,7 +880,7 @@ as primary navigation while five type-kind counts remain a compact secondary
 summary.
 
 The bottom context row preserves the exact package/version and active
-framework. At narrow widths the Versions (Package), Libraries (Library), or
+framework. At narrow widths the Frameworks & versions (Package), Libraries (Library), or
 Types (Type and Member) return control remains available above the working
 surface; the local name and icon remain visible in the content below it.
 Controls wrap within their row, and header/footer values may elide as complete
@@ -952,7 +953,7 @@ package@version                                             active framework
 The quiet header labels the lens and reports the selected dependency group's
 package count together with the selected assembly's direct reference count.
 Version navigation remains available in the Package master pane; the framework
-shortcut opens Overview's framework choices. Dependency-group
+shortcut opens the master pane's framework choices. Dependency-group
 selection remains with the result because it selects a manifest group rather
 than changing the active package coordinate.
 
@@ -997,7 +998,7 @@ Integrations, Analysis, Package Metadata, or the Metadata Explorer.
 
 Package Vulnerabilities is available for exact nuget.org package coordinates.
 It uses the complete package inspector area with the Package Overview
-Versions navigation pane; version changes update the package coordinate, but
+Frameworks & versions navigation pane; version changes update the package coordinate, but
 framework selection does not alter vulnerability identity.
 
 ```text
@@ -1723,9 +1724,9 @@ with the absence of a synthesized `Default feed` control.
 ### Package Vulnerabilities working surface
 
 1. Open a nuget.org Package and confirm that Vulnerabilities appears after
-   Dependencies, uses the Versions navigation pane, and retains the exact
-   package/version context while framework selection does not trigger another
-   advisory request.
+   Dependencies, uses the Frameworks & versions navigation pane, and retains
+   the exact package/version context while framework selection does not
+   trigger another advisory request.
 2. Exercise a matching reviewed advisory and confirm that GHSA and optional CVE
    identity, severity, published and updated dates, and the GitHub destination
    remain visible.
