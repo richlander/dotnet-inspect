@@ -64,6 +64,19 @@ internal static class ReleaseCandidateWorkflowContract
             ValidateCandidate,
             "Release candidate contract accepted incomplete Deep Inspect evidence.");
         AssertMutationRejected(
+            candidate,
+            "    permissions:\n" +
+            "      contents: read\n" +
+            "      packages: read\n" +
+            "      issues: write\n" +
+            "    uses: ./.github/workflows/deep-inspect.yml\n",
+            "    permissions:\n" +
+            "      contents: read\n" +
+            "      issues: write\n" +
+            "    uses: ./.github/workflows/deep-inspect.yml\n",
+            ValidateCandidate,
+            "Release candidate contract accepted a caller without Deep Inspect package access.");
+        AssertMutationRejected(
             deepInspect,
             "      inputs.lane == 'census' ||\n" +
             "      inputs.lane == 'release-candidate' ||\n",
@@ -224,6 +237,10 @@ internal static class ReleaseCandidateWorkflowContract
         YamlMappingNode certify =
             GetRequiredMapping(jobs, "certify", "release candidate jobs");
         RequireScalarValue(certify, "needs", "assemble", "release candidate certify");
+        YamlMappingNode certifyPermissions = GetRequiredMapping(
+            certify, "permissions", "release candidate certify");
+        RequireScalarValue(certifyPermissions, "contents", "read", "release candidate certify");
+        RequireScalarValue(certifyPermissions, "packages", "read", "release candidate certify");
         RequireScalarValue(
             certify,
             "uses",
