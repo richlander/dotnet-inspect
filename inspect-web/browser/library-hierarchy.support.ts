@@ -293,6 +293,8 @@ interface DiagnosticsFixture {
   libraryApiIncomplete?: boolean;
   deferTypeMemberPopulation?: boolean;
   qualifiedStructuralSalience?: boolean;
+  physicalOnlyStructuralSalience?: boolean;
+  failedStructuralSalience?: boolean;
   slowStructuralSalience?: boolean;
 }
 
@@ -1856,6 +1858,9 @@ async function installFacades(
         document.documentElement.dataset.structuralSalienceRequestCount =
           String(++structuralSalienceRequestCount);
         const qualified = diagnosticsOptions.qualifiedStructuralSalience;
+        const physicalOnly = diagnosticsOptions.physicalOnlyStructuralSalience;
+        if (diagnosticsOptions.failedStructuralSalience)
+          throw new Error("Structural evidence acquisition failed.");
         const exactNamespace = "Example";
         const selectedType = surface.types.find(
           item => item.assemblyId === selected.id
@@ -1931,7 +1936,7 @@ async function installFacades(
             namespaceIndex: null,
             typeLeverageShards: [{
               namespace: exactNamespace,
-              disposition: qualified ? "qualified" : "complete",
+              disposition: qualified || physicalOnly ? "qualified" : "complete",
               signatureCoverage: {
                 considered: 1,
                 examined: qualified ? 0 : 1,
@@ -1940,8 +1945,8 @@ async function installFacades(
               },
               bodyCoverage: {
                 bodiesConsidered: 2,
-                bodiesExamined: qualified ? 1 : 2,
-                bodiesPhysicalOnly: 0,
+                bodiesExamined: qualified || physicalOnly ? 1 : 2,
+                bodiesPhysicalOnly: physicalOnly ? 1 : 0,
                 bodiesUnavailable: qualified ? 1 : 0,
                 bodiesLimited: 0,
                 operandsConsidered: 3,
@@ -1954,7 +1959,8 @@ async function installFacades(
                 item => item.typeDefinitionId),
               mountainPeakOrder: implementationTypes.map(
                 item => item.typeDefinitionId),
-              diagnostics: qualified ? ["One body was unavailable."] : []
+              diagnostics: qualified ? ["One body was unavailable."]
+                : physicalOnly ? ["The physical body has no authenticated logical owner."] : []
             }],
             failure: null,
             failureKind: null

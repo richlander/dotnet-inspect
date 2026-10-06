@@ -3079,6 +3079,8 @@ kbd {
 }
 .data-bar-item,
 .data-bar-separator { flex: none; }
+.data-bar-errors { color: var(--yellow); }
+.data-bar-errors .tiny-button { flex: none; }
 .data-bar-product { color: var(--muted); }
 .data-bar-separator { color: var(--line-strong); }
 .data-bar a { color: var(--blue); text-decoration: none; }

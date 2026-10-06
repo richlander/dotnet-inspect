@@ -11,9 +11,40 @@ export interface DataBarProducer {
   label: string;
 }
 
+export interface DataBarError {
+  readonly message: string;
+  readonly retry?: "type-leverage";
+}
+
+/** Feedback is transient presentation, independent of retained inspection data. */
+export function createDataBarFeedback() {
+  let view: string | null = null;
+  let generation = 0;
+  const errors = new Map<string, DataBarError>();
+  return {
+    synchronize(nextView: string): number {
+      if (view !== nextView) {
+        view = nextView;
+        generation++;
+        errors.clear();
+      }
+      return generation;
+    },
+    publish(owner: string, ticket: number, error: DataBarError | null): void {
+      if (ticket !== generation) return;
+      if (error) errors.set(owner, error);
+      else errors.delete(owner);
+    },
+    errors(): readonly DataBarError[] {
+      return [...errors.values()];
+    },
+  };
+}
+
 export interface DataBarModel {
   buildIdentity?: BrowserBuildIdentity | null;
   producer?: DataBarProducer | null;
+  errors?: readonly DataBarError[];
 }
 
 export function fmtBytes(bytes: number | null | undefined): string {
@@ -76,6 +107,16 @@ export function dataBarHtml(
   model: DataBarModel,
   escapeHtml: (value: string) => string,
 ): string {
+  if (model.errors?.length) {
+    const messages = model.errors.map(error => escapeHtml(error.message));
+    const retry = model.errors.some(error => error.retry === "type-leverage")
+      ? '<button type="button" class="tiny-button" data-type-leverage-retry>Retry</button>'
+      : "";
+    return `<footer class="data-bar data-bar-errors" aria-label="Inspection feedback">
+      <span class="data-bar-item data-bar-error" role="status">${messages.join(" · ")}</span>
+      ${retry}
+    </footer>`;
+  }
   const items = buildIdentityItems(model.buildIdentity, escapeHtml);
   const producerLabel = model.producer?.label.trim() ?? "";
   if (model.producer && producerLabel) {
