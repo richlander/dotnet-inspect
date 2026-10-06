@@ -53,24 +53,52 @@ public sealed record TypeDocumentGenericParameter(
 public sealed record TypeDocumentDeclarationSignature(
     ImmutableArray<TypeDocumentGenericParameter> GenericParameters);
 
+public abstract record TypeDocumentSubjectCorrespondence
+{
+    private protected TypeDocumentSubjectCorrespondence()
+    {
+    }
+
+    public sealed record Library
+        : TypeDocumentSubjectCorrespondence
+    {
+        public Library(
+            LibraryTypeDocumentSubjectCorrespondence value)
+        {
+            ArgumentNullException.ThrowIfNull(value);
+            Value = value;
+        }
+
+        public LibraryTypeDocumentSubjectCorrespondence Value
+        {
+            get;
+        }
+    }
+
+    public sealed record DirectAssembly
+        : TypeDocumentSubjectCorrespondence;
+}
+
 public sealed record TypeSubject
 {
     public TypeSubject(
-        LibraryTypeDocumentSubjectCorrespondence libraryCorrespondence,
+        TypeDocumentSubjectCorrespondence correspondence,
         LibraryAssemblyIdentity assembly,
         Guid moduleVersionId,
         MetadataTypeDefinitionName type,
         int typeDefinitionToken,
         TypeDocumentDeclarationSignature signature,
         MetadataTypeDeclarationCategory category,
+        MetadataTypeDeclarationBaseKind baseKind,
+        int interfaceCount,
         TypeAttributes attributes,
         bool isByRefLike,
         bool definesCoreLibraryRoot,
         int? declaringTypeDefinitionToken)
     {
-        LibraryCorrespondence = libraryCorrespondence
+        Correspondence = correspondence
             ?? throw new ArgumentNullException(
-                nameof(libraryCorrespondence));
+                nameof(correspondence));
         Assembly = assembly
             ?? throw new ArgumentNullException(nameof(assembly));
         if (moduleVersionId == Guid.Empty)
@@ -86,10 +114,15 @@ public sealed record TypeSubject
             ?? throw new ArgumentNullException(nameof(signature));
         if (!Enum.IsDefined(category))
             throw new ArgumentOutOfRangeException(nameof(category));
+        if (!Enum.IsDefined(baseKind))
+            throw new ArgumentOutOfRangeException(nameof(baseKind));
+        ArgumentOutOfRangeException.ThrowIfNegative(interfaceCount);
 
         ModuleVersionId = moduleVersionId;
         TypeDefinitionToken = typeDefinitionToken;
         Category = category;
+        BaseKind = baseKind;
+        InterfaceCount = interfaceCount;
         Attributes = attributes;
         IsByRefLike = isByRefLike;
         DefinesCoreLibraryRoot = definesCoreLibraryRoot;
@@ -97,22 +130,30 @@ public sealed record TypeSubject
     }
 
     [JsonIgnore]
-    public LibraryTypeDocumentSubjectCorrespondence LibraryCorrespondence { get; }
+    public TypeDocumentSubjectCorrespondence Correspondence { get; }
     [JsonIgnore]
-    public LibraryReference RequestedLibrary =>
-        LibraryCorrespondence.RequestedLibrary;
+    public LibraryTypeDocumentSubjectCorrespondence? LibraryCorrespondence =>
+        Correspondence
+            is TypeDocumentSubjectCorrespondence.Library library
+                ? library.Value
+                : null;
     [JsonIgnore]
-    public LibraryReference DefiningLibrary =>
-        LibraryCorrespondence.DefiningLibrary;
+    public LibraryReference? RequestedLibrary =>
+        LibraryCorrespondence?.RequestedLibrary;
     [JsonIgnore]
-    public LibraryContentReference DefiningApiContent =>
-        LibraryCorrespondence.DefiningApiContent;
+    public LibraryReference? DefiningLibrary =>
+        LibraryCorrespondence?.DefiningLibrary;
+    [JsonIgnore]
+    public LibraryContentReference? DefiningApiContent =>
+        LibraryCorrespondence?.DefiningApiContent;
     public LibraryAssemblyIdentity Assembly { get; }
     public Guid ModuleVersionId { get; }
     public MetadataTypeDefinitionName Type { get; }
     public int TypeDefinitionToken { get; }
     public TypeDocumentDeclarationSignature Signature { get; }
     public MetadataTypeDeclarationCategory Category { get; }
+    public MetadataTypeDeclarationBaseKind BaseKind { get; }
+    public int InterfaceCount { get; }
     public TypeAttributes Attributes { get; }
     public bool IsByRefLike { get; }
     public bool DefinesCoreLibraryRoot { get; }

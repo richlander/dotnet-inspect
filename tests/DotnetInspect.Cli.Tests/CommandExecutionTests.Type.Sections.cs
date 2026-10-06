@@ -171,6 +171,112 @@ public partial class CommandExecutionTests
             advertised.OrderBy(f => f, StringComparer.Ordinal));
     }
 
+    [Theory]
+    [InlineData("System.Text.StringBuilder", "Append")]
+    [InlineData("System.Collections.Generic.List`1", "Add")]
+    [InlineData("System.IDisposable", "Dispose")]
+    [InlineData("System.Action", "Invoke")]
+    public async Task
+        Type_DirectLibraryExactType_TypeInfoDiscoveryMatchesLegacyProjection(
+            string typeName,
+            string memberName)
+    {
+        string assemblyPath =
+            typeof(System.Text.StringBuilder).Assembly.Location;
+        string[] directArgs =
+        [
+            "type",
+            typeName,
+            "--library",
+            assemblyPath,
+            "-D",
+            SectionNames.TypeInfo,
+            "--tsv",
+        ];
+        string[] legacyArgs =
+        [
+            "type",
+            typeName,
+            "--library",
+            assemblyPath,
+            "-m",
+            memberName,
+            "-D",
+            SectionNames.TypeInfo,
+            "--tsv",
+        ];
+
+        var (directExit, directOutput, directError) =
+            await RunAppAsync(directArgs);
+        var (legacyExit, legacyOutput, legacyError) =
+            await RunAppAsync(legacyArgs);
+
+        Assert.True(
+            directExit == 0,
+            $"Direct discovery failed: {directError}");
+        Assert.True(
+            legacyExit == 0,
+            $"Legacy discovery failed: {legacyError}");
+        Assert.Empty(directError);
+        Assert.Empty(legacyError);
+        Assert.Equal(legacyOutput, directOutput);
+    }
+
+    [Theory]
+    [InlineData("System.Text.StringBuilder")]
+    [InlineData("System.IDisposable")]
+    [InlineData("System.Action")]
+    public async Task
+        Type_DirectLibraryExactType_BareDiscoveryMatchesPlatformProjection(
+            string typeName)
+    {
+        var (directExit, directOutput, directError) =
+            await RunAppAsync(
+                "type",
+                typeName,
+                "--library",
+                typeof(System.Text.StringBuilder).Assembly.Location,
+                "-D",
+                "--tsv");
+        var (platformExit, platformOutput, platformError) =
+            await RunAppAsync(
+                "type",
+                typeName,
+                "--platform",
+                "System.Private.CoreLib",
+                "-D",
+                "--tsv");
+
+        Assert.True(
+            directExit == 0,
+            $"Direct discovery failed: {directError}");
+        Assert.True(
+            platformExit == 0,
+            $"Platform discovery failed: {platformError}");
+        Assert.Empty(directError);
+        Assert.Empty(platformError);
+        Assert.Equal(platformOutput, directOutput);
+    }
+
+    [Fact]
+    public async Task
+        Type_DirectLibraryGenericBareDiscoveryRetainsContextualExtensions()
+    {
+        var (exitCode, output, error) =
+            await RunAppAsync(
+                "type",
+                "System.Collections.Generic.List`1",
+                "--library",
+                typeof(System.Text.StringBuilder).Assembly.Location,
+                "-D",
+                "--tsv");
+
+        Assert.True(exitCode == 0, error);
+        Assert.Empty(error);
+        Assert.Contains("Extension Methods\tsection", output);
+        Assert.Contains("Interfaces\tsection", output);
+    }
+
     [Fact]
     public async Task Type_TypeInfoDiscovery_DoesNotRunUnrequestedUnsafeProbe()
     {
@@ -188,6 +294,36 @@ public partial class CommandExecutionTests
 
             Assert.Equal(0, exit);
             Assert.NotEmpty(output);
+            Assert.Empty(error);
+        }
+        finally
+        {
+            Directory.Delete(
+                fixtureDir,
+                recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Type_BareDiscovery_DoesNotRunUnlistedUnsafeProbe()
+    {
+        var (assemblyPath, fixtureDir) =
+            CreateIncompleteUnsafeDiscoveryAssembly();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "type",
+                "DiscoveryFixtures.IncompleteUnsafeDiscovery",
+                "--library",
+                assemblyPath,
+                "-D",
+                "--tsv");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("@Audit\tcategory", output);
+            Assert.DoesNotContain(
+                $"{SectionNames.UnsafeMembers}\tsection",
+                output);
             Assert.Empty(error);
         }
         finally

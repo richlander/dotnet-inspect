@@ -50,6 +50,10 @@ public sealed class TypeDocumentInspectionOperationTests
         Assert.Equal(
             MetadataTypeDeclarationCategory.Class,
             document.Subject.Category);
+        Assert.Equal(
+            MetadataTypeDeclarationBaseKind.Object,
+            document.Subject.BaseKind);
+        Assert.Equal(0, document.Subject.InterfaceCount);
         Assert.True(
             document.Subject.Attributes.HasFlag(
                 TypeAttributes.Public));
@@ -63,6 +67,71 @@ public sealed class TypeDocumentInspectionOperationTests
         Assert.Contains("\"namespace\":\"System.Text.Json\"", json);
 
         await library.RetireAsync();
+    }
+
+    [Fact]
+    public void DirectAssembly_SubjectOnlyReturnsTheSharedTypeDocument()
+    {
+        string path =
+            typeof(System.Text.Json.JsonSerializer).Assembly.Location;
+        ResolvedAssemblyReference assembly =
+            ResolvedAssemblyReference.CreateFromPath(
+                path,
+                AssemblyResolutionProvenance.Local(
+                    "Type document direct-assembly test"));
+
+        InspectionEnvelope<TypeDocumentInspectionOutcome> envelope =
+            TypeDocumentInspectionOperation.Execute(
+                assembly,
+                new(
+                    Name(
+                        "System.Text.Json",
+                        "JsonSerializer"),
+                    s_bounds),
+                TestContext.Current.CancellationToken);
+
+        TypeDocument document = Available(envelope);
+        Assert.IsType<
+            TypeDocumentSubjectCorrespondence.DirectAssembly>(
+                document.Subject.Correspondence);
+        Assert.IsType<TypeDocumentDeclarations.NotRequested>(
+            document.Declarations);
+        Assert.Equal(
+            Name("System.Text.Json", "JsonSerializer"),
+            document.Subject.Type);
+    }
+
+    [Theory]
+    [InlineData(
+        "System.Collections.Generic",
+        "List`1",
+        true)]
+    [InlineData("System.Text", "StringBuilder", false)]
+    public void DirectAssembly_ExtensionPresenceUsesContextualRelations(
+        string @namespace,
+        string type,
+        bool expectedExtensions)
+    {
+        ResolvedAssemblyReference assembly =
+            ResolvedAssemblyReference.CreateFromPath(
+                typeof(System.Text.StringBuilder).Assembly.Location,
+                AssemblyResolutionProvenance.Local(
+                    "Type extension Count test"));
+
+        TypeDocumentExtensionPresenceInspectionResult result =
+            TypeDocumentInspectionOperation.ExecuteWithExtensionPresence(
+                assembly,
+                new(
+                    Name(@namespace, type),
+                    s_bounds),
+                TestContext.Current.CancellationToken);
+
+        _ = Available(result.Document);
+        var available =
+            Assert.IsType<
+                TypeExtensionMethodPresenceInspectionOutcome.Available>(
+                    result.ExtensionPresence);
+        Assert.Equal(expectedExtensions, available.Exists);
     }
 
     [Fact]
@@ -230,13 +299,15 @@ public sealed class TypeDocumentInspectionOperationTests
             Available(Execute(library, count: new()));
         TypeSubject source = document.Subject;
         var mismatched = new TypeSubject(
-            source.LibraryCorrespondence,
+            source.Correspondence,
             source.Assembly,
             source.ModuleVersionId,
             source.Type,
             checked(source.TypeDefinitionToken + 1),
             source.Signature,
             source.Category,
+            source.BaseKind,
+            source.InterfaceCount,
             source.Attributes,
             source.IsByRefLike,
             source.DefinesCoreLibraryRoot,

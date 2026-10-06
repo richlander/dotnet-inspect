@@ -135,14 +135,65 @@ public static partial class AttributeReader
         foreach (var attrHandle in attributes)
         {
             var attr = reader.GetCustomAttribute(attrHandle);
-            var attrTypeName = GetAttributeTypeName(
-                reader,
-                attr.Constructor,
-                beforeMaterialize);
-            if (attrTypeName == KnownAttributeNames.ExtensionAttribute)
+            if (beforeMaterialize is null
+                ? IsExtensionAttributeConstructor(
+                    reader,
+                    attr.Constructor)
+                : GetAttributeTypeName(
+                    reader,
+                    attr.Constructor,
+                    beforeMaterialize)
+                    == KnownAttributeNames.ExtensionAttribute)
+            {
                 return true;
+            }
         }
         return false;
+    }
+
+    private static bool IsExtensionAttributeConstructor(
+        MetadataReader reader,
+        EntityHandle constructor)
+    {
+        EntityHandle declaringType = constructor.Kind switch
+        {
+            HandleKind.MemberReference =>
+                reader.GetMemberReference(
+                    (MemberReferenceHandle)constructor).Parent,
+            HandleKind.MethodDefinition =>
+                reader.GetMethodDefinition(
+                    (MethodDefinitionHandle)constructor)
+                    .GetDeclaringType(),
+            _ => default,
+        };
+        StringHandle @namespace;
+        StringHandle name;
+        switch (declaringType.Kind)
+        {
+            case HandleKind.TypeReference:
+                TypeReference reference =
+                    reader.GetTypeReference(
+                        (TypeReferenceHandle)declaringType);
+                @namespace = reference.Namespace;
+                name = reference.Name;
+                break;
+            case HandleKind.TypeDefinition:
+                TypeDefinition definition =
+                    reader.GetTypeDefinition(
+                        (TypeDefinitionHandle)declaringType);
+                @namespace = definition.Namespace;
+                name = definition.Name;
+                break;
+            default:
+                return false;
+        }
+
+        return reader.StringComparer.Equals(
+                @namespace,
+                "System.Runtime.CompilerServices")
+            && reader.StringComparer.Equals(
+                name,
+                "ExtensionAttribute");
     }
 
     internal static (bool IsExtension, bool IsReadOnly) ReadMethodMarkerAttributes(

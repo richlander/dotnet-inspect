@@ -91,9 +91,12 @@ public partial class ApiCommand
 
     internal static int ExecuteEffectiveDiscovery(
         ApiType apiType, SectionPipeline<ApiType> memberPipeline, ApiOptions options,
-        TypeAcquisitionContext? acquisition = null)
+        TypeAcquisitionContext? acquisition = null,
+        DocumentSchema? precomputedSchema = null,
+        RenderedSectionManifest? precomputedManifest = null)
     {
-        var fullSchema = GetTypeDocumentSchema(options);
+        var fullSchema =
+            precomputedSchema ?? GetTypeDocumentSchema(options);
         var filteredType = BuildFilteredTypeForSections(apiType, options);
         var effective = memberPipeline.GetDiscoverableSections(
             filteredType,
@@ -127,9 +130,8 @@ public partial class ApiCommand
         HashSet<string> requestedDiscoverySections = bareDiscover
             ? []
             : GetRequestedMemberSections(filteredType, options);
-        if ((bareDiscover
-                || requestedDiscoverySections.Contains(
-                    SectionNames.UnsafeMembers))
+        if (requestedDiscoverySections.Contains(
+                SectionNames.UnsafeMembers)
             && !ApplyTypeUnsafeMembersApplicability(
                 filteredType,
                 options,
@@ -158,11 +160,12 @@ public partial class ApiCommand
                 externallyProbedSections.Contains);
         var renderManifest = discoversOnlyExternallyProbedSections
             ? new RenderedSectionManifest()
-            : BuildTypeRenderManifest(
-                filteredType,
-                options,
-                discoveryRenderSections,
-                acquisition);
+            : precomputedManifest
+                ?? BuildTypeRenderManifest(
+                    filteredType,
+                    options,
+                    discoveryRenderSections,
+                    acquisition);
         if (bodyFilteredType is not null)
         {
             var bodyRenderManifest = BuildTypeRenderManifest(

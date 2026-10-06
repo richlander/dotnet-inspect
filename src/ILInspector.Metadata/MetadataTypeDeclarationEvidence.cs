@@ -18,6 +18,15 @@ public enum MetadataTypeDeclarationCategory
     Delegate,
 }
 
+public enum MetadataTypeDeclarationBaseKind
+{
+    None,
+    Object,
+    ValueType,
+    Enum,
+    Other,
+}
+
 public enum MetadataTypeDeclarationFailureReason
 {
     InvalidRequest,
@@ -78,6 +87,8 @@ public sealed record MetadataTypeDeclarationEvidence(
     MetadataTypeDeclarationSignature Signature,
     TypeAttributes Attributes,
     MetadataTypeDeclarationCategory Category,
+    MetadataTypeDeclarationBaseKind BaseKind,
+    int InterfaceCount,
     bool IsByRefLike,
     bool DefinesCoreLibraryRoot,
     MetadataTypeDefinitionAddress? DeclaringType);
@@ -191,7 +202,7 @@ internal sealed class MetadataTypeDeclarationEvidenceOperation
                 ReadCoreRootAuthentication(
                     handle,
                     declaringRows);
-            MetadataTypeDeclarationCategory category =
+            MetadataTypeDeclarationClassification classification =
                 Classify(
                     handle,
                     selectedName,
@@ -199,6 +210,10 @@ internal sealed class MetadataTypeDeclarationEvidenceOperation
                     attributes,
                     definesCoreLibraryRoot,
                     index);
+            MetadataTypeDeclarationCategory category =
+                classification.Category;
+            int interfaceCount =
+                definition.GetInterfaceImplementations().Count;
             bool isByRefLike =
                 category == MetadataTypeDeclarationCategory.Struct
                 && ReadIsByRefLike(definition, handle);
@@ -271,6 +286,8 @@ internal sealed class MetadataTypeDeclarationEvidenceOperation
                     genericParameters.Signature,
                     attributes,
                     category,
+                    classification.BaseKind,
+                    interfaceCount,
                     isByRefLike,
                     definesCoreLibraryRoot,
                     declaringType),
@@ -965,7 +982,7 @@ internal sealed class MetadataTypeDeclarationEvidenceOperation
         }
     }
 
-    MetadataTypeDeclarationCategory Classify(
+    MetadataTypeDeclarationClassification Classify(
         TypeDefinitionHandle handle,
         MetadataTypeDefinitionName selectedName,
         EntityHandle baseType,
@@ -988,9 +1005,17 @@ internal sealed class MetadataTypeDeclarationEvidenceOperation
                     MetadataTypeDeclarationFailureReason.MalformedMetadata,
                     "An interface TypeDef has an extends relationship.");
             }
-            return MetadataTypeDeclarationCategory.Interface;
+            return new(
+                MetadataTypeDeclarationCategory.Interface,
+                MetadataTypeDeclarationBaseKind.None);
         }
 
+        MetadataTypeDeclarationClassification classification =
+            ClassifyBase(
+                baseType,
+                definesCoreLibraryRoot,
+                index,
+                site);
         if (definesCoreLibraryRoot
             && IsTopLevelSystemType(
                 selectedName,
@@ -1001,12 +1026,27 @@ internal sealed class MetadataTypeDeclarationEvidenceOperation
                     or "Delegate"
                     or "MulticastDelegate")
         {
-            return MetadataTypeDeclarationCategory.Class;
+            return classification with
+            {
+                Category = MetadataTypeDeclarationCategory.Class,
+            };
         }
 
-        if (baseType.IsNil)
-            return MetadataTypeDeclarationCategory.Class;
+        return classification;
+    }
 
+    MetadataTypeDeclarationClassification ClassifyBase(
+        EntityHandle baseType,
+        bool definesCoreLibraryRoot,
+        MetadataTypeDefinitionIndex index,
+        MetadataTypeDeclarationSite site)
+    {
+        if (baseType.IsNil)
+        {
+            return new(
+                MetadataTypeDeclarationCategory.Class,
+                MetadataTypeDeclarationBaseKind.None);
+        }
         Charge(
             site with { Handle = baseType },
             MetadataOperationDimension.RelationshipEdges);
@@ -1037,18 +1077,26 @@ internal sealed class MetadataTypeDeclarationEvidenceOperation
         };
     }
 
-    MetadataTypeDeclarationCategory ClassifyLocalBase(
+    MetadataTypeDeclarationClassification ClassifyLocalBase(
         TypeDefinitionHandle baseType,
         bool definesCoreLibraryRoot,
         MetadataTypeDefinitionIndex index,
         MetadataTypeDeclarationSite site)
     {
         if (!definesCoreLibraryRoot)
-            return MetadataTypeDeclarationCategory.Class;
+        {
+            return new(
+                MetadataTypeDeclarationCategory.Class,
+                MetadataTypeDeclarationBaseKind.Other);
+        }
 
         MetadataTypeDefinitionName name = ReadName(baseType);
         if (!IsTopLevelSystemType(name, out string simpleName))
-            return MetadataTypeDeclarationCategory.Class;
+        {
+            return new(
+                MetadataTypeDeclarationCategory.Class,
+                MetadataTypeDeclarationBaseKind.Other);
+        }
         if (!index.TryGetDefinition(
                 name,
                 out TypeDefinitionHandle unique,
@@ -1061,10 +1109,10 @@ internal sealed class MetadataTypeDeclarationEvidenceOperation
                 MetadataTypeDeclarationFailureReason.MalformedMetadata,
                 "The local core category root is not unique.");
         }
-        return CategoryFromCoreBase(simpleName);
+        return ClassificationFromCoreBase(simpleName);
     }
 
-    MetadataTypeDeclarationCategory ClassifyReferencedBase(
+    MetadataTypeDeclarationClassification ClassifyReferencedBase(
         TypeReferenceHandle baseType,
         bool definesCoreLibraryRoot,
         MetadataTypeDefinitionIndex index,
@@ -1115,7 +1163,9 @@ internal sealed class MetadataTypeDeclarationEvidenceOperation
                     MetadataTypeDeclarationFailureReason
                         .UnsupportedShape,
                     "The TypeRef category root cannot be authenticated from its resolution scope.")
-                : MetadataTypeDeclarationCategory.Class;
+                : new(
+                    MetadataTypeDeclarationCategory.Class,
+                    MetadataTypeDeclarationBaseKind.Other);
         }
         AssemblyReferenceIdentity referenceIdentity =
             ReadAssemblyReferenceIdentity(
@@ -1126,12 +1176,16 @@ internal sealed class MetadataTypeDeclarationEvidenceOperation
                 () => ApiSurfaceExtractor.ResolvesThroughCoreLibrary(
                     referenceIdentity)))
         {
-            return MetadataTypeDeclarationCategory.Class;
+            return new(
+                MetadataTypeDeclarationCategory.Class,
+                MetadataTypeDeclarationBaseKind.Other);
         }
 
         return IsTopLevelSystemType(name, out string simpleName)
-            ? CategoryFromCoreBase(simpleName)
-            : MetadataTypeDeclarationCategory.Class;
+            ? ClassificationFromCoreBase(simpleName)
+            : new(
+                MetadataTypeDeclarationCategory.Class,
+                MetadataTypeDeclarationBaseKind.Other);
     }
 
     MetadataTypeReferenceNameEvidence ReadReferenceName(
@@ -1321,7 +1375,7 @@ internal sealed class MetadataTypeDeclarationEvidenceOperation
             () => _reader.GetString(handle));
     }
 
-    MetadataTypeDeclarationCategory ClassifySpecificationBase(
+    MetadataTypeDeclarationClassification ClassifySpecificationBase(
         TypeSpecificationHandle baseType,
         bool definesCoreLibraryRoot,
         MetadataTypeDefinitionIndex index,
@@ -1409,6 +1463,26 @@ internal sealed class MetadataTypeDeclarationEvidenceOperation
                 "The TypeSpec extends encoding cannot authenticate a declaration category."),
         };
     }
+
+    static MetadataTypeDeclarationClassification
+        ClassificationFromCoreBase(string simpleName) =>
+        new(
+            CategoryFromCoreBase(simpleName),
+            simpleName switch
+            {
+                "Object" =>
+                    MetadataTypeDeclarationBaseKind.Object,
+                "ValueType" =>
+                    MetadataTypeDeclarationBaseKind.ValueType,
+                "Enum" =>
+                    MetadataTypeDeclarationBaseKind.Enum,
+                _ =>
+                    MetadataTypeDeclarationBaseKind.Other,
+            });
+
+    readonly record struct MetadataTypeDeclarationClassification(
+        MetadataTypeDeclarationCategory Category,
+        MetadataTypeDeclarationBaseKind BaseKind);
 
     bool IsValidTypeEntity(EntityHandle handle)
     {

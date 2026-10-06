@@ -1386,8 +1386,35 @@ declaration-document contract over that route: one Metadata declaration
 session establishes the detached exact-Type subject and optionally executes
 declared Member-group population. Subject-only requests issue no population
 demand, and requested population rejection, incompleteness, or failure remains
-independently typed without discarding the available Type subject. CLI and
-Browser adoption remains step 9; no production host uses this route yet.
+independently typed without discarding the available Type subject.
+
+Step 9's first production slice adopts that route for exact direct-Library
+effective discovery in the CLI. Exact `Type Info` requests execute the
+subject-only document. Bare discovery adds declared Member-group selector
+Counts and an independently typed same-image contextual-extension Exists
+request; it does not construct Member-group Rows or the rich API surface.
+Both requests share one opened assembly image, while the contextual result
+remains separate from the declaration population. Bare discovery does not run
+the opt-in unsafe applicability probe; exact `Unsafe Members` discovery still
+runs it on demand. Unsupported declaration shapes and non-exact discovery
+requests retain the established route. Inspect Web and the native Type Tree
+remain later step 9 adoption slices.
+
+The motivating production case is .NET 11 RC1 CoreLib
+`System.Text.StringBuilder`, whose previous exact direct-Library effective
+discovery extracted the complete assembly API surface. On
+`dotnet-inspect-perf-3`, every measured command ran through `perf-guard` over
+20 interleaved NativeAOT samples. Exact output remained byte-identical:
+
+| Request | Before median | Adopted median | Adopted p95 |
+| --- | ---: | ---: | ---: |
+| `-D "Type Info"` | 805.06 ms | 46.70 ms | 48.47 ms |
+| bare `-D` | 815.52 ms | 49.52 ms | 50.15 ms |
+
+The measured candidate SHA-256 is
+`f0c6acac808ecb713bbfa8880eacac36e939d2eb6c6a89ee6bf6a51a19c8062f`;
+the inspected CoreLib SHA-256 is
+`9573ebabb9af0671f76f4aa958223b8a0b50c299affcb1a2f75c9ee717305fc8`.
 
 ## Required evidence
 

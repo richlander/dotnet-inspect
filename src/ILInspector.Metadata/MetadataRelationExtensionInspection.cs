@@ -170,6 +170,35 @@ internal static partial class MetadataRelationInspection
         var candidates =
             ImmutableArray.CreateBuilder<ExtensionDeclarationCandidate>();
         int excluded = 0;
+        VisitExtensionCandidates(
+            reader,
+            includesType,
+            includeNonPublic,
+            cancellationToken,
+            candidate =>
+            {
+                included.Add(candidate.MetadataToken);
+                candidates.Add(candidate);
+                return false;
+            },
+            () => excluded++);
+        return new(
+            included,
+            excluded,
+            candidates.ToImmutable());
+    }
+
+    private static bool VisitExtensionCandidates(
+        MetadataReader reader,
+        Func<TypeDefinitionHandle, bool> includesType,
+        bool includeNonPublic,
+        CancellationToken cancellationToken,
+        Func<ExtensionDeclarationCandidate, bool> visit,
+        Action observeExcluded)
+    {
+        ArgumentNullException.ThrowIfNull(includesType);
+        ArgumentNullException.ThrowIfNull(visit);
+        ArgumentNullException.ThrowIfNull(observeExcluded);
         foreach (TypeDefinitionHandle typeHandle
             in reader.TypeDefinitions)
         {
@@ -234,19 +263,23 @@ internal static partial class MetadataRelationInspection
                                         accessors.Setter,
                                         includeNonPublic: false))));
                     if (propertyExcluded)
-                        excluded++;
+                    {
+                        observeExcluded();
+                    }
                     else
                     {
                         int metadataToken =
                             MetadataTokens.GetToken(propertyHandle);
-                        included.Add(metadataToken);
-                        candidates.Add(
+                        if (visit(
                             new(
                                 typeHandle,
                                 groupingHandle,
                                 default,
                                 propertyHandle,
-                                metadataToken));
+                                metadataToken)))
+                        {
+                            return true;
+                        }
                     }
                 }
             }
@@ -274,27 +307,28 @@ internal static partial class MetadataRelationInspection
                                 reader,
                                 method.GetCustomAttributes())));
                 if (methodExcluded)
-                    excluded++;
+                {
+                    observeExcluded();
+                }
                 else
                 {
                     int metadataToken =
                         MetadataTokens.GetToken(methodHandle);
-                    included.Add(metadataToken);
-                    candidates.Add(
+                    if (visit(
                         new(
                             typeHandle,
                             default,
                             methodHandle,
                             default,
-                            metadataToken));
+                            metadataToken)))
+                    {
+                        return true;
+                    }
                 }
             }
         }
 
-        return new(
-            included,
-            excluded,
-            candidates.ToImmutable());
+        return false;
     }
 
     private static bool TryReadExtensionDeclaration(

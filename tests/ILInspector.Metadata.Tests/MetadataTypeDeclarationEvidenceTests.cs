@@ -137,6 +137,10 @@ public sealed class MetadataTypeDeclarationEvidenceTests
         Assert.Equal(
             MetadataTypeDeclarationCategory.Struct,
             posted.Evidence.Category);
+        Assert.Equal(
+            MetadataTypeDeclarationBaseKind.ValueType,
+            posted.Evidence.BaseKind);
+        Assert.True(posted.Evidence.InterfaceCount > 0);
         Assert.False(posted.Evidence.IsByRefLike);
         Assert.True(posted.Evidence.DefinesCoreLibraryRoot);
         Assert.Null(posted.Evidence.DeclaringType);
@@ -169,6 +173,36 @@ public sealed class MetadataTypeDeclarationEvidenceTests
                 MetadataMethodImplementationConsumerCanary.PostType(
                     path,
                     address)));
+    }
+
+    [Fact]
+    public void RealStringBuilderPostsBaseAndInterfaceSummaryEvidence()
+    {
+        string path =
+            typeof(System.Text.StringBuilder).Assembly.Location;
+        using var stream = File.OpenRead(path);
+        using var pe = new PEReader(stream);
+        MetadataReader reader = pe.GetMetadataReader();
+        TypeDefinitionHandle handle = FindType(
+            reader,
+            "System.Text",
+            nameof(System.Text.StringBuilder));
+
+        var posted = Assert.IsType<
+            MetadataTypeDeclarationResult.Posted>(
+                Run(
+                    path,
+                    MetadataTypeDefinitionAddress.FromHandle(
+                        reader,
+                        handle)));
+
+        Assert.Equal(
+            MetadataTypeDeclarationCategory.Class,
+            posted.Evidence.Category);
+        Assert.Equal(
+            MetadataTypeDeclarationBaseKind.Object,
+            posted.Evidence.BaseKind);
+        Assert.True(posted.Evidence.InterfaceCount > 0);
     }
 
     [Fact]
