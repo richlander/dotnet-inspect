@@ -138,7 +138,7 @@ public static class CapabilityCatalogSearch
                 .ThenBy(static match => Strength(match.Term.Source))
                 .ThenBy(static match => match.Term.IsSegment)
                 .ThenBy(
-                    static match => match.Candidate.Resource.Path.Value,
+                    static match => match.Candidate.Resource.Path!.Value,
                     StringComparer.Ordinal)
                 .ThenBy(
                     static match => match.Term.Value,
@@ -289,7 +289,7 @@ public static class CapabilityCatalogSearch
                     identity => resources.TryGetValue(
                         identity,
                         out ResourceExplanationResource? resource)
-                            ? resource.Path.Value
+                            ? resource.Path!.Value
                             : identity.Identity,
                     StringComparer.Ordinal)
                 .Select(identity =>
@@ -303,7 +303,7 @@ public static class CapabilityCatalogSearch
                             nameof(resources));
                     }
                     ResourcePathResolution pathResolution =
-                        explanationCatalog.Resolve(resource.Path.Value);
+                        explanationCatalog.Resolve(resource.Path!.Value);
                     if (pathResolution
                         is not ResourcePathResolution.Resolved resolved
                         || resolved.Key
@@ -335,7 +335,7 @@ public static class CapabilityCatalogSearch
                                 return new CapabilityCatalogSearchRoute(
                                     route.Descriptor.Identity,
                                     route.Descriptor.Name,
-                                    routeResource.Path.Value);
+                                    routeResource.Path!.Value);
                             }),
                     ];
                     CapabilityCatalogSearchBinding[] bindings =
@@ -358,7 +358,7 @@ public static class CapabilityCatalogSearch
                                     binding.Descriptor.Owner,
                                     binding.Descriptor.Kind,
                                     binding.Descriptor.Gesture,
-                                    bindingResource.Path.Value);
+                                    bindingResource.Path!.Value);
                             }),
                     ];
                     return Candidate.Create(
@@ -494,7 +494,7 @@ public static class CapabilityCatalogSearch
 
             AddTerms(
                 terms,
-                resource.Path.Value,
+                resource.Path!.Value,
                 CapabilityCatalogSearchMatchSource.ResourcePath);
             AddTerms(
                 terms,
@@ -564,7 +564,7 @@ public static class CapabilityCatalogSearch
                 SearchKind(ResourceIdentity.Kind),
                 Name,
                 CanonicalKeys,
-                Resource.Path.Value,
+                Resource.Path!.Value,
                 Routes,
                 Bindings);
 

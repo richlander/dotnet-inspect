@@ -8,11 +8,18 @@ the reusable-reference projection proposed by
 [#8148](https://github.com/richlander/dotnet-inspect/issues/8148), and the
 compact related-gesture `.tips` projection.
 
-The first two composition slices are implemented for Member: host-neutral
+The first composition slices are implemented for Member: host-neutral
 related-operation affordance identities join to lazy CLI-owned bindings for
 `.tips`, and one lazy paired registration admits command-level
 `--explain`, resolved-subject `--explain`, resolved-subject
-`--explain .tips`, and resolved-subject bare `-E`. Other
+`--explain .tips`, and resolved-subject bare `-E`. The command resource and
+detached MemberGroup or exact-Member snapshots now produce the common
+`ResourceExplanationDocument`; there is no Member-specific Document wrapper.
+Current production still preserves a name-only singleton as a MemberGroup.
+The count-directed exact-Member transition defined by
+[Type and Member inspection documents](type-member-inspection-documents.md)
+remains staged under #8430.
+Other
 commands retain their existing imperative tip construction and reserved bare
 `-E` behavior until adopted one owner at a time. The
 [companion-family grammar](view-facet-query-composition.md#companion-family)
@@ -328,14 +335,16 @@ composition does not rebuild any of them from positional arguments or
 presentation defaults.
 
 Subject cardinality is independent of the population nested inside a subject.
-For the Member adopter, a bare Member name resolves one `MemberGroup` subject
-even when the group contains many exact declarations, while an ordinal or
-digest resolves one exact `Member` subject. A singleton group remains a
-`MemberGroup`; explanation cannot promote it to an exact Member, reject an
-overloaded group as several subjects, or choose its first overload. The
-[Type, MemberGroup, and Member inspection documents](type-member-inspection-documents.md#selector-driven-document-and-explanation-identity)
-owner defines those subject kinds and the command retains its owner-issued
-typed identity without inferring kind from display text.
+For the Member adopter, the
+[Type and Member inspection documents](type-member-inspection-documents.md#selector-driven-document-identity)
+owner first resolves document identity. A name-only selection whose active
+population has one exact declaration resolves that exact `Member`; a
+name-only selection whose population has several exact declarations resolves
+one `MemberGroup`; and an exact selector resolves one exact `Member`.
+Explanation consumes that already resolved subject. It does not recount the
+population, promote or narrow the subject independently, reject an overloaded
+group as several subjects, choose its first overload, or infer kind from
+display text.
 
 The subject-reference owner decides what explanation means for a reusable
 subject, including its accepted operations and other affordances. This
@@ -533,10 +542,11 @@ An adopting command classifies its options before acquisition:
 Command-level mode is selected only when the invocation carries no subject or
 source-selection intent. Any source, version, framework, Library, Type,
 Member, occurrence, or partially specified subject intent selects
-resolved-subject mode. The command owner's selector grammar determines the
-semantic subject kind before any singleton or section-driven selection can
-change execution shape. If resolution fails, the command preserves its
-ordinary visible result and never falls back to command-level explanation.
+resolved-subject mode. The command owner's selector grammar and document
+resolution contract determine the semantic subject kind before explanation;
+presentation or section selection cannot change it. If resolution fails, the
+command preserves its ordinary visible result and never falls back to
+command-level explanation.
 
 The completed explanation is returned through
 `InspectionEnvelope<TContent>`. CLI and Browser/Wasm consumers lower the same
@@ -834,7 +844,7 @@ The pathological neighboring cases are:
 | A command advertises and executes `--explain` only after command-level and all required resolved-subject mappings are registered. | Four-state CLI help and invocation matrix covering neither registration, command-resource only, incomplete subject mappings, and all mappings; the first three states assert the visible unsupported result with fail-fast acquisition and explanation collaborators. |
 | Command-level and resolved-subject mode are distinguished without fallback. | First-adopter CLI matrix covering an empty target, every source and subject input family, and representative partial subject input; failed subject resolution preserves its ordinary visible result without invoking command-level explanation. |
 | Resolved-subject explanation preserves the command owner's semantic subject kind, parses and resolves once, acquires each required source at most once, and does not execute ordinary section producers. | First-adopter integration test with counting command-preprocessing, resolution, and acquisition collaborators, fail-fast ordinary producers, and real bare-name and exact `System.Text.Json` commands. |
-| MemberGroup cardinality is independent of exact-overload population cardinality; bare overloaded and singleton names remain MemberGroups, while ordinal and digest selectors remain exact Members. | Authentic `System.Text.Json` CLI matrix asserting the contextual kind and owner-issued identity for an overloaded group, a singleton group, and non-first ordinal and digest exact Members, with no first-overload selection or exact-only facts on group explanations. |
+| Document-subject cardinality is independent of child-population cardinality; a bare multi-declaration name remains one MemberGroup, while a bare singleton and exact selectors resolve exact Members. | Authentic `System.Text.Json` CLI matrix asserting the contextual kind and owner-issued identity for a multi-declaration group, a singleton exact Member, and non-first ordinal and digest exact Members, with no first-overload selection, recounting, or group facts on exact explanations. |
 | Direct explanation does not serialize and parse a reusable reference. | Host-neutral composition test whose reference serializer and parser fail if called. |
 | Zero, multiple, unavailable, and failed subject outcomes remain distinct and visible. | Cardinality and failure matrix over the first adopter. |
 | The top-level `explain` facade distinguishes registered or canonical multi-segment product-resource paths, reusable references, and capability-search text before operation invocation, admits only operand-specific options, invokes the exact typed owner, and preserves each owner's Content and failures without fallback. | Facade-level CLI gate covering a registered single-segment root or alias, unregistered `literal`, misspelled and `https://` search text, a registered multi-segment `ResourcePath`, an unknown canonical multi-segment path, noncanonical slash-bearing text, slash-bearing reusable-reference syntax, invalid shaped references, close grammar-boundary negatives, the complete operand-specific option matrix including `--depth` and result limit, rejection before acquisition or dispatch, exact typed dispatcher and Content selection, complete-empty search, and invalid, unavailable, and reopening-failure exact outcomes. |
@@ -881,16 +891,19 @@ replacement, retry, or scheduling semantics.
 6. Preserve bare-name MemberGroup identity in complete and `.tips`
    contextual explanation at both placements while retaining exact ordinal and
    digest identity. **Owned by #9290.**
-7. Have #7916 define the reusable reference and subject-affordance contracts,
+7. Migrate the Member command resource and detached resolved subjects to the
+   common Resource Explanation Document, representing context and related
+   operations as owner-issued facts and relationships. **Complete in #9418.**
+8. Have #7916 define the reusable reference and subject-affordance contracts,
    including shell-safe generic identity.
-8. Add Member Index `.references` as the first row projection at both
+9. Add Member Index `.references` as the first row projection at both
    placements and demonstrate
    unchanged consumption by `explain`.
-9. Adopt the same composition one command owner at a time for Type, Library,
+10. Adopt the same composition one command owner at a time for Type, Library,
    Package, Findings, occurrences, and clusters.
-10. Add a Browser/Wasm binding over the shared related-operation affordances
+11. Add a Browser/Wasm binding over the shared related-operation affordances
    and contextual-explanation input without consuming CLI command syntax.
-11. Update the shipped skill after production behavior exists so it teaches
+12. Update the shipped skill after production behavior exists so it teaches
    capability search for unfamiliar text, exact-path explanation, direct
    `--explain`, its dotted projections, reusable-reference composition, and
    explicit companion continuation.

@@ -550,6 +550,7 @@ async function installFacades(
       calleeScope: "Workspace",
     },
     targets: graphTarget ? [graphTarget] : [],
+    boundaries: [],
     diagnostics: {
       incompleteNodes: 0,
       incompleteEdges: 0,

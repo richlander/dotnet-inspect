@@ -18,11 +18,11 @@ contract or compatibility surface.
 
 ## Boundary
 
-Package Overview owns the controls. Library, Type, and Member consumers read
+Package Compare owns the controls. Library, Type, and Member consumers read
 the same Package settings, narrow their own queries, and offer **Change target**
-back to Package Overview. They do not maintain independent coordinate controls.
-This chooses one of #5083's proposed placements without adding an inspector
-identifier to the navigation vocabulary.
+back to Package Compare. They do not maintain independent coordinate controls.
+This chooses one of #5083's proposed placements with a Package Compare inspector
+for target setup.
 
 Settings belong to the live browser Package model, not its display name or a
 package-id-only cache key. Navigation within that model preserves settings.
@@ -78,7 +78,7 @@ This is deliberately host-specific rather than a Markout lowering: it edits
 typed interaction state, not comparison evidence. Actual diff presentation
 continues to consume the shared comparison and presentation owners.
 
-Package Overview composes the settings as one task-oriented **Comparison
+Package Compare composes the settings as one task-oriented **Comparison
 targets** work area, not as prose interrupted by a generic coordinate form.
 Diff baseline and Clone search scope each occupy one row that keeps its
 persistent task label, native selector, effective selection or failure state,

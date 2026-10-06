@@ -176,6 +176,7 @@ public sealed class ProductionFacadeContextTests
         [CallGraphAssembly] =
         [
             "ExpandPlatformCallGraph",
+            "QueryDirectUseClusters",
             "QueryMemberCallGraph",
         ],
         [CatalogAssembly] =
@@ -198,6 +199,7 @@ public sealed class ProductionFacadeContextTests
             "DecodeWorkspaceShareState",
             "DescribeWorkspacePackageSources",
             "EncodeWorkspaceShareState",
+            "ExplainVocabularies",
             "ListEcosystems",
             "ListHomeDemos",
             "InspectVocabulary",

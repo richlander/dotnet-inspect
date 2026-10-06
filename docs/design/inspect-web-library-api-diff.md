@@ -100,7 +100,7 @@ The exact target may equal the current version. That is a valid neighboring
 case and produces a successful empty comparison when the selected Library is
 unchanged.
 
-**Change target** returns to Package Overview's Comparison targets area. The
+**Change target** returns to Package Compare's Comparison targets area. The
 Library surface does not duplicate Package target controls.
 
 ## Request and result association

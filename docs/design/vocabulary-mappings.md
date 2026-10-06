@@ -499,14 +499,17 @@ The adoption projects the existing catalog as follows:
 | Existing section and row sequence | Owner-issued vocabulary and term order |
 
 The compatibility projection retains the existing Product Vocabulary field
-IDs, operators, selected-section behavior, JSON shape, and schema version. It
+IDs, operators, selected-section behavior, JSON shape, and schema version
+until it retires with the `vocabulary` command under
+[Product Vocabulary](vocabulary.md#retirement). It
 is a projection of the new snapshot, not a second catalog. In particular,
 `tier` remains the same string in existing CLI JSON while the core snapshot
 also authenticates it as a term reference.
 
 Query operators are Product Vocabulary behavior, not general map metadata. Its
 compatibility adapter retains the existing field-to-operator declarations and
-combines them with the snapshot's term values. The adapter does not duplicate
+combines them with the snapshot's term values; those declarations retire with
+the adapter. The adapter does not duplicate
 term IDs, labels, summaries, order, defaults, or map targets.
 
 The Browser replaces its generic `JsonElement` row handling and handwritten
@@ -519,10 +522,10 @@ badges, conflicts, persistence, and selection behavior.
 
 The snapshot is data, not rendered output.
 
-- The CLI continues to lower Product Vocabulary through its existing typed
-  Markout view for Markdown, plaintext, table, TSV, JSONL, and projected JSON.
-- Existing unprojected CLI JSON remains its approved typed compatibility
-  projection.
+- Both hosts present Product Vocabulary through Resource Explanation's
+  [value-vocabulary resources](resource-explanation.md#value-vocabulary-resources).
+  The former CLI `vocabulary` view and its typed compatibility JSON retire
+  under [Product Vocabulary](vocabulary.md#retirement).
 - Browser/Wasm receives generated JSON-wire declarations and owns interaction
   and HTML presentation.
 - The Browser wire scopes vocabulary, term-definition, and map-definition
@@ -547,7 +550,8 @@ snapshot identity receive a typed rejection at their operation boundary.
 A missing vocabulary service is a visible host failure. Browser code may show
 an unavailable state, as it does today, but must not silently substitute a
 compiled TypeScript catalog. CLI compatibility projection failure likewise
-fails the command rather than rendering an empty vocabulary.
+fails the command rather than rendering an empty vocabulary, until that
+projection retires.
 
 ## Platform and trust boundary
 
@@ -596,7 +600,7 @@ semantic authority stays here.
 | Contract | Assembly | Reason |
 | --- | --- | --- |
 | Catalog, vocabulary, term, map, and snapshot identities; `VocabularyDefinition`, `VocabularyTerm`, map definitions and entries carrying `QuerySpace.Explanation` values, cardinality, coverage; `VocabularySnapshot` and its construction-time validation | `QuerySpace.Primitives` | A declaration a term owner must be able to produce from any family; the floor is dependency-free under the [QuerySpace library boundary](query-space-library.md#two-assemblies-and-two-participation-tiers) |
-| `VocabularyDocument`, sections, fields, operators, rows, the wire document, and `VocabularyJson` | `DotnetInspector.Sections` | Product Vocabulary's declared section schema and compatibility wire projection; not part of the reusable mapping pattern |
+| `VocabularyDocument`, sections, fields, operators, rows, the wire document, and `VocabularyJson` | `DotnetInspector.Sections` | Product Vocabulary's declared section schema and compatibility wire projection; not part of the reusable mapping pattern. Retires with the `vocabulary` command under [Product Vocabulary](vocabulary.md#retirement) |
 
 Owners declare; hosts compose, under the composition rule the
 [QuerySpace library boundary](query-space-library.md#two-assemblies-and-two-participation-tiers)

@@ -23,6 +23,7 @@ interface PackageControlsOptions {
     source: "navigation" | "legacy",
   ) => void;
   selectVersion: (version: string) => void;
+  retryVersionInventory?: () => void;
 }
 
 export interface PackageSelectionActions {
@@ -63,6 +64,32 @@ export function bindPackageSelections(
   version?.addEventListener(
     "change",
     () => actions.onVersionSelect(version.value));
+}
+
+export function bindPackageVersionNavigation(root: ParentNode, options: Pick<PackageControlsOptions, "selectVersion" | "retryVersionInventory">) {
+  const filter = root.querySelector<HTMLInputElement>("#package-version-filter");
+  const prerelease = root.querySelector<HTMLInputElement>("#package-version-prerelease");
+  const rows = [...root.querySelectorAll<HTMLElement>("[data-package-version]")];
+  const apply = () => {
+    for (const row of rows) {
+      const version = row.dataset.packageVersion ?? "";
+      row.hidden = row.getAttribute("aria-current") !== "page"
+        && (!version.toLowerCase().includes(filter?.value.toLowerCase() ?? "")
+          || (prerelease?.checked === false && version.split("+", 1)[0]?.includes("-") === true));
+    }
+  };
+  root.querySelector("#package-version-list")?.addEventListener("focus", () => {
+    (rows.find(row => row.getAttribute("aria-current") === "page") ?? rows[0])?.focus({ preventScroll: true });
+  });
+  filter?.addEventListener("input", apply);
+  prerelease?.addEventListener("change", apply);
+  rows.forEach(row => row.addEventListener("click", () => {
+    options.selectVersion(row.dataset.packageVersion ?? "");
+  }));
+  root.querySelector("#package-versions-retry")?.addEventListener("click", () => {
+    options.retryVersionInventory?.();
+  });
+  apply();
 }
 
 export function packageIdentityEquals(
@@ -114,6 +141,7 @@ export function createPackageControls(options: PackageControlsOptions) {
   } = options;
 
   function bind(root: ParentNode): void {
+    bindPackageVersionNavigation(root, options);
     bindPackageSelections(root, {
       onFrameworkSelect: selectFramework,
       onVersionSelect: selectVersion,
@@ -122,5 +150,6 @@ export function createPackageControls(options: PackageControlsOptions) {
 
   return {
     bind,
+    bindVersionNavigation: (root: ParentNode) => bindPackageVersionNavigation(root, options),
   };
 }
