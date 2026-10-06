@@ -722,6 +722,13 @@ family proves that the same operation returns the complete
 Tree, explicit Tree, and Browser family views continue to consume the
 transitional operation until their focused adoption slice.
 
+`MemberContextualExplanationOperation.ExplainResolvedMember` consumes only the
+completed overview or exact success variants from that resolver. It projects
+the same MemberGroup population or exact Member, including population
+correspondence, into the common Resource Explanation document without running
+resolution or an ordinary document plan again. CLI and Browser routing remain
+transitional until their focused host-adoption slice.
+
 This pilot uses the full stack because its question needs the full stack. It
 does not imply that a scalar Query needs a Section, that every Section needs
 QuerySpace, or that an intermediate owner result needs an envelope.

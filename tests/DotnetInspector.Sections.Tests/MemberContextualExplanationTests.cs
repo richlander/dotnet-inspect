@@ -1,4 +1,5 @@
 using System.Text.Json;
+using DotnetInspector.Fixtures;
 using DotnetInspector.Queries;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
@@ -8,6 +9,15 @@ namespace DotnetInspector.Sections.Tests;
 
 public class MemberContextualExplanationTests
 {
+    private static readonly ApiSurfaceExtractionBounds s_bounds =
+        new(
+            maxTypes: 5_000,
+            maxMembers: 100_000,
+            maxInspectionFailures: 1_000,
+            maxTypeForwarders: 10_000,
+            maxMetadataRows: 1_000_000,
+            maxRetainedTextCharacters: 20_000_000);
+
     [Fact]
     public void CommandExplanation_IsOneInstalledCommonDocument()
     {
@@ -144,6 +154,162 @@ public class MemberContextualExplanationTests
         Assert.Equal(document.Root, roundTripped.Root);
     }
 
+    [Fact]
+    public void ResolvedBasis_RejectsNonSuccessResolution()
+    {
+        ArgumentException exception =
+            Assert.Throws<ArgumentException>(() =>
+                new ResolvedMemberExplanationBasis(
+                    Source(),
+                    new MemberDocumentResolutionOutcome.Rejected(
+                        MemberDocumentResolutionRejection
+                            .MemberGroupNotFound),
+                    MemberDefaultFacet(),
+                    new([], []),
+                    ["Overloads"]));
+
+        Assert.Equal("resolution", exception.ParamName);
+    }
+
+    [Fact]
+    public async Task ResolvedSingleton_MapsExactMemberAndPopulation()
+    {
+        byte[] content =
+            await File.ReadAllBytesAsync(
+                FixtureCatalog.DecompilerUnsafeNew.AssemblyPath(),
+                TestContext.Current.CancellationToken);
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+        MemberDocumentResolutionOutcome resolution =
+            Resolve(
+                    library,
+                    Name(
+                        "ILInspector.Decompiler.Fixtures.NewUnsafe",
+                        "MemorySafetySpellingFixture"),
+                    "PointerFreeUnsafeMethod")
+                .Content;
+        MemberDocument exact =
+            Assert.IsType<MemberDocumentResolutionOutcome.Exact>(
+                    resolution)
+                .Document;
+
+        ResourceExplanationDocument document =
+            MemberContextualExplanationOperation
+                .ExplainResolvedMember(
+                    new(
+                        FixtureSource(),
+                        resolution,
+                        MemberDefaultFacet(),
+                        new([], []),
+                        ["Signature"]))
+                .Content;
+
+        ResourceExplanationResource root = document.Resources[0];
+        Assert.Equal("exact-member", root.ResourceType.Value);
+        Assert.Equal(
+            exact.Subject.Anchor.StableSelector,
+            Text(root, "stable-selector"));
+        Assert.Equal(
+            exact.Subject.Fingerprint.ToString(),
+            Text(root, "fingerprint"));
+        Assert.Equal(
+            exact.Subject.Population.ModuleVersionId.ToString("D"),
+            Text(root, "population-module-version-id"));
+        Assert.Equal(
+            exact.Subject.Population.TypeDefinitionToken.ToString("X8"),
+            Text(root, "population-type-definition-token"));
+        Assert.Equal(
+            exact.Subject.MetadataToken.ToString("X8"),
+            Text(root, "metadata-token"));
+        Assert.Equal(
+            exact.Subject.BaselineOrdinal.ToString(),
+            Text(root, "baseline-ordinal"));
+        Assert.Equal(["Signature"], Texts(root, "selected-content"));
+
+        string json = JsonSerializer.Serialize(
+            document,
+            ResourceExplanationJsonContext
+                .Default
+                .ResourceExplanationDocument);
+        ResourceExplanationDocument roundTripped =
+            JsonSerializer.Deserialize(
+                json,
+                ResourceExplanationJsonContext
+                    .Default
+                    .ResourceExplanationDocument)!;
+        Assert.Equal(document.Root, roundTripped.Root);
+        Assert.Equal(
+            exact.Subject.Population.ModuleVersionId.ToString("D"),
+            Text(
+                roundTripped.Resources[0],
+                "population-module-version-id"));
+
+        await library.RetireAsync();
+    }
+
+    [Fact]
+    public async Task ResolvedOverview_PreservesPopulationIntentAndIdentity()
+    {
+        byte[] content =
+            await LibraryInspectionTestLibrary.RealSystemTextJsonAsync();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+        MetadataTypeDefinitionName type =
+            Name("System.Text.Json", "JsonSerializer");
+        MemberDocumentResolutionOutcome extension =
+            Resolve(
+                    library,
+                    type,
+                    "Deserialize",
+                    receiver:
+                        MemberOverloadReceiverFilter.Extension)
+                .Content;
+        MemberDocumentResolutionOutcome nonExtension =
+            Resolve(
+                    library,
+                    type,
+                    "Deserialize",
+                    receiver:
+                        MemberOverloadReceiverFilter.NonExtension)
+                .Content;
+
+        ResourceExplanationDocument extensionExplanation =
+            ExplainResolved(extension);
+        ResourceExplanationDocument nonExtensionExplanation =
+            ExplainResolved(nonExtension);
+        ResourceExplanationResource root =
+            extensionExplanation.Resources[0];
+        MemberOverviewDocument overview =
+            Assert.IsType<MemberDocumentResolutionOutcome.Overview>(
+                    extension)
+                .Document;
+
+        Assert.Equal("member-group", root.ResourceType.Value);
+        Assert.Equal("CSharp", Text(root, "group-spelling"));
+        Assert.Equal(
+            overview.Population.Assembly.Name.ToString(),
+            Text(root, "population-assembly-name"));
+        Assert.Equal(
+            overview.Population.ModuleVersionId.ToString("D"),
+            Text(root, "population-module-version-id"));
+        Assert.Equal(
+            "Extension",
+            Text(root, "population-receiver"));
+        Assert.Equal(
+            "False",
+            Text(root, "population-include-hidden"));
+        Assert.Equal(["Overloads"], Texts(root, "selected-content"));
+        Assert.NotEqual(
+            extensionExplanation.Root,
+            nonExtensionExplanation.Root);
+
+        await library.RetireAsync();
+    }
+
     private static string Text(
         ResourceExplanationResource resource,
         string identity) =>
@@ -202,6 +368,45 @@ public class MemberContextualExplanationTests
             "System.Text.Json",
             "net10.0");
 
+    private static ResolvedInspectionSource FixtureSource() =>
+        new(
+            AssemblyResolutionProvenance.Local(
+                FixtureCatalog.DecompilerUnsafeNew.AssemblyPath()),
+            null,
+            "DecompilerUnsafeNew",
+            framework: null);
+
+    private static ResourceExplanationDocument ExplainResolved(
+        MemberDocumentResolutionOutcome resolution) =>
+        MemberContextualExplanationOperation
+            .ExplainResolvedMember(
+                new(
+                    Source(),
+                    resolution,
+                    MemberDefaultFacet(),
+                    new([], []),
+                    ["Overloads"]))
+            .Content;
+
+    private static InspectionEnvelope<MemberDocumentResolutionOutcome>
+        Resolve(
+            LibraryInspectionTestLibrary library,
+            MetadataTypeDefinitionName type,
+            string memberName,
+            MemberDocumentSelector? selector = null,
+            MemberOverloadReceiverFilter receiver =
+                MemberOverloadReceiverFilter.All) =>
+        MemberDocumentResolutionOperation.Execute(
+            new(
+                library.Reference,
+                new(
+                    new(type, memberName),
+                    s_bounds,
+                    selector,
+                    receiver: receiver)),
+            library.IssueOperation(),
+            TestContext.Current.CancellationToken);
+
     private static ViewFacetId MemberDefaultFacet() =>
         InspectionViewFacetCatalog.Registry
             .GetRequiredDescriptor(
@@ -210,8 +415,14 @@ public class MemberContextualExplanationTests
             .Id;
 
     private static MetadataTypeDefinitionName TypeName() =>
+        Name("System.Text.Json", "JsonSerializer");
+
+    private static MetadataTypeDefinitionName Name(
+        string @namespace,
+        params string[] segments) =>
         Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
-            MetadataTypeDefinitionName.ParseSerialized(
-                "System.Text.Json.JsonSerializer"))
+            MetadataTypeDefinitionName.Create(
+                @namespace,
+                [.. segments]))
             .Name;
 }
