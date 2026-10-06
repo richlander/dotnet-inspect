@@ -14,6 +14,117 @@ namespace ILInspector.Analysis.Tests;
 public sealed class LibraryBodyAnalysisExecutionTests
 {
     [Fact]
+    public void StageParticipation_PreservesZeroWorkAndFinalizesAttemptsOnce()
+    {
+        var recorder = new LibraryBodyAnalysisStageRecorder();
+        recorder.RecordCompleted(
+            LibraryBodyAnalysisStage.MethodEnumeration,
+            count: 0);
+        LibraryBodyAnalysisStageRecorder.StageAttempt attempt =
+            recorder.Start(
+                LibraryBodyAnalysisStage.ManagedBodyAcquisition);
+
+        attempt.Dispose();
+        attempt.Dispose();
+        attempt.Complete();
+
+        LibraryBodyAnalysisStageParticipationReceipt participation =
+            recorder.Snapshot();
+        LibraryBodyAnalysisStageParticipation enumeration =
+            Assert.Single(
+                participation.Stages,
+                stage => stage.Stage
+                    == LibraryBodyAnalysisStage.MethodEnumeration);
+        Assert.Equal(0, enumeration.Attempts);
+        Assert.Equal(0, enumeration.Completions);
+        Assert.Equal(0, enumeration.Failures);
+        LibraryBodyAnalysisStageParticipation acquisition =
+            participation.For(
+                LibraryBodyAnalysisStage.ManagedBodyAcquisition);
+        Assert.Equal(1, acquisition.Attempts);
+        Assert.Equal(0, acquisition.Completions);
+        Assert.Equal(1, acquisition.Failures);
+    }
+
+    [Fact]
+    public void StageParticipation_IsOptInAndRecordsCurrentPhysicalWork()
+    {
+        string path =
+            FixtureCatalog.AnalysisCallerLoop.AssemblyPath();
+        LibraryBodyAnalysisRequest request =
+            LibraryBodyAnalysisRequest.Create(
+                LibraryBodyAnalysisFeatures
+                    .OptimizationOpportunities);
+
+        LibraryBodyAnalysisExecution ordinary =
+            LibraryBodyAnalysisService.ExecutePath(
+                path,
+                request);
+        LibraryBodyAnalysisExecution observed =
+            LibraryBodyAnalysisService.ExecutePath(
+                path,
+                request.WithStageParticipation());
+        LibraryBodyAnalysisExecution profiled =
+            LibraryBodyAnalysisService.ExecutePath(
+                path,
+                LibraryBodyAnalysisRequest
+                    .CreateCompleteImplementationProfile()
+                    .WithStageParticipation());
+
+        Assert.Null(ordinary.Receipt.StageParticipation);
+        LibraryBodyAnalysisStageParticipationReceipt participation =
+            Assert.IsType<
+                LibraryBodyAnalysisStageParticipationReceipt>(
+                    observed.Receipt.StageParticipation);
+        AssertStageParticipated(
+            LibraryBodyAnalysisStage.MethodEnumeration);
+        AssertStageParticipated(
+            LibraryBodyAnalysisStage.ManagedBodyAcquisition);
+        AssertStageParticipated(
+            LibraryBodyAnalysisStage.LocalSignatureDecode);
+        AssertStageParticipated(
+            LibraryBodyAnalysisStage.CanonicalMethodContext);
+        AssertStageParticipated(
+            LibraryBodyAnalysisStage.AllocationAnalysis);
+        AssertStageParticipated(
+            LibraryBodyAnalysisStage.SafetyAnalysis);
+        AssertStageParticipated(
+            LibraryBodyAnalysisStage.BodySignalAnalysis);
+        AssertStageParticipated(
+            LibraryBodyAnalysisStage.CallAnalysis);
+        AssertStageParticipated(
+            LibraryBodyAnalysisStage
+                .StringMaterializationAnalysis);
+        AssertStageParticipated(
+            LibraryBodyAnalysisStage
+                .OptimizationOpportunityAnalysis);
+        AssertStageParticipated(
+            LibraryBodyAnalysisStage.AsyncSiblingAnalysis);
+        Assert.True(
+            profiled.Receipt.StageParticipation!
+                .For(
+                    LibraryBodyAnalysisStage
+                        .DirectCallDiscovery)
+                .Attempts > 0);
+        LibraryBodyAnalysisStageParticipation aggregation =
+            participation.For(
+                LibraryBodyAnalysisStage.ResultAggregation);
+        Assert.Equal(1, aggregation.Attempts);
+        Assert.Equal(1, aggregation.Completions);
+        Assert.Equal(0, aggregation.Failures);
+
+        void AssertStageParticipated(
+            LibraryBodyAnalysisStage stage)
+        {
+            LibraryBodyAnalysisStageParticipation actual =
+                participation.For(stage);
+            Assert.True(actual.Attempts > 0, stage.ToString());
+            Assert.Equal(actual.Attempts, actual.Completions);
+            Assert.Equal(0, actual.Failures);
+        }
+    }
+
+    [Fact]
     public void CompleteProfileRequest_CreatesVersionedMetricPlan()
     {
         LibraryBodyAnalysisRequest request =
@@ -909,7 +1020,8 @@ public sealed class LibraryBodyAnalysisExecutionTests
                 path,
                 LibraryBodyAnalysisRequest.CreateDirectCallCounts(
                     CountMetricLimits(),
-                    new HashSet<int> { token }));
+                    new HashSet<int> { token })
+                .WithStageParticipation());
 
         LibraryDirectCallCountAnalysisResult result =
             execution.DirectCallCounts;
@@ -921,6 +1033,26 @@ public sealed class LibraryBodyAnalysisExecutionTests
         Assert.Equal(token, count.EvidenceMethod.MetadataToken);
         Assert.Equal(2, count.Count);
         Assert.Empty(result.UnavailableBodies);
+        LibraryBodyAnalysisStageParticipationReceipt stages =
+            Assert.IsType<
+                LibraryBodyAnalysisStageParticipationReceipt>(
+                    execution.Receipt.StageParticipation);
+        LibraryBodyAnalysisStageParticipation discovery =
+            stages.For(
+                LibraryBodyAnalysisStage.DirectCallDiscovery);
+        Assert.Equal(1, discovery.Attempts);
+        Assert.Equal(1, discovery.Completions);
+        Assert.Equal(0, discovery.Failures);
+        Assert.Equal(
+            0,
+            stages.For(
+                LibraryBodyAnalysisStage.CallAnalysis)
+                .Attempts);
+        Assert.Equal(
+            0,
+            stages.For(
+                LibraryBodyAnalysisStage.CanonicalMethodContext)
+                .Attempts);
         Assert.True(result.Participation.WasPlanned);
         Assert.Equal(1, result.Participation.AttemptedBodies);
         Assert.Equal(1, result.Participation.CompletedBodies);
@@ -1650,6 +1782,36 @@ public sealed class LibraryBodyAnalysisExecutionTests
         Assert.Equal(2, Assert.Single(result.Counts).Count);
         Assert.Empty(result.UnavailableBodies);
         Assert.Empty(execution.CallGraph.DirectCalls);
+    }
+
+    [Fact]
+    public void
+        MetricExecution_DirectCallDiscoveryFailureIsVisible()
+    {
+        byte[] image = File.ReadAllBytes(
+            typeof(ImplementationProfileSample).Assembly.Location);
+        int token = ReplaceReturnWithTruncatedCall(image);
+
+        LibraryBodyAnalysisExecution execution =
+            LibraryBodyAnalysisService.ExecuteImage(
+                "MalformedDirectCallDiscovery.dll",
+                ImmutableArray.Create(image),
+                LibraryBodyAnalysisRequest.CreateDirectCallCounts(
+                    CountMetricLimits(),
+                    new HashSet<int> { token })
+                .WithStageParticipation());
+
+        Assert.False(execution.DirectCallCounts.IsComplete);
+        LibraryBodyAnalysisStageParticipation discovery =
+            Assert.IsType<
+                LibraryBodyAnalysisStageParticipationReceipt>(
+                    execution.Receipt.StageParticipation)
+                .For(
+                    LibraryBodyAnalysisStage
+                        .DirectCallDiscovery);
+        Assert.Equal(1, discovery.Attempts);
+        Assert.Equal(0, discovery.Completions);
+        Assert.Equal(1, discovery.Failures);
     }
 
     [Fact]
@@ -3216,6 +3378,39 @@ public sealed class LibraryBodyAnalysisExecutionTests
                     + 1,
                 sizeof(int)),
             0x0AFFFFFF);
+        return MetadataTokens.GetToken(methodHandle);
+    }
+
+    static int ReplaceReturnWithTruncatedCall(byte[] image)
+    {
+        using var stream = new MemoryStream(image, writable: false);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        MethodDefinitionHandle methodHandle =
+            reader.MethodDefinitions.Single(handle =>
+                reader.StringComparer.Equals(
+                    reader.GetMethodDefinition(handle).Name,
+                    nameof(ImplementationProfileSample
+                        .CallHiddenTwice)));
+        MethodDefinition method =
+            reader.GetMethodDefinition(methodHandle);
+        MethodBodyBlock body = peReader.GetMethodBody(
+            method.RelativeVirtualAddress);
+        byte[] il = body.GetILBytes()
+            ?? throw new InvalidOperationException(
+                "Expected a managed method body.");
+        int returnOffset = Array.LastIndexOf(il, (byte)0x2A);
+        Assert.True(returnOffset >= 0);
+        int methodOffset = RvaToFileOffset(
+            peReader.PEHeaders,
+            method.RelativeVirtualAddress);
+        int headerSize = (image[methodOffset] & 3) == 2
+            ? 1
+            : ((BinaryPrimitives.ReadUInt16LittleEndian(
+                    image.AsSpan(methodOffset, sizeof(ushort)))
+                >> 12)
+                & 0xF) * sizeof(uint);
+        image[methodOffset + headerSize + returnOffset] = 0x28;
         return MetadataTokens.GetToken(methodHandle);
     }
 

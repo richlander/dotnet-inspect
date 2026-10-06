@@ -326,7 +326,9 @@ The reusable substrate validates structure rather than producer semantics:
 - resource and scope identities agree along the path;
 - the path's completion requirement is at least the requirement's accepted
   completion;
-- provision dependencies are present and acyclic; and
+- every selected provision belongs to the requirement set's resource;
+- provision dependencies are selected and precede their dependents, which
+  also excludes cycles; and
 - the detached result shape can route one typed outcome to every association.
 
 The producer remains responsible for the truth of its capability and coverage
@@ -466,9 +468,10 @@ and Method Query Source remains **unverified** until the focused adoption lands.
 
 ## Failure and lifetime
 
-Planning failures are typed and occur before producer work. They include an
-unknown capability, incompatible scope, unsatisfied completion requirement,
-invalid covering path, dependency cycle, or no admitted strategy.
+Planning failures are typed and occur before producer work. They include a
+capability no selected path produces, incompatible scope, unsatisfied
+completion requirement, invalid covering path, missing or out-of-order
+dependency, or no admitted strategy.
 
 Execution uses the producer's existing typed outcomes. A selected provision
 that becomes unavailable or incomplete does not trigger an undeclared fallback.
@@ -502,10 +505,13 @@ findings are
 [#9484](https://github.com/richlander/dotnet-inspect/issues/9484). Its
 [validator check classification](../../prototypes/producer-capability-demand/README.md#validator-check-classification)
 proves that `MissingDependency` and `DependencyOrder` exclude every dependency
-cycle, and that the satisfaction checks imply `UnknownCapability`. It also
-proves that an "at least" completion check, combined with the conjunctive
-exactness rule, is sound under an owner-certified monotone completion order. It does not replace the Release gates in
-[Required evidence](#required-evidence).
+cycle, and that the satisfaction checks imply known capabilities and the
+requirement identity domains. The validator relies on those proofs instead of
+running a separate cycle search, unknown-capability pass, or requirement
+identity domain check. The classification also proves that an "at least"
+completion check, combined with the conjunctive exactness rule, is sound under
+an owner-certified monotone completion order. It does not replace the Release
+gates in [Required evidence](#required-evidence).
 
 Execution settlement, early stopping, and shared failure routing remain owned
 by [Open and closed queries](open-and-closed-queries.md) and its existing TLA+
@@ -557,7 +563,7 @@ capability substrate.
 | --- | --- |
 | `ProducerCapabilityPlanPreservesEveryRequirement` | Whole-set planning returns one direct or covering satisfaction path for every association, in request order, with no missing or duplicate result. |
 | `ProducerCapabilityCoverageRequiresOwnerProof` | Equal display text, result shape, or object identity cannot authorize coverage; resource, scope, capability, projection, and completion must use the producer's declared relationship. |
-| `ProducerCapabilityPlanRejectsInvalidStructureBeforeWork` | Unknown capabilities, incompatible scopes, dependency cycles, insufficient completion, and unsatisfied requirements reject before subject access. |
+| `ProducerCapabilityPlanRejectsInvalidStructureBeforeWork` | Unproduced capabilities, incompatible scopes, dependency cycles, insufficient completion, and unsatisfied requirements reject before subject access. |
 | `ProducerCapabilityPlanPreservesSingletonSpecialization` | Count-only, Exists-only, Rows-only, or another singleton requirement retains its owner-issued direct strategy unless that producer explicitly selects a cheaper covering strategy. |
 | `ProducerCapabilityPlanSelectsBeforeEnrichment` | The Package adopter proves a returned-row capability executes only for rows admitted by earlier selection unless the selection itself requires that capability. |
 | `ProducerCapabilityResultsPreserveTypedFailure` | A failed or incomplete provision remains visible for every dependent requirement and never becomes an empty or zero result; independent settled requirements remain intact. |
