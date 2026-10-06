@@ -38,6 +38,13 @@ constructs all assets that production publication may consume. Package and
 site verification run against those produced assets before they are retained.
 Deep Inspect release certification then observes the same full commit SHA.
 
+The source is the run's own head SHA, because publication and comparison
+deployment revalidate that GitHub-recorded identity. When that SHA's
+`ci / ci-required` is still queued or running, source validation waits a
+bounded time for it to complete. It never substitutes an earlier green commit;
+a red, cancelled, or still-pending check fails the run with an annotation
+that names the observed status.
+
 The candidate workflow may retain assets when certification reports a
 completed non-success outcome. It must not retain a publishable candidate when
 source identity is invalid, required assets are missing, an artifact check

@@ -581,10 +581,6 @@ function detailHtml() {
       </header>
       <section class="package-metadata-controls" aria-label="Metadata coordinate"></section>
       <div class="package-metadata-scroll"></div>
-      <footer class="metadata-surface-footer package-metadata-surface-footer">
-        <span>System.Text.Json@10.0.0</span>
-        <span>net10.0</span>
-      </footer>
     </section>`;
   }
   if (metadataMode) {
@@ -598,10 +594,6 @@ function detailHtml() {
           <div class="section-title"><h2>Type shape</h2><span>ECMA-335 metadata</span></div>
         </section>
       </div>
-      <footer class="metadata-surface-footer">
-        <span>System.Text.Json.JsonSerializer</span>
-        <span>net10.0 · System.Text.Json.dll</span>
-      </footer>
     </section>`;
   }
   if (memberMode) {
@@ -789,7 +781,6 @@ function detailHtml() {
       </header>
       <div class="member-browser-controls api-surface-controls"></div>
       <div class="api-surface-scroll"></div>
-      <footer class="api-surface-footer"><span>Select a row to inspect its API</span></footer>
     </section>`;
   }
   return `<h1>${subjectPath.at(-1)?.label}</h1>`;

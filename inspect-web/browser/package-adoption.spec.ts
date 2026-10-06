@@ -1213,8 +1213,7 @@ test.describe("Package Query website over real Wasm", () => {
     await expect(overview.locator("h1")).toHaveText(
       literalCoordinate.packageId.toLowerCase(),
     );
-    await expect(overview.locator(".overview-surface-footer"))
-      .toContainText(literalCoordinate.version);
+    await expect(overview.locator(".overview-surface-footer")).toHaveCount(0);
     const packageUrl = page.url();
     const retainedWorkspaceId = await currentHistoryWorkspaceId(page);
     expect(retainedWorkspaceId).not.toBeNull();
@@ -2901,7 +2900,7 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     // "Inspection failed" instead.
     await expect(panel.locator(".api-surface-head"))
       .toContainText("1 direct reference");
-    await expect(panel.locator("footer")).toContainText(healthyAssemblyFileName);
+    await expect(panel.locator("footer")).toHaveCount(0);
     await expect(panel).not.toContainText("Inspection failed");
   });
 
@@ -3351,8 +3350,7 @@ test.describe("deterministic two-host Workspace demo", () => {
       await expect(overview).toBeVisible({ timeout: 180_000 });
       await expect(overview.locator("h1"))
         .toHaveText(retainedWorkspace.packageId);
-      await expect(overview.locator(".overview-surface-footer"))
-        .toContainText(retainedWorkspace.version);
+      await expect(overview.locator(".overview-surface-footer")).toHaveCount(0);
     };
 
     await page.setViewportSize({ width: 1440, height: 900 });

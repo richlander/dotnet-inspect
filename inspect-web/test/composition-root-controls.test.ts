@@ -67,11 +67,8 @@ import {
 } from "./composition-root-test-fixture.ts";
 
 test("qualified Type leverage exposes a cache-bypassing retry", () => {
-  const control = sourceText(functionDeclaration("typeLeverageStatus"));
-  assert.match(
-    control,
-    /qualified[\s\S]*data-type-leverage-retry>Retry/,
-  );
+  assert.match(dataBarSource, /data-type-leverage-retry>Retry/);
+  assert.match(appSource, /typeLeverageFeedback\(published\.presentation\)/);
   assert.match(
     appSource,
     /onTypeLeverageRetry:\s*\(\) => loadTypeLeverage\(true\)/,
@@ -92,9 +89,7 @@ test("ordinary Type lists request and present exhaustive structural salience", (
   const typePresentation = sourceText(
     functionDeclaration("currentTypeLeveragePresentation"),
   );
-  const status = sourceText(
-    functionDeclaration("typeLeverageStatus"),
-  );
+  const status = dataBarSource;
 
   assert.match(
     typeAutoLoad,

@@ -797,19 +797,18 @@ public static partial class PackageExports
             assembly = asset.AssemblyName;
             BrowserWorkspaceParticipant participant =
                 scope.SurfaceParticipant(coordinate, asset);
-            AssemblyContextEntry<ImmutableArray<AssemblyReferenceIdentity>> referenceResult =
+            AssemblyContextEntry<ImmutableArray<AssemblyReferenceRow>> referenceResult =
                 scope.UseSurfaceParticipant(
                     participant,
-                    AssemblyContextReferencesQuery.ExecuteParticipant);
+                    AssemblyContextReferencesQuery.ExecuteParticipantRows);
 
             switch (referenceResult)
             {
                 case AssemblyContextEntry<
-                    ImmutableArray<AssemblyReferenceIdentity>>.Available available:
+                    ImmutableArray<AssemblyReferenceRow>>.Available available:
                     BrowserAssemblyReference[] references =
                     [
                         .. available.Value
-                            .Select(reference => reference.ToReference())
                             .OrderBy(
                                 reference => reference.Name,
                                 StringComparer.OrdinalIgnoreCase)
@@ -831,12 +830,12 @@ public static partial class PackageExports
                     assemblyReferences = new(new BrowserAssemblyReferenceList(references));
                     break;
                 case AssemblyContextEntry<
-                    ImmutableArray<AssemblyReferenceIdentity>>.Rejected rejected:
+                    ImmutableArray<AssemblyReferenceRow>>.Rejected rejected:
                     assemblyReferences = new(
                         $"{rejected.Failure.Kind} ({rejected.Failure.Detail})");
                     break;
                 case AssemblyContextEntry<
-                    ImmutableArray<AssemblyReferenceIdentity>>.Failed failed:
+                    ImmutableArray<AssemblyReferenceRow>>.Failed failed:
                     assemblyReferences = new(failed.Error.Message);
                     break;
                 default:

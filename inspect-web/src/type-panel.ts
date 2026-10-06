@@ -755,7 +755,6 @@ export function renderTypeNav(options: TypeNavOptions): string {
           </section>`;
         }).join("") || '<div class="empty-list">No public types match this filter.</div>'}
       </div>
-      <footer class="pane-footer"><span>↑↓ types</span><span>←→ lens</span><span>↵ open</span></footer>
     </aside>`;
 }
 
@@ -927,7 +926,6 @@ export function renderMemberNav(options: MemberNavOptions): string {
           </button>`;
         }).join("") || `<div class="empty-list">${escapeHtml(options.emptyMessage ?? "No members match these filters.")}</div>`}
       </div>
-      <footer class="pane-footer"><span>↑↓ members</span>${selectedMemberKey ? "<span>←→ sections</span>" : ""}<span>esc types</span></footer>
     </aside>`;
 }
 
@@ -1042,8 +1040,6 @@ export function renderTypeMetadata(options: RenderTypeMetadataOptions): string {
       exactUnavailable
         ? "unavailable"
         : exact?.accessibility || item.accessibility || "public";
-    const coordinate =
-      `${packageContext.activeFramework} · ${item.assembly} · ${packageContext.id}@${packageContext.version}`;
     return `
       <section class="metadata-surface" aria-labelledby="metadata-surface-title">
         <header class="metadata-surface-head">
@@ -1053,10 +1049,6 @@ export function renderTypeMetadata(options: RenderTypeMetadataOptions): string {
         <div class="metadata-surface-scroll">
           ${content}
         </div>
-        <footer class="metadata-surface-footer">
-          <span title="${escapeHtml(item.id)}">${escapeHtml(item.id)}</span>
-          <span title="${escapeHtml(coordinate)}">${escapeHtml(coordinate)}</span>
-        </footer>
       </section>`;
   };
   if (metadataState.typeMetadataLoading && fresh) {
@@ -1241,12 +1233,14 @@ export function renderSourceResult(options: RenderSourceResultOptions): string {
     escapeHtml,
     highlightCSharp,
   } = options;
-  return `<section class="source-result" aria-label="Source">
+  const limitation = pdbSourceLimitationHtml(source);
+  return `<section class="source-result${limitation ? " has-source-diagnostics" : ""}" aria-label="Source">
+      <aside class="source-provenance" aria-label="Source provenance"><strong>${source.provider === "pdb" ? "PDB Source" : "Decompiled source"}</strong><span title="${escapeHtml(source.provenance)}">${escapeHtml(source.provenance)}</span></aside>
+      ${limitation ? `<div class="source-diagnostics">${limitation}</div>` : ""}
       ${renderSourceCode(
         text,
         highlightCSharp,
         leftJustify || source.provider === "decompiled")}
-      <footer class="source-provenance"><strong>${source.provider === "pdb" ? "PDB Source" : "Decompiled source"}</strong><span>${escapeHtml(source.provenance)}</span>${pdbSourceLimitationHtml(source)}</footer>
     </section>`;
 }
 
@@ -1509,9 +1503,10 @@ export function renderTypeSource(options: RenderTypeSourceOptions): string {
         if (content.outcome !== "Available" || content.text === null) {
           return `<section class="document-section empty-document"><h2>API Declarations unavailable</h2>${diagnosticHtml}</section>`;
         }
-        return `<section class="source-result" aria-label="API Declarations">
+        return `<section class="source-result${diagnosticHtml ? " has-source-diagnostics" : ""}" aria-label="API Declarations">
+          <aside class="source-provenance" aria-label="Source provenance"><strong>API Declarations</strong><span>${content.scope === "All" ? "All declarations" : "Public and protected API"} · metadata, without implementation bodies</span></aside>
+          ${diagnosticHtml ? `<div class="source-diagnostics">${diagnosticHtml}</div>` : ""}
           ${renderSourceCode(content.text, highlightCSharp)}
-          <footer class="source-provenance"><strong>API Declarations</strong><span>${content.scope === "All" ? "All declarations" : "Public and protected API"} · metadata, without implementation bodies</span>${diagnosticHtml}</footer>
         </section>`;
       }
       return renderSourceResult({

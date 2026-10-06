@@ -229,6 +229,17 @@ public static class ArgumentPreprocessor
         }
         if (command >= 0
             && args[command].Equals(
+                "vocabulary",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            error = "'vocabulary' has been removed. Use "
+                + "'explain vocabularies' to list product vocabularies, "
+                + "'explain vocabularies/<id> --depth 1' for every value, or "
+                + "'explain vocabularies/<id>/values/<value>' for one value.";
+            return true;
+        }
+        if (command >= 0
+            && args[command].Equals(
                 "workspace-state",
                 StringComparison.OrdinalIgnoreCase))
         {

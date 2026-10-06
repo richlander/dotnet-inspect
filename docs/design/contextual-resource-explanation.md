@@ -15,10 +15,11 @@ related-operation affordance identities join to lazy CLI-owned bindings for
 `--explain .tips`, and resolved-subject bare `-E`. The command resource and
 detached MemberGroup or exact-Member snapshots now produce the common
 `ResourceExplanationDocument`; there is no Member-specific Document wrapper.
-Current production still preserves a name-only singleton as a MemberGroup.
-The count-directed exact-Member transition defined by
-[Type and Member inspection documents](type-member-inspection-documents.md)
-remains staged under #8430.
+The host-neutral mapping now consumes completed `MemberOverviewDocument` or
+`MemberDocument` resolution and preserves its exact MemberGroup population
+correspondence. Current CLI routing still uses the transitional MemberGroup and
+exact-Member inputs; count-directed singleton adoption remains with the later
+host slice under #8430.
 Other
 commands retain their existing imperative tip construction and reserved bare
 `-E` behavior until adopted one owner at a time. The
@@ -345,6 +346,20 @@ Explanation consumes that already resolved subject. It does not recount the
 population, promote or narrow the subject independently, reject an overloaded
 group as several subjects, choose its first overload, or infer kind from
 display text.
+
+The host-neutral explanation input admits only the completed overview or exact
+success variants from Member document resolution. It carries source context,
+the resolved document, default view, and semantic demand in one handoff. A
+rejected, incomplete, or failed resolution never becomes an explanation input;
+its existing typed non-success remains with the resolving owner.
+
+The MemberGroup explanation key and facts retain the exact population's
+assembly, module version, Type token, spelling, ordering, accessibility,
+receiver, and hidden-admission intent. Exact-Member explanation additionally
+retains the containing population, Metadata token, baseline ordinal,
+fingerprint, stable selector, and documentation identity. Transitional host
+inputs may omit population correspondence that they do not yet possess, but
+the completed-document mapping never reconstructs or drops it.
 
 The subject-reference owner decides what explanation means for a reusable
 subject, including its accepted operations and other affordances. This

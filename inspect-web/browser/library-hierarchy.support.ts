@@ -285,6 +285,8 @@ interface HomeDemoFixture {
 }
 
 interface DiagnosticsFixture {
+  packageDocumentTitles?: "ready" | "deferred";
+  libraryApiDiffPilot?: "ready" | "empty";
   runtimeFailure?: boolean;
   buildIdentity?: "ready" | "pending" | "failed";
   cacheFailure?: boolean;
@@ -293,6 +295,8 @@ interface DiagnosticsFixture {
   libraryApiIncomplete?: boolean;
   deferTypeMemberPopulation?: boolean;
   qualifiedStructuralSalience?: boolean;
+  physicalOnlyStructuralSalience?: boolean;
+  failedStructuralSalience?: boolean;
   slowStructuralSalience?: boolean;
 }
 
@@ -605,6 +609,23 @@ async function installFacades(
       }`,
     package: `
       ${surfaceLookup}
+      ${diagnostics.packageDocumentTitles ? `
+      const documentTitleReads = new Set();
+      export async function getPackageDocument(packageId, version, path) {
+        document.documentElement.dataset.packageDocumentTitleRequest = JSON.stringify([packageId, version, path]);
+        if (${JSON.stringify(diagnostics.packageDocumentTitles)} === "deferred" && !documentTitleReads.has(path)) {
+          documentTitleReads.add(path);
+          await new Promise(resolve => document.addEventListener("package-document-titles", resolve));
+        }
+        if (path === "broken.md") throw new Error("Read failed");
+        const texts = ${JSON.stringify({
+          "README.md": "---\nname: frontmatter\n---\n\n```md\n# Code fence\n```\n\n# First **title** & <em>details</em>\n# Second title",
+          "guide.md": "Setext title\n============\nBody",
+          "untitled.md": "## Secondary heading\nNo H1",
+        })};
+        document.documentElement.dataset.packageDocumentTitleCompletion = JSON.stringify([version, path]);
+        return { kind: "Markdown", name: path, path, text: version === "0.9.0" ? "# Older package" : texts[path] ?? "# Document" };
+      }` : ""}
       const platformTarget = ${JSON.stringify(catalogTarget)};
       const platformOptions = ${JSON.stringify(platform ?? {})};
       const diagnosticsOptions = ${JSON.stringify(diagnostics)};
@@ -1358,6 +1379,43 @@ async function installFacades(
       }`,
     metadata: `
       ${surfaceLookup}
+      ${diagnostics.libraryApiDiffPilot ? `
+      export async function queryLibraryApiDiff(operationId, request) {
+        const endpoint = version => ({
+          packageId: request.packageId, version, framework: request.targetFramework,
+          asset: { id: request.compileAssetId, path: request.compileAssetId, assemblyName: "Example" },
+          assembly: { name: "Example", version, culture: null, publicKeyToken: null },
+          scope: "Public", isComplete: true, issues: [],
+        });
+        return {
+          schemaVersion: 3, request, kind: "Succeeded",
+          value: {
+            libraryIdentifier: "Example.Core", libraryDisplay: "Example.Core",
+            target: endpoint(request.targetVersion), current: endpoint(request.currentVersion),
+            aggregate: { changedTypeCount: ${diagnostics.libraryApiDiffPilot === "empty" ? 0 : 1}, addedTypeCount: 0, removedTypeCount: 0, changedMemberCount: ${diagnostics.libraryApiDiffPilot === "empty" ? 0 : 3}, breakingCount: 0, additiveCount: ${diagnostics.libraryApiDiffPilot === "empty" ? 0 : 3}, potentiallyBreakingCount: 0 },
+            types: ${JSON.stringify(diagnostics.libraryApiDiffPilot === "empty" ? [] : [{
+              documentIdentifier: "Example.Widget", display: "Example.Widget", state: "Diff",
+              typeDefinitionChanged: false, changedMemberCount: 3,
+              breakingCount: 0, additiveCount: 3, potentiallyBreakingCount: 0,
+              before: { identifier: "before-widget", namespace: "Example", segments: ["Widget"], display: "Example.Widget" },
+              after: { identifier: "after-widget", namespace: "Example", segments: ["Widget"], display: "Example.Widget" },
+              members: [], changes: [],
+            }])},
+          },
+          unavailable: null, rejected: null, failureKind: null, error: null,
+          diagnostic: null, reason: null,
+          inspection: {
+            content: {
+              comparison: { name: request.packageId, beforeVersion: request.targetVersion, afterVersion: request.currentVersion, surface: "Library", views: "Changes", analyses: ["api"], predicates: [] },
+              outcomes: [{ analysis: "api", kind: "Compared", findings: ["metadata.type", "metadata.member"], detail: null }],
+              transitions: null, apiInspectionFailures: [], changes: { types: [] },
+              libraryApi: { outcome: "available", document: {} },
+            },
+            share: { kind: "nonProjectable", path: "comparison/endpoints", reason: "Ordered endpoints are not shareable.", fullUrl: null, packet: null },
+            diagnostics: [],
+          },
+        };
+      }` : ""}
       export async function queryMemberDeclaration(
         id, version, framework, assembly, typeIdentity, memberName,
         selectorKey, metadataToken, implementationMember) {
@@ -1856,6 +1914,9 @@ async function installFacades(
         document.documentElement.dataset.structuralSalienceRequestCount =
           String(++structuralSalienceRequestCount);
         const qualified = diagnosticsOptions.qualifiedStructuralSalience;
+        const physicalOnly = diagnosticsOptions.physicalOnlyStructuralSalience;
+        if (diagnosticsOptions.failedStructuralSalience)
+          throw new Error("Structural evidence acquisition failed.");
         const exactNamespace = "Example";
         const selectedType = surface.types.find(
           item => item.assemblyId === selected.id
@@ -1931,7 +1992,7 @@ async function installFacades(
             namespaceIndex: null,
             typeLeverageShards: [{
               namespace: exactNamespace,
-              disposition: qualified ? "qualified" : "complete",
+              disposition: qualified || physicalOnly ? "qualified" : "complete",
               signatureCoverage: {
                 considered: 1,
                 examined: qualified ? 0 : 1,
@@ -1940,8 +2001,8 @@ async function installFacades(
               },
               bodyCoverage: {
                 bodiesConsidered: 2,
-                bodiesExamined: qualified ? 1 : 2,
-                bodiesPhysicalOnly: 0,
+                bodiesExamined: qualified || physicalOnly ? 1 : 2,
+                bodiesPhysicalOnly: physicalOnly ? 1 : 0,
                 bodiesUnavailable: qualified ? 1 : 0,
                 bodiesLimited: 0,
                 operandsConsidered: 3,
@@ -1954,7 +2015,8 @@ async function installFacades(
                 item => item.typeDefinitionId),
               mountainPeakOrder: implementationTypes.map(
                 item => item.typeDefinitionId),
-              diagnostics: qualified ? ["One body was unavailable."] : []
+              diagnostics: qualified ? ["One body was unavailable."]
+                : physicalOnly ? ["The physical body has no authenticated logical owner."] : []
             }],
             failure: null,
             failureKind: null

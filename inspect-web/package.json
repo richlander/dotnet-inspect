@@ -49,6 +49,7 @@
     "prismjs": "1.30.0"
   },
   "overrides": {
+    "katex": "0.18.10",
     "lodash-es": "4.18.1"
   }
 }

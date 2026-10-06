@@ -7,11 +7,13 @@ document family tracked by
 [#8430](https://github.com/richlander/dotnet-inspect/issues/8430).
 
 The design is approved. The four public document declarations, their shared
-exact-Member declaration shape, population correspondence guards, and
-source-generated JSON contracts are implemented. Existing production
-operations still return explicitly named transitional content shapes; later
-adoption slices must switch those producers without presenting the target
-contract as current behavior.
+exact-Member declaration shape, population correspondence guards,
+source-generated JSON contracts, and selector-driven Member document
+resolution and contextual explanation subject mapping are implemented.
+Existing production operations still return
+explicitly named transitional content shapes; later adoption slices must
+switch those producers without presenting the target contract as current
+behavior.
 The transitional exact-Member producer remains C#-spelling-only and rejects
 Metadata spelling until a later producer slice can emit true Metadata
 declarations.
@@ -177,6 +179,18 @@ Count-only work constructs no exact-Member rows or signatures. Bounded rows do
 only the work required for the returned compact rows and their requested
 Counts.
 
+`TypeOverviewDocumentInspectionOperation` composes the existing exact-Type and
+Type MemberGroup population operation into this final document. Its plan
+requires Rows with nested exact-Member Counts, while retaining spelling,
+accessibility, receiver, hidden admission, ordering, and continuation as one
+population intent. Bounded Rows remain valid compact documents; the
+continuation retains the same binding and nested-Count demand.
+
+The operation preserves Share and diagnostics from the source inspection. A
+Type or population rejection, bound, or failure remains a closed document
+outcome. Rows rejection, incompleteness, or failure is promoted to that same
+document boundary rather than returned inside success-shaped content.
+
 ## TypeDocument
 
 `TypeDocument` is the complete declaration document for one exact Type. It
@@ -304,9 +318,10 @@ production adoption as focused slices:
 2. Establish the public document declarations, population bindings, Rows and
    Count correspondence, and serialization contracts. Complete.
 3. Implement `MemberOverviewDocument` and exact `MemberDocument` resolution.
+   Complete.
 4. Adopt the resolved Member subject mapping in Contextual Resource
-   Explanation.
-5. Implement compact `TypeOverviewDocument`.
+   Explanation. Complete.
+5. Implement compact `TypeOverviewDocument`. Complete.
 6. Implement complete `TypeDocument`.
 7. Adopt the documents independently in CLI and Browser/Wasm.
 8. Retire transitional document names and superseded host-local composition.
