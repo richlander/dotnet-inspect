@@ -576,6 +576,28 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task
+        Type_PlatformHierarchyKeepsEqualIdentityImplementationFocus()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            "Microsoft.AspNetCore.Http.DefaultHttpContext",
+            "--platform",
+            "Microsoft.AspNetCore.Http",
+            "--all",
+            "-S",
+            SectionNames.Fields,
+            "-S",
+            SectionNames.DerivedTypes,
+            "--count");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("| Derived Types | 0 |", output);
+        Assert.Contains("| Fields | 14 |", output);
+        Assert.Empty(error);
+    }
+
+    [Fact]
     public async Task Type_SingleType_SelectSection_RendersSectionNotShape()
     {
         var options = new TypeOptions

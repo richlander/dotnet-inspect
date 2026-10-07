@@ -226,9 +226,15 @@ internal static class TypeHierarchyRelationsInspectionExecutor
                 object,
                 TypeHierarchyRelationCandidateSource>(
                     ReferenceEqualityComparer.Instance);
+        bool exactPlatformFocusMissing =
+            IsPlatformSource(options, source)
+            && File.Exists(source.SearchPath)
+            && SelectedPlatformAssemblyDefinesType(source)
+            && !assemblySet.Assemblies.Any(
+                entry => PathsEqual(entry.Path, source.SearchPath));
         (int? preferredIndex, string? preferredError) =
             SelectPreferredEntry(assemblySet.Assemblies, source);
-        if (preferredIndex is null
+        if ((preferredIndex is null || exactPlatformFocusMissing)
             && IsPlatformSource(options, source)
             && File.Exists(source.SearchPath))
         {
@@ -275,9 +281,16 @@ internal static class TypeHierarchyRelationsInspectionExecutor
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 AssemblySetEntry entry = assemblySet.Assemblies[index];
+                bool isPreferred = index == preferredIndex;
+                AssemblySetEntry declarationEntry =
+                    isPreferred
+                    && IsPlatformSource(options, source)
+                    && entry.SourceKind == AssemblySetSourceKind.Assembly
+                        ? ExactPlatformFocusEntry(entry, source)
+                        : entry;
                 AssemblyResolutionProvenance provenance =
                     ProvenanceFor(
-                        entry,
+                        declarationEntry,
                         options,
                         packageExtractPath);
                 ResolvedAssemblyReference? assembly =
@@ -292,7 +305,6 @@ internal static class TypeHierarchyRelationsInspectionExecutor
                             + "managed metadata.");
                 }
 
-                bool isPreferred = index == preferredIndex;
                 var participant = new AssemblyContextParticipant(
                     assembly,
                     new AssemblyDependencyResolver(
@@ -301,7 +313,7 @@ internal static class TypeHierarchyRelationsInspectionExecutor
                 var identity =
                     new ManagedMetadataIdentity.Assembly(assembly.Identity);
                 ExactLibrarySourceCoordinate coordinate =
-                    CoordinateFor(entry, options, identity);
+                    CoordinateFor(declarationEntry, options, identity);
                 string digest = await DigestAsync(
                         entry.Path,
                         cancellationToken)
@@ -456,7 +468,7 @@ internal static class TypeHierarchyRelationsInspectionExecutor
                         new(
                             acquiredAssembly.Identity.Name,
                             SourceFor(
-                                entry,
+                                declarationEntry,
                                 options,
                                 packageExtractPath)));
                     continue;
@@ -495,7 +507,7 @@ internal static class TypeHierarchyRelationsInspectionExecutor
                     new(
                         assembly.Identity.Name,
                         SourceFor(
-                            entry,
+                            declarationEntry,
                             options,
                             packageExtractPath)));
             }
@@ -774,17 +786,13 @@ internal static class TypeHierarchyRelationsInspectionExecutor
                 options.PackagePath is null
                     && options.AssemblyPath is { } assembly
                     ? [assembly]
+                    : isPlatform
+                        && includeExactPlatformFocus
+                        && File.Exists(source.SearchPath)
+                        ? [source.SearchPath]
                     : isLocal && File.Exists(source.SearchPath)
                         ? [source.SearchPath]
                         : [],
-            PlatformAssemblies =
-                isPlatform && includeExactPlatformFocus
-                    ? [
-                        options.PlatformAssembly
-                            ?? Path.GetFileNameWithoutExtension(
-                                source.SearchPath),
-                    ]
-                    : [],
             Projects =
                 options.ProjectPath is { } project
                     ? [project]
@@ -796,10 +804,6 @@ internal static class TypeHierarchyRelationsInspectionExecutor
             Tfm = options.Tfm ?? source.SelectedTfm,
             SourceOptions = options.SourceOptions,
             TempDirPrefix = "inspect-type-hierarchy",
-            PlatformAssemblyFrameworkHint =
-                options.PlatformFramework
-                ?? source.PlatformFramework
-                ?? "runtime",
             IncludePackageRuntimeAssemblies =
                 PackageRelativePath(source) is { } packageAsset
                 && packageAsset.StartsWith(
@@ -808,6 +812,47 @@ internal static class TypeHierarchyRelationsInspectionExecutor
             CancellationToken = cancellationToken,
         };
     }
+
+    private static AssemblySetEntry ExactPlatformFocusEntry(
+        AssemblySetEntry entry,
+        ApiSourceResult source) =>
+        new(
+            entry.Path,
+            source.PlatformFramework ?? "runtime",
+            source.ApiVersion,
+            AssemblySetSourceKind.PlatformAssembly,
+            source.SelectedTfm);
+
+    private static bool SelectedPlatformAssemblyDefinesType(
+        ApiSourceResult source)
+    {
+        if (string.IsNullOrWhiteSpace(source.TypeName))
+            return false;
+
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Open(source.SearchPath);
+        if (MetadataTypeDefinitionName.ParseSerialized(source.TypeName)
+            is MetadataTypeDefinitionNameResult.Valid parsed
+            && session.ProbeDeclaration(parsed.Name)
+                is TypeDeclarationResult.Defined
+                    or TypeDeclarationResult.DefinitionKindUnavailable)
+        {
+            return true;
+        }
+
+        return IsSimpleAsciiMetadataName(source.TypeName)
+            && session.FindTypeDefinitionsBySimpleName(source.TypeName)
+                is MetadataTypeDefinitionNameSearchResult.Found
+                {
+                    Names.IsEmpty: false,
+                };
+    }
+
+    private static bool IsSimpleAsciiMetadataName(string type) =>
+        type.Length > 0
+        && type.All(static character =>
+            char.IsAsciiLetterOrDigit(character)
+            || character is '_' or '`');
 
     internal static IReadOnlyList<string> PlatformHierarchyFamilies(
         TypeOptions options)
