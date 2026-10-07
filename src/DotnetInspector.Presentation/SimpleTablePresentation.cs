@@ -1,4 +1,5 @@
 using Markout;
+using System.Text.Json.Serialization.Metadata;
 
 namespace DotnetInspector.Presentation;
 
@@ -13,6 +14,30 @@ public enum SimpleTableFormat
 /// <summary>Renders settled rows without exposing Markout to the caller.</summary>
 public static class SimpleTablePresentation
 {
+    /// <summary>
+    /// Renders typed rows with a fixed JSONL record shape, or projects their
+    /// cells for table and TSV output.
+    /// </summary>
+    public static void WriteTypedRows<T>(
+        TextWriter output,
+        bool showHeader,
+        SimpleTableFormat format,
+        string[] displayColumns,
+        string[] stableColumns,
+        IEnumerable<T> rows,
+        Func<T, string[]> tableCells,
+        JsonTypeInfo<T> jsonTypeInfo)
+    {
+        if (format == SimpleTableFormat.Jsonl)
+        {
+            JsonLinesWriter.WriteRows(output, rows, jsonTypeInfo);
+            return;
+        }
+
+        WriteTable(output, showHeader, format, displayColumns, stableColumns,
+            rows.Select(tableCells));
+    }
+
     public static void WriteTable(
         TextWriter output,
         bool showHeader,
