@@ -287,7 +287,9 @@ Comparison uses the Finding matcher's exact threshold. Equal complete literals
 are `Present` even when physical coordinates differ after rebuilding. The
 generic Diff Transitions projection omits `Present` pairs: Diff reports only
 `Added` and `Removed` literals, while finding every literal containing a
-substring in one Library is this owner's single-population Analysis. A
+substring in one Library is this owner's single-population Analysis. The Diff
+Summary `Present` count is derived from emitted Transition rows, so it is `0`
+for this analysis. A
 changed literal is one `Removed` plus one `Added`; this owner defines no fuzzy
 string-edit correspondence. Repeated equal literals are aligned by their
 producer order without value-based deduplication.
