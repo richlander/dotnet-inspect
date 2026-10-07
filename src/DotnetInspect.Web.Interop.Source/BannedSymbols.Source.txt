@@ -1,0 +1,1 @@
+T:ILInspector.MetadataPrimitives.MemberAnchor;The Source facade consumes Metadata-owned ProjectedMemberAnchor values and must not construct or inspect primitive member anchors.
