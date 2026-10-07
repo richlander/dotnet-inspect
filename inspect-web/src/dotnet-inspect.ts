@@ -342,7 +342,11 @@ import {
 } from "./overview-surface.ts";
 import { renderPackageInfo } from "./package-info.ts";
 import { renderPackageVulnerabilities } from "./package-vulnerabilities.ts";
-import { renderLibraryReferencesSurface } from "./library-references.ts";
+import {
+  createWorkspaceLibraryReferenceCandidates,
+  renderLibraryReferencesSurface,
+  resolveLibraryReferenceDestinations,
+} from "./library-references.ts";
 import { renderLibraryIntegrationsSurface } from "./library-integrations.ts";
 import {
   bindAnalysisTabs,
@@ -10686,6 +10690,17 @@ function renderLibraryReferences() {
   const fresh = state.packageDependenciesKey === current;
   const library = selectedLibrary();
   const pkg = currentPackage();
+  const references =
+    fresh && state.packageDependencies
+      && state.packageDependencies.assemblyReferences
+      && typeof state.packageDependencies.assemblyReferences !== "string"
+      ? state.packageDependencies.assemblyReferences.references
+      : [];
+  const candidates = state.packages.flatMap(candidatePackage =>
+    createWorkspaceLibraryReferenceCandidates(
+      packageIdentityKey(candidatePackage),
+      packageLibrariesForModel(candidatePackage),
+      candidatePackage.assemblies));
   return renderLibraryReferencesSurface({
     assemblyIdentity: library ? libraryIdentity(library) : "No library selected",
     assetPath: library?.asset ?? "",
@@ -10693,6 +10708,9 @@ function renderLibraryReferences() {
     loading: state.packageDependenciesLoading && fresh,
     error: fresh ? state.packageDependenciesError : "",
     data: fresh ? state.packageDependencies : null,
+    referenceDestinations: resolveLibraryReferenceDestinations(
+      references,
+      candidates),
     escapeHtml,
   });
 }
@@ -13034,6 +13052,18 @@ const packageViewActions: PackageViewBindingActions = {
     if (!assetId) return;
     navigationSequence.begin();
     if (!selectLibrarySubject(assetId)) return;
+    showContentDetailAfterRender();
+    render();
+  },
+  onLibraryReferenceSelect: (packageKey, libraryId) => {
+    if (!packageKey || !libraryId) return;
+    const target = state.packages.find(candidate =>
+      packageIdentityKey(candidate) === packageKey);
+    if (!target) return;
+    if (state.package !== target)
+      selectWorkspacePackage(target, { renderSelection: false });
+    else navigationSequence.begin();
+    if (!selectLibrarySubject(libraryId)) return;
     showContentDetailAfterRender();
     render();
   },
