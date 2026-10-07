@@ -40,7 +40,9 @@ archive manifest pushdown is deferred rather than claimed here.
 
 The retired standalone lens derived frameworks from DLL paths under the
 preferred tools/ref/lib asset directory. Its bare lines and root JSON array
-are replaced by the section's native TSV and projected JSON root. Unsupported
+are replaced by native TSV and the section's established JSON contracts:
+plain `--json` preserves the typed package object, while field or column
+projections follow Projected JSON. Unsupported
 section formats and projections use section diagnostics. Library subject
 selection still rejects the flag, as it rejects other package-section sugar.
 

@@ -1006,7 +1006,9 @@ For one package with only `--tfms` or `-S "Target Frameworks"`, `-n`,
 `--tail`, and `--rows A..B` select complete target-framework rows after
 framework folder enumeration, de-duplication, and TFM-priority ordering.
 `--tfms` can compose with other sections. Its former standalone JSON array
-is replaced by the section's projected JSON root; bare output uses native TSV. Count, table, TSV, JSONL, and JSON
+is replaced by the section's established JSON contracts: plain `--json`
+preserves the typed package object; field or column projections follow
+Projected JSON. Bare output uses native TSV. Count, table, TSV, JSONL, and JSON
 observe the same selected rows; add `--lines` only to clip rendered text.
 
 For one package with exactly `SourceLink: Files` selected, `-n`, `--tail`, and
