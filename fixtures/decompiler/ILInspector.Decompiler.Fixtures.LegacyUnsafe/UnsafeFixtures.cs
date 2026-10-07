@@ -179,6 +179,128 @@ public static class StackallocInitializerResiduals
     }
 }
 
+public struct SpanInitializerHalfWord
+{
+    public short Value;
+}
+
+public struct SpanInitializerPoint
+{
+    public int X;
+    public int Y;
+}
+
+public static class SpanStackallocInitializers
+{
+    public static int ByteElements()
+    {
+        Span<byte> values = stackalloc byte[] { 1, 2, 3, 4 };
+        return values[0] + values[3];
+    }
+
+    public static int ArgumentElements(int first, int second)
+    {
+        Span<int> values = stackalloc int[] { first, second };
+        return values[0] + values[1];
+    }
+
+    public static int WidenedConstantElement(long first)
+    {
+        Span<long> values = stackalloc long[] { first, 2 };
+        return (int)values[1];
+    }
+
+    public static int FieldElements(SpanInitializerPoint point)
+    {
+        Span<int> values = stackalloc int[] { point.X, point.Y };
+        return values[1];
+    }
+
+    public static int VirtualCallElement(string text)
+    {
+        Span<int> values = stackalloc int[] { text.Length, 1 };
+        return values[1];
+    }
+
+    public static int DivisionElement(int value)
+    {
+        Span<int> values = stackalloc int[] { value / 2, 1 };
+        return values[1];
+    }
+
+    public static int ArrayElement(int[] source)
+    {
+        Span<int> values = stackalloc int[] { source[0], 1 };
+        return values[1];
+    }
+
+    public static int ConditionalElement(bool flag)
+    {
+        Span<int> values = stackalloc int[] { flag ? 1 : 2, 3 };
+        return values[1];
+    }
+
+    public static int StructElements(
+        SpanInitializerPoint first,
+        SpanInitializerPoint second)
+    {
+        Span<SpanInitializerPoint> values =
+            stackalloc SpanInitializerPoint[] { first, second };
+        return values[1].X;
+    }
+
+    public static int NativeIntElements()
+    {
+        Span<nint> values = stackalloc nint[] { 1, 2 };
+        return (int)values[1];
+    }
+
+    public static unsafe int PointerLocalWrapped(int length)
+    {
+        int* values = stackalloc int[length];
+        values[0] = 1;
+        values[1] = 2;
+        return new Span<int>(values, length)[0];
+    }
+
+    public static unsafe int OutOfBoundsStoreWrapped()
+    {
+        int* values = stackalloc int[3];
+        values[5] = 1;
+        return new Span<int>(values, 3)[0];
+    }
+
+    // The constant index wraps in IL; tracing must treat it as unprovable rather
+    // than fail the library analysis.
+    public static unsafe int OverflowingConstantIndex()
+    {
+        Span<int> values = stackalloc int[2];
+        int* pointer = stackalloc int[2];
+        pointer[0x4000000000000000L] = 1;
+        return values[0];
+    }
+
+    // Each int32 product wraps to int.MinValue, so the real displacement is -4 GiB
+    // although the exact terms cancel; the store is not provably in bounds.
+    public static unsafe int WrappingDisplacementWrapped()
+    {
+        int* values = stackalloc int[2];
+        *(int*)((byte*)values
+            + 0x40000000 * sizeof(SpanInitializerHalfWord)
+            + (-0x40000000) * sizeof(SpanInitializerHalfWord)) = 1;
+        return new Span<int>(values, 2)[0];
+    }
+
+    // An int32 product of 0x40000000 * sizeof(nint) wraps to int.MinValue, so
+    // this store lands 2 GiB below an exactly sized 8 GiB allocation.
+    public static unsafe int Int32WrapLargeAllocationWrapped()
+    {
+        nint* values = stackalloc nint[0x40000001];
+        *(nint*)((byte*)values + 0x40000000 * sizeof(nint)) = 1;
+        return new Span<nint>(values, 0x40000001).Length;
+    }
+}
+
 public static class StackallocInitializerNegatives
 {
     public static unsafe int CoalescedSpanLocal()

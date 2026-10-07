@@ -10,7 +10,7 @@ namespace DotnetInspector.Sections.Tests;
 
 public sealed class LibraryInspectionOperationTests
 {
-    private static readonly ApiSurfaceExtractionBounds s_bounds =
+    private static readonly LibraryInspectionBounds s_bounds =
         new(
             maxTypes: 5_000,
             maxMembers: 100_000,
@@ -93,6 +93,50 @@ public sealed class LibraryInspectionOperationTests
             share.Reason.ToString());
         await library.RetireAsync();
         AssertDetachedContract();
+    }
+
+    [Fact]
+    public async Task
+        AllAccessibilityCountAndRowsIncludeNonPublicDefinitions()
+    {
+        byte[] content =
+            await File.ReadAllBytesAsync(
+                typeof(LibraryInspectionOperationTests).Assembly.Location,
+                TestContext.Current.CancellationToken);
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+
+        LibraryDocument document = Document(
+            Execute(
+                library,
+                count: true,
+                new(maximumRows: 5_000),
+                accessibility: LibraryTypeAccessibility.All));
+        LibraryTypePopulationCountOutcome.Counted count =
+            Assert.IsType<LibraryTypePopulationCountOutcome.Counted>(
+                document.Types!.Count);
+        LibraryTypePopulationRowsOutcome.Read rows =
+            Assert.IsType<LibraryTypePopulationRowsOutcome.Read>(
+                document.Types.Rows);
+
+        Assert.Equal(
+            LibraryTypeAccessibility.All,
+            document.Types.Binding.Accessibility);
+        Assert.Equal(count.Total, rows.Items.Length);
+        Assert.Contains(
+            rows.Items,
+            row =>
+                row.Identity
+                    == Name(
+                        "DotnetInspector.Sections.Tests",
+                        nameof(LibraryInspectionTestLibrary))
+                && row.DefinitionAccessibility
+                    == LibraryTypeDefinitionAccessibility.NonPublic
+                && !row.IsPublicSurface);
+
+        await library.RetireAsync();
     }
 
     [Fact]
@@ -995,6 +1039,16 @@ public sealed class LibraryInspectionOperationTests
                 new(
                     maximumRows: 1,
                     continuation: continuation),
+                accessibility: LibraryTypeAccessibility.All),
+            LibraryTypePopulationRowsRejection
+                .IncompatibleContinuation);
+        AssertRowsRejection(
+            Execute(
+                json,
+                count: false,
+                new(
+                    maximumRows: 1,
+                    continuation: continuation),
                 declarationSelection:
                     LibraryTypeDeclarationSelection.Definitions),
             LibraryTypePopulationRowsRejection
@@ -1077,7 +1131,7 @@ public sealed class LibraryInspectionOperationTests
                 content,
                 LibraryInspectionTestLibrary.Identity(content));
         LibraryDocument countOnly = Document(Execute(library));
-        var bounds = new ApiSurfaceExtractionBounds(
+        var bounds = new LibraryInspectionBounds(
             s_bounds.MaxTypes,
             s_bounds.MaxMembers,
             s_bounds.MaxInspectionFailures,
@@ -1123,7 +1177,7 @@ public sealed class LibraryInspectionOperationTests
             await LibraryInspectionTestLibrary.CreateAsync(
                 content,
                 LibraryInspectionTestLibrary.Identity(content));
-        var bounds = new ApiSurfaceExtractionBounds(
+        var bounds = new LibraryInspectionBounds(
             maxTypes: 1,
             maxMembers: 100_000,
             maxInspectionFailures: 1_000,
@@ -1198,7 +1252,7 @@ public sealed class LibraryInspectionOperationTests
             await LibraryInspectionTestLibrary.CreateAsync(
                 content,
                 LibraryInspectionTestLibrary.Identity(content));
-        var bounds = new ApiSurfaceExtractionBounds(
+        var bounds = new LibraryInspectionBounds(
             maxTypes: 5_000,
             maxMembers: 100_000,
             maxInspectionFailures: 1_000,
@@ -1232,7 +1286,7 @@ public sealed class LibraryInspectionOperationTests
             await LibraryInspectionTestLibrary.CreateAsync(
                 content,
                 LibraryInspectionTestLibrary.Identity(content));
-        var bounds = new ApiSurfaceExtractionBounds(
+        var bounds = new LibraryInspectionBounds(
             maxTypes: 5_000,
             maxMembers: 100_000,
             maxInspectionFailures: 1_000,
@@ -1270,7 +1324,7 @@ public sealed class LibraryInspectionOperationTests
             await LibraryInspectionTestLibrary.CreateAsync(
                 content,
                 LibraryInspectionTestLibrary.Identity(content));
-        var bounds = new ApiSurfaceExtractionBounds(
+        var bounds = new LibraryInspectionBounds(
             maxTypes: 0,
             maxMembers: 100_000,
             maxInspectionFailures: 1_000,
@@ -1309,7 +1363,7 @@ public sealed class LibraryInspectionOperationTests
             await LibraryInspectionTestLibrary.CreateAsync(
                 content,
                 LibraryInspectionTestLibrary.Identity(content));
-        var bounds = new ApiSurfaceExtractionBounds(
+        var bounds = new LibraryInspectionBounds(
             maxTypes: 5_000,
             maxMembers: 100_000,
             maxInspectionFailures: 1_000,
@@ -1999,7 +2053,7 @@ public sealed class LibraryInspectionOperationTests
 
     private static InspectionEnvelope<LibraryInspectionOutcome> Execute(
         LibraryInspectionTestLibrary library,
-        ApiSurfaceExtractionBounds bounds) =>
+        LibraryInspectionBounds bounds) =>
         LibraryInspectionOperation.Execute(
             new(
                 library.Reference,
@@ -2023,20 +2077,22 @@ public sealed class LibraryInspectionOperationTests
         LibraryInspectionTestLibrary library,
         bool count,
         LibraryTypePopulationRowsRequest rows,
-        ApiSurfaceExtractionBounds? bounds = null,
+        LibraryInspectionBounds? bounds = null,
         LibraryTypeDeclarationSelection declarationSelection =
             LibraryTypeDeclarationSelection.DefinitionsAndForwarders,
         ApiTypeInventoryKinds definitionKinds =
             ApiTypeInventoryKinds.All,
         string? @namespace = null,
         MetadataNamespaceMatch namespaceMatch =
-            MetadataNamespaceMatch.Exact) =>
+            MetadataNamespaceMatch.Exact,
+        LibraryTypeAccessibility accessibility =
+            LibraryTypeAccessibility.Public) =>
         LibraryInspectionOperation.Execute(
             new(
                 library.Reference,
                 new(
                     new(
-                        LibraryTypeAccessibility.Public,
+                        accessibility,
                         count
                             ? new LibraryTypePopulationCountRequest()
                             : null,

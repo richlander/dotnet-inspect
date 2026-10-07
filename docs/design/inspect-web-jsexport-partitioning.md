@@ -381,6 +381,14 @@ owner-issued public contracts, not another host's DTOs. A local transport record
 may retain their content, Share, and diagnostics unchanged. Metadata retains its
 exact-type and type-dependency inspection contracts; Source retains the
 [Type API Declaration Inspection](type-api-declarations.md) contract.
+The Library facade's uploaded-image path similarly maps detached Sections-owned
+provenance, identity, accessibility, and failure values. It passes the companion
+execution to Web Core for the one raw declaration-surface lowering and does not
+reference uploaded-path Metadata values itself.
+Its exact-Library document path also consumes Sections-owned inspection bounds
+and detached LibraryMetadata enablement values, preserving the wire identifiers
+and states without referencing `ILInspector.Metadata` or
+`ILInspector.MetadataPrimitives`.
 
 `ProductionFacadeWireContexts_AreAssemblyLocal` admits those completed contract
 closures and otherwise requires export DTOs to be declared and source-generated

@@ -25,6 +25,16 @@
     "purpose": "Rooted transitive package dependencies for the selected target framework."
   },
   {
+    "id": "library.types",
+    "kind": "Library",
+    "purpose": "Public Type declarations of the active Library, by namespace."
+  },
+  {
+    "id": "library.info",
+    "kind": "Library",
+    "purpose": "Identity, image, description, and enablement facts for the active Library."
+  },
+  {
     "id": "library.references",
     "kind": "Library",
     "purpose": "Direct assembly references for the active Library."

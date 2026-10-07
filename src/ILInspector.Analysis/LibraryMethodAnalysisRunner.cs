@@ -1066,7 +1066,8 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                 metadataBody,
                 localTypes.Types,
                 localTypes.DeclaredCount,
-                localTypes.IncompleteReason);
+                localTypes.IncompleteReason,
+                body.LocalVariablesInitialized);
             contextConstruction?.Complete();
             contextConstructionStage?.Complete();
             if (plan.IncludesResourceOccurrences)
@@ -1163,7 +1164,10 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                         context,
                         token => _infrastructure.CalliReturnDetail(
                             token,
-                            scope));
+                            scope),
+                        token => ((IMethodAllocationResolver)
+                            methodAnalysisResolver)
+                            .ResolveMember(token));
                 safetyStage?.Complete();
             }
             BodySignals signals;
@@ -1810,7 +1814,8 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                             metadataBody,
                             localTypes.Types,
                             localTypes.DeclaredCount,
-                            localTypes.IncompleteReason);
+                            localTypes.IncompleteReason,
+                            body.LocalVariablesInitialized);
                     contextConstruction?.Complete();
                     contextConstructionStage?.Complete();
                 }

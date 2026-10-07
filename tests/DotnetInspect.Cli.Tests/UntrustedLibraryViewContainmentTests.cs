@@ -821,7 +821,7 @@ public class UntrustedPackageContainmentTests : IDisposable
     }
 
     /// <summary>
-    /// The file tree the <c>--layout</c> flag renders is a separate channel from
+    /// The file tree the <c>--files</c> flag renders is a separate channel from
     /// the package's file table, and it renders the ZIP entry name straight into
     /// the tree gutter.
     /// </summary>
@@ -832,7 +832,7 @@ public class UntrustedPackageContainmentTests : IDisposable
             () => PackageCommand.ExecuteAsync(new InspectionOptions
             {
                 PackageArgs = [_path],
-                ListLayout = true,
+                Select = ["Files"],
                 CompanionOutput = CompanionOutput.None,
             }));
 
@@ -845,7 +845,7 @@ public class UntrustedPackageContainmentTests : IDisposable
                 $"'{marker}' never rendered, so this gate proves nothing about its channel");
         }
 
-        HostileOutputAssert.NoRenderingHazard(output, "package --layout");
+        HostileOutputAssert.NoRenderingHazard(output, "package --files");
     }
 
     [Fact]
@@ -1279,14 +1279,13 @@ public class UntrustedDeclarationSpellingContainmentTests : IDisposable
     [Fact]
     public async Task FinalizerShapeNode_WithHostileTypeName_RendersNoHazard()
     {
-        // A finalizer is protected, so it renders in the complete population.
+        // A finalizer is protected, so --all includes its compact Member group.
         var (_, output, error) = await HostileCli.RunAsync(
             "type", $"DeclNs.Bad{Hazard}INJECTEDCTOR", "--library", _path, "--tree", "--all");
 
         var combined = output + "\n" + error;
-        // The finalizer node spells `~Bad<hazard>INJECTEDCTOR()`, so the marker
-        // proves the node rendered rather than being satisfied by the title.
-        Assert.Contains("~Bad", combined, StringComparison.Ordinal);
+        Assert.Contains("─ Finalizers", combined, StringComparison.Ordinal);
+        Assert.Contains("─ Finalize", combined, StringComparison.Ordinal);
         HostileOutputAssert.MarkersRendered(combined, "shape", "INJECTEDCTOR");
         HostileOutputAssert.NoRenderingHazard(combined, "shape");
     }

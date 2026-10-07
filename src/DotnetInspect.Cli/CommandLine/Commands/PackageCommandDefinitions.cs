@@ -52,7 +52,7 @@ public static class PackageCommandDefinitions
             Description = "Obsolete Package dependency-tree spelling",
             Hidden = true,
         };
-        var layoutOption = new Option<bool>("--layout") { Description = "Show package file tree" };
+        var filesOption = new Option<bool>("--files") { Description = "Select the Files section" };
         var pathOption = new Option<string[]>("--path")
         {
             Description = "List package files with sizes (the Files section), scoped to a file, directory, glob, @readme (README.md > PACKAGE.md), or @agents. Can repeat. Pass --path with no value for the whole package.",
@@ -71,8 +71,8 @@ public static class PackageCommandDefinitions
             Description =
                 "List target frameworks in the package; use -n N to select N TFM rows"
         };
-        var libOption = new Option<bool>("--lib") { Description = "Scope to lib/ folder (use with --layout)" };
-        var toolsOption = new Option<bool>("--tools") { Description = "Scope to tools/ folder (use with --layout)" };
+        var libOption = new Option<bool>("--lib") { Description = "Select Files beneath the lib/ root" };
+        var toolsOption = new Option<bool>("--tools") { Description = "Select Files beneath the tools/ root" };
         var libraryOption = new Option<string?>("--library")
         {
             Description = "Inspect this package's compile libraries; provide a DLL name to narrow exactly",
@@ -142,7 +142,8 @@ public static class PackageCommandDefinitions
         packageCommand.Options.Add(evidenceEnvelopeOption);
 #endif
         packageCommand.Options.Add(dependenciesOption);
-        packageCommand.Options.Add(layoutOption);
+        packageCommand.Options.Add(filesOption);
+        packageCommand.Options.Add(opts.RowWhere);
         packageCommand.Options.Add(pathOption);
         packageCommand.Options.Add(pathMatchOption);
         packageCommand.Options.Add(skipEmptyOption);
@@ -169,7 +170,7 @@ public static class PackageCommandDefinitions
         packageCommand.Options.Add(opts.Raw);
         packageCommand.Options.Add(outOption);
         var commandArgs = new PackageOptionsParser.PackageCommandArgs(
-            packageNameArg, dependenciesOption, layoutOption, pathOption, tfmsOption,
+            packageNameArg, dependenciesOption, filesOption, pathOption, tfmsOption,
             libOption, toolsOption, libraryOption, namesakeLibraryOption, allLibrariesOption, versionsOption, versionsWithFeedOption, prereleaseOption, includeUnlistedOption,
             contentOption, frontmatterOption, bodyOption,
             tfmOption, depthOption, typeFilterOption, detailsOption,
@@ -201,10 +202,6 @@ public static class PackageCommandDefinitions
                     result,
                     opts,
                     commandArgs)
-                && !PackageOptionsParser.IsPackageLayoutRowSelection(
-                    result,
-                    opts,
-                    commandArgs)
                 && !PackageOptionsParser.IsPackageTfmRowSelection(
                     result,
                     opts,
@@ -227,7 +224,7 @@ public static class PackageCommandDefinitions
             packageCommand,
             opts.Discover, opts.Schema, opts.Select, opts.Verbosity,
             opts.Lines, opts.TailLines,
-            dependenciesOption, layoutOption, pathOption, pathMatchOption,
+            dependenciesOption, filesOption, pathOption, pathMatchOption,
             skipEmptyOption, tfmsOption, libOption, toolsOption,
             libraryOption, namesakeLibraryOption, allLibrariesOption,
             contentOption, frontmatterOption, bodyOption, outOption,
@@ -453,10 +450,6 @@ public static class PackageCommandDefinitions
                     opts,
                     commandArgs)
                 || PackageOptionsParser.IsPackageFileRowSelection(
-                    result,
-                    opts,
-                    commandArgs)
-                || PackageOptionsParser.IsPackageLayoutRowSelection(
                     result,
                     opts,
                     commandArgs)
@@ -695,6 +688,7 @@ public static class PackageCommandDefinitions
                 opts.Select,
                 opts.Tree,
                 opts.QueryHelp,
+                opts.RowWhere,
                 inheritedPrereleaseOption,
                 inheritedTfmOption,
             };

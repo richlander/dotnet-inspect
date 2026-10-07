@@ -45,6 +45,25 @@ public sealed record TypeOverviewHierarchyPresentationPlan
 
 public static class TypeOverviewHierarchyPresentation
 {
+    public static TypeOverviewDocumentInspectionPlan CreateInspectionPlan(
+        MetadataTypeDefinitionName type,
+        TypeOverviewHierarchyPresentationPlan presentation,
+        ApiSurfaceExtractionBounds bounds)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+        ArgumentNullException.ThrowIfNull(presentation);
+        ArgumentNullException.ThrowIfNull(bounds);
+        return new(
+            type,
+            presentation.Members.Rows!,
+            bounds,
+            presentation.Members.Spelling,
+            presentation.Members.Accessibility,
+            presentation.Members.Receiver,
+            presentation.Members.IncludeHidden,
+            presentation.Hierarchy);
+    }
+
     public static TypeOverviewHierarchyPresentationPlan CreateCompactPlan(
         TypeOverviewHierarchyPresentationFormat format,
         bool includeNonPublic)

@@ -161,6 +161,29 @@ public sealed class MetadataDeclarationSession : IDisposable
             cancellationToken);
     }
 
+    public MetadataRootAdjacencyInspectionOutcome
+        InspectRootAdjacency(
+            CancellationToken cancellationToken = default)
+    {
+        EnsureAccess();
+        cancellationToken.ThrowIfCancellationRequested();
+        if (_imageAdmission is MetadataImageAdmissionResult.Rejected)
+        {
+            return new MetadataRootAdjacencyInspectionOutcome.Invalid(
+                "The selected image exceeded the admitted metadata-row bound.");
+        }
+
+        MetadataRootAdjacencySnapshot snapshot =
+            MetadataRootAdjacencyInspector.Read(
+                _assemblySession!
+                    .GetMetadataReaderForDeclarationSession(),
+                cancellationToken);
+        return snapshot.Failure is { } failure
+            ? new MetadataRootAdjacencyInspectionOutcome.Invalid(
+                failure)
+            : new MetadataRootAdjacencyInspectionOutcome.Valid();
+    }
+
     public MetadataMethodDeclarationResult PostMethodDeclaration(
         MetadataTypeDefinitionAddress type,
         ILInspector.MetadataPrimitives.MetadataMethodAddress method,

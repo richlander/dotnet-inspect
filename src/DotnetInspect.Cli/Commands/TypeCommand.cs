@@ -8,6 +8,7 @@ using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Presentation;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
 using DotnetInspector.Sections;
@@ -62,6 +63,17 @@ public static partial class TypeCommand
         TypeOptions options,
         ResolvedMemberInspectionPlan plan)
         => ExecuteCoreAsync(options, plan);
+
+    internal static Task<int> ExecuteAsync(
+        TypeOptions options,
+        ResolvedMemberInspectionPlan plan,
+        TypeCommandPlan commandPlan,
+        CancellationToken cancellationToken)
+        => ExecuteCoreAsync(
+            options,
+            plan,
+            commandPlan: commandPlan,
+            cancellationToken: cancellationToken);
 
     internal static Task<int> ExecuteAsync(
         TypeOptions options,
@@ -176,12 +188,17 @@ public static partial class TypeCommand
         ApiServices.LoadedApiSurface? loadedSurface = null,
         ApiType? preselectedType = null,
         WorkspaceContextLoadOptions? exactTypeCapabilities = null,
+        TypeCommandPlan? commandPlan = null,
         CancellationToken cancellationToken = default)
     {
         if (plan.Intent.Surface != InspectionSurface.Type)
             throw new ArgumentException(
                 "A type command requires a type inspection plan.",
                 nameof(plan));
+
+        commandPlan ??= new TypeCommandPlan.Standard();
+        TypeCommandPlan.ExactTypeOverview? exactTypeOverview =
+            commandPlan as TypeCommandPlan.ExactTypeOverview;
 
         if (!PerformanceTriageOptions.TryValidate(
                 options.PerformanceTriage,
@@ -244,9 +261,13 @@ public static partial class TypeCommand
         {
             try
             {
-                if (await TryExecutePlatformPrefixBrowseAsync(options, typePipeline) is { } prefixBrowseExitCode)
+                if (exactTypeOverview?.Format
+                        is not TypeOverviewHierarchyPresentationFormat.Mermaid
+                    && await TryExecutePlatformPrefixBrowseAsync(options, typePipeline) is { } prefixBrowseExitCode)
                     return prefixBrowseExitCode;
-                if (!options.RouterCompletedPlatformLookup
+                if (exactTypeOverview?.Format
+                        is not TypeOverviewHierarchyPresentationFormat.Mermaid
+                    && !options.RouterCompletedPlatformLookup
                     && await TryExecuteFindIfMissAsync(options)
                         is { } findIfMissExitCode)
                     return findIfMissExitCode;
@@ -339,6 +360,25 @@ public static partial class TypeCommand
         bool inspectionIncomplete = false;
         try
         {
+            if (exactTypeOverview is { Format: var hierarchyFormat })
+            {
+                int? hierarchyExitCode =
+                    await TypeOverviewHierarchyCommand.TryExecuteAsync(
+                        source,
+                        options,
+                        hierarchyFormat,
+                        cancellationToken);
+                if (hierarchyExitCode is not null)
+                    return hierarchyExitCode.Value;
+                if (hierarchyFormat
+                    == TypeOverviewHierarchyPresentationFormat.Mermaid)
+                {
+                    CommandError.Write(
+                        "--mermaid requires an available compact exact Type hierarchy.");
+                    return 1;
+                }
+            }
+
             if (loadedSurface is null
                 && preselectedType is null
                 && !options.EffectiveDiscovery
@@ -1485,16 +1525,16 @@ public static partial class TypeCommand
         {
             using WorkspaceTypeAssemblyPath assemblyPath =
                 WorkspaceTypeAssemblyPath.Create(target);
+            string renderedAssemblyPath =
+                renderSource.SelectedLibraryPath
+                ?? assemblyPath.Value;
             ApiSurface api = target.Surface;
             api.Name = renderSource.Name;
             api.Version = renderSource.Version;
             api.Source = renderSource.Source;
             api.Tfm = renderSource.TargetFramework;
             api.Library =
-                target.Assembly.AssetFileName
-                ?? (target.AssemblyPath is { } materializedPath
-                    ? Path.GetFileName(materializedPath)
-                    : target.Assembly.Identity.Name + ".dll");
+                Path.GetFileName(renderedAssemblyPath);
 
             var sourceAssemblies =
                 new Dictionary<ApiType, ResolvedAssemblyReference>(
@@ -1513,16 +1553,16 @@ public static partial class TypeCommand
                 };
             var loaded = new ApiServices.LoadedApiSurface(
                 api,
-                assemblyPath.Value,
+                renderedAssemblyPath,
                 assemblyPath.Value,
                 sourceAssemblies,
                 RootBindingContext: bindingContext,
                 BindingContexts: bindingContexts);
             var source = new ApiSourceResult(
-                SearchPath: assemblyPath.Value,
+                SearchPath: renderedAssemblyPath,
                 RuntimeAssemblyPath:
                     renderSource.Source == SourceKind.Platform
-                        ? assemblyPath.Value
+                        ? renderedAssemblyPath
                         : null,
                 PackageName: renderSource.PackageName,
                 PackageVersion: renderSource.PackageVersion,
@@ -1768,7 +1808,8 @@ public static partial class TypeCommand
     string? PackageName,
     string? PackageVersion,
     string? ResolvedPackagePath,
-    string? PlatformFramework)
+    string? PlatformFramework,
+    string? SelectedLibraryPath)
     {
         internal static ExactTypeRenderSource From(
             ExactTypeInspectionRequest request) =>
@@ -1780,7 +1821,8 @@ public static partial class TypeCommand
                 request.PackageId,
                 request.Version,
                 $"{request.PackageId}@{request.Version}",
-                PlatformFramework: null);
+                PlatformFramework: null,
+                SelectedLibraryPath: null);
 
         internal static ExactTypeRenderSource From(
             SelectedContextExactTypeSource source)
@@ -1796,7 +1838,8 @@ public static partial class TypeCommand
                         package.PackageId,
                         package.Version,
                         $"{package.PackageId}@{package.Version}",
-                        PlatformFramework: null),
+                        PlatformFramework: null,
+                        SelectedLibraryPath: null),
                 TypeDeclarationLocatorRealization.PlatformRealization platform =>
                     new(
                         platform.Family,
@@ -1806,7 +1849,8 @@ public static partial class TypeCommand
                         PackageName: null,
                         PackageVersion: null,
                         ResolvedPackagePath: null,
-                        PlatformFramework: platform.Framework),
+                        PlatformFramework: platform.Framework,
+                        SelectedLibraryPath: null),
                 _ => new(
                     source.Library.LibraryIdentity.Name,
                     source.Library.LibraryIdentity.Version?.ToString(),
@@ -1824,7 +1868,8 @@ public static partial class TypeCommand
                     PackageName: null,
                     PackageVersion: null,
                     ResolvedPackagePath: null,
-                    PlatformFramework: null),
+                    PlatformFramework: null,
+                    SelectedLibraryPath: null),
             };
         }
 
@@ -1839,7 +1884,13 @@ public static partial class TypeCommand
                 source.PackageName,
                 source.PackageVersion,
                 source.ResolvedPackagePath,
-                source.PlatformFramework);
+                source.PlatformFramework,
+                string.Equals(
+                    source.ApiSource,
+                    SourceKind.Platform,
+                    StringComparison.Ordinal)
+                        ? source.SearchPath
+                        : null);
     }
 
     sealed class WorkspaceTypeAssemblyPath : IDisposable
@@ -1981,7 +2032,7 @@ public static partial class TypeCommand
         }
     }
 
-    static void WriteInspectionDiagnostics(
+    internal static void WriteInspectionDiagnostics(
         IEnumerable<InspectionDiagnostic> diagnostics)
     {
         foreach (InspectionDiagnostic diagnostic in diagnostics)

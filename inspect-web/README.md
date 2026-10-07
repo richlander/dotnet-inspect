@@ -84,11 +84,14 @@ prevent all three retired edges from returning.
 
 The separate `inspect-web-library-facade-*-dependencies-stay-within-capability-ratchet`
 rules preserve the Library facade's smaller evaluated-project boundary and its
-larger compiled-assembly boundary. The facade currently adapts the shared
-Library document and embedded-Library inspection while directly projecting
-Metadata-owned identity and API-surface values. It therefore keeps the broad
-semantic analyzer input until focused #8779 successors retire those low-level
-edges; the positive rules prevent either graph from expanding meanwhile.
+larger compiled-assembly boundary. Uploaded-Library provenance, assembly
+identity, accessibility, and inspection failures now arrive as detached
+Sections-owned values; Web Core alone reads and lowers the execution's raw API
+surface. The independent exact-Library document path now consumes
+Sections-owned bounds and detached LibraryMetadata enablement values while
+preserving the established wire contract. Its `ILInspector.Metadata` project
+edge and both compiled Metadata edges are retired; the positive rules prevent
+them from returning.
 
 The separate `inspect-web-catalog-facade-*-dependencies-stay-within-capability-ratchet`
 rules preserve the Catalog facade's evaluated-project and compiled-assembly

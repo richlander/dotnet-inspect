@@ -109,14 +109,14 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Layout_Count_CountsFilesRatherThanRenderedTreeLines()
+    public async Task Package_FilesShortcut_Count_CountsFilesRatherThanRenderedTreeLines()
     {
         // The tree adds a line per directory, so a count taken from the rendered output would
         // not equal the number of files the lens actually lists. The package carries 16 files
         // under lib/ plus LICENSE.md, the nuspec, packageIcon.png, and README.md; the nuspec is
         // counted because this branch makes it a reachable package file.
-        var (exit, output, error) = await RunAppAsync("package", "Newtonsoft.Json@13.0.4", "--layout", "--count");
-        var (renderExit, rendered, _) = await RunAppAsync("package", "Newtonsoft.Json@13.0.4", "--layout");
+        var (exit, output, error) = await RunAppAsync("package", "Newtonsoft.Json@13.0.4", "--files", "--count");
+        var (renderExit, rendered, _) = await RunAppAsync("package", "Newtonsoft.Json@13.0.4", "--files");
 
         Assert.Equal(0, exit);
         Assert.Equal(0, renderExit);
@@ -142,7 +142,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Layout_SemanticTailSelectsTheSameFilesAcrossOutputs()
+    public async Task Package_FilesShortcut_SemanticTailSelectsTheSameFilesAcrossOutputs()
     {
         var (packagePath, tempDir) = CreateLocalLibPackage();
         try
@@ -151,7 +151,7 @@ public partial class CommandExecutionTests
             [
                 "package",
                 packagePath,
-                "--layout",
+                "--files",
                 "-n",
                 "2",
                 "--tail",
@@ -178,7 +178,7 @@ public partial class CommandExecutionTests
             {
                 Assert.Equal(
                     expected,
-                    document.RootElement
+                    document.RootElement.GetProperty("files")
                         .EnumerateArray()
                         .Select(row => row.GetProperty("path").GetString()!)
                         .ToArray());
@@ -211,7 +211,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Layout_WindowSelectsSortedFileIdentities()
+    public async Task Package_FilesShortcut_WindowSelectsSortedFileIdentities()
     {
         var (packagePath, tempDir) = CreateLocalLibPackage();
         try
@@ -219,7 +219,7 @@ public partial class CommandExecutionTests
             var (exit, output, error) = await RunAppAsync(
                 "package",
                 packagePath,
-                "--layout",
+                "--files",
                 "--rows",
                 "2..3",
                 "--json");
@@ -232,7 +232,7 @@ public partial class CommandExecutionTests
                     "lib/net10.0/Latest.One.xml",
                     "lib/net10.0/Latest.Two.dll",
                 ],
-                document.RootElement
+                document.RootElement.GetProperty("files")
                     .EnumerateArray()
                     .Select(row => row.GetProperty("path").GetString()!)
                     .ToArray());
@@ -244,7 +244,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Layout_TfmScopePreservesLibThenToolsBehavior()
+    public async Task Package_FilesShortcut_TfmScopePreservesLibThenToolsBehavior()
     {
         var (libPackage, libTempDir) = CreateLocalLibPackage();
         var (toolsPackage, toolsTempDir) = CreateLocalReadmePackage(
@@ -260,14 +260,14 @@ public partial class CommandExecutionTests
             var lib = await RunAppAsync(
                 "package",
                 libPackage,
-                "--layout",
+                "--files",
                 "--tfm",
                 "net10.0",
                 "--json");
             var tools = await RunAppAsync(
                 "package",
                 toolsPackage,
-                "--layout",
+                "--files",
                 "--tfm",
                 "net9.0",
                 "--json");
@@ -278,11 +278,11 @@ public partial class CommandExecutionTests
             {
                 Assert.Equal(
                     [
-                        "net10.0/Latest.One.dll",
-                        "net10.0/Latest.One.xml",
-                        "net10.0/Latest.Two.dll",
+                        "lib/net10.0/Latest.One.dll",
+                        "lib/net10.0/Latest.One.xml",
+                        "lib/net10.0/Latest.Two.dll",
                     ],
-                    document.RootElement
+                    document.RootElement.GetProperty("files")
                         .EnumerateArray()
                         .Select(row => row.GetProperty("path").GetString()!)
                         .ToArray());
@@ -293,9 +293,9 @@ public partial class CommandExecutionTests
             using (JsonDocument document = JsonDocument.Parse(tools.Output))
             {
                 JsonElement row = Assert.Single(
-                    document.RootElement.EnumerateArray());
+                    document.RootElement.GetProperty("files").EnumerateArray());
                 Assert.Equal(
-                    "net9.0/Tool.dll",
+                    "tools/net9.0/Tool.dll",
                     row.GetProperty("path").GetString());
             }
         }
@@ -307,7 +307,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Layout_LinesClipsTheRenderedTree()
+    public async Task Package_FilesShortcut_LinesClipsTheRenderedTree()
     {
         var (packagePath, tempDir) = CreateLocalLibPackage();
         try
@@ -315,7 +315,7 @@ public partial class CommandExecutionTests
             var (exit, output, error) = await RunAppAsync(
                 "package",
                 packagePath,
-                "--layout",
+                "--files",
                 "--lines",
                 "-n",
                 "2");
@@ -335,7 +335,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Layout_UnavailableWindowWithholdsOutput()
+    public async Task Package_FilesShortcut_UnavailableWindowWithholdsOutput()
     {
         var (packagePath, tempDir) = CreateLocalLibPackage();
         try
@@ -343,7 +343,7 @@ public partial class CommandExecutionTests
             var (exit, output, error) = await RunAppAsync(
                 "package",
                 packagePath,
-                "--layout",
+                "--files",
                 "--rows",
                 "4..5",
                 "--json");
@@ -351,8 +351,7 @@ public partial class CommandExecutionTests
             Assert.Equal(1, exit);
             Assert.Empty(output);
             Assert.Contains(
-                "Package layout file row selection stage 1 requires row 5, "
-                    + "but only 4 layout file rows are available.",
+                "Package file row selection stage 1 requires row 5",
                 error,
                 StringComparison.Ordinal);
         }
@@ -363,13 +362,13 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Layout_RejectsInvalidSelectionBeforePackageResolution()
+    public async Task Package_FilesShortcut_RejectsInvalidSelectionBeforePackageResolution()
     {
         var legacyCount = await RunAppAsync(
             "--offline",
             "package",
             "Package.That.Must.Not.Resolve",
-            "--layout",
+            "--files",
             "--rows",
             "1",
             "--json");
@@ -377,7 +376,7 @@ public partial class CommandExecutionTests
             "--offline",
             "package",
             "Package.That.Must.Not.Resolve",
-            "--layout",
+            "--files",
             "--lines",
             "-n",
             "1",
@@ -386,11 +385,11 @@ public partial class CommandExecutionTests
             "--offline",
             "package",
             "Package.That.Must.Not.Resolve",
-            "--layout",
+            "--files",
             "--row",
             "1",
             "--rows",
-            "1");
+            "1..1");
 
         Assert.Equal(1, legacyCount.Exit);
         Assert.Empty(legacyCount.Output);
@@ -443,7 +442,7 @@ public partial class CommandExecutionTests
         "--match",
         "bogus",
         "--match must be 'all' or 'first', not 'bogus'.")]
-    public async Task Layout_CompetingIntentRetainsOwnedDiagnosticBeforePackageResolution(
+    public async Task Package_FilesShortcut_CompetingIntentRetainsOwnedDiagnosticBeforePackageResolution(
         string option,
         string? value,
         string expectedError)
@@ -453,12 +452,12 @@ public partial class CommandExecutionTests
             "--offline",
             "package",
             "Package.That.Must.Not.Resolve",
-            "--layout",
+            "--files",
             option,
         ];
         if (value is not null)
             args.Add(value);
-        args.AddRange(["--rows", "1"]);
+        args.AddRange(["--rows", "1..1"]);
 
         var (exit, output, error) = await RunAppAsync([.. args]);
 
@@ -478,7 +477,7 @@ public partial class CommandExecutionTests
     [Theory]
     [InlineData("table")]
     [InlineData("tsv")]
-    public async Task Layout_EnvironmentTabularFormatRetainsRenderedLineFallback(
+    public async Task Package_FilesShortcut_EnvironmentTabularFormatRetainsRenderedLineFallback(
         string format)
     {
         string? originalFormat =
@@ -493,34 +492,30 @@ public partial class CommandExecutionTests
             var fallback = await RunAppAsync(
                 "package",
                 packagePath,
-                "--layout",
+                "--files",
                 "-n",
                 "1");
             var legacyRows = await RunAppAsync(
                 "--offline",
                 "package",
                 "Package.That.Must.Not.Resolve",
-                "--layout",
+                "--files",
                 "--rows",
                 "1");
 
             Assert.Equal(0, fallback.Exit);
             Assert.Empty(fallback.Error);
-            Assert.Single(
+            Assert.Equal(2,
                 fallback.Output.Split(
                     '\n',
-                    StringSplitOptions.RemoveEmptyEntries));
+                    StringSplitOptions.RemoveEmptyEntries).Length);
 
             Assert.Equal(1, legacyRows.Exit);
             Assert.Empty(legacyRows.Output);
             Assert.Contains(
-                "Package 'package.that.must.not.resolve'",
-                legacyRows.Error,
-                StringComparison.OrdinalIgnoreCase);
-            Assert.DoesNotContain(
                 "--rows requires N..M, N.., or ..M with positive positions.",
-                legacyRows.Error,
-                StringComparison.Ordinal);
+                legacyRows.Error, StringComparison.Ordinal);
+            Assert.DoesNotContain("Package 'package.that.must.not.resolve'", legacyRows.Error);
         }
         finally
         {
@@ -537,7 +532,7 @@ public partial class CommandExecutionTests
     [InlineData("--markdown")]
     [InlineData("--plaintext")]
     [InlineData("--raw")]
-    public async Task Layout_ExplicitNonTabularFormatOverridesEnvironmentTable(
+    public async Task Package_FilesShortcut_ExplicitNonTabularFormatOverridesEnvironmentTable(
         string formatOption)
     {
         string? originalFormat =
@@ -552,7 +547,7 @@ public partial class CommandExecutionTests
                 "--offline",
                 "package",
                 "Package.That.Must.Not.Resolve",
-                "--layout",
+                "--files",
                 formatOption,
                 "--rows",
                 "1");
@@ -577,7 +572,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Layout_FalseJsonDoesNotOverrideEnvironmentTable()
+    public async Task Package_FilesShortcut_FalseJsonDoesNotOverrideEnvironmentTable()
     {
         string? originalFormat =
             Environment.GetEnvironmentVariable("DOTNET_INSPECT_FORMAT");
@@ -591,7 +586,7 @@ public partial class CommandExecutionTests
             var fallback = await RunAppAsync(
                 "package",
                 packagePath,
-                "--layout",
+                "--files",
                 "--json=false",
                 "-n",
                 "1");
@@ -599,28 +594,24 @@ public partial class CommandExecutionTests
                 "--offline",
                 "package",
                 "Package.That.Must.Not.Resolve",
-                "--layout",
+                "--files",
                 "--json=false",
                 "--rows",
                 "1");
 
             Assert.Equal(0, fallback.Exit);
             Assert.Empty(fallback.Error);
-            Assert.Single(
+            Assert.Equal(2,
                 fallback.Output.Split(
                     '\n',
-                    StringSplitOptions.RemoveEmptyEntries));
+                    StringSplitOptions.RemoveEmptyEntries).Length);
 
             Assert.Equal(1, legacyRows.Exit);
             Assert.Empty(legacyRows.Output);
             Assert.Contains(
-                "Package 'package.that.must.not.resolve'",
-                legacyRows.Error,
-                StringComparison.OrdinalIgnoreCase);
-            Assert.DoesNotContain(
                 "--rows requires N..M, N.., or ..M with positive positions.",
-                legacyRows.Error,
-                StringComparison.Ordinal);
+                legacyRows.Error, StringComparison.Ordinal);
+            Assert.DoesNotContain("Package 'package.that.must.not.resolve'", legacyRows.Error);
         }
         finally
         {
@@ -634,7 +625,7 @@ public partial class CommandExecutionTests
     [Theory]
     [InlineData("--table=false")]
     [InlineData("--tsv=false")]
-    public async Task Layout_FalseTabularFormatRetainsSemanticRows(
+    public async Task Package_FilesShortcut_FalseTabularFormatRetainsSemanticRows(
         string formatOption)
     {
         string? originalFormat =
@@ -649,7 +640,7 @@ public partial class CommandExecutionTests
                 "--offline",
                 "package",
                 "Package.That.Must.Not.Resolve",
-                "--layout",
+                "--files",
                 formatOption,
                 "--rows",
                 "1");
@@ -1811,7 +1802,7 @@ public partial class CommandExecutionTests
         try
         {
             // Regression: the manifest used to be classified as zip plumbing, which made it
-            // unreachable through Files, --path, and --layout alike.
+            // unreachable through Files, --path, and --files alike.
             var (exit, output, _) = await RunAppAsync("package", packagePath, "-S", "Files", "--markdown");
             Assert.Equal(0, exit);
             Assert.Contains("Test.Layout.nuspec", output);
@@ -1820,7 +1811,7 @@ public partial class CommandExecutionTests
             Assert.Equal(0, pathExit);
             Assert.Contains("Test.Layout.nuspec", pathOutput);
 
-            var (layoutExit, layoutOutput, _) = await RunAppAsync("package", packagePath, "--layout");
+            var (layoutExit, layoutOutput, _) = await RunAppAsync("package", packagePath, "--files");
             Assert.Equal(0, layoutExit);
             Assert.Contains("Test.Layout.nuspec", layoutOutput);
         }

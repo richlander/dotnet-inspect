@@ -779,7 +779,7 @@ dotnet-inspect package System.Text.Json -S Signals
 dotnet-inspect package System.Text.Json -S "Signals,Audit: Artifact Text"
 dotnet-inspect package System.Text.Json -S "Signals,Audit: Findings"
 dotnet-inspect package Newtonsoft.Json@13.0.4 \
-  --layout --tfm net6.0 -n 1 --tail --json
+  --files --tfm net6.0 -n 1 --tail --json
 dotnet-inspect package Markout@0.35.2 \
   --path "skills/*/SKILL.md" -n 1 --tail --paths
 dotnet-inspect package Markout@0.35.2 \
@@ -899,11 +899,27 @@ target-framework filters, path globs and roles, scoped documents, .NET
 tool-wrapper redirection, and other package files retain their existing
 behavior.
 
-For one package with `--layout`, `-n`, `--tail`, and `--rows A..B` select
-complete sorted file paths after archive extraction and `--lib`, `--tools`, or
-layout-specific `--tfm` scoping. Count, JSONL, and JSON observe the same
-selected paths; human output renders a tree derived from them. Add `--lines`
-only to clip the rendered tree.
+The `--files` flag selects exactly the same section as `-S Files`.
+File predicates compose before row windows and Count:
+
+```bash
+dotnet-inspect package System.Text.Json@10.0.12 --files \
+  --where "Root=lib" --where "Target=net8.0"
+dotnet-inspect package System.Text.Json@10.0.12 -S Files \
+  --lib --tfm net8.0
+dotnet-inspect package System.Text.Json@10.0.12 --files \
+  --where "Name=*.xml" --paths
+```
+
+Files admits `Path` (complete package-relative path), `Name` (filename),
+`Directory` (exact parent directory), `Root` (top-level folder), and
+`Target` (a complete directory segment). Text fields support
+case-insensitive `=` and `!=` with `*` and `?` wildcards; Target
+matches an exact segment case-insensitively. Repeated predicates combine
+with AND. `--lib` and `--tools` wrap Root equality and require exactly
+Files for one package; `--tfm` wraps Target equality for Files.
+All formats preserve package-relative paths. A filter with no matching
+files succeeds with zero rows. The old `--layout` spelling is removed.
 
 For one package with `--tfms`, `-n`, `--tail`, and `--rows A..B` select
 complete target-framework rows after archive extraction, framework
@@ -1501,6 +1517,25 @@ fallback.
 
 ### Types, members, and source
 
+An exact `type` target with no competing operation or projection defaults to
+the compact public Type hierarchy; `--tree` explicitly selects the same Tree
+profile. `--all` includes non-public and hidden Member groups. `--mermaid`
+selects a standalone `graph TD` over that same Type, category, and Member-group
+hierarchy, with exact overload Counts rather than expanded overload signatures.
+It requires one exact Type and cannot be combined with discovery, match,
+listing/glob/namespace-prefix targets, member filters, row or line windows,
+verbosity-driven output, another format, or a selected section. It fails with
+no stdout when compact inspection is unavailable (including managed
+netmodules or bounded inventory), even if an XML documentation sidecar is
+present. Tree retains the legacy Type rendering fallback when compact
+inspection is unavailable. Count, sections, Markdown, tables, JSON, filters,
+and windows keep their existing independent routes.
+
+```bash
+dotnet-inspect type System.Math --platform System.Private.CoreLib --tree
+dotnet-inspect type System.Math --platform System.Private.CoreLib --mermaid
+```
+
 The type and member commands render a lone explicitly selected section in its
 declared shape's native format when no format is named, per
 [Section shapes](design/section-shapes.md): a Table streams its TSV rows
@@ -1523,14 +1558,21 @@ Count maps over several sections keep their per-section meaning.
 
 `Implementers` and `Derived Types` are explicit, expensive Type sections in
 `@Relations`. They preserve the exact Type occurrence selected for ordinary
-Type output while scanning the selected source population. Count and Rows are
-independent producer terminals: Count-only requests no rows, and a finite head
-or closed-range `--rows` window reaches the producer as a finite prefix bound.
-An unbounded request uses a 10,000-row safety bound and reports continuation as
-incomplete output. Tail selection is rejected because the forward-only producer
-cannot satisfy it without privately materializing the complete population.
-Package relation rows include the package-relative asset in `Source`, so
-distinct `ref`, `lib`, or runtime occurrences remain distinguishable.
+Type output while scanning the selected source population. Platform Type
+relations scan the runtime, ASP.NET Core, and .NET Standard populations by
+default; an explicit `--framework` deliberately narrows the scan to that one
+family. An implementation-only Platform focus such as
+`System.Private.CoreLib` remains the selected Type occurrence while hierarchy
+binding uses its exact corresponding reference definition. Missing or
+ambiguous correspondence fails visibly. Count and Rows are independent
+producer terminals: Count-only requests no rows, and a finite head or
+closed-range `--rows` window reaches the producer as a finite prefix bound. An
+unbounded request uses a 10,000-row safety bound and reports continuation as
+incomplete output. Tail selection is rejected because the forward-only
+producer cannot satisfy it without privately materializing the complete
+population. Package relation rows include the package-relative asset in
+`Source`, so distinct `ref`, `lib`, or runtime occurrences remain
+distinguishable.
 
 Every other type or member Text with a bare payload (`API Declarations` on the
 `type` command, `Decompiled Source`, `Annotated Source`, `PDB Source`, `IL`,

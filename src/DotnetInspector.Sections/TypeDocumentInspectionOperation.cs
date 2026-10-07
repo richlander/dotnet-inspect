@@ -217,6 +217,8 @@ public static class TypeDocumentInspectionOperation
                 rejection.Failure.ImageMetadataRows);
         }
 
+        MetadataRootAdjacencyInspectionOutcome rootAdjacency =
+            declaration.InspectRootAdjacency(cancellationToken);
         MetadataTypeDocumentInspectionOutcome document =
             declaration.InspectTypeDocument(
                 new(
@@ -230,6 +232,7 @@ public static class TypeDocumentInspectionOperation
             libraryCorrespondence: null,
             identity,
             assemblyBytes,
+            rootAdjacency,
             document,
             plan,
             execution.DeclarationsPlan,
@@ -402,6 +405,7 @@ public static class TypeDocumentInspectionOperation
                     correspondence,
                     correspondence.AssemblyIdentity,
                     correspondence.AssemblyBytes,
+                    correspondence.RootAdjacency,
                     plan,
                     declarationsPlan,
                     declarationRejection,
@@ -427,6 +431,7 @@ public static class TypeDocumentInspectionOperation
             LibraryTypeDocumentCorrespondence? libraryCorrespondence,
             AssemblyReferenceIdentity assemblyIdentity,
             int assemblyBytes,
+            MetadataRootAdjacencyInspectionOutcome rootAdjacency,
             MetadataTypeDocumentInspectionOutcome document,
             TypeDocumentInspectionPlan plan,
             TypeMemberGroupPopulationInspectionPlan? declarationsPlan,
@@ -440,6 +445,7 @@ public static class TypeDocumentInspectionOperation
                     libraryCorrespondence,
                     assemblyIdentity,
                     assemblyBytes,
+                    rootAdjacency,
                     plan,
                     declarationsPlan,
                     declarationRejection,
@@ -465,6 +471,7 @@ public static class TypeDocumentInspectionOperation
             LibraryTypeDocumentCorrespondence? libraryCorrespondence,
             AssemblyReferenceIdentity assemblyIdentity,
             int assemblyBytes,
+            MetadataRootAdjacencyInspectionOutcome rootAdjacency,
             TypeDocumentInspectionPlan plan,
             TypeMemberGroupPopulationInspectionPlan? declarationsPlan,
             TypeMemberGroupPopulationInspectionRejection?
@@ -523,14 +530,26 @@ public static class TypeDocumentInspectionOperation
                 plan.Type,
                 document.Subject,
                 assembly);
-        return Envelope(
+        var outcome =
             new TypeDocumentInspectionOutcome.Available(
                 new(
                     subject,
                     declarations,
                     assemblyBytes,
                     document.Subject.BaseKind,
-                    document.Subject.InterfaceCount)));
+                    document.Subject.InterfaceCount));
+        return rootAdjacency
+                is MetadataRootAdjacencyInspectionOutcome.Invalid invalid
+            ? Envelope(
+                outcome,
+                [
+                    new InspectionDiagnostic(
+                        "type-document.root-adjacency-incomplete",
+                        InspectionDiagnosticSeverity.Error,
+                        invalid.Detail,
+                        assembly.Name.ToString()),
+                ])
+            : Envelope(outcome);
     }
 
     internal static TypeSubject ProjectSubject(
@@ -639,10 +658,13 @@ public static class TypeDocumentInspectionOperation
         Envelope(new TypeDocumentInspectionOutcome.Failed(reason));
 
     private static InspectionEnvelope<TypeDocumentInspectionOutcome>
-        Envelope(TypeDocumentInspectionOutcome outcome) =>
+        Envelope(
+            TypeDocumentInspectionOutcome outcome,
+            IEnumerable<InspectionDiagnostic>? diagnostics = null) =>
         new(
             outcome,
             new InspectionShare.NonProjectable(
                 SharePath,
-                ShareReason));
+                ShareReason),
+            diagnostics);
 }

@@ -35,7 +35,8 @@ public abstract record LibraryTypeHierarchyNode
 
 /// <summary>
 /// Projects one complete Library Type declaration population as
-/// <c>Library -> Namespace -> Type -> Member Count</c>.
+/// <c>Library -> Namespace -> Type</c>, optionally with each Type's Member
+/// Count.
 /// </summary>
 public static class LibraryTypeHierarchyProjection
 {
@@ -102,10 +103,17 @@ public static class LibraryTypeHierarchyProjection
                 "A Library Type hierarchy requires a Type declaration Rows request.",
                 parameterName);
         }
-        if (rows.MemberCount is null)
+        bool countsMembers = RequestsMemberCount(request);
+        if (countsMembers && rows.MemberCount is null)
         {
             throw new ArgumentException(
-                "A Library Type hierarchy requires a Member Count for every Type definition Row.",
+                "A Library Type hierarchy with Member Counts requires a Member Count for every Type definition Row.",
+                parameterName);
+        }
+        if (!countsMembers && rows.MemberCount is not null)
+        {
+            throw new ArgumentException(
+                "A Library Type hierarchy with leaf Type declarations does not request Member Counts it cannot present.",
                 parameterName);
         }
         if (rows.Continuation is not null)
@@ -154,20 +162,26 @@ public static class LibraryTypeHierarchyProjection
             throw new InvalidOperationException(
                 "A Library Type hierarchy requires complete Type declaration Rows.");
         }
+        bool countsMembers = RequestsMemberCount(request);
         foreach (LibraryTypeShape row in rows.Items)
         {
             switch (row.MemberCount)
             {
+                case null when !countsMembers:
                 case LibraryTypeMemberCountOutcome.Counted
-                    when row.DeclarationKind
-                        is LibraryTypeDeclarationKind.Definition:
+                    when countsMembers
+                        && row.DeclarationKind
+                            is LibraryTypeDeclarationKind.Definition:
                 case LibraryTypeMemberCountOutcome.NotApplicable
-                    when row.DeclarationKind
-                        is LibraryTypeDeclarationKind.Forwarder:
+                    when countsMembers
+                        && row.DeclarationKind
+                            is LibraryTypeDeclarationKind.Forwarder:
                     break;
                 default:
                     throw new InvalidOperationException(
-                        "A Library Type hierarchy requires a Member Count outcome for every Type declaration Row.");
+                        countsMembers
+                            ? "A Library Type hierarchy with Member Counts requires a Member Count outcome for every Type declaration Row."
+                            : "A Library Type hierarchy with leaf Type declarations requires Rows without Member Counts.");
             }
         }
 
@@ -206,15 +220,23 @@ public static class LibraryTypeHierarchyProjection
                     InspectionHierarchyPopulationRequest.Rows
                     {
                         Children:
-                            InspectionHierarchyPopulationRequest.Count,
+                            null
+                            or InspectionHierarchyPopulationRequest.Count,
                     },
             })
         {
             throw new ArgumentException(
-                "The Library Type hierarchy requires namespace Rows by Name, Type declaration Rows, and Member Count.",
+                "The Library Type hierarchy requires namespace Rows by Name and Type declaration Rows, optionally with Member Count.",
                 parameterName);
         }
     }
+
+    private static bool RequestsMemberCount(
+        InspectionHierarchyRequest<LibraryTypeHierarchyTopology> request) =>
+        ((InspectionHierarchyPopulationRequest.Rows)
+            ((InspectionHierarchyPopulationRequest.Rows)request.Children)
+                .Children!)
+        .Children is InspectionHierarchyPopulationRequest.Count;
 
     /// <summary>
     /// Validates the document and forms every node before any is written.

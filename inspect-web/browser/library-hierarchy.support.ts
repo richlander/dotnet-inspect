@@ -569,6 +569,10 @@ async function installFacades(
         packageId: null,
         packageVersion: null,
         packageFramework: null,
+        ownerKind: null,
+        platformFamily: null,
+        platformFramework: null,
+        platformVersion: null,
       }
     : null;
   const graphTargetNode = graphTarget
