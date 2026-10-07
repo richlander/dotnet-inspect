@@ -130,8 +130,10 @@ public partial class ApiCommand
         HashSet<string> requestedDiscoverySections = bareDiscover
             ? []
             : GetRequestedMemberSections(filteredType, options);
-        if (requestedDiscoverySections.Contains(
-                SectionNames.UnsafeMembers)
+        if ((bareDiscover
+                && options.UserVerbosity == Verbosity.Detailed
+                || requestedDiscoverySections.Contains(
+                    SectionNames.UnsafeMembers))
             && !ApplyTypeUnsafeMembersApplicability(
                 filteredType,
                 options,

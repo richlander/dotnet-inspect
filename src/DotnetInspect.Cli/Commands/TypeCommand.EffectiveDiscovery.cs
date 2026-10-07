@@ -262,6 +262,8 @@ public static partial class TypeCommand
             || options.PlatformAssembly is not null
             || options.ProjectPath is not null
             || options.ProjectAssetsPath is not null
+            || options.UserVerbosity != Verbosity.Minimal
+            || options.IncludeSections is { Count: > 0 }
             || options.TypeFilter is not null
             || options.MemberFilter.Count > 0
             || options.KindFilter.Count > 0
@@ -445,8 +447,21 @@ public static partial class TypeCommand
                 _ => throw new InvalidOperationException(
                     "Unknown exact Type discovery Member-group category."),
             };
-            ApiMember member =
-                DiscoveryMember(count.Kind, kind);
+            var member =
+                new ApiMember
+                {
+                    Name = "<member>",
+                    Kind = kind,
+                    Signature = "<member>",
+                    Attributes = ["<attribute>"],
+                    IsFinalizer =
+                        count.Kind
+                            == MemberGroupCategory.Finalizer,
+                    IsExplicitInterfaceImplementation =
+                        count.Kind
+                            == MemberGroupCategory
+                                .ExplicitInterfaceImplementation,
+                };
             members.Add(member);
             if (ApiMemberSectionDescriptors.IsMethodLike(kind))
             {
@@ -460,15 +475,6 @@ public static partial class TypeCommand
             {
                 accessorBackedPlaceholder = member;
             }
-        }
-        if (selectorCounts.Traits.All > 1
-            && members.Count == 1)
-        {
-            members.Add(
-                DiscoveryMember(
-                    selectorCounts.Kinds.Single(
-                        count => count.Count > 0).Kind,
-                    members[0].Kind));
         }
         if (selectorCounts.Traits.BodyBacked > methodLikeCount)
         {
@@ -504,23 +510,6 @@ public static partial class TypeCommand
         }
         return members;
     }
-
-    static ApiMember DiscoveryMember(
-        MemberGroupCategory category,
-        string kind) =>
-        new()
-        {
-            Name = "<member>",
-            Kind = kind,
-            Signature = "<member>",
-            Attributes = ["<attribute>"],
-            IsFinalizer =
-                category == MemberGroupCategory.Finalizer,
-            IsExplicitInterfaceImplementation =
-                category
-                    == MemberGroupCategory
-                        .ExplicitInterfaceImplementation,
-        };
 
     static string? TypeAccessibility(TypeAttributes attributes) =>
         (attributes & TypeAttributes.VisibilityMask) switch

@@ -499,11 +499,12 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
-    [InlineData("System.IDisposable")]
-    [InlineData("System.IObserver`1")]
+    [InlineData("System.IDisposable", SectionNames.Facts)]
+    [InlineData("System.Attribute", SectionNames.Methods)]
     public async Task
-        Type_DirectLibraryExactType_FactsDiscoveryMatchesPlatformProjection(
-            string typeName)
+        Type_SelectedSectionDiscoveryMatchesPlatformProjection(
+            string typeName,
+            string section)
     {
         string assemblyPath =
             typeof(System.Text.StringBuilder).Assembly.Location;
@@ -515,8 +516,7 @@ public partial class CommandExecutionTests
                 assemblyPath,
                 "-D",
                 "-S",
-                SectionNames.Facts,
-                "--tsv");
+                section);
         var (platformExit, platformOutput, platformError) =
             await RunAppAsync(
                 "type",
@@ -525,8 +525,7 @@ public partial class CommandExecutionTests
                 "System.Private.CoreLib",
                 "-D",
                 "-S",
-                SectionNames.Facts,
-                "--tsv");
+                section);
 
         Assert.True(
             directExit == 0,
@@ -537,6 +536,114 @@ public partial class CommandExecutionTests
         Assert.Empty(directError);
         Assert.Empty(platformError);
         Assert.Equal(platformOutput, directOutput);
+    }
+
+    [Theory]
+    [InlineData("System.Attribute", false)]
+    [InlineData("System.TimeSpan", true)]
+    public async Task
+        Type_DetailedDiscoveryMatchesPlatformProjection(
+            string typeName,
+            bool excludesUnsafeMembers)
+    {
+        string assemblyPath =
+            typeof(System.Text.StringBuilder).Assembly.Location;
+        var (directExit, directOutput, directError) =
+            await RunAppAsync(
+                "type",
+                typeName,
+                "--library",
+                assemblyPath,
+                "-D",
+                "-v:d");
+        var (platformExit, platformOutput, platformError) =
+            await RunAppAsync(
+                "type",
+                typeName,
+                "--platform",
+                "System.Private.CoreLib",
+                "-D",
+                "-v:d");
+
+        Assert.True(
+            directExit == 0,
+            $"Direct discovery failed: {directError}");
+        Assert.True(
+            platformExit == 0,
+            $"Platform discovery failed: {platformError}");
+        Assert.Empty(directError);
+        Assert.Empty(platformError);
+        Assert.Equal(platformOutput, directOutput);
+        if (excludesUnsafeMembers)
+        {
+            Assert.DoesNotContain(
+                SectionNames.UnsafeMembers,
+                directOutput);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task
+        Type_QuietDiscoveryMatchesPlatformRejection(
+            bool tree)
+    {
+        string assemblyPath =
+            typeof(System.Text.StringBuilder).Assembly.Location;
+        string[] directArgs = tree
+            ?
+            [
+                "type",
+                "System.Attribute",
+                "--library",
+                assemblyPath,
+                "-D",
+                "--tree",
+                "-v:q",
+            ]
+            :
+            [
+                "type",
+                "System.Attribute",
+                "--library",
+                assemblyPath,
+                "-D",
+                "-v:q",
+            ];
+        string[] platformArgs = tree
+            ?
+            [
+                "type",
+                "System.Attribute",
+                "--platform",
+                "System.Private.CoreLib",
+                "-D",
+                "--tree",
+                "-v:q",
+            ]
+            :
+            [
+                "type",
+                "System.Attribute",
+                "--platform",
+                "System.Private.CoreLib",
+                "-D",
+                "-v:q",
+            ];
+
+        var (directExit, directOutput, directError) =
+            await RunAppAsync(directArgs);
+        var (platformExit, platformOutput, platformError) =
+            await RunAppAsync(platformArgs);
+
+        Assert.Equal(1, directExit);
+        Assert.Equal(platformExit, directExit);
+        Assert.Equal(platformOutput, directOutput);
+        Assert.Equal(platformError, directError);
+        Assert.Contains(
+            "-v:q is not supported by the type shape renderer.",
+            directError);
     }
 
     [Fact]
