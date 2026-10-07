@@ -1086,6 +1086,9 @@ public static partial class PackageExports
             LoadedTypeSearchRanking.Rank(
                 query,
                 candidates,
+                static candidate => candidate.Key,
+                static candidate => candidate.Name,
+                static candidate => candidate.Full,
                 static (key, kind) =>
                     new BrowserTypeSearchHit(key, MatchKind(kind)));
         return JsonSerializer.Serialize(

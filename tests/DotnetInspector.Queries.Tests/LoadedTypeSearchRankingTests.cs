@@ -93,6 +93,30 @@ public sealed class LoadedTypeSearchRankingTests
     }
 
     [Fact]
+    public void Rank_AdaptsCallerOwnedCandidateShape()
+    {
+        CallerCandidate[] candidates =
+        [
+            new(
+                "serializer",
+                "JsonSerializer",
+                "System.Text.Json.JsonSerializer"),
+        ];
+
+        Hit hit = Assert.Single(
+            LoadedTypeSearchRanking.Rank(
+                "Json",
+                candidates,
+                static candidate => candidate.Id,
+                static candidate => candidate.ShortName,
+                static candidate => candidate.QualifiedName,
+                static (key, kind) => new Hit(key, kind)));
+
+        Assert.Equal("serializer", hit.Key);
+        Assert.Equal(LoadedTypeSearchMatchKind.Prefix, hit.Kind);
+    }
+
+    [Fact]
     public void Rank_FuzzyIncludesMinimumSimilarity()
     {
         Assert.Equal(0.5, TypeMatcher.NameSimilarity("Abcd", "Abef"));
@@ -139,4 +163,9 @@ public sealed class LoadedTypeSearchRankingTests
     private sealed record Hit(
         string Key,
         LoadedTypeSearchMatchKind Kind);
+
+    private sealed record CallerCandidate(
+        string Id,
+        string ShortName,
+        string QualifiedName);
 }
