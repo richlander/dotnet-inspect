@@ -431,8 +431,8 @@ The counted adoption has six focused slices:
 4. Adopt the same host-neutral settlement in Browser/Wasm member/type source
    with explicit pathless stores and fetch capabilities.
 5. Let SourceHouse consume the settlement capability, then retire duplicated
-   `AssemblyContextSourceQuery` and `PdbSourceHouse` candidate orchestration
-   route by route.
+   `AssemblyContextSourceQuery` candidate orchestration and the former public
+   PDB-source House route by route.
 6. Adopt the settlement in non-source consumers, including PDB Source
    Provenance, decompilation, analysis, and diagnostics, then remove the
    compatibility acquisition APIs and process-global symbol miss cache.
@@ -545,9 +545,10 @@ metadata type is resolved before that inference, and the resulting mapping
 retains `Inferred` rather than presenting the filename relationship as a
 sequence-point correlation.
 
-`PdbSourceHouse` retains the legacy candidate-origin and fetch-policy
-composition for this PDB-provenance-based source scenario. It intentionally
-does not include decompiler-generated source.
+`PdbMemberSourceAcquisition` retains a narrow member-only composition for
+certification and diagnostic consumers that already own an open
+`SourceLinkService`. It intentionally does not include decompiler-generated
+source or define product settlement policy.
 `PdbSourceInspectionProjection` owns the compatibility member/type inspection
 models and projects checksum, mapping, decoded-text, absence, and failure
 evidence into them without selecting or acquiring a source candidate.
@@ -559,14 +560,15 @@ for authored settlement, while preserving these acquisition providers and their
 authorization and checksum-gated admission. Type/member callers retain the
 acquired PDB for their existing fallback or explicit member comparison.
 
-The target [SourceHouse composition](design/source-house.md), tracked by
+The [SourceHouse composition](design/source-house.md), tracked by
 [#6512](https://github.com/richlander/dotnet-inspect/issues/6512), replaces
-that product composition with one content-first House over
+the former product composition with one content-first House over
 `SourceLinkService`, `CSharpDecompilerService`, and authorized acquisition
-capabilities. Product candidate ordering moves from `PdbSourceHouse` to SourceHouse, while
-this document continues to own PDB acquisition, SourceLink interpretation,
-checksum semantics, authored-source evidence, and its compatibility
-projection.
+capabilities. Product candidate ordering belongs to SourceHouse.
+`PdbMemberSourceAcquisition` preserves the same PDB-provenance ordering only
+for the certification harness. This document continues to own PDB
+acquisition, SourceLink interpretation, checksum semantics, authored-source
+evidence, and its compatibility projection.
 
 Every successful path must satisfy the shared Portable PDB checksum verifier
 (exact or accepted line-ending-normalized correspondence) before its content
@@ -660,26 +662,28 @@ detached `VerifiedSourceTextResult`, retaining `Exact`, `LineEndingNormalized`,
 the default; decoding alone is not checksum evidence. Normalized verification
 still returns the supplied text, not a rewritten source document.
 
-The production adoption path has three steps in this slice: expose these
-operations at SourceLink; migrate `PdbSourceHouse` and source-integrity/local-
-repository consumers; and retain the existing CLI and Browser/Wasm source
-query paths over those consumers. The old House checksum/decoder entry points
-and Services-owned checksum/result types are retired, not duplicated. The
-one-URL Services composition now lives in `VerifiedSourceTextFetch`, which
-combines `SourceFetch` transport with the owner-issued SourceLink checksum and
-detached text result without making either adjacent owner absorb the other.
-Acquisition ordering and fallback stay in their current compositions until
-SourceHouse adoption. Library lease consumption and the independent decompiler
+The production adoption exposed these operations at SourceLink, moved
+checksum-authenticated PDB-recorded local-file reads to
+`VerifiedLocalSourceRead`, and retained CLI and Browser/Wasm source queries
+over SourceHouse. The old House checksum/decoder, type-acquisition, and
+general verified-text entry points are retired, not duplicated. The one-URL
+Services composition lives in `VerifiedSourceTextFetch`, which combines
+`SourceFetch` transport with the owner-issued SourceLink checksum and detached
+text result without making either adjacent owner absorb the other. The
+member-only certification composition lives in
+`PdbMemberSourceAcquisition`; product acquisition ordering and fallback live
+in SourceHouse. Library lease consumption and the independent decompiler
 producer remain separately tracked.
 
 The motivating real repository is dotnet-inspect itself: its compiled
 Portable PDB maps an exact member to checksum-verified repository source,
 including when the assembly and PDB are supplied from memory. PR-fast
 `SourceLinkContentProducerTests` gates supplied-content mapping, stream
-settlement, mismatch/read-failure boundaries, retained map limits, and checksum
-and decoding outcomes. `PdbSourceHouseTests` and `VerifiedLocalSourceReadTests`
-gate the migrated composition; `AssemblyContextSourceQueryTests` and existing
-browser source-operation cases cover shared production callers.
+settlement, mismatch/read-failure boundaries, retained map limits, and
+checksum and decoding outcomes. `PdbSourceInspectionTests` and
+`VerifiedLocalSourceReadTests` gate the diagnostic projection and narrow
+local reader; `AssemblyContextSourceQueryTests` and existing browser
+source-operation cases cover shared production callers.
 
 This producer adds no host result schema or rendering mode. Existing source
 queries retain their typed output and host-owned lowering; completed host

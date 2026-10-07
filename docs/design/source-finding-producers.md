@@ -167,9 +167,10 @@ token. Member queries now use
 The [type query](type-source-acquisition.md) uses the same internal handoff with
 its own bounds and primary-document projection, preserving the correlation and
 fallback semantics below.
-`PdbSourceHouse` remains the legacy consumer of the same token-scoped mapping and
-document census, fetches exact bytes through the SSRF-hardened Services path,
-verifies the portable-PDB checksum, extracts the member body, and returns a
+`PdbMemberSourceAcquisition` remains the diagnostic consumer of the same
+token-scoped mapping and document census, fetches exact bytes through the
+SSRF-hardened Services path, verifies the portable-PDB checksum, extracts the
+member body, and returns a
 `FindingInspection<string>`. Its type operation resolves only the exact
 `MetadataTypeDefinitionName`, verifies the primary document through the same
 path, and returns the complete checksum-verified PDB document with its typed
@@ -213,7 +214,7 @@ This is gated by
 Whole-document type output refuses more than 500,000 logical lines before
 materializing the Finding census; the verified text then remains a failed
 PDB-source attempt so Decompiler fallback can run.
-`PdbSourceHouseTests.FromTypeContent_NewlineDenseSourceProducesVisibleFailedEvidence`
+`PdbSourceInspectionTests.FromTypeContent_NewlineDenseSourceProducesVisibleFailedEvidence`
 gates that bound. A host source-content store that reports a read or write
 failure produces typed evidence and does not publish the fetched bytes to the
 process-local memory cache, so an identical retry cannot silently change from

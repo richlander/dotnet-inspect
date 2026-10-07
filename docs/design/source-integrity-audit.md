@@ -221,7 +221,7 @@ The contract-defining cases are:
   and
 - propagation of an unexpected exception.
 
-`PdbSourceHouseTests` owns checksum and line-ending-normalization matrices.
+`PdbSourceInspectionTests` owns checksum and line-ending-normalization matrices.
 `SourceLinkProvenanceTests` owns immutable URL recognition and final-origin
 admission. `HttpRetryHelperTests` owns retry, timeout, streaming, and decoded
 body-limit mechanics. This service consumes those gates rather than duplicating
