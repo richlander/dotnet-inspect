@@ -61,6 +61,12 @@ Tuple comparison and swap reconstruction preserve this rule at construction;
 the printer and fidelity census do not excuse an inconsistent type because
 tuple syntax happens to hide its definition name.
 
+Wide tuples preserve the CLR rest encoding: after seven elements, the eighth
+type argument is another `ValueTuple` containing the remaining elements.
+An eight-element tuple therefore has a one-element rest tuple, and a
+fifteen-element tuple has two rest levels. Flat C# tuple syntax does not
+license substituting the eighth scalar element for that nested storage type.
+
 The motivating asset is dotnet/runtime at
 [`ab19415702aa8139d5369e47c73edb47343c34ad`,
 `JsonElement.cs`](https://github.com/dotnet/runtime/blob/ab19415702aa8139d5369e47c73edb47343c34ad/src/libraries/System.Text.Json/src/System/Text/Json/Document/JsonElement.cs),
@@ -78,6 +84,13 @@ gates the neighboring malformed-type boundary. These gates establish type
 consistency, not independent semantic equivalence; compile-back remains the
 separate fidelity gate. No control-flow, consumption, or recognition rule
 changes in this slice.
+
+`TupleBinaryOperatorPassTests.WideTupleTypesMatchCompilerSignature` compares
+reconstructed eight-, nine-, and fifteen-element operand types against the
+compiler-emitted return signatures of independent tuple-value specimens.
+`WideTupleComparisonCompileBack_RemainsExact` gates the three comparison
+bodies separately. These specimens close the wide-tuple boundary found during
+PR #9626 Round 1; they complement the motivating RC1 witness above.
 
 ### Reference-coalesce assignment testimony
 

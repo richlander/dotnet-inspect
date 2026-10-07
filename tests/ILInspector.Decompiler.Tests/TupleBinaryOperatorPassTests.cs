@@ -1,4 +1,5 @@
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.DecompilerHarness;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -48,6 +49,45 @@ public class TupleBinaryOperatorPassTests
         });
         Assert.DoesNotContain(FidelityRemarks.CollectCauses(function),
             cause => cause.Discriminator == "generic-arity-mismatch");
+    }
+
+    [Theory]
+    [InlineData(nameof(WideTupleComparisonSamples.CompareEight), nameof(WideTupleComparisonSamples.EightType))]
+    [InlineData(nameof(WideTupleComparisonSamples.CompareNine), nameof(WideTupleComparisonSamples.NineType))]
+    [InlineData(nameof(WideTupleComparisonSamples.CompareFifteen), nameof(WideTupleComparisonSamples.FifteenType))]
+    public void WideTupleTypesMatchCompilerSignature(string comparisonMethod, string typeWitnessMethod)
+    {
+        using var source = MetadataSource.Open(typeof(WideTupleComparisonSamples).Assembly.Location);
+        var typeWitness = IrImporter.Import(source, typeof(WideTupleComparisonSamples).FullName!, typeWitnessMethod);
+        Assert.NotNull(typeWitness);
+        var expectedType = typeWitness.Signature.ReturnType;
+        var function = Raised(comparisonMethod, typeof(WideTupleComparisonSamples));
+        var comparison = Assert.Single(function.Descendants.OfType<TupleBinaryExpression>());
+
+        Assert.Equal(expectedType, comparison.TupleType);
+        Assert.Equal(expectedType, Assert.IsType<TupleExpression>(comparison.Left).TupleType);
+        Assert.Equal(expectedType, Assert.IsType<TupleExpression>(comparison.Right).TupleType);
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+    }
+
+    [Theory]
+    [Trait("Speed", "Slow")]
+    [Trait("Area", "Fidelity")]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void WideTupleComparisonCompileBack_RemainsExact(bool lowered)
+    {
+        var results = FidelityCheck.Evaluate(
+            typeof(WideTupleComparisonSamples).Assembly.Location,
+            lowered: lowered,
+            type => type == typeof(WideTupleComparisonSamples).FullName)
+            .Where(result => result.Method.StartsWith("Compare", StringComparison.Ordinal))
+            .ToArray();
+
+        Assert.Equal(3, results.Length);
+        Assert.All(results, result => Assert.True(
+            result.Status == FidelityCheck.CompileBackStatus.Exact,
+            $"{result.Method}: {result.Status} — {result.Detail}"));
     }
 
     [Fact]
@@ -425,4 +465,27 @@ public static class TupleBinaryAdversarialSamples
 
     static int s_ticks;
     static int SideEffect(int v) { s_ticks++; return v; }
+}
+
+// Compiler-produced CLR tuple signatures independently witness the storage type
+// of flat tuple operands, including the nested rest after every seven elements.
+public static class WideTupleComparisonSamples
+{
+    public static (int, int, int, int, int, int, int, int) EightType() => default;
+
+    public static (int, int, int, int, int, int, int, int, int) NineType() => default;
+
+    public static (int, int, int, int, int, int, int, int, int, int, int, int, int, int, int) FifteenType() => default;
+
+    public static bool CompareEight(int[] left, int[] right)
+        => (left[0], left[1], left[2], left[3], left[4], left[5], left[6], left[7])
+            == (right[0], right[1], right[2], right[3], right[4], right[5], right[6], right[7]);
+
+    public static bool CompareNine(int[] left, int[] right)
+        => (left[0], left[1], left[2], left[3], left[4], left[5], left[6], left[7], left[8])
+            == (right[0], right[1], right[2], right[3], right[4], right[5], right[6], right[7], right[8]);
+
+    public static bool CompareFifteen(int[] left, int[] right)
+        => (left[0], left[1], left[2], left[3], left[4], left[5], left[6], left[7], left[8], left[9], left[10], left[11], left[12], left[13], left[14])
+            == (right[0], right[1], right[2], right[3], right[4], right[5], right[6], right[7], right[8], right[9], right[10], right[11], right[12], right[13], right[14]);
 }
