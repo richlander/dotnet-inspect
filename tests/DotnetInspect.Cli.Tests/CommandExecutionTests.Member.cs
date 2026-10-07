@@ -5564,7 +5564,7 @@ public partial class CommandExecutionTests
     {
         var (markdownExit, markdown, markdownError) = await RunAppAsync(
             "library", TestAssemblyPath,
-            "--section", "P/Invoke Methods");
+            "--section", "P/Invoke Methods", "--markdown");
         var (jsonlExit, jsonl, jsonlError) = await RunAppAsync(
             "library", TestAssemblyPath,
             "--section", "P/Invoke Methods", "--jsonl");
