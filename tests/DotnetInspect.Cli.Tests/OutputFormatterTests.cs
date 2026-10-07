@@ -750,6 +750,25 @@ public partial class OutputFormatterTests
     }
 
     [Fact]
+    public void VersionListings_JsonlUsesCompactTypedRows()
+    {
+        PackageVersionInfo[] versions =
+        [
+            new("2.0.0", Listed: true),
+            new("1.0.0-preview.1", Listed: false),
+        ];
+        var output = new StringWriter { NewLine = "\n" };
+
+        OutputFormatter.WriteVersionListings(versions,
+            new InspectionOptions { Jsonl = true }, output);
+
+        Assert.Equal(
+            "{\"version\":\"2.0.0\",\"listing\":\"listed\"}\n"
+            + "{\"version\":\"1.0.0-preview.1\",\"listing\":\"unlisted\"}\n",
+            output.ToString());
+    }
+
+    [Fact]
     public void VersionListings_JsonUsesTheJsonlRowShape()
     {
         PackageVersionInfo[] versions =

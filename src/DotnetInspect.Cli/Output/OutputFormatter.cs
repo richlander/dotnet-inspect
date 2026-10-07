@@ -392,14 +392,17 @@ public static class OutputFormatter
             return;
         }
 
-        var rows = items.Select(v => new[] { v.Version, v.Listed ? "listed" : "unlisted" }).ToArray();
-        SimpleTablePresentation.WriteTable(
+        var rows = items.Select(v => new VersionListingJson(
+            v.Version, v.Listed ? "listed" : "unlisted"));
+        SimpleTablePresentation.WriteTypedRows(
             output,
             showHeader: !options.NoHeader,
             SimpleFormat(options.Tsv, options.Jsonl),
             ["Version", "Listing"],
             ["version", "listing"],
-            rows);
+            rows,
+            row => [row.Version, row.Listing],
+            SimpleTableJsonlContext.Relaxed.VersionListingJson);
     }
 
     private static SimpleTableFormat SimpleFormat(bool tsv, bool jsonl) =>

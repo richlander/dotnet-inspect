@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using DotnetInspect.Cli.Options;
+using DotnetInspector.Presentation;
 using Markout;
 using Markout.Formatting;
 
@@ -192,9 +193,23 @@ public static class CountOutput
             return JsonSerializer.Serialize(rows, CountOutputJsonContext.Default.SectionCountArray);
 
         var output = new StringWriter { NewLine = "\n" };
+        if (format == OutputFormat.Jsonl)
+        {
+            SimpleTablePresentation.WriteTypedRows(
+                output,
+                showHeader: !noHeader,
+                SimpleTableFormat.Jsonl,
+                ["Section", "Count"],
+                ["section", "count"],
+                rows,
+                row => [row.Section, row.Count.ToString(CultureInfo.InvariantCulture)],
+                SimpleTableJsonlContext.Relaxed.SectionCount);
+            return output.ToString().TrimEnd();
+        }
+
         IMarkoutFormatter formatter = format switch
         {
-            OutputFormat.Table or OutputFormat.Tsv or OutputFormat.Jsonl
+            OutputFormat.Table or OutputFormat.Tsv
                 => new TableFormatter(showHeader: !noHeader),
             OutputFormat.PlainText => new PlainTextFormatter(),
             OutputFormat.Markdown => new MarkdownFormatter(),
@@ -206,8 +221,6 @@ public static class CountOutput
         options.JsonTypedValues = true;
         if (format == OutputFormat.Tsv)
             options.TableMode = MarkoutTableMode.Tsv;
-        else if (format == OutputFormat.Jsonl)
-            options.TableMode = MarkoutTableMode.Jsonl;
         var writer = new MarkoutWriter(output, formatter, options);
         writer.WriteTable(
             ["Section", "Count"],
