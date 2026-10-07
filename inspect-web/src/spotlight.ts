@@ -484,12 +484,6 @@ export function createSpotlight(options: SpotlightOptions) {
       "data-sl-remove", identity, label, escapeHtml)}</div>`;
   }
 
-  function ecosystemMetadata(result: SpotlightPackageResult): string {
-    const annotation = result.ecosystem;
-    if (!annotation) return "";
-    return `${escapeHtml(annotation.title)} · `;
-  }
-
   function artifactIcon(
     kind: "Package" | "Library",
     ecosystem: { id: string; title: string } | undefined,
@@ -542,7 +536,7 @@ export function createSpotlight(options: SpotlightOptions) {
       return withRemoveButton(result, `<button ${base} data-sl-pkg-open="${escapeHtml(result.pkg.id)}">
         ${packageIcon(result)}
         <span class="spotlight-item-name">${options.highlightRanges(result.pkg.id, result.ranges)}</span>
-        <span class="spotlight-item-ns">${ecosystemMetadata(result)}${escapeHtml(result.pkg.version)} · ${packageAddition ? "already in Workspace" : "open"}</span>
+        <span class="spotlight-item-ns">${escapeHtml(result.pkg.version)}${packageAddition ? " · already in Workspace" : ""}</span>
         ${dateHtml}
       </button>`);
     }
@@ -553,7 +547,7 @@ export function createSpotlight(options: SpotlightOptions) {
       return `<button ${base} data-sl-pkg-load="${escapeHtml(result.hit.id)}" data-sl-pkg-version="${escapeHtml(result.hit.version || "")}">
         ${packageIcon(result)}
         <span class="spotlight-item-name">${options.highlightRanges(result.hit.id, result.ranges)}</span>
-        <span class="spotlight-item-ns">${ecosystemMetadata(result)}${escapeHtml(result.hit.version || "")} · ${source}</span>
+        <span class="spotlight-item-ns" title="${escapeHtml(source)}">${escapeHtml(result.hit.version || "")}</span>
         ${dateHtml}
       </button>`;
     }
@@ -564,7 +558,7 @@ export function createSpotlight(options: SpotlightOptions) {
       return withRemoveButton(result, `<button ${base} data-sl-pkg-recent="${escapeHtml(result.entry.id)}">
         ${packageIcon(result)}
         <span class="spotlight-item-name">${options.highlightRanges(result.entry.id, result.ranges)}</span>
-        <span class="spotlight-item-ns">${ecosystemMetadata(result)}${version ? `${escapeHtml(version)} · ` : ""}recent</span>
+        <span class="spotlight-item-ns">${escapeHtml(version)}</span>
         ${dateHtml}
       </button>`);
     }
@@ -600,7 +594,7 @@ export function createSpotlight(options: SpotlightOptions) {
               title: result.pack === "aspnetcore.app" ? "ASP.NET Core" : ".NET Runtime" }
           : undefined, undefined)}
         <span class="spotlight-item-name">${options.highlightRanges(result.assembly, result.ranges)}</span>
-        <span class="spotlight-item-ns">${escapeHtml(meta)}</span>
+        <span class="spotlight-item-ns" title="${escapeHtml(meta)}">${escapeHtml(result.version || "")}</span>
         ${dateHtml}
       </button>`;
     }

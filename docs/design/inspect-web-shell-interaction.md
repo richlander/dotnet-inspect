@@ -599,9 +599,12 @@ place of its kind icon. A platform Library always uses its normal ecosystem icon
 or the existing Library icon as fallback, even when it supplies a pruned Package.
 Pruning applies to the Package, not to the supplying Library. False or unavailable
 comparisons do not produce pruning glyphs.
-Accessible glyph labels preserve Package or Library kind. Text metadata names
-the ecosystem consistently, such as `.NET Runtime`, without repeating Package
-or Library inside the row, while retaining source disclosure. Ecosystem icons
+Accessible glyph labels preserve Package or Library kind and ecosystem identity.
+Package and platform Library rows show their version and available publication
+date, without repeating ecosystem names or open/recent state. Framework target,
+Library role, and source details remain in tooltips. This compact presentation
+applies to Home pre-search lists and modal Spotlight alike. The Add package
+dialog retains its actionable already-in-Workspace disclosure. Ecosystem icons
 consume the classifier's owning identity, or
 the framework Library's known source family. There is no trailing icon rail.
 Kind and status glyphs follow the structural-salience icon

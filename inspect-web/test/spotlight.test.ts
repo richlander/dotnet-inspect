@@ -360,7 +360,7 @@ test("exact package coordinates are presented as direct listed-or-unlisted opens
 
   assert.match(html, /data-sl-pkg-load="WrongTurn"/);
   assert.match(html, /data-sl-pkg-version="0\.1\.14"/);
-  assert.match(html, /0\.1\.14 · exact coordinate · listed or unlisted/);
+  assert.match(html, /title="exact coordinate · listed or unlisted">0\.1\.14<\/span>/);
 });
 
 test("Add package dispatches rendered loaded, NuGet and recent rows only to Add", () => {
@@ -609,7 +609,7 @@ test("ordinary open and reset clear the Add callback and restore Search scopes a
     assert.match(html, /aria-label="Go to anything"/);
     assert.match(html, /data-sl-scope="commands"/);
     assert.match(html, /data-sl-remove/);
-    assert.match(html, /1\.0\.0 · open/);
+    assert.match(html, /class="spotlight-item-ns">1\.0\.0<\/span>/);
     assert.doesNotMatch(html, /already in Workspace|spotlight-cancel/);
     withBoundSpotlight(harness, dom => {
       dom.clickRow(0);
@@ -1188,8 +1188,8 @@ test("same-named Package and Library share one Ecosystem group with independent 
   assert.match(html, /aria-label="Library: \.NET Runtime"/);
   assert.equal((html.match(/class="spotlight-svg-icon spotlight-pruned"/g) ?? []).length, 1);
   assert.match(html, /Supplied by net10.0 @ 10.0.12/);
-  assert.match(html, /\.NET Runtime · 4.3.0/);
-  assert.match(html, /\.NET Runtime · net10\.0/);
+  assert.match(html, /class="spotlight-item-ns" title="nuget.org">4\.3\.0<\/span>/);
+  assert.match(html, /title="\.NET Runtime · net10\.0 · 10\.0\.12 · 1 type">10\.0\.12<\/span>/);
   assert.notEqual(spotlightResultIdentity(packageResult), spotlightResultIdentity(libraryResult));
   assert.deepEqual(spotlight.results(), [libraryResult, packageResult, external]);
 });
