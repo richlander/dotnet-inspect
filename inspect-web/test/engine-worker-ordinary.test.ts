@@ -1561,6 +1561,7 @@ test("ordinary package transport preserves settled and NotSettled baselines", as
     },
     documents: surface.documents,
     surface,
+    defaultLibraryId: surface.defaultAssemblyId,
   } satisfies BrowserPackageLoadResult;
   const notSettled = {
     versionSettlement: {
@@ -1596,6 +1597,7 @@ test("ordinary package transport preserves settled and NotSettled baselines", as
     packageChildren: null,
     documents: [],
     surface: null,
+    defaultLibraryId: null,
   } satisfies BrowserPackageLoadResult;
   const state = fixture({
     package: {

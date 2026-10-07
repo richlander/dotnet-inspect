@@ -97,8 +97,8 @@ public sealed partial class BrowserEngineBoundaryTests
 
         Assert.Equal(maxEntries, documents.Count);
         Assert.Same(
-            package.Content.EnumerateEntriesWithLengths(),
-            package.Content.EnumerateEntriesWithLengths());
+            Assert.IsType<InMemoryPackageContent>(package.Content).EnumerateEntriesWithLengths(),
+            Assert.IsType<InMemoryPackageContent>(package.Content).EnumerateEntriesWithLengths());
     }
 
     [Fact]
