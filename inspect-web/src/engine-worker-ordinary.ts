@@ -276,9 +276,9 @@ interface EngineWorkerOrdinaryActivity {
   whenIdle(): Promise<void>;
 }
 
-export const engineWorkerOrdinaryMaximumJsonCharacters = 33_554_432;
+export const engineWorkerOrdinaryMaximumJsonCharacters = 83_886_080;
 export const engineWorkerOrdinaryMaximumNesting = 64;
-export const engineWorkerOrdinaryMaximumCollectionEntries = 1_310_720;
+export const engineWorkerOrdinaryMaximumCollectionEntries = 2_621_440;
 export const engineWorkerUploadedLibraryMaximumBytes = 32 * 1024 * 1024;
 
 type JsonPrimitive = null | boolean | number | string;
