@@ -1508,11 +1508,14 @@ paths, credentials, fragments, or transport exception text. This is gated by
 and
 `HttpRetryHelperTests.HeaderFirstBodyRead_FailureLogsCarryNoUrlOrExceptionText`.
 
-Every product consumer that renders or derives output from fetched source now
-uses `PdbSourceHouse.FetchVerifiedSourceTextAsync`. PDB Source,
-printed Source Files and Source Locations, IL-offset source lines, and
-documentation/sample enrichment all require the portable-PDB checksum before
-using network content. `SourceAvailabilityService` and
+Every product consumer that renders or derives output from fetched source
+requires the portable-PDB checksum before using network content.
+`VerifiedSourceTextFetch` supplies that composition directly for IL-offset
+source lines and within `PdbSourceHouse`; SourceHouse supplies the same
+owner-issued predicate through its fetch capability. PDB Source, printed Source
+Files and Source Locations, and documentation/sample enrichment preserve that
+same requirement.
+`SourceAvailabilityService` and
 `SourceIntegrityService` retain the final-origin check before recording
 reachability or reading bytes. The source-byte, availability, and integrity
 cache categories were versioned when the stricter audit rule landed;

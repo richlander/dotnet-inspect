@@ -148,6 +148,14 @@ public class TypeView
     [JsonIgnore]
     public List<BaseclassRow>? BaseclassRows { get; set; }
 
+    [MarkoutSection(Name = "Implementers")]
+    [JsonIgnore]
+    public List<TypeHierarchyRelationRow>? ImplementerRows { get; set; }
+
+    [MarkoutSection(Name = "Derived Types")]
+    [JsonIgnore]
+    public List<TypeHierarchyRelationRow>? DerivedTypeRows { get; set; }
+
     // Member sections (populated by ApiOutputFormatter.PopulateMemberSections).
     // The historical Select variants are retained in the schema model but are no
     // longer populated; selectors live in the dedicated Member Index section.
@@ -872,6 +880,39 @@ public record ApiTypeForwarderRow(
 
     [MarkoutPropertyName("Target Assembly")]
     public string TargetAssembly => TargetAssemblyText.ToString();
+}
+
+[MarkoutSerializable]
+public sealed record TypeHierarchyRelationRow(
+    InertString TypeText,
+    InertString LibraryText,
+    InertString SourceText)
+{
+    internal TypeHierarchyRelationRow(
+        string type,
+        string library,
+        string source)
+        : this(
+            MarkoutInline.CodeText(ApiViewText.Field(type)),
+            ApiViewText.Field(library),
+            ApiViewText.Field(source))
+    {
+    }
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString TypeText { get; init; } = TypeText;
+
+    public string Type => TypeText.ToString();
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString LibraryText { get; init; } = LibraryText;
+
+    public string Library => LibraryText.ToString();
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString SourceText { get; init; } = SourceText;
+
+    public string Source => SourceText.ToString();
 }
 
 [MarkoutSerializable]
