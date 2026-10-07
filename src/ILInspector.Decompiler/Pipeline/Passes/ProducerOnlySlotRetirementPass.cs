@@ -97,6 +97,11 @@ public sealed class ProducerOnlySlotRetirementPass : IIrPass
     {
         if (store.Parent is not Block)
             return false;
+        if (store.Value.DescendantsAndSelfOutsideNestedFunctions
+            .Any(static node => node is StackAllocate))
+        {
+            return false;
+        }
         if (store.Value.ResultType?.Kind == TypeRefKind.ByRef
             || store.Value.AssignmentType?.Kind == TypeRefKind.ByRef)
             return false;

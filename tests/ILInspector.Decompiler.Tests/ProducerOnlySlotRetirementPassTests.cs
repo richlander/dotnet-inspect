@@ -138,6 +138,26 @@ public class ProducerOnlySlotRetirementPassTests
     }
 
     [Fact]
+    public void PointerStackAllocateRemainsForDedicatedStorageRendering()
+    {
+        var store = new StoreStackSlot(
+            0,
+            new StackAllocate(new Constant(8, Int32)));
+        var function = Function(
+            store,
+            new Return(null));
+
+        new ProducerOnlySlotRetirementPass().Run(
+            function,
+            PassContext.None);
+
+        Assert.Same(store, Entry(function).Children[0]);
+        Assert.Empty(function.Descendants.OfType<ExpressionStatement>());
+        Assert.Single(function.Descendants.OfType<StackAllocate>());
+        function.CheckInvariant(includeSemantics: true);
+    }
+
+    [Fact]
     public void DirectCopyComponentRetiresWithoutOrphaningLoads()
     {
         var effect = new MethodRef(
