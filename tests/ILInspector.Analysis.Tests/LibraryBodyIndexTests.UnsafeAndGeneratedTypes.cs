@@ -230,6 +230,7 @@ public partial class LibraryBodyIndexTests
                     == "UnsafeFixtures"
                 && use.Method.Name
                     == "StackAllocDefault");
+        AssertSpanStackallocInitializersAreNotUses(index);
         Assert.Contains(
             index.Safety.MemberUses,
             use =>
@@ -289,6 +290,7 @@ public partial class LibraryBodyIndexTests
                     == "UnsafeFixtures"
                 && use.Method.Name
                     == "StackAllocDefault");
+        AssertSpanStackallocInitializersAreNotUses(index);
         Assert.Contains(
             index.Safety.MemberUses,
             use =>
@@ -311,6 +313,52 @@ public partial class LibraryBodyIndexTests
                     evidence => evidence.Kind
                         == UnsafeMemberUseKind
                             .StackAllocation));
+    }
+
+    // Roslyn lowers each initializer through the allocation pointer before
+    // wrapping it in Span<T>: CreateSpan plus cpblk, an RVA cpblk, and element
+    // stores. None of those is source pointer use.
+    static void AssertSpanStackallocInitializersAreNotUses(
+        LibraryBodyAnalysisExecution index)
+    {
+        foreach (var (type, method) in new[]
+        {
+            ("StackallocInitializerResiduals",
+                "StackallocSpanInitializer"),
+            ("SpanStackallocInitializers", "ByteElements"),
+            ("SpanStackallocInitializers", "ArgumentElements"),
+        })
+        {
+            Assert.DoesNotContain(
+                index.Safety.MemberUses,
+                use =>
+                    use.Method.DeclaringType.Name == type
+                    && use.Method.Name == method);
+        }
+        Assert.Contains(
+            index.Safety.MemberUses,
+            use =>
+                use.Method.DeclaringType.Name
+                    == "StackallocInitializerResiduals"
+                && use.Method.Name
+                    == "StackallocPointerInitializer"
+                && use.Evidence.Any(
+                    evidence => evidence.Kind
+                        == UnsafeMemberUseKind
+                            .StackAllocation));
+
+        // Variable-length pointer stores are source dereferences even when
+        // the allocation is then wrapped by Span<T>.
+        UnsafeMemberUse pointerLocal = Assert.Single(
+            index.Safety.MemberUses,
+            use =>
+                use.Method.DeclaringType.Name
+                    == "SpanStackallocInitializers"
+                && use.Method.Name == "PointerLocalWrapped");
+        Assert.Contains(
+            pointerLocal.Evidence,
+            evidence => evidence.Kind
+                == UnsafeMemberUseKind.PointerDereference);
     }
 
     [Theory]

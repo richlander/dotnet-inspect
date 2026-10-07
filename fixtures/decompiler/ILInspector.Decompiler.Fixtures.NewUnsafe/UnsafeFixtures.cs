@@ -411,6 +411,32 @@ public static class StackallocInitializerResiduals
     }
 }
 
+public static class SpanStackallocInitializers
+{
+    public static int ByteElements()
+    {
+        Span<byte> values = stackalloc byte[] { 1, 2, 3, 4 };
+        return values[0] + values[3];
+    }
+
+    public static int ArgumentElements(int first, int second)
+    {
+        Span<int> values = stackalloc int[] { first, second };
+        return values[0] + values[1];
+    }
+
+    public static int PointerLocalWrapped(int length)
+    {
+        unsafe
+        {
+            int* values = stackalloc int[length];
+            values[0] = 1;
+            values[1] = 2;
+            return new Span<int>(values, length)[0];
+        }
+    }
+}
+
 public static class StackallocInitializerNegatives
 {
     public static int CoalescedSpanLocal()

@@ -865,6 +865,14 @@ evidence for this inventory. Pointer-bearing signatures and locals, calls to
 not admit a method. In particular, `localloc` lowered into an initialized
 `Span<T>` does not require an unsafe context; raw-pointer stack allocation and
 Span-backed stack allocation under skipped-local-initialization semantics do.
+That holds through Roslyn's collection-initializer lowerings
+(`RuntimeHelpers.CreateSpan` or RVA `cpblk` copies and per-element stores
+through the allocation pointer): when the same allocation reaches the `Span<T>`
+constructor, in-bounds stores at constant displacements into a constant-size
+allocation are not pointer dereferences. Other stores through the allocation,
+and any allocation stored to a pointer local before wrapping, keep their roles.
+Source pointer stores that match the initializer shape exactly are
+indistinguishable in IL and are reported as the safe form.
 
 The inventory reports compiled roles, not source spelling. It does not claim
 that an `unsafe` block existed, distinguish block and expression forms, grade a
