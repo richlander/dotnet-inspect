@@ -313,9 +313,23 @@ internal sealed record SpanStackAllocations(
                 && (!exact
                     || quantity.Scale != 0
                     || quantity.Constant <= int.MaxValue)
+                && FitsInt32Operand(value.Type, producer.OpCode, quantity)
                     ? quantity
                     : null;
         }
+
+        // An int32 value wraps at 2^31 and is sign-extended when it meets a native
+        // pointer, so the monotonicity bound covers it only while it provably
+        // stays in int32 range: an unscaled constant, a sizeof leaf, or a signed
+        // overflow-trapping product. Roslyn's initializer displacements are native.
+        static bool FitsInt32Operand(
+            StackType type,
+            ILOpCode producer,
+            Linear quantity)
+            => type is StackType.NativeInt or StackType.Int64
+                || producer is ILOpCode.Sizeof or ILOpCode.Mul_ovf
+                || (quantity.Scale == 0
+                    && quantity.Constant <= int.MaxValue);
 
         Linear? EvaluateProducer(
             DecodedInstruction producer,

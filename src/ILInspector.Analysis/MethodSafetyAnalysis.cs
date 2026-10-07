@@ -107,6 +107,14 @@ internal static class MethodSafetyAnalysis
         Func<int, string?> calliReturnDetail,
         Func<int, MemberRef>? resolveMember = null)
     {
+        // Occurrences arise only at calli, localloc, and indirect loads and
+        // stores; a body without them needs no stack model or member resolution.
+        if (!context.Instructions.Instructions.Any(instruction =>
+                instruction.OpCode is ILOpCode.Calli or ILOpCode.Localloc
+                || IndirectTypeDetail(instruction.OpCode) is not null))
+        {
+            return [];
+        }
         var occurrences = ImmutableArray.CreateBuilder<UnsafetyOccurrence>();
         var localValues = new Dictionary<int, StackValue>();
         var stack = new List<StackValue>();

@@ -876,7 +876,9 @@ into that allocation is not a pointer dereference when its displacement and
 extent are provably within the allocation size, counting constants and
 `sizeof(T)` multiples. Because IL arithmetic wraps, the proof admits only
 non-negative terms and an exactly computed size: an `int32`-range constant, or
-`sizeof`-scaled arithmetic through overflow-trapping operators. Stores that are unprovable or out of bounds keep their
+`sizeof`-scaled arithmetic through overflow-trapping operators. An `int32`-typed
+term must also stay provably in `int32` range, since it is sign-extended when
+added to the pointer. Stores that are unprovable or out of bounds keep their
 roles, as does an allocation whose pointer passes through a local the compiler
 keeps. An incomplete typed stack recognizes nothing. Release builds elide a
 single-use pointer local, so source pointer stores that match the initializer

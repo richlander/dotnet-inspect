@@ -406,6 +406,18 @@ public partial class LibraryBodyIndexTests
             wrapping.Evidence,
             evidence => evidence.Kind
                 == UnsafeMemberUseKind.PointerDereference);
+        // An int32 operand that wraps at 2^31 is not provably in bounds even
+        // inside an exactly sized 2 GiB allocation.
+        UnsafeMemberUse int32Wrap = Assert.Single(
+            index.Safety.MemberUses,
+            use =>
+                use.Method.DeclaringType.Name
+                    == "SpanStackallocInitializers"
+                && use.Method.Name == "Int32WrapLargeAllocationWrapped");
+        Assert.Contains(
+            int32Wrap.Evidence,
+            evidence => evidence.Kind
+                == UnsafeMemberUseKind.PointerDereference);
     }
 
     [Theory]

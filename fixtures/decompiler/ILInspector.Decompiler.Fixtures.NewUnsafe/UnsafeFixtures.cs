@@ -534,6 +534,18 @@ public static class SpanStackallocInitializers
             return new Span<int>(values, 2)[0];
         }
     }
+
+    // An int32 product of 0x40000000 * sizeof(nint) wraps to int.MinValue, so
+    // this store lands 2 GiB below an exactly sized 8 GiB allocation.
+    public static int Int32WrapLargeAllocationWrapped()
+    {
+        unsafe
+        {
+            nint* values = stackalloc nint[0x40000001];
+            *(nint*)((byte*)values + 0x40000000 * sizeof(nint)) = 1;
+            return new Span<nint>(values, 0x40000001).Length;
+        }
+    }
 }
 
 public static class StackallocInitializerNegatives
