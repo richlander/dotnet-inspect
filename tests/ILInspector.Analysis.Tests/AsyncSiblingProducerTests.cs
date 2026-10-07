@@ -26,6 +26,29 @@ public static class ExternalBaseSiblingFixtures
     }
 }
 
+public class VirtualSiblingBase
+{
+    public virtual Task WriteAsync() => Task.CompletedTask;
+}
+
+public sealed class VirtualSiblingTarget : VirtualSiblingBase
+{
+    public void Write()
+    {
+    }
+}
+
+public sealed class UnresolvedBaseOverrideCaller : TextWriter
+{
+    public override Encoding Encoding => Encoding.UTF8;
+
+    public override async Task FlushAsync()
+    {
+        new VirtualSiblingTarget().Write();
+        await Task.Yield();
+    }
+}
+
 public class AsyncSiblingProducerTests
 {
     static readonly string FixturePath =
@@ -159,6 +182,47 @@ public class AsyncSiblingProducerTests
         Assert.False(result.HasValue);
         Assert.NotNull(result.Critical);
         Assert.Equal("ReferenceBinding", result.Critical.Owner);
+    }
+
+    [Fact]
+    public void Producer_ReportsUnresolvedCallerBaseWhenSlotCheckSkipsSibling()
+    {
+        var operation = CreateOperation();
+        using var session = AssemblyInspectionSession.Open(FixturePath);
+        var binding = new AssemblyReferenceBindingAccess(
+            ResolvedAssemblyReference.CreateFromPath(
+                FixturePath,
+                AssemblyResolutionProvenance.Local("async sibling test")),
+            new AssemblyReferenceBindingPolicy(new NoResolver()));
+
+        AsyncSiblingProducerResult result = session.SnapshotOperation(
+            operation,
+            binding,
+            access =>
+            {
+                var completed = Assert.IsType<
+                    AssemblyAnalysisServiceResult<AsyncSiblingProducerResult>
+                        .Completed>(
+                    AssemblyAnalysisService.Instance.Execute(
+                        operation,
+                        access));
+                return completed.Execution.ResultOf(
+                    AsyncSiblingProducer.Instance).Value!;
+            });
+
+        Assert.DoesNotContain(
+            result.Rows,
+            row => row.Caller.Name
+                == nameof(UnresolvedBaseOverrideCaller.FlushAsync));
+        Assert.Contains(
+            result.Diagnostics,
+            d => d.Method == nameof(UnresolvedBaseOverrideCaller.FlushAsync)
+                && d.Message.Contains(
+                    "'Write'",
+                    StringComparison.Ordinal)
+                && d.Message.Contains(
+                    "could not be resolved",
+                    StringComparison.Ordinal));
     }
 
     [Fact]

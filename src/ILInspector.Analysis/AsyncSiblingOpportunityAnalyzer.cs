@@ -106,9 +106,11 @@ internal sealed class AsyncSiblingOpportunityAnalyzer
             MemberRef? sibling =
                 _candidateResolver.FindAsyncSibling(
                     call,
-                    asyncSource);
+                    asyncSource,
+                    out bool skippedOnUnresolved);
             if (sibling is null
-                && _candidateResolver.IsDeclaringTypeUnresolved(call))
+                && (skippedOnUnresolved
+                    || _candidateResolver.IsDeclaringTypeUnresolved(call)))
             {
                 unresolved.Add(call);
             }

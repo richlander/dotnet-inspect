@@ -95,8 +95,20 @@ internal sealed class LibraryBodyAsyncSiblingCandidateResolver(
 
     internal MemberRef? FindAsyncSibling(
         DirectCall call,
-        MethodIdentity asyncSource)
+        MethodIdentity asyncSource) =>
+        FindAsyncSibling(call, asyncSource, out _);
+
+    /// <summary>
+    /// As above; <paramref name="skippedOnUnresolved"/> is true when a
+    /// candidate was skipped because a type it depends on could not be
+    /// resolved, so its absence is unproven.
+    /// </summary>
+    internal MemberRef? FindAsyncSibling(
+        DirectCall call,
+        MethodIdentity asyncSource,
+        out bool skippedOnUnresolved)
     {
+        skippedOnUnresolved = false;
         MemberRef callee = call.Callee;
         if (callee.Kind != MemberKind.Method
             || callee.Name.EndsWith("Async", StringComparison.Ordinal)
@@ -111,15 +123,18 @@ internal sealed class LibraryBodyAsyncSiblingCandidateResolver(
             call.CalleeDefinitionToken,
             asyncSource,
             LibraryBodyAsyncSiblingSignatureMatcher
-                .ExactAsyncSiblingMemberIdentity(callee));
+                .ExactAsyncSiblingMemberIdentity(callee),
+            out skippedOnUnresolved);
     }
 
     MemberRef? FindAsyncSiblingCore(
         MemberRef callee,
         int calleeDefinitionToken,
         MethodIdentity asyncSource,
-        string exactCalleeIdentity)
+        string exactCalleeIdentity,
+        out bool skippedOnUnresolved)
     {
+        skippedOnUnresolved = false;
         var lookupKey = (
             callee,
             exactCalleeIdentity,
@@ -167,8 +182,15 @@ internal sealed class LibraryBodyAsyncSiblingCandidateResolver(
                     asyncSource,
                     lookup.SynchronousAttributes,
                     prepared.Reader,
-                    prepared.DeclaringType)
-                || _dispatchAnalyzer
+                    prepared.DeclaringType))
+            {
+                continue;
+            }
+
+            int failuresBefore =
+                LibraryBodyAsyncSiblingDispatchAnalyzer
+                    .FailedResolutionCount;
+            if (_dispatchAnalyzer
                     .IsPotentialVirtualSelfDispatch(
                         prepared.Reader,
                         prepared.DeclaringType,
@@ -183,6 +205,11 @@ internal sealed class LibraryBodyAsyncSiblingCandidateResolver(
                         prepared.Reference,
                         asyncSource))
             {
+                if (LibraryBodyAsyncSiblingDispatchAnalyzer
+                        .FailedResolutionCount != failuresBefore)
+                {
+                    skippedOnUnresolved = true;
+                }
                 continue;
             }
 
