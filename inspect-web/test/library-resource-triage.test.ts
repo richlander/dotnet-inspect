@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { renderLibraryResourceTriageSurface } from "../src/library-resource-triage.ts";
+import { renderLibraryResourceTriageSurface, renderMemberResourceTriage } from "../src/library-resource-triage.ts";
 import type { BrowserResourceTriage, BrowserResourceTriageCandidate } from "../src/facades/inspect-web-analysis.d.ts";
 
 const escapeHtml = (value: unknown) => String(value).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
@@ -18,12 +18,15 @@ const result = (overrides: Partial<BrowserResourceTriage> = {}): BrowserResource
   outcome: "available", candidates: [candidate], limitations: [], inspectionError: null, share: null, diagnostics: [], ...overrides,
 });
 
-test("Resource Triage retains candidate identity and IL evidence with member navigation", () => {
+test("Resource Triage shows a member title and issue chips without library IL evidence", () => {
   const html = renderLibraryResourceTriageSurface({ ...options, data: result() });
   assert.match(html, /data-analysis-mode="resource-triage" aria-selected="true"/);
   assert.match(html, /data-perf-selector="Read~abc"/);
   assert.match(html, /data-perf-assembly="Fixture.dll"/);
-  for (const text of ["IL_0007", "IL_0012", "External-input boundary", "medium confidence", "finally"]) assert.ok(html.includes(text));
+  for (const text of ["Fixture.Read", "perf-shape", "Pool churn on exception", "External-input boundary"]) assert.ok(html.includes(text));
+  assert.doesNotMatch(html, /IL_0007|IL_0012|library-analysis-note|triage-boundaries/);
+  const detail = renderMemberResourceTriage([candidate], escapeHtml);
+  for (const text of ["IL_0007", "IL_0012", "System.IO.Stream.Read", "medium confidence", "finally"]) assert.ok(detail.includes(text));
 });
 
 test("incomplete results retain candidates with a concise warning", () => {
@@ -43,7 +46,7 @@ test("an incomplete empty census does not claim absence", () => {
 test("non-public candidates retain evidence without fabricated navigation", () => {
   const html = renderLibraryResourceTriageSurface({ ...options, data: result({ candidates: [{ ...candidate, typeId: null, stableSelector: null }] }) });
   assert.doesNotMatch(html, /data-triage-code|<details/);
-  assert.match(html, /IL_0007/);
+  assert.match(html, /Fixture.Read/);
   assert.doesNotMatch(html, /data-perf-selector=/);
 });
 

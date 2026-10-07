@@ -10,11 +10,7 @@ export interface TriageCodeTarget {
 }
 
 export function triageMemberLabel(typeId: string, memberName: string): string {
-  const generic = typeId.indexOf("<");
-  const head = generic < 0 ? typeId : typeId.slice(0, generic);
-  const tail = generic < 0 ? "" : typeId.slice(generic);
-  const short = head.slice(head.lastIndexOf(".") + 1).replaceAll("+", ".") + tail;
-  return short ? `${short}.${memberName}` : memberName;
+  return typeId ? `${typeId}.${memberName}` : memberName;
 }
 
 export function renderTriageCode(target: TriageCodeTarget, escape: (value: string) => string): string {

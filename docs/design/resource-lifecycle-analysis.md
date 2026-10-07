@@ -316,7 +316,14 @@ and an explicit non-projectable Share outcome until canonical Share projection
 is adopted. Browser transport preserves that Share and envelope diagnostics.
 
 The browser presents Performance Triage and Resource Triage as peer Analysis
-tabs, using compact rows and at most one automatically shown code line per row.
+tabs, using compact member-FQN rows with issue chips and at most one automatically
+shown code line per row. Resource Library rows omit introductory explanation;
+both triage lists omit IL offsets. Selecting a navigable row opens the exact overload's member Analysis
+view, reusing the existing member Facts inspection. Resource acquisition and
+boundary evidence is shown there only for matching current-library candidates.
+Member Analysis offers Explore through the existing Annotated Source viewer.
+Platform members use their existing Finding census and Annotated Source rather
+than invoking the package-only method-Facts operation. Unrelated member navigation does not inherit the selected row's evidence.
 Code lines consume existing Annotated Source through exact implementation
 method identity. Performance rows retain their public
 navigation anchors separately from owner-issued implementation body targets;

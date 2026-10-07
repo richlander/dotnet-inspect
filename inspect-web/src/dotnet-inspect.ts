@@ -367,7 +367,7 @@ import {
   restoreAnalysisTabFocus,
 } from "./analysis-inspector.ts";
 import { bindTriageCode, triageIssueLine } from "./triage-code.ts";
-import { renderLibraryResourceTriageSurface } from "./library-resource-triage.ts";
+import { renderLibraryResourceTriageSurface, renderMemberResourceTriage } from "./library-resource-triage.ts";
 import { renderLibraryAnalysisSurface } from "./library-analysis.ts";
 import {
   bindLibraryMetricsInteractions,
@@ -11974,7 +11974,15 @@ async function selectPerformanceMember(
     state.selectedMemberKey = group.key;
     state.selectedOverloadIndex = overloadIndex;
     render();
-    await loadSelectedMemberDocumentation();
+    const ranked = state.packagePerformanceKey === packageScopeSignature()
+      ? state.packagePerformance?.members.find(candidate => candidate.stableSelector === stableSelector
+          && candidate.typeId === (type.queryId ?? type.id) && candidate.assembly === type.assembly)
+      : null;
+    const body = ranked?.bodyTargets?.length === 1 ? ranked.bodyTargets[0] : null;
+    state.selectedBodyTarget = body ? { memberName: body.memberName, selectorKey: body.selectorKey, metadataToken: body.methodToken } : null;
+    state.memberSection = "facts";
+    render();
+    await loadSelectedMemberFactsSurface();
     return;
   }
   showToast("That ranked Member is no longer loaded in the selected Type.");
@@ -13063,7 +13071,14 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
         : `<section class="document-section empty-member-section"><h2>Call graph query failed</h2><p>${escapeHtml(callGraphError || "No call graph result was returned.")}</p></section>`;
     content = `<div data-call-graph-surface>${content}</div>`;
   } else if (state.memberSection === "facts") {
-    content = renderMemberFacts(state);
+    const overload = selectedMemberOverload(selectedType(), member);
+    const resourceCandidates = state.packageResourceTriageKey === packageScopeSignature()
+      ? (state.packageResourceTriage?.candidates ?? []).filter(candidate =>
+          candidate.assembly === selectedType()?.assembly
+          && candidate.typeId === (selectedType()?.queryId ?? selectedType()?.id)
+          && candidate.stableSelector === overload?.stableSelector)
+      : [];
+    content = renderMemberResourceTriage(resourceCandidates, escapeHtml) + renderMemberFacts(state, !currentPackage().isRuntimePack);
   } else if (state.memberSection === "source") {
     content = renderMemberSourceHtml();
   } else if (state.memberSection === "compare") {
@@ -13075,6 +13090,9 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
   const sourceOverloadIndex = state.selectedOverloadIndex ?? 0;
   const sourceOverloadCount =
     member.sourceOverloadCount ?? member.overloads.length;
+  const analysisExplore = state.memberSection === "facts"
+    ? `<div class="member-surface-actions" role="group" aria-label="Analysis actions"><button type="button" id="explore-source" data-annotated-action="explore"${state.memberAnnotated ? "" : " disabled"}>Explore</button></div>`
+    : "";
   const callGraphExplore = state.memberSection === "call-graph"
     ? `<div class="member-surface-actions" role="group" aria-label="Call graph actions">
         <button type="button" id="call-graph-explore" data-graph-explore${currentCallGraph() && !currentCallGraph()?.noBody ? "" : " disabled"}>Explore</button>
@@ -13088,7 +13106,7 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
         <h1 id="member-surface-title">${escapeHtml(member.name)}</h1>
         <div class="member-surface-meta">
           <p>${escapeHtml(member.kind)} <span>· ${sourceOverloadIndex + 1} of ${sourceOverloadCount}</span></p>
-          ${callGraphExplore}
+          ${callGraphExplore}${analysisExplore}
         </div>
       </header>
       <div class="member-surface-scroll">${content}</div>
@@ -24354,7 +24372,7 @@ async function loadSelectedMemberFacts() {
 
 async function loadSelectedMemberFactsSurface() {
   await Promise.all([
-    loadSelectedMemberFacts(),
+    currentPackage().isRuntimePack ? Promise.resolve() : loadSelectedMemberFacts(),
     loadSelectedMemberAnnotatedSource(),
   ]);
 }

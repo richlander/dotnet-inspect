@@ -68,7 +68,7 @@ export function isLibraryLens(
 export const memberSectionDefinitions = [
   ["overview", "Overview"],
   ["call-graph", "Call graph"],
-  ["facts", "Facts"],
+  ["facts", "Analysis"],
   ["source", "Source"],
   ["compare", "Compare"],
 ] as const;
@@ -1703,7 +1703,7 @@ const allMemberSections: readonly MemberSection[] =
   memberSectionDefinitions.map(([id]) => id);
 
 const packageOnlyMemberSections: ReadonlySet<MemberSection> =
-  new Set<MemberSection>(["facts", "compare"]);
+  new Set<MemberSection>(["compare"]);
 
 export function memberSectionIdsFor(
   member: SectionableMember | null | undefined,

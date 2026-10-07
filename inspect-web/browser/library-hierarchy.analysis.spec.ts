@@ -324,7 +324,8 @@ test("production Analysis rows open the exact ranked member", async ({ page }) =
   await page.locator(".library-analysis-surface .perf-row").first().click();
   await expect(subjectTab(page, "member"))
     .toHaveAttribute("aria-selected", "true");
-  await expect(page.locator("#inspector-panel")).toContainText("Runs the widget.");
+  await expect(inspectorTab(page, "data-member-section", "facts")).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("button", { name: "Explore", exact: true })).toBeEnabled();
 
   await page.locator("[data-nav-member]").filter({ hasText: "Run" }).click();
   await expect(page.locator("#member-surface-title")).toHaveText("Run");
@@ -335,8 +336,7 @@ test("production Analysis rows open the exact ranked member", async ({ page }) =
   expect(await page.locator("html").getAttribute(
     "data-member-group-document-request",
   )).toBeNull();
-  await expect(page.locator("#inspector-panel")).toContainText(
-    "Runs the widget.");
+  await expect(inspectorTab(page, "data-member-section", "overview")).toHaveAttribute("aria-selected", "true");
 });
 
 test("ranked Analysis members replace sticky private Type population intent", async ({
@@ -365,9 +365,7 @@ test("ranked Analysis members replace sticky private Type population intent", as
     .toHaveAttribute("aria-selected", "true");
   await expect(page.locator("[data-member-access-filter]"))
     .toHaveValue("public");
-  await expect(page.locator("#inspector-panel")).toContainText(
-    "Runs the widget.",
-  );
+  await expect(page.locator("#inspector-panel")).toContainText("Analysis summary");
 });
 
 test("ranked Analysis activation does not outlive newer metadata spelling", async ({
@@ -547,7 +545,7 @@ test("different family navigation leaves exact Facts for the shared document", a
     page,
     "data-member-section",
     "facts",
-    "Facts",
+    "Analysis",
   );
 
   await page.locator("[data-nav-member]").filter({ hasText: "Stop" }).click();
@@ -1127,4 +1125,29 @@ test("triage rows have no collapsed code control and preserve Library Analysis",
   await expect(page.locator(".library-performance-surface [data-triage-code]")).toHaveCount(0);
   await expect(inspectorTab(page, "data-library-lens", "analysis"))
     .toHaveAttribute("aria-selected", "true");
+});
+
+
+test("Resource rows open member Analysis with detailed evidence and Explore", async ({ page }) => {
+  const stop = { ...run, name: "Stop", stableSelector: "Stop", graphSelectorKey: "Stop", signature: "void Stop()", documentationId: "M:Example.Widget.Stop" };
+  await installFacades(page, { ...surface, types: surface.types.map(type => type.definitionId === "Example.Widget" ? { ...type, members: 2, api: [run, stop] } : type) });
+  await openAnalysis(page);
+  await page.getByRole("tab", { name: "Resource Triage", exact: true }).click();
+  const list = page.locator(".library-resource-triage-surface");
+  await expect(list.locator(".perf-name")).toHaveText("Example.Widget.Run");
+  await expect(list.locator(".perf-shape").first()).toHaveText("Pool churn on exception");
+  await expect(list).not.toContainText("IL_");
+  await expect(list.locator(".library-analysis-note")).toHaveCount(0);
+  await list.locator(".perf-row").click();
+  await expect(inspectorTab(page, "data-member-section", "facts")).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator(".member-resource-triage")).toContainText("IL_0007");
+  await expect(page.locator(".member-resource-triage")).toContainText("System.IO.Stream.Read");
+  await page.getByRole("button", { name: "Explore", exact: true }).click();
+  await expect(page.locator("#annotated-modal-title")).toBeVisible();
+  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Explore", exact: true })).toBeFocused();
+  await page.locator("[data-nav-member]").filter({ hasText: "Stop" }).click();
+  await chooseInspector(page, "data-member-section", "facts", "Analysis");
+  await expect(page.locator("#member-surface-title")).toHaveText("Stop");
+  await expect(page.locator(".member-resource-triage")).toHaveCount(0);
 });

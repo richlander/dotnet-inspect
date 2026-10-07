@@ -380,7 +380,7 @@ test("member detail adapters preserve exact engine coordinates", () => {
     ?? "";
   const factsRenderer = readFileSync(
     new URL("../src/member-facts.ts", import.meta.url), "utf8");
-  assert.match(appSource, /content = renderMemberFacts\(state\)/);
+  assert.match(appSource, /renderMemberFacts\(state, !currentPackage\(\)\.isRuntimePack\)/);
 
   assert.match(
     coordinator,
@@ -417,10 +417,10 @@ test("member detail adapters preserve exact engine coordinates", () => {
     /const implementationBody = graphOnlyImplementationBody\(overload\);\s*const implementationMetadataToken = implementationBody\?\.token \?\? 0;\s*const implementationBodySelected = implementationMetadataToken !== 0;\s*return memberDetailInspection\.loadFacts\(\{\s*signature,\s*packageId: pkg\.id,\s*version: pkg\.version,\s*framework: pkg\.activeFramework,\s*assembly: type\.assembly,\s*type: type\.queryId \?\? type\.id,\s*typeIdentity: type\.definitionId \?\? type\.id,\s*member: implementationBody\?\.memberName\s*\?\? state\.selectedBodyTarget\?\.memberName\s*\?\? overload\.name,\s*memberSignature: overload\.signature,\s*selectorKey: implementationBody\?\.selectorKey\s*\?\? state\.selectedBodyTarget\?\.selectorKey\s*\?\? overload\.graphSelectorKey,\s*metadataToken: implementationMetadataToken,\s*implementationBodySelected,\s*isCurrent: \(\) => memberRequestIsCurrent\(signature, true\)/);
   assert.match(
     factsSurfaceLoader,
-    /Promise\.all\(\[\s*loadSelectedMemberFacts\(\),\s*loadSelectedMemberAnnotatedSource\(\),\s*\]\)/);
+    /Promise\.all\(\[\s*currentPackage\(\)\.isRuntimePack \? Promise\.resolve\(\) : loadSelectedMemberFacts\(\),\s*loadSelectedMemberAnnotatedSource\(\),\s*\]\)/);
   assert.equal(
     [...appSource.matchAll(/loadSelectedMemberFactsSurface\(\)/g)].length,
-    3);
+    4);
   assert.match(
     annotatedAction,
     /case "source-select":[\s\S]*?const next = selectAnnotatedNode\(session, node\.id\);\s*setSession\(next\);\s*syncFindingSelectionFromAnnotatedSession\(next\)/);
@@ -735,7 +735,7 @@ test("MethodDef-only member sections are hidden for bodiless APIs", () => {
     ["overview", "call-graph", "facts", "source", "compare"]);
   assert.deepEqual(
     memberSectionIdsFor({ kind: "method" }, true),
-    ["overview", "call-graph", "source"]);
+    ["overview", "call-graph", "facts", "source"]);
 });
 
 // Compare follows cross-Member navigation; exact method sections return to the
