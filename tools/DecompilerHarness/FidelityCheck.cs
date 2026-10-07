@@ -83,6 +83,15 @@ static partial class FidelityCheck
     /// The flag set is unchanged; the equality rule loosened, and corpus numbers move.
     /// </para>
     /// <para>
+    /// v5 (#9586) keys a compiler-generated display class (<c>&lt;&gt;c__DisplayClassN_K</c>)
+    /// by the owned lambdas it holds, so a display class renumbered by the reconstructed
+    /// skeleton folds when both sides hold the same named lambdas and the key is unique on
+    /// each side (dotnet-inspect.any 0.14.0 <c>GenericContext.ForType</c> and
+    /// <c>ForMethod</c>). It also makes the key's assembly-scope rule literally the operand
+    /// rule (module readers and comma-bearing reference names). The flag set is unchanged;
+    /// the equality rule loosened again, and corpus numbers move.
+    /// </para>
+    /// <para>
     /// The flag set is the trigger this version is <em>gated</em> on, but it is not the
     /// whole of what it protects: the equality rules also include how
     /// <c>IlBodyDiff</c> renders an operand, and a renderer change moves them without
@@ -103,7 +112,7 @@ static partial class FidelityCheck
     /// argument and must bump.
     /// </para>
     /// </remarks>
-    internal const int CurrentContractVersion = 4;
+    internal const int CurrentContractVersion = 5;
 
     internal const IlBodyDiffNormalization ContractBodyDiffNormalization =
         IlBodyDiffNormalization.NormalizeVariableLayout
