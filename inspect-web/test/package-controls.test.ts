@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   bindPackageSelections,
+  bindPackageVersionNavigation,
   createPackageControls,
   findOpenPackageForQuery,
   packageIdentityEquals,
@@ -28,6 +29,10 @@ function pkg(
 class FakeElement {
   readonly dataset: Record<string, string | undefined>;
   value = "";
+  checked = false;
+  hidden = false;
+  current = false;
+  getAttribute(name: string) { return name === "aria-current" && this.current ? "page" : null; }
   private readonly listeners = new Map<string, EventListener[]>();
 
   constructor(dataset: Record<string, string | undefined> = {}) {
@@ -222,4 +227,30 @@ test("an explicit package version activates only a matching open coordinate", ()
     },
     parsePackageQuery("Microsoft.NETCore.App@10.0.0")!,
   ), null);
+});
+
+test("version inclusion controls independently admit prerelease and unlisted, preserving the active coordinate", () => {
+  const root = new FakeRoot();
+  const prerelease = root.add("#package-version-prerelease", new FakeElement());
+  const unlisted = root.add("#package-version-unlisted", new FakeElement());
+  const versions = [
+    new FakeElement({ packageVersion: "10.0.0" }),
+    new FakeElement({ packageVersion: "10.0.0-preview.1.25080.5" }),
+    new FakeElement({ packageVersion: "1.0.0", packageUnlisted: "true" }),
+    new FakeElement({ packageVersion: "1.1.0-preview.1", packageUnlisted: "true" }),
+    new FakeElement({ packageVersion: "2.0.0-preview.1", packageUnlisted: "true" }),
+  ];
+  const active = versions.at(-1);
+  assert.ok(active);
+  active.current = true;
+  root.addAll("[data-package-version]", ...versions);
+  bindPackageVersionNavigation(fakeDom.parentNode(root), { selectVersion() {} });
+  const visible = () => versions.map(row => !row.hidden);
+  assert.deepEqual(visible(), [true, false, false, false, true]);
+  prerelease.checked = true; prerelease.dispatch("change");
+  assert.deepEqual(visible(), [true, true, false, false, true]);
+  unlisted.checked = true; unlisted.dispatch("change");
+  assert.deepEqual(visible(), [true, true, true, true, true]);
+  prerelease.checked = false; prerelease.dispatch("change");
+  assert.deepEqual(visible(), [true, false, true, false, true]);
 });

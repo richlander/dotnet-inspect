@@ -17,6 +17,7 @@ using DotnetInspector.Services;
 using DotnetInspector.SourceHouse;
 using ILInspector.Metadata;
 using NuGetFetch;
+using ZipFetch;
 
 namespace DotnetInspect.Web;
 
@@ -243,6 +244,13 @@ internal static class BrowserPackageWorkspace
         MaxEntryCount = 4_096,
         MaxUniqueDirectories = 16_384,
     };
+    static readonly ZipReadLimits PackageIconReadLimits = new(
+        maxArchiveBytes: MaxCachedPackageBytes,
+        maxEntryCount: PayloadLimits.MaxEntryCount,
+        maxDirectoryBytes: 4L * 1024 * 1024,
+        maxExpandedBytes: PackageIconQuery.MaxIconBytes,
+        entryReadSlack: 4 * 1024);
+
     static readonly PackagePayloadLimits FilePayloadLimits =
         PayloadLimits with
         {
@@ -1148,6 +1156,34 @@ internal static class BrowserPackageWorkspace
             ? remaining - margin
             : remaining;
     }
+
+    internal static Task<PackageIconRangeResult> ReadPackageIconAsync(
+        string packageId,
+        string version,
+        CancellationToken cancellationToken = default) =>
+        ReadPackageIconAsync(
+            packageId,
+            version,
+            Gallery,
+            PackageOperationTimeout,
+            cancellationToken);
+
+    internal static Task<PackageIconRangeResult> ReadPackageIconAsync(
+        string packageId,
+        string version,
+        IPackageSourceClient source,
+        TimeSpan timeout,
+        CancellationToken cancellationToken = default) =>
+        RunPackageOperationAsync(
+            deadline => PackageIconRangeQuery.ExecuteAsync(
+                source as IPackageArchiveRangeSource
+                    ?? throw new InvalidOperationException(
+                        "The Browser package source does not support archive ranges."),
+                PackageSourceCoordinate.Create(packageId, version),
+                PackageIconReadLimits,
+                deadline.Token),
+            timeout,
+            cancellationToken);
 
     /// <summary>
     /// Creates one NuGet Gallery source client and registers its association
