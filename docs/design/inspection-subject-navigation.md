@@ -532,7 +532,8 @@ Inspection Subject Navigation owns:
 - separation of exact subject identity from the route used to reach it;
 - subject applicability, availability, and failure classification;
 - initial subject recommendation and subject-scoped lens recommendation;
-- Package aggregate recommendation plus exact- and namesake-Library narrowing;
+- Package aggregate recommendation plus exact-, namesake-, and First Library
+  narrowing;
 - Workspace, Ecosystem, Package, Library, Type, Member, and lens navigation
   descriptors;
 - exact subject and lens activation outcomes;
@@ -1210,8 +1211,9 @@ Explicit subject requests take precedence over this recommendation:
 
 **Library order** sorts the admitted Libraries of one selected projection by
 owner-issued assembly simple name, comparing ordinally and ignoring case. Ties
-are broken by an ordinal case-sensitive name comparison, then by the exact
-asset path. It depends on no culture, display label, or arrival order. First
+are broken by an ordinal case-sensitive name comparison, then by an ordinal
+comparison of the exact asset path. It depends on no culture, display label, or
+arrival order. First
 Library is its only consumer here; candidate lists in other outcomes keep their
 existing order.
 
@@ -1224,9 +1226,11 @@ namesake from an asset path, file stem, display label, or package-relative
 text.
 
 First Library remains **unverified** until
-`FirstLibraryRequest_PrefersFirstNamesakeInLibraryOrder`,
+`FirstLibraryRequest_PrefersFirstNamesakeInLibraryOrder`, whose fixture holds
+several namesakes that differ only in tie-break order,
 `FirstLibraryRequest_WithoutNamesakeSelectsFirstInLibraryOrder`,
-`FirstLibraryRequest_UnresolvedIdentityFailsClosed`, and
+`FirstLibraryRequest_UnresolvedIdentityFailsClosed`,
+`FirstLibraryRequest_EmptyPopulationIsUnavailable`, and
 `FirstLibraryRequest_ChosenLibraryNonSuccessDoesNotFallback` gate it, under
 [#9683](https://github.com/richlander/dotnet-inspect/issues/9683).
 
@@ -1498,10 +1502,15 @@ Library subject remains active and selectable for a supported lens.
 A host may expose a compound subject-and-lens gesture when the user moves from
 `All libraries` to a single-library-only inspector. That gesture submits the
 [First Library](#initial-aggregate-and-package) request, then activates the
-requested inspector. Inspect Web currently implements the same preference
-host-locally in `preferredLibrarySubjectId`, using a culture-sensitive
-alphabetical order. Its adoption under #9683 replaces that copy with the
-shared result.
+requested inspector. When First Library does not apply, the gesture shows its
+typed result and leaves the current subject active; it does not activate the
+inspector. Inspect Web currently implements a host-local approximation in
+`preferredLibrarySubjectId`. It matches and sorts selector-issued file stems
+with a culture-sensitive collation and checks no assembly identity. Adoption
+under #9683 replaces it with the shared result. That changes the name basis to
+owner-issued assembly simple names, changes the collation to ordinal, and adds
+failure on unresolved identity, so the gesture can choose a different Library
+than it does today.
 The transition runs only for user inspector navigation. Restoration,
 rerendering, and asynchronous settlement do not repeat it. A later explicit
 `All libraries` gesture remains active and receives the unsupported-arity
@@ -2482,6 +2491,7 @@ The eventual subject-navigation implementation must include named gates for:
 - `FirstLibraryRequest_PrefersFirstNamesakeInLibraryOrder`
 - `FirstLibraryRequest_WithoutNamesakeSelectsFirstInLibraryOrder`
 - `FirstLibraryRequest_UnresolvedIdentityFailsClosed`
+- `FirstLibraryRequest_EmptyPopulationIsUnavailable`
 - `FirstLibraryRequest_ChosenLibraryNonSuccessDoesNotFallback`
 - `AggregateRecommendation_UsesOneSelectedFrameworkProjection`
 - `SeparateFrameworkSelections_NeverMergeAggregateIdentity`

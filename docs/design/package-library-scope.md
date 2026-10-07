@@ -214,8 +214,8 @@ keeps the legacy `DefaultAsset` convenience outside its aggregate projection
 claim.
 
 [Inspection Subject Navigation](inspection-subject-navigation.md) owns the
-target aggregate-first Package subject and exact or namesake narrowing for
-structural inspection. Its recommendation behavior is a consumer of this
+target aggregate-first Package subject and exact, namesake, or First Library
+narrowing for structural inspection. Its recommendation behavior is a consumer of this
 policy, not its authority.
 
 [Package Query assembly evaluation](package-query-assembly-evaluation.md)
