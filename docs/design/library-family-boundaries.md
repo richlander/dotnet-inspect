@@ -219,12 +219,13 @@ not IL semantics:
    with type, member, and IL-offset source evidence.
 4. Target `SourceFetch` retrieves source bytes over authorized network
    transports without owning SourceLink or PDB semantics.
-5. `PdbSourceHouse` currently composes local, repository, and remote candidate
-   ordering, invokes the source fetcher, verifies PDB checksums, decodes
-   source, and settles visible PDB-source outcomes.
-6. `AssemblyContextSourceQuery` currently composes verified PDB source with the
+5. `VerifiedSourceTextFetch` composes one remote source fetch with the
+   owner-issued PDB checksum and decoded-text result.
+6. `PdbSourceHouse` currently composes local, repository, and remote candidate
+   ordering and settles visible PDB-source outcomes.
+7. `AssemblyContextSourceQuery` currently composes verified PDB source with the
    distinct decompiler fallback.
-7. The target [SourceHouse](source-house.md) transfers those product
+8. The target [SourceHouse](source-house.md) transfers those product
    composition responsibilities into one `DotnetInspector` owner that invokes
    `SourceLinkService`, `CSharpDecompilerService`, and authorized transport
    capabilities without moving network policy into `ILInspector.SourceLink`.

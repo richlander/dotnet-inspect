@@ -714,6 +714,24 @@ public static class ApiOutputFormatter
             TypeParameterRows = typeParameterRows,
             InterfaceRows = interfaceRows,
             BaseclassRows = baseclassRows,
+            ImplementerRows =
+                (options as TypeOptions)?.TypeHierarchyRelations
+                    ?.Implementers?.Candidates
+                    .Select(static candidate =>
+                        new TypeHierarchyRelationRow(
+                            candidate.Type,
+                            candidate.Library,
+                            candidate.Source))
+                    .ToList(),
+            DerivedTypeRows =
+                (options as TypeOptions)?.TypeHierarchyRelations
+                    ?.DerivedTypes?.Candidates
+                    .Select(static candidate =>
+                        new TypeHierarchyRelationRow(
+                            candidate.Type,
+                            candidate.Library,
+                            candidate.Source))
+                    .ToList(),
             TypeInfo = memberDetail ? null : new TypeInfoSection
             {
                 Type = FormatGenericFullName(type),

@@ -171,6 +171,13 @@ as the
 step does today, including its fallback to the complete fetch when the
 ranged read fails. Otherwise, including when no length is advertised, the
 complete acquisition proceeds and publishes to the authority's store.
+Desktop package payload transports set `MaxResponseDrainSize` to zero.
+Disposing an unread response closes its connection without draining its body;
+fully consumed responses remain eligible for connection reuse. Abandonment
+is ordinary disposal and does not read or depend on buffering timing.
+Browser/Wasm uses the browser fetch transport, which has no configurable
+HTTP response-drain policy; disposal follows browser cancellation behavior.
+The desktop no-drain guarantee is not claimed for that host.
 
 The size cut is 1 MB of archive and applies to every package, platform
 packs included. An archive at or under it costs one request the first time

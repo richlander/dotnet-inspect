@@ -22,11 +22,11 @@ Type:
 - **surface leverage** is the Research signature-evidence pole; and
 - **implementation leverage** is the Research body-use-evidence pole.
 
-A Type shows zero, one, or two pole glyphs. When both evidence modes issue a
-pole, Inspect Web shows both. This includes two poles in the same direction and
-opposing poles. Agreement is not collapsed into one stronger cue, and
-disagreement is not suppressed or demoted. The two results answer different
-questions and their co-occurrence is itself useful evidence.
+A Type reserves exactly two ordered icon slots: API differences first,
+structural salience second. Structural salience uses the implementation pole
+when one is issued, otherwise the surface pole. The tooltip and accessible
+label preserve both evidence modes, including agreement and disagreement,
+without duplicating the visible icon.
 
 The Browser never derives a pole, degree, role, cohort, or eligibility decision.
 It joins owner-issued results to visible Types by exact Type-definition
@@ -160,6 +160,14 @@ The facade may normalize the signature and body row shapes into common incoming
 and outgoing degree fields only because the evidence mode remains attached to
 the enclosing channel. It does not compare or combine those values.
 
+Schema version 3 adds `bodiesRejectedOwnership` to body coverage, counting
+Analysis-issued `RejectedLogicalOwner` diagnostics. It is a subset of
+physical-only coverage, not a new body population. Expected physical-only
+coverage is silent only when this count and all unavailable/limited counts
+are zero. Rejected attribution remains useful qualification information.
+Settled qualification does not offer Retry; acquisition failures retain their
+recovery action.
+
 The Browser validates the schema, methodology, evidence mode, namespace
 coverage, exact shard order, pole-order identities, and duplicate Type
 identities before publication. Malformed transport fails visibly rather than
@@ -188,21 +196,21 @@ its settled cache entry to remain associated with its own key.
 
 ## Presentation
 
-Leverage is an automatic icon-only Type-row affordance:
+Leverage is an automatic icon-only Type-row affordance. One wave means sea
+level and one mountain means mountain peak; both evidence modes use the same
+shape. Color continues to distinguish the two poles. The tooltip and accessible
+label name every issued mode and pole.
 
-- an outline wave or mountain glyph means a surface pole;
-- a filled wave or mountain glyph means an implementation pole; and
-- color continues to distinguish sea level from mountain peak.
+The API-difference slot stays first and the structural-salience slot stays
+second even when either is empty. The namespace top-leverage cue belongs to
+namespace headings, while method Top Leverage and Implementation Hub belong
+to Member rows rather than consuming Type slots.
 
-Shape/fill distinguishes evidence mode without relying on color. The accessible
-label and tooltip name both mode and pole, for example `surface sea level` or
-`implementation mountain peak`.
-
-When both channels issue a pole, the surface glyph precedes the implementation
-glyph. An API-difference glyph, when present, follows them. This fills the
-existing three-slot Type achievement rail without overflow. Same-direction
-poles use distinct achievement kinds, so the rail retains both rather than
-rejecting them as duplicates.
+Markout 0.38.0, net10.0, with `Markout.MarkoutField` selected in Type Compare
+on dotnet-inspect.ca motivates this presentation: aligned surface and body poles
+looked like duplicate icons, and outline/filled variants obscured the intended
+two-slot inventory. Deterministic browser cases retain aligned and opposing
+poles and assert one salience icon with both facts in its accessible description.
 
 Pole cues add no row tint, badge, section, summary count, control, or filter.
 The existing namespace top-leverage glyph remains a surface namespace cue.
@@ -213,6 +221,24 @@ so diagnostics never reduce the Type inventory's space. An unavailable
 implementation channel leaves surface cues visible and names the body
 unavailability. Retry remains a failure-status action, not a salience control.
 
+Qualification messages identify the affected evidence mode. Implementation
+qualification does not change the surface presentation's disposition or
+diagnostics. Expected physical-only body coverage produces no data-bar
+feedback or Retry action. The presentation retains deduplicated implementation
+diagnostics separately from actionable warnings; unavailable or limited body,
+operand, or signature evidence does not become routine coverage.
+
+Markout 0.38.0 (`net10.0`), opened at `Markout.BlockWriter`, motivates this
+boundary: compiler-generated physical-only bodies produce an implementation
+qualification while signature-based surface cues remain usable. A focused
+TypeScript regression retains the surface disposition and cues, keeps the
+implementation diagnostics, and emits no feedback for routine body coverage.
+Running `AnalysisLibraryBodyUseService.ExecutePath` on the package's
+`lib/net10.0/Markout.dll` records 1,540 considered bodies, 820 logical-owner
+bodies, 720 physical-only bodies, and 9,139 examined typed operands, with zero
+unavailable or limited bodies or operands. This is a fidelity qualification,
+not a body-decoding failure.
+
 ## Validation
 
 The contract is gated at four boundaries:
@@ -222,12 +248,14 @@ The contract is gated at four boundaries:
   the surface document.
 - Analysis-facade boundary tests prove package and platform wire projection,
   reference-only surface success, implementation unavailability, qualification,
-  and exact generic/nested Type identity.
+  and exact generic/nested Type identity. The
+  `StructuralSalience_SeparatesRoutineAndRejectedOwnership` package test proves
+  both typed ownership outcomes survive the production facade.
 - TypeScript unit tests prove independent channel validation, same-direction
   and opposing dual poles, cache replacement, retry, and stale-publication
   suppression.
-- Browser tests prove automatic post-paint acquisition, outline/filled icon
-  presentation, accessible mode-plus-pole labels, two leverage glyphs plus an
+- Browser tests prove automatic post-paint acquisition, single-icon
+  presentation, accessible mode-plus-pole labels, one leverage glyph plus an
   API-difference glyph, qualified/failure status, and the absence of salience
   controls or filters.
 

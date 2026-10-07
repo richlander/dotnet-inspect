@@ -824,7 +824,10 @@ subject-specific identity details and content
 Package Overview starts directly with its identity and content rather than
 reserving a quiet `Overview` header row. The Package navigation pane lists target frameworks first, then
 versions in owner-issued release order, with the active version selected,
-text filtering, and a prerelease toggle. The list headings identify the pane
+text filtering, and an `Include:` group with independent Prerelease and Unlisted
+checkboxes, both unchecked initially. Listing flags come from the existing
+owner-issued version inventory; the host does not infer them from version text.
+Async inventory refresh preserves both checkbox selections. The list headings identify the pane
 without an additional Package Navigation row.
 The active coordinate remains visible regardless of filters. Loading and
 failed inventory states retain that coordinate; failure offers explicit retry.
@@ -873,6 +876,12 @@ the package icon or name, and owns that work area; Library,
 Type, and Member **Change target** actions return there. Choosing settings
 continues to configure the existing session-local comparison state.
 
+`System.Text.Json@1.0.0` (unlisted) and
+`System.Text.Json@10.0.0-preview.1.25080.5` (listed prerelease), observed through
+nuget.org Registration, motivate independent inclusion controls. Focused gates
+cover their listing projection and both independent checkbox combinations;
+remote observations remain reproducible through Registration rather than a
+mutable live assertion.
 `System.Text.Json@10.0.0` motivates the version inventory, net10.0/net9.0
 framework choices, Library inventory, and README placement. The existing
 `library-hierarchy.package-loading.spec.ts` production-composition gate exercises
@@ -986,6 +995,16 @@ references, and partial workspace warning. Selecting another manifest group
 patches its list and graph in place without changing the surface frame or
 resetting the package coordinate.
 
+Each direct NuGet dependency row begins with the package's embedded icon when
+the exact dependency version can be resolved and the icon is admitted by
+[Package icon range inspection](package-icon-range-inspection.md). Icon reads
+are range-only and asynchronous: row navigation becomes available after the
+existing package-coordinate match, without waiting for its icon. Missing,
+unavailable, refused, or failed icon reads use the existing NuGet default
+package icon and do not trigger a complete package download. A late icon result
+cannot update another Package, target framework, dependency group, or
+replacement row.
+
 The inline graph is a bounded structural preview so the selected group's direct
 NuGet dependency rows enter the initial result viewport. At wide inspector
 widths its viewport is capped at 360px and yields vertical space as the browser
@@ -1062,6 +1081,15 @@ by the Library query. It performs no additional acquisition or transitive
 inference. The preview is capped at 80 total nodes; when a Library exceeds that
 bound, the graph reports its shown count and the complete list remains
 authoritative immediately below it.
+
+An AssemblyRef name is a typed Library destination only when its
+case-insensitive assembly name and version, case-insensitive culture with null,
+empty, and `neutral` treated as equivalent, and normalized public-key token
+uniquely match one Library admitted to the active Workspace. The destination
+carries both the exact package identity and Library identifier; selecting it
+switches to that package and opens the Library Overview. An absent or ambiguous
+match remains static, and References never guesses a package from an assembly
+display name.
 
 The graph and list use the available width. The quiet header remains in place
 while the content scrolls; References has no bottom context row. This follows
@@ -1485,6 +1513,19 @@ its selected row into view. Activating an inventory row moves focus to the
 return button in the resulting narrow detail pane. A filter-focus command first
 switches to inventory, then opens and focuses the applicable filter.
 
+Selecting a row or receiving background inspection results preserves the
+navigation inventory's scroll position while its scope remains the same.
+Changing scope starts a new viewport; explicit keyboard navigation and restored
+Member reveals may still bring the selected row into view.
+
+The motivating real asset is Markout 0.38.0, net10.0, with
+`Markout.MarkoutField` selected in Type Compare on dotnet-inspect.ca. Selecting
+Types in its long inventory reset the list to the top because rendering
+replaced the scroll container. The deterministic browser navigation test
+`Type selection preserves a long inventory viewport across renders` exercises
+the production render path with an expanded inventory; the package coordinate
+and selected Type retain the reproducible real-world observation.
+
 When crossing into the narrow layout, focus inside Type or Member navigation
 keeps inventory visible; focus inside detail keeps detail visible. Otherwise
 the retained presentation-local pane remains visible. Widening reveals both
@@ -1505,11 +1546,17 @@ transient inspection feedback, the active inspector's result summary, and
 default product information, in that order of precedence. Its grid row remains
 allocated in every state; long messages scroll horizontally without wrapping or expansion.
 
-Optional enrichment failures and qualifications must not consume inventory or
-inspector space or obstruct the core inspection journey. Structural salience
-is the first consumer: its diagnostic and existing Retry action replace the
-data bar's default content, while Type rows and owner-issued cues remain
-available. Feedback clears on subject or inspector traversal, including back
+The data bar has two feedback purposes: useful information for the user and
+genuine assertion-style errors that a dotnet-inspect maintainer should fix.
+Routine implementation details are neither. Expected compiler-generated
+physical-only ownership coverage stays in retained diagnostic evidence; it
+does not replace the bar's content or offer Retry.
+
+Optional enrichment feedback must not consume inventory or inspector space or
+obstruct the core inspection journey. Structural salience is the first
+consumer: actionable feedback replaces the data bar's default content, while
+Type rows and owner-issued cues remain available. Feedback clears on subject
+or inspector traversal, including back
 and forward navigation. Rerendering the same view retains feedback; a late
 result started in a preceding view cannot restore cleared feedback. Clearing
 presentation does not clear retained evidence or automatically retry work.
@@ -1543,7 +1590,8 @@ The motivating asset is
 [System.Text.Json 7.0.0](https://www.nuget.org/packages/System.Text.Json/7.0.0),
 `net7.0`, entered through a shared workspace at
 `System.Text.Json.JsonCommentHandling`. Its physical-only body qualification
-was printed above Type rows and reduced the inventory's available space.
+was printed above Type rows and reduced the inventory's available space;
+that routine coverage now produces no transient feedback.
 Data-bar rendering and lifecycle tests plus Browser journeys at desktop and
 narrow widths gate feedback precedence, invariant geometry, traversal clearing,
 stale-result suppression, and Retry. The published real-package journey is

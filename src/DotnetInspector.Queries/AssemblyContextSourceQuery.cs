@@ -54,7 +54,8 @@ public sealed class AssemblyContextSourceQueryContext
     public IReadOnlyList<string>? RepositoryPaths { get; init; }
     public NuGetSourceOptions? NuGetSourceOptions { get; init; }
     public IPortablePdbSettlementCapability?
-        PortablePdbSettlementCapability { get; init; }
+        PortablePdbSettlementCapability
+    { get; init; }
     /// <summary>Optional PDB acquisition fallback; authoritative package/Platform provenance takes precedence.</summary>
     public PackageCoordinate? PdbFallbackPackage { get; init; }
     public bool CacheOnly { get; init; }
@@ -64,7 +65,8 @@ public sealed class AssemblyContextSourceQueryContext
 
     /// <summary>Independent finite bounds for shared member decompilation.</summary>
     public SourceHouseDecompilationLimits
-        MemberDecompilationLimits { get; init; } =
+        MemberDecompilationLimits
+    { get; init; } =
             DefaultDecompilationLimits();
 
     /// <summary>Authored settlement bounds for member Source and same-member comparison.</summary>
@@ -81,7 +83,8 @@ public sealed class AssemblyContextSourceQueryContext
 
     /// <summary>Independent finite bounds for shared type decompilation.</summary>
     public SourceHouseDecompilationLimits
-        TypeDecompilationLimits { get; init; } =
+        TypeDecompilationLimits
+    { get; init; } =
             DefaultDecompilationLimits();
 
     /// <summary>Authored settlement bounds for the selected-member pair query only.</summary>
@@ -362,10 +365,12 @@ public sealed record TypeSourceLatencyHedgeEvidence(
 {
     /// <summary>Terminal from the independent authored Library admission.</summary>
     public AssemblyContextLibraryAdapterResult.Terminal?
-        AuthoredLibraryFailure { get; init; }
+        AuthoredLibraryFailure
+    { get; init; }
     /// <summary>Terminal from the independent decompilation Library admission.</summary>
     public AssemblyContextLibraryAdapterResult.Terminal?
-        DecompilationLibraryFailure { get; init; }
+        DecompilationLibraryFailure
+    { get; init; }
 }
 
 public enum TypeSourcePortablePdbDisposition
@@ -476,8 +481,12 @@ public abstract record AssemblyMemberSourceEntry(
     AssemblyMemberSourceRequest Request)
 {
     public SourceHouseOutcome? HouseOutcome { get; init; }
+    public SourceHouseBestAvailableOutcome?
+        BestAvailableHouseOutcome
+    { get; init; }
     public SourceHouseDecompilationOutcome?
-        DecompilationHouseOutcome { get; init; }
+        DecompilationHouseOutcome
+    { get; init; }
     public AssemblyContextLibraryAdapterResult.Terminal? LibraryFailure { get; init; }
 
     public sealed record Available(
@@ -578,8 +587,12 @@ public abstract record AssemblyTypeSourceEntry(
     AssemblyTypeSourceRequest Request)
 {
     public SourceHouseOutcome? HouseOutcome { get; init; }
+    public SourceHouseBestAvailableOutcome?
+        BestAvailableHouseOutcome
+    { get; init; }
     public SourceHouseDecompilationOutcome?
-        DecompilationHouseOutcome { get; init; }
+        DecompilationHouseOutcome
+    { get; init; }
     public AssemblyContextLibraryAdapterResult.Terminal? LibraryFailure { get; init; }
     /// <summary>Present only for the opt-in latency-hedged operation.</summary>
     public TypeSourceLatencyHedgeEvidence? LatencyHedgeEvidence { get; init; }
@@ -1032,6 +1045,121 @@ public static partial class AssemblyContextSourceQuery
         AssemblyBindingPolicyVersion bindingPolicyVersion,
         CancellationToken cancellationToken)
     {
+        if (request.AllowDecompiledFallback)
+        {
+            MemberBestAvailableInspection bestAvailable =
+                await InspectMemberBestAvailableAsync(
+                        group,
+                        participant,
+                        request,
+                        context,
+                        retained,
+                        bindingPolicyVersion,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+            SourceHouseBestAvailableOutcome? bestOutcome =
+                bestAvailable.HouseOutcome;
+            SourceHouseDecompilationOutcome? decompilationOutcome =
+                bestOutcome?.DecompilationOutcome;
+            CSharpDecompilationAttempt? decompiled =
+                decompilationOutcome is null
+                    ? null
+                    : DecompilationAttempt(
+                        decompilationOutcome);
+            if (bestOutcome
+                    is SourceHouseBestAvailableOutcome
+                        .Available
+                {
+                    Selected:
+                            SourceHouseSelectedSource.Authored,
+                }
+                && bestAvailable.Authored.IsComplete
+                && bestAvailable.Authored.Text
+                    is { } authoredText
+                && bestAvailable.Provenance
+                    is { } bestProvenance)
+            {
+                return new AssemblyMemberSourceEntry.Available(
+                    subject,
+                    request,
+                    new AssemblyMemberSource.Pdb(
+                        authoredText,
+                        bestAvailable.Authored,
+                        bestProvenance)
+                    {
+                        MemberDocument =
+                            (bestOutcome.AuthoredOutcome
+                                as SourceHouseOutcome
+                                    .Available)
+                            ?.Source.MemberDocument,
+                    })
+                {
+                    HouseOutcome =
+                        bestOutcome.AuthoredOutcome,
+                    BestAvailableHouseOutcome =
+                        bestOutcome,
+                    LibraryFailure =
+                        bestAvailable.LibraryFailure,
+                };
+            }
+
+            if (bestOutcome
+                    is SourceHouseBestAvailableOutcome
+                        .Available
+                {
+                    Selected:
+                            SourceHouseSelectedSource
+                                .Decompiled,
+                }
+                && decompiled is
+                {
+                    IsAvailable: true,
+                    Text: { } decompiledText,
+                })
+            {
+                return new AssemblyMemberSourceEntry.Available(
+                    subject,
+                    request,
+                    new AssemblyMemberSource.Decompiled(
+                        decompiledText,
+                        decompiled,
+                        bestAvailable.Authored))
+                {
+                    HouseOutcome =
+                        bestOutcome.AuthoredOutcome,
+                    BestAvailableHouseOutcome =
+                        bestOutcome,
+                    DecompilationHouseOutcome =
+                        decompilationOutcome,
+                    LibraryFailure =
+                        bestAvailable.LibraryFailure,
+                };
+            }
+
+            AssemblySourceFailure bestFailure =
+                bestAvailable.LibraryFailure
+                    is { } libraryFailure
+                    ? LibraryAdmissionUnavailable(
+                        libraryFailure)
+                    : BothUnavailable();
+            return new AssemblyMemberSourceEntry.Unavailable(
+                subject,
+                request,
+                bestFailure,
+                bestAvailable.Authored,
+                decompiled)
+            {
+                HouseOutcome =
+                    bestOutcome?.AuthoredOutcome,
+                BestAvailableHouseOutcome =
+                    bestOutcome,
+                DecompilationHouseOutcome =
+                    decompilationOutcome,
+                LibraryFailure =
+                    bestAvailable.LibraryFailure,
+            };
+        }
+
         MemberPdbInspection pdb =
             await InspectMemberPdbAsync(
                     group,
@@ -1043,129 +1171,52 @@ public static partial class AssemblyContextSourceQuery
                     context.MemberSourceLimits,
                     context.MemberSourceTimeout,
                     cancellationToken,
-                    retainLibrary: request.AllowDecompiledFallback,
+                    retainLibrary: false,
                     retainedOperationLimits:
                         context.MemberDecompilationLimits)
                 .ConfigureAwait(false);
-        Exception? primaryFailure = null;
-        try
+        if (pdb.Inspection.IsComplete
+            && pdb.Inspection.Text is { } pdbText
+            && pdb.Provenance is { } provenance)
         {
-            if (pdb.Inspection.IsComplete
-                && pdb.Inspection.Text is { } pdbText
-                && pdb.Provenance is { } provenance)
-            {
-                return new AssemblyMemberSourceEntry.Available(
-                    subject,
-                    request,
-                    new AssemblyMemberSource.Pdb(
-                        pdbText,
-                        pdb.Inspection,
-                        provenance)
-                    {
-                        MemberDocument = (pdb.HouseOutcome as SourceHouseOutcome.Available)
-                            ?.Source.MemberDocument,
-                    })
-                {
-                    HouseOutcome = pdb.HouseOutcome,
-                    LibraryFailure = pdb.LibraryFailure,
-                };
-            }
-
-            if (!request.AllowDecompiledFallback)
-            {
-                AssemblySourceFailure failure = request.IncludeAuthoredParts
-                    ? new(
-                        AssemblySourceFailureKind.AuthoredMemberPartsUnavailable,
-                        "The requested verified authored member parts are unavailable.")
-                    : new(
-                        AssemblySourceFailureKind.AuthoredMemberUnavailable,
-                        "The requested verified authored member source is unavailable.");
-                return new AssemblyMemberSourceEntry.Unavailable(
-                    subject,
-                    request,
-                    failure,
-                    pdb.Inspection)
-                {
-                    HouseOutcome = pdb.HouseOutcome,
-                    LibraryFailure = pdb.LibraryFailure,
-                };
-            }
-
-            if (pdb.LibraryFailure is { } libraryFailure)
-            {
-                return new AssemblyMemberSourceEntry.Unavailable(
-                    subject,
-                    request,
-                    LibraryAdmissionUnavailable(libraryFailure),
-                    pdb.Inspection)
-                {
-                    HouseOutcome = pdb.HouseOutcome,
-                    LibraryFailure = libraryFailure,
-                };
-            }
-
-            (CSharpDecompilationAttempt decompiled,
-                SourceHouseDecompilationOutcome houseOutcome) =
-                await DecompileAsync(
-                    participant,
-                    new SourceHouseTarget.MemberTarget(
-                        request.Type,
-                        request.Member,
-                        request.MetadataToken),
-                    request.PrinterOptions,
-                    pdb.RetainedLibrary
-                        ?? throw new InvalidOperationException(
-                            "Decompiler fallback requires one retained SourceHouse Library."),
-                    bindingPolicyVersion,
-                    context.MemberDecompilationLimits,
-                    context,
-                    "member-decompilation",
-                    cancellationToken)
-                    .ConfigureAwait(false);
-            if (decompiled.IsAvailable
-                && decompiled.Text is { } decompiledText)
-            {
-                return new AssemblyMemberSourceEntry.Available(
-                    subject,
-                    request,
-                    new AssemblyMemberSource.Decompiled(
-                        decompiledText,
-                        decompiled,
-                        pdb.Inspection))
-                {
-                    HouseOutcome = pdb.HouseOutcome,
-                    DecompilationHouseOutcome = houseOutcome,
-                    LibraryFailure = pdb.LibraryFailure,
-                };
-            }
-
-            return new AssemblyMemberSourceEntry.Unavailable(
+            return new AssemblyMemberSourceEntry.Available(
                 subject,
                 request,
-                BothUnavailable(),
-                pdb.Inspection,
-                decompiled)
+                new AssemblyMemberSource.Pdb(
+                    pdbText,
+                    pdb.Inspection,
+                    provenance)
+                {
+                    MemberDocument =
+                        (pdb.HouseOutcome
+                            as SourceHouseOutcome.Available)
+                        ?.Source.MemberDocument,
+                })
             {
                 HouseOutcome = pdb.HouseOutcome,
-                DecompilationHouseOutcome = houseOutcome,
                 LibraryFailure = pdb.LibraryFailure,
             };
         }
-        catch (Exception failure)
+
+        AssemblySourceFailure failure =
+            request.IncludeAuthoredParts
+                ? new(
+                    AssemblySourceFailureKind
+                        .AuthoredMemberPartsUnavailable,
+                    "The requested verified authored member parts are unavailable.")
+                : new(
+                    AssemblySourceFailureKind
+                        .AuthoredMemberUnavailable,
+                    "The requested verified authored member source is unavailable.");
+        return new AssemblyMemberSourceEntry.Unavailable(
+            subject,
+            request,
+            failure,
+            pdb.Inspection)
         {
-            primaryFailure = failure;
-            throw;
-        }
-        finally
-        {
-            if (pdb.RetainedLibrary is { } completed)
-            {
-                await RetireSourceHouseLibraryAsync(
-                        completed,
-                        primaryFailure)
-                    .ConfigureAwait(false);
-            }
-        }
+            HouseOutcome = pdb.HouseOutcome,
+            LibraryFailure = pdb.LibraryFailure,
+        };
     }
 
     internal static async Task<AssemblyMemberSourceComparisonEntry>
@@ -1437,6 +1488,124 @@ public static partial class AssemblyContextSourceQuery
         PortablePdbAcquisitionEvidenceCollector? pdbEvidence,
         CancellationToken cancellationToken)
     {
+        if (request.OriginalDocumentPath is null)
+        {
+            TypeBestAvailableInspection bestAvailable =
+                await InspectTypeBestAvailableAsync(
+                        group,
+                        participant,
+                        request,
+                        context,
+                        retained,
+                        bindingPolicyVersion,
+                        pdbEvidence,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+            SourceHouseBestAvailableOutcome? bestOutcome =
+                bestAvailable.HouseOutcome;
+            SourceHouseDecompilationOutcome? decompilationOutcome =
+                bestOutcome?.DecompilationOutcome;
+            CSharpDecompilationAttempt? decompiled =
+                decompilationOutcome is null
+                    ? null
+                    : DecompilationAttempt(
+                        decompilationOutcome);
+            AssemblyTypeSourceEntry bestResult;
+            if (bestOutcome
+                    is SourceHouseBestAvailableOutcome
+                        .Available
+                {
+                    Selected:
+                            SourceHouseSelectedSource.Authored,
+                }
+                && bestAvailable.Authored.IsComplete
+                && bestAvailable.Authored.Text
+                    is { } authoredText
+                && bestAvailable.Provenance
+                    is { } bestProvenance)
+            {
+                bestResult = new AssemblyTypeSourceEntry.Available(
+                    subject,
+                    request,
+                    new AssemblyTypeSource.Pdb(
+                        authoredText,
+                        bestAvailable.Authored,
+                        bestProvenance))
+                {
+                    HouseOutcome =
+                        bestOutcome.AuthoredOutcome,
+                    BestAvailableHouseOutcome =
+                        bestOutcome,
+                    LibraryFailure =
+                        bestAvailable.LibraryFailure,
+                };
+            }
+            else if (bestOutcome
+                    is SourceHouseBestAvailableOutcome
+                        .Available
+                {
+                    Selected:
+                            SourceHouseSelectedSource
+                                .Decompiled,
+                }
+                && decompiled is
+                {
+                    IsAvailable: true,
+                    Text: { } decompiledText,
+                })
+            {
+                bestResult = new AssemblyTypeSourceEntry.Available(
+                    subject,
+                    request,
+                    new AssemblyTypeSource.Decompiled(
+                        decompiledText,
+                        decompiled,
+                        bestAvailable.Authored))
+                {
+                    HouseOutcome =
+                        bestOutcome.AuthoredOutcome,
+                    BestAvailableHouseOutcome =
+                        bestOutcome,
+                    DecompilationHouseOutcome =
+                        decompilationOutcome,
+                    LibraryFailure =
+                        bestAvailable.LibraryFailure,
+                };
+            }
+            else
+            {
+                AssemblySourceFailure bestFailure =
+                    bestAvailable.LibraryFailure
+                        is { } libraryFailure
+                        ? LibraryAdmissionUnavailable(
+                            libraryFailure)
+                        : BothUnavailable();
+                bestResult =
+                    new AssemblyTypeSourceEntry.Unavailable(
+                        subject,
+                        request,
+                        bestFailure,
+                        bestAvailable.Authored,
+                        decompiled)
+                    {
+                        HouseOutcome =
+                            bestOutcome?.AuthoredOutcome,
+                        BestAvailableHouseOutcome =
+                            bestOutcome,
+                        DecompilationHouseOutcome =
+                            decompilationOutcome,
+                        LibraryFailure =
+                            bestAvailable.LibraryFailure,
+                    };
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+            EnsureBindingPolicyVersion(
+                participant,
+                bindingPolicyVersion);
+            return bestResult;
+        }
+
         TypePdbInspection pdb =
             await InspectTypePdbAsync(
                     group,
@@ -1450,111 +1619,36 @@ public static partial class AssemblyContextSourceQuery
                     cancellationToken,
                     pdbEvidence: pdbEvidence)
                 .ConfigureAwait(false);
-        Exception? primaryFailure = null;
         AssemblyTypeSourceEntry result;
-        try
+        if (pdb.Inspection.IsComplete
+            && pdb.Inspection.Text is { } pdbText
+            && pdb.Provenance is { } provenance)
         {
-            if (pdb.Inspection.IsComplete
-                && pdb.Inspection.Text is { } pdbText
-                && pdb.Provenance is { } provenance)
+            result = new AssemblyTypeSourceEntry.Available(
+                subject,
+                request,
+                new AssemblyTypeSource.Pdb(
+                    pdbText,
+                    pdb.Inspection,
+                    provenance))
             {
-                result = new AssemblyTypeSourceEntry.Available(
-                    subject,
-                    request,
-                    new AssemblyTypeSource.Pdb(
-                        pdbText,
-                        pdb.Inspection,
-                        provenance))
-                {
-                    HouseOutcome = pdb.HouseOutcome,
-                    LibraryFailure = pdb.LibraryFailure,
-                };
-            }
-            else if (request.OriginalDocumentPath is not null)
-            {
-                result = new AssemblyTypeSourceEntry.Unavailable(
-                    subject,
-                    request,
-                    new(
-                        AssemblySourceFailureKind.AuthoredDocumentUnavailable,
-                        "The selected authored source document is unavailable."),
-                    pdb.Inspection)
-                {
-                    HouseOutcome = pdb.HouseOutcome,
-                    LibraryFailure = pdb.LibraryFailure,
-                };
-            }
-            else if (pdb.LibraryFailure is { } libraryFailure)
-            {
-                result = new AssemblyTypeSourceEntry.Unavailable(
-                    subject,
-                    request,
-                    LibraryAdmissionUnavailable(libraryFailure),
-                    pdb.Inspection)
-                {
-                    HouseOutcome = pdb.HouseOutcome,
-                    LibraryFailure = libraryFailure,
-                };
-            }
-            else
-            {
-                (CSharpDecompilationAttempt decompiled,
-                    SourceHouseDecompilationOutcome houseOutcome) =
-                    await DecompileAsync(
-                        participant,
-                        new SourceHouseTarget.TypeTarget(
-                            request.Type),
-                        request.PrinterOptions,
-                        pdb.RetainedLibrary
-                            ?? throw new InvalidOperationException(
-                                "Type decompiler fallback requires one retained SourceHouse Library."),
-                        bindingPolicyVersion,
-                        context.TypeDecompilationLimits,
-                        context,
-                        "type-decompilation",
-                        cancellationToken)
-                        .ConfigureAwait(false);
-                result = decompiled.IsAvailable
-                    && decompiled.Text is { } decompiledText
-                        ? new AssemblyTypeSourceEntry.Available(
-                            subject,
-                            request,
-                            new AssemblyTypeSource.Decompiled(
-                                decompiledText,
-                                decompiled,
-                                pdb.Inspection))
-                        {
-                            HouseOutcome = pdb.HouseOutcome,
-                            DecompilationHouseOutcome = houseOutcome,
-                            LibraryFailure = pdb.LibraryFailure,
-                        }
-                        : new AssemblyTypeSourceEntry.Unavailable(
-                            subject,
-                            request,
-                            BothUnavailable(),
-                            pdb.Inspection,
-                            decompiled)
-                        {
-                            HouseOutcome = pdb.HouseOutcome,
-                            DecompilationHouseOutcome = houseOutcome,
-                            LibraryFailure = pdb.LibraryFailure,
-                        };
-            }
+                HouseOutcome = pdb.HouseOutcome,
+                LibraryFailure = pdb.LibraryFailure,
+            };
         }
-        catch (Exception failure)
+        else
         {
-            primaryFailure = failure;
-            throw;
-        }
-        finally
-        {
-            if (pdb.RetainedLibrary is { } completed)
+            result = new AssemblyTypeSourceEntry.Unavailable(
+                subject,
+                request,
+                new(
+                    AssemblySourceFailureKind.AuthoredDocumentUnavailable,
+                    "The selected authored source document is unavailable."),
+                pdb.Inspection)
             {
-                await RetireSourceHouseLibraryAsync(
-                        completed,
-                        primaryFailure)
-                    .ConfigureAwait(false);
-            }
+                HouseOutcome = pdb.HouseOutcome,
+                LibraryFailure = pdb.LibraryFailure,
+            };
         }
 
         cancellationToken.ThrowIfCancellationRequested();
@@ -2063,7 +2157,8 @@ public static partial class AssemblyContextSourceQuery
         public SourceHouseOutcome? HouseOutcome { get; init; }
         public AssemblyContextLibraryAdapterResult.Terminal? LibraryFailure { get; init; }
         public AssemblyContextLibraryAdapterResult.Completed?
-            RetainedLibrary { get; init; }
+            RetainedLibrary
+        { get; init; }
 
         public AssemblyMemberPdbSourceAttempt ToAttempt()
         {
@@ -2081,8 +2176,6 @@ public static partial class AssemblyContextSourceQuery
     {
         public SourceHouseOutcome? HouseOutcome { get; init; }
         public AssemblyContextLibraryAdapterResult.Terminal? LibraryFailure { get; init; }
-        public AssemblyContextLibraryAdapterResult.Completed?
-            RetainedLibrary { get; init; }
     }
 
     sealed record TypeInspectionSeed(

@@ -17,7 +17,9 @@ public sealed record TypeOverviewDocumentInspectionPlan
             TypeMemberGroupAccessibilityFilter.Public,
         TypeMemberGroupReceiverFilter receiver =
             TypeMemberGroupReceiverFilter.All,
-        bool includeHidden = false)
+        bool includeHidden = false,
+        InspectionHierarchyRequest<TypeOverviewHierarchyTopology>?
+            hierarchy = null)
     {
         Type = type ?? throw new ArgumentNullException(nameof(type));
         ArgumentNullException.ThrowIfNull(rows);
@@ -37,6 +39,15 @@ public sealed record TypeOverviewDocumentInspectionPlan
             accessibility: accessibility,
             receiver: receiver,
             includeHidden: includeHidden);
+        if (hierarchy is not null)
+        {
+            TypeOverviewHierarchyProjection.ValidateRequest(
+                hierarchy,
+                Members,
+                nameof(hierarchy));
+        }
+
+        Hierarchy = hierarchy;
         SourcePlan = new(
             type,
             bounds,
@@ -46,6 +57,8 @@ public sealed record TypeOverviewDocumentInspectionPlan
     public MetadataTypeDefinitionName Type { get; }
     public TypeMemberGroupPopulationRequest Members { get; }
     public ApiSurfaceExtractionBounds Bounds { get; }
+    public InspectionHierarchyRequest<TypeOverviewHierarchyTopology>?
+        Hierarchy { get; }
     internal TypeDocumentInspectionPlan SourcePlan { get; }
 }
 

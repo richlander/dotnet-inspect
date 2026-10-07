@@ -714,9 +714,9 @@ acquire the target. They add the owner-issued section properties to the
 top-level catalog, or report one exact category or section in detail:
 `Formats`, and, where the owner declares them, `Shape` (`table`, `hierarchy`,
 or `text`, per [Section shapes](design/section-shapes.md)), `Cardinality`
-(`scalar` or `inventory`), and `Terminals`. Package, Type, and Member declare
-all of them (`Call Graph` is a graph and declares no shape); Library declares
-cardinality for `Library Info`. A category reports the formats supported by its
+(`scalar` or `inventory`), and `Terminals`. Every owner declares all of them;
+`Call Graph` and Library `Dependency Structure` are graphs and declare no
+shape. A category reports the formats supported by its
 complete expansion plus the formats of each member; it never selects or drops
 members to satisfy a format. Use the result to choose an exact section before
 requesting a single-result projection such as `--tree` or `--mermaid`.
@@ -724,6 +724,18 @@ requesting a single-result projection such as `--tree` or `--mermaid`.
 for one section, beside its formats and members. The catalogs are `library`,
 `package`, `type` (the type listing), `member` (one type's members),
 `member-overload`, and `member-detail` (one exact member).
+
+For one library, its field-set records — `Library Info`,
+`SourceLink: Availability`, `SourceLink: Integrity`, `Symbols`, and
+`Metadata: Image` — are scalar: they have no rows to count or window. `--count` or `--rows` on one of
+them, on a selection of only them, or on the default overview fails before
+acquisition. An explicit selection that mixes them with inventories counts and
+windows the inventories alone, so `library MyLib.dll -S @Metadata --count` lists
+each metadata table without an image field count. `Context: Source Location`,
+`Member`, `Instruction`, `Callsite`, and `Return Address` count their one
+located row; `Context: Exception`, `Allocation`, `Safety`, and `Cost` count
+the regions or facts at the coordinate. `library address ... -D --details`
+reports these declarations for the coordinate sections.
 
 ```bash
 dotnet-inspect package System.Text.Json -D --details
@@ -1495,6 +1507,17 @@ or `--rows` fails before acquisition and names an inventory section as the
 alternative; a bare `-n` on it is the rendered-line window. `Signature` is a
 one-row inventory whose row is the resolved member, so `--count` answers `1`.
 Count maps over several sections keep their per-section meaning.
+
+`Implementers` and `Derived Types` are explicit, expensive Type sections in
+`@Relations`. They preserve the exact Type occurrence selected for ordinary
+Type output while scanning the selected source population. Count and Rows are
+independent producer terminals: Count-only requests no rows, and a finite head
+or closed-range `--rows` window reaches the producer as a finite prefix bound.
+An unbounded request uses a 10,000-row safety bound and reports continuation as
+incomplete output. Tail selection is rejected because the forward-only producer
+cannot satisfy it without privately materializing the complete population.
+Package relation rows include the package-relative asset in `Source`, so
+distinct `ref`, `lib`, or runtime occurrences remain distinguishable.
 
 Every other type or member Text with a bare payload (`API Declarations` on the
 `type` command, `Decompiled Source`, `Annotated Source`, `PDB Source`, `IL`,

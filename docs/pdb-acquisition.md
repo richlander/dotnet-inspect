@@ -661,7 +661,10 @@ The production adoption path has three steps in this slice: expose these
 operations at SourceLink; migrate `PdbSourceHouse` and source-integrity/local-
 repository consumers; and retain the existing CLI and Browser/Wasm source
 query paths over those consumers. The old House checksum/decoder entry points
-and Services-owned checksum/result types are retired, not duplicated.
+and Services-owned checksum/result types are retired, not duplicated. The
+one-URL Services composition now lives in `VerifiedSourceTextFetch`, which
+combines `SourceFetch` transport with the owner-issued SourceLink checksum and
+detached text result without making either adjacent owner absorb the other.
 Acquisition ordering and fallback stay in their current compositions until
 SourceHouse adoption. Library lease consumption and the independent decompiler
 producer remain separately tracked.

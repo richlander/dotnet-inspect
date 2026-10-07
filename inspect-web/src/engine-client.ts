@@ -24,6 +24,7 @@ type AsyncFacade<
 type PackageOperations =
   | "activatePlatformForwarder"
   | "activateWorkspacePackageOccurrence"
+  | "classifyEcosystemPackages"
   | "classifyPackageGraphIdentities"
   | "clearWorkspacePackageOccurrences"
   | "closePlatformForwarderView"
@@ -43,6 +44,7 @@ type PackageOperations =
   | "queryMemberDocumentation"
   | "queryPlatformMemberDocumentation"
   | "queryPackage"
+  | "queryPackageIcon"
   | "queryPackageRoot"
   | "queryPackageSummary"
   | "queryPackageDependencies"

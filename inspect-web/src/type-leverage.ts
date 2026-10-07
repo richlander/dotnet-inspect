@@ -1,4 +1,5 @@
 import type { DataBarError } from "./data-bar.ts";
+import type { ItemAchievement } from "./item-achievements.ts";
 import type {
   BrowserLibraryNamespaceLeverageIndex,
   BrowserLibraryNamespaceLeverageRow,
@@ -23,6 +24,22 @@ interface TypeLeverageCue {
   readonly evidenceMode: TypeLeverageEvidenceMode;
   readonly pole: TypeLeveragePole;
   readonly description: string;
+}
+
+export function typeLeverageAchievements(
+  cues: readonly TypeLeverageCue[],
+  diff: ItemAchievement | null,
+): readonly ItemAchievement[] {
+  const selected = cues.find(cue => cue.evidenceMode === "implementation")
+    ?? cues.find(cue => cue.evidenceMode === "surface");
+  const salience: ItemAchievement[] = selected ? [{
+    kind: `${selected.evidenceMode}-${selected.pole}`,
+    description: cues.map(cue => cue.description).join("; "),
+  }] : [];
+  return [
+    ...(diff ? [diff] : []),
+    ...salience,
+  ];
 }
 
 interface NamespaceLeverageCue {
@@ -50,6 +67,7 @@ export interface TypeLeveragePresentation {
   readonly disposition: string;
   readonly coverage: BrowserLibrarySignatureUseCoverage;
   readonly diagnostics: readonly string[];
+  readonly implementationDiagnostics: readonly string[];
   readonly warnings: readonly string[];
 }
 
@@ -96,7 +114,7 @@ function availableSurface(
   readonly namespaceIndex: BrowserLibraryNamespaceLeverageIndex;
   };
 } {
-  if (result.schemaVersion !== 2)
+  if (result.schemaVersion !== 3)
     throw new Error("Unsupported structural-salience schema version.");
   const surface = result.surface;
   if (surface.outcome !== "available"
@@ -268,6 +286,7 @@ export function projectTypeLeverage(
   }
 
   const warnings: string[] = [];
+  const implementationDiagnostics: string[] = [];
   const implementation = document.implementation;
   if (implementation.evidenceMode !== "body-use") {
     throw new Error(
@@ -304,9 +323,26 @@ export function projectTypeLeverage(
           `Implementation Type-leverage shard '${bodyShard.namespace}' has invalid coverage.`,
         );
       }
-      if (bodyShard.disposition.toLowerCase() !== "complete")
-        disposition = bodyShard.disposition;
-      diagnostics.push(...bodyShard.diagnostics);
+      implementationDiagnostics.push(...bodyShard.diagnostics);
+      const coverage = bodyShard.bodyCoverage;
+      const expectedPhysicalOnly = bodyShard.disposition.toLowerCase() === "qualified"
+        && coverage.bodiesPhysicalOnly > 0
+        && coverage.bodiesRejectedOwnership === 0
+        && coverage.bodiesUnavailable === 0
+        && coverage.bodiesLimited === 0
+        && coverage.operandsUnavailable === 0
+        && coverage.operandsLimited === 0
+        && bodyShard.signatureCoverage.unavailable === 0
+        && bodyShard.signatureCoverage.limited === 0;
+      if (!expectedPhysicalOnly && (bodyShard.disposition.toLowerCase() !== "complete"
+        || bodyShard.diagnostics.length > 0)) {
+        warnings.push(
+          `Implementation Type leverage has ${bodyShard.disposition.toLowerCase()} evidence; surface leverage is independent`,
+        );
+        warnings.push(...bodyShard.diagnostics.map(
+          detail => `Implementation Type leverage: ${detail}`,
+        ));
+      }
       const rows = new Map<string, BrowserLibraryTypeLeverageRow>();
       for (const row of bodyShard.types) {
         if (rows.has(row.typeDefinitionId)
@@ -377,7 +413,8 @@ export function projectTypeLeverage(
     disposition,
     coverage: sumCoverage(coverages),
     diagnostics: [...new Set(diagnostics)],
-    warnings,
+    implementationDiagnostics: [...new Set(implementationDiagnostics)],
+    warnings: [...new Set(warnings)],
   };
 }
 
@@ -391,7 +428,6 @@ export function typeLeverageFeedback(
   return {
     message: `Structural salience has qualified evidence${details.length
       ? `: ${details.join("; ")}` : ""}`,
-    retry: "type-leverage",
   };
 }
 

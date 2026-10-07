@@ -1,3 +1,4 @@
+import { createSpotlightEcosystemClassification } from "./spotlight-ecosystem.ts";
 import {
   accessibilityFilterIncludingType,
   activeSourceOperationKind,
@@ -341,7 +342,11 @@ import {
 } from "./overview-surface.ts";
 import { renderPackageInfo } from "./package-info.ts";
 import { renderPackageVulnerabilities } from "./package-vulnerabilities.ts";
-import { renderLibraryReferencesSurface } from "./library-references.ts";
+import {
+  createWorkspaceLibraryReferenceCandidates,
+  renderLibraryReferencesSurface,
+  resolveLibraryReferenceDestinations,
+} from "./library-references.ts";
 import { renderLibraryIntegrationsSurface } from "./library-integrations.ts";
 import {
   bindAnalysisTabs,
@@ -473,6 +478,7 @@ import {
 import {
   bindContentFrame,
   bindContentFrameMedia,
+  captureContentNavigationScroll,
   CONTENT_FRAME_NARROW_QUERY,
   contentFrameFocusOwnerFor,
   contentFrameResizeFocusOwner,
@@ -480,6 +486,7 @@ import {
   focusContentNavigation,
   focusContentNavigationToggle,
   renderContentNavigationBar,
+  restoreContentNavigationScroll,
   type ContentFrameFocusOwner,
   type ContentFrameFocusTarget,
   type ContentFramePane,
@@ -784,6 +791,7 @@ import type {
   BrowserPackageCacheStats,
   BrowserPackageDependencies,
   BrowserPackageDependencyGroup,
+  BrowserPackageIconInspection,
   BrowserPackageSurface,
   BrowserPackageVulnerabilityResult,
   BrowserPlatformForwarderRow,
@@ -812,6 +820,7 @@ import type {
 } from "./facades/inspect-web-analysis.d.ts";
 import {
   createTypeLeverageCoordinator,
+  typeLeverageAchievements,
   typeLeverageFeedback,
 } from "./type-leverage.ts";
 import type {
@@ -851,6 +860,7 @@ let inspectLoadRuntimePack: EngineClient["package"]["loadRuntimePack"];
 let inspectLoadRuntimePackAssembly:
   EngineClient["package"]["loadRuntimePackAssembly"];
 let inspectPlatformVersions: EngineClient["package"]["getPlatformVersions"];
+let classifyEcosystemPackages: EngineClient["package"]["classifyEcosystemPackages"];
 let inspectPlatformCatalog: EngineClient["package"]["getPlatformCatalog"];
 let inspectPrefetchPlatformPacks:
   EngineClient["package"]["prefetchPlatformPacks"];
@@ -868,6 +878,7 @@ let inspectLibraryDocument: EngineClient["library"]["inspectLibrary"];
 let inspectLibraryApi: EngineClient["package"]["queryLibraryApi"];
 let inspectPackageDependencies:
   EngineClient["package"]["queryPackageDependencies"];
+let inspectPackageIcon: EngineClient["package"]["queryPackageIcon"];
 let inspectPackageVulnerabilities:
   EngineClient["package"]["queryPackageVulnerabilities"];
 let inspectPackageVersions: EngineClient["package"]["queryPackageVersions"];
@@ -1072,6 +1083,7 @@ async function loadEngineModule() {
       loadRuntimePack: inspectLoadRuntimePack,
       loadRuntimePackAssembly: inspectLoadRuntimePackAssembly,
       getPlatformVersions: inspectPlatformVersions,
+      classifyEcosystemPackages,
       getPlatformCatalog: inspectPlatformCatalog,
       prefetchPlatformPacks: inspectPrefetchPlatformPacks,
       packageCacheStats: inspectPackageCacheStats,
@@ -1083,6 +1095,7 @@ async function loadEngineModule() {
       queryPackageRoot: inspectPackageRoot,
       queryPackageSummary: inspectPackageSummary,
       queryPackageDependencies: inspectPackageDependencies,
+      queryPackageIcon: inspectPackageIcon,
       queryPackageVulnerabilities: inspectPackageVulnerabilities,
       queryPackageVersions: inspectPackageVersions,
       resolvePackageDependencyVersion: resolveDependencyVersion,
@@ -5039,6 +5052,7 @@ const spotlight = createSpotlight({
   highlightRanges,
   kindIcon,
   searchResults: spotlightResults,
+  ecosystemError: () => spotlightEcosystemClassification.error(),
   pickResult: pickSpotlightResult,
   removeResult: removeSpotlightPackage,
   executeCommand,
@@ -5381,7 +5395,7 @@ function createTypeLeverageTarget(
     const assemblyFileName = platformAssemblyRequest(row);
     const salienceLibraryKey = JSON.stringify([
       "library-type-leverage",
-      2,
+      3,
       "structural-salience.v3",
       "signature+body-use",
       generation,
@@ -5407,7 +5421,7 @@ function createTypeLeverageTarget(
 
   const salienceLibraryKey = JSON.stringify([
     "library-type-leverage",
-    2,
+    3,
     "structural-salience.v3",
     "signature+body-use",
     generation,
@@ -8782,12 +8796,14 @@ function settingsOwnsHomeFocusTarget(target: HomeFocusTarget | null): boolean {
 }
 
 function render(options: { synchronizeUrl?: boolean } = {}) {
+  const navigationScroll = captureContentNavigationScroll(document);
   dataBarFeedback.synchronize(dataBarViewKey());
   productNavigationBinding.beforeRender();
   try {
     renderCore(options);
   } finally {
     productNavigationBinding.afterRender();
+    restoreContentNavigationScroll(document, navigationScroll);
     memberListRevealer.afterRender(document);
     schedulePackageDocumentTitles();
     scheduleTypeHeat();
@@ -9299,12 +9315,7 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
     }, escapeHtml)}
     ${renderAnnotatedSourceModal()}`);
 
-  for (const packageIcon of document.querySelectorAll<HTMLImageElement>("[data-package-icon]")) {
-    packageIcon.onerror = () => {
-      if (packageIcon.getAttribute("src") === NUGET_DEFAULT_PACKAGE_ICON) return;
-      packageIcon.src = NUGET_DEFAULT_PACKAGE_ICON;
-    };
-  }
+  bindPackageIconFallbacks(document);
   bindEvents();
   bindLibraryOpenEvents();
   if (loadingPackageContent) {
@@ -9378,6 +9389,7 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
     maybeAutoLoadPackageIntegrations();
     maybeAutoLoadPackagePerformance();
     maybeAutoLoadPackageLibraryMetrics();
+    maybeAutoLoadPackageLibraryDependencyStructure();
     maybeAutoLoadTypeLeverage();
     maybeAutoLoadPackageMetadata();
   }
@@ -9958,6 +9970,7 @@ function renderNavPane(
       frameworks: pkg.frameworks,
       activeFramework: pkg.activeFramework,
       versions,
+      unlistedVersions: entry.status === "available" ? entry.inventory.unlistedVersions ?? [] : [],
       activeVersion: pkg.version,
       statusHtml: pkg.source.kind !== "nuget.org"
         ? '<p>Version discovery is unavailable for this package source.</p>'
@@ -10161,6 +10174,14 @@ function renderTypeNavPane(
     accessibilityOptions: typeAccessibilityOptions(),
     traitOptions: typeTraitOptions(),
     library: activeLibrarySubjectName(),
+    navigationScrollScope: JSON.stringify([
+      "types",
+      retainedWorkspaces.activeWorkspaceId,
+      currentPackage().id,
+      currentPackage().version,
+      currentPackage().activeFramework,
+      state.libraryScope ? [...state.libraryScope].sort() : null,
+    ]),
     parentSubject: state.atLibraryRoot
       ? state.rootKind === "platform" && !currentViewHasPlatformRootParent()
         ? null
@@ -10193,18 +10214,10 @@ function renderTypeNavPane(
     itemAchievements: (item: TypeInventoryRow) => {
       if (isForwardedType(item)) return [];
       const presentation = currentTypeLeveragePresentation(item);
-      const achievements: ItemAchievement[] = [];
-      for (const leverage of presentation?.byType.get(
+      return typeLeverageAchievements(presentation?.byType.get(
         item.definitionId ?? item.id,
-      ) ?? []) {
-        achievements.push({
-          kind: `${leverage.evidenceMode}-${leverage.pole}`,
-          description: leverage.description,
-        });
-      }
-      if (diffPresence.typeIdentifiers.has(item.definitionId ?? item.id))
-        achievements.push(apiDiffAchievement);
-      return achievements;
+      ) ?? [], diffPresence.typeIdentifiers.has(item.definitionId ?? item.id)
+        ? apiDiffAchievement : null);
     },
     statusHtml: platformForwarderInventoryStatus(),
   });
@@ -10675,6 +10688,17 @@ function renderLibraryReferences() {
   const fresh = state.packageDependenciesKey === current;
   const library = selectedLibrary();
   const pkg = currentPackage();
+  const references =
+    fresh && state.packageDependencies
+      && state.packageDependencies.assemblyReferences
+      && typeof state.packageDependencies.assemblyReferences !== "string"
+      ? state.packageDependencies.assemblyReferences.references
+      : [];
+  const candidates = state.packages.flatMap(candidatePackage =>
+    createWorkspaceLibraryReferenceCandidates(
+      packageIdentityKey(candidatePackage),
+      packageLibrariesForModel(candidatePackage),
+      candidatePackage.assemblies));
   return renderLibraryReferencesSurface({
     assemblyIdentity: library ? libraryIdentity(library) : "No library selected",
     assetPath: library?.asset ?? "",
@@ -10682,6 +10706,9 @@ function renderLibraryReferences() {
     loading: state.packageDependenciesLoading && fresh,
     error: fresh ? state.packageDependenciesError : "",
     data: fresh ? state.packageDependencies : null,
+    referenceDestinations: resolveLibraryReferenceDestinations(
+      references,
+      candidates),
     escapeHtml,
   });
 }
@@ -10722,7 +10749,7 @@ function dependencyListSectionHtml(
               : open
               ? `data-dep-open="${escapeHtml(packageIdentityKey(open))}" title="Switch to ${escapeHtml(dependency.id)}"`
               : `data-dep-load="${escapeHtml(dependency.id)}" data-dep-version="${escapeHtml(dependency.versionRange || "")}" title="Open ${escapeHtml(dependency.id)} in a new tab"`;
-            return `<li><button class="dep-name as-link${open ? " is-open" : ""}" ${attrs}>${escapeHtml(dependency.id)}</button><code class="dep-version">${escapeHtml(dependency.versionRange || "*")}</code></li>`;
+            return `<li><img class="dep-icon" src="${NUGET_DEFAULT_PACKAGE_ICON}" alt="" data-package-icon data-dependency-icon="${index}"><button class="dep-name as-link${open ? " is-open" : ""}" ${attrs}>${escapeHtml(dependency.id)}</button><code class="dep-version">${escapeHtml(dependency.versionRange || "*")}</code></li>`;
           }).join("")}</ul>`
         : `<div class="empty-list">No package dependencies declared for ${escapeHtml(group.framework)}.</div>`}
     </section>`;
@@ -10750,6 +10777,11 @@ async function renderPackageDependencyList() {
     if (!isCurrent()) return;
     container.outerHTML = dependencyListSectionHtml(groups, selectedGroupIndex, matches);
     bindPackageDependencyListEvents();
+    await renderPackageDependencyIcons(
+      data,
+      groups,
+      selectedGroupIndex,
+      matches);
   } catch (error) {
     if (!isCurrent()) return;
     container.dataset.dependencyMatchState = "failed";
@@ -10757,6 +10789,77 @@ async function renderPackageDependencyList() {
     container.insertAdjacentHTML("beforeend",
       `<p class="graph-render-error" role="alert">Dependency matching failed: ${escapeHtml(errorMessage(error))}</p>`);
   }
+}
+
+async function renderPackageDependencyIcons(
+  data: BrowserPackageDependencies | null,
+  groups: readonly BrowserPackageDependencyGroup[],
+  selectedGroupIndex: number | null,
+  matches: readonly (AppPackage | null)[],
+) {
+  const container =
+    document.querySelector<HTMLElement>("#dep-list-section");
+  const group =
+    groups.find(candidate => candidate.index === selectedGroupIndex)
+    || groups[0];
+  if (!container || !group) return;
+
+  const dependencies = group.dependencies || [];
+  const images = [
+    ...container.querySelectorAll<HTMLImageElement>("[data-dependency-icon]"),
+  ];
+  const requests =
+    new Map<string, Promise<BrowserPackageIconInspection>>();
+  const signature = packageDependenciesSignature();
+  const isCurrent = () =>
+    document.querySelector("#dep-list-section") === container
+    && state.packageDependencies === data
+    && packageDependenciesSignature() === signature
+    && resolveDependenciesGroupIndex(groups) === selectedGroupIndex;
+  let next = 0;
+
+  const loadNext = async () => {
+    while (true) {
+      const index = next++;
+      if (index >= dependencies.length) return;
+      const dependency = dependencies[index];
+      if (!dependency) continue;
+      const image = images.find(candidate =>
+        candidate.dataset.dependencyIcon === String(index));
+      if (!image) continue;
+
+      try {
+        const version = matches[index]?.version
+          ?? await resolveDependencyVersion(
+            dependency.id,
+            dependency.versionRange ?? null);
+        const key = `${dependency.id.toLowerCase()}@${version}`;
+        let request = requests.get(key);
+        if (!request) {
+          request = inspectPackageIcon(dependency.id, version);
+          requests.set(key, request);
+        }
+        const result = await request;
+        if (!isCurrent()
+          || result.packageId !== dependency.id
+          || result.packageVersion !== version
+          || result.status !== "Available"
+          || !result.icon) {
+          continue;
+        }
+
+        image.src =
+          `data:${result.icon.mediaType};base64,${result.icon.base64}`;
+      } catch {
+        // The default icon is the visible typed failure presentation.
+      }
+    }
+  };
+
+  await Promise.all(
+    Array.from(
+      { length: Math.min(4, dependencies.length) },
+      loadNext));
 }
 
 // Switch the dependency lens to a different target framework without a full page render:
@@ -11192,6 +11295,17 @@ function maybeAutoLoadPackageLibraryMetrics() {
   if (Boolean(state.package?.isRuntimePack) && !scopedPlatformLibrary()) return;
   if (state.packageLibraryMetricsKey !== packageScopeSignature())
     observeAsync(loadPackageLibraryMetrics(), "Loading library metrics");
+}
+
+function maybeAutoLoadPackageLibraryDependencyStructure() {
+  if (!state.atLibraryRoot || state.libraryLens !== "analysis") return;
+  if (aggregateLibrarySubjectIsActive()) return;
+  if (state.analysisMode !== "dependencies") return;
+  if (Boolean(state.package?.isRuntimePack) && !scopedPlatformLibrary()) return;
+  if (state.packageLibraryDependencyStructureKey !== packageScopeSignature())
+    observeAsync(
+      loadPackageLibraryDependencyStructure(),
+      "Loading library dependency structure");
 }
 
 function maybeAutoLoadTypeLeverage() {
@@ -12950,6 +13064,18 @@ const packageViewActions: PackageViewBindingActions = {
     showContentDetailAfterRender();
     render();
   },
+  onLibraryReferenceSelect: (packageKey, libraryId) => {
+    if (!packageKey || !libraryId) return;
+    const target = state.packages.find(candidate =>
+      packageIdentityKey(candidate) === packageKey);
+    if (!target) return;
+    if (state.package !== target)
+      selectWorkspacePackage(target, { renderSelection: false });
+    else navigationSequence.begin();
+    if (!selectLibrarySubject(libraryId)) return;
+    showContentDetailAfterRender();
+    render();
+  },
   onRuntimeIdentifierPackageLoad: (packageId, packageVersion) => {
     if (!packageId || !packageVersion) return;
     observeAsync(
@@ -13165,10 +13291,8 @@ async function openPlatformLensLibrary(
     else if (state.analysisMode === "complexity"
       || state.analysisMode === "relationships")
       await loadPackageLibraryMetrics();
-    else if (state.analysisMode === "dependencies") {
-      render();
-      return;
-    }
+    else if (state.analysisMode === "dependencies")
+      await loadPackageLibraryDependencyStructure();
     else assertNever(state.analysisMode, "analysis mode");
   } else await loadPackageMetadata();
 }
@@ -13179,6 +13303,18 @@ function bindPackageViewEvents() {
 
 function bindPackageDependencyListEvents() {
   bindPackageDependencyList(document, packageViewActions);
+  bindPackageIconFallbacks(document);
+}
+
+function bindPackageIconFallbacks(root: ParentNode) {
+  for (const packageIcon of
+    root.querySelectorAll<HTMLImageElement>("[data-package-icon]")) {
+    packageIcon.onerror = () => {
+      if (packageIcon.getAttribute("src") === NUGET_DEFAULT_PACKAGE_ICON)
+        return;
+      packageIcon.src = NUGET_DEFAULT_PACKAGE_ICON;
+    };
+  }
 }
 
 function bindLibrarySubjectNavEvents() {
@@ -15060,6 +15196,19 @@ function frameworkLibrarySpotlightResults(query: string): SpotlightResult[] {
   return results;
 }
 
+const spotlightEcosystemClassification = createSpotlightEcosystemClassification({
+  classify: (tfm, candidates, inventory) => classifyEcosystemPackages(tfm, candidates, inventory),
+  updateResults: () => spotlight.updateResults(),
+});
+
+function annotateSpotlightEcosystems(results: SpotlightResult[]): SpotlightResult[] {
+  if (!state.engineReady) return results;
+  const target = selectedPlatformTarget();
+  const traversalTfm = state.platformSelection?.tfm ?? state.platformIndex?.defaultFramework;
+  if (!traversalTfm) return results;
+  return spotlightEcosystemClassification.project(results, traversalTfm, target);
+}
+
 function spotlightResults(): SpotlightResult[] {
   const query = state.spotlightQuery.trim();
   const spotlightScope = state.spotlightScope;
@@ -15112,7 +15261,7 @@ function spotlightResults(): SpotlightResult[] {
           ranges: [[0, parsedPackageQuery.packageId.length]],
         });
       }
-      return results;
+      return annotateSpotlightEcosystems(results);
     }
     const loaded = spotlightLoadedPackageMatches(query).slice(0, all ? 3 : 20);
     for (const match of loaded) results.push({ kind: "pkg-loaded", pkg: match.pkg, ranges: match.ranges });
@@ -15188,7 +15337,7 @@ function spotlightResults(): SpotlightResult[] {
   if (all) {
     results.push(...frameworkLibrarySpotlightResults(query).slice(0, 5));
   }
-  return results;
+  return annotateSpotlightEcosystems(results);
 }
 
 interface NugetSearchResult {
@@ -15432,7 +15581,8 @@ function updateVersionSelect(pkg: CatalogPackage) {
   const pane = document.querySelector(".package-version-nav");
   if (pane) {
     const filter = document.querySelector<HTMLInputElement>("#package-version-filter")?.value ?? "";
-    const prerelease = document.querySelector<HTMLInputElement>("#package-version-prerelease")?.checked ?? true;
+    const prerelease = document.querySelector<HTMLInputElement>("#package-version-prerelease")?.checked ?? false;
+    const unlisted = document.querySelector<HTMLInputElement>("#package-version-unlisted")?.checked ?? false;
     const focused = document.activeElement instanceof HTMLElement && pane.contains(document.activeElement)
       ? { id: document.activeElement.id, version: document.activeElement.dataset.packageVersion, framework: document.activeElement.dataset.packageFramework } : null;
     const scrollTop = document.querySelector("#package-version-list")?.scrollTop ?? 0;
@@ -15441,6 +15591,8 @@ function updateVersionSelect(pkg: CatalogPackage) {
     const nextPrerelease = document.querySelector<HTMLInputElement>("#package-version-prerelease");
     if (nextFilter) nextFilter.value = filter;
     if (nextPrerelease) nextPrerelease.checked = prerelease;
+    const nextUnlisted = document.querySelector<HTMLInputElement>("#package-version-unlisted");
+    if (nextUnlisted) nextUnlisted.checked = unlisted;
     const nextPane = document.querySelector(".package-version-nav");
     if (nextPane) {
       packageControls.bind(nextPane);
@@ -27066,7 +27218,7 @@ window.__platformIndex = loadPlatformIndex();
 observeAsync(
   window.__platformIndex.then(index => {
     if (index) state.platformIndex = index;
-    if (state.spotlightOpen) spotlight.refresh();
+    if (state.spotlightOpen || state.home) spotlight.refresh();
     return undefined;
   }),
   "Loading the platform index");

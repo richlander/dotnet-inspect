@@ -55,12 +55,13 @@ trap cleanup EXIT
 dotnet=${DOTNET:-dotnet}
 node=${NODE:-node}
 
-usage="Usage: generate-inspect-web-engine-facade.sh [--compile | --fast-check | --check | --contract <assembly> <declaration-output-directory> <version-prefix>]"
+usage="Usage: generate-inspect-web-engine-facade.sh [--compile | --fast-check | --check | --contract <assembly> <declaration-output-directory> <version-prefix> [<source-output-directory>]]"
 
 mode=write
 source_assembly="$engine_dll"
 contract_output=
 contract_version_prefix=
+contract_sources_output=
 case "${1:-}" in
   "")
     ;;
@@ -86,7 +87,7 @@ case "${1:-}" in
     mode=check
     ;;
   --contract)
-    if [[ "$#" != 4 ]]; then
+    if [[ "$#" != 4 && "$#" != 5 ]]; then
       echo "$usage" >&2
       exit 1
     fi
@@ -94,12 +95,21 @@ case "${1:-}" in
     source_assembly="$2"
     contract_output="$3"
     contract_version_prefix="$4"
+    contract_sources_output="${5:-}"
     if [[ ! -f "$source_assembly" ]]; then
       echo "Assembly not found: $source_assembly" >&2
       exit 1
     fi
     if [[ -z "$contract_version_prefix" ]]; then
       echo "Version prefix must not be empty." >&2
+      exit 1
+    fi
+    if [[ "$#" == 5 && -z "$contract_sources_output" ]]; then
+      echo "Source output directory must not be empty." >&2
+      exit 1
+    fi
+    if [[ -n "$contract_sources_output" && -e "$contract_sources_output" ]]; then
+      echo "Source output directory already exists: $contract_sources_output" >&2
       exit 1
     fi
     ;;
@@ -114,10 +124,30 @@ if [[ ! -f "$compiler" ]]; then
   exit 1
 fi
 
+generation_version_prefix="$contract_version_prefix"
+if [[ "$mode" == check ]]; then
+  generation_version_prefix=$(
+    "$dotnet" msbuild \
+      "$repo_root/src/DotnetInspect.Cli/DotnetInspect.Cli.csproj" \
+      -getProperty:VersionPrefix \
+      -nologo
+  )
+  if [[ -z "$generation_version_prefix" ]]; then
+    echo "The authoritative product VersionPrefix is empty." >&2
+    exit 1
+  fi
+fi
+generator_build_properties=()
+if [[ -n "$generation_version_prefix" ]]; then
+  generator_build_properties+=(
+    "-p:VersionPrefix=$generation_version_prefix")
+fi
+
 if [[ "$mode" != contract ]]; then
   "$dotnet" build \
     "$engine_csproj" \
     -c Release \
+    ${generator_build_properties[@]+"${generator_build_properties[@]}"} \
     -p:InspectWebIncludeFrontend=true >&2
 fi
 
@@ -125,10 +155,6 @@ fi
 # whole facade set is emitted as one operation or not at all.
 context_output="$scratch/context-facades"
 source_assembly_directory="$(dirname "$source_assembly")"
-generator_build_properties=()
-if [[ -n "$contract_version_prefix" ]]; then
-  generator_build_properties+=("-p:VersionPrefix=$contract_version_prefix")
-fi
 "$dotnet" run \
   --project "$repo_root/src/ts-jsexport" \
   -c Release \
@@ -152,33 +178,12 @@ if [[ "$emitted_artifacts" != "$expected_artifacts" ]]; then
   exit 1
 fi
 
-# Each rooted assembly is also generated on its own. The recipe decides membership; this
-# proves it changes no artifact, so the checked-in source of one facade stays the handoff
-# for exactly one managed export assembly.
-mkdir -p "$scratch/sources" "$scratch/direct"
+# The focused generator test proves that context and direct generation are byte-identical.
+# This consumer gate needs only the context's exact artifact set and canonical module map.
+mkdir -p "$scratch/sources"
 for index in "${!context_artifacts[@]}"; do
   artifact="${context_artifacts[$index]}"
   module="${facade_modules[$index]}"
-  root_assembly="$source_assembly_directory/${artifact%.ts}.dll"
-  if [[ ! -f "$root_assembly" ]]; then
-    echo "Rooted export assembly not found: $root_assembly" >&2
-    exit 1
-  fi
-  "$dotnet" run \
-    --project "$repo_root/src/ts-jsexport" \
-    -c Release \
-    --no-build \
-    ${generator_build_properties[@]+"${generator_build_properties[@]}"} \
-    -- \
-    "$root_assembly" \
-    --assembly-search-path "$source_assembly_directory" \
-    --runtime-module ./runtime-loader.js \
-    --warnings-as-errors \
-    --output "$scratch/direct/$artifact"
-  if ! cmp "$context_output/$artifact" "$scratch/direct/$artifact"; then
-    echo "The JsExportRoot recipe differs from direct generation for $artifact." >&2
-    exit 1
-  fi
   cp "$context_output/$artifact" "$scratch/sources/$module.ts"
 done
 
@@ -277,6 +282,12 @@ typecheck_consumers() {
 }
 
 if [[ "$mode" == contract ]]; then
+  if [[ -n "$contract_sources_output" ]]; then
+    mkdir "$contract_sources_output"
+    cp "$context_output"/*.ts "$contract_sources_output/"
+    assert_directory_inventory \
+      "$contract_sources_output" '*.ts' "$expected_artifacts"
+  fi
   mkdir -p "$contract_output"
   for module in "${facade_modules[@]}"; do
     cp "$compiled/$module.d.ts" "$contract_output/$module.d.ts"
@@ -307,30 +318,10 @@ elif [[ "$mode" == check || "$mode" == fast-check ]]; then
   fi
 
   if [[ "$mode" == check ]]; then
-    version_prefix=$(
-      "$dotnet" msbuild \
-        "$repo_root/src/DotnetInspect.Cli/DotnetInspect.Cli.csproj" \
-        -getProperty:VersionPrefix \
-        -nologo
-    )
-    if [[ -z "$version_prefix" ]]; then
-      echo "The authoritative product VersionPrefix is empty." >&2
-      exit 1
-    fi
-    verify_msbuild_facade_build "-p:VersionPrefix=$version_prefix"
-    versioned_contract="$scratch/versioned-declarations"
-    "$0" \
-      --contract \
-      "$engine_dll" \
-      "$versioned_contract" \
-      "$version_prefix" >&2
-    for module in "${facade_modules[@]}"; do
-      if ! cmp "$versioned_contract/$module.d.ts" "$compiled/$module.d.ts"; then
-        echo "The deployment-version context changed the $module declaration." >&2
-        exit 1
-      fi
-    done
-    verify_msbuild_facade_publish "-p:VersionPrefix=$version_prefix"
+    verify_msbuild_facade_build \
+      "-p:VersionPrefix=$generation_version_prefix"
+    verify_msbuild_facade_publish \
+      "-p:VersionPrefix=$generation_version_prefix"
   else
     verify_msbuild_facade_build
   fi

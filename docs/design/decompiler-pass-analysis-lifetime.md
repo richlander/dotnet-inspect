@@ -1,6 +1,9 @@
 # Decompiler pass analysis lifetime
 
-Issue: [#9519](https://github.com/richlander/dotnet-inspect/issues/9519)
+Issues:
+
+- [#9519](https://github.com/richlander/dotnet-inspect/issues/9519)
+- [#9544](https://github.com/richlander/dotnet-inspect/issues/9544)
 
 ## Owned claim
 
@@ -45,6 +48,20 @@ The compiler-produced `PdbScopeFixtures` methods with gotos and retained entry
 and internal labels are the production witness. This slice makes no elapsed
 time claim. Its measurable result is fewer complete-tree constructions of the
 same fact.
+
+The first broader-reuse adoption carries that result through the final
+expression, storage, and naming passes into `DefiniteAssignmentPass`. Those
+passes may replace expressions, bind stack slots as locals, decide scalar
+presentation, or allocate names, but they do not change control-transfer
+target offsets. Reusing the existing generation therefore exercises the
+complete preservation chain rather than introducing another analysis.
+
+The candidate census rejected CFG as this adoption's analysis. Current CFG
+inputs belong to individual `BlockContainer` block lists across unrelated
+stages, including a mutating structuring pass; no adjacent pass pair currently
+reconstructs one unchanged container graph. A manager-owned CFG would require
+a separately designed keyed lifetime and mutation footprint without a
+demonstrated production reuse.
 
 ## Contract
 
@@ -117,9 +134,32 @@ All three require and preserve the analysis. Trial functions constructed by
 `PdbScopeEntryLocalPass` are distinct functions and use independent ephemeral
 or nested-pipeline state rather than borrowing the original function's result.
 
-The first non-preserving pass after the cluster discards the result. This slice
-does not claim that later expression or storage passes change branch targets;
-each additional preservation declaration requires its own adoption evidence.
+### Late emission-tail adoption
+
+The branch-target result remains current across:
+
+- `CheckedIntegerOperandPass`;
+- `ReferenceCoalesceBindingPass`;
+- `ReferenceConditionalBindingPass`;
+- `PrimitiveJoinBindingPass`;
+- `CoercionInsertionPass`;
+- `ResidualSlotBindingPass`;
+- `ScalarSelfUpdatePass`; and
+- `ParameterNameAllocationPass`.
+
+Each pass explicitly preserves the analysis. `DefiniteAssignmentPass` requires
+and preserves it, reusing the current outer-function result while independently
+constructing target sets for nested lambda and local-function bodies.
+
+`Newtonsoft.Json` 13.0.4 is the real production witness. The pinned PR-quick
+corpus records switch, conditional, branch, and leave targets for
+`JsonTextReader.<ParseCommentAsync>d__16.MoveNext`, produced from
+[commit `4e13299d`](https://github.com/JamesNK/Newtonsoft.Json/blob/4e13299d4b0ec96bd4df9954ef646bd2d1b5bf2a/Src/Newtonsoft.Json/JsonTextReader.Async.cs).
+The compiler-produced PDB-scope fixture remains the deterministic Release gate
+for generation reuse and output parity.
+
+This owner does not claim that earlier passes preserve branch targets; each
+additional preservation declaration requires its own adoption evidence.
 
 ## Receipts
 
@@ -166,6 +206,7 @@ This slice does not add:
 - dynamic analysis registration;
 - cross-function or cross-run reuse;
 - CFG, dominance, use-def, definite-assignment, or declaration-plan caching;
+- per-container analysis keys or CFG mutation tracking;
 - structural hashes or general mutation counters;
 - conditional preservation inferred from whether a pass changed the observed
   printer projection;
@@ -178,6 +219,8 @@ Release tests establish:
 
 - one construction followed by reuse across the three preserving production
   passes;
+- preservation through the complete late emission tail and reuse by
+  `DefiniteAssignmentPass`;
 - a non-preserving intervening pass forces a new construction;
 - no result can be requested under a stale generation;
 - nested imported-body execution uses independent state;

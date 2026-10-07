@@ -4,6 +4,7 @@ using System.IO.Compression;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using DotnetInspector.Cache;
 using DotnetInspector.Fixtures;
 using DotnetInspect.Cli.Commands;
@@ -2866,6 +2867,50 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibraryAddressCommand_DiscoverDetailsDeclaresCoordinateSections()
+    {
+        // The coordinate sections exist only on the address route, so their
+        // shape and cardinality are discoverable there.
+        var (exit, output, error) = await RunAppAsync(
+            "library", "address", "0x06000001+0x0",
+            "--library", TestAssemblyPath,
+            "-D", "@Context", "--details");
+        var heap = await RunAppAsync(
+            "library", "address", "#Strings:1",
+            "--library", TestAssemblyPath,
+            "-D", "@Metadata", "--details");
+        var withoutDiscover = await RunAppAsync(
+            "library", "address", "0x06000001+0x0",
+            "--library", TestAssemblyPath, "--details");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("| Shape | Cardinality | Terminals |", output);
+        foreach (string section in new[]
+                 {
+                     SectionNames.MemberContext,
+                     SectionNames.ExceptionContext,
+                 })
+        {
+            Assert.Matches(
+                $@"\| {Regex.Escape(section)} \| section \|[^\n]*\| table \| inventory \| rows, count \|",
+                output);
+        }
+
+        Assert.Equal(0, heap.Exit);
+        Assert.Empty(heap.Error);
+        Assert.Matches(
+            @"\| Metadata: Heap \| section \|[^\n]*\| table \| inventory \| rows, count \|",
+            heap.Output);
+        Assert.Matches(
+            @"\| Metadata: Image \| section \|[^\n]*\| table \| scalar \|  \|",
+            heap.Output);
+
+        Assert.Equal(1, withoutDiscover.Exit);
+        Assert.Contains("--details requires -D/--discover.", withoutDiscover.Error);
+    }
+
+    [Fact]
     public async Task LibraryCommand_IlOffsetCount_ReturnsSingletonLocationCount()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -3055,6 +3100,26 @@ public partial class CommandExecutionTests
         {
             File.Delete(tempFile);
         }
+    }
+
+    [Fact]
+    public async Task LibraryCommand_IlOffsetPrint_MissingChecksumFailsBeforeNetwork()
+    {
+        var result = new ILOffsetProjection
+        {
+            Method = "Sample.Method",
+            File = "Sample.cs",
+            Line = 1,
+            Url = $"https://example.test/{Guid.NewGuid():N}/Sample.cs"
+        };
+
+        var (content, error) =
+            await LibraryCommand.ReadILOffsetSourceLineForTestsAsync(result);
+
+        Assert.Null(content);
+        Assert.Contains(
+            "The portable PDB does not provide a usable source checksum.",
+            error);
     }
 
     [Fact]

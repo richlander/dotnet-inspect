@@ -29,13 +29,12 @@ public sealed partial class DesktopPackageSourceComposition
         Action<string>? log = null)
     {
         ArgumentNullException.ThrowIfNull(createStore);
-        return new PackageHouse(
-            new CompositionAuthorization(this, sourceOptions),
+        return CreateRealizationHouse(
             new PackagePayloadAcquisitionPlan(
                 createStore,
                 log: log),
-            log,
-            _versionSettlement);
+            sourceOptions,
+            log);
     }
 
     /// <summary>
@@ -48,11 +47,29 @@ public sealed partial class DesktopPackageSourceComposition
         Action<string>? log = null)
     {
         ArgumentNullException.ThrowIfNull(createStore);
-        return new PackageHouse(
-            new CompositionAuthorization(this, sourceOptions),
+        return CreateRealizationHouse(
             PackagePayloadAcquisitionPlan.ForContentQueries(
                 createStore,
                 log: log),
+            sourceOptions,
+            log);
+    }
+
+    /// <summary>
+    /// Supplies a payload-realizing House under a host-chosen acquisition
+    /// plan (access, store, and limits), with per-package authorization
+    /// evaluated by this composition. Pair it with
+    /// <see cref="IssueSettlementOperation"/>.
+    /// </summary>
+    public PackageHouse CreateRealizationHouse(
+        PackagePayloadAcquisitionPlan payloadAcquisition,
+        NuGetSourceOptions? sourceOptions = null,
+        Action<string>? log = null)
+    {
+        ArgumentNullException.ThrowIfNull(payloadAcquisition);
+        return new PackageHouse(
+            new CompositionAuthorization(this, sourceOptions),
+            payloadAcquisition,
             log,
             _versionSettlement);
     }

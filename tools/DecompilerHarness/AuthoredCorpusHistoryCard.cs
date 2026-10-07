@@ -267,6 +267,7 @@ static class AuthoredCorpusHistoryCard
             2 => "Product defects (v2 span-measured lower bound)",
             3 => "Product defects (v3 final-shell lower bound)",
             4 => "Product defects (v4 native-RTS lower bound)",
+            5 => "Product defects (v5 product-range lower bound)",
             _ => $"Product defects (lineage {lineage})",
         };
 
