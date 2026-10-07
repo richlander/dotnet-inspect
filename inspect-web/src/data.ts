@@ -1244,6 +1244,7 @@ export function graphTargetNavigationDisposition(
   resident = false,
   packageAvailable = false,
 ): GraphTargetNavigationDisposition {
+  const platformCoordinate = callGraphTargetPlatformCoordinate(target);
   if (Object.prototype.hasOwnProperty.call(
       target ?? {},
       "assemblyVersion")
@@ -1261,10 +1262,11 @@ export function graphTargetNavigationDisposition(
     return "blocked";
   }
   if (candidate.status === "unique") return "loaded";
-  return (target?.kind === "external"
+  return (platformCoordinate !== null
+      || target?.kind === "external"
       || target?.kind === "boundary"
       || target?.kind === "unclassified-boundary")
-      && Boolean(target.assembly)
+      && Boolean(target?.assembly)
       && Boolean(callGraphTargetTypeId(target))
     ? resident ? "resident" : "platform"
     : "none";

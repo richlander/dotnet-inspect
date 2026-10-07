@@ -1948,6 +1948,29 @@ test("call graph navigation rejects ambiguous loaded package coordinates", () =>
           packageFramework: "net9.0",
         }),
         null);
+      const platformConnector = {
+        ...target,
+        ...platformTarget,
+        assemblyVersion: "11.0.0.0",
+        kind: "connector",
+      };
+      assert.equal(
+        graphTargetNavigationDisposition(
+          { status: "missing" },
+          platformConnector),
+        "platform");
+      assert.equal(
+        combinedGraphTargetNavigationDisposition(
+          { status: "missing" },
+          { status: "unique", pkg: null, type: null },
+          platformConnector,
+          true),
+        "resident");
+      assert.equal(
+        graphTargetNavigationDisposition(
+          { status: "missing" },
+          { ...platformConnector, ownerKind: null }),
+        "none");
 
       const binding =
         appSource.match(/function callGraphTargetBinding\([\s\S]*?\n}(?=\n\nasync function openPackageGraphMember)/)?.[0]
