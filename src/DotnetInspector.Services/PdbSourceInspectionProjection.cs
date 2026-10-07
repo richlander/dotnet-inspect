@@ -36,6 +36,14 @@ public sealed record PdbMemberSourceInspection(
     SourceDocumentObservation? Document,
     SourceChecksumVerification? ChecksumVerification)
 {
+    public string? ResolvedUrl => Document?.ResolvedUrl;
+
+    public string? VerifiedBrowseUrl =>
+        ChecksumVerification is SourceChecksumVerification.Exact
+            or SourceChecksumVerification.LineEndingNormalized
+                ? SourceLinkProvenance.BrowseUrl(ResolvedUrl)
+                : null;
+
     public bool IsComplete =>
         Lines.Value is FindingInspection<string>.Complete;
 
@@ -89,6 +97,14 @@ public sealed record PdbTypeSourceInspection(
     SourceDocumentObservation? Document,
     SourceChecksumVerification? ChecksumVerification)
 {
+    public string? ResolvedUrl => Document?.ResolvedUrl;
+
+    public string? VerifiedBrowseUrl =>
+        ChecksumVerification is SourceChecksumVerification.Exact
+            or SourceChecksumVerification.LineEndingNormalized
+                ? SourceLinkProvenance.BrowseUrl(ResolvedUrl)
+                : null;
+
     public bool IsComplete =>
         Lines.Value is FindingInspection<string>.Complete;
 

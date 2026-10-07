@@ -21,6 +21,7 @@ public sealed class InspectionDefinitionRegistry
     public InspectionDefinitionRegistry()
     {
         AddQueryDescriptor(PackageQuery.DefinitionDescriptor);
+        AddQueryDescriptor(WorkspaceDiffIntent.Descriptor);
     }
 
     /// <summary>

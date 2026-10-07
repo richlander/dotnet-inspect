@@ -921,6 +921,46 @@ Files for one package; `--tfm` wraps Target equality for Files.
 All formats preserve package-relative paths. A filter with no matching
 files succeeds with zero rows. The old `--layout` spelling is removed.
 
+### Package flags and section equivalents
+
+A package flag may select a section, filter its rows, select an inspection
+subject, or project a result. Only the first two have section/predicate
+equivalents. The following map distinguishes those contracts:
+
+| Flag | Meaning | Section or predicate equivalent |
+| --- | --- | --- |
+| `--files` | Select the Files section | `-S Files`; it can compose with other package sections |
+| `--lib` | Filter Files to the `lib/` root | `--where "Root=lib"`, with exactly Files selected |
+| `--tools` | Filter Files to the `tools/` root | `--where "Root=tools"`, with exactly Files selected |
+| `--tfm TFM` with Files | Match a complete directory segment on file rows | `--where "Target=TFM"`; `--tfm all` adds no predicate |
+| `--path SELECTOR` | Select Files and apply package path/role selection | One literal file can use `--where "Path=FILE"`; repeated selectors, directory expansion, glob rules, `@readme`, and `@agents` retain their selector semantics |
+| `--library [DLL]` | Inspect selected compile libraries, optionally one exact DLL | Changes the inspection subject; it is not a Files filter or section shortcut |
+| `--namesake-library` | Select the Library whose assembly name matches the package ID | Selects a Library subject; it is not `Root=lib` or a filename filter |
+| `--tfm TFM` with library inspection | Select the package target before Library scope | Uses package asset selection; it is not Files `Target=TFM` |
+| `--roots` | Project distinct top-level folders from selected Files | A result projection, not a predicate or another section |
+| `--tfms` | List distinct package target frameworks in TFM-priority order | A separate TFM row population; Files predicates select files, not distinct framework rows |
+| `--versions`, `--versions-with-feed` | Enumerate available package versions, optionally with feed provenance | A separate version population; these do not select a section of one package version |
+| `--content` | Read documents selected by `--path` | A content operation; selecting Files inventories entries without reading their contents |
+
+`--lib` and `--tools` have the same Files-only meaning throughout the package
+command. They require one package and exactly Files, are mutually exclusive,
+and do not select managed libraries. `--tools` does not request Library
+inspection. Package acquisition retains its existing .NET tool-wrapper
+redirection, so Files can inventory a wrapper's redirected payload package.
+
+For example, `System.Text.Json@10.0.12 --files --lib --tfm net8.0` inventories
+its DLL and XML entries under `lib/net8.0`. `--library System.Text.Json.dll
+--tfm net8.0` instead inspects the selected managed Library. The latter applies
+package asset-role selection before inspecting metadata; a file path predicate
+cannot replace that subject selection. Files `Target=net8.0` can also match
+entries under `buildTransitive/net8.0` unless a Root predicate narrows them.
+
+The separate `--tfms`, version-listing, and content modes reject explicit
+`-S` selection because they render their own populations. Giving one of these
+a section entrance would require preserving its row identity, ordering,
+acquisition, and output contract; it would not follow from replacing its flag
+with a Files predicate.
+
 For one package with `--tfms`, `-n`, `--tail`, and `--rows A..B` select
 complete target-framework rows after archive extraction, framework
 de-duplication, and TFM-priority ordering. Count, table, TSV, JSONL, and JSON
