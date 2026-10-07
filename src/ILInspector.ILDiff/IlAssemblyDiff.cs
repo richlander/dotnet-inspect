@@ -35,7 +35,10 @@ public sealed record IlIdentityResolutionFailure(
     int SubjectToken,
     MetadataTypeNameFailureMechanism Mechanism,
     string Kind,
-    string Detail);
+    string Detail)
+{
+    public string MechanismName => Mechanism.ToString();
+}
 
 public sealed record IlAssemblyDiffPairResult(
     string Old,
