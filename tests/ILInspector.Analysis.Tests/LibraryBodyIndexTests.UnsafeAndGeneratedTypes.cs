@@ -379,6 +379,22 @@ public partial class LibraryBodyIndexTests
             outOfBounds.Evidence,
             evidence => evidence.Kind
                 == UnsafeMemberUseKind.PointerDereference);
+        // A wrapping constant index is unprovable: the raw pointer keeps its
+        // roles while the Span<T> allocation beside it is still recognized.
+        UnsafeMemberUse overflowing = Assert.Single(
+            index.Safety.MemberUses,
+            use =>
+                use.Method.DeclaringType.Name
+                    == "SpanStackallocInitializers"
+                && use.Method.Name == "OverflowingConstantIndex");
+        Assert.Single(
+            overflowing.Evidence,
+            evidence => evidence.Kind
+                == UnsafeMemberUseKind.StackAllocation);
+        Assert.Contains(
+            overflowing.Evidence,
+            evidence => evidence.Kind
+                == UnsafeMemberUseKind.PointerDereference);
     }
 
     [Theory]

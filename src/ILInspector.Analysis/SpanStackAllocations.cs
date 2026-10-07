@@ -179,13 +179,14 @@ internal sealed record SpanStackAllocations(
 
         internal static Linear SizeOf(int token) => new(0, 1, token);
 
+        // Arithmetic that overflows is unprovable, not exceptional: IL wraps, so a
+        // wrapped displacement proves nothing about the allocation bound.
         internal static Linear? Add(Linear left, Linear right)
             => Combine(left, right) is { } token
-                ? new(
-                    checked(left.Constant + right.Constant),
-                    checked(left.Scale + right.Scale),
-                    token)
-                : null;
+                && TryAdd(left.Constant, right.Constant, out long constant)
+                && TryAdd(left.Scale, right.Scale, out long scale)
+                    ? new(constant, scale, token)
+                    : null;
 
         internal static Linear? Multiply(Linear left, Linear right)
             => left.Scale == 0
@@ -207,11 +208,24 @@ internal sealed record SpanStackAllocations(
                 && extent.Constant <= size.Constant
                 && extent.Scale <= size.Scale;
 
-        static Linear Scaled(Linear value, long factor)
-            => new(
-                checked(value.Constant * factor),
-                checked(value.Scale * factor),
-                value.SizeToken);
+        static Linear? Scaled(Linear value, long factor)
+            => TryMultiply(value.Constant, factor, out long constant)
+                && TryMultiply(value.Scale, factor, out long scale)
+                    ? new(constant, scale, value.SizeToken)
+                    : null;
+
+        static bool TryAdd(long left, long right, out long sum)
+        {
+            sum = unchecked(left + right);
+            return ((left ^ sum) & (right ^ sum)) >= 0;
+        }
+
+        static bool TryMultiply(long left, long right, out long product)
+        {
+            Int128 wide = (Int128)left * right;
+            product = unchecked((long)wide);
+            return wide == product;
+        }
 
         static int? Combine(Linear left, Linear right)
             => left.Scale == 0 ? right.SizeToken

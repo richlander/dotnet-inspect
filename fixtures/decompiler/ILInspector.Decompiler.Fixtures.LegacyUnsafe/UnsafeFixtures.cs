@@ -264,6 +264,16 @@ public static class SpanStackallocInitializers
         values[5] = 1;
         return new Span<int>(values, 3)[0];
     }
+
+    // The constant index wraps in IL; tracing must treat it as unprovable rather
+    // than fail the library analysis.
+    public static unsafe int OverflowingConstantIndex()
+    {
+        Span<int> values = stackalloc int[2];
+        int* pointer = stackalloc int[2];
+        pointer[0x4000000000000000L] = 1;
+        return values[0];
+    }
 }
 
 public static class StackallocInitializerNegatives

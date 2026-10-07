@@ -226,6 +226,20 @@ internal static class MethodSafetyAnalysis
                         PopArguments(stack, 2);
                         stack.Add(new(StackValueKind.Other));
                         break;
+                    case ILOpCode.Conv_i1:
+                    case ILOpCode.Conv_i2:
+                    case ILOpCode.Conv_i4:
+                    case ILOpCode.Conv_i8:
+                    case ILOpCode.Conv_u1:
+                    case ILOpCode.Conv_u2:
+                    case ILOpCode.Conv_u4:
+                    case ILOpCode.Conv_u8:
+                    case ILOpCode.Conv_r4:
+                    case ILOpCode.Conv_r8:
+                    case ILOpCode.Conv_r_un:
+                        Pop(stack, out _);
+                        stack.Add(new(StackValueKind.Other));
+                        break;
                     default:
                         if (TryReadAddressLoad(
                                 instruction,
