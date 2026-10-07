@@ -133,7 +133,6 @@
         "DotnetInspector.Services",
         "DotnetInspector.SourceSelection",
         "ILInspector.Analysis",
-        "ILInspector.Metadata",
         "InertText",
         "NuGetFetch",
         "QuerySpace",
