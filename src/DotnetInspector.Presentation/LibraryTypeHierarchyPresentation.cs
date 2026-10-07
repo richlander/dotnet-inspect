@@ -111,14 +111,17 @@ public static class LibraryTypeHierarchyPresentation
             new MarkoutWriter(
                 output,
                 new MarkdownFormatter());
-        var sink =
-            new MarkoutHierarchySink<LibraryTypeHierarchyNode>(
-                writer,
-                FormatNode);
-        LibraryTypeHierarchyProjection.Write(
-            document,
-            hierarchy,
-            sink);
+        writer.WriteTree(tree =>
+        {
+            var sink =
+                new MarkoutHierarchySink<LibraryTypeHierarchyNode>(
+                    tree,
+                    FormatNode);
+            LibraryTypeHierarchyProjection.Write(
+                document,
+                hierarchy,
+                sink);
+        });
         writer.Flush();
     }
 

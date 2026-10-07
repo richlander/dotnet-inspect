@@ -75,12 +75,25 @@ machine, so the edit advertises what it is every time anyone reads the file.
 That matters because these lines are tracked while the thing they point at is
 not — see the footgun below.
 
-Three projects reference the package, and each one that must move needs both
-lines:
+The direct-consumer set evolves. Find every current Markout package reference
+before starting the swap:
+
+```bash
+rg 'PackageReference Include="Markout"' --glob '*.csproj'
+```
+
+At the time of writing, nine projects reference the package, and each one
+needs both project-reference lines:
 
 - `src/DotnetInspect.Cli/DotnetInspect.Cli.csproj`
 - `src/DotnetInspector.MetadataRendering/DotnetInspector.MetadataRendering.csproj`
+- `src/DotnetInspector.Presentation/DotnetInspector.Presentation.csproj`
 - `tests/ILInspector.Decompiler.Tests/ILInspector.Decompiler.Tests.csproj`
+- `tools/AnalysisHarness/AnalysisHarness.csproj`
+- `tools/CSharpDiffHarness/CSharpDiffHarness.csproj`
+- `tools/DecompilerHarness/DecompilerHarness.csproj`
+- `tools/HarnessReportDiff/HarnessReportDiff.csproj`
+- `tools/IlDiffHarness/IlDiffHarness.csproj`
 
 `ILInspector.Decompiler.Tests` also consumes `Markout.Templates`, which is a
 separate package with its own version.
