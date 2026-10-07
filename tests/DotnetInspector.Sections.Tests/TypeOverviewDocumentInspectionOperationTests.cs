@@ -5,7 +5,7 @@ using ILInspector.Metadata;
 
 namespace DotnetInspector.Sections.Tests;
 
-public sealed class TypeOverviewDocumentInspectionOperationTests
+public sealed partial class TypeOverviewDocumentInspectionOperationTests
 {
     private static readonly ApiSurfaceExtractionBounds s_bounds =
         new(
