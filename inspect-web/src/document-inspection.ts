@@ -131,6 +131,16 @@ function splitFrontmatter(text: string) {
   return { meta, body: source.slice(matchedText.length) };
 }
 
+// A nuspec is XML; render it through the Markdown path as a fenced xml block.
+function documentMarkdown(request: PackageDocumentRequest, text: string) {
+  if (request.document.kind !== "metadata") return splitFrontmatter(text);
+  let longestRun = 0;
+  for (const [run] of text.matchAll(/`+/g))
+    if (run.length > longestRun) longestRun = run.length;
+  const fence = "`".repeat(Math.max(3, longestRun + 1));
+  return { meta: null, body: `${fence}xml\n${text}\n${fence}` };
+}
+
 export function createDocumentInspectionCoordinator(
   dependencies: DocumentInspectionDependencies,
 ) {
@@ -152,7 +162,7 @@ export function createDocumentInspectionCoordinator(
         if (state.docViewer !== pending) return;
         if (typeof content.text !== "string")
           throw new TypeError("The document content did not contain text.");
-        const { meta, body } = splitFrontmatter(content.text);
+        const { meta, body } = documentMarkdown(request, content.text);
         const html = await dependencies.renderMarkdown(body);
         if (state.docViewer !== pending) return;
         const descriptionHtml = meta?.description
@@ -224,7 +234,7 @@ export function createPackageDocumentTitles(dependencies: {
           const content = await dependencies.queryDocument(request);
           if (typeof content.text !== "string")
             throw new TypeError("The document content did not contain text.");
-          const html = await dependencies.renderMarkdown(splitFrontmatter(content.text).body);
+          const html = await dependencies.renderMarkdown(documentMarkdown(request, content.text).body);
           entries.set(path, { status: "ready", title: dependencies.firstHeading(html) });
         } catch (error) {
           entries.set(path, { status: "failed", error: dependencies.describeError(error) });

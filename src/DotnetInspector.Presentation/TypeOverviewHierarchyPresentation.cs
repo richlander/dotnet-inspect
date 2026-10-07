@@ -148,14 +148,17 @@ public static class TypeOverviewHierarchyPresentation
             new MarkoutWriter(
                 output,
                 new MarkdownFormatter());
-        var sink =
-            new MarkoutHierarchySink<TypeOverviewHierarchyNode>(
-                writer,
-                FormatNode);
-        TypeOverviewHierarchyProjection.Write(
-            document,
-            hierarchy,
-            sink);
+        writer.WriteTree(tree =>
+        {
+            var sink =
+                new MarkoutHierarchySink<TypeOverviewHierarchyNode>(
+                    tree,
+                    FormatNode);
+            TypeOverviewHierarchyProjection.Write(
+                document,
+                hierarchy,
+                sink);
+        });
         writer.Flush();
     }
 

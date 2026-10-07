@@ -554,7 +554,7 @@ public partial class UnsafeEvidencePresenceTests
         Assert.Null(execution.SourceReceipt.SourceFailure);
         MethodDefinitionGeneratedExpansionCoverage expansion =
             execution.SourceReceipt.Coverage.GeneratedExpansion;
-        Assert.Equal(9, expansion.RelationshipNodes);
+        Assert.Equal(8, expansion.RelationshipNodes);
         Assert.True(
             expansion.Origins.Count(origin => origin.Kind
                 == MethodDefinitionGeneratedExpansionOriginKind
@@ -649,6 +649,52 @@ public partial class UnsafeEvidencePresenceTests
             "relationship-node limit",
             failure.Message,
             StringComparison.Ordinal);
+        Assert.Equal(
+            3,
+            execution.SourceReceipt.Coverage.GeneratedExpansion
+                .RelationshipNodes);
+    }
+
+    [Fact]
+    public void
+        MethodQuerySource_GeneratedExpansionSkipsDeclaredNestedTypes()
+    {
+        string path =
+            FixtureCatalog.AnalysisStringLiterals.AssemblyPath();
+        TypeDefinitionHandle type = FindFixtureType(
+            path,
+            "ILInspector.Analysis.ImplementationProfileFixtures",
+            "GeneratedExpansionDeclaredNestedTypeSample");
+        var limits = new MethodDefinitionGeneratedExpansionLimits(
+            maximumCandidateDefinitions: 100,
+            maximumGeneratedMethods: 100,
+            maximumProbeBodies: 100,
+            maximumProbeEncodedIlBytes: 1_000_000,
+            maximumRelationshipNodes: 100);
+        AssemblyAnalysisOperation<int> operation = CreateOperation(
+            path,
+            MethodDefinitionSourceBreadth
+                .ExactTypes(type)
+                .IncludeGeneratedExecutionBodies(limits),
+            CompleteUnsafeEvidenceDescription());
+
+        using PdbContext context = PdbContext.OpenMetadataOnly(path);
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Borrow(context);
+        AssemblyAnalysisExecution<int> execution =
+            Execute(session, operation);
+
+        Assert.Null(execution.SourceReceipt.SourceFailure);
+        Assert.Equal(
+            MethodDefinitionSourceCompletion.Exhausted,
+            execution.SourceReceipt.Completion);
+        Assert.Contains(
+            execution.SourceReceipt.Coverage.GeneratedExpansion.Origins,
+            origin => origin.Kind
+                == MethodDefinitionGeneratedExpansionOriginKind
+                    .LiftedExecutionBody);
+        // Only the lambda's closure Type and lifted body are charged; the
+        // declared First, Second, and Third hierarchy is never visited.
         Assert.Equal(
             3,
             execution.SourceReceipt.Coverage.GeneratedExpansion
