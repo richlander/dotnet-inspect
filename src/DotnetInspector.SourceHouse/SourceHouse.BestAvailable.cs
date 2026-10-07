@@ -32,6 +32,7 @@ public static partial class SourceHouse
                 : await ExecuteCoreAsync(
                         authoredRequest,
                         operationLease,
+                        session: null,
                         cancellationToken)
                     .ConfigureAwait(false);
             if (authored is not AvailableOutcome)

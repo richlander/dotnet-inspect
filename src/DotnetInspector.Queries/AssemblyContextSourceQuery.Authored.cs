@@ -57,6 +57,7 @@ public static partial class AssemblyContextSourceQuery
                 timeout: context.MemberSourceTimeout,
                 cancellationToken: cancellationToken,
                 retainLibrary: false,
+                retainAuthoredSession: false,
                 retainedOperationLimits:
                     context.MemberDecompilationLimits,
                 pdbEvidence: null,
@@ -117,6 +118,7 @@ public static partial class AssemblyContextSourceQuery
         TimeSpan timeout,
         CancellationToken cancellationToken,
         bool retainLibrary = false,
+        bool retainAuthoredSession = false,
         SourceHouseDecompilationLimits?
             retainedOperationLimits = null)
     {
@@ -131,6 +133,7 @@ public static partial class AssemblyContextSourceQuery
                     : SourceHouseMemberSourceForm.DeclarationText),
             operationName: "member-source", limits, timeout, cancellationToken,
             retainLibrary,
+            retainAuthoredSession,
             retainedOperationLimits,
             pdbEvidence: null)
             .ConfigureAwait(false);
@@ -156,6 +159,8 @@ public static partial class AssemblyContextSourceQuery
             HouseOutcome = authored.HouseOutcome,
             LibraryFailure = authored.LibraryFailure,
             RetainedLibrary = authored.RetainedLibrary,
+            RetainedAuthoredSession =
+                authored.RetainedAuthoredSession,
         };
     }
 
@@ -178,6 +183,7 @@ public static partial class AssemblyContextSourceQuery
             new SourceHouseTarget.TypeTarget(request.Type, request.OriginalDocumentPath),
             operationName: "type-source", limits, timeout, cancellationToken,
             retainLibrary: false,
+            retainAuthoredSession: false,
             retainedOperationLimits: null,
             pdbEvidence).ConfigureAwait(false);
         PdbTypeSourceInspection inspection = authored switch
@@ -243,6 +249,7 @@ public static partial class AssemblyContextSourceQuery
                 timeout: context.TypeSourceTimeout,
                 cancellationToken: cancellationToken,
                 retainLibrary: false,
+                retainAuthoredSession: false,
                 retainedOperationLimits:
                     context.TypeDecompilationLimits,
                 pdbEvidence: pdbEvidence,
@@ -308,12 +315,21 @@ public static partial class AssemblyContextSourceQuery
         TimeSpan timeout,
         CancellationToken cancellationToken,
         bool retainLibrary,
+        bool retainAuthoredSession,
         SourceHouseDecompilationLimits?
             retainedOperationLimits,
         PortablePdbAcquisitionEvidenceCollector? pdbEvidence,
         bool bestAvailable = false,
         PrinterOptions? decompilationPrinterOptions = null)
     {
+        if (retainAuthoredSession
+            && (!retainLibrary || bestAvailable))
+        {
+            throw new ArgumentException(
+                "A retained authored session requires authored-only retained-Library execution.",
+                nameof(retainAuthoredSession));
+        }
+
         var opened = await OpenSourceLinkAsync(
             retained,
             context,
@@ -457,6 +473,12 @@ public static partial class AssemblyContextSourceQuery
         if (admission is not AssemblyContextLibraryAdapterResult.Completed completed)
             throw new InvalidOperationException("Unknown Library admission result.");
 
+        bool keepLibrary =
+            retainLibrary
+            && (!retainAuthoredSession
+                || acquisitionFailure is null);
+        AuthoredSourceHouse.AuthoredSession?
+            authoredSession = null;
         SourceHouseOutcome? outcome = null;
         SourceHouseBestAvailableOutcome? bestAvailableOutcome =
             null;
@@ -465,6 +487,19 @@ public static partial class AssemblyContextSourceQuery
         primaryFailure = null;
         try
         {
+            if (retainAuthoredSession
+                && acquisitionFailure is null)
+            {
+                authoredSession =
+                    AuthoredSourceHouse
+                        .OpenAuthoredSession(
+                            completed.Reference,
+                            completed.Reference
+                                .ImplementationAssembly
+                                ?? throw new InvalidOperationException(
+                                    "The admitted source Library has no implementation assembly."),
+                            limits);
+            }
             EnsureBindingPolicyVersion(participant, version);
             if (acquisitionFailure is null || bestAvailable)
             {
@@ -544,8 +579,15 @@ public static partial class AssemblyContextSourceQuery
                             "The admitted Library could not issue its source operation lease.");
                     }
                     outcome =
-                        await AuthoredSourceHouse
-                            .ExecuteAuthoredAsync(
+                        authoredSession is null
+                            ? await AuthoredSourceHouse
+                                .ExecuteAuthoredAsync(
+                                    houseRequest,
+                                    issued.Lease,
+                                    cancellationToken)
+                                .ConfigureAwait(false)
+                            : await authoredSession
+                                .ExecuteAsync(
                                 houseRequest,
                                 issued.Lease,
                                 cancellationToken)
@@ -560,12 +602,42 @@ public static partial class AssemblyContextSourceQuery
         }
         finally
         {
-            if (!retainLibrary || primaryFailure is not null)
+            if (!keepLibrary || primaryFailure is not null)
             {
+                Exception? sessionDisposalFailure =
+                    null;
+                if (authoredSession is not null)
+                {
+                    try
+                    {
+                        await authoredSession
+                            .DisposeAsync()
+                            .ConfigureAwait(false);
+                    }
+                    catch (Exception failure)
+                    {
+                        sessionDisposalFailure =
+                            failure;
+                        if (primaryFailure
+                            is not null)
+                        {
+                            ArtifactSetSession
+                                .AttachCleanupFailures(
+                                    primaryFailure,
+                                    [failure]);
+                        }
+                    }
+                }
                 await RetireSourceHouseLibraryAsync(
                         completed,
-                        primaryFailure)
+                        primaryFailure
+                        ?? sessionDisposalFailure)
                     .ConfigureAwait(false);
+                if (primaryFailure is null
+                    && sessionDisposalFailure is not null)
+                {
+                    throw sessionDisposalFailure;
+                }
             }
         }
 
@@ -577,8 +649,24 @@ public static partial class AssemblyContextSourceQuery
         }
         catch (Exception failure)
         {
-            if (retainLibrary)
+            if (keepLibrary)
             {
+                if (authoredSession is not null)
+                {
+                    try
+                    {
+                        await authoredSession
+                            .DisposeAsync()
+                            .ConfigureAwait(false);
+                    }
+                    catch (Exception cleanup)
+                    {
+                        ArtifactSetSession
+                            .AttachCleanupFailures(
+                                failure,
+                                [cleanup]);
+                    }
+                }
                 await RetireSourceHouseLibraryAsync(
                         completed,
                         failure)
@@ -594,7 +682,11 @@ public static partial class AssemblyContextSourceQuery
             HouseOutcome = outcome,
             BestAvailableOutcome =
                 bestAvailableOutcome,
-            RetainedLibrary = retainLibrary ? completed : null,
+            RetainedLibrary = keepLibrary ? completed : null,
+            RetainedAuthoredSession =
+                keepLibrary
+                    ? authoredSession
+                    : null,
             PortablePdbAvailable =
                 portablePdbAvailable,
         };
@@ -936,6 +1028,9 @@ public static partial class AssemblyContextSourceQuery
         public AssemblyContextLibraryAdapterResult.Terminal? LibraryFailure { get; init; }
         public AssemblyContextLibraryAdapterResult.Completed?
             RetainedLibrary
+        { get; init; }
+        public AuthoredSourceHouse.AuthoredSession?
+            RetainedAuthoredSession
         { get; init; }
         public bool? PortablePdbAvailable { get; init; }
     }
