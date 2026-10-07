@@ -103,6 +103,7 @@ public sealed class ReturnToSenderTargetSourceSession : IDisposable
     private readonly MetadataDeclarationSession _declarations;
     private readonly CSharpLanguageProfile _languageProfile;
     private readonly TargetApiEvidence _targetApiEvidence = new();
+    private bool _allTargetTypesMaterialized;
 
     public ReturnToSenderTargetSourceSession(
         string assemblyIdentity,
@@ -131,15 +132,12 @@ public sealed class ReturnToSenderTargetSourceSession : IDisposable
             _assembly.InspectImage(
                 pe =>
                 {
-                    MetadataReader reader = pe.GetMetadataReader();
-                    if (IsTargetType(reader, candidate, typeFilter))
-                    {
-                        _targetApiEvidence.Materialize(
-                            pe,
-                            [candidate.TypeDefHandle]);
-                    }
+                    // Callers decide a population one candidate at a time,
+                    // so decode every target Type in one walk on first use
+                    // rather than repeating the extractor's setup per Type.
+                    MaterializeTargetTypes(pe, typeFilter: null);
                     return Evaluate(
-                        reader,
+                        pe.GetMetadataReader(),
                         candidate,
                         typeFilter,
                         materializeDecision: true);
@@ -193,21 +191,7 @@ public sealed class ReturnToSenderTargetSourceSession : IDisposable
         string? typeFilter)
     {
         MetadataReader reader = pe.GetMetadataReader();
-        var targetTypes = new List<TypeDefinitionHandle>();
-        foreach (TypeDefinitionHandle typeHandle
-            in reader.TypeDefinitions)
-        {
-            TypeDefinition type = reader.GetTypeDefinition(typeHandle);
-            if (IsTargetType(
-                    reader,
-                    typeHandle,
-                    reader.GetFullTypeName(type),
-                    typeFilter))
-            {
-                targetTypes.Add(typeHandle);
-            }
-        }
-        _targetApiEvidence.Materialize(pe, targetTypes);
+        MaterializeTargetTypes(pe, typeFilter);
 
         int scannedBodyCount = 0;
         int declarationCandidateCount = 0;
@@ -633,6 +617,32 @@ public sealed class ReturnToSenderTargetSourceSession : IDisposable
                 reader,
                 type),
             method);
+
+    private void MaterializeTargetTypes(
+        PEReader pe,
+        string? typeFilter)
+    {
+        if (_allTargetTypesMaterialized)
+            return;
+
+        MetadataReader reader = pe.GetMetadataReader();
+        var targetTypes = new List<TypeDefinitionHandle>();
+        foreach (TypeDefinitionHandle typeHandle
+            in reader.TypeDefinitions)
+        {
+            TypeDefinition type = reader.GetTypeDefinition(typeHandle);
+            if (IsTargetType(
+                    reader,
+                    typeHandle,
+                    reader.GetFullTypeName(type),
+                    typeFilter))
+            {
+                targetTypes.Add(typeHandle);
+            }
+        }
+        _targetApiEvidence.Materialize(pe, targetTypes);
+        _allTargetTypesMaterialized = typeFilter is null;
+    }
 
     private static bool IsTargetType(
         MetadataReader reader,
