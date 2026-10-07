@@ -359,11 +359,13 @@ public static class RouterCommandDefinition
                 return 1;
             }
 
+            string? selectedPlatformFramework = null;
             var rewritten = await RouterTokenRewriter.RewriteAsync(
                 tokens,
                 sourceOptions,
                 rootCommand,
-                ct);
+                ct,
+                framework => selectedPlatformFramework = framework);
             RouterDecisionLog.Record(
                 "router-rewrite",
                 $"{string.Join(' ', tokens)} -> {string.Join(' ', rewritten)}");
@@ -380,8 +382,15 @@ public static class RouterCommandDefinition
             rewritten = CommandLineBuilder.PreprocessArgs(
                 rewritten,
                 rootCommand);
+            ParseResult childParse = rootCommand.Parse(rewritten);
+            if (childParse.Errors.Count == 0
+                && !opts.IsDiscoveryMode(sourceParseResult))
+            {
+                RouterEcosystemExplanation.Write(
+                    tokens[0], rewritten[0], selectedPlatformFramework);
+            }
             return await CommandLineBuilder.InvokeWithLineWindowAsync(
-                rootCommand.Parse(rewritten),
+                childParse,
                 rewritten);
         });
 
@@ -592,7 +601,8 @@ public static class RouterCommandDefinition
             string[] tokens,
             NuGetSourceOptions sourceOptions,
             RootCommand rootCommand,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            Action<string?>? selectedPlatform = null)
         {
             var target = tokens[0];
             var tail = tokens[1..];
@@ -626,7 +636,7 @@ public static class RouterCommandDefinition
             var context = new CommandContext(verbose: false);
             if (PlatformResolver.IsPlatformCandidate(target))
             {
-                var (resolvedPath, _, _, resolvedError) = await PlatformResolver.ResolveAssemblyAsync(
+                var (resolvedPath, resolvedFramework, _, resolvedError) = await PlatformResolver.ResolveAssemblyAsync(
                     target,
                     context.HttpClient,
                     context.Logger.Log,
@@ -647,6 +657,7 @@ public static class RouterCommandDefinition
                         ((AssemblySurfaceClassificationOutcome.Classified)
                             classification).Classification.Kind
                         == AssemblySurfaceKind.Facade;
+                    selectedPlatform?.Invoke(resolvedFramework);
                     return target.Count(c => c == '.') >= 2 && isFacade
                         ? ["type", target, .. tail]
                         : ["library", target, .. tail];
