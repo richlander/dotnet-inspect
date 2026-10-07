@@ -5994,7 +5994,9 @@ function selectDefaultPackageSubject(pkg: AppPackage) {
   state.atLibraryRoot =
     pkg.assemblies.length > 0 && Boolean(pkg.assemblyId);
   state.atPackageRoot = !state.atLibraryRoot;
-  state.libraryScope = null;
+  state.libraryScope = state.atLibraryRoot
+    ? new Set([pkg.assemblyId])
+    : null;
   state.packageLens = "overview";
   state.libraryLens = "overview";
 }
