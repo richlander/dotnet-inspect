@@ -849,6 +849,7 @@ test("Activity Back restores focus on the Demos route", async ({ page }) => {
     .toBeVisible();
   await page.keyboard.press("Control+k");
   await page.locator("#spotlight-input").fill("activity");
+  await page.locator('[data-sl-scope="commands"]').click();
   await page.locator('[data-sl-package-activity="1"]').click();
   await expect(page).toHaveURL(/\/activity$/);
 

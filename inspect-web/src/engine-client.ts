@@ -104,6 +104,8 @@ type AnalysisOperations =
   | "queryPlatformResourceTriage";
 
 type SourceOperations =
+  | "queryMemberBodyDiff"
+  | "cancelMemberBodyDiff"
   | "cancelMemberSourceComparison"
   | "cancelMethodBodyComparison"
   | "cancelSourceQuery"

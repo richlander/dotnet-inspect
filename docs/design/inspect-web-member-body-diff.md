@@ -151,7 +151,11 @@ signature and public addition/deletion topology.
 
 Managed code also obtains the union of public body-backed Member selections
 from the endpoint surface and correspondence owners and passes an explicit
-selected-population request to `ImplementationDiffDocumentQuery`. That request
+selected-population request to `ImplementationDiffDocumentQuery`, carrying
+API-owned exact paired selections for Research designation when strict body
+correspondence is unavailable. Body-backed accessors associate through their
+exact API anchor and producer-issued Getter, Setter, Adder, or Remover role;
+roles are never guessed or paired by ordinal. That request
 remains selected when the union contains zero Members, producing a complete
 empty C#/IL result rather than whole-assembly work. The query therefore
 compares only the requested public population; the host does not compare every

@@ -613,7 +613,8 @@ public static class MetadataHierarchySubjectRelationsOperation
 
         var target = new MetadataHierarchyTargetSelection(
             focus.Type,
-            kind);
+            kind,
+            focusAssembly.Identity);
         MetadataRelationGraphAdapter.ValidateHierarchyFocus(
             focusAssembly,
             request.Focus,

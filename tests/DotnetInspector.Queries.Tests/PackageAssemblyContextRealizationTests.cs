@@ -2199,6 +2199,85 @@ public sealed class PackageAssemblyContextRealizationTests
     }
 
     [Fact]
+    public async Task ArtifactBackedPackageRealization_ComposesPackageBindings()
+    {
+        byte[] firstImage =
+            IntegrationAssembly("Artifact.Composite.First", "FirstType");
+        byte[] secondImage =
+            IntegrationAssembly("Artifact.Composite.Second", "SecondType");
+        PackageRootBinding first = Binding(
+            "artifact.composite.first",
+            new TrackingPackageContent(
+                ("lib/net11.0/Artifact.Composite.First.dll", firstImage)));
+        PackageRootBinding second = Binding(
+            "artifact.composite.second",
+            new TrackingPackageContent(
+                ("lib/net11.0/Artifact.Composite.Second.dll", secondImage)));
+        await using var workspace = new InspectionWorkspace();
+        using PackageAssemblyContextRealization realization =
+            await workspace.RealizePackageAssemblyContextRolesAsync(
+                [first, second],
+                new PackageAssemblyContextRealizationOptions
+                {
+                    MaxAggregateRetainedImageBytes =
+                        2 * (firstImage.LongLength + secondImage.LongLength),
+                    MaxAssemblyEntryBytes =
+                        Math.Max(firstImage.LongLength, secondImage.LongLength),
+                },
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(2, realization.SurfaceParticipants.Length);
+        ArtifactAcquisitionRegistration[] registrations =
+        [
+            .. realization.SurfaceParticipants.Select(participant =>
+                Assert.IsType<ArtifactAcquisitionRegistration>(
+                    participant.Participant.Assembly.Registration
+                        .ArtifactRegistration)),
+        ];
+        Assert.Same(
+            registrations[0].Generation,
+            registrations[1].Generation);
+        Assert.All(
+            realization.SurfaceParticipants,
+            participant =>
+                Assert.NotNull(
+                    participant.Participant.Assembly.Registration
+                        .ModuleVersionId));
+        Assert.Collection(
+            registrations,
+            registration =>
+            {
+                PackageAssemblyArtifactProvenance provenance =
+                    Assert.IsType<PackageAssemblyArtifactProvenance>(
+                        registration.Provenance);
+                Assert.Equal(first.Coordinate, provenance.Coordinate);
+                Assert.Same(
+                    first.ContentGenerationIdentity,
+                    provenance.ContentGenerationIdentity);
+            },
+            registration =>
+            {
+                PackageAssemblyArtifactProvenance provenance =
+                    Assert.IsType<PackageAssemblyArtifactProvenance>(
+                        registration.Provenance);
+                Assert.Equal(second.Coordinate, provenance.Coordinate);
+                Assert.Same(
+                    second.ContentGenerationIdentity,
+                    provenance.ContentGenerationIdentity);
+            });
+        AssemblyContextApiSurfaceResult surfaces =
+            AssemblyContextApiSurfaceQuery.Execute(
+                realization.SurfaceGroup);
+        Assert.Equal(2, surfaces.Assemblies.Assemblies.Length);
+        Assert.All(
+            surfaces.Assemblies.Assemblies,
+            entry =>
+                Assert.IsType<
+                    AssemblyContextEntry<AssemblyApiSurface>.Available>(
+                    entry));
+    }
+
+    [Fact]
     public async Task ArtifactBackedPackageRealization_ReusesAdmissionFactsAcrossRoles()
     {
         byte[] surface = IntegrationAssembly("Artifact.Primary", "SurfaceType");

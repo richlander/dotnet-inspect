@@ -33,7 +33,8 @@ public sealed class ResearchProducerSessionRequest
     public ResearchProducerSessionRequest(
         ResearchAdmittedPopulation population,
         ResearchTargetResolution resolution,
-        IEnumerable<ResearchProducerKind> producers)
+        IEnumerable<ResearchProducerKind> producers,
+        IEnumerable<ResearchDesignatedPair>? designatedPairs = null)
     {
         ArgumentNullException.ThrowIfNull(population);
         ArgumentNullException.ThrowIfNull(resolution);
@@ -41,10 +42,22 @@ public sealed class ResearchProducerSessionRequest
         Population = population;
         Resolution = resolution;
         Producers = [.. producers];
+        ResearchDesignatedPair[] pairs = [.. designatedPairs ?? []];
+        if (pairs.Any(pair => !ReferenceEquals(pair.Resolution, resolution)
+                || !resolution.Correspondences.OfType<ResearchTargetCorrespondenceOutcome.CounterpartUnavailable>()
+                    .Any(outcome => ReferenceEquals(outcome.Attempt, pair.Before))
+                || !resolution.Correspondences.OfType<ResearchTargetCorrespondenceOutcome.CounterpartUnavailable>()
+                    .Any(outcome => ReferenceEquals(outcome.Attempt, pair.After)))
+            || pairs.SelectMany(pair => new[] { pair.Before, pair.After }).Distinct().Count() != pairs.Length * 2)
+            throw new ArgumentException("Designated pairs must be disjoint and belong to this resolution.", nameof(designatedPairs));
         WorkBases =
         [
-            .. resolution.Correspondences.Select(
-                static outcome => new ResearchProducerWorkBasis.Correspondence(outcome)),
+            .. resolution.Correspondences.Where(outcome =>
+                !(outcome is ResearchTargetCorrespondenceOutcome.CounterpartUnavailable unavailable
+                    && pairs.Any(pair => ReferenceEquals(pair.Before, unavailable.Attempt)
+                        || ReferenceEquals(pair.After, unavailable.Attempt))))
+                .Select(static outcome => new ResearchProducerWorkBasis.Correspondence(outcome)),
+            .. pairs.Select(static pair => new ResearchProducerWorkBasis.DesignatedPair(pair)),
         ];
     }
 

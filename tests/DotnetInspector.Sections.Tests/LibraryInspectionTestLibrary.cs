@@ -273,7 +273,8 @@ internal sealed class LibraryInspectionTestLibrary : IAsyncDisposable
         bool includeGlobalType = false,
         bool duplicatePublicType = false,
         string metadataVersion = "v4.0.30319",
-        bool undecodableCompany = false)
+        bool undecodableCompany = false,
+        (string Namespace, string Name)? publicInterface = null)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -339,6 +340,18 @@ internal sealed class LibraryInspectionTestLibrary : IAsyncDisposable
                     | TypeAttributes.Abstract,
                 default,
                 metadata.GetOrAddString("GlobalProbe"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        }
+        if (publicInterface is { } declared)
+        {
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public
+                    | TypeAttributes.Interface
+                    | TypeAttributes.Abstract,
+                metadata.GetOrAddString(declared.Namespace),
+                metadata.GetOrAddString(declared.Name),
                 default,
                 MetadataTokens.FieldDefinitionHandle(1),
                 MetadataTokens.MethodDefinitionHandle(1));

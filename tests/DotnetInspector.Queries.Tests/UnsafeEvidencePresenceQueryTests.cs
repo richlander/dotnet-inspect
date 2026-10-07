@@ -112,14 +112,57 @@ public sealed class UnsafeEvidencePresenceQueryTests
             method => Assert.False(
                 available.SourceReceipt.Coverage
                     .DefinitionsExamined.Contains(method)));
+        ImmutableArray<MethodDefinitionHandle> admitted =
+        [
+            .. unsafeMethods,
+            .. available.SourceReceipt.Coverage
+                .GeneratedExpansion.Origins
+                .Select(static origin => origin.Method),
+        ];
         Assert.All(
             available.SourceReceipt.Coverage
                 .DefinitionsExamined.Ranges,
             range =>
             {
-                Assert.Contains(range.First, unsafeMethods);
-                Assert.Contains(range.Last, unsafeMethods);
+                Assert.Contains(range.First, admitted);
+                Assert.Contains(range.Last, admitted);
             });
+    }
+
+    [Fact]
+    public void ExactTypeBreadthIncludesGeneratedUnsafeBodies()
+    {
+        string path =
+            FixtureCatalog.AnalysisStringLiterals.AssemblyPath();
+        TypeDefinitionHandle type = FindType(
+            path,
+            "ILInspector.Analysis.ImplementationProfileFixtures",
+            "GeneratedUnsafeEvidenceSample");
+        using PdbContext context = PdbContext.OpenMetadataOnly(path);
+
+        var available =
+            Assert.IsType<UnsafeEvidencePresenceResult.Available>(
+                UnsafeEvidencePresenceQuery.ExecuteExactTypes(
+                    path,
+                    context,
+                    type));
+
+        Assert.True(available.HasEvidence);
+        MethodDefinitionGeneratedExpansionCoverage expansion =
+            available.SourceReceipt.Coverage.GeneratedExpansion;
+        Assert.Contains(
+            expansion.Origins,
+            origin => origin.Kind
+                == MethodDefinitionGeneratedExpansionOriginKind
+                    .StateMachineExecutionBody);
+        Assert.Contains(
+            expansion.Origins,
+            origin => origin.Kind
+                == MethodDefinitionGeneratedExpansionOriginKind
+                    .LiftedExecutionBody);
+        Assert.True(expansion.ProbeBodiesAttempted.Count > 0);
+        Assert.True(expansion.ProbeEncodedIlBytes > 0);
+        Assert.True(expansion.RelationshipNodes > 0);
     }
 
     [Fact]

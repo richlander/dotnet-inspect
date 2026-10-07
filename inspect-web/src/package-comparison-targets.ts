@@ -19,6 +19,7 @@ export type CompareMode = "diff" | "clone";
 
 export type DiffContent =
   | { kind: "api" }
+  | { kind: "member-body" }
   | {
       kind: "string-literals";
       operator: "contains" | "starts-with";
@@ -268,6 +269,7 @@ export function bindDiffContent(
   );
   content?.addEventListener("change", () => {
     if (content.value === "api") select({ kind: "api" });
+    else if (content.value === "member-body") select({ kind: "member-body" });
     else if (content.value === "string-literals") {
       select({
         kind: "string-literals",

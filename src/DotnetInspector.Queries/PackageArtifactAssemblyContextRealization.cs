@@ -35,10 +35,34 @@ public sealed partial class InspectionWorkspace
             PackageRootBinding package,
             PackageAssemblyContextRealizationOptions? options = null,
             CancellationToken cancellationToken = default)
+        => await RealizePackageAssemblyContextRolesAsync(
+                [package],
+                options,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+    /// <summary>
+    /// Realizes acquisition-bound packages through one retained artifact
+    /// generation into binding-consistent surface and implementation roles.
+    /// </summary>
+    public async ValueTask<PackageAssemblyContextRealization>
+        RealizePackageAssemblyContextRolesAsync(
+            IReadOnlyList<PackageRootBinding> packages,
+            PackageAssemblyContextRealizationOptions? options = null,
+            CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(packages);
+        if (packages.Count == 0 || packages.Any(static package => package is null))
+        {
+            throw new ArgumentException(
+                "Artifact-backed package realization requires at least one "
+                    + "non-null package binding.",
+                nameof(packages));
+        }
+
         ArtifactPackageRootResources resources =
             await ConstructPackageArtifactRootAsync(
-                package, options, provisional: false, cancellationToken)
+                packages, options, provisional: false, cancellationToken)
                 .ConfigureAwait(false);
         try
         {
@@ -61,15 +85,14 @@ public sealed partial class InspectionWorkspace
 
     async ValueTask<ArtifactPackageRootResources>
         ConstructPackageArtifactRootAsync(
-            PackageRootBinding package,
+            IReadOnlyList<PackageRootBinding> packages,
             PackageAssemblyContextRealizationOptions? options,
             bool provisional,
             CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(package);
         PackageRoleRealizationPreparation preparation =
             PreparePackageRoleRealization(
-                [package.Root],
+                packages.Select(static package => package.Root),
                 options,
                 cancellationToken);
         if (preparation.SurfaceAssets.IsEmpty)
@@ -104,9 +127,11 @@ public sealed partial class InspectionWorkspace
                         [.. artifacts.Select(artifact =>
                             new PackageArtifactSource(
                                 new PackageAssemblyArtifactProvenance(
-                                    package.Coordinate,
-                                    package.ContentGenerationIdentity,
-                                    package.SelectionIdentity,
+                                    packages[artifact.PackageIndex].Coordinate,
+                                    packages[artifact.PackageIndex]
+                                        .ContentGenerationIdentity,
+                                    packages[artifact.PackageIndex]
+                                        .SelectionIdentity,
                                     artifact.Asset),
                                 token => OpenEntry(
                                     artifact,

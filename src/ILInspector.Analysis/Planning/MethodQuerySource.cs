@@ -21,6 +21,66 @@ public enum MethodDefinitionSourceBreadthKind
     ExactTypes,
 }
 
+/// <summary>Relations that may widen direct MethodDef breadth.</summary>
+[Flags]
+public enum MethodDefinitionSourceExpansion
+{
+    None = 0,
+
+    /// <summary>
+    /// Authenticated state-machine, local-function, and lambda execution
+    /// bodies owned by directly selected methods.
+    /// </summary>
+    GeneratedExecutionBodies = 1,
+}
+
+/// <summary>Finite work bounds for generated execution-body discovery.</summary>
+public sealed record MethodDefinitionGeneratedExpansionLimits
+{
+    public MethodDefinitionGeneratedExpansionLimits(
+        int maximumCandidateDefinitions,
+        int maximumGeneratedMethods,
+        int maximumProbeBodies,
+        long maximumProbeEncodedIlBytes,
+        int maximumRelationshipNodes)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
+            maximumCandidateDefinitions);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
+            maximumGeneratedMethods);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
+            maximumProbeBodies);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
+            maximumProbeEncodedIlBytes);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
+            maximumRelationshipNodes);
+
+        MaximumCandidateDefinitions = maximumCandidateDefinitions;
+        MaximumGeneratedMethods = maximumGeneratedMethods;
+        MaximumProbeBodies = maximumProbeBodies;
+        MaximumProbeEncodedIlBytes = maximumProbeEncodedIlBytes;
+        MaximumRelationshipNodes = maximumRelationshipNodes;
+    }
+
+    public static MethodDefinitionGeneratedExpansionLimits Default { get; } =
+        new(
+            maximumCandidateDefinitions: 10_000,
+            maximumGeneratedMethods: 10_000,
+            maximumProbeBodies: 10_000,
+            maximumProbeEncodedIlBytes: 256L * 1024 * 1024,
+            maximumRelationshipNodes: 10_000);
+
+    public int MaximumCandidateDefinitions { get; }
+
+    public int MaximumGeneratedMethods { get; }
+
+    public int MaximumProbeBodies { get; }
+
+    public long MaximumProbeEncodedIlBytes { get; }
+
+    public int MaximumRelationshipNodes { get; }
+}
+
 /// <summary>
 /// The immutable direct MethodDef population one source request may read.
 /// Exact coordinates are normalized into metadata order without duplicates.
@@ -30,24 +90,37 @@ public sealed class MethodDefinitionSourceBreadth
     MethodDefinitionSourceBreadth(
         MethodDefinitionSourceBreadthKind kind,
         ImmutableArray<MethodDefinitionHandle> methods,
-        ImmutableArray<TypeDefinitionHandle> types)
+        ImmutableArray<TypeDefinitionHandle> types,
+        MethodDefinitionSourceExpansion expansion,
+        MethodDefinitionGeneratedExpansionLimits?
+            generatedExpansionLimits)
     {
         Kind = kind;
         Methods = methods;
         Types = types;
+        Expansion = expansion;
+        GeneratedExpansionLimits = generatedExpansionLimits;
     }
 
     public static MethodDefinitionSourceBreadth AllDefinitions { get; } =
         new(
             MethodDefinitionSourceBreadthKind.AllDefinitions,
             [],
-            []);
+            [],
+            MethodDefinitionSourceExpansion.None,
+            null);
 
     public MethodDefinitionSourceBreadthKind Kind { get; }
 
     public ImmutableArray<MethodDefinitionHandle> Methods { get; }
 
     public ImmutableArray<TypeDefinitionHandle> Types { get; }
+
+    public MethodDefinitionSourceExpansion Expansion { get; }
+
+    public MethodDefinitionGeneratedExpansionLimits?
+        GeneratedExpansionLimits
+    { get; }
 
     public bool IsEmpty =>
         Kind switch
@@ -108,7 +181,9 @@ public sealed class MethodDefinitionSourceBreadth
         return new(
             MethodDefinitionSourceBreadthKind.ExactMethods,
             normalized.ToImmutable(),
-            []);
+            [],
+            MethodDefinitionSourceExpansion.None,
+            null);
     }
 
     public static MethodDefinitionSourceBreadth ExactTypes(
@@ -162,7 +237,32 @@ public sealed class MethodDefinitionSourceBreadth
         return new(
             MethodDefinitionSourceBreadthKind.ExactTypes,
             [],
-            normalized.ToImmutable());
+            normalized.ToImmutable(),
+            MethodDefinitionSourceExpansion.None,
+            null);
+    }
+
+    /// <summary>
+    /// Includes authenticated generated execution bodies under finite
+    /// discovery bounds.
+    /// </summary>
+    public MethodDefinitionSourceBreadth IncludeGeneratedExecutionBodies(
+        MethodDefinitionGeneratedExpansionLimits? limits = null)
+    {
+        if (Kind == MethodDefinitionSourceBreadthKind.AllDefinitions)
+        {
+            throw new InvalidOperationException(
+                "All-definition breadth already contains every generated "
+                + "physical MethodDef.");
+        }
+
+        return new(
+            Kind,
+            Methods,
+            Types,
+            Expansion
+                | MethodDefinitionSourceExpansion.GeneratedExecutionBodies,
+            limits ?? MethodDefinitionGeneratedExpansionLimits.Default);
     }
 }
 
@@ -597,7 +697,10 @@ public static class MethodDefinitionSourceRequestSet
         MethodDefinitionSourceBreadth second) =>
         first.Kind == second.Kind
         && first.Methods.SequenceEqual(second.Methods)
-        && first.Types.SequenceEqual(second.Types);
+        && first.Types.SequenceEqual(second.Types)
+        && first.Expansion == second.Expansion
+        && first.GeneratedExpansionLimits
+            == second.GeneratedExpansionLimits;
 
     sealed class SourceGroupBuilder
     {
@@ -721,7 +824,41 @@ public sealed record MethodDefinitionSourceCoverage(
     MethodDefinitionHandleCoverage MethodsSelected,
     MethodDefinitionHandleCoverage BodiesAttempted,
     MethodDefinitionHandleCoverage BodiesAcquired,
-    MethodDefinitionHandleCoverage ModuleLookupMethods);
+    MethodDefinitionHandleCoverage ModuleLookupMethods)
+{
+    public MethodDefinitionGeneratedExpansionCoverage GeneratedExpansion
+    { get; init; } = MethodDefinitionGeneratedExpansionCoverage.Empty;
+}
+
+/// <summary>Why one generated physical MethodDef entered source breadth.</summary>
+public enum MethodDefinitionGeneratedExpansionOriginKind
+{
+    StateMachineExecutionBody,
+    LiftedExecutionBody,
+}
+
+/// <summary>One authenticated generated breadth origin.</summary>
+public sealed record MethodDefinitionGeneratedExpansionOrigin(
+    MethodDefinitionHandle Method,
+    MethodDefinitionHandle DeclaredOwner,
+    MethodDefinitionGeneratedExpansionOriginKind Kind);
+
+/// <summary>Exact generated breadth-discovery work.</summary>
+public sealed record MethodDefinitionGeneratedExpansionCoverage(
+    MethodDefinitionHandleCoverage CandidateDefinitionsExamined,
+    MethodDefinitionHandleCoverage ProbeBodiesAttempted,
+    long ProbeEncodedIlBytes,
+    int RelationshipNodes,
+    ImmutableArray<MethodDefinitionGeneratedExpansionOrigin> Origins)
+{
+    public static MethodDefinitionGeneratedExpansionCoverage Empty { get; } =
+        new(
+            MethodDefinitionHandleCoverage.Empty,
+            MethodDefinitionHandleCoverage.Empty,
+            0,
+            0,
+            []);
+}
 
 /// <summary>Where and why required Method-source acquisition was incomplete.</summary>
 public sealed record MethodDefinitionSourceFailure(
@@ -920,6 +1057,26 @@ internal static class MethodQuerySource
                     $"Producer '{planned.Identity}' is not a "
                     + "method-definition producer.");
             }
+        }
+
+        if ((breadth.Expansion
+                & ~MethodDefinitionSourceExpansion
+                    .GeneratedExecutionBodies)
+            != 0)
+        {
+            throw new ProducerContractException(
+                "The Method source breadth declares an unknown expansion.");
+        }
+        if (breadth.Expansion.HasFlag(
+                MethodDefinitionSourceExpansion
+                    .GeneratedExecutionBodies)
+            && (breadth.Kind
+                    == MethodDefinitionSourceBreadthKind.AllDefinitions
+                || breadth.GeneratedExpansionLimits is null))
+        {
+            throw new ProducerContractException(
+                "Generated execution-body expansion requires exact breadth "
+                + "and finite work limits.");
         }
 
         return new(structuralRequest, work, producer, breadth);
@@ -1126,6 +1283,8 @@ internal sealed class MethodDefinitionSourceCoverageBuilder
     readonly MethodDefinitionHandleCoverageBuilder _bodiesAttempted = new();
     readonly MethodDefinitionHandleCoverageBuilder _bodiesAcquired = new();
     readonly MethodDefinitionHandleCoverageBuilder _moduleLookupMethods = new();
+    MethodDefinitionGeneratedExpansionCoverage _generatedExpansion =
+        MethodDefinitionGeneratedExpansionCoverage.Empty;
 
     public MethodDefinitionSourceCoverageBuilder(bool enabled) =>
         _enabled = enabled;
@@ -1160,13 +1319,24 @@ internal sealed class MethodDefinitionSourceCoverageBuilder
             _moduleLookupMethods.Add(handle);
     }
 
+    public void RecordGeneratedExpansion(
+        MethodDefinitionGeneratedExpansionCoverage coverage)
+    {
+        ArgumentNullException.ThrowIfNull(coverage);
+        if (_enabled)
+            _generatedExpansion = coverage;
+    }
+
     public MethodDefinitionSourceCoverage Build() =>
         new(
             _definitionsExamined.Build(),
             _methodsSelected.Build(),
             _bodiesAttempted.Build(),
             _bodiesAcquired.Build(),
-            _moduleLookupMethods.Build());
+            _moduleLookupMethods.Build())
+        {
+            GeneratedExpansion = _generatedExpansion,
+        };
 }
 
 internal sealed class MethodDefinitionHandleCoverageBuilder

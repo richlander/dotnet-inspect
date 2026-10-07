@@ -219,6 +219,8 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("queryPlatformResourceTriage"),
   },
   source: {
+    queryMemberBodyDiff: () => { throw new Error("unused"); },
+    cancelMemberBodyDiff: () => { throw new Error("unused"); },
     queryMemberSource: () => unexpected("queryMemberSource"),
     queryPlatformMemberSource: () =>
       unexpected("queryPlatformMemberSource"),
@@ -2382,6 +2384,8 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryPlatformTypeMethodLeverage",
     ],
     source: [
+      "cancelMemberBodyDiff",
+      "queryMemberBodyDiff",
       "cancelMemberSourceComparison",
       "cancelMethodBodyComparison",
       "cancelSourceQuery",

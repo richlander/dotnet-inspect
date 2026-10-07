@@ -3039,6 +3039,44 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public async Task PackageDependencies_ProjectsDetachedReferenceRejection()
+    {
+        const string packageId = "Browser.Dependency.Invalid";
+        byte[] nupkg = PackageWithManifest(
+            [0x00, 0x01, 0x02, 0x03],
+            $"lib/net11.0/{packageId}.dll",
+            $"""
+             <package>
+               <metadata>
+                 <id>{packageId}</id>
+                 <version>1.0.0</version>
+               </metadata>
+             </package>
+             """);
+        await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
+            new BrowserPackage(
+                packageId,
+                "1.0.0",
+                nupkg,
+                fromCache: false));
+
+        string json = await PackageExports.QueryPackageDependencies(
+            packageId,
+            "1.0.0",
+            "net11.0",
+            $"{packageId}.dll");
+
+        using JsonDocument document = JsonDocument.Parse(json);
+        JsonElement references =
+            document.RootElement.GetProperty("assemblyReferences");
+        Assert.Equal(JsonValueKind.String, references.ValueKind);
+        Assert.StartsWith(
+            "InvalidImage (",
+            references.GetString(),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task PackageDependencies_UsesCompatibleAssetsWithoutChangingRequestedFramework()
     {
         const string packageId = "Browser.Dependency.Compatible";

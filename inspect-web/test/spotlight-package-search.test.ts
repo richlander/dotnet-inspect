@@ -598,3 +598,26 @@ test("result projections expose only evidence valid for the current variant", ()
   assert.equal(spotlightPackageSearchError(failed), "Package search failed");
   assert.equal(spotlightPackageSearchError(pending), "");
 });
+
+
+test("wildcard-only input reaches shared validation, and replacement aborts source work", async () => {
+  const state = searchState({ spotlightQuery: "*" });
+  const pending = deferred<readonly SpotlightPackageHit[]>();
+  const signals: AbortSignal[] = [];
+  const harness = searchDependencies(state, { queryPackages: async (_query, abortSignal) => {
+    signals.push(abortSignal);
+    return pending.promise;
+  } });
+  const search = createSpotlightPackageSearch(harness.dependencies);
+  search.schedule();
+  assert.equal(harness.scheduled.length, 1);
+  const work = harness.scheduled[0]!.callback();
+  assert.equal(signals[0]?.aborted, false);
+  state.spotlightQuery = "Newtonsoft.*";
+  search.schedule();
+  assert.equal(signals[0]?.aborted, true);
+  pending.resolve([{ id: "Old", version: "1.0.0" }]);
+  await work;
+  assert.deepEqual(visibleSpotlightPackageHits(state.spotlightPackageSearch, "Newtonsoft.*"), []);
+  assert.equal(harness.updates(), 0);
+});
