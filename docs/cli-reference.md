@@ -249,9 +249,12 @@ alternatives rather than a lookup-chosen union. A commandless
 Discover the stable IDs accepted by body queries:
 
 ```bash
-dnx dotnet-inspect -y -- vocabulary -S "C# Body Kinds" \
-  --columns "ID;Label" -n 5 --table
+dnx dotnet-inspect -y -- explain vocabularies/csharp.body-kinds --depth 1
 ```
+
+The depth-1 listing shows every value's exact Identity, such as
+`ObjectCreationExpression` or `BreakStatement`, which is the spelling queries
+accept; Name is a display label.
 
 Then use one as a typed predicate. `Kind=...` auto-selects `Body Shapes`, while
 ordinary section query options still control columns and rows:
@@ -300,7 +303,7 @@ stderr rather than mixed into structured output.
 | ---------- | -------- | ---------- |
 | Package inventory | `package` | Metadata, versions, TFMs, file layout, direct dependencies, recognized ecosystem dependencies, rooted dependency hierarchy, vulnerability data, custom feeds, and NuGet config support. |
 | Project package skills and docs | `project` | Section-driven direct-dependency rows from valid `skills/**/SKILL.md` files and root `README.md` files in the restored package cache. Use `--print --row N` to emit one selected document. Skill inventory values and complete documents that require containment become `[Text omitted: required containment]`; selected documents also report bounded code-point locations on stderr. |
-| Query vocabulary | `vocabulary` | Product-owned stable values, operators, defaults, and applicability for rich queries. |
+| Query vocabulary | `explain vocabularies` | Product-owned stable values, accepted query inputs, maps, and defaults for rich queries. |
 | Ecosystem catalog | `ecosystem` | Product-configured ecosystem packs, namespace hints, core/tool packages, demos, and known Integration bindings without package acquisition. |
 | Library audit | `library` | Assembly identity, public key token, trim/AOT metadata, unsafe/interoperability signals, SourceLink, PDBs, references, resources, async methods, and body-shape search. |
 | API discovery | `type`, `member`, `find` | Type search, exact namespace discovery, member tables, docs, overload selection, generics, direct calls/callers, source, decompiled C#, and IL. Unscoped `find` searches installed Platform populations and adds exact prune-authorized package observations for namespace hits; add other package APIs through explicit `--package`, restored `--project`, or patterned `--package-prefix` scope. |
@@ -348,7 +351,7 @@ stderr rather than mixed into structured output.
 | `implements X` | Find concrete implementors or subclasses. |
 | `match A B` | Compare two unambiguous `Type.Member` names by identity-agnostic structural equivalence; add `--body` for decompiled C# and IL body differences. |
 | `match A --similar` | Rank structural candidates for one seed method, within a single assembly. Ranks candidates only; it establishes no relation. |
-| `vocabulary` | Discover product-owned query vocabularies such as `Accessibility`, `C# Style Choices`, and `C# Body Kinds`. |
+| `explain vocabularies` | Explain product-owned query vocabularies such as `api.accessibility`, `csharp.style-choices`, and `csharp.body-kinds`. Add `/<id>` for one vocabulary, `--depth 1` for all of its values, or `/<id>/values/<value>` for one value. |
 | `ecosystem [name]` | Inspect the ecosystem knowledge configured into this product build. Omit the name to list packs; use `-S Integrations` for configured Integration concepts, distinct from observations in a library. |
 | `workspace` | Render the typed top-level inventory of one ephemeral Workspace: committed ordered Package occurrences first, then inert Exact Library, Package Prefix, and Ecosystem registrations. Repeat `--package ID@VERSION` coordinates and supply `--tfm`; add `--register-library PACKAGE@VERSION/ASSEMBLY@ASSEMBLY_VERSION`, `--register-package-prefix PREFIX`, or `--register-ecosystem ID`; filter with repeatable `--kind`. Restore a current-format canonical Workspace packet with `--packet PACKET`, or use `--root-request TOKEN` to reopen the exact Package Root a `package query --where "library-literal=..."` result names. Add `--active-ecosystem ID` to activate the exact resource-free registration with Ecosystem Overview, or `--active-package N` to evaluate the exact Package occurrence and expose its Navigation hierarchy, Library asset IDs, Type and Member inventories, lenses, and diagnostics. |
 | `workspace packet encode` / `decode` | Convert validated Workspace JSON and canonical base64url packets; pass `-` for stdin or use `--file`. |
@@ -431,7 +434,7 @@ matches remain discovery scope and are not substituted for those roots.
 
 Use `package activity --ecosystem` to report package activity under one named
 ecosystem's recorded package prefixes (for example `Aspire.` for `aspire`). The ecosystem option selects where
-to look; `ecosystem` itself remains the acquisition-free vocabulary command.
+to look; `ecosystem` itself remains the acquisition-free catalog command.
 This network-backed query defaults to the interval
 `(reference time - 42 days, reference time]`, reports the exact UTC bounds and
 source horizon, and overlays current GitHub-reviewed advisory context and
@@ -688,9 +691,10 @@ dotnet-inspect library -Q
 dotnet-inspect type -Q "Body Shapes"
 dotnet-inspect library -Q "Performance: Arrays" --json
 dotnet-inspect member JsonSerializer --package System.Text.Json -D --schema
-dotnet-inspect vocabulary -D
-dotnet-inspect vocabulary -S @Decompiler
-dotnet-inspect vocabulary -S "C# Body Kinds" -n 10
+dotnet-inspect explain vocabularies
+dotnet-inspect explain vocabularies/csharp.body-kinds
+dotnet-inspect explain vocabularies/csharp.body-kinds --depth 1
+dotnet-inspect explain vocabularies/csharp.style-tiers/values/spelling
 dotnet-inspect library System.Text.Json -S Signals
 dotnet-inspect library System.Text.Json -S @Audit
 dotnet-inspect library System.Text.Json -S References
@@ -710,9 +714,9 @@ acquire the target. They add the owner-issued section properties to the
 top-level catalog, or report one exact category or section in detail:
 `Formats`, and, where the owner declares them, `Shape` (`table`, `hierarchy`,
 or `text`, per [Section shapes](design/section-shapes.md)), `Cardinality`
-(`scalar` or `inventory`), and `Terminals`. Package, Type, and Member declare
-all of them (`Call Graph` is a graph and declares no shape); Library declares
-cardinality for `Library Info`. A category reports the formats supported by its
+(`scalar` or `inventory`), and `Terminals`. Every owner declares all of them;
+`Call Graph` and Library `Dependency Structure` are graphs and declare no
+shape. A category reports the formats supported by its
 complete expansion plus the formats of each member; it never selects or drops
 members to satisfy a format. Use the result to choose an exact section before
 requesting a single-result projection such as `--tree` or `--mermaid`.
@@ -720,6 +724,31 @@ requesting a single-result projection such as `--tree` or `--mermaid`.
 for one section, beside its formats and members. The catalogs are `library`,
 `package`, `type` (the type listing), `member` (one type's members),
 `member-overload`, and `member-detail` (one exact member).
+
+For one library, its field-set records — `Library Info`,
+`SourceLink: Availability`, `SourceLink: Integrity`, `Symbols`, and
+`Metadata: Image` — are scalar: they have no rows to count or window. `--count` or `--rows` on one of
+them, on a selection of only them, or on the default overview fails before
+acquisition. An explicit selection that mixes them with inventories counts and
+windows the inventories alone, so `library MyLib.dll -S @Metadata --count` lists
+each metadata table without an image field count. `Context: Source Location`,
+`Member`, `Instruction`, `Callsite`, and `Return Address` count their one
+located row; `Context: Exception`, `Allocation`, `Safety`, and `Cost` count
+the regions or facts at the coordinate. `library address ... -D --details`
+reports these declarations for the coordinate sections.
+
+The library command renders a lone explicitly selected section in its declared
+shape's native format when no format is named, per
+[Section shapes](design/section-shapes.md): a Table streams its TSV rows
+(`library MyLib.dll -S References`, the `Library Info` record as field/value
+TSV, each metadata table, and each `Context:` section on `library address`)
+and `Reference Hierarchy` renders its tree; `--markdown` or `--mermaid` names
+another of its formats. `Dependency Structure` is a graph and keeps its
+current rendering. An explicit format, an environment default, `--print`,
+`--row`, `--value`, `--urls`, `--paths`, `--tree`, `--count`, a projection,
+an envelope, or discovery keeps its existing behavior, and selecting several
+sections composes Markdown as before, including a mixed selection whose
+scalar records leave a `--rows` window.
 
 ```bash
 dotnet-inspect package System.Text.Json -D --details
@@ -1472,8 +1501,65 @@ fallback.
 
 ### Types, members, and source
 
+The type and member commands render a lone explicitly selected section in its
+declared shape's native format when no format is named, per
+[Section shapes](design/section-shapes.md): a Table streams its TSV rows
+(`type System.String -S Methods`, `member System.String.Trim -S Methods`, the
+`Type Info` record as field/value TSV, `Signature` as its one row) and a Text
+prints its undecorated payload (`Source`, `Decompiled Source`,
+`IL`, `API Declarations`, `PDB Source`, `Source Diff`, `Annotated Source`, the
+overlays, and `Finding Census`). The shape decides, not a list of section
+names. `Annotated Source Document` and `Call Graph` keep their composed
+rendering: the first is a document with no bare payload, the second a graph.
+An explicit format, an environment default, `--print`, `--row`, `--tree`,
+`--count`, a projection, a shape flag, discovery, an envelope, or an analysis
+query keeps its existing behavior, and selecting several sections composes
+Markdown as before. Scalar sections (`Type Info`, `API Info`, and every Text
+payload other than `Source`) have no rows: selecting one alone with `--count`
+or `--rows` fails before acquisition and names an inventory section as the
+alternative; a bare `-n` on it is the rendered-line window. `Signature` is a
+one-row inventory whose row is the resolved member, so `--count` answers `1`.
+Count maps over several sections keep their per-section meaning.
+
+`Implementers` and `Derived Types` are explicit, expensive Type sections in
+`@Relations`. They preserve the exact Type occurrence selected for ordinary
+Type output while scanning the selected source population. Count and Rows are
+independent producer terminals: Count-only requests no rows, and a finite head
+or closed-range `--rows` window reaches the producer as a finite prefix bound.
+An unbounded request uses a 10,000-row safety bound and reports continuation as
+incomplete output. Tail selection is rejected because the forward-only producer
+cannot satisfy it without privately materializing the complete population.
+Package relation rows include the package-relative asset in `Source`, so
+distinct `ref`, `lib`, or runtime occurrences remain distinguishable.
+
+Every other type or member Text with a bare payload (`API Declarations` on the
+`type` command, `Decompiled Source`, `Annotated Source`, `PDB Source`, `IL`,
+and the overlays) has a fact row: `--table`, `--tsv`, and `--jsonl` emit its
+section, line count, and character count. `Source Diff` keeps its own row
+form, the comparison metadata and summary. `--json` on any of them except
+`API Declarations` emits the facts plus the complete payload as `content`;
+`API Declarations` keeps its inspection envelope, whose content carries the
+complete text. A fact row is not
+an inventory, so `--count` and `--rows` stay rejected. Composed Markdown
+still shows each Text's body, so `-S "Decompiled Source,IL"` reads side by
+side.
+
+`Source` is the Text whose rows are its exact lines, per
+[Source document cardinality](design/source-document-cardinality.md):
+`--count` reports the line count, which includes the empty final line after a
+trailing line terminator; `--rows` selects lines, which native output,
+`--markdown`, and `--plaintext` print as text; and `--table`, `--tsv`, and
+`--jsonl` emit one row per line with its number, UTF-16 start offset, content,
+and terminator, which `--columns` and `--fields` can project. `--jsonl`
+carries each line's content exactly; `--tsv` and `--table` normalize a tab
+inside a line to a space, as every TSV in this CLI does. `--json` stays
+the complete Source document, so it rejects `--rows`. Default output is
+unchanged, and `-n` remains a rendered-line window.
+
 ```bash
 dotnet-inspect type string --tree
+dotnet-inspect member System.String.Trim:1 -S Source --count
+dotnet-inspect member System.String.Trim:1 -S Source --rows 2..3
 dotnet-inspect type --platform System.Text.Json -n 1 --tail --json
 dotnet-inspect find JsonSerializer --platform System.Text.Json
 dotnet-inspect member JsonSerializer --package System.Text.Json -m Serialize
@@ -1635,7 +1721,7 @@ field, column, Count, discovery, print, and shape projection. Markdown, table,
 TSV, and JSONL lower only the already selected family rows and show at most
 five labeled Type examples per family.
 
-Exact `-S "Name Family Roles"` composes those suffix families with the
+Exact `-S "Architectural Families"` composes those suffix families with the
 Library's exhaustive signature-only structural evidence. Each family row
 reports foundation, hub, orchestrator, unclassified-role, sea-level, and
 mountain-peak Type counts together with its population, source provenance, and
@@ -1644,21 +1730,21 @@ structural-evidence disposition:
 ```bash
 dotnet-inspect library FluentValidation.dll \
   --package FluentValidation@12.1.1 --tfm net8.0 \
-  -S "Name Family Roles" -n 10 --head
+  -S "Architectural Families" -n 10 --head
 dotnet-inspect library FluentValidation.dll \
   --package FluentValidation@12.1.1 --tfm net8.0 \
-  -S "Name Family Roles" --name-family-population ordinary --count
+  -S "Architectural Families" --name-family-population ordinary --count
 ```
 
-Exact `-S "Name Family Role Types"` exposes the supporting Type rows from the
-same managed operation. Each row retains its artifact-scoped Type identity,
-one- and two-word families, source disposition, signature degrees, issued
-structural role and pole, and structural-evidence disposition:
+Exact `-S "Architectural Family Types"` exposes the supporting Type rows from
+the same managed operation. Each row retains its artifact-scoped Type
+identity, one- and two-word families, source disposition, signature degrees,
+issued structural role and pole, and structural-evidence disposition:
 
 ```bash
 dotnet-inspect library FluentValidation.dll \
   --package FluentValidation@12.1.1 --tfm net8.0 \
-  -S "Name Family Role Types" -n 20 --head
+  -S "Architectural Family Types" -n 20 --head
 ```
 
 Both sections are explicit-only. `-n`, `--head`, `--tail`, and `--rows`
@@ -1668,7 +1754,7 @@ section. The operation reuses the complete name-family population and one
 exhaustive signature-only structural acquisition; it does not request method
 bodies or Library Metrics implementation profiles.
 
-Exact `--json` from either section emits the same complete family-role
+Exact `--json` from either section emits the same complete architectural-family
 composition document rather than only the selected presentation rows. It
 contains every exact Type row, every population and family support address,
 both owners' methodology and work receipts, structural qualifications, and

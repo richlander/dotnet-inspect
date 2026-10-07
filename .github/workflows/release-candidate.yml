@@ -23,6 +23,7 @@ jobs:
   source:
     name: Resolve ready source
     runs-on: ubuntu-26.04
+    timeout-minutes: 75
     outputs:
       sha: ${{ steps.source.outputs.sha }}
       version: ${{ steps.source.outputs.version }}
@@ -36,16 +37,44 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          test "$GITHUB_REF" = refs/heads/main
-          gh api \
-            -H "Accept: application/vnd.github+json" \
-            "/repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs?per_page=100" \
-            --jq '
-              [.check_runs[] | select(.name == "ci / ci-required")]
-              | sort_by(.id)
-              | last
-              | .status == "completed" and .conclusion == "success"
-            ' | grep -Fx true
+          if [[ "$GITHUB_REF" != refs/heads/main ]]; then
+            echo "::error::Release candidates build only from main, not $GITHUB_REF." >&2
+            exit 1
+          fi
+
+          # The candidate run's head SHA is its source identity, so wait a
+          # bounded time for that exact SHA's main CI rather than failing
+          # while it is still queued or running.
+          deadline=$(( $(date +%s) + 60 * 60 ))
+          while :; do
+            ci=$(
+              gh api \
+                -H "Accept: application/vnd.github+json" \
+                "/repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs?per_page=100" \
+                --jq '
+                  [.check_runs[] | select(.name == "ci / ci-required")]
+                  | sort_by(.id)
+                  | last
+                  | if . == null then "missing/none"
+                    else "\(.status)/\(.conclusion // "none")" end
+                '
+            )
+            case "$ci" in
+              completed/success)
+                break
+                ;;
+              completed/*)
+                echo "::error::ci / ci-required for $GITHUB_SHA is $ci; the candidate source must have green main CI." >&2
+                exit 1
+                ;;
+            esac
+            if (( $(date +%s) >= deadline )); then
+              echo "::error::ci / ci-required for $GITHUB_SHA is still $ci after 60 minutes; the candidate source must have green main CI." >&2
+              exit 1
+            fi
+            echo "ci / ci-required for $GITHUB_SHA is $ci; waiting."
+            sleep 60
+          done
 
           version=$(
             sed -n \
@@ -56,9 +85,18 @@ jobs:
           release_tag=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)
           release_version=${release_tag#v}
 
-          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
-          [[ "$release_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
-          test "$skill_version" = "$version"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::VersionPrefix '$version' is not a MAJOR.MINOR.PATCH version." >&2
+            exit 1
+          fi
+          if [[ ! "$release_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Latest release tag '$release_tag' is not a vMAJOR.MINOR.PATCH version." >&2
+            exit 1
+          fi
+          if ! test "$skill_version" = "$version"; then
+            echo "::error::Product skill version '$skill_version' does not match VersionPrefix $version." >&2
+            exit 1
+          fi
 
           IFS=. read -r major minor patch <<< "$version"
           IFS=. read -r released_major released_minor released_patch \
@@ -360,6 +398,7 @@ jobs:
     needs: assemble
     permissions:
       contents: read
+      packages: read
       issues: write
     uses: ./.github/workflows/deep-inspect.yml
     with:

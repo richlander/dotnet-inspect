@@ -109,8 +109,10 @@ public partial class CommandExecutionTests
 
             Assert.Equal(1, libraryExit);
             Assert.Empty(libraryOutput);
+            // Library Info is a scalar record, so the mixed Count observes
+            // References alone, which still cannot render as a tree.
             Assert.Contains(
-                $"Section '{SectionNames.LibraryInfo}' is scalar",
+                "References is direct evidence and cannot be rendered as a hierarchy",
                 libraryError);
             Assert.Equal(1, packageExit);
             Assert.Empty(packageOutput);
@@ -196,7 +198,7 @@ public partial class CommandExecutionTests
         try
         {
             var (exit, output, error) = await RunAppAsync(
-                "library", "Test.Tool.dll", "--package", packagePath, "-S", "Library Info");
+                "library", "Test.Tool.dll", "--package", packagePath, "-S", "Library Info", "--markdown");
 
             Assert.Empty(error);
             Assert.Equal(0, exit);
@@ -217,7 +219,7 @@ public partial class CommandExecutionTests
         try
         {
             var (exit, output, error) = await RunAppAsync(
-                "library", "Test.Tool.dll", "--package", packagePath, "-S", "Library Info");
+                "library", "Test.Tool.dll", "--package", packagePath, "-S", "Library Info", "--markdown");
 
             Assert.Empty(error);
             Assert.Equal(0, exit);
@@ -919,7 +921,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Library_NameFamilyRoleTypeSelectionCountsExactTypes()
+    public async Task Library_ArchitecturalFamilyTypeSelectionCountsExactTypes()
     {
         string fixture =
             FixtureCatalog.ResearchNameFamilies.AssemblyPath();
@@ -927,13 +929,13 @@ public partial class CommandExecutionTests
             "library",
             fixture,
             "-S",
-            SectionNames.NameFamilyRoles,
+            SectionNames.ArchitecturalFamilies,
             "--json");
         var count = await RunAppAsync(
             "library",
             fixture,
             "-S",
-            SectionNames.NameFamilyRoleTypes,
+            SectionNames.ArchitecturalFamilyTypes,
             "--count");
 
         Assert.Equal(0, content.Exit);
@@ -953,7 +955,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Library_NameFamilyRoleRowScopesCannotCompete()
+    public async Task Library_ArchitecturalFamilyRowScopesCannotCompete()
     {
         string fixture =
             FixtureCatalog.ResearchNameFamilies.AssemblyPath();
@@ -961,9 +963,9 @@ public partial class CommandExecutionTests
             "library",
             fixture,
             "-S",
-            SectionNames.NameFamilyRoles,
+            SectionNames.ArchitecturalFamilies,
             "-S",
-            SectionNames.NameFamilyRoleTypes);
+            SectionNames.ArchitecturalFamilyTypes);
 
         Assert.Equal(1, result.Exit);
         Assert.Empty(result.Output);
@@ -1131,7 +1133,7 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_SelectedReferences_CollectsDirectReferenceMetadata()
     {
         var (exit, output, error) = await RunAppAsync(
-            "System.Text.Json", "-S", SectionNames.References);
+            "System.Text.Json", "-S", SectionNames.References, "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1406,7 +1408,7 @@ public partial class CommandExecutionTests
                 "library",
                 rootPath,
                 "-S",
-                SectionNames.IdentifierConfusion);
+                SectionNames.IdentifierConfusion, "--markdown");
 
             Assert.True(
                 exit == 0,
@@ -1456,7 +1458,7 @@ public partial class CommandExecutionTests
                 "library",
                 rootPath,
                 "-S",
-                SectionNames.IdentifierConfusion);
+                SectionNames.IdentifierConfusion, "--markdown");
             var tree = await RunAppAsync(
                 "library",
                 rootPath,
@@ -1511,7 +1513,7 @@ public partial class CommandExecutionTests
                 "library",
                 rootPath,
                 "-S",
-                SectionNames.IdentifierConfusion);
+                SectionNames.IdentifierConfusion, "--markdown");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -1592,7 +1594,7 @@ public partial class CommandExecutionTests
                 "library",
                 rootPath,
                 "-S",
-                SectionNames.IdentifierConfusion);
+                SectionNames.IdentifierConfusion, "--markdown");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -1725,7 +1727,7 @@ public partial class CommandExecutionTests
                 "library",
                 rootPath,
                 "-S",
-                SectionNames.Signals);
+                SectionNames.Signals, "--markdown");
 
             Assert.Equal(1, signals.Exit);
             Assert.Equal(
@@ -1744,7 +1746,7 @@ public partial class CommandExecutionTests
                 "library",
                 rootPath,
                 "-S",
-                SectionNames.IdentifierConfusion);
+                SectionNames.IdentifierConfusion, "--markdown");
 
             Assert.Equal(1, audit.Exit);
             Assert.Empty(audit.Output);
@@ -1862,7 +1864,7 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_SelectedReferenceHierarchy_CollectsResolvedTransitiveReferences()
     {
         var (exit, output, error) = await RunAppAsync(
-            "System.Text.Json", "-S", SectionNames.ReferenceHierarchy);
+            "System.Text.Json", "-S", SectionNames.ReferenceHierarchy, "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1897,12 +1899,18 @@ public partial class CommandExecutionTests
             "| References | section | library/sections/references "
             + "| --markdown, --plaintext, --json, --table, --tsv, --jsonl |",
             output);
+        Assert.Contains("| Shape |", output);
         Assert.Contains("| Cardinality |", output);
         Assert.Contains("| Terminals |", output);
         Assert.Contains(
             "| Library Info | section | library/sections/library-info "
             + "| --markdown, --plaintext, --json, --table, --tsv, --jsonl "
-            + "| scalar |  |",
+            + "| table | scalar |  |",
+            output);
+        Assert.Contains(
+            "| Signals | section | library/sections/signals "
+            + "| --markdown, --plaintext, --json, --table, --tsv, --jsonl "
+            + "| table | inventory | rows, count |",
             output);
         Assert.DoesNotContain("File not found", output);
     }
@@ -1985,8 +1993,19 @@ public partial class CommandExecutionTests
             row.GetProperty("formats")
                 .EnumerateArray()
                 .Select(item => item.GetString()));
-        Assert.False(row.TryGetProperty("cardinality", out _));
-        Assert.False(row.TryGetProperty("terminals", out _));
+        // Reference Hierarchy is a Hierarchy whose rows are its reference
+        // occurrences.
+        Assert.Equal(
+            "hierarchy",
+            row.GetProperty("shape").GetString());
+        Assert.Equal(
+            "inventory",
+            row.GetProperty("cardinality").GetString());
+        Assert.Equal(
+            ["rows", "count"],
+            row.GetProperty("terminals")
+                .EnumerateArray()
+                .Select(item => item.GetString()));
     }
 
     [Fact]
@@ -2055,34 +2074,197 @@ public partial class CommandExecutionTests
 
     [Fact]
     public async Task
-        LibraryCommand_MixedAndFixedScalarSelectionsRejectCount()
+        LibraryCommand_ScalarOnlyAndImplicitSelectionsRejectCount()
+    {
+        // A selection of scalars only, or the implicit overview (which always
+        // includes Library Info), has no rows to count.
+        string missingPath = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-missing-{Guid.NewGuid():N}.dll");
+        var scalars = await RunAppAsync(
+            "library",
+            missingPath,
+            "-S",
+            $"{SectionNames.Symbols},{SectionNames.SourceLinkAvailability}",
+            "--count");
+        var implicitOverview = await RunAppAsync(
+            "library",
+            missingPath,
+            "--count");
+
+        Assert.Equal(1, scalars.Exit);
+        Assert.Empty(scalars.Output);
+        Assert.Contains(
+            $"Section '{SectionNames.SourceLinkAvailability}' is scalar",
+            scalars.Error);
+        Assert.Equal(1, implicitOverview.Exit);
+        Assert.Empty(implicitOverview.Output);
+        Assert.Contains(
+            $"Section '{SectionNames.LibraryInfo}' is scalar",
+            implicitOverview.Error);
+    }
+
+    [Fact]
+    public async Task
+        LibraryAndPackage_CategoryCoordinateSectionsDoNotMakeAScalarMixed()
+    {
+        // Without an address, @Context reaches no section this request can
+        // address, so Symbols stands alone and fails before acquisition on
+        // both the direct and the package-library routes.
+        string missingPath = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-missing-{Guid.NewGuid():N}");
+        string selection = $"{SectionNames.Symbols},@Context";
+        var library = await RunAppAsync(
+            "library", missingPath + ".dll", "-S", selection, "--count");
+        var package = await RunAppAsync(
+            "package", missingPath + ".nupkg",
+            "--library", "Missing.dll",
+            "-S", selection, "--count");
+
+        foreach (var result in new[] { library, package })
+        {
+            Assert.Equal(1, result.Exit);
+            Assert.Empty(result.Output);
+            Assert.Contains(
+                $"Section '{SectionNames.Symbols}' is scalar",
+                result.Error);
+        }
+    }
+
+    [Theory]
+    [InlineData("--count")]
+    [InlineData("--rows", "1")]
+    public async Task
+        LibraryCommand_LoneScalarRecordRejectsTerminalBeforeAcquisition(
+            params string[] terminal)
     {
         string missingPath = Path.Combine(
             Path.GetTempPath(),
             $"dotnet-inspect-missing-{Guid.NewGuid():N}.dll");
+
+        var (exit, output, error) = await RunAppAsync(
+        [
+            "library",
+            missingPath,
+            "-S",
+            SectionNames.Symbols,
+            .. terminal,
+        ]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            $"Section '{SectionNames.Symbols}' is scalar",
+            error);
+        Assert.Contains(terminal[0], error);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_LoneSection_RendersItsNativeShape()
+    {
+        // With no format named, a lone Table streams TSV rows, a scalar Table
+        // its field listing, and the Hierarchy its tree.
+        var table = await RunAppAsync(
+            "library", TestAssemblyPath, "-S", SectionNames.References);
+        var scalar = await RunAppAsync(
+            "library", TestAssemblyPath, "-S", SectionNames.LibraryInfo);
+        var hierarchy = await RunAppAsync(
+            "library", TestAssemblyPath, "-S", SectionNames.ReferenceHierarchy);
+
+        Assert.Equal(0, table.Exit);
+        Assert.Empty(table.Error);
+        Assert.StartsWith("name\tversion\tpublic_key_token\n", table.Output);
+
+        Assert.Equal(0, scalar.Exit);
+        Assert.Empty(scalar.Error);
+        Assert.StartsWith("field\tvalue\n", scalar.Output);
+
+        Assert.Equal(0, hierarchy.Exit);
+        Assert.Empty(hierarchy.Error);
+        Assert.StartsWith("└─ DotnetInspect.Cli.Tests\n", hierarchy.Output);
+        Assert.DoesNotContain("## ", hierarchy.Output);
+    }
+
+    [Theory]
+    // An explicit format keeps its own rendering.
+    [InlineData("References", "--markdown")]
+    // A composition is not a lone section.
+    [InlineData("References,Signals")]
+    // A Graph declares no shape, so it keeps its current default.
+    [InlineData("Dependency Structure")]
+    // The request named two sections; dropping the scalar record from the
+    // Rows execution does not make it a lone section.
+    [InlineData("Symbols,Signals", "--rows", "1..2")]
+    public async Task LibraryCommand_NativeShapeFormat_AppliesOnlyToALoneUnformattedSection(
+        string selection,
+        params string[] options)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            ["library", TestAssemblyPath, "-S", selection, .. options]);
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.StartsWith(
+            $"# {Path.GetFileName(TestAssemblyPath)}",
+            output);
+    }
+
+    [Fact]
+    public async Task
+        LibraryCommand_MixedScalarSelectionCountsOnlyInventories()
+    {
+        // An explicit selection that mixes scalar records with inventories
+        // counts the inventories; a field count is never reported as rows,
+        // and the result keeps its per-section map.
         var mixed = await RunAppAsync(
             "library",
-            missingPath,
+            TestAssemblyPath,
             "-S",
-            $"{SectionNames.LibraryInfo},{SectionNames.References}",
-            "--count");
-        var fixedOverview = await RunAppAsync(
+            $"{SectionNames.LibraryInfo},{SectionNames.Symbols},"
+                + SectionNames.References,
+            "--count",
+            "--tsv");
+        var metadata = await RunAppAsync(
             "library",
-            missingPath,
+            TestAssemblyPath,
             "-S",
-            LibraryFixedOverviewSelection,
-            "--count");
+            "@Metadata",
+            "--count",
+            "--tsv");
 
-        Assert.Equal(1, mixed.Exit);
-        Assert.Empty(mixed.Output);
-        Assert.Contains(
-            $"Section '{SectionNames.LibraryInfo}' is scalar",
-            mixed.Error);
-        Assert.Equal(1, fixedOverview.Exit);
-        Assert.Empty(fixedOverview.Output);
-        Assert.Contains(
-            $"Section '{SectionNames.LibraryInfo}' is scalar",
-            fixedOverview.Error);
+        Assert.Equal(0, mixed.Exit);
+        Assert.Empty(mixed.Error);
+        string[] mixedRows = mixed.Output.Split(
+            '\n',
+            StringSplitOptions.RemoveEmptyEntries);
+        Assert.Equal("section\tcount", mixedRows[0]);
+        Assert.StartsWith(
+            $"{SectionNames.References}\t",
+            Assert.Single(mixedRows[1..]));
+
+        Assert.Equal(0, metadata.Exit);
+        Assert.Empty(metadata.Error);
+        Assert.Contains("Metadata: TypeDef\t", metadata.Output);
+        Assert.DoesNotContain(
+            MetadataSectionNames.Image,
+            metadata.Output);
+
+        // Rows is Count's peer over the same population: the scalar record
+        // leaves the windowed selection too.
+        var rows = await RunAppAsync(
+            "library",
+            TestAssemblyPath,
+            "-S",
+            $"{SectionNames.Symbols},{SectionNames.Signals}",
+            "--rows",
+            "1..2",
+            "--markdown");
+
+        Assert.Equal(0, rows.Exit);
+        Assert.Empty(rows.Error);
+        Assert.Contains($"## {SectionNames.Signals}", rows.Output);
+        Assert.DoesNotContain($"## {SectionNames.Symbols}", rows.Output);
     }
 
     [Fact]
@@ -2511,7 +2693,7 @@ public partial class CommandExecutionTests
                 "library",
                 rootPath,
                 "-S",
-                SectionNames.References);
+                SectionNames.References, "--markdown");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -2681,7 +2863,7 @@ public partial class CommandExecutionTests
             "System.Runtime.CompilerServices.Unsafe is not facade-only in this runtime.");
 
         var (exit, output, runError) = await RunAppAsync(
-            "library", "System.Runtime.CompilerServices.Unsafe", "-S", "Library Info");
+            "library", "System.Runtime.CompilerServices.Unsafe", "-S", "Library Info", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Empty(runError);
@@ -2701,7 +2883,7 @@ public partial class CommandExecutionTests
         Assert.False(IsFacadeAssembly(assemblyPath));
 
         var (exit, output, runError) = await RunAppAsync(
-            "library", "System.Text.Json", "-S", "Library Info");
+            "library", "System.Text.Json", "-S", "Library Info", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Empty(runError);
@@ -3379,7 +3561,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "System.CommandLine.dll", "--package", "System.CommandLine",
-            "-S", "SourceLink: Files", "-n", "18", "--lines");
+            "-S", "SourceLink: Files", "-n", "18", "--lines", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -3480,7 +3662,7 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_SwitchesSection_DetectsFeatureSwitchDefinitions()
     {
         var (exit, output, error) = await RunAppAsync(
-            "library", "System.Text.Json", "-S", "Switches", "--rows", "20");
+            "library", "System.Text.Json", "-S", "Switches", "--rows", "20", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Switches", output);
@@ -3594,7 +3776,7 @@ public partial class CommandExecutionTests
             "-S",
             "Integration Opportunities",
             "--rows",
-            "20");
+            "20", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Integration Opportunities", output);
@@ -3632,7 +3814,7 @@ public partial class CommandExecutionTests
             "System.Data.Common",
             "-S",
             "Integration Opportunities",
-            "--trace");
+            "--trace", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Integration Opportunities", output);
@@ -3838,7 +4020,7 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_OpenTelemetrySection_ForDiagnosticSource_Renders()
     {
         var (exit, output, error) = await RunAppAsync(
-            "library", "System.Diagnostics.DiagnosticSource", "-S", "Integrations");
+            "library", "System.Diagnostics.DiagnosticSource", "-S", "Integrations", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Integrations", output);
@@ -3910,7 +4092,7 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_LoggingSection_ForLoggingAbstractions_Renders()
     {
         var (exit, output, error) = await RunAppAsync(
-            "library", "Microsoft.Extensions.Logging.Abstractions", "-S", "Integrations");
+            "library", "Microsoft.Extensions.Logging.Abstractions", "-S", "Integrations", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Integrations", output);
@@ -4057,7 +4239,7 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_LoggingSection_DetectsLoggingPrimitives()
     {
         var (exit, output, error) = await RunAppAsync(
-            "library", "Microsoft.Extensions.Logging.Abstractions", "-S", "Integrations");
+            "library", "Microsoft.Extensions.Logging.Abstractions", "-S", "Integrations", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Integrations", output);
@@ -4361,7 +4543,7 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_OpenTelemetrySection_DetectsDiagnosticSourcePrimitives()
     {
         var (exit, output, error) = await RunAppAsync(
-            "library", "System.Diagnostics.DiagnosticSource", "-S", "Integrations");
+            "library", "System.Diagnostics.DiagnosticSource", "-S", "Integrations", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Integrations", output);
@@ -4475,14 +4657,16 @@ public partial class CommandExecutionTests
         Assert.NotEmpty(names);
 
         var (togetherExit, togetherOutput, _) = await RunAppAsync(
-            "library", assembly, "-S", string.Join(',', names));
+            "library", assembly, "-S", string.Join(',', names), "--markdown");
         Assert.Equal(0, togetherExit);
 
         var rendered = 0;
         foreach (var name in names)
         {
+            // A lone section takes its native shape format, so both runs
+            // name Markdown to compare section bodies.
             var (aloneExit, aloneOutput, aloneError) = await RunAppAsync(
-                "library", assembly, "-S", name);
+                "library", assembly, "-S", name, "--markdown");
 
             var alone = TryExtractSectionBody(aloneOutput, name);
             if (alone is null)
@@ -4553,7 +4737,7 @@ public partial class CommandExecutionTests
     [Fact]
     public async Task LibraryCommand_Signals_ShowsSignalsOnly()
     {
-        var (exit, output, error) = await RunAppAsync("library", TestAssemblyPath, "-S", "Signals");
+        var (exit, output, error) = await RunAppAsync("library", TestAssemblyPath, "-S", "Signals", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Signals", output);
@@ -4581,7 +4765,7 @@ public partial class CommandExecutionTests
     [Fact]
     public async Task LibraryCommand_PlatformSignals_DownloadsPdbByDefault()
     {
-        var (exit, output, _) = await RunAppAsync("library", "System.Text.Json", "-S", "Signals");
+        var (exit, output, _) = await RunAppAsync("library", "System.Text.Json", "-S", "Signals", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Signals", output);
@@ -4592,7 +4776,7 @@ public partial class CommandExecutionTests
     [Fact]
     public async Task LibraryCommand_Signals_ChecksSymbolsByDefault()
     {
-        var (exit, output, error) = await RunAppAsync("library", TestAssemblyPath, "-S", "Signals");
+        var (exit, output, error) = await RunAppAsync("library", TestAssemblyPath, "-S", "Signals", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Signals", output);
@@ -4656,7 +4840,8 @@ public partial class CommandExecutionTests
                     assemblyPath,
                     "-S",
                     "Signals",
-                    "--offline");
+                    "--offline",
+                    "--markdown");
 
             Assert.True(
                 exit == 0,

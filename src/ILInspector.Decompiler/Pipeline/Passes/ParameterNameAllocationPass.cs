@@ -12,6 +12,9 @@ public sealed class ParameterNameAllocationPass : IIrPass
 {
     public string Name => "parameter-name-allocation";
 
+    public PassAnalysisKind PreservedAnalyses
+        => PassAnalysisKind.BranchTargets;
+
     public void Run(IrFunction function, PassContext context)
         => AllocateScope(
             function.Signature.Parameters,

@@ -13,7 +13,16 @@ public sealed record LibraryBodyAnalysisReceipt(
     LibraryBodyModuleIdentity ModuleIdentity,
     LibraryBodyAnalysisFeatures Features,
     bool HasFullMethodEvidenceScope,
-    ImmutableArray<AnalysisDiagnostic> Diagnostics);
+    ImmutableArray<AnalysisDiagnostic> Diagnostics)
+{
+    /// <summary>
+    /// Diagnostic evidence of current physical Analysis-stage participation,
+    /// when explicitly requested.
+    /// </summary>
+    public LibraryBodyAnalysisStageParticipationReceipt?
+        StageParticipation
+    { get; init; }
+}
 
 /// <summary>
 /// Why a physical managed body did not issue an implementation profile in one
@@ -355,7 +364,9 @@ public sealed class LibraryBodyAnalysisExecution
         LibraryBodyModuleIdentity moduleIdentity,
         string? moduleName,
         LibraryBodyAnalysisResult analysis,
-        LibraryBodyAnalysisPlan plan)
+        LibraryBodyAnalysisPlan plan,
+        LibraryBodyAnalysisStageParticipationReceipt?
+            stageParticipation = null)
     {
         _moduleName = moduleName;
         _analysis = analysis;
@@ -364,7 +375,10 @@ public sealed class LibraryBodyAnalysisExecution
             moduleIdentity,
             plan.Features,
             HasFullMethodEvidenceScope(plan),
-            analysis.Diagnostics);
+            analysis.Diagnostics)
+        {
+            StageParticipation = stageParticipation,
+        };
         CallGraph = new(
             Receipt,
             _moduleName,

@@ -80,16 +80,21 @@ dotnet-inspect member Instant \
 It exercises exact package provenance, an optional PackageHouse-issued
 package-local candidate, NuGet.org producer authorization, and external
 symbol-package or symbol-server fallback. Package-local consumption uses
-`GetLibraryAndInventoryForTarget`, supplies its exact Library row, and makes
-any distinct implementation assembly the symbol-bearing settlement binding;
+either `GetLibraryAndInventoryForTarget` while realizing an implementation or
+`GetLibraryInventoryForTarget` for an already-realized exact assembly,
+supplies its exact Library row, and makes any distinct implementation assembly
+the symbol-bearing settlement binding;
 settlement never inventories a package implicitly. `Newtonsoft.Json` remains
 the neighboring external-symbol-package fallback scenario because its ordinary
 package does not list an adjacent Portable PDB.
 
-Browser/Wasm adopts the same host-neutral operation in the next host slice
-with explicit in-memory or browser-owned stores and fetch capabilities. The
-CLI-first slice must not place provider policy, identity validation, cache
-keys, or fallback logic in the command.
+Browser/Wasm member and type source now adopt the same host-neutral operation.
+Queries creates an opaque settlement target for the already-open PDB context;
+the browser host supplies its shared network client, PackageHouse content
+queries, source authorization, finite limits, deadline, and one bounded
+pathless in-memory positive store. Provider policy, identity validation, store
+keys, candidate ordering, and fallback remain in settlement. This adoption
+does not retire the remaining SourceHouse compatibility routes.
 
 ### Request and exact binding
 
@@ -211,13 +216,18 @@ Library row, establish implementation correspondence, or prove PDB absence.
 Without a supplied Library row and its preserved correspondence receipt,
 package composition makes no package-local presence or absence claim. The
 settlement may continue to policy-authorized external providers for its exact
-symbol-bearing assembly; it does not silently issue a PackageHouse inventory
-query merely because symbols were requested.
+symbol-bearing assembly. A host may explicitly supply deferred package
+preparation for exact package provenance; settlement invokes it only after
+embedded classification, Portable PDB identity classification, and a verified
+positive-store miss.
 
 An owner-issued package-local candidate also carries the exact producer that
 supplied its PackageHouse generation. A separately supplied producer must match
 that receipt. Configured-source eligibility cannot widen external symbol
-authorization beyond the producer that supplied the package.
+authorization beyond the producer that supplied the package. Deferred
+preparation retains that typed producer before row binding, so a visible
+binding failure does not revoke otherwise authorized external symbol-package
+or symbol-server fallback.
 
 ### Provider policy
 
@@ -346,6 +356,13 @@ available, bytes read, and elapsed duration. Negative hits retain the original
 absence evidence and record zero requests. Receipts describe the operation;
 they do not expose an acquisition plan or host capability.
 
+When deferred package preparation runs, the package-local receipt includes its
+inventory request count, transferred bytes, elapsed duration, and network
+disposition together with any later exact-PDB File acquisition. That work
+remains visible when row binding fails or a later external provider supplies
+the PDB, and the final result's network disposition covers both package and
+external-provider work.
+
 Unavailable requires that no retained failure can explain the lack of content.
 A rejected same-identity response, store failure, authorization failure, or
 malformed package-local candidate therefore cannot be flattened into
@@ -447,6 +464,22 @@ Receipts distinguish successful transfer from admitted Portable PDB content,
 so an exact-identity rejection is not reported as an acquired candidate and a
 later authorized provider may still succeed.
 
+Browser member and type source use the same query operations and now opt into
+`PortablePdbSettlement` at their PDB-opening boundary. Package-role
+realization preserves the exact selected target, runtime identifier, and
+package-relative implementation path in assembly provenance, allowing
+PackageHouse to issue a candidate for the already-realized implementation
+without reacquiring its assembly bytes. Settlement defers the inventory-only
+PackageHouse query until embedded and identity classification complete and the
+shared positive store misses; the inventory terminal itself materializes no
+Library content. A browser-session 24 MiB in-memory positive store is shared
+across source operations and never exposes a local path. Package-binding
+preparation failures remain typed package-local candidate failures while the
+Gallery's typed NuGet.org producer continues to authorize later providers.
+Platform participants use the same capability without a package candidate.
+Browser rendering, TypeScript exports, source-document fetching, and
+authored-versus-decompiled selection are unchanged.
+
 Each implementation adoption publishes exact-base/head NativeAOT evidence for
 the production command it changes. The CLI-first slice measures the
 `System.Text.Json` Source Locations command with an empty operation-owned store
@@ -464,7 +497,7 @@ The complete adoption must gate at least:
 - platform `System.Text.Json` Source Locations acquiring a matching Portable
   PDB through the CLI-first settlement path;
 - warm verified-store reuse with no network request;
-- Browser/Wasm-equivalent pathless store behavior before that host adopts;
+- Browser/Wasm member/type source using one shared bounded pathless store;
 - rejection of matching GUID with a different Portable PDB stamp;
 - package Listed, Absent, and Not applicable evidence without implicit
   inventory work;
@@ -485,8 +518,11 @@ The CLI slices gate the first two items, pathless positive-store behavior,
 GUID-plus-stamp rejection, package Listed/Absent/Not applicable behavior,
 reference-to-implementation binding, exact package Files acquisition,
 logical-row retention, later-provider success, limits and store failures as
-non-absence, and repeatable result content. Negative-observation and
-Browser-host gates land with their owning slices.
+non-absence, and repeatable result content. The Browser-host slice gates exact
+package-role provenance, PackageHouse candidate preparation for an
+already-realized implementation, authored type and member source, shared
+pathless-store publication and reuse, and visible package-binding failure.
+Negative-observation gates land with their owning slice.
 
 The platform CLI scenario and `NodaTime@3.3.5`, which publishes adjacent
 Portable PDB entries, are the production fixtures. Synthetic PDB identity and
@@ -509,10 +545,12 @@ metadata type is resolved before that inference, and the resulting mapping
 retains `Inferred` rather than presenting the filename relationship as a
 sequence-point correlation.
 
-`PdbSourceHouse` is the clearing house for this PDB-provenance-based source
-scenario: it composes the candidate origins, fetch policy, checksum
-verification, source decoding, and typed failure outcomes into one settled
-result. It intentionally does not include decompiler-generated source.
+`PdbSourceHouse` retains the legacy candidate-origin and fetch-policy
+composition for this PDB-provenance-based source scenario. It intentionally
+does not include decompiler-generated source.
+`PdbSourceInspectionProjection` owns the compatibility member/type inspection
+models and projects checksum, mapping, decoded-text, absence, and failure
+evidence into them without selecting or acquiring a source candidate.
 `AssemblyContextSourceQuery` owns that higher Queries-layer fallback.
 The [selected-member source pair](design/member-source-pair-query.md),
 [shared member acquisition](design/member-source-acquisition.md), and
@@ -525,9 +563,10 @@ The target [SourceHouse composition](design/source-house.md), tracked by
 [#6512](https://github.com/richlander/dotnet-inspect/issues/6512), replaces
 that product composition with one content-first House over
 `SourceLinkService`, `CSharpDecompilerService`, and authorized acquisition
-capabilities. Product candidate ordering moves from `PdbSourceHouse` to
-SourceHouse, while this document continues to own PDB acquisition, SourceLink
-interpretation, checksum semantics, and authored-source evidence.
+capabilities. Product candidate ordering moves from `PdbSourceHouse` to SourceHouse, while
+this document continues to own PDB acquisition, SourceLink interpretation,
+checksum semantics, authored-source evidence, and its compatibility
+projection.
 
 Every successful path must satisfy the shared Portable PDB checksum verifier
 (exact or accepted line-ending-normalized correspondence) before its content
@@ -625,7 +664,10 @@ The production adoption path has three steps in this slice: expose these
 operations at SourceLink; migrate `PdbSourceHouse` and source-integrity/local-
 repository consumers; and retain the existing CLI and Browser/Wasm source
 query paths over those consumers. The old House checksum/decoder entry points
-and Services-owned checksum/result types are retired, not duplicated.
+and Services-owned checksum/result types are retired, not duplicated. The
+one-URL Services composition now lives in `VerifiedSourceTextFetch`, which
+combines `SourceFetch` transport with the owner-issued SourceLink checksum and
+detached text result without making either adjacent owner absorb the other.
 Acquisition ordering and fallback stay in their current compositions until
 SourceHouse adoption. Library lease consumption and the independent decompiler
 producer remain separately tracked.

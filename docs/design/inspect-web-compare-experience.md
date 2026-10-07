@@ -173,7 +173,7 @@ Compare does not reserve a separate content row for the status.
 
 The compact header context explains the active Package-owned setting without
 repeating its controls or reserving another chrome row. **Change target**
-returns to Package Overview's Comparison targets work area. Compare does not
+returns to Package Compare's Comparison targets work area. Compare does not
 render a second version, breadth, discovery, or work-limit editor.
 
 Summary metrics precede the inventory or Member result. They report only
@@ -193,8 +193,10 @@ that represented family population is present.
 The cue is absent while Diff is pending or unsuccessful, in Clone mode, and for
 removed Before-only subjects that have no current Navigation identity. It
 coexists with structural-salience, Top Leverage, and implementation-hub cues;
-the shared rail therefore reserves three ordered glyph slots. The Browser never
-infers diff presence from display text, signatures, counts, or classification.
+Type rows reserve two ordered slots: API differences, then structural
+salience. Member rows retain their existing three-slot achievement rail. The
+Browser never infers diff presence from display text, signatures, counts, or
+classification.
 
 ## Library drill-down
 

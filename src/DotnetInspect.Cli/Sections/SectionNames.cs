@@ -42,6 +42,12 @@ public static class SectionNames
     /// <summary>Section for base class.</summary>
     public const string Baseclass = "Baseclass";
 
+    /// <summary>Types that implement the selected interface.</summary>
+    public const string Implementers = "Implementers";
+
+    /// <summary>Types that derive from the selected base type.</summary>
+    public const string DerivedTypes = "Derived Types";
+
     /// <summary>Section for remote source file links (SourceLink).</summary>
     public const string RemoteSource = "Remote Source";
 
@@ -229,8 +235,8 @@ public static class SectionNames
     /// exact library.
     /// </summary>
     public const string NameFamilies = "Name Families";
-    public const string NameFamilyRoles = "Name Family Roles";
-    public const string NameFamilyRoleTypes = "Name Family Role Types";
+    public const string ArchitecturalFamilies = "Architectural Families";
+    public const string ArchitecturalFamilyTypes = "Architectural Family Types";
     public const string DependencyStructure = "Dependency Structure";
 
     public static bool IncludesBodyMetrics(

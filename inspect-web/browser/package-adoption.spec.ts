@@ -602,6 +602,7 @@ declare global {
         platformPack: string,
         documentationId: string,
       ): Promise<CompiledDocumentationOutcome>;
+      loadPlatformLibrary(framework: string, version: string, assembly: string, pack: string): Promise<string>;
       openPlatformForwarderView(
         framework: string,
         version: string,
@@ -733,6 +734,8 @@ async function boot(page: Page): Promise<void> {
         platformPack,
         documentationId,
       ),
+      loadPlatformLibrary: (framework, platformVersion, assembly, pack) =>
+        client.package.loadRuntimePackAssembly(framework, platformVersion, assembly, pack, assembly),
       openPlatformForwarderView: (framework, platformVersion, assembly, pack) =>
         client.package.openPlatformForwarderView(
           framework, platformVersion, assembly, pack),
@@ -1213,8 +1216,7 @@ test.describe("Package Query website over real Wasm", () => {
     await expect(overview.locator("h1")).toHaveText(
       literalCoordinate.packageId.toLowerCase(),
     );
-    await expect(overview.locator(".overview-surface-footer"))
-      .toContainText(literalCoordinate.version);
+    await expect(overview.locator(".overview-surface-footer")).toHaveCount(0);
     const packageUrl = page.url();
     const retainedWorkspaceId = await currentHistoryWorkspaceId(page);
     expect(retainedWorkspaceId).not.toBeNull();
@@ -2901,7 +2903,7 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     // "Inspection failed" instead.
     await expect(panel.locator(".api-surface-head"))
       .toContainText("1 direct reference");
-    await expect(panel.locator("footer")).toContainText(healthyAssemblyFileName);
+    await expect(panel.locator("footer")).toHaveCount(0);
     await expect(panel).not.toContainText("Inspection failed");
   });
 
@@ -3351,8 +3353,7 @@ test.describe("deterministic two-host Workspace demo", () => {
       await expect(overview).toBeVisible({ timeout: 180_000 });
       await expect(overview.locator("h1"))
         .toHaveText(retainedWorkspace.packageId);
-      await expect(overview.locator(".overview-surface-footer"))
-        .toContainText(retainedWorkspace.version);
+      await expect(overview.locator(".overview-surface-footer")).toHaveCount(0);
     };
 
     await page.setViewportSize({ width: 1440, height: 900 });
@@ -3675,6 +3676,36 @@ test.describe("bounded network-backed Worker smoke", () => {
     await expect(copyType).toHaveText("System.Xml.XmlReader");
     await expect(page.locator("#inspector-panel")).toContainText("Read");
     await expect(page.locator("[data-platform-forwarder]")).toHaveCount(0);
+  });
+
+  test("opens CoreLib directly and through its SafeHandle forwarder over the production Worker", async ({ page }) => {
+    await boot(page);
+    const platformVersion = "11.0.0-rc.1.26425.128";
+    const name = "Microsoft.Win32.SafeHandles.SafeHandleZeroOrMinusOneIsInvalid";
+    try {
+      const raw = await page.evaluate(ver => window.__adoption!.loadPlatformLibrary(
+        "net11.0", ver, "System.Private.CoreLib.dll", "netcore.app"), platformVersion);
+      const direct: unknown = JSON.parse(raw);
+      if (!direct || typeof direct !== "object" || !("types" in direct) || !Array.isArray(direct.types)) {
+        throw new Error("CoreLib omitted its Type surface.");
+      }
+      expect(direct.types.some((type: unknown) => type !== null && typeof type === "object"
+        && "id" in type && type.id === `System.Private.CoreLib:${name}`)).toBe(true);
+      const initial = await page.evaluate(ver => window.__adoption!.openPlatformForwarderView(
+        "net11.0", ver, "System.Runtime.dll", "netcore.app"), platformVersion);
+      expect(initial.status, initial.message ?? "System.Runtime").toBe("opened");
+      const forwarder = initial.view?.forwarders.find(candidate => candidate.id === `System.Runtime:${name}`);
+      if (!forwarder) throw new Error("System.Runtime omitted the SafeHandle forwarder.");
+      expect(forwarder.targetAssembly).toBe("System.Private.CoreLib");
+      const result = await page.evaluate(action => window.__adoption!.activatePlatformForwarder(action), forwarder.action);
+      expect(result.status, result.message ?? "CoreLib activation").toBe("opened");
+      expect(result.view?.assembly).toBe("System.Private.CoreLib");
+      expect(result.view?.selectedTypeId).toBe(`System.Private.CoreLib:${name}`);
+      expect(result.view?.surface.types.some(type => type.id === result.view?.selectedTypeId)).toBe(true);
+      expect(result.view?.forwarders.some(candidate => candidate.id === result.view?.selectedTypeId)).toBe(false);
+    } finally {
+      await page.evaluate(() => window.__adoption!.dispose());
+    }
   });
 
   test("opens each real XML forwarding occurrence through the production Worker", async ({
@@ -4204,4 +4235,219 @@ test.describe("bounded network-backed Worker smoke", () => {
     expect(surface.assemblies.length).toBeGreaterThan(0);
     expect(surface.types.length).toBeGreaterThan(0);
   });
+});
+
+test.describe("Spotlight ecosystem annotations over real Wasm", () => {
+  test("cold catalog does not block results or acquire packs, then joins Package and Library", async ({ page, context }) => {
+    const catalog: unknown = JSON.parse(readFileSync(resolve("assets/platform-index.json"), "utf8"));
+    if (!catalog || typeof catalog !== "object" || !("defaultFramework" in catalog))
+      throw new Error("Invalid test platform catalog.");
+    catalog.defaultFramework = "net10.0";
+    let releaseCatalog!: () => void;
+    const catalogGate = new Promise<void>(complete => { releaseCatalog = complete; });
+    const packs: string[] = [];
+    await context.route("**/assets/platform-index.json", async route => {
+      await catalogGate;
+      await route.fulfill({ contentType: "application/json", body: JSON.stringify(catalog) });
+    });
+    const publicationRequests: string[] = [];
+    const publicationGate = deferred<void>();
+    await context.route("https://api.nuget.org/v3/index.json", route => route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({ resources: [{ "@type": "RegistrationsBaseUrl/3.6.0",
+        "@id": "https://api.nuget.org/v3/registration5-gz-semver2/" }] }),
+    }));
+    await context.route("https://api.nuget.org/v3/registration5-gz-semver2/*/*.json", async route => {
+      const url = route.request().url();
+      publicationRequests.push(url);
+      await publicationGate.promise;
+      const published = url.includes("/system.linq/") ? "2016-11-15T23:00:00Z"
+        : url.includes("/system.text.json/9.0.0") ? "2024-11-12T23:00:00Z"
+          : "2026-09-08T00:00:00Z";
+      await route.fulfill({ contentType: "application/json", body: JSON.stringify({ "@id": url, published }) });
+    });
+    let jsonVersion = "9.0.0";
+    await context.route("https://azuresearch-usnc.nuget.org/**", route => {
+      const query = new URL(route.request().url()).searchParams.get("q");
+      const versions: Readonly<Record<string, string>> = {
+        "System.Linq": "4.3.0", "System.Text.Json": jsonVersion,
+        "Microsoft.AspNetCore.Http": "2.2.2", "Microsoft.Extensions.Logging": "9.0.0",
+        "Aspire.Hosting": "9.0.0",
+      };
+      const id = query && versions[query] ? query : "System.Linq";
+      return route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({ data: [{ id, version: versions[id] }] }),
+      });
+    });
+    await context.route(/https:\/\/.*\/(?:microsoft\.netcore\.app|microsoft\.aspnetcore\.app)[^/]*\/.*\.nupkg(?:\?.*)?$/i, route => {
+      packs.push(route.request().url());
+      return route.abort();
+    });
+    await page.goto("/");
+    const search = page.locator("#spotlight-input");
+    await expect(search).toBeEditable({ timeout: 120_000 });
+    await search.fill("System.Linq");
+    const packageHit = page.locator('[data-sl-pkg-load="System.Linq"]');
+    await expect(packageHit).toBeVisible();
+    await expect(packageHit.locator(".spotlight-pruned")).toHaveCount(0);
+    await expect(packageHit.locator(".spotlight-item-date")).toHaveText("Published …");
+    const alignment = await packageHit.evaluate(element => ({
+      nameLeft: element.querySelector(".spotlight-item-name")!.getBoundingClientRect().left,
+      metadataRight: element.querySelector(".spotlight-item-ns")!.getBoundingClientRect().right,
+    }));
+    const originalControl = await packageHit.elementHandle();
+    expect(packs).toEqual([]);
+    releaseCatalog();
+    await expect(packageHit.locator('[aria-label="Package pruned for net10.0"]')).toBeVisible();
+    const libraryHit = page.locator('[data-sl-framework-lib="System.Linq"]');
+    await expect(libraryHit.locator('[aria-label="Library: .NET Runtime"]')).toBeVisible();
+    await expect(libraryHit.locator(".spotlight-pruned")).toHaveCount(0);
+    const pairOrder = await page.locator("[data-sl-framework-lib=\"System.Linq\"], [data-sl-pkg-load=\"System.Linq\"]").evaluateAll(elements => elements.map(element => element.hasAttribute("data-sl-framework-lib") ? "Library" : "Package"));
+    expect(pairOrder).toEqual(["Library", "Package"]);
+    await expect(packageHit.locator('.sl-package-icon')).toHaveCount(0);
+    await expect(packageHit.locator('[role="img"]')).toHaveCount(1);
+    await expect(libraryHit.locator('[role="img"]')).toHaveCount(1);
+    const annotatedAlignment = await packageHit.evaluate(element => ({
+      nameLeft: element.querySelector(".spotlight-item-name")!.getBoundingClientRect().left,
+      metadataRight: element.querySelector(".spotlight-item-ns")!.getBoundingClientRect().right,
+    }));
+    expect(annotatedAlignment.nameLeft).toBeCloseTo(alignment.nameLeft, 2);
+    expect(annotatedAlignment.metadataRight).toBeCloseTo(alignment.metadataRight, 2);
+    expect(await packageHit.locator(".spotlight-pruned").evaluate(element => ({
+      width: element.getBoundingClientRect().width,
+      mask: getComputedStyle(element).maskImage,
+    }))).toMatchObject({ width: 20, mask: expect.stringContaining("data:image/svg+xml") });
+    await expect(page.locator(".spotlight-group").filter({ hasText: /^Ecosystem$/ })).toHaveCount(1);
+    await expect(packageHit.locator(".spotlight-item-ns")).not.toContainText("Package");
+    await expect(page.locator('[data-sl-framework-lib="System.Linq"]')).toContainText(".NET Runtime");
+    expect(packs).toEqual([]);
+    await expect(search).toBeFocused();
+    expect(await packageHit.evaluate((element, original) => element === original, originalControl)).toBe(true);
+    publicationGate.resolve();
+    await expect(packageHit.locator("time")).toHaveText("2016-11-15");
+    await expect(libraryHit.locator("time")).toHaveText("2026-09-08");
+    await expect(libraryHit.locator("time")).toHaveAttribute("datetime", "2026-09-08");
+    expect(publicationRequests.filter(url => url.includes("/microsoft.netcore.app.ref/"))).toHaveLength(1);
+    await search.fill("System.Text.Json");
+    const jsonPackage = page.locator('[data-sl-pkg-load="System.Text.Json"]');
+    await expect(jsonPackage.locator('[aria-label="Package pruned for net10.0"]')).toBeVisible();
+    await expect(page.locator('[data-sl-framework-lib="System.Text.Json"] [aria-label="Library: .NET Runtime"]')).toBeVisible();
+    await expect(page.locator(".spotlight-group").filter({ hasText: /^Ecosystem$/ })).toHaveCount(1);
+    expect(packs).toEqual([]);
+    for (const [id, ecosystem] of [
+      ["Microsoft.AspNetCore.Http", "ASP.NET Core"],
+      ["Microsoft.Extensions.Logging", "Microsoft.Extensions"],
+      ["Aspire.Hosting", "Aspire"],
+    ]) {
+      await search.fill(id!);
+      const row = page.locator(`[data-sl-pkg-load="${id}"]`);
+      await expect(row.locator('[role="img"]')).toHaveCount(1);
+      if (id === "Aspire.Hosting") {
+        const icon = row.getByRole("img", { name: `Package: ${ecosystem}`, exact: true });
+        await expect(icon).toBeVisible();
+        expect(await icon.evaluate(element => getComputedStyle(element).backgroundImage))
+          .toContain("data:image/svg+xml");
+      } else {
+        await expect(row.getByRole("img", { name: "Package pruned for net10.0", exact: true })).toBeVisible();
+        await expect(page.locator(`[data-sl-framework-lib="${id}"] .spotlight-pruned`)).toHaveCount(0);
+        await expect(page.locator(`[data-sl-framework-lib="${id}"]`).getByRole("img", { name: "Library: ASP.NET Core", exact: true })).toBeVisible();
+      }
+    }
+    jsonVersion = "11.0.0-preview.7.26381.103";
+    // The preceding Aspire query makes this a fresh search in the same app.
+    await search.fill("System.Text.Json");
+    await expect(page.locator('[data-sl-pkg-load="System.Text.Json"]')).toContainText(jsonVersion);
+    const newerPair = page.locator('[data-sl-framework-lib="System.Text.Json"], [data-sl-pkg-load="System.Text.Json"]');
+    await expect(newerPair.first()).toHaveAttribute("data-sl-pkg-load", "System.Text.Json");
+    await expect(page.locator('[data-sl-framework-lib="System.Text.Json"]')).toContainText(".NET Runtime");
+    await expect(page.locator('[data-sl-pkg-load="System.Text.Json"] [aria-label="Package: .NET Runtime"]')).toBeVisible();
+    await expect(newerPair.locator(".spotlight-pruned")).toHaveCount(0);
+    expect(packs).toEqual([]);
+  });
+});
+
+
+test("publication dates remain visible in Package Overview and in-app Spotlight", async ({ page, context }, testInfo) => {
+  test.setTimeout(240_000);
+  const registry = new GalleryFixtureRegistry([healthy]);
+  await installGalleryRoutes(context, registry);
+  await context.route("https://api.nuget.org/v3/index.json", route => route.fulfill({
+    contentType: "application/json", headers: corsHeaders,
+    body: JSON.stringify({ version: "3.0.0", resources: [
+      { "@type": "PackageBaseAddress/3.0.0", "@id": "https://api.nuget.org/v3-flatcontainer/" },
+      { "@type": "RegistrationsBaseUrl/3.6.0", "@id": "https://api.nuget.org/v3/registration5-gz-semver2/" },
+    ] }),
+  }));
+  const publicationRequests: string[] = [];
+  await context.route("https://api.nuget.org/v3/registration5-gz-semver2/*/*.json", route => {
+    const url = route.request().url(); publicationRequests.push(url);
+    const published = url.includes("/system.text.json/") ? "2024-11-12T23:00:00-08:00" : "2026-09-08T00:00:00Z";
+    return route.fulfill({ contentType: "application/json", headers: corsHeaders,
+      body: JSON.stringify({ "@id": url, published }) });
+  });
+  await context.route("https://azuresearch-usnc.nuget.org/**", route => route.fulfill({
+    contentType: "application/json", body: JSON.stringify({ data: [{ id: "System.Text.Json", version: "9.0.0" }] }),
+  }));
+  await page.goto("/");
+  const homeInput = page.locator("#spotlight-input");
+  await expect(homeInput).toBeEditable({ timeout: 120_000 });
+  await homeInput.fill(`${healthy.packageId}@${healthy.version}`);
+  await page.locator(`[data-sl-pkg-load="${healthy.packageId}"]`).click();
+  const overview = page.locator(".package-overview-surface");
+  await expect(overview).toBeVisible({ timeout: 180_000 });
+  await expect(overview.locator(".overview-identity-detail")).toHaveText("Published 2026-09-08");
+  await page.screenshot({ path: testInfo.outputPath("package-overview-date.png") });
+  await page.getByRole("button", { name: "Search types, members, packages", exact: true }).click();
+  const input = page.locator("#spotlight-input");
+  await expect(input).toBeEditable();
+  await input.fill(healthy.packageId);
+  await expect(page.locator(`[data-sl-pkg-open="${healthy.packageId}" i] time`)).toHaveText("2026-09-08");
+  expect(publicationRequests.filter(url => url.includes(`/${healthy.packageId.toLowerCase()}/`))).toHaveLength(1);
+  await input.fill("System.Text.Json");
+  const packageRow = page.locator('[data-sl-pkg-load="System.Text.Json"]');
+  const libraryRow = page.locator('[data-sl-framework-lib="System.Text.Json"]');
+  await expect(packageRow.locator("time")).toHaveText("2024-11-12");
+  await expect(libraryRow.locator("time")).toHaveText("2026-09-08");
+  await expect(input).toBeFocused();
+  const geometry = await packageRow.locator("time").evaluate(element => ({
+    width: element.getBoundingClientRect().width,
+    right: element.getBoundingClientRect().right,
+    viewport: window.innerWidth,
+  }));
+  expect(geometry.width).toBeGreaterThan(60);
+  expect(geometry.right).toBeLessThanOrEqual(geometry.viewport);
+  expect(publicationRequests.filter(url => url.includes("/system.text.json/"))).toHaveLength(1);
+  for (const row of [packageRow, libraryRow]) {
+    await expect(row.locator(".spotlight-item-ns")).not.toContainText(/Package|Library/);
+    const layout = await row.evaluate(element => {
+      const centers = [".spotlight-item-name", ".spotlight-item-ns", ".spotlight-item-date"]
+        .map(selector => { const rect = element.querySelector(selector)!.getBoundingClientRect(); return rect.top + rect.height / 2; });
+      return { height: element.getBoundingClientRect().height, spread: Math.max(...centers) - Math.min(...centers) };
+    });
+    expect(layout.height).toBeLessThanOrEqual(40);
+    expect(layout.spread).toBeLessThan(2);
+  }
+  await page.screenshot({ path: testInfo.outputPath("in-app-spotlight-dates.png") });
+  await page.locator('[data-sl-scope="libraries"]').click();
+  await expect(libraryRow).toBeVisible();
+  await expect(packageRow).toHaveCount(0);
+  await expect(page.locator('[data-sl-type], [data-sl-member], [data-sl-package-query]')).toHaveCount(0);
+  await page.locator('[data-sl-scope="packages"]').click();
+  await expect(packageRow).toBeVisible();
+  await expect(libraryRow).toHaveCount(0);
+  await page.locator('[data-sl-scope="all"]').click();
+  await expect(libraryRow).toBeVisible();
+  await expect(packageRow).toBeVisible();
+  await page.setViewportSize({ width: 480, height: 720 });
+  for (const row of [packageRow, libraryRow]) {
+    const layout = await row.evaluate(element => {
+      const rowRect = element.getBoundingClientRect();
+      const dateRect = element.querySelector("time")!.getBoundingClientRect();
+      return { height: rowRect.height, right: dateRect.right, rowRight: rowRect.right };
+    });
+    expect(layout.height).toBeLessThanOrEqual(40);
+    expect(layout.right).toBeLessThanOrEqual(layout.rowRight);
+  }
+  await expect(page.locator('[data-sl-scope="libraries"]')).toBeVisible();
 });

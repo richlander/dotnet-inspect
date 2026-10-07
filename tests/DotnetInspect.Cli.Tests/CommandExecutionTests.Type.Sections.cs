@@ -1,5 +1,6 @@
 using DotnetInspect.Cli.Sections;
 using System.Globalization;
+using System.IO.Compression;
 using System.Text.Json;
 using DotnetInspector.Packages;
 using DotnetInspect.Cli.Commands;
@@ -12,13 +13,462 @@ namespace DotnetInspect.Cli.Tests;
 public partial class CommandExecutionTests
 {
     [Fact]
+    public async Task
+        Type_HierarchySections_ComposeWithExactTypeAndBoundedRows()
+    {
+        string assembly =
+            typeof(IWorkspaceImplementationMarker).Assembly.Location;
+
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            typeof(IWorkspaceImplementationMarker).FullName!,
+            "--library",
+            assembly,
+            "--all",
+            "-S",
+            SectionNames.TypeInfo,
+            "-S",
+            SectionNames.Implementers,
+            "--rows",
+            "2",
+            "--markdown");
+
+        Assert.Equal(1, exit);
+        Assert.Contains("## Type Info", output);
+        Assert.Contains("## Implementers", output);
+        Assert.Contains(
+            typeof(WorkspaceImplementation).FullName!,
+            output);
+        Assert.Contains(
+            typeof(WorkspaceImplementationA).FullName!,
+            output);
+        Assert.DoesNotContain(
+            typeof(WorkspaceImplementationB).FullName!,
+            output);
+        Assert.Contains(
+            "Hierarchy relation output reached the CLI row bound",
+            error);
+    }
+
+    public abstract class HierarchyArityCollision;
+
+    public sealed class HierarchyArityCollision<T> :
+        HierarchyArityCollision;
+
+    [Fact]
+    public async Task Type_HierarchyCountOnlyReturnsExactProducerCount()
+    {
+        string assembly =
+            typeof(IWorkspaceImplementationMarker).Assembly.Location;
+
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            typeof(IWorkspaceImplementationMarker).FullName!,
+            "--library",
+            assembly,
+            "--all",
+            "-S",
+            SectionNames.Implementers,
+            "--count");
+
+        Assert.Equal(0, exit);
+        Assert.Equal("4", output.Trim());
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task
+        Type_HierarchyRetainsPackageInternalLibrarySelection()
+    {
+        string package = Path.Combine(
+            CommandErrorOwnershipTests.RepositoryRoot(),
+            "fixtures",
+            "services",
+            "signatures",
+            "system.text.json.9.0.4.nupkg");
+
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            "System.Text.Json.Serialization.JsonConverter",
+            "--package",
+            package,
+            "--library",
+            "System.Text.Json.dll",
+            "-S",
+            SectionNames.Implementers,
+            "--count");
+
+        Assert.Equal(0, exit);
+        Assert.Equal("0", output.Trim());
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task Type_HierarchyRetainsRuntimeOnlyPackageSelection()
+    {
+        string directory =
+            Directory.CreateTempSubdirectory(
+                "type-hierarchy-runtime-package-test").FullName;
+        string package =
+            Path.Combine(directory, "runtime-only.1.0.0.nupkg");
+        string assembly =
+            typeof(IWorkspaceImplementationMarker).Assembly.Location;
+
+        try
+        {
+            using (ZipArchive archive = ZipFile.Open(
+                       package,
+                       ZipArchiveMode.Create))
+            {
+                archive.CreateEntryFromFile(
+                    assembly,
+                    "runtimes/any/lib/net11.0/"
+                        + Path.GetFileName(assembly));
+            }
+
+            var (exit, output, error) = await RunAppAsync(
+                "type",
+                typeof(IWorkspaceImplementationMarker).FullName!,
+                "--package",
+                package,
+                "--library",
+                Path.GetFileName(assembly),
+                "--tfm",
+                "net11.0",
+                "-S",
+                SectionNames.Implementers,
+                "--count");
+
+            Assert.Equal(0, exit);
+            Assert.Equal("4", output.Trim());
+            Assert.Empty(error);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task
+        Type_HierarchyComposedTypeInfoRetainsPackageRelativeAsset()
+    {
+        string package = Path.Combine(
+            CommandErrorOwnershipTests.RepositoryRoot(),
+            "fixtures",
+            "services",
+            "signatures",
+            "system.text.json.9.0.4.nupkg");
+
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            "System.Text.Json.Serialization.JsonConverter",
+            "--package",
+            package,
+            "--library",
+            "System.Text.Json.dll",
+            "-S",
+            SectionNames.TypeInfo,
+            "-S",
+            SectionNames.DerivedTypes,
+            "--markdown");
+
+        Assert.Equal(0, exit);
+        Assert.Contains(
+            "| Library | lib/net9.0/System.Text.Json.dll |",
+            output);
+        Assert.DoesNotContain("inspect-type-hierarchy", output);
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task
+        Type_HierarchyPrefersSelectedReferenceAssetOverEquivalentLibrary()
+    {
+        string package = Path.Combine(
+            CommandErrorOwnershipTests.RepositoryRoot(),
+            "fixtures",
+            "cli",
+            "package-archives",
+            "avalonia.12.1.2.nupkg");
+
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            "Avalonia.Controls.Button",
+            "--package",
+            package,
+            "--library",
+            "Avalonia.Controls.dll",
+            "--tfm",
+            "net10.0",
+            "-S",
+            SectionNames.DerivedTypes,
+            "--count");
+
+        Assert.Equal(0, exit);
+        Assert.True(
+            int.TryParse(
+                output.Trim(),
+                NumberStyles.None,
+                CultureInfo.InvariantCulture,
+                out _),
+            $"Expected a hierarchy count, got '{output}'.");
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task
+        Type_HierarchyRowsRetainDistinctPackageAssetCoordinates()
+    {
+        string package = Path.Combine(
+            CommandErrorOwnershipTests.RepositoryRoot(),
+            "fixtures",
+            "cli",
+            "package-archives",
+            "avalonia.12.1.2.nupkg");
+
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            "Avalonia.Controls.Button",
+            "--package",
+            package,
+            "--library",
+            "Avalonia.Controls.dll",
+            "--tfm",
+            "net10.0",
+            "-S",
+            SectionNames.DerivedTypes,
+            "--rows",
+            "50",
+            "--tsv");
+
+        Assert.Equal(0, exit);
+        string[] rows =
+        [
+            .. output.Split(
+                Environment.NewLine,
+                StringSplitOptions.RemoveEmptyEntries)
+                .Skip(1),
+        ];
+        Assert.Equal(14, rows.Length);
+        Assert.Equal(14, rows.Distinct(StringComparer.Ordinal).Count());
+        Assert.Contains(
+            rows,
+            row => row.Contains(
+                "avalonia@12.1.2 "
+                    + "(ref/net10.0/Avalonia.Controls.dll)",
+                StringComparison.Ordinal));
+        Assert.Contains(
+            rows,
+            row => row.Contains(
+                "avalonia@12.1.2 "
+                    + "(lib/net10.0/Avalonia.Controls.dll)",
+                StringComparison.Ordinal));
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task Type_DerivedTypesUsesTheSameLocalPopulation()
+    {
+        string assembly = typeof(SampleBaseClass).Assembly.Location;
+
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            typeof(SampleBaseClass).FullName!,
+            "--library",
+            assembly,
+            "--all",
+            "-S",
+            SectionNames.DerivedTypes,
+            "--rows",
+            "10",
+            "--tsv");
+
+        Assert.Equal(0, exit);
+        Assert.Contains(typeof(SampleDerivedClass).FullName!, output);
+        Assert.Contains(typeof(AnotherDerivedClass).FullName!, output);
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task Type_RelationsCategoryDiscoversBothHierarchySections()
+    {
+        string assembly = typeof(SampleBaseClass).Assembly.Location;
+
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            typeof(SampleBaseClass).FullName!,
+            "--library",
+            assembly,
+            "-D",
+            SectionCategoryNames.Relations,
+            "--tsv");
+
+        Assert.Equal(0, exit);
+        Assert.Contains(SectionNames.Implementers, output);
+        Assert.Contains(SectionNames.DerivedTypes, output);
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task Type_HierarchyJsonlRetainsBoundedRowsAndProvenance()
+    {
+        string assembly =
+            typeof(IWorkspaceImplementationMarker).Assembly.Location;
+
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            typeof(IWorkspaceImplementationMarker).FullName!,
+            "--library",
+            assembly,
+            "--all",
+            "-S",
+            SectionNames.Implementers,
+            "--rows",
+            "2",
+            "--jsonl");
+
+        Assert.Equal(1, exit);
+        string[] lines =
+            output.Split(
+                Environment.NewLine,
+                StringSplitOptions.RemoveEmptyEntries);
+        Assert.Equal(2, lines.Length);
+        foreach (string line in lines)
+        {
+            using JsonDocument row = JsonDocument.Parse(line);
+            Assert.Equal(
+                "DotnetInspect.Cli.Tests",
+                row.RootElement.GetProperty("library").GetString());
+            Assert.Equal(
+                assembly,
+                row.RootElement.GetProperty("source").GetString());
+        }
+        Assert.Contains(
+            "Hierarchy relation output reached the CLI row bound",
+            error);
+    }
+
+    [Fact]
+    public async Task Type_HierarchyTailRowsAreRejectedExplicitly()
+    {
+        string assembly =
+            typeof(IWorkspaceImplementationMarker).Assembly.Location;
+
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            typeof(IWorkspaceImplementationMarker).FullName!,
+            "--library",
+            assembly,
+            "--all",
+            "-S",
+            SectionNames.Implementers,
+            "--rows",
+            "2",
+            "--tail");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "cannot select tail rows without materializing the complete "
+                + "relation population",
+            error);
+    }
+
+    [Fact]
+    public async Task
+        Type_ImplementersMatchesLegacyImplementsResultSetForLocalFixture()
+    {
+        string assembly =
+            typeof(IWorkspaceImplementationMarker).Assembly.Location;
+        string target =
+            typeof(IWorkspaceImplementationMarker).FullName!;
+
+        var legacy = await RunAppAsync(
+            "implements",
+            target,
+            "--library",
+            assembly,
+            "--all",
+            "--json");
+        var hierarchy = await RunAppAsync(
+            "type",
+            target,
+            "--library",
+            assembly,
+            "--all",
+            "-S",
+            SectionNames.Implementers,
+            "--rows",
+            "100",
+            "--jsonl");
+
+        Assert.Equal(0, legacy.Exit);
+        Assert.Equal(0, hierarchy.Exit);
+        Assert.Empty(legacy.Error);
+        Assert.Empty(hierarchy.Error);
+        using JsonDocument legacyDocument =
+            JsonDocument.Parse(legacy.Output);
+        string[] legacyTypes =
+        [
+            .. legacyDocument.RootElement
+                .EnumerateArray()
+                .Select(row => row.GetProperty("type").GetString()!),
+        ];
+        string[] hierarchyTypes =
+        [
+            .. hierarchy.Output
+                .Split(
+                    Environment.NewLine,
+                    StringSplitOptions.RemoveEmptyEntries)
+                .Select(line =>
+                {
+                    using JsonDocument row = JsonDocument.Parse(line);
+                    return row.RootElement
+                        .GetProperty("type")
+                        .GetString()!;
+                }),
+        ];
+
+        Assert.Equal(legacyTypes, hierarchyTypes);
+    }
+
+    [Fact]
+    public async Task
+        Type_HierarchyPrefersExactNonGenericFocusOverGenericShorthand()
+    {
+        string assembly = typeof(HierarchyArityCollision).Assembly.Location;
+
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            typeof(HierarchyArityCollision).FullName!,
+            "--library",
+            assembly,
+            "--all",
+            "-S",
+            SectionNames.DerivedTypes,
+            "--rows",
+            "10",
+            "--tsv");
+
+        Assert.Equal(0, exit);
+        Assert.Contains(
+            typeof(HierarchyArityCollision<>)
+                .FullName!
+                .Replace('+', '.'),
+            output);
+        Assert.Empty(error);
+    }
+
+    [Fact]
     public async Task Type_SingleType_SelectSection_RendersSectionNotShape()
     {
         var options = new TypeOptions
         {
             PlatformAssembly = "System.Text.Json",
             TypeName = "JsonSerializer",
-            Select = ["Properties"]
+            Select = ["Properties"],
+            FormatExplicitlySet = true,
         };
 
         var (exit, output, _) = await ConsoleCapture.RunAsync(
@@ -41,7 +491,8 @@ public partial class CommandExecutionTests
         {
             PlatformAssembly = "System.Text.Json",
             TypeName = "JsonSerializer",
-            Select = [SectionNames.TypeInfo]
+            Select = [SectionNames.TypeInfo],
+            FormatExplicitlySet = true,
         };
 
         var (exit, output, _) = await ConsoleCapture.RunAsync(
@@ -144,7 +595,7 @@ public partial class CommandExecutionTests
         params string[] extraArgs)
     {
         string[] discoverArgs = ["type", typeName, .. extraArgs, "-D", SectionNames.TypeInfo];
-        string[] renderArgs = ["type", typeName, .. extraArgs, "-S", SectionNames.TypeInfo];
+        string[] renderArgs = ["type", typeName, .. extraArgs, "-S", SectionNames.TypeInfo, "--markdown"];
 
         var (discoverExit, discoverOutput, _) = await RunAppAsync(discoverArgs);
         var (renderExit, renderOutput, _) = await RunAppAsync(renderArgs);
@@ -207,7 +658,7 @@ public partial class CommandExecutionTests
     public async Task Type_TypeInfoSection_ReportsTypeParametersForOpenGenerics()
     {
         var (exit, output, _) = await RunAppAsync(
-            "type", "System.Collections.Generic.List`1", "-S", SectionNames.TypeInfo);
+            "type", "System.Collections.Generic.List`1", "-S", SectionNames.TypeInfo, "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Contains("| Type Parameters | T |", output);
@@ -294,7 +745,7 @@ public partial class CommandExecutionTests
     [Fact]
     public async Task Type_ExplicitSelect_StillReachesGrowingSections()
     {
-        var (exit, output, _) = await RunAppAsync("type", "System.String", "-S", "Fields");
+        var (exit, output, _) = await RunAppAsync("type", "System.String", "-S", "Fields", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Equal(["Fields"], SectionHeadings(output));
@@ -313,7 +764,7 @@ public partial class CommandExecutionTests
     public async Task Type_PrefixBrowse_ListingSectionName_IsSelectable(string section)
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", "Command", "--library", TestAssemblyPath, "-S", section);
+            "type", "Command", "--library", TestAssemblyPath, "-S", section, "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Contains("best-effort prefix matches", error, StringComparison.Ordinal);
@@ -652,7 +1103,7 @@ public partial class CommandExecutionTests
     public async Task Type_PrefixBrowse_DeferredSelect_NarrowsAMultiKindListing(string flag)
     {
         var (exit, output, _) = await RunAppAsync(
-            "type", "Json", "--platform", "System.Text.Json", "-S", "Classes", flag);
+            "type", "Json", "--platform", "System.Text.Json", "-S", "Classes", "--markdown", flag);
 
         Assert.Equal(0, exit);
 
@@ -670,7 +1121,7 @@ public partial class CommandExecutionTests
     public async Task Type_PlatformPrefixBrowse_ListingSectionName_IsSelectable()
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", "System.Collections.Immutabl", "-S", "Classes");
+            "type", "System.Collections.Immutabl", "-S", "Classes", "--markdown");
 
         Assert.Equal(0, exit);
 
@@ -775,5 +1226,80 @@ public partial class CommandExecutionTests
         JsonElement platformRow = Assert.Single(platformDocument.RootElement.EnumerateArray());
         Assert.Equal("member/sections/methods", platformRow.GetProperty("path").GetString());
         Assert.Equal("table", platformRow.GetProperty("shape").GetString());
+    }
+
+    [Fact]
+    public async Task Type_LoneTableSection_StreamsTsvUnlessAFormatIsNamed()
+    {
+        // Section shapes, type adoption slice 2: a lone explicitly selected
+        // Table renders its native TSV rows when no format is named; an
+        // explicit --markdown keeps the composed document, and --json is
+        // untouched. A bare -n on the TSV stream is the rendered-line window.
+        var (exit, output, error) = await RunAppAsync(
+            "type", "DotnetInspect.Cli.Tests.CommandExecutionTests+ConstructorChainTarget",
+            "--library", TestAssemblyPath, "--all", "-S", SectionNames.Constructors);
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        string[] lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        Assert.StartsWith("name\t", lines[0]);
+        Assert.DoesNotContain("## Constructors", output);
+        Assert.DoesNotContain("# DotnetInspect.Cli.Tests", output);
+
+        var (markdownExit, markdown, markdownError) = await RunAppAsync(
+            "type", "DotnetInspect.Cli.Tests.CommandExecutionTests+ConstructorChainTarget",
+            "--library", TestAssemblyPath, "--all", "-S", SectionNames.Constructors, "--markdown");
+
+        Assert.Equal(0, markdownExit);
+        Assert.Empty(markdownError);
+        Assert.Contains("## Constructors", markdown);
+
+        // The type listing's lone Table streams TSV too, through the deferred
+        // listing path.
+        var (listingExit, listing, listingError) = await RunAppAsync(
+            "type", "--library", TestAssemblyPath, "-S", SectionNames.Classes);
+
+        Assert.Equal(0, listingExit);
+        Assert.Empty(listingError);
+        Assert.StartsWith("kind\ttype\t", listing);
+    }
+
+    [Fact]
+    public async Task Type_LoneScalarSection_RejectsRowTerminalsBeforeAcquisition()
+    {
+        // Type Info and API Info are scalar records: --count and --rows fail
+        // with the shape-aware diagnostic before the type is inspected, while
+        // the record itself streams as a field/value TSV.
+        var (countExit, countOutput, countError) = await RunAppAsync(
+            "type", "DotnetInspect.Cli.Tests.CommandExecutionTests+ConstructorChainTarget",
+            "--library", TestAssemblyPath, "--all", "-S", SectionNames.TypeInfo, "--count");
+
+        Assert.Equal(1, countExit);
+        Assert.Empty(countOutput);
+        Assert.Contains("Section 'Type Info' is scalar and does not support --count", countError);
+
+        var (rowsExit, _, rowsError) = await RunAppAsync(
+            "type", "--library", TestAssemblyPath, "-S", SectionNames.ApiInfo, "--rows", "1");
+
+        Assert.Equal(1, rowsExit);
+        Assert.Contains("Section 'API Info' is scalar and does not support --rows", rowsError);
+
+        var (recordExit, record, recordError) = await RunAppAsync(
+            "type", "DotnetInspect.Cli.Tests.CommandExecutionTests+ConstructorChainTarget",
+            "--library", TestAssemblyPath, "--all", "-S", SectionNames.TypeInfo);
+
+        Assert.Equal(0, recordExit);
+        Assert.Empty(recordError);
+        Assert.StartsWith("field\tvalue", record);
+
+        // A count map over several sections keeps its per-section meaning.
+        var (mapExit, map, mapError) = await RunAppAsync(
+            "type", "DotnetInspect.Cli.Tests.CommandExecutionTests+ConstructorChainTarget",
+            "--library", TestAssemblyPath, "--all",
+            "-S", $"{SectionNames.TypeInfo},{SectionNames.Constructors}", "--count", "--json");
+
+        Assert.Equal(0, mapExit);
+        Assert.Empty(mapError);
+        Assert.Contains("\"section\"", map);
     }
 }

@@ -328,6 +328,75 @@ public static class TypeCommand
         bool inspectionIncomplete = false;
         try
         {
+            if (loadedSurface is null
+                && preselectedType is null
+                && !options.EffectiveDiscovery
+                && !string.IsNullOrEmpty(typeName)
+                && !new TypeGestureIntent(
+                        options.TypeFilter)
+                    .SelectsListingCatalog(
+                        options.TypeName)
+                && TypeHierarchyRelationsInspectionExecutor.IsSelected(
+                    options)
+                && options.TypeHierarchyRelations is null)
+            {
+                (int? hierarchyExitCode, string? hierarchyError) =
+                    await TypeHierarchyRelationsInspectionExecutor
+                        .ExecuteAsync(
+                            options,
+                            source,
+                            async execution =>
+                            {
+                                ExactTypeInspectionResult inspection =
+                                    execution.ExactType.Content.Inspection;
+                                if (!inspection.IsAvailable)
+                                {
+                                    WriteExactTypeNonSuccess(
+                                        inspection,
+                                        execution.ExactType.Diagnostics,
+                                        execution.ExactType.Content
+                                            .DefiningSources.Select(
+                                                FormatDefiningSource));
+                                    return 1;
+                                }
+
+                                TypeHierarchyRelationsInspection relations =
+                                    execution.Relations
+                                    ?? throw new InvalidOperationException(
+                                        "An available hierarchy Type requires "
+                                            + "relation inspection.");
+                                WriteHierarchyDiagnostics(relations);
+                                return await ExecuteWorkspaceExactTypeResultAsync(
+                                        options with
+                                        {
+                                            TypeHierarchyRelations =
+                                                relations,
+                                        },
+                                        plan,
+                                        inspection,
+                                        execution.ExactType.Diagnostics,
+                                        ExactTypeRenderSource.From(source),
+                                        execution.Target
+                                            ?? throw new InvalidOperationException(
+                                                "An available hierarchy Type "
+                                                    + "requires one live "
+                                                    + "inspection target."),
+                                        execution.PackageExtractPath)
+                                    .ConfigureAwait(false);
+                            },
+                            cancellationToken)
+                        .ConfigureAwait(false);
+                if (hierarchyError is not null)
+                {
+                    CommandError.Write(hierarchyError);
+                    return 1;
+                }
+
+                return hierarchyExitCode
+                    ?? throw new InvalidOperationException(
+                        "Hierarchy execution completed without an exit code.");
+            }
+
             if (string.IsNullOrEmpty(typeName)
                 || new TypeGestureIntent(
                         options.TypeFilter)
@@ -542,6 +611,13 @@ public static class TypeCommand
                                 effectiveOptions.SourceOptions));
                     }
 
+                    if (effectiveOptions.TypeHierarchyRelations is
+                        { } hierarchyRelations)
+                    {
+                        inspectionIncomplete |=
+                            !hierarchyRelations.IsComplete;
+                    }
+
                     // Real local names for the listing: acquire the portable
                     // PDB the same way the member command does — only when the
                     // section is actually requested (network).
@@ -710,9 +786,13 @@ public static class TypeCommand
                     }
 
                     // Notify when a requested section matched but has no data for this type.
-                    // JSON and markdown both honor -S; tabular output falls back to showing all
-                    // members and shape replaces selection, so skip those.
-                    if (!effectiveOptions.Tabular
+                    // JSON and markdown both honor -S; explicit tabular output falls back to
+                    // showing all members and shape replaces selection, so skip those. A lone
+                    // section's native TSV stream (no explicit format) keeps the note: an empty
+                    // stream with no explanation would read as a silent success.
+                    if (!(effectiveOptions.Tabular
+                            && (effectiveOptions.TabularExplicitlySet
+                                || effectiveOptions.FormatExplicitlySet))
                         && effectiveOptions is not TypeOptions { ShapeOutput: true }
                         && !effectiveOptions.CountDefaultPopulation)
                     {
@@ -1385,7 +1465,8 @@ public static class TypeCommand
         ExactTypeInspectionResult result,
         IEnumerable<InspectionDiagnostic> diagnostics,
         ExactTypeRenderSource renderSource,
-        SelectedContextExactTypeLiveTarget target)
+        SelectedContextExactTypeLiveTarget target,
+        string? packageExtractPathOverride = null)
     {
         WriteInspectionDiagnostics(diagnostics);
 
@@ -1435,7 +1516,9 @@ public static class TypeCommand
                 PackageName: renderSource.PackageName,
                 PackageVersion: renderSource.PackageVersion,
                 ResolvedPackagePath: renderSource.ResolvedPackagePath,
-                PackageExtractPath: target.PackageExtractPath,
+                PackageExtractPath:
+                    packageExtractPathOverride
+                    ?? target.PackageExtractPath,
                 ApiSource: renderSource.Source,
                 ApiVersion: renderSource.Version,
                 PlatformFramework: renderSource.PlatformFramework,
@@ -1733,6 +1816,19 @@ public static class TypeCommand
                     PlatformFramework: null),
             };
         }
+
+        internal static ExactTypeRenderSource From(
+            ApiSourceResult source) =>
+            new(
+                source.PackageName
+                    ?? Path.GetFileNameWithoutExtension(source.SearchPath),
+                source.PackageVersion ?? source.ApiVersion,
+                source.ApiSource ?? SourceKind.Library,
+                source.SelectedTfm,
+                source.PackageName,
+                source.PackageVersion,
+                source.ResolvedPackagePath,
+                source.PlatformFramework);
     }
 
     sealed class WorkspaceTypeAssemblyPath : IDisposable
@@ -1896,6 +1992,30 @@ public static class TypeCommand
                         nameof(diagnostics),
                         diagnostic.Severity,
                         "Unknown inspection diagnostic severity.");
+            }
+        }
+    }
+
+    static void WriteHierarchyDiagnostics(
+        TypeHierarchyRelationsInspection inspection)
+    {
+        foreach (TypeHierarchyRelationSectionInspection section
+        in new[]
+        {
+            inspection.Implementers,
+            inspection.DerivedTypes,
+        }.OfType<TypeHierarchyRelationSectionInspection>())
+        {
+        WriteInspectionDiagnostics(section.Inspection.Diagnostics);
+        if (section.Inspection.Content.Relations.Rows
+            is SubjectRelationPopulationRowsOutcome.Read
+        {
+            Continuation: not null,
+        })
+        {
+            CommandError.WriteWarning(
+                "Hierarchy relation output reached the CLI row bound and "
+                    + "is incomplete.");
             }
         }
     }

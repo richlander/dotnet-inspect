@@ -104,17 +104,19 @@ public sealed class PlatformVersionlessRuntimeTargetPolicy
         PlatformTargetSelectionPolicyGeneration generation,
         PlatformVersion minimumPreferredVersion,
         PlatformTargetDiscoveryStage? preferred,
-        PlatformTargetDiscoveryStage fallback)
+        PlatformTargetDiscoveryStage fallback,
+        bool allowPrereleaseMinimum = false)
     {
         ArgumentNullException.ThrowIfNull(identity);
         ArgumentNullException.ThrowIfNull(generation);
         ArgumentNullException.ThrowIfNull(minimumPreferredVersion);
         ArgumentNullException.ThrowIfNull(fallback);
-        if (minimumPreferredVersion.IsPrerelease
+        if ((!allowPrereleaseMinimum
+                && minimumPreferredVersion.IsPrerelease)
             || minimumPreferredVersion.BuildMetadata is not null)
         {
             throw new ArgumentException(
-                "The versionless runtime floor must be a stable version without build metadata.",
+                "The versionless runtime floor must be stable unless the caller explicitly permits a prerelease minimum, and it must not carry build metadata.",
                 nameof(minimumPreferredVersion));
         }
         if (preferred is not null
@@ -166,6 +168,7 @@ public sealed class PlatformVersionlessRuntimeTargetPolicy
         Identity = identity;
         Generation = generation;
         MinimumPreferredVersion = minimumPreferredVersion;
+        AllowPrereleaseMinimum = allowPrereleaseMinimum;
         Preferred = preferred;
         Fallback = fallback;
         DiscoveryCapabilities = Array.AsReadOnly(
@@ -179,6 +182,7 @@ public sealed class PlatformVersionlessRuntimeTargetPolicy
     public PlatformTargetSelectionPolicyIdentity Identity { get; }
     public PlatformTargetSelectionPolicyGeneration Generation { get; }
     public PlatformVersion MinimumPreferredVersion { get; }
+    public bool AllowPrereleaseMinimum { get; }
     public PlatformTargetDiscoveryStage? Preferred { get; }
     public PlatformTargetDiscoveryStage Fallback { get; }
     public IReadOnlyList<PlatformSourceCapabilityIdentity>

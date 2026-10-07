@@ -1,6 +1,33 @@
 import type { BrowserPackageDependencies } from "./facades/inspect-web-package.d.ts";
 import { assemblyReferenceGraphLegendHtml } from "./graph-legends.ts";
 
+export interface AssemblyReferenceIdentity {
+  readonly name: string;
+  readonly version: string;
+  readonly culture: string | null;
+  readonly publicKeyToken: string | null;
+}
+
+export interface WorkspaceLibraryReferenceCandidate
+  extends AssemblyReferenceIdentity {
+  readonly packageKey: string;
+  readonly libraryId: string;
+}
+
+export interface AdmittedLibraryReferenceSubject {
+  readonly id: string;
+}
+
+export interface AssemblyReferenceDescriptor
+  extends AssemblyReferenceIdentity {
+  readonly id: string;
+}
+
+export interface LibraryReferenceDestination {
+  readonly packageKey: string;
+  readonly libraryId: string;
+}
+
 export interface LibraryReferencesOptions {
   assemblyIdentity: string;
   assetPath: string;
@@ -8,14 +35,75 @@ export interface LibraryReferencesOptions {
   loading: boolean;
   error: string;
   data: BrowserPackageDependencies | null;
+  referenceDestinations: readonly (LibraryReferenceDestination | null)[];
   escapeHtml: (value: unknown) => string;
+}
+
+function normalizeIdentityValue(value: string): string {
+  return value.toLowerCase();
+}
+
+function normalizeCulture(value: string | null): string {
+  const normalized = value?.toLowerCase() ?? "";
+  return normalized === "neutral" ? "" : normalized;
+}
+
+function normalizePublicKeyToken(value: string | null): string {
+  return value?.toLowerCase() ?? "";
+}
+
+function assemblyReferenceIdentityKey(
+  identity: AssemblyReferenceIdentity,
+): string {
+  return [
+    normalizeIdentityValue(identity.name),
+    normalizeIdentityValue(identity.version),
+    normalizeCulture(identity.culture),
+    normalizePublicKeyToken(identity.publicKeyToken),
+  ].join("\u0000");
+}
+
+export function createWorkspaceLibraryReferenceCandidates(
+  packageKey: string,
+  admittedLibraries: readonly AdmittedLibraryReferenceSubject[],
+  descriptors: readonly AssemblyReferenceDescriptor[],
+): WorkspaceLibraryReferenceCandidate[] {
+  const admittedIds = new Set(admittedLibraries.map(library => library.id));
+  return descriptors
+    .filter(descriptor => admittedIds.has(descriptor.id))
+    .map(descriptor => ({
+      packageKey,
+      libraryId: descriptor.id,
+      name: descriptor.name,
+      version: descriptor.version,
+      culture: descriptor.culture,
+      publicKeyToken: descriptor.publicKeyToken,
+    }));
+}
+
+export function resolveLibraryReferenceDestinations(
+  references: readonly AssemblyReferenceIdentity[],
+  candidates: readonly WorkspaceLibraryReferenceCandidate[],
+): (LibraryReferenceDestination | null)[] {
+  const destinations =
+    new Map<string, LibraryReferenceDestination | null>();
+  for (const candidate of candidates) {
+    const key = assemblyReferenceIdentityKey(candidate);
+    destinations.set(
+      key,
+      destinations.has(key)
+        ? null
+        : {
+            packageKey: candidate.packageKey,
+            libraryId: candidate.libraryId,
+          });
+  }
+  return references.map(reference =>
+    destinations.get(assemblyReferenceIdentityKey(reference)) ?? null);
 }
 
 export function renderLibraryReferencesSurface(options: LibraryReferencesOptions): string {
   const {
-    assemblyIdentity,
-    assetPath,
-    coordinate,
     loading,
     error,
     data,
@@ -50,21 +138,21 @@ export function renderLibraryReferencesSurface(options: LibraryReferencesOptions
         </section>
         <section class="document-section reference-list-section">
           <div class="section-title"><h2>Assembly references</h2><span>${references.length.toLocaleString()} direct reference${references.length === 1 ? "" : "s"}</span></div>
-          <ul class="dep-list" aria-label="Assembly references">${references.map(reference =>
-            `<li><span class="dep-name">${escapeHtml(reference.name)}</span><code class="dep-version">${escapeHtml(`${reference.version} \u00b7 ${reference.culture || "neutral"} \u00b7 ${reference.publicKeyToken ? `pkt ${reference.publicKeyToken}` : "unsigned"}`)}</code></li>`).join("")}</ul>
+          <ul class="dep-list" aria-label="Assembly references">${references.map((reference, index) => {
+            const destination = options.referenceDestinations[index];
+            const name = destination
+              ? `<button type="button" class="dep-name as-link" data-library-reference-package="${escapeHtml(destination.packageKey)}" data-library-reference-library="${escapeHtml(destination.libraryId)}" title="Open ${escapeHtml(reference.name)} Library">${escapeHtml(reference.name)}</button>`
+              : `<span class="dep-name">${escapeHtml(reference.name)}</span>`;
+            return `<li>${name}<code class="dep-version">${escapeHtml(`${reference.version} \u00b7 ${reference.culture || "neutral"} \u00b7 ${reference.publicKeyToken ? `pkt ${reference.publicKeyToken}` : "unsigned"}`)}</code></li>`;
+          }).join("")}</ul>
         </section>`
       : `<section class="document-section empty-document"><h2>No direct references</h2><p>This assembly declares no direct AssemblyRef rows.</p></section>`;
   }
-  const identity = assetPath ? `${assetPath} \u00b7 ${assemblyIdentity}` : assemblyIdentity;
   return `<section class="library-references-surface" aria-labelledby="library-references-title">
     <header class="api-surface-head">
       <h1 id="library-references-title">References</h1>
       <p>${escapeHtml(status)}</p>
     </header>
     <div class="library-references-scroll">${content}</div>
-    <footer class="metadata-surface-footer">
-      <span title="${escapeHtml(identity)}">${escapeHtml(identity)}</span>
-      <span title="${escapeHtml(coordinate)}">${escapeHtml(coordinate)}</span>
-    </footer>
   </section>`;
 }

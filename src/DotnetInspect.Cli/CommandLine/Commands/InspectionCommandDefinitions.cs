@@ -474,8 +474,8 @@ public static class InspectionCommandDefinitions
             new Option<string?>("--name-family-population")
             {
                 Description =
-                    "With exact -S \"Name Families\", \"Name Family "
-                        + "Roles\", or \"Name Family Role Types\": all, "
+                    "With exact -S \"Name Families\", \"Architectural "
+                        + "Families\", or \"Architectural Family Types\": all, "
                         + "ordinary, generated, mixed, or unknown",
             };
         nameFamilyPopulationOption.CompletionSources.Add(
@@ -578,14 +578,14 @@ public static class InspectionCommandDefinitions
                     exactSelector,
                     SectionNames.NameFamilies,
                     StringComparison.OrdinalIgnoreCase);
-            bool exactNameFamilyRoles =
+            bool exactArchitecturalFamilies =
                 string.Equals(
                     exactSelector,
-                    SectionNames.NameFamilyRoles,
+                    SectionNames.ArchitecturalFamilies,
                     StringComparison.OrdinalIgnoreCase)
                 || string.Equals(
                     exactSelector,
-                    SectionNames.NameFamilyRoleTypes,
+                    SectionNames.ArchitecturalFamilyTypes,
                     StringComparison.OrdinalIgnoreCase);
             bool exactDependencyStructure =
                 string.Equals(
@@ -596,19 +596,19 @@ public static class InspectionCommandDefinitions
                     is { Implicit: false }
                 && !exactLibraryMetrics
                 && !exactNameFamilies
-                && !exactNameFamilyRoles
+                && !exactArchitecturalFamilies
                 && !exactDependencyStructure)
             {
                 result.AddError(
                     "library --envelope accepts only the exact "
                         + "\"Library Metrics\", \"Name Families\", "
-                        + "\"Name Family Roles\", \"Name Family Role "
+                        + "\"Architectural Families\", \"Architectural Family "
                         + "Types\", or \"Dependency Structure\" "
                         + "section selection.");
             }
             if (exactLibraryMetrics
                 || exactNameFamilies
-                || exactNameFamilyRoles
+                || exactArchitecturalFamilies
                 || exactDependencyStructure)
                 return;
 
@@ -729,7 +729,7 @@ public static class InspectionCommandDefinitions
                     || HasExactNameFamiliesSelector(
                         parseResult,
                         opts)
-                    || HasExactNameFamilyRolesSelector(
+                    || HasExactArchitecturalFamiliesSelector(
                         parseResult,
                         opts)
                     || HasExactDependencyStructureSelector(
@@ -951,10 +951,10 @@ public static class InspectionCommandDefinitions
                 && !CliRowSelectionCommandRegistry
                     .TryGetPreparedSemanticIntent(
                         parseResult,
-                        HasExactNameFamilyRolesSelector(
+                        HasExactArchitecturalFamiliesSelector(
                             select,
                             selectDefault)
-                            ? "Name Family Roles"
+                            ? "Architectural Families"
                             : SectionNames.NameFamilies,
                         out nameFamilyRowSelection,
                         out string? nameFamilyRowSelectionError))
@@ -981,15 +981,15 @@ public static class InspectionCommandDefinitions
                 && !HasExactNameFamiliesSelector(
                     select,
                     selectDefault)
-                && !HasExactNameFamilyRolesSelector(
+                && !HasExactArchitecturalFamiliesSelector(
                     select,
                     selectDefault))
             {
                 CommandError.Write(
                     "--name-family-population requires exact "
                         + $"-S \"{SectionNames.NameFamilies}\", "
-                        + $"\"{SectionNames.NameFamilyRoles}\", or "
-                        + $"\"{SectionNames.NameFamilyRoleTypes}\".");
+                        + $"\"{SectionNames.ArchitecturalFamilies}\", or "
+                        + $"\"{SectionNames.ArchitecturalFamilyTypes}\".");
                 return 1;
             }
             LibraryNameFamilyPopulationKind nameFamilyPopulation =
@@ -1114,8 +1114,8 @@ public static class InspectionCommandDefinitions
                     ecosystemDependencyRowSelection,
                 NameFamilyPopulation = nameFamilyPopulation,
                 NameFamilyRowSelection = nameFamilyRowSelection,
-                NameFamilyRoleTypeRows =
-                    HasExactNameFamilyRoleTypesSelector(
+                ArchitecturalFamilyTypeRows =
+                    HasExactArchitecturalFamilyTypesSelector(
                         select,
                         selectDefault),
                 DependencyStructureRowSelection =
@@ -1309,16 +1309,16 @@ public static class InspectionCommandDefinitions
         string[]? select,
         bool selectDefault) =>
         HasExactNameFamiliesSelector(select, selectDefault)
-        || HasExactNameFamilyRolesSelector(select, selectDefault);
+        || HasExactArchitecturalFamiliesSelector(select, selectDefault);
 
-    private static bool HasExactNameFamilyRolesSelector(
+    private static bool HasExactArchitecturalFamiliesSelector(
         ParseResult parseResult,
         SharedOptions opts) =>
-        HasExactNameFamilyRolesSelector(
+        HasExactArchitecturalFamiliesSelector(
             opts.ParseSelect(parseResult),
             opts.ParseSelectDefault(parseResult));
 
-    private static bool HasExactNameFamilyRolesSelector(
+    private static bool HasExactArchitecturalFamiliesSelector(
         string[]? select,
         bool selectDefault)
     {
@@ -1332,14 +1332,14 @@ public static class InspectionCommandDefinitions
         ];
         return selectors is [var selector]
             && (selector.Equals(
-                    SectionNames.NameFamilyRoles,
+                    SectionNames.ArchitecturalFamilies,
                     StringComparison.OrdinalIgnoreCase)
                 || selector.Equals(
-                    SectionNames.NameFamilyRoleTypes,
+                    SectionNames.ArchitecturalFamilyTypes,
                     StringComparison.OrdinalIgnoreCase));
     }
 
-    private static bool HasExactNameFamilyRoleTypesSelector(
+    private static bool HasExactArchitecturalFamilyTypesSelector(
         string[]? select,
         bool selectDefault)
     {
@@ -1353,7 +1353,7 @@ public static class InspectionCommandDefinitions
         ];
         return selectors is [var selector]
             && selector.Equals(
-                SectionNames.NameFamilyRoleTypes,
+                SectionNames.ArchitecturalFamilyTypes,
                 StringComparison.OrdinalIgnoreCase);
     }
 

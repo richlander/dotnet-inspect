@@ -37,11 +37,6 @@ public static class SectionCategoryNames
     public const string Project = "@Project";
 
     /// <summary>
-    /// Product-owned query vocabularies. This is the vocabulary command's base category.
-    /// </summary>
-    public const string Vocabulary = "@Vocabulary";
-
-    /// <summary>
     /// Product-configured knowledge available on the selected ecosystem route.
     /// This is the ecosystem command's base category.
     /// </summary>
@@ -59,9 +54,6 @@ public static class SectionCategoryNames
     /// </summary>
     public const string Query = "@Query";
 
-    /// <summary>Vocabularies consumed by API type and member queries.</summary>
-    public const string Api = "@API";
-
     /// <summary>
     /// Safety, provenance, integrity, and vulnerability evidence at package, library, type, or
     /// member scope. Members that are also ordinary command evidence remain cross-listed in their
@@ -78,6 +70,12 @@ public static class SectionCategoryNames
     /// Direct and reverse member-call relationships plus composed call graphs.
     /// </summary>
     public const string Calls = "@Calls";
+
+    /// <summary>
+    /// Type hierarchy relationships composed across the selected Workspace
+    /// declaration population.
+    /// </summary>
+    public const string Relations = "@Relations";
 
     /// <summary>
     /// Actual source content: decompiled, original, and annotated source views plus source diffs

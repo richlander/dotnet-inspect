@@ -44,7 +44,9 @@ internal sealed class DesktopPlatformPackageSourceRuntime :
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(remainingWork);
-        return IssueOperation(request.CancellationToken);
+        return Composition.IssueSettlementOperation(
+            remainingWork.MaxDuration,
+            request.CancellationToken);
     }
 
     internal PackageSourceOperationLease IssueOperation(

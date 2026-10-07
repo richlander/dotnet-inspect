@@ -38,12 +38,11 @@ test("Package Overview starts with identity and content without a redundant head
   assert.equal(html.match(/<h1\b/g)?.length, 1);
   assert.match(html, /overview-identity[\s\S]*subject-icon[\s\S]*Example\.Package/);
   assert.match(html,
-    /overview-scroll[\s\S]*<h2>Package info<\/h2>[\s\S]*overview-surface-footer/);
+    /overview-scroll[\s\S]*<h2>Package info<\/h2>/);
   assert.doesNotMatch(
     html,
-    /overview-surface-head|overview-surface-label|>Overview<|package-version/);
-  assert.match(html, /title="Example.Package@10.0.0">Example.Package@10.0.0<\/span>/);
-  assert.match(html, /title="net10.0">net10.0<\/span>/);
+    /overview-surface-head|overview-surface-label|overview-subject-label|>Overview<|package-version/);
+  assert.doesNotMatch(html, /overview-surface-footer/);
   assert.doesNotMatch(html, /type-heading|package-coordinate-editor/);
 });
 
@@ -52,7 +51,6 @@ test("Package Overview composes Package info with its owner-issued children", ()
     packageInfoHtml: "<section><h2>Package info</h2></section>",
     packageChildrenHtml:
       '<section><h2>Libraries</h2><button data-package-child-library="lib/net10.0/Example.dll">Example</button></section>',
-    comparisonHtml: "<section><h2>Comparison</h2></section>",
     documentsHtml: "<section><h2>Documents</h2></section>",
   });
 
@@ -60,7 +58,7 @@ test("Package Overview composes Package info with its owner-issued children", ()
   assert.match(
     html,
     /Package info[\s\S]*<h2>Libraries<\/h2>[\s\S]*data-package-child-library/);
-  assert.match(html, /package-overview-resources[\s\S]*Comparison[\s\S]*Documents/);
+  assert.match(html, /Libraries[\s\S]*Documents/);
   assert.doesNotMatch(html, /data-lib-scope/);
 });
 
@@ -72,20 +70,18 @@ test("Package Overview retains supplied document navigation", () => {
   });
 
   assert.match(html,
-    /overview-scroll[\s\S]*data-doc-path="README.md"[\s\S]*overview-surface-footer/);
+    /overview-scroll[\s\S]*data-doc-path="README.md"/);
 });
 
-test("Overview passes complete coordinate text through the existing escaping boundary", () => {
+test("Library Overview passes identity text through the existing escaping boundary", () => {
   const html = overview({
+    subject: "library",
     displayName: "Example <Package>",
     details: ["lib/net10.0/Example&Package.dll"],
     packageId: 'Example."Package',
     packageVersion: "10.0.0&preview",
     activeFramework: "net10.0<browser>",
   });
-  assert.match(html,
-    /title="Example\.&quot;Package@10\.0\.0&amp;preview">Example\.&quot;Package@10\.0\.0&amp;preview<\/span>/);
-  assert.match(html, /title="net10\.0&lt;browser&gt;">net10\.0&lt;browser&gt;<\/span>/);
   assert.match(html, />Example &lt;Package&gt;<\/h1>/);
   assert.match(html, /lib\/net10\.0\/Example&amp;Package\.dll/);
 });

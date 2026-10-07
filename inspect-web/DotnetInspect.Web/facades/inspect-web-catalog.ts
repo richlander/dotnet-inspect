@@ -4,6 +4,8 @@ export type BrowserCompileLibraryStatus = "Selected" | "NoCompileAssets" | "NoMa
 
 export type BrowserVocabularyDiagnosticSeverity = "Information" | "Warning" | "Error" | number;
 
+export type BrowserVocabularyExplanationOutcome = "Explained" | "InvalidPath" | "OutsideVocabularies" | "Unknown" | "InvalidDepth" | number;
+
 export type BrowserVocabularyMapCardinality = "ExactlyOne" | "OptionalOne" | "OneOrMore" | "ZeroOrMore" | number;
 
 export type BrowserVocabularyMapCoverage = "Complete" | "Partial" | number;
@@ -11,6 +13,8 @@ export type BrowserVocabularyMapCoverage = "Complete" | "Partial" | number;
 export type BrowserVocabularyScalarKind = "Text" | "Integer" | "Boolean" | number;
 
 export type BrowserWorkspacePackageSourceAuthentication = "Anonymous" | "AuthenticationRequired" | number;
+
+export type JsonValueKind = number;
 
 export interface BrowserAccessibilityDescriptor {
   readonly id: string;
@@ -47,8 +51,21 @@ export interface BrowserCallGraph {
   readonly callees: BrowserCallGraphNode;
   readonly scope: BrowserCallGraphScope;
   readonly targets: ReadonlyArray<BrowserCallGraphTarget>;
+  readonly boundaries: ReadonlyArray<BrowserCallGraphBoundary>;
   readonly diagnostics: BrowserCallGraphDiagnostics;
   readonly noBody: boolean;
+}
+
+export interface BrowserCallGraphBoundary {
+  readonly id: string;
+  readonly sourcePackageId: string;
+  readonly sourcePackageVersion: string;
+  readonly sourcePackageFramework: string;
+  readonly sourceAssembly: string;
+  readonly targetPackageId: string;
+  readonly targetPackageVersion: string;
+  readonly targetPackageFramework: string;
+  readonly targetAssembly: string;
 }
 
 export interface BrowserCallGraphDiagnostics {
@@ -720,6 +737,24 @@ export interface BrowserVocabularyDefinitionIdentity {
   readonly value: string;
 }
 
+export interface BrowserVocabularyExplanation {
+  readonly content: unknown;
+  readonly share: BrowserVocabularyInspectionShare;
+  readonly diagnostics: ReadonlyArray<BrowserVocabularyInspectionDiagnostic>;
+}
+
+export interface BrowserVocabularyExplanationRejection {
+  readonly requestedPath: string;
+  readonly message: string;
+  readonly suggestions: ReadonlyArray<string>;
+}
+
+export interface BrowserVocabularyExplanationResult {
+  readonly outcome: BrowserVocabularyExplanationOutcome;
+  readonly explanation: BrowserVocabularyExplanation | null;
+  readonly rejection: BrowserVocabularyExplanationRejection | null;
+}
+
 export interface BrowserVocabularyIdentity {
   readonly catalog: BrowserVocabularyCatalogIdentity;
   readonly value: string;
@@ -929,6 +964,7 @@ type $ManagedExports = {
             readonly "DecodeWorkspaceShareState.304094707": (encoded: string) => string;
             readonly "DescribeWorkspacePackageSources.304094707": (canonicalPacket: string) => string;
             readonly "EncodeWorkspaceShareState.304094707": (stateJson: string) => string;
+            readonly "ExplainVocabularies.146925470": (path: string, depth: number) => string;
             readonly "InspectVocabulary.1310674786": () => string;
             readonly "ListEcosystems.1310674786": () => string;
             readonly "ListHomeDemos.1310674786": () => string;
@@ -1204,6 +1240,18 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "EncodeWorkspaceShareState.304094707");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Catalog.CatalogExports.EncodeWorkspaceShareState.304094707\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "DotnetInspect");
+    value = $ownDataProperty(value, "Web");
+    value = $ownDataProperty(value, "Interop");
+    value = $ownDataProperty(value, "Catalog");
+    value = $ownDataProperty(value, "CatalogExports");
+    value = $ownDataProperty(value, "ExplainVocabularies.146925470");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Catalog.CatalogExports.ExplainVocabularies.146925470\u0027 is not callable.");
     }
   }
   {
@@ -1503,6 +1551,12 @@ export function encodeWorkspaceShareState(stateJson: BrowserWorkspaceShareState)
   const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Catalog"]["CatalogExports"]["EncodeWorkspaceShareState.304094707"]($serializeJsonInput(stateJson, "DotnetInspect.Web.Interop.Catalog.CatalogExports.EncodeWorkspaceShareState.304094707", "stateJson"));
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserWorkspaceShareEncodeResult;
+}
+
+export function explainVocabularies(path: string, depth: number): BrowserVocabularyExplanationResult {
+  const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Catalog"]["CatalogExports"]["ExplainVocabularies.146925470"](path, depth);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserVocabularyExplanationResult;
 }
 
 export function inspectVocabulary(): BrowserVocabularyInspection {

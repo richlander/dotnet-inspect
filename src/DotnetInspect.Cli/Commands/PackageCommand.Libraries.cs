@@ -942,6 +942,7 @@ public partial class PackageCommand
             Tree = options.Tree,
             Select = options.Select,
             SelectDefault = options.SelectDefault,
+            SelectExplicitlySet = options.SelectExplicitlySet,
             Columns = options.Columns,
             Fields = options.Fields,
             FieldsExplicitlySet = options.FieldsExplicitlySet,
@@ -969,8 +970,8 @@ public partial class PackageCommand
                 options.NameFamilyPopulation,
             NameFamilyRowSelection =
                 options.NameFamilyRowSelection,
-            NameFamilyRoleTypeRows =
-                options.NameFamilyRoleTypeRows,
+            ArchitecturalFamilyTypeRows =
+                options.ArchitecturalFamilyTypeRows,
             DependencyStructureRowSelection =
                 options.DependencyStructureRowSelection,
             IntegrationQuery = options.IntegrationQuery,

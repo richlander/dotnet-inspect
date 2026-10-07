@@ -874,7 +874,7 @@ test("the type nav reports no matches for an empty filtered group", () => {
   assert.match(html, /data-type-filter-disclosure open/);
 });
 
-test("the type nav renders dual accessible pole cues", () => {
+test("the type nav renders diff before one accessible salience cue", () => {
     const html = renderTypeNav({
       current: jsonSerializer,
       visible: [jsonSerializer, jsonDocument],
@@ -905,18 +905,13 @@ test("the type nav renders dual accessible pole cues", () => {
         if (item.id === jsonSerializer.id) {
           return [
             {
-              kind: "surface-sea-level",
-              description:
-                "8 incoming Type peers; 6 outgoing Type peers; surface sea-level Type",
+              kind: "api-diff",
+              description: "API differences",
             },
             {
               kind: "implementation-sea-level",
               description:
-                "12 incoming Type peers; 2 outgoing Type peers; implementation sea-level Type",
-            },
-            {
-              kind: "api-diff",
-              description: "API differences",
+                "8 incoming Type peers; 6 outgoing Type peers; surface sea-level Type; 12 incoming Type peers; 2 outgoing Type peers; implementation sea-level Type",
             },
           ];
         }
@@ -934,9 +929,9 @@ test("the type nav renders dual accessible pole cues", () => {
     assert.doesNotMatch(html, /data-type-leverage-filter/);
     assert.match(
       html,
-      /type-row selected surface-sea-level implementation-sea-level api-diff/,
+      /type-row selected api-diff implementation-sea-level/,
     );
-    assert.match(
+    assert.doesNotMatch(
       html,
       /class="item-achievement-glyph surface-sea-level"/,
     );
@@ -953,7 +948,7 @@ test("the type nav renders dual accessible pole cues", () => {
     assert.doesNotMatch(html, /[▁▲]/);
     assert.match(
       html,
-      /role="img" aria-label="8 incoming Type peers; 6 outgoing Type peers/,
+      /role="img" aria-label="API differences; 8 incoming Type peers; 6 outgoing Type peers/,
     );
     assert.doesNotMatch(html, /class="sr-only"/);
     assert.match(html, /class="namespace-leverage-cue"/);
@@ -962,12 +957,12 @@ test("the type nav renders dual accessible pole cues", () => {
       /aria-label="8 external source Types; top-leverage namespace"/,
     );
     const seaRow = html.match(
-      /class="type-row selected surface-sea-level implementation-sea-level api-diff"[^>]*data-type="System\.Text\.Json\.JsonSerializer"[\s\S]*?<\/button>/,
+      /class="type-row selected api-diff implementation-sea-level"[^>]*data-type="System\.Text\.Json\.JsonSerializer"[\s\S]*?<\/button>/,
     )?.[0] ?? "";
     const peakRow = html.match(
       /class="type-row  implementation-mountain-peak"[^>]*data-type="System\.Text\.Json\.JsonDocument"[\s\S]*?<\/button>/,
     )?.[0] ?? "";
-    assert.match(seaRow, /surface-sea-level/);
+    assert.match(seaRow, /surface sea-level Type/);
     assert.match(seaRow, /implementation-sea-level/);
     assert.match(seaRow, /api-diff/);
     assert.doesNotMatch(seaRow, /implementation-mountain-peak/);
@@ -1072,7 +1067,7 @@ test("the member nav marks the active group and its selected overload", () => {
     html,
     /data-nav-selection="overload:method:Serialize:1"/);
   assert.match(html, /id="member-filters"/);
-  assert.match(html, /←→ sections/);
+  assert.doesNotMatch(html, /pane-footer/);
 });
 
 test("the member nav renders one active declaration as an exact member", () => {
@@ -1583,9 +1578,7 @@ test("type metadata renders a loading state while the projection is in flight", 
   assert.match(html, /Projecting type metadata…/);
   assert.match(
     html,
-    /class="metadata-surface"[\s\S]*?<h1 id="metadata-surface-title">Metadata<\/h1>[\s\S]*?class="metadata-surface-scroll"[\s\S]*?Projecting type metadata…[\s\S]*?class="metadata-surface-footer"/);
-  assert.match(html, /System\.Text\.Json\.JsonSerializer/);
-  assert.match(html, /net9\.0 · System\.Text\.Json\.dll · System\.Text\.Json@9\.0\.0/);
+    /class="metadata-surface"[\s\S]*?<h1 id="metadata-surface-title">Metadata<\/h1>[\s\S]*?class="metadata-surface-scroll"[\s\S]*?Projecting type metadata…/);
   assert.doesNotMatch(html, /class="type-heading"/);
 });
 
@@ -1650,7 +1643,7 @@ test("type metadata keeps projection failures inside the full-area surface", () 
 
   assert.match(
     html,
-    /class="metadata-surface"[\s\S]*?class="document-section metadata-surface-state empty-document"[\s\S]*?Metadata projection failed[\s\S]*?projection unavailable[\s\S]*?class="metadata-surface-footer"/);
+    /class="metadata-surface"[\s\S]*?class="document-section metadata-surface-state empty-document"[\s\S]*?Metadata projection failed[\s\S]*?projection unavailable/);
   assert.match(html, /data-type-graph-surface/);
 });
 
@@ -1780,11 +1773,11 @@ for (const nodeCount of [0, 1, 2]) {
       assert.match(html, /data-type-graph-surface>[\s\S]*?type-graph-diagram[\s\S]*?metadata-warning/);
     }
     assert.match(html, /Type shape/);
-    assert.match(html, /metadata-surface-footer/);
+    assert.doesNotMatch(html, /metadata-surface-footer/);
   });
 }
 
-test("type PDB source renders code above provenance once loaded", () => {
+test("type PDB source retains provenance above code once loaded", () => {
   const html = renderTypeSource({
     item: jsonSerializer,
     currentSignature: "sig",
@@ -1816,7 +1809,7 @@ test("type PDB source renders code above provenance once loaded", () => {
   assert.match(html, /SourceLink/);
   assert.match(
     html,
-    /<pre[^>]*role="region"[^>]*aria-label="Source code"[\s\S]*class JsonSerializer \{\}[\s\S]*<\/pre>[\s\S]*<footer class="source-provenance">/);
+    /<aside class="source-provenance"[\s\S]*<pre[^>]*role="region"[^>]*aria-label="Source code"[\s\S]*class JsonSerializer \{\}[\s\S]*<\/pre>/);
   assert.doesNotMatch(html, /copy-type-source|open source/);
 });
 

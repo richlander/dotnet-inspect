@@ -216,7 +216,7 @@ public sealed class LibraryInfoCompositionTests
         await File.WriteAllBytesAsync(path, BuildManifestlessModuleImage(), TestContext.Current.CancellationToken);
         try
         {
-            (int exit, string output, string error) = await RunAsync("library", path, "-S", "Library Info");
+            (int exit, string output, string error) = await RunAsync("library", path, "-S", "Library Info", "--markdown");
 
             Assert.True(exit == 0, error);
             Assert.Contains("| Compilation | CoreCLR |", output, StringComparison.Ordinal);
@@ -264,7 +264,7 @@ public sealed class LibraryInfoCompositionTests
 
     private static async Task<string> LibraryInfoAsync(string path)
     {
-        (int exit, string output, string error) = await RunAsync("library", path, "-S", "Library Info");
+        (int exit, string output, string error) = await RunAsync("library", path, "-S", "Library Info", "--markdown");
         Assert.True(exit == 0, error);
         return output;
     }

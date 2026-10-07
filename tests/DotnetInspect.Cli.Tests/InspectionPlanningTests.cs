@@ -1762,6 +1762,68 @@ public sealed class InspectionPlanningTests
     }
 
     [Fact]
+    public void LibraryStructuralRouteDeclaresEverySectionShape()
+    {
+        StructuralSchemaProjection projection =
+            StructuralViewRegistry.Project(
+                StructuralViewRegistry.Route(
+                    StructuralViewIdentity.DirectLibrary,
+                    InspectionCatalogIdentity.Library));
+        IReadOnlyDictionary<string, SectionShape> shapes =
+            Assert.IsAssignableFrom<IReadOnlyDictionary<string, SectionShape>>(
+                projection.SectionShapes);
+
+        // Every Library section declares a shape except Dependency
+        // Structure, a Graph of namespace nodes and edges.
+        foreach (string section in LibrarySections.CreateCatalog()
+                     .Sections
+                     .AllSectionNames)
+        {
+            Assert.Equal(
+                section != SectionNames.DependencyStructure,
+                shapes.ContainsKey(section));
+        }
+
+        Assert.Equal(
+            SectionShape.Hierarchy,
+            shapes[SectionNames.ReferenceHierarchy]);
+        Assert.Equal(SectionShape.Table, shapes[SectionNames.Symbols]);
+        Assert.Equal(
+            SectionShape.Table,
+            shapes["Metadata: TypeDef"]);
+
+        // Field-set records that describe one subject are scalar; listings,
+        // including the Graph, are inventories.
+        foreach (string section in new[]
+                 {
+                     SectionNames.LibraryInfo,
+                     SectionNames.Symbols,
+                     SectionNames.SourceLinkAvailability,
+                     SectionNames.SourceLinkIntegrity,
+                     MetadataSectionNames.Image,
+                 })
+        {
+            Assert.Equal(
+                SectionCardinalityKind.Scalar,
+                projection.SectionCardinalities![section].Kind);
+        }
+
+        foreach (string section in new[]
+                 {
+                     SectionNames.References,
+                     SectionNames.Signals,
+                     SectionNames.ReferenceHierarchy,
+                     SectionNames.DependencyStructure,
+                     "Metadata: TypeDef",
+                 })
+        {
+            Assert.Equal(
+                SectionCardinalityKind.Inventory,
+                projection.SectionCardinalities![section].Kind);
+        }
+    }
+
+    [Fact]
     public void TypeListingStructuralRouteDeclaresInventoryCardinality()
     {
         StructuralSchemaProjection projection =
@@ -3268,7 +3330,8 @@ public sealed class InspectionPlanningTests
             "-S",
             SectionNames.Signature,
             "-S",
-            SectionNames.Methods);
+            SectionNames.Methods,
+            "--markdown");
 
         Assert.Equal(0, result.Exit);
         Assert.Contains(SectionNames.Signature, result.Output);

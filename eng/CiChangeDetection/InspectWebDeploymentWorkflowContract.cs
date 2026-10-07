@@ -743,8 +743,11 @@ internal static class InspectWebDeploymentWorkflowContract
             "\"$repo_root/tools/InspectWeb.AsyncLoweringVerifier/verify-async-lowering.cs\"",
             "-getProperty:VersionPrefix",
             "\"$repo_root/eng/generate-inspect-web-engine-facade.sh\" \\\n  --contract",
-            "\"$declarations\" \\\n  \"$version_prefix\"",
-            "--context DotnetInspect.Web.InspectWebJsExportContext",
+            "\"$declarations\" \\\n  \"$version_prefix\" \\\n  \"$context_output\"",
+            "jq -r '.[] | [.assembly, .module] | @tsv' \"$domain\" > \"$domain_rows\"",
+            "cmp -s \"$generated\" \"$checked_in\"",
+            "cmp -s \"$compiled_sources/out/$declaration\" \"$declarations/$declaration\"",
+            "cmp -s \"$compiled_sources/out/$javascript\" \"$site/$javascript\"",
             "/^DotnetInspect\\.Web\\.Interop\\.([A-Z][A-Za-z0-9]*)$/",
             "compiled InspectWebJsExportContext does not declare the exact facade set",
             "-property:InspectWebIncludeFrontend=true",
@@ -777,6 +780,12 @@ internal static class InspectWebDeploymentWorkflowContract
                 + "trusted evidence step exactly once. Missing or duplicate: ["
                 + string.Join(", ", missing)
                 + "].");
+        }
+        if (script.Contains("--project \"$repo_root/src/ts-jsexport\"", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                "Inspect-web async deployment verifier must reuse the contract's "
+                + "generated sources instead of invoking ts-jsexport again.");
         }
     }
 

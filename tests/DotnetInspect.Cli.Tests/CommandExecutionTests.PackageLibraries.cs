@@ -724,7 +724,7 @@ public partial class CommandExecutionTests
         try
         {
             var (exit, output, error) = await RunAppAsync(
-                "package", packagePath, "--library", "Latest.Two.dll", "-S", "Library Info");
+                "package", packagePath, "--library", "Latest.Two.dll", "-S", "Library Info", "--markdown");
 
             Assert.Equal(0, exit);
             Assert.Contains("# Latest.Two.dll", output);
@@ -780,7 +780,7 @@ public partial class CommandExecutionTests
                 "net11.0",
                 "--library",
                 "-S",
-                "Library Info");
+                "Library Info", "--markdown");
             var exact = await RunAppAsync(
                 "library",
                 "Latest.One.dll",
@@ -789,7 +789,7 @@ public partial class CommandExecutionTests
                 "--tfm",
                 "net11.0",
                 "-S",
-                "Library Info");
+                "Library Info", "--markdown");
 
             Assert.True(
                 result.Exit == 0,
@@ -894,14 +894,14 @@ public partial class CommandExecutionTests
                 "--package",
                 packagePath,
                 "-S",
-                "Library Info");
+                "Library Info", "--markdown");
             var exact = await RunAppAsync(
                 "library",
                 "Latest.Two.dll",
                 "--package",
                 packagePath,
                 "-S",
-                "Library Info");
+                "Library Info", "--markdown");
 
             Assert.Equal(0, aggregate.Exit);
             Assert.Empty(aggregate.Error);
@@ -962,7 +962,7 @@ public partial class CommandExecutionTests
                 "net11.0",
                 "--namesake-library",
                 "-S",
-                "Library Info");
+                "Library Info", "--markdown");
             var libraryResult = await RunAppAsync(
                 "library",
                 "--package",
@@ -971,7 +971,7 @@ public partial class CommandExecutionTests
                 "net11.0",
                 "--namesake-library",
                 "-S",
-                "Library Info");
+                "Library Info", "--markdown");
 
             Assert.True(
                 result.Exit == 0,

@@ -797,6 +797,34 @@ public class SourceRelativeAssemblyGroupBindingPolicyTests
     }
 
     [Fact]
+    public void Select_UsesExplicitIntrinsicSelectionBeforeFacadeFallback()
+    {
+        ResolvedAssemblyReference owner = Descriptor(
+            typeof(SourceRelativeAssemblyGroupBindingPolicyTests)
+                .Assembly.Location);
+        ResolvedAssemblyReference core = Descriptor(
+            typeof(object).Assembly.Location);
+        var policy = new ExplicitIntrinsicSelectionPolicy(
+            request =>
+                request.Target
+                    is AssemblyBindingTarget.IntrinsicCoreLibrary
+                    ? AssemblyBindingSelection.Found(core)
+                    : AssemblyBindingSelection.NameNotOwned());
+        var group = new SourceRelativeAssemblyGroupBindingPolicy(
+            [(owner, (IAssemblyBindingPolicy)policy)]);
+
+        AssemblyBindingSelection.Selected selected = Selected(
+            group,
+            new AssemblyBindingRequest(
+                AssemblyBindingTarget.CoreLibrary(),
+                AssemblyBindingOrigin.FromAssembly(owner),
+                AssemblyResolutionScope.Platform));
+
+        Assert.Same(core, selected.Assembly);
+        Assert.Equal(1, policy.SelectionCount);
+    }
+
+    [Fact]
     public void Select_ComposedCoreLibraryKeepsItsDescriptorAndSelectingRoute()
     {
         var owner = Descriptor(
@@ -956,6 +984,22 @@ public class SourceRelativeAssemblyGroupBindingPolicyTests
         {
             _select = replacement;
             Version = new();
+        }
+    }
+
+    sealed class ExplicitIntrinsicSelectionPolicy(
+        Func<AssemblyBindingRequest, AssemblyBindingSelection> select)
+        : IExplicitIntrinsicCoreLibraryBindingPolicy
+    {
+        public AssemblyBindingPolicyVersion Version { get; } = new();
+
+        public int SelectionCount { get; private set; }
+
+        public AssemblyBindingSelectionSnapshot Select(
+            AssemblyBindingRequest request)
+        {
+            SelectionCount++;
+            return new(Version, select(request));
         }
     }
 

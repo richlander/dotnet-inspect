@@ -29,11 +29,47 @@ public sealed partial class DesktopPackageSourceComposition
         Action<string>? log = null)
     {
         ArgumentNullException.ThrowIfNull(createStore);
-        return new PackageHouse(
-            new CompositionAuthorization(this, sourceOptions),
+        return CreateRealizationHouse(
             new PackagePayloadAcquisitionPlan(
                 createStore,
                 log: log),
+            sourceOptions,
+            log);
+    }
+
+    /// <summary>
+    /// Supplies a semantic-query House whose per-package authorization is
+    /// evaluated by this composition.
+    /// </summary>
+    public PackageHouse CreateDependencyContentQueryHouse(
+        PackageStoreProvider createStore,
+        NuGetSourceOptions? sourceOptions = null,
+        Action<string>? log = null)
+    {
+        ArgumentNullException.ThrowIfNull(createStore);
+        return CreateRealizationHouse(
+            PackagePayloadAcquisitionPlan.ForContentQueries(
+                createStore,
+                log: log),
+            sourceOptions,
+            log);
+    }
+
+    /// <summary>
+    /// Supplies a payload-realizing House under a host-chosen acquisition
+    /// plan (access, store, and limits), with per-package authorization
+    /// evaluated by this composition. Pair it with
+    /// <see cref="IssueSettlementOperation"/>.
+    /// </summary>
+    public PackageHouse CreateRealizationHouse(
+        PackagePayloadAcquisitionPlan payloadAcquisition,
+        NuGetSourceOptions? sourceOptions = null,
+        Action<string>? log = null)
+    {
+        ArgumentNullException.ThrowIfNull(payloadAcquisition);
+        return new PackageHouse(
+            new CompositionAuthorization(this, sourceOptions),
+            payloadAcquisition,
             log,
             _versionSettlement);
     }
@@ -42,6 +78,33 @@ public sealed partial class DesktopPackageSourceComposition
     public PackageSourceOperationLease IssueSettlementOperation(
         CancellationToken cancellationToken = default) =>
         IssueHouseOperation(cancellationToken);
+
+    /// <summary>
+    /// Issues a source-owned operation capped by an enclosing House duration.
+    /// </summary>
+    public PackageSourceOperationLease IssueSettlementOperation(
+        TimeSpan maximumOperationTimeout,
+        CancellationToken cancellationToken)
+    {
+        if (maximumOperationTimeout < TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(maximumOperationTimeout));
+        }
+
+        TimeSpan operationTimeout = TimeSpan.FromTicks(
+            Math.Min(
+                _options.OperationTimeout.Ticks,
+                maximumOperationTimeout.Ticks));
+        TimeSpan requestTimeout = TimeSpan.FromTicks(
+            Math.Min(
+                _options.RequestTimeout.Ticks,
+                operationTimeout.Ticks));
+        return _sourceLease.IssueOperationLease(
+            cancellationToken,
+            requestTimeout,
+            operationTimeout);
+    }
 
     /// <summary>
     /// Settles one exact coordinate through PackageHouse when the composition

@@ -968,21 +968,6 @@ selection requests the focused high-value section. `README` is
 explicit and unbounded; selecting `@Project` is the gesture that requests both
 document inventories.
 
-## Vocabulary category map
-
-The vocabulary command's current authored ownership is:
-
-| Category | Members |
-| --- | --- |
-| `@Vocabulary` | `Vocabulary Sections`, `Accessibility`, `C# Style Tiers`, `C# Style Choices`, `C# Body Kinds` |
-| `@API` | `Accessibility` |
-| `@Decompiler` | `C# Body Kinds`, `C# Style Choices`, `C# Style Tiers` |
-
-`@Vocabulary` is the base category and composes the complete product-owned
-vocabulary document. `@API` and `@Decompiler` are domain doors over the
-vocabularies consumed by those query families. Bare output retains the
-self-describing `Vocabulary Sections` index.
-
 ## Ecosystem category map
 
 The ecosystem command compiles one authored catalog after its optional focus
@@ -1056,17 +1041,14 @@ The section pipeline and derived catalog gates enforce these invariants:
    Profiles` sections and overload-inventory `Signature` and `Custom Attributes`
    sections. Every diff comparison section belongs to `@Diff`; `Finding
    Transitions` is its only standalone section. Every project section belongs
-   to `@Project`. Every vocabulary section belongs to `@Vocabulary`, with API
-   and decompiler vocabularies cross-listed in their domain categories. Every
-   ecosystem route places all its available sections, including exact
-   `Integrations`, in `@Ecosystem`. Every Package Query section belongs to
+   to `@Project`. Every ecosystem route places all its available sections,
+   including exact `Integrations`, in `@Ecosystem`. Every Package Query section belongs to
    `@Query`. Gates:
    `LibraryPipeline_UnsafeMembersAndBodyShapesAreTheOnlyUncategorizedSections` and
    `PackagePipeline_EverySelectableSectionBelongsToAnAuthoredCategory`, plus
    `ApiMemberPipelines_UseAuthoredCategoriesWithoutComputedPoles` and
    `DiffPipeline_UsesAuthoredCategoryWithoutComputedPoles` and
    `ProjectPipeline_UsesAuthoredCategoryWithoutComputedPoles` and
-   `VocabularyPipeline_UsesAuthoredCategoriesWithoutComputedPoles` and
    `EcosystemPipelines_UseRouteSpecificAuthoredCategories` and
    `LibraryCallUsePipeline_UsesAuthoredCategoryWithoutComputedPoles` and
    `PackageQueryPipeline_UsesAuthoredCategoryWithoutComputedPoles`.
@@ -1093,7 +1075,7 @@ sets so stale and missing entries both fail.
 ## Migration
 
 The library model is the reference implementation. Package, Package Query, type
-listing, member inspection, diff, project, vocabulary, ecosystem, and
+listing, member inspection, diff, project, ecosystem, and
 `graph libraries` use the same size/cost axes, base-category scope, authored
 category model, and curated discovery. Remaining commands should migrate
 incrementally.

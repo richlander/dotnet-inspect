@@ -308,6 +308,44 @@ enumerates metadata candidates independently, then queries exact eligible
 Count, complete eligible target Rows, and deterministically ordered typed
 exclusion Rows.
 
+Target-only capped selection is a distinct physical plan over the same
+operation-owned decision. It first inventories and stable-ranks the scoped
+body-bearing population using the existing canonical sampling identity,
+including generic arity. It then performs the complete metadata/CSharp target
+decision in rank order and stops when the requested number of eligible targets
+has settled. The selected set must equal the prefix produced by the complete
+pre-cap plan, and selected targets return in original metadata order. Assembly
+order and the global cross-assembly cap remain host-owned and unchanged.
+DecompilerHarness corpus `rts-native` and `rts-cutover` execution consume this
+plan before native RTS evaluation. Their per-assembly fidelity cap is an upper
+bound: the plan must either settle the cap or exhaust the scoped population.
+An exhausted population whose owner-eligible targets fall below the cap is a
+recorded shortfall that the status stream names and the snapshot carries as
+its selected count. A short selection that did not exhaust the population
+fails the corpus run visibly. Corpus result association uses the
+selected target's assembly, declaring type, method name, and metadata overload
+ordinal rather than reparsing its display signature. The harness status stream
+reports the capped plan's ranked and deeply evaluated body counts, declaration
+candidate count, and evaluated exclusions.
+
+This capped plan does not claim a complete population receipt. Its receipt
+separately reports bodies ranked, bodies deeply evaluated, declaration
+candidates evaluated, and evaluated declaration candidates excluded. It does
+not publish all exclusions or an exact eligible Count unless it exhausts the
+population. The complete standalone plan remains the owner of all typed
+exclusions and exact candidate/eligibility counters; the QuerySpace Count path
+remains the complete-breadth, zero-row terminal. Sharing must not widen capped
+target selection back into either complete plan.
+
+The [rank-first capped selection Lean proof](../../prototypes/rts-capped-selection/)
+adds prototype evidence for every scoped population, eligibility decision, and
+cap. It proves that the capped plan selects the complete pre-cap plan's prefix,
+provided both rankings order eligible bodies the same way. It also proves that
+the receipt counts only the evaluated ranked prefix, ending at the cap-th
+eligible body, and that the plan either settles the cap or exhausts the
+population. It does not replace the scorecard fingerprint or NativeAOT
+evidence.
+
 The first production QuerySpace slice exposes exact eligible Count through one
 operation, one candidate row set, and the Count terminal. The operation-owned
 source performs the complete eligibility scan without constructing eligible
@@ -319,8 +357,8 @@ materialized target rows. DecompilerHarness consumes this path through
 `--return-to-sender-target-count`.
 
 This slice does not expose production Rows, realize targets through House,
-replace stable sampling or the cross-assembly cap, or cut raised standalone
-RTS execution over to QuerySpace. The NLinq population remains independent
+route capped target selection through QuerySpace, or cut raised standalone RTS
+execution over to QuerySpace. The NLinq population remains independent
 behavioral evidence for Count, Rows, and exclusions rather than a production
 source adapter or performance claim.
 
@@ -981,9 +1019,10 @@ paired cutover evidence was developed under
 
 Routine corpus fidelity must measure a target population selected without
 executing or consulting legacy compile-back. For each assembly and positive
-cap, the corpus-owned stable method hash and full stable member key choose
-exactly that many non-synthesized targets. Selection completes before an oracle
-runs. Because one snapshot contains one complete member ledger, an independently
+cap, the owner-issued capped plan in
+[Standalone method target selection](#standalone-method-target-selection)
+chooses up to that many eligible targets, settling the cap or exhausting the
+assembly's eligible population. Selection completes before an oracle runs. Because one snapshot contains one complete member ledger, an independently
 selected RTS invocation accepts at most one distinct positive cap; cap
 comparisons use separate invocations.
 
@@ -992,7 +1031,10 @@ disabled. The routine `rts-native` oracle ends there: native status is the
 fidelity result, no legacy reference is executed, and no paired cutover metrics
 are emitted. The scheduled `rts-cutover` oracle evaluates legacy compile-back
 after every native assembly has completed, using the same assembly path, type,
-method, overload, and signature only as reference evidence. A legacy outcome
+method, overload, and signature only as reference evidence. Legacy compile-back
+resolves the selected method through its typed metadata address rather than
+requiring its canonical selector signature to equal a rendered display
+signature. A legacy outcome
 cannot admit a target, replace an RTS result, refine its status, or hide a
 missing result. Missing native output remains `ContextFail`. An expected native
 assembly-context failure (I/O, invalid metadata, access, or
@@ -1010,8 +1052,13 @@ artifact.
 
 The typed snapshot records the repository revision and source state captured
 when the harness was built, Roslyn compiler identity, runtime and platform
-identity, corpus profile, caps, input paths and module MVIDs. An assembly that
-cannot supply the exact requested non-synthesized target cap fails the run.
+identity, corpus profile, caps, input paths and module MVIDs. An assembly
+whose exhausted eligible population is below the cap contributes every
+eligible target and is reported as a shortfall rather than failing the run.
+After selection and before native evaluation, every selected target must have
+a row in the snapshot's complete member ledger. A finite corpus method cap that
+omits any selected target fails the run visibly rather than emitting fidelity
+metrics whose selected results are absent from the ledger.
 Aggregate cutover evidence records selected methods; native and legacy
 available/unavailable counts; exact and availability losses; the corresponding
 gains; same-status rows; and the number of compile-back-floor applications,

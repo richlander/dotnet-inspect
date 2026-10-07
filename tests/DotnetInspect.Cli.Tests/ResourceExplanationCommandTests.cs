@@ -1,6 +1,10 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Net;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
+using DotnetInspect.ProductVocabularyTesting;
 using DotnetInspect.Cli.Commands;
 using DotnetInspector.Networking;
 using DotnetInspector.Sections;
@@ -55,20 +59,57 @@ public sealed class ResourceExplanationCommandTests : IDisposable
         Assert.Empty(catalog.Error);
         Assert.Contains("Kind: Catalog | Name: Package", catalog.Output);
 
-        var library = await RunAsync(
+    }
+
+    [Theory]
+    [InlineData("references", "table", "inventory")]
+    [InlineData("library-info", "table", "scalar")]
+    [InlineData("symbols", "table", "scalar")]
+    [InlineData("source-link-availability", "table", "scalar")]
+    [InlineData("metadata-image", "table", "scalar")]
+    [InlineData("metadata-type-def", "table", "inventory")]
+    [InlineData("reference-hierarchy", "hierarchy", "inventory")]
+    // Coordinate sections resolve through the Library address route.
+    [InlineData("context-member", "table", "inventory")]
+    [InlineData("context-exception", "table", "inventory")]
+    [InlineData("metadata-heap", "table", "inventory")]
+    public async Task Explain_LibrarySection_ReportsDeclaredShapeAndCardinality(
+        string section,
+        string shape,
+        string cardinality)
+    {
+        // Library adopts Section shapes: every section declares its shape,
+        // and field-set records that describe one subject are scalar.
+        var result = await RunAsync(
             "explain",
-            "library/sections/references",
+            $"library/sections/{section}",
             "--json");
 
-        Assert.Equal(0, library.ExitCode);
-        JsonElement libraryRoot =
-            JsonDocument.Parse(library.Output).RootElement
-                .GetProperty("resources")[0];
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        JsonElement root = document.RootElement.GetProperty("resources")[0];
+        Assert.Equal(shape, TextFact(root, "shape"));
+        Assert.Equal(cardinality, TextFact(root, "cardinality"));
+    }
+
+    [Fact]
+    public async Task Explain_LibraryDependencyStructure_IsAGraphWithoutShape()
+    {
+        // Dependency Structure is a Graph of namespace nodes and edges, not
+        // one of the three shapes, so it keeps its diagram formats.
+        var result = await RunAsync(
+            "explain",
+            "library/sections/dependency-structure",
+            "--json");
+
+        Assert.Equal(0, result.ExitCode);
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        JsonElement root = document.RootElement.GetProperty("resources")[0];
         Assert.Equal(
             "Absent",
-            Fact(libraryRoot, "shape")
-                .GetProperty("state")
-                .GetString());
+            Fact(root, "shape").GetProperty("state").GetString());
+        Assert.Equal("inventory", TextFact(root, "cardinality"));
     }
 
     [Theory]
@@ -126,8 +167,8 @@ public sealed class ResourceExplanationCommandTests : IDisposable
         Assert.Equal("table", TextFact(typeInfoRoot, "shape"));
         Assert.Equal("scalar", TextFact(typeInfoRoot, "cardinality"));
 
-        // Source is a scalar Text until its Lines inventory is executed by
-        // the CLI; the declaration follows the behavior, not the plan.
+        // Source is the Text with a declared Lines inventory, executed by the
+        // CLI on Complete execution.
         var source = await RunAsync(
             "explain",
             "member-detail/sections/source",
@@ -140,7 +181,7 @@ public sealed class ResourceExplanationCommandTests : IDisposable
         Assert.Equal("structural-section", ResourceType(sourceRoot));
         Assert.Equal("member-detail/sections/source", sourceRoot.GetProperty("path").GetString());
         Assert.Equal("text", TextFact(sourceRoot, "shape"));
-        Assert.Equal("scalar", TextFact(sourceRoot, "cardinality"));
+        Assert.Equal("inventory", TextFact(sourceRoot, "cardinality"));
 
         // Call Graph is a Graph: no shape, but the tree and Mermaid formats.
         var callGraph = await RunAsync(
@@ -340,7 +381,7 @@ public sealed class ResourceExplanationCommandTests : IDisposable
                 .GetProperty("requested_path")
                 .GetString());
 
-        var pathless = await RunAsync("vocabulary", "-D");
+        var pathless = await RunAsync("diff", "-D");
 
         Assert.Equal(0, pathless.ExitCode);
         Assert.Empty(pathless.Error);
@@ -623,6 +664,190 @@ public sealed class ResourceExplanationCommandTests : IDisposable
             document.RootElement
                 .GetProperty("requested_path")
                 .GetString());
+    }
+
+    [Fact]
+    public async Task Vocabularies_ListsEveryShippedProductVocabulary()
+    {
+        var result = await RunAsync(
+            "explain",
+            "vocabularies",
+            "--depth",
+            "1",
+            "--json");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        JsonElement members = document.RootElement
+            .GetProperty("relationships")
+            .EnumerateArray()
+            .Single(relationship =>
+                RelationshipKind(relationship) == "collection-vocabulary");
+        Assert.Equal(
+            [
+                "vocabularies/api.accessibility",
+                "vocabularies/csharp.style-tiers",
+                "vocabularies/csharp.style-choices",
+                "vocabularies/csharp.body-kinds",
+            ],
+            TargetPaths(members));
+    }
+
+    [Fact]
+    public async Task Vocabulary_ExplainsAcceptedInputsAndPointsToBulkValues()
+    {
+        var json = await RunAsync(
+            "explain",
+            "vocabularies/csharp.body-kinds",
+            "--json");
+
+        Assert.Equal(0, json.ExitCode);
+        Assert.Empty(json.Error);
+        using JsonDocument document = JsonDocument.Parse(json.Output);
+        JsonElement root = document.RootElement.GetProperty("resources")[0];
+        Assert.Equal("value-vocabulary", ResourceType(root));
+        Assert.Equal("C# Body Kinds", TextFact(root, "name"));
+        Assert.Equal(["decompiler.body-kind"], TextFacts(root, "accepted-by"));
+
+        var human = await RunAsync(
+            "explain",
+            "vocabularies/csharp.body-kinds");
+
+        Assert.Equal(0, human.ExitCode);
+        Assert.Empty(human.Error);
+        Assert.Contains("Product Vocabulary", human.Output);
+        Assert.Contains("decompiler.body-kind", human.Output);
+        Assert.Contains(
+            "explain vocabularies/csharp.body-kinds --depth 1",
+            human.Output);
+    }
+
+    [Fact]
+    public async Task VocabularyValue_ExplainsMapValuesAndLinksItsTier()
+    {
+        var bulk = await RunAsync(
+            "explain",
+            "vocabularies/csharp.style-tiers",
+            "--depth",
+            "1",
+            "--json");
+
+        Assert.Equal(0, bulk.ExitCode);
+        Assert.Empty(bulk.Error);
+        using (JsonDocument document = JsonDocument.Parse(bulk.Output))
+        {
+            JsonElement values = document.RootElement
+                .GetProperty("relationships")
+                .EnumerateArray()
+                .Single(relationship =>
+                    RelationshipKind(relationship) == "vocabulary-value");
+            Assert.All(
+                TargetPaths(values),
+                static path => Assert.StartsWith(
+                    "vocabularies/csharp.style-tiers/values/",
+                    path,
+                    StringComparison.Ordinal));
+            Assert.Equal(
+                TargetPaths(values).Length,
+                document.RootElement.GetProperty("resources").GetArrayLength()
+                    - 1);
+        }
+
+        var human = await RunAsync(
+            "explain",
+            "vocabularies/csharp.style-choices/values/"
+                + "var-spelling-style.var-elsewhere");
+
+        Assert.Equal(0, human.ExitCode);
+        Assert.Empty(human.Error);
+        Assert.Contains("var-spelling-style:var-elsewhere", human.Output);
+        Assert.Contains("oracle_endorsed = ", human.Output);
+        Assert.Contains("vocabularies/csharp.style-tiers/values/", human.Output);
+    }
+
+    [Fact]
+    public async Task VocabularyValueListing_ShowsTheExactIdentityQueriesAccept()
+    {
+        var values = await RunAsync(
+            "explain",
+            "vocabularies/csharp.body-kinds",
+            "--depth",
+            "1");
+
+        Assert.Equal(0, values.ExitCode);
+        Assert.Empty(values.Error);
+        Assert.Contains("| Path | Kind | Name | Identity | Owner |", values.Output);
+        Assert.Contains(
+            "| vocabularies/csharp.body-kinds/values/breakstatement | "
+                + "Vocabulary value | Break | BreakStatement |",
+            values.Output);
+
+        var vocabularies = await RunAsync(
+            "explain",
+            "vocabularies",
+            "--depth",
+            "1");
+
+        Assert.Equal(0, vocabularies.ExitCode);
+        Assert.DoesNotContain("| Identity |", vocabularies.Output);
+    }
+
+    [Fact]
+    public async Task VocabularyExplanation_MatchesThePinnedCrossHostContent()
+    {
+        foreach (ExplanationContentPin pin in ProductVocabularyPin.ExplanationContent)
+        {
+            var result = await RunAsync(
+                "explain",
+                pin.Path,
+                "--depth",
+                pin.Depth.ToString(CultureInfo.InvariantCulture),
+                "--json");
+
+            Assert.Equal(0, result.ExitCode);
+            Assert.Empty(result.Error);
+            string content = result.Output
+                .Replace("\r\n", "\n", StringComparison.Ordinal)
+                .TrimEnd('\n');
+            Assert.Equal(
+                pin.Digest,
+                "sha256:" + Convert.ToHexStringLower(
+                    SHA256.HashData(Encoding.UTF8.GetBytes(content))));
+        }
+    }
+
+    [Fact]
+    public async Task VocabularyTermMap_LinksToItsTargetVocabulary()
+    {
+        var result = await RunAsync(
+            "explain",
+            "vocabularies/csharp.style-choices",
+            "--json");
+
+        Assert.Equal(0, result.ExitCode);
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        JsonElement tier = document.RootElement
+            .GetProperty("relationships")
+            .EnumerateArray()
+            .Single(relationship =>
+                RelationshipKind(relationship) == "term-map-target");
+        Assert.Equal(["vocabularies/csharp.style-tiers"], TargetPaths(tier));
+    }
+
+    [Fact]
+    public async Task UnknownVocabulary_SuggestsTheCanonicalPath()
+    {
+        var result = await RunAsync(
+            "explain",
+            "vocabularies/csharp.body-kind");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains("was not found", result.Error);
+        Assert.Contains(
+            result.Error.Split('\n'),
+            static line => line.Trim() == "vocabularies/csharp.body-kinds");
     }
 
     [Fact]

@@ -328,6 +328,84 @@ public sealed partial class ExactTypeInspectionOperationTests
 
     [Fact]
     public async Task
+        SelectedContext_AdmittedAssemblyPreservesExactOccurrenceAndLiveTarget()
+    {
+        const string assemblyName = "AdmittedExactContext";
+        const string typeName = "Exact.AdmittedContext";
+        byte[] image = BuildAssembly(
+            assemblyName,
+            typeName,
+            typeof(IDisposable));
+        ResolvedAssemblyReference assembly =
+            ResolvedAssemblyReference.CreateFromStreamIfManaged(
+                () => new MemoryStream(image, writable: false),
+                AssemblyResolutionProvenance.Local(assemblyName))
+            ?? throw new InvalidOperationException(
+                "The generated fixture must contain managed metadata.");
+        await using var workspace = new InspectionWorkspace();
+        var participant = new AssemblyContextParticipant(
+            assembly,
+            NoResolverAssemblyBindingPolicy.Instance);
+        using AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup([participant]);
+        WorkspaceMemberCoordinate declared =
+            WorkspaceMemberCoordinate.Embedded(
+                "assemblies/AdmittedExactContext.dll",
+                new string('0', 64),
+                assemblyName);
+        var realized =
+            new RealizedMemberCoordinate.Embedded(
+                "assemblies/AdmittedExactContext.dll",
+                new string('0', 64),
+                assemblyName);
+        var input =
+            new WorkspaceContextInput
+            {
+                Members = [declared],
+            };
+        WorkspaceDeclarationContext context =
+            Assert.IsType<
+                WorkspaceAssemblyDeclarationContextAdmissionOutcome.Admitted>(
+                    WorkspaceAssemblyDeclarationContextAdmission.Admit(
+                        workspace,
+                        group,
+                        input,
+                        [
+                            new(
+                                participant,
+                                new ExactLibrarySourceCoordinate.Local(
+                                    new ManagedMetadataIdentity.Assembly(
+                                        assembly.Identity)),
+                                declared,
+                                realized,
+                                packageRequest: null),
+                        ]))
+                .Context;
+        SelectedContextExactTypeLiveTarget? liveTarget = null;
+
+        InspectionEnvelope<SelectedContextExactTypeInspectionResult> envelope =
+            SelectedContextExactTypeInspectionOperation.ExecuteWithLiveTarget(
+                workspace,
+                context,
+                new SelectedContextExactTypeInspectionRequest(typeName),
+                target => liveTarget = target);
+
+        Assert.True(
+            envelope.Content.Inspection.IsAvailable,
+            string.Join(
+                Environment.NewLine,
+                envelope.Content.Inspection.Failures.Select(
+                    static failure => failure.Detail)));
+        SelectedContextExactTypeSource source =
+            Assert.Single(envelope.Content.DefiningSources);
+        Assert.Same(
+            Assert.Single(context.Receipt.Members).Occurrence,
+            source.Occurrence);
+        Assert.NotNull(liveTarget);
+    }
+
+    [Fact]
+    public async Task
         SelectedContext_MissingDefiningCoordinateIsUnavailable()
     {
         const string assemblyName = "CoordinateUnavailable";

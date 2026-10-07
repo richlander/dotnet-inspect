@@ -84,10 +84,10 @@ public class CorpusSensorComparisonTests
 
         Assert.Equal(CorpusSensor.CurrentSchemaVersion, baseline.SchemaVersion);
         Assert.Equal(CorpusFidelityOracle.ReturnToSenderCutover, baseline.FidelityOracle);
-        Assert.Equal(700, cutover.SelectedMethods);
-        Assert.Equal(50, cutover.ExactLossMethods);
-        Assert.Equal(48, cutover.AvailabilityLossMethods);
-        Assert.Equal(38, legacyExactNativeUncheckable);
+        Assert.Equal(682, cutover.SelectedMethods);
+        Assert.Equal(67, cutover.ExactLossMethods);
+        Assert.Equal(66, cutover.AvailabilityLossMethods);
+        Assert.Equal(55, legacyExactNativeUncheckable);
         Assert.Equal(0, cutover.CompileBackFloorAppliedMethods);
     }
 
@@ -1847,7 +1847,7 @@ public class CorpusSensorComparisonTests
             .Aggregate(IlBodyDiffNormalization.None, (all, option) => all | option);
 
         Assert.Equal(FidelityCheck.ContractBodyDiffNormalization, allDeclared);
-        Assert.Equal(3, FidelityCheck.CurrentContractVersion);
+        Assert.Equal(4, FidelityCheck.CurrentContractVersion);
     }
 
     [Fact]
@@ -1996,54 +1996,132 @@ public class CorpusSensorComparisonTests
     }
 
     [Fact]
-    public void DeterministicIndependentReturnToSenderTargets_SelectsExactCapBeforeAnyOracle()
+    public void IndependentReturnToSenderTargets_UseOwnerIssuedCappedSelection()
     {
-        string assemblyPath = Path.Combine(Environment.CurrentDirectory, "pinned.dll");
-        CorpusMethodSnapshot[] methods =
-        [
-            SnapshotMethod("LegacyExact", assemblyPath: "pinned.dll", fidelityCheck: "Exact"),
-            SnapshotMethod("LegacyUnavailable", assemblyPath: "pinned.dll", fidelityCheck: "FidelityUnavailable"),
-            SnapshotMethod("LegacyContextFail", assemblyPath: "pinned.dll", fidelityCheck: "ContextFail"),
-            SnapshotMethod("LegacyRecompileFail", assemblyPath: "pinned.dll", fidelityCheck: "RecompileFail"),
-            SnapshotMethod("LegacyNotFull", assemblyPath: "pinned.dll", fidelityCheck: "NotFull"),
-            SnapshotMethod("<Owner>b__0_0", assemblyPath: "pinned.dll", fidelityCheck: "Exact"),
-        ];
+        string assemblyPath =
+            FidelityCheckGeneratedFilterTests.CompileFixture("""
+                public static class IndependentTargets
+                {
+                    public static int Alpha(int value) => value + 1;
+                    public static int Beta(int value) => value + 2;
+                    public static int Gamma(int value) => value + 3;
+                    public static int Delta(int value) => value + 4;
+                    public static int Epsilon(int value) => value + 5;
+                }
+                """, assemblyName: "IndependentTargets");
+        try
+        {
+            IReadOnlyList<FidelityCheck.CompileBackTarget> expected =
+                FidelityCheck.SelectReturnToSenderTargets(
+                    [assemblyPath],
+                    cap: 4);
+            IReadOnlyList<FidelityCheck.CompileBackTarget> selected =
+                CorpusSensor.SelectIndependentReturnToSenderTargetsForTesting(
+                    assemblyPath,
+                    cap: 4);
 
-        var selected = CorpusSensor.DeterministicIndependentReturnToSenderTargetsForTesting(
-            methods,
-            assemblyPath,
-            cap: 4);
-        var reordered = CorpusSensor.DeterministicIndependentReturnToSenderTargetsForTesting(
-            methods.Reverse().ToArray(),
-            assemblyPath,
-            cap: 4);
-
-        Assert.Equal(4, selected.Count);
-        Assert.DoesNotContain(selected, target => target.Method.StartsWith("<", StringComparison.Ordinal));
-        Assert.Equal(
-            selected.Select(target => $"{target.Type}::{target.Method}#{target.Overload}{target.Signature}"),
-            reordered.Select(target => $"{target.Type}::{target.Method}#{target.Overload}{target.Signature}"));
-        Assert.Contains(selected, target => target.Method == "LegacyContextFail");
+            Assert.Equal(
+                expected.Select(target => (
+                    target.AssemblyPath,
+                    target.Type,
+                    target.Method,
+                    target.Overload,
+                    target.Signature,
+                    target.Address)),
+                selected.Select(target => (
+                    target.AssemblyPath,
+                    target.Type,
+                    target.Method,
+                    target.Overload,
+                    target.Signature,
+                    target.Address)));
+            Assert.All(selected, target => Assert.NotNull(target.Address));
+        }
+        finally
+        {
+            FidelityCheckGeneratedFilterTests.DeleteFixture(assemblyPath);
+        }
     }
 
     [Fact]
-    public void DeterministicIndependentReturnToSenderTargets_FailsWhenExactCapIsUnavailable()
+    public void IndependentReturnToSenderTargets_RecordExhaustedShortfallBelowCap()
     {
-        string assemblyPath = Path.Combine(Environment.CurrentDirectory, "pinned.dll");
-        CorpusMethodSnapshot[] methods =
-        [
-            SnapshotMethod("Only", assemblyPath: "pinned.dll"),
-            SnapshotMethod("<Generated>", assemblyPath: "pinned.dll"),
-        ];
+        // Issue 9502: the census corpus assembly ILInspector.MetadataPrimitives
+        // has 61 non-synthesized ledger members but only 32 owner-eligible
+        // RTS targets, below the census cap of 50. Nested-type members stay in
+        // the member ledger while the owner decision excludes them.
+        string assemblyPath =
+            FidelityCheckGeneratedFilterTests.CompileFixture("""
+                public static class SparseIndependentTargets
+                {
+                    public static int Only(int value) => value + 1;
 
-        var exception = Assert.Throws<InvalidOperationException>(() =>
-            CorpusSensor.DeterministicIndependentReturnToSenderTargetsForTesting(
-                methods,
-                assemblyPath,
-                cap: 2));
+                    public static class Nested
+                    {
+                        public static int First(int value) => value + 2;
+                        public static int Second(int value) => value + 3;
+                    }
+                }
+                """, assemblyName: "SparseIndependentTargets");
+        try
+        {
+            IReadOnlyList<FidelityCheck.CompileBackTarget> complete =
+                FidelityCheck.SelectReturnToSenderTargets(
+                    [assemblyPath],
+                    cap: int.MaxValue);
+            IReadOnlyList<FidelityCheck.CompileBackTarget> selected =
+                CorpusSensor.SelectIndependentReturnToSenderTargetsForTesting(
+                    assemblyPath,
+                    cap: 3);
 
-        Assert.Contains("requires exactly 2 eligible methods", exception.Message);
-        Assert.Contains("but found 1", exception.Message);
+            FidelityCheck.CompileBackTarget only = Assert.Single(selected);
+            Assert.Equal("SparseIndependentTargets", only.Type);
+            Assert.Equal("Only", only.Method);
+            Assert.Equal(
+                complete.Select(target => (target.Type, target.Method, target.Overload)),
+                selected.Select(target => (target.Type, target.Method, target.Overload)));
+        }
+        finally
+        {
+            FidelityCheckGeneratedFilterTests.DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public async Task ReturnToSenderCutover_CompletesWhenEligiblePopulationIsBelowCap()
+    {
+        string assemblyPath =
+            FidelityCheckGeneratedFilterTests.CompileFixture("""
+                public static class SparseCutoverTargets
+                {
+                    public static int Only(int value) => value + 1;
+
+                    public static class Nested
+                    {
+                        public static int First(int value) => value + 2;
+                        public static int Second(int value) => value + 3;
+                    }
+                }
+                """, assemblyName: "SparseCutoverTargets");
+        try
+        {
+            var snapshot = await CorpusSensor.CaptureReturnToSenderCutoverForTesting(
+                [assemblyPath],
+                fidelityCap: 3);
+            var cutover = Assert.IsType<ReturnToSenderCutoverMetrics>(
+                snapshot.Metrics.Fidelity.ReturnToSenderCutover);
+            CorpusMethodSnapshot sampled = Assert.Single(
+                snapshot.Methods!,
+                method => method.FidelityCheck != "not-sampled");
+
+            Assert.Equal(1, cutover.SelectedMethods);
+            Assert.Equal("Only", sampled.Method);
+            Assert.True(snapshot.Methods!.Count >= 3);
+        }
+        finally
+        {
+            FidelityCheckGeneratedFilterTests.DeleteFixture(assemblyPath);
+        }
     }
 
     [Fact]
@@ -2183,14 +2261,34 @@ public class CorpusSensorComparisonTests
         var sampledMethods = snapshot.Methods!
             .Where(method => method.FidelityCheck != "not-sampled")
             .ToArray();
+        IReadOnlyList<FidelityCheck.CompileBackTarget> expectedTargets =
+            FidelityCheck.SelectReturnToSenderTargets(
+                [assemblyPath],
+                cap: 2);
 
         Assert.Equal(2, selected.SelectedMethods);
         Assert.Equal(2, selected.NativeAvailableMethods + selected.NativeUnavailableMethods);
         Assert.Equal(2, sampledMethods.Length);
+        Assert.Equal(
+            expectedTargets
+                .Select(target => (
+                    target.Type,
+                    target.Method,
+                    target.Overload))
+                .Order(),
+            sampledMethods
+                .Select(method => (
+                    method.Type,
+                    method.Method,
+                    method.Overload))
+                .Order());
         Assert.All(sampledMethods, method =>
         {
             Assert.Equal("return-to-sender-cutover; compile-back-floor=false", method.FidelityCapture);
             Assert.NotNull(method.FidelityReference);
+            Assert.NotEqual(
+                FidelityCheck.CompileBackStatus.ContextFail.ToString(),
+                method.FidelityReference);
         });
         Assert.Equal(0, selected.CompileBackFloorAppliedMethods);
         Assert.NotNull(snapshot.RunIdentity);
@@ -2211,6 +2309,48 @@ public class CorpusSensorComparisonTests
             restored.Methods!
                 .Where(method => method.FidelityCheck != "not-sampled")
                 .Select(method => (method.DisplayMethod, method.FidelityCheck, method.FidelityReference)));
+    }
+
+    [Fact]
+    public void ReturnToSenderCutover_LegacyReferenceUsesSelectedMetadataIdentity()
+    {
+        string assemblyPath =
+            Path.GetFullPath(FixtureCatalog.DecompilerLadderRung5.AssemblyPath());
+        IReadOnlyList<FidelityCheck.CompileBackTarget> targets =
+            FidelityCheck.SelectReturnToSenderTargets(
+                [assemblyPath],
+                cap: 2);
+
+        IReadOnlyList<FidelityCheck.CompileBackResult> results =
+            FidelityCheck.EvaluateTargets(
+                [assemblyPath],
+                targets);
+
+        Assert.Equal(2, results.Count);
+        Assert.Equal(
+            targets.Select(target => target.Signature),
+            results.Select(result => result.Signature));
+        Assert.DoesNotContain(
+            results,
+            result => result.Detail == "target-method-not-found");
+    }
+
+    [Fact]
+    public async Task ReturnToSenderCutover_FailsWhenMethodCapOmitsSelectedLedgerRows()
+    {
+        string assemblyPath =
+            Path.GetFullPath(FixtureCatalog.DecompilerLadderRung5.AssemblyPath());
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => CorpusSensor.CaptureReturnToSenderCutoverForTesting(
+                [assemblyPath],
+                fidelityCap: 2,
+                methodCap: 1));
+
+        Assert.Contains(
+            "complete corpus member ledger",
+            exception.Message,
+            StringComparison.Ordinal);
     }
 
     [Fact]

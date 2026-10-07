@@ -714,6 +714,24 @@ public static class ApiOutputFormatter
             TypeParameterRows = typeParameterRows,
             InterfaceRows = interfaceRows,
             BaseclassRows = baseclassRows,
+            ImplementerRows =
+                (options as TypeOptions)?.TypeHierarchyRelations
+                    ?.Implementers?.Candidates
+                    .Select(static candidate =>
+                        new TypeHierarchyRelationRow(
+                            candidate.Type,
+                            candidate.Library,
+                            candidate.Source))
+                    .ToList(),
+            DerivedTypeRows =
+                (options as TypeOptions)?.TypeHierarchyRelations
+                    ?.DerivedTypes?.Candidates
+                    .Select(static candidate =>
+                        new TypeHierarchyRelationRow(
+                            candidate.Type,
+                            candidate.Library,
+                            candidate.Source))
+                    .ToList(),
             TypeInfo = memberDetail ? null : new TypeInfoSection
             {
                 Type = FormatGenericFullName(type),
@@ -3025,7 +3043,7 @@ public static class ApiOutputFormatter
         if (!profiles.WasRequested)
         {
             throw new InvalidOperationException(
-                "Implementation profiles were not requested for this body index.");
+                "Implementation profiles were not requested for this body analysis execution.");
         }
 
         var drillByToken = BuildMemberDrillMap(type);

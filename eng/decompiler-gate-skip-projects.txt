@@ -4,7 +4,6 @@ fixtures/analysis/ILInspector.Analysis.AsyncSiblingFriendFixtures
 fixtures/analysis/ILInspector.Analysis.AsyncSiblingRepositoryFixture
 fixtures/analysis/ILInspector.Analysis.BodyUseFixtures
 fixtures/analysis/ILInspector.Analysis.BodyUseVbFixtures
-fixtures/analysis/ILInspector.Analysis.CallFunctionPointerScopeFixtures
 fixtures/analysis/ILInspector.Analysis.CallGenericScopeFixtures
 fixtures/analysis/ILInspector.Analysis.CallOverloadFixtures
 fixtures/analysis/ILInspector.Analysis.CalleeResolutionFixtures
@@ -38,7 +37,6 @@ fixtures/cli/DotnetInspector.MatchBinding.Dependency
 fixtures/cli/DotnetInspector.MatchBinding.Facade
 fixtures/cli/DotnetInspector.MatchBinding.Implementation
 fixtures/decompiler/ILInspector.Decompiler.Fixtures.CheckedArithmetic
-fixtures/decompiler/ILInspector.Decompiler.Fixtures.ExpressionTreeSpoof
 fixtures/decompiler/ILInspector.Decompiler.Fixtures.OptInNet11
 fixtures/diff/DiffAsmFixtures.Caller
 fixtures/diff/DiffAsmFixtures.LibA
@@ -133,7 +131,6 @@ src/DotnetInspector.MetadataRendering
 src/DotnetInspector.PlatformHouse.Local
 src/DotnetInspector.Sections.Local
 src/DotnetInspector.SourceDelegation
-src/DotnetInspector.Vocabulary
 src/ILInspector.Analysis.App
 src/ILInspector.JsExportSurface
 src/ILInspector.TypeScriptGeneration

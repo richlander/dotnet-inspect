@@ -44,8 +44,8 @@ behavior, and user-visible limitations.
 
 | Surface | Owns | Update when |
 | --- | --- | --- |
-| [`AGENTS.md`](../AGENTS.md) | Bounded agent launch constitution: repository purpose, immediate routes and non-negotiables, and directly usable operator templates. The file stays at or below 120 lines. | A launch-critical invariant, route, or protected operator template changes. |
-| [`.claude/skills/steward/SKILL.md`](../.claude/skills/steward/SKILL.md) | Point-of-use PR lifecycle decisions at publication, resume, and events. It applies focused workflow contracts and stays at or below 240 lines. | PR event routing or the decision summary changes; detailed mechanics change in their owning workflow document. |
+| [`AGENTS.md`](../AGENTS.md) | Bounded agent launch constitution: repository purpose, immediate routes and non-negotiables, and directly usable operator templates. The file stays at or below 120 lines; the cap is a ceiling, not a target. | A launch-critical invariant, route, or protected operator template changes. |
+| [`.claude/skills/steward/SKILL.md`](../.claude/skills/steward/SKILL.md) | Point-of-use PR lifecycle decisions at publication, resume, and events. It applies focused workflow contracts and stays at or below 120 lines. The cap is a ceiling, not a target. | PR event routing or the decision summary changes; detailed mechanics change in their owning workflow document. |
 | [`docs/repository-workflow.md`](repository-workflow.md) | Cross-cutting contributor mechanics: worktrees, history, engineering constraints, documentation ownership, local change hygiene, and PR publication. | A cross-cutting repository contribution rule changes. |
 | [`README.md`](../README.md) | Product landing page: canonical acquisition, three website channels, and only daily-driver or delightful demo capabilities. Every featured capability has a runnable CLI example and a production packet URL for the same view; the file stays at or below 120 lines. | Canonical acquisition or website links change, or a capability earns or loses landing-page discovery. |
 | [`docs/cli-reference.md`](cli-reference.md) | Detailed CLI behavior, command and capability inventory, examples, requirements, and user-visible limitations. | A documented command, workflow, requirement, or limitation changes. |
@@ -98,6 +98,7 @@ root README remains current without cataloging every focused capability.
 | Which remote package archives are cached and which are read by range; durable identity for credential-free HTTP feeds | [Package cache policy](design/package-cache-policy.md) |
 | How semantic package demands expand to ranged archive entries | [Package read demand](design/package-read-demand.md) |
 | What a package acquisition transferred: typed per-request receipts in Debug evidence | [Package transfer receipt](design/package-transfer-receipt.md) |
+| Opening one package version as an inspection scope through the House, shared by every host | [Package endpoint scope](design/package-endpoint-scope.md) |
 | Platform composition | [PlatformHouse](design/platform-house-reference-processing.md) |
 | Source, decoded documents, and PDB composition | [SourceHouse](design/source-house.md), [Decoded text document](design/decoded-text-document.md), [PDB Acquisition](pdb-acquisition.md), and [PDB source provenance](design/pdb-source-provenance.md) |
 | Documentation composition | [DocumentationHouse](design/documentation-house.md) |

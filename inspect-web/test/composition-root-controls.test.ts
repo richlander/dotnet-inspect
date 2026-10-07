@@ -67,11 +67,8 @@ import {
 } from "./composition-root-test-fixture.ts";
 
 test("qualified Type leverage exposes a cache-bypassing retry", () => {
-  const control = sourceText(functionDeclaration("typeLeverageStatus"));
-  assert.match(
-    control,
-    /qualified[\s\S]*data-type-leverage-retry>Retry/,
-  );
+  assert.match(dataBarSource, /data-type-leverage-retry>Retry/);
+  assert.match(appSource, /typeLeverageFeedback\(published\.presentation\)/);
   assert.match(
     appSource,
     /onTypeLeverageRetry:\s*\(\) => loadTypeLeverage\(true\)/,
@@ -92,9 +89,7 @@ test("ordinary Type lists request and present exhaustive structural salience", (
   const typePresentation = sourceText(
     functionDeclaration("currentTypeLeveragePresentation"),
   );
-  const status = sourceText(
-    functionDeclaration("typeLeverageStatus"),
-  );
+  const status = dataBarSource;
 
   assert.match(
     typeAutoLoad,
@@ -244,7 +239,7 @@ test("settled API Diff evidence decorates exact Type and Member navigation rows"
   const typeNav = sourceText(functionDeclaration("renderTypeNavPane"));
   assert.match(
     typeNav,
-    /libraryApiDiffPresence\(state\.libraryApiDiff\)[\s\S]*diffPresence\.typeIdentifiers\.has\(item\.definitionId \?\? item\.id\)[\s\S]*achievements\.push\(apiDiffAchievement\)/,
+    /libraryApiDiffPresence\(state\.libraryApiDiff\)[\s\S]*typeLeverageAchievements\([\s\S]*diffPresence\.typeIdentifiers\.has\(item\.definitionId \?\? item\.id\)\s*\? apiDiffAchievement : null\)/,
   );
 
   const memberNav = sourceText(functionDeclaration("renderMemberNavPane"));
@@ -607,7 +602,7 @@ test("typed package controls own framework and version selection bindings", () =
     /export function bindPackageSelections\([\s\S]*data-package-framework[\s\S]*#framework[\s\S]*#package-version/);
   assert.match(
     appSource,
-    /function packageVersionField\(\)[\s\S]*id="package-version"/);
+    /packageNavigationVersions\(pkg\.version, entry\)/);
   assert.doesNotMatch(
     appSource,
     /function packageFrameworkField|function packageCoordinateFields/);
@@ -779,9 +774,14 @@ test("typed package view owns package navigation bindings", () => {
   const namespaceJump = actionSource("onNamespaceJump");
   const packageChildLibrary =
     actionSource("onPackageChildLibrarySelect");
+  const libraryReference =
+    actionSource("onLibraryReferenceSelect");
   assert.match(
     packageChildLibrary,
     /navigationSequence\.begin\(\)[\s\S]*selectLibrarySubject\(assetId\)/);
+  assert.match(
+    libraryReference,
+    /state\.packages\.find[\s\S]*packageIdentityKey\(candidate\) === packageKey[\s\S]*selectWorkspacePackage\(target, \{ renderSelection: false \}\)[\s\S]*selectLibrarySubject\(libraryId\)/);
   assert.match(
     kindJump,
     /state\.atPackageRoot = false;[\s\S]*state\.kindFilter = kind;[\s\S]*state\.namespaceFilter = ""/);
@@ -982,7 +982,7 @@ test("typed shell controls own workbench, home, and load-error bindings", () => 
     /replaceChildrenPreservingRenderedInteractions\(app, `[\s\S]*bindLoadErrorShell\(document, loadErrorShellActions\)/);
   assert.match(
     workbenchActions,
-    /onApplicationAction: dispatchApplicationAction,\s*onCopySubjectSegment: index => \{[\s\S]*currentInspectedSubjectPath\(\)\[index\][\s\S]*copyText\(segment\.label, `\$\{segment\.kind\} name copied`\)[\s\S]*onOpenPackageTargetFramework: \(\) => \{[\s\S]*contentFramePane = "navigation";[\s\S]*state\.atPackageRoot = true;[\s\S]*render\(\);[\s\S]*focusContentNavigation\(document\)[\s\S]*onDismissNotice: dismissQueryNotice,\n  onDismissPackageNotice:/);
+    /onApplicationAction: dispatchApplicationAction,\s*onCopySubjectSegment: index => \{[\s\S]*currentInspectedSubjectPath\(\)\[index\][\s\S]*copyText\(segment\.label, `\$\{segment\.kind\} name copied`\)[\s\S]*onOpenPackageTargetFramework: \(\) => \{[\s\S]*contentFramePane = "navigation";[\s\S]*state\.atPackageRoot = true;[\s\S]*state\.packageLens = "overview";[\s\S]*render\(\);[\s\S]*focusPackageCoordinateControl\("package-framework", currentPackage\(\)\.activeFramework\)[\s\S]*onDismissNotice: dismissQueryNotice,\n  onDismissPackageNotice:/);
   assert.match(
     workbenchActions,
     /onDismissPackageNotice: \(\) => \{[\s\S]*pkg\.inspectionErrors = \[\];[\s\S]*pkg\.inspectionError = "";[\s\S]*render\(\);\s*\},\n  onNavigateBack:/);
@@ -2123,7 +2123,7 @@ test("Spotlight async work is receipt-gated and refreshes either mounted surface
     /generation|spotlightPkgGeneration|spotlightPkgTimer/);
   assert.match(
     appSource,
-    /window\.__platformIndex\.then\(index => \{[\s\S]*if \(state\.spotlightOpen\) spotlight\.refresh\(\)/);
+    /window\.__platformIndex\.then\(index => \{[\s\S]*if \(state\.spotlightOpen \|\| state\.home\) spotlight\.refresh\(\)/);
   assert.doesNotMatch(appSource, /rtpack-suggest|data-sl-load-runtime/);
   assert.doesNotMatch(appSource, /function activateRuntimePack\(/);
 });

@@ -8,12 +8,16 @@ using System.Security.Cryptography;
 using System.Text;
 using DotnetInspector.Packages;
 using DotnetInspector.PackageQueries;
+using DotnetInspector.PlatformHouse.Packages;
+using DotnetInspector.Platforms.Packages;
 using DotnetInspector.Queries;
+using DotnetInspector.ResearchQueries;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.SourceHouse;
 using ILInspector.Metadata;
 using NuGetFetch;
+using ZipFetch;
 
 namespace DotnetInspect.Web;
 
@@ -240,6 +244,13 @@ internal static class BrowserPackageWorkspace
         MaxEntryCount = 4_096,
         MaxUniqueDirectories = 16_384,
     };
+    static readonly ZipReadLimits PackageIconReadLimits = new(
+        maxArchiveBytes: MaxCachedPackageBytes,
+        maxEntryCount: PayloadLimits.MaxEntryCount,
+        maxDirectoryBytes: 4L * 1024 * 1024,
+        maxExpandedBytes: PackageIconQuery.MaxIconBytes,
+        entryReadSlack: 4 * 1024);
+
     static readonly PackagePayloadLimits FilePayloadLimits =
         PayloadLimits with
         {
@@ -313,6 +324,8 @@ internal static class BrowserPackageWorkspace
             "The browser product Workspace plan has not been configured.");
     internal static IPackageSourceAuthorization PackageSourceAuthorization =>
         SourceAuthorizationFor(Gallery);
+    internal static PackageProducerIdentity PackageProducer =>
+        Gallery.Source.Producer;
     internal static IPackageStore SessionPackageStore => Store;
     internal static BrowserSessionPackageStore PackageStoreFor(
         IPackageSourceClient source) => StoreFor(source);
@@ -539,6 +552,85 @@ internal static class BrowserPackageWorkspace
             },
             operationTimeout,
             cancellationToken);
+
+    internal static Task<PackageHouseSettlement> AcquireContentAsync(
+        PackageSourceCoordinate coordinate,
+        PackageHouseContentQuery query,
+        CancellationToken cancellationToken = default) =>
+        RunPackageOperationAsync(
+            deadline => AcquireContentCoreAsync(
+                coordinate,
+                query,
+                Gallery,
+                deadline),
+            PackageOperationTimeout,
+            cancellationToken);
+
+    static async Task<PackageHouseSettlement> AcquireContentCoreAsync(
+        PackageSourceCoordinate coordinate,
+        PackageHouseContentQuery query,
+        IPackageSourceClient source,
+        BrowserPackageOperationDeadline deadline)
+    {
+        ArgumentNullException.ThrowIfNull(coordinate);
+        ArgumentNullException.ThrowIfNull(query);
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(deadline);
+
+        PackageHouseTargetContext? target =
+            query.Narrowing
+                is PackageHouseContentNarrowing.TfmWide tfmWide
+                    ? tfmWide.Target
+                    : null;
+        TimeSpan remaining =
+            SourceSettlementOperationTimeout(deadline.Remaining);
+        PackageHouseOperation operation =
+            PackageHouseOperation.Create(
+                PackageHouseOperationProfile.Acquire,
+                requestTimeout: remaining,
+                operationTimeout: remaining);
+        var request = new PackageHouseRequest(
+            new PackageHouseDemand.Exact(coordinate),
+            operation,
+            targetContext: target,
+            contentQuery: query);
+        IPackageSourceAuthorization authorization =
+            SourceAuthorizationFor(source);
+        BrowserSessionPackageStore store =
+            StoreFor(source);
+        await using PackageSourceSettlementLease sourceLease =
+            PackageSourceSettlementService.IssueLease(
+                authority =>
+                    ReferenceEquals(
+                        authority.Association,
+                        source.Source.Association)
+                        ? source
+                        : throw new InvalidOperationException(
+                            "Portable PDB settlement requested another configured package source."));
+        using PackageSourceOperationLease sourceOperation =
+            sourceLease.IssueOperationLease(
+                deadline.Token,
+                operation.RequestTimeout,
+                operation.OperationTimeout);
+        var house = new PackageHouse(
+            authorization,
+            PackagePayloadAcquisitionPlan.ForContentQueries(
+                (authority, _) =>
+                    ReferenceEquals(
+                        authority.Association,
+                        source.Source.Association)
+                        ? store
+                        : throw new InvalidOperationException(
+                            "Portable PDB settlement requested another configured package source."),
+                PayloadLimits,
+                new BrowserPackageOperationTransferPolicy(
+                    store,
+                    deadline)));
+        return await house.ExecuteAsync(
+                request,
+                sourceOperation)
+            .ConfigureAwait(false);
+    }
 
     internal static Task<BrowserPackageRealizationResult> RealizeWithSettlementAsync(
         string packageId,
@@ -1065,6 +1157,34 @@ internal static class BrowserPackageWorkspace
             : remaining;
     }
 
+    internal static Task<PackageIconRangeResult> ReadPackageIconAsync(
+        string packageId,
+        string version,
+        CancellationToken cancellationToken = default) =>
+        ReadPackageIconAsync(
+            packageId,
+            version,
+            Gallery,
+            PackageOperationTimeout,
+            cancellationToken);
+
+    internal static Task<PackageIconRangeResult> ReadPackageIconAsync(
+        string packageId,
+        string version,
+        IPackageSourceClient source,
+        TimeSpan timeout,
+        CancellationToken cancellationToken = default) =>
+        RunPackageOperationAsync(
+            deadline => PackageIconRangeQuery.ExecuteAsync(
+                source as IPackageArchiveRangeSource
+                    ?? throw new InvalidOperationException(
+                        "The Browser package source does not support archive ranges."),
+                PackageSourceCoordinate.Create(packageId, version),
+                PackageIconReadLimits,
+                deadline.Token),
+            timeout,
+            cancellationToken);
+
     /// <summary>
     /// Creates one NuGet Gallery source client and registers its association
     /// with the configured Browser source identity it acquires against, so
@@ -1263,14 +1383,14 @@ internal static class BrowserPackageWorkspace
                     new AuthorizedPackageDependencyCandidateSource(
                         authorization,
                         sourceLease);
-                TimeSpan operationTimeout =
+                TimeSpan sourceOperationTimeout =
                     SourceSettlementOperationTimeout(
                         deadline.Remaining);
                 PackageHouseOperation operation =
                     PackageHouseOperation.Create(
                         PackageHouseOperationProfile.Realize,
-                        requestTimeout: operationTimeout,
-                        operationTimeout: operationTimeout);
+                        requestTimeout: sourceOperationTimeout,
+                        operationTimeout: sourceOperationTimeout);
                 BrowserSessionPackageStore store =
                     StoreFor(source);
                 var house = new PackageHouse(
@@ -1287,6 +1407,72 @@ internal static class BrowserPackageWorkspace
                         new BrowserPackageOperationTransferPolicy(
                             store,
                             deadline)));
+                var inspectionSource =
+                    new PackageDependencyMemberCallGraphInspectionSource(
+                        new PackageDependencyTraversalCandidateAdapter(
+                            candidateSource),
+                        new AuthorizedPackageDependencyManifestSource(
+                            candidateSource),
+                        house,
+                        (requestedOperation, token) =>
+                            sourceLease.IssueOperationLease(
+                                token,
+                                requestedOperation.RequestTimeout,
+                                requestedOperation.OperationTimeout));
+                var platform = new PackagePlatformHouseAdapter(
+                    new PackagePlatformSource(
+                        authorization,
+                        new PackagePayloadAcquisitionPlan(
+                            (authority, _) =>
+                                ReferenceEquals(
+                                    authority.Association,
+                                    source.Source.Association)
+                                    ? store
+                                    : throw new InvalidOperationException(
+                                        "The dependency call graph requested another configured Platform package source."),
+                            PayloadLimits,
+                            new BrowserPackageOperationTransferPolicy(
+                                store,
+                                deadline),
+                            access: PackagePayloadAccess.Ranged,
+                            rangedSizeCut: 0)),
+                    "browser-call-graph-platform-package");
+                var continuationSource =
+                    new BrowserPackageDependencyMemberCallGraphContinuationSource(
+                        inspectionSource,
+                        operation,
+                        platform,
+                        (request, _) =>
+                        {
+                            TimeSpan sourceTimeout =
+                                SourceSettlementOperationTimeout(
+                                    deadline.Remaining);
+                            return sourceLease.IssueOperationLease(
+                                request.CancellationToken,
+                                sourceTimeout,
+                                sourceTimeout);
+                        },
+                        sourceOperationTimeout);
+                var continuation =
+                    new PackageDependencyMemberCallGraphContinuation(
+                        continuationSource,
+                        new AssemblyReferenceResolutionWorkBudget(
+                            maxPackageRouteOccurrences: 4_096,
+                            maxPackageCandidateOperations: 4_096,
+                            maxSourceOperations: 64,
+                            maxAcquisitions: 32,
+                            maxRealizedAssemblies:
+                                BrowserInspectionScope
+                                    .MaxAssembliesPerRole,
+                            maxTransferBytes:
+                                MaxCachedPackageBytes,
+                            maxRetainedAssemblyBytes:
+                                BrowserInspectionScope
+                                    .MaxRetainedImageBytes,
+                            maxWorkspaceReplacements: 16,
+                            deadline:
+                                DateTimeOffset.UtcNow
+                                    .Add(deadline.Remaining)));
                 return await PackageDependencyMemberCallGraphInspection
                     .ExecuteAsync(
                         new PackageDependencyMemberCallGraphInspectionRequest(
@@ -1313,17 +1499,8 @@ internal static class BrowserPackageWorkspace
                                 supplyChainBaseline,
                             workspacePlan:
                                 workspacePlan),
-                        new PackageDependencyMemberCallGraphInspectionSource(
-                            new PackageDependencyTraversalCandidateAdapter(
-                                candidateSource),
-                            new AuthorizedPackageDependencyManifestSource(
-                                candidateSource),
-                            house,
-                            (requestedOperation, token) =>
-                                sourceLease.IssueOperationLease(
-                                    token,
-                                    requestedOperation.RequestTimeout,
-                                    requestedOperation.OperationTimeout)),
+                        inspectionSource,
+                        continuation,
                         deadline.Token)
                     .ConfigureAwait(false);
             },

@@ -19,6 +19,7 @@ public sealed record TypeDocumentInspectionPlan
         Type = type ?? throw new ArgumentNullException(nameof(type));
         Bounds = bounds
             ?? throw new ArgumentNullException(nameof(bounds));
+
         Declarations = declarations;
     }
 
@@ -50,13 +51,30 @@ public sealed record TypeDocumentGenericParameter(
         InertString Name,
     GenericParameterAttributes Attributes);
 
-public sealed record TypeDocumentDeclarationSignature(
-    ImmutableArray<TypeDocumentGenericParameter> GenericParameters);
+public sealed record TypeDocumentDeclarationSignature
+{
+    [JsonConstructor]
+    public TypeDocumentDeclarationSignature(
+        ImmutableArray<TypeDocumentGenericParameter> genericParameters)
+    {
+        if (genericParameters.IsDefault)
+        {
+            throw new ArgumentException(
+                "A Type declaration signature requires an explicit generic-parameter population.",
+                nameof(genericParameters));
+        }
+
+        GenericParameters = genericParameters;
+    }
+
+    public ImmutableArray<TypeDocumentGenericParameter>
+        GenericParameters { get; }
+}
 
 public sealed record TypeSubject
 {
+    [JsonConstructor]
     public TypeSubject(
-        LibraryTypeDocumentSubjectCorrespondence libraryCorrespondence,
         LibraryAssemblyIdentity assembly,
         Guid moduleVersionId,
         MetadataTypeDefinitionName type,
@@ -65,12 +83,10 @@ public sealed record TypeSubject
         MetadataTypeDeclarationCategory category,
         TypeAttributes attributes,
         bool isByRefLike,
+        bool isReadOnly,
         bool definesCoreLibraryRoot,
         int? declaringTypeDefinitionToken)
     {
-        LibraryCorrespondence = libraryCorrespondence
-            ?? throw new ArgumentNullException(
-                nameof(libraryCorrespondence));
         Assembly = assembly
             ?? throw new ArgumentNullException(nameof(assembly));
         if (moduleVersionId == Guid.Empty)
@@ -86,27 +102,67 @@ public sealed record TypeSubject
             ?? throw new ArgumentNullException(nameof(signature));
         if (!Enum.IsDefined(category))
             throw new ArgumentOutOfRangeException(nameof(category));
+        if (declaringTypeDefinitionToken is { } declaringToken)
+        {
+            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
+                declaringToken);
+        }
 
         ModuleVersionId = moduleVersionId;
         TypeDefinitionToken = typeDefinitionToken;
         Category = category;
         Attributes = attributes;
         IsByRefLike = isByRefLike;
+        IsReadOnly = isReadOnly;
         DefinesCoreLibraryRoot = definesCoreLibraryRoot;
         DeclaringTypeDefinitionToken = declaringTypeDefinitionToken;
     }
 
+    public TypeSubject(
+        LibraryTypeDocumentSubjectCorrespondence libraryCorrespondence,
+        LibraryAssemblyIdentity assembly,
+        Guid moduleVersionId,
+        MetadataTypeDefinitionName type,
+        int typeDefinitionToken,
+        TypeDocumentDeclarationSignature signature,
+        MetadataTypeDeclarationCategory category,
+        TypeAttributes attributes,
+        bool isByRefLike,
+        bool isReadOnly,
+        bool definesCoreLibraryRoot,
+        int? declaringTypeDefinitionToken)
+        : this(
+            assembly,
+            moduleVersionId,
+            type,
+            typeDefinitionToken,
+            signature,
+            category,
+            attributes,
+            isByRefLike,
+            isReadOnly,
+            definesCoreLibraryRoot,
+            declaringTypeDefinitionToken)
+    {
+        LibraryCorrespondence = libraryCorrespondence
+            ?? throw new ArgumentNullException(
+                nameof(libraryCorrespondence));
+    }
+
     [JsonIgnore]
-    public LibraryTypeDocumentSubjectCorrespondence LibraryCorrespondence { get; }
+    public LibraryTypeDocumentSubjectCorrespondence? LibraryCorrespondence
+    {
+        get;
+    }
     [JsonIgnore]
-    public LibraryReference RequestedLibrary =>
-        LibraryCorrespondence.RequestedLibrary;
+    public LibraryReference? RequestedLibrary =>
+        LibraryCorrespondence?.RequestedLibrary;
     [JsonIgnore]
-    public LibraryReference DefiningLibrary =>
-        LibraryCorrespondence.DefiningLibrary;
+    public LibraryReference? DefiningLibrary =>
+        LibraryCorrespondence?.DefiningLibrary;
     [JsonIgnore]
-    public LibraryContentReference DefiningApiContent =>
-        LibraryCorrespondence.DefiningApiContent;
+    public LibraryContentReference? DefiningApiContent =>
+        LibraryCorrespondence?.DefiningApiContent;
     public LibraryAssemblyIdentity Assembly { get; }
     public Guid ModuleVersionId { get; }
     public MetadataTypeDefinitionName Type { get; }
@@ -115,6 +171,7 @@ public sealed record TypeSubject
     public MetadataTypeDeclarationCategory Category { get; }
     public TypeAttributes Attributes { get; }
     public bool IsByRefLike { get; }
+    public bool IsReadOnly { get; }
     public bool DefinesCoreLibraryRoot { get; }
     public int? DeclaringTypeDefinitionToken { get; }
 }
@@ -162,9 +219,9 @@ public abstract record TypeDocumentDeclarations
         : TypeDocumentDeclarations;
 }
 
-public sealed record TypeDocument
+public sealed record TypeDocumentInspectionContent
 {
-    public TypeDocument(
+    public TypeDocumentInspectionContent(
         TypeSubject subject,
         TypeDocumentDeclarations declarations,
         int assemblyBytes)
@@ -243,7 +300,7 @@ public abstract record TypeDocumentInspectionOutcome
     {
     }
 
-    public sealed record Available(TypeDocument Document)
+    public sealed record Available(TypeDocumentInspectionContent Document)
         : TypeDocumentInspectionOutcome;
 
     public sealed record Rejected(TypeDocumentInspectionRejection Reason)

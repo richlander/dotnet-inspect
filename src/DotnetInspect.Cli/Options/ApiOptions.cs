@@ -303,35 +303,74 @@ public partial record ApiOptions : IProjectionOptions
             && Format == OutputFormat.Markdown
             && (!FormatFlagExplicitlySet || VerbosityExplicitlySet));
 
+    /// <summary>
+    /// Explicit output intent under <c>docs/design/section-shapes.md</c>: a format flag or
+    /// environment default, <c>--print</c>, <c>--row</c>, <c>--tree</c>, <c>--count</c>, a
+    /// projection, a shape flag, discovery, an envelope, or an analysis query. When present, a
+    /// lone selected section keeps that intent instead of its shape's native format.
+    /// </summary>
+    internal bool HasExplicitOutputIntent =>
+        FormatExplicitlySet
+        || JsonOutput
+        || Tabular
+        || Tsv
+        || Jsonl
+        || PlainText
+        || MermaidOutput
+        || EmbeddedMermaid
+        || NoHeader
+        || Print
+        || PrintRow is not null
+        || Value
+        || Urls
+        || Paths
+        || Count
+        || Tree
+        || ShapeOutput
+        || Discover is not null
+        || Schema
+        || Fields is { Length: > 0 }
+        || Columns is { Length: > 0 }
+        || BodyKindQuery.HasFilter
+        || PerformanceTriage.HasFilters
+        || CloneCandidateQuery.HasPredicates
+        || this is TypeOptions { EnvelopeOutput: true }
+        || this is MemberOptions { EnvelopeOutput: true };
+
+    /// <summary>
+    /// Whether the selection names sections explicitly: <c>-S</c> with names, or a section that
+    /// carries exact provenance (a typed caller supplying <see cref="IncludeSections"/> directly,
+    /// or the member command's pre-resolved sections). Bare <c>-S</c> is a preset.
+    /// </summary>
+    internal bool SelectionIsExplicit =>
+        !SelectDefault
+        && (Select is { Length: > 0 }
+            || ExactIncludeSections is { Count: > 0 })
+        // A section the command added on the user's behalf (Callers under a
+        // caller scope) was not selected explicitly, so it keeps the composed view.
+        && !(this is MemberOptions { ImplicitIncludeSections: { Count: > 0 } implicitSections }
+            && IncludeSections is { Count: 1 } loneSection
+            && implicitSections.Contains(loneSection.First()));
+
+    /// <summary>
+    /// Set by the preamble when the shared policy resolved a lone Text section to its native
+    /// payload; the computed fallback below answers the same question for a renderer that was
+    /// called without the preamble.
+    /// </summary>
+    internal bool NativeTextPayload { get; init; }
+
+    /// <summary>
+    /// A lone explicitly selected Text renders its undecorated payload when the caller named no
+    /// output intent. The shape decides (<see cref="Sections.ApiSectionShapes"/>), not a list of
+    /// section names; see <c>ApiCommand.ApplyNativeShapeOutput</c>.
+    /// </summary>
     public bool UsesNativePayloadDefault =>
-        !FormatExplicitlySet
-        && !JsonOutput
-        && !Tabular
-        && !Jsonl
-        && !PlainText
-        && !MermaidOutput
-        && !EmbeddedMermaid
-        && !NoHeader
-        && !Print
-        && !Value
-        && !Urls
-        && !Paths
-        && !Count
-        && Discover is null
-        && Columns is not { Length: > 0 }
-        && Fields is not { Length: > 0 }
-        && IncludeSections is { Count: 1 } sections
-        && sections.First() is
-            SectionNames.ApiDeclarations
-            or SectionNames.Source
-            or SectionNames.DecompiledSource
-            or SectionNames.AnnotatedSource
-            or SectionNames.PdbSource
-            or SectionNames.SourceDiff
-            or SectionNames.IL
-            or SectionNames.CostOverlay
-            or SectionNames.SemanticsOverlay
-            or SectionNames.FindingCensus;
+        NativeTextPayload
+        || (!HasExplicitOutputIntent
+            && SelectionIsExplicit
+            && IncludeSections is { Count: 1 } sections
+            && this is not MemberOptions { HasCallerScope: true }
+            && Sections.ApiSectionShapes.IsText(sections.First()));
 
     /// <summary>
     /// True when output is raw text (not rendered markdown).
@@ -390,6 +429,12 @@ public record TypeOptions : ApiOptions
         get;
         init;
     }
+    internal TypeHierarchyRelationsInspection?
+        TypeHierarchyRelations
+    {
+        get;
+        init;
+    }
 
     /// <summary>
     /// True when no explicit output format was selected (default invocation).
@@ -409,6 +454,35 @@ public record TypeOptions : ApiOptions
         || ShapeOutput
         || Count;
 }
+
+internal sealed record TypeHierarchyRelationsInspection(
+    TypeHierarchyRelationSectionInspection? Implementers,
+    TypeHierarchyRelationSectionInspection? DerivedTypes)
+{
+    internal bool IsComplete =>
+        (Implementers?.IsComplete ?? true)
+        && (DerivedTypes?.IsComplete ?? true);
+}
+
+internal sealed record TypeHierarchyRelationSectionInspection(
+    InspectionEnvelope<WorkspaceTypeHierarchySubjectRelationsDocument>
+        Inspection,
+    IReadOnlyList<TypeHierarchyRelationCandidate> Candidates)
+{
+    internal bool IsComplete =>
+        (Inspection.Content.Relations.Count is null
+            or SubjectRelationPopulationCountOutcome.Counted)
+        && (Inspection.Content.Relations.Rows is null
+            or SubjectRelationPopulationRowsOutcome.Read
+            {
+                Continuation: null,
+            });
+}
+
+internal sealed record TypeHierarchyRelationCandidate(
+    string Type,
+    string Library,
+    string Source);
 
 /// <summary>
 /// Options specific to the member command.

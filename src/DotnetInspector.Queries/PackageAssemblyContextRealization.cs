@@ -1605,6 +1605,7 @@ public sealed partial class InspectionWorkspace
                 ? null
                 : implementationRole.Select(entry => entry.Assembly),
             correspondences,
+            implementationCoreLibrary: null,
             shareImplementationGroup: preparation.Shared,
             surfaceOptions: roleOptions,
             implementationOptions: roleOptions,
@@ -1690,7 +1691,8 @@ public sealed partial class InspectionWorkspace
             asset.Package.PackageId,
             asset.Package.PackageVersion,
             asset.Asset.TargetFramework,
-            rid: null);
+            asset.Asset.RuntimeIdentifier,
+            asset.Asset.Path);
 
     static AssemblyReferenceIdentity RejectionCarrierIdentity(
         int roleIndex) =>

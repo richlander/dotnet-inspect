@@ -287,6 +287,7 @@ public class UntrustedTypeSpellingContainmentTests : IDisposable
                 AssemblyPath = _path,
                 TypeName = "GenericType",
                 Select = ["Type Info"],
+                FormatExplicitlySet = true,
             }));
 
         Assert.Equal(0, exit);

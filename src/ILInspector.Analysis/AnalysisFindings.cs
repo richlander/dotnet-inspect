@@ -37,7 +37,8 @@ public static class AnalysisFindings
 
     /// <summary>
     /// Projects one method's allocation occurrences into IL order. An empty occurrence sequence is
-    /// a complete empty census; acquisition failures belong to the caller that builds the body index.
+    /// a complete empty census; acquisition failures belong to the caller that
+    /// starts body analysis.
     /// </summary>
     public static ImmutableArray<Finding<AllocationOccurrence>> InspectAllocations(
         IEnumerable<AllocationOccurrence> occurrences,

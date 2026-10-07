@@ -136,17 +136,20 @@ const testTsconfig = readJson<TsconfigFile>("tsconfig.json");
 const nodeTsconfig = readJson<TsconfigFile>("../tsconfig.node.json");
 const staticWebAppConfig
   = readJson<StaticWebAppConfig>("../staticwebapp.config.json");
+const generatedLintScript = packageJson.scripts["lint:generated"] ?? "";
 
 // The lint targets are read here rather than inside the gate that checks coverage,
 // because the pruning rules below also need to know which directories hold authored
-// source. Both answers come from the one `lint` script, so neither can drift from it.
+// source. Both answers come from the one `lint:generated` script, so neither can drift
+// from it.
 //
 // The script chains more than one linter, so the scan stops at the next `&&`. Without
 // that, `html-validate` and its glob are read as oxlint targets, and a bogus target is a
 // target the coverage gate below will happily consider a file "covered" by.
 const lintTokens = (() => {
-  const lint = packageJson.scripts?.lint ?? "";
-  const oxlintCall = lint.slice(lint.indexOf("oxlint "));
+  const oxlintCall = generatedLintScript.slice(
+    generatedLintScript.indexOf("oxlint "),
+  );
   const tokens = oxlintCall.split(/\s+/u).slice(1);
   const chained = tokens.indexOf("&&");
   return chained === -1 ? tokens : tokens.slice(0, chained);
@@ -218,12 +221,21 @@ test("TypeScript compiler contexts keep Node globals out of browser source", () 
   assert.equal(packageJson.scripts.dev, "npm run facades && vite");
   assert.equal(
     packageJson.scripts.build,
-    "npm run typecheck && vite build && node scripts/verify-site-artifact.ts dist",
+    "npm run facades && npm run build:generated",
+  );
+  assert.equal(
+    packageJson.scripts["build:generated"],
+    "npm run typecheck:authored && vite build"
+      + " && node scripts/verify-site-artifact.ts dist",
   );
   assert.equal(packageJson.scripts.test, "npm run typecheck && node --test");
   assert.equal(
     packageJson.scripts["test:browser"],
-    "npm run facades && playwright test --project=firefox",
+    "npm run facades && npm run test:browser:generated",
+  );
+  assert.equal(
+    packageJson.scripts["test:browser:generated"],
+    "playwright test --project=firefox",
   );
 });
 
@@ -1237,10 +1249,10 @@ test("the generated facade TypeScript uses its SDK-owned compiler gates", () => 
     /--assembly-search-path "\$source_assembly_directory"/);
   assert.match(
     engineGenerationScript,
-    /generator_build_properties\+=\("-p:VersionPrefix=\$contract_version_prefix"\)/);
+    /generator_build_properties\+=\(\s*"-p:VersionPrefix=\$generation_version_prefix"\)/);
   assert.match(
     engineGenerationScript,
-    /verify_msbuild_facade_build "-p:VersionPrefix=\$version_prefix"[\s\S]*--contract[\s\S]*"\$version_prefix"[\s\S]*verify_msbuild_facade_publish "-p:VersionPrefix=\$version_prefix"/);
+    /verify_msbuild_facade_build\s*\\\s*"-p:VersionPrefix=\$generation_version_prefix"[\s\S]*verify_msbuild_facade_publish\s*\\\s*"-p:VersionPrefix=\$generation_version_prefix"/);
   // `--contract` produces the complete declaration set into a directory, which is what the
   // paired async deployment lanes compare against their independently compiled set.
   assert.match(
@@ -2075,12 +2087,14 @@ test("the lint runs in the mode the unsafe-operation rules require", () => {
 // an `.eslintignore` entry each returned `npm run analyze` to green with an unsafe `any`
 // file present. The invocation therefore refuses both, and this pins the refusal.
 test("the lint invocation refuses config and ignore files it did not declare", () => {
-  const lint = packageJson.scripts?.lint ?? "";
-
-  assert.match(lint, /\boxlint\b/u, "the lint script must run oxlint");
-  assert.ok(lint.includes("--no-ignore"),
+  assert.match(
+    generatedLintScript,
+    /\boxlint\b/u,
+    "the lint:generated script must run oxlint",
+  );
+  assert.ok(generatedLintScript.includes("--no-ignore"),
     "without this an .eslintignore file silently drops sources from the lint run");
-  assert.ok(lint.includes("--disable-nested-config"),
+  assert.ok(generatedLintScript.includes("--disable-nested-config"),
     "without this a nested .oxlintrc.json silently overrides the rules pinned above");
 });
 
@@ -2411,8 +2425,9 @@ test("the oxlint configuration relaxes only the rules it documents", () => {
 // all written at the project root -- stayed green; `--config` is what makes the committed
 // file the one that runs, and reading the flag from the script is what keeps it there.
 const htmlValidateInvocation = (() => {
-  const lint = packageJson.scripts?.lint ?? "";
-  const match = /html-validate\s+--config\s+(\S+)\s+"([^"]+)"/u.exec(lint);
+  const match = /html-validate\s+--config\s+(\S+)\s+"([^"]+)"/u.exec(
+    generatedLintScript,
+  );
   return match === null
     ? undefined
     : { config: match[1] ?? "", glob: match[2] ?? "" };
@@ -3023,7 +3038,11 @@ test("the analysis host check matches locked native packages and lint wiring", (
 
   assert.equal(
     packageJson.scripts.lint,
-    "npm run facades && node scripts/verify-analysis-host.ts && "
+    "npm run facades && npm run lint:generated",
+  );
+  assert.equal(
+    packageJson.scripts["lint:generated"],
+    "node scripts/verify-analysis-host.ts && "
       + "oxlint --no-ignore --disable-nested-config src test browser scripts "
       + "multi-facade-canary/coordinator.ts multi-facade-canary/exercise.ts "
       + "multi-facade-canary/facades "
@@ -3043,30 +3062,33 @@ test("the analysis host check matches locked native packages and lint wiring", (
 });
 
 test("the lint gate includes all compiler-derived facade artifacts", () => {
-  const lintScript = packageJson.scripts.lint;
-  assert.ok(lintScript !== undefined, "package.json must define a lint script");
+  assert.notEqual(generatedLintScript, "",
+    "package.json must define a lint:generated script");
   for (const declaration of generatedFacadeDeclarations) {
     assert.ok(
       new RegExp(`(?:^| )${declaration.replaceAll(/[./]/g, String.raw`\$&`)}(?: |$)`)
-        .test(lintScript),
+        .test(generatedLintScript),
       `the lint gate does not name ${declaration}`,
     );
   }
-  assert.match(lintScript, /(?:^| )src(?: |$)/);
+  assert.match(generatedLintScript, /(?:^| )src(?: |$)/);
   assert.match(
-    lintScript,
+    generatedLintScript,
     /(?:^| )multi-facade-canary\/coordinator\.ts(?: |$)/,
   );
   assert.match(
-    lintScript,
+    generatedLintScript,
     /(?:^| )multi-facade-canary\/exercise\.ts(?: |$)/,
   );
-  assert.match(lintScript, /(?:^| )multi-facade-canary\/facades(?: |$)/);
-  assert.match(lintScript, /(?:^| )DotnetInspect.Web\/facades(?: |$)/);
+  assert.match(
+    generatedLintScript,
+    /(?:^| )multi-facade-canary\/facades(?: |$)/,
+  );
+  assert.match(generatedLintScript, /(?:^| )DotnetInspect.Web\/facades(?: |$)/);
   for (const module of publishedFacadeModules) {
     assert.ok(
       new RegExp(`(?:^| )${module.replaceAll(/[./]/g, String.raw`\$&`)}(?: |$)`)
-        .test(lintScript),
+        .test(generatedLintScript),
       `the lint gate does not name ${module}`);
   }
 });

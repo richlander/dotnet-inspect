@@ -33,7 +33,7 @@ public static partial class AssemblyContextSourceQuery
                 context.TypeSourceLimits,
                 context.TypeSourceTimeout,
                 cancellationToken,
-                retainLibrary: false)
+                pdbEvidence: null)
             : null;
 
     static AssemblyTypeSourceEntry PdbSourceEntry(
@@ -171,7 +171,7 @@ public static partial class AssemblyContextSourceQuery
 
         PdbTypeSourceInspection inspection =
             prepared.Failure is { } failure
-                ? PdbSourceHouse.TypePdbAcquisitionFailed(
+                ? PdbSourceInspectionProjection.TypeAcquisitionFailed(
                     new FindingSubject(
                         "type",
                         request.Type.ToMetadataFullName()),

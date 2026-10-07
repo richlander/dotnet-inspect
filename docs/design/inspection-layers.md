@@ -1608,12 +1608,24 @@ canaries:
   enumerated siblings relative to each parent first, then installed platform
   assets; it does not import the inspecting process's dependency closure.
 - `AssemblyContextReferencesQuery` owns session access for every participant in
-  a binding-consistent group. `PackageDependencyGroupsQuery` reads one bounded
-  root manifest through `IPackageContent`, validates its package ID and version,
-  retains its groups as declared, and reports exact-framework absence separately
-  from an empty dependency set.
-  Browser-Wasm composes those two typed results without parsing XML or opening
-  an assembly session.
+  a binding-consistent group. Its participant entry point also issues detached
+  `AssemblyReferenceRow` values for hosts that need reference fields but do not
+  own Metadata identity semantics. `PackageDependencyGroupsQuery` reads one
+  bounded root manifest through `IPackageContent`, validates its package ID and
+  version, retains its groups as declared, and reports exact-framework absence
+  separately from an empty dependency set. Browser-Wasm composes those two
+  typed results without parsing XML, opening an assembly session, or projecting
+  Metadata identities itself.
+- `LoadedTypeSearchRanking` owns direct, broadened, and fuzzy ranking over one
+  finite caller-authorized population of already-loaded Type names. It consumes
+  Metadata's matching grammar and tier predicates, applies the product result
+  bounds, and issues caller-shaped hits without acquiring or inspecting an
+  artifact. Browser-Wasm supplies its existing transport records but does not
+  execute the semantic ranking.
+- `ExactLibraryApiInspectionResult` carries its exact assembly identity through
+  a Queries-owned detached value with the same metadata fields. Browser-Wasm
+  losslessly adapts that value without referencing Metadata identity types;
+  Queries retains the semantic projection from the selected participant.
 - `AssemblyContextTypeDependencyQuery` retains the admitted descriptors for one
   binding-consistent group and invokes the Metadata-owned population scan once.
   Ordinary population lookup scans the committed participant order. Its

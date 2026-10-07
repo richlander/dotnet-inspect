@@ -1037,20 +1037,20 @@ public class LibraryInspectionView
         }
     }
 
-    public bool HasNameFamilyRoles =>
-        _data.FamilyRoleQueryResult
-            is LibraryFamilyRoleQueryResult.Available
+    public bool HasArchitecturalFamilies =>
+        _data.ArchitecturalFamilyQueryResult
+            is LibraryArchitecturalFamilyQueryResult.Available
         { FamilyRows.IsEmpty: false };
 
     [MarkoutSection(
-        Name = SectionNames.NameFamilyRoles,
-        ShowWhenProperty = nameof(HasNameFamilyRoles))]
-    public List<NameFamilyRoleRow>? NameFamilyRolesSection
+        Name = SectionNames.ArchitecturalFamilies,
+        ShowWhenProperty = nameof(HasArchitecturalFamilies))]
+    public List<ArchitecturalFamilyRow>? ArchitecturalFamiliesSection
     {
         get
         {
-            if (_data.FamilyRoleQueryResult
-                is not LibraryFamilyRoleQueryResult.Available available)
+            if (_data.ArchitecturalFamilyQueryResult
+                is not LibraryArchitecturalFamilyQueryResult.Available available)
             {
                 return null;
             }
@@ -1058,7 +1058,7 @@ public class LibraryInspectionView
             return
             [
                 .. available.FamilyRows.Select(family =>
-                    new NameFamilyRoleRow(
+                    new ArchitecturalFamilyRow(
                         MarkoutInline.Code(FamilyName(family.Identity)),
                         FamilyKind(family.Identity.Kind),
                         family.TypeCount,
@@ -1069,7 +1069,7 @@ public class LibraryInspectionView
                         family.SeaLevelCount,
                         family.MountainPeakCount,
                         family.DistinctNamespaceCount,
-                        LibraryFamilyRoleQuery.PopulationToken(
+                        LibraryArchitecturalFamilyQuery.PopulationToken(
                             available.Population.Kind),
                         available.Population.Provenance.State.ToString(),
                         family.StructuralDisposition.ToString())),
@@ -1077,20 +1077,20 @@ public class LibraryInspectionView
         }
     }
 
-    public bool HasNameFamilyRoleTypes =>
-        _data.FamilyRoleQueryResult
-            is LibraryFamilyRoleQueryResult.Available
+    public bool HasArchitecturalFamilyTypes =>
+        _data.ArchitecturalFamilyQueryResult
+            is LibraryArchitecturalFamilyQueryResult.Available
         { TypeRows.IsEmpty: false };
 
     [MarkoutSection(
-        Name = SectionNames.NameFamilyRoleTypes,
-        ShowWhenProperty = nameof(HasNameFamilyRoleTypes))]
-    public List<NameFamilyRoleTypeRow>? NameFamilyRoleTypesSection
+        Name = SectionNames.ArchitecturalFamilyTypes,
+        ShowWhenProperty = nameof(HasArchitecturalFamilyTypes))]
+    public List<ArchitecturalFamilyTypeRow>? ArchitecturalFamilyTypesSection
     {
         get
         {
-            if (_data.FamilyRoleQueryResult
-                is not LibraryFamilyRoleQueryResult.Available available)
+            if (_data.ArchitecturalFamilyQueryResult
+                is not LibraryArchitecturalFamilyQueryResult.Available available)
             {
                 return null;
             }
@@ -1098,7 +1098,7 @@ public class LibraryInspectionView
             return
             [
                 .. available.TypeRows.Select(type =>
-                    new NameFamilyRoleTypeRow(
+                    new ArchitecturalFamilyTypeRow(
                         MarkoutInline.Code(
                             type.Name.ToMetadataFullName()),
                         type.Type.ModuleVersionId.ToString("N")
@@ -1112,7 +1112,7 @@ public class LibraryInspectionView
                         type.SignatureOutgoingDegree,
                         type.StructuralRole?.ToString(),
                         type.StructuralPole?.ToString(),
-                        LibraryFamilyRoleQuery.PopulationToken(
+                        LibraryArchitecturalFamilyQuery.PopulationToken(
                             available.Population.Kind),
                         type.StructuralDisposition.ToString())),
             ];

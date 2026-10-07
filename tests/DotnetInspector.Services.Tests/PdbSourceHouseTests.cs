@@ -185,7 +185,7 @@ public class PdbSourceHouseTests
     public void FromContent_VerifiedSourceProducesCompleteLineCensus()
     {
         byte[] content = Encoding.UTF8.GetBytes(Source);
-        var result = PdbSourceHouse.FromContent(
+        var result = PdbSourceInspectionProjection.FromMemberContent(
             Mapping(),
             Document(content),
             content,
@@ -231,7 +231,7 @@ public class PdbSourceHouseTests
             SequencePointStartLines = [6],
         };
 
-        var result = PdbSourceHouse.FromContent(
+        var result = PdbSourceInspectionProjection.FromMemberContent(
             mapping,
             Document(content),
             content,
@@ -246,7 +246,7 @@ public class PdbSourceHouseTests
     public void FromContent_MismatchedChecksumProducesFailedInspection()
     {
         byte[] content = Encoding.UTF8.GetBytes(Source);
-        var result = PdbSourceHouse.FromContent(
+        var result = PdbSourceInspectionProjection.FromMemberContent(
             Mapping(),
             Document(Encoding.UTF8.GetBytes(Source + "changed")),
             content,
@@ -273,7 +273,7 @@ public class PdbSourceHouseTests
             };
 
         PdbMemberSourceInspection result =
-            PdbSourceHouse.FromContent(
+            PdbSourceInspectionProjection.FromMemberContent(
                 Mapping(),
                 document,
                 content,
@@ -298,7 +298,7 @@ public class PdbSourceHouseTests
             + " } }";
         byte[] content = Encoding.UTF8.GetBytes(source);
 
-        var result = PdbSourceHouse.FromContent(
+        var result = PdbSourceInspectionProjection.FromMemberContent(
             Mapping(),
             Document(content),
             content,
@@ -324,7 +324,7 @@ public class PdbSourceHouseTests
             };
 
         PdbMemberSourceInspection result =
-            PdbSourceHouse.FromContent(
+            PdbSourceInspectionProjection.FromMemberContent(
                 mapping,
                 Document(content),
                 content,
@@ -352,7 +352,7 @@ public class PdbSourceHouseTests
             };
 
         PdbMemberSourceInspection result =
-            PdbSourceHouse.FromContent(
+            PdbSourceInspectionProjection.FromMemberContent(
                 mapping,
                 Document(content),
                 content,
@@ -373,12 +373,12 @@ public class PdbSourceHouseTests
         byte[] content = Encoding.UTF8.GetBytes(
             new string(
                 '\n',
-                PdbSourceHouse
+                PdbSourceInspectionProjection
                     .MaxPdbSourceLineCount));
         var mapping = TypeMapping();
 
         PdbTypeSourceInspection result =
-            PdbSourceHouse.FromTypeContent(
+            PdbSourceInspectionProjection.FromTypeContent(
                 mapping,
                 Document(content),
                 content,
@@ -401,19 +401,75 @@ public class PdbSourceHouseTests
     }
 
     [Fact]
+    public void MemberAcquisitionFailed_PreservesTypedFailure()
+    {
+        PdbMemberSourceInspection result =
+            PdbSourceInspectionProjection.MemberAcquisitionFailed(
+                Subject,
+                new IOException("source fetch failed"));
+
+        Assert.Equal(
+            PdbMemberSourceOutcome.PortablePdbAcquisitionFailed,
+            result.Outcome);
+        var failure =
+            Assert.IsType<FindingInspection<string>.Failed>(
+                result.Lines.Value);
+        Assert.Contains(
+            "Portable PDB acquisition failed: source fetch failed",
+            failure.Error.Reason);
+    }
+
+    [Fact]
+    public void FromVerifiedTypeContent_PreservesAcceptedVerification()
+    {
+        byte[] content = Encoding.UTF8.GetBytes(Source);
+        PdbTypeSourceInspection result =
+            PdbSourceInspectionProjection.FromVerifiedTypeContent(
+                TypeMapping(),
+                Document(content),
+                Source,
+                SourceChecksumVerification.LineEndingNormalized,
+                Subject);
+
+        Assert.Equal(PdbTypeSourceOutcome.Complete, result.Outcome);
+        Assert.Equal(Source, result.Text);
+        Assert.Equal(
+            SourceChecksumVerification.LineEndingNormalized,
+            result.ChecksumVerification);
+    }
+
+    [Theory]
+    [InlineData(SourceChecksumVerification.Unavailable)]
+    [InlineData(SourceChecksumVerification.Unsupported)]
+    [InlineData(SourceChecksumVerification.Mismatch)]
+    public void FromVerifiedTypeContent_RejectsUnacceptedVerification(
+        SourceChecksumVerification verification)
+    {
+        byte[] content = Encoding.UTF8.GetBytes(Source);
+
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => PdbSourceInspectionProjection.FromVerifiedTypeContent(
+                TypeMapping(),
+                Document(content),
+                Source,
+                verification,
+                Subject));
+    }
+
+    [Fact]
     public void FromTypeContent_ChecksumFailurePreservesTypedOutcome()
     {
         byte[] content = Encoding.UTF8.GetBytes(Source);
         var mapping = TypeMapping();
 
         PdbTypeSourceInspection mismatch =
-            PdbSourceHouse.FromTypeContent(
+            PdbSourceInspectionProjection.FromTypeContent(
                 mapping,
                 Document(Encoding.UTF8.GetBytes(Source + "changed")),
                 content,
                 Subject);
         PdbTypeSourceInspection unsupported =
-            PdbSourceHouse.FromTypeContent(
+            PdbSourceInspectionProjection.FromTypeContent(
                 mapping,
                 Document(content) with { ChecksumAlgorithm = "MD5" },
                 content,
@@ -454,7 +510,7 @@ public class PdbSourceHouseTests
     }
 
     [Fact]
-    public async Task FetchVerifiedSourceText_PreservesLineEndingNormalizationEvidence()
+    public async Task VerifiedSourceTextFetch_PreservesLineEndingNormalizationEvidence()
     {
         byte[] expected = Encoding.UTF8.GetBytes(Source.ReplaceLineEndings("\n"));
         byte[] actual = Encoding.UTF8.GetBytes(Source.ReplaceLineEndings("\r\n"));
@@ -465,7 +521,7 @@ public class PdbSourceHouseTests
             new InMemorySourceContentStore());
 
         VerifiedSourceTextResult result =
-            await PdbSourceHouse.FetchVerifiedSourceTextAsync(
+            await VerifiedSourceTextFetch.FetchAsync(
                 fetcher,
                 $"https://example.test/{Guid.NewGuid():N}/Sample.cs",
                 "SHA256",
@@ -480,6 +536,57 @@ public class PdbSourceHouseTests
     }
 
     [Fact]
+    public async Task VerifiedSourceTextFetch_MissingChecksumDoesNotDispatch()
+    {
+        var handler = new QueueHandler(Encoding.UTF8.GetBytes(Source));
+        using var client = new HttpClient(handler);
+        var fetcher = new SourceFetch(
+            client,
+            new InMemorySourceContentStore());
+
+        VerifiedSourceTextResult result =
+            await VerifiedSourceTextFetch.FetchAsync(
+                fetcher,
+                $"https://example.test/{Guid.NewGuid():N}/Sample.cs",
+                checksumAlgorithm: null,
+                checksum: null,
+                cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Null(result.Text);
+        Assert.Equal(
+            "The portable PDB does not provide a usable source checksum.",
+            result.Failure);
+        Assert.Equal(0, handler.RequestCount);
+    }
+
+    [Fact]
+    public async Task VerifiedSourceTextFetch_MapsRejectedDestination()
+    {
+        var handler = new QueueHandler(Encoding.UTF8.GetBytes(Source));
+        using var client = new HttpClient(handler);
+        var policy = new RejectingSourceFetchPolicy();
+        var fetcher = new SourceFetch(
+            client,
+            new InMemorySourceContentStore(),
+            policy);
+
+        VerifiedSourceTextResult result =
+            await VerifiedSourceTextFetch.FetchAsync(
+                fetcher,
+                "https://localhost/Sample.cs",
+                "SHA256",
+                SHA256.HashData(Encoding.UTF8.GetBytes(Source)),
+                TestContext.Current.CancellationToken);
+
+        Assert.Null(result.Text);
+        Assert.Equal(
+            "The host does not authorize this SourceLink destination.",
+            result.Failure);
+        Assert.Equal(0, handler.RequestCount);
+        Assert.Equal(0, policy.ConfiguredRequests);
+    }
+
+    [Fact]
     public void FromContent_MissingChecksumIsAbsentEvidence()
     {
         byte[] content = Encoding.UTF8.GetBytes(Source);
@@ -489,7 +596,7 @@ public class PdbSourceHouseTests
             Checksum = null,
         };
 
-        var result = PdbSourceHouse.FromContent(
+        var result = PdbSourceInspectionProjection.FromMemberContent(
             Mapping(),
             document,
             content,
@@ -676,7 +783,7 @@ public class PdbSourceHouseTests
             }
             """;
         byte[] content = Encoding.UTF8.GetBytes(source);
-        var result = PdbSourceHouse.FromContent(
+        var result = PdbSourceInspectionProjection.FromMemberContent(
             DestructorMapping(memberName: "Finalize", startLine: 6, endLine: 7, isFinalizer: true),
             Document(content),
             content,
@@ -711,7 +818,7 @@ public class PdbSourceHouseTests
             }
             """;
         byte[] content = Encoding.UTF8.GetBytes(source);
-        var result = PdbSourceHouse.FromContent(
+        var result = PdbSourceInspectionProjection.FromMemberContent(
             DestructorMapping(memberName: "Finalize", startLine: 7, endLine: 8, isFinalizer: false),
             Document(content),
             content,

@@ -415,6 +415,12 @@ function harness() {
     spotlightOpen: false,
     memberCallGraph: null as object | null, memberCallGraphError: "", memberCallGraphKey: "",
     memberCallGraphLoading: false, memberCallGraphExpanding: false, memberCallGraphSeq: 0,
+    directUseClusterGraphKey: "",
+    directUseClusterBoundary: null as object | null,
+    directUseClusterResult: null as object | null,
+    directUseClusterLoading: false,
+    directUseClusterError: "",
+    directUseClusterSeq: 0,
     memberGroupDocumentLoading: false, memberGroupDocumentKey: "",
     memberSource: { status: "idle" } as SourceResultState,
     typeSource: { status: "idle" } as SourceResultState,
@@ -473,7 +479,7 @@ function harness() {
   const acquisitions: string[] = [];
   const queries: string[][] = [];
   const retained: { packageModel: Package; replacedPackage: Package | null }[] = [];
-  const recent: string[][] = [];
+  const recent: Array<Array<string | boolean>> = [];
   const invalidations: string[] = [];
   const publications: unknown[] = [];
   const toasts: string[] = [];
@@ -683,7 +689,7 @@ function harness() {
     },
     runtimePackPackage: () => null,
     selectedMember: () => null,
-    recordRecentPackage: (...coordinate: string[]) => recent.push(coordinate),
+    recordRecentPackage: (...coordinate: Array<string | boolean>) => recent.push(coordinate),
     packageInspection: { invalidatePackageResults: () => invalidations.push("package-results") },
     inspectClearWorkspacePackageOccurrences: () => invalidations.push("occurrences"),
     reportAsyncFailure: (_description: string, error: unknown) => {
@@ -725,6 +731,16 @@ function harness() {
     },
     cancelFindingCensusRequest: () => {},
     memberDetailInspection: { invalidate: () => {} },
+    directUseClusterInspection: {
+      reset: () => {
+        state.directUseClusterSeq++;
+        state.directUseClusterGraphKey = "";
+        state.directUseClusterBoundary = null;
+        state.directUseClusterResult = null;
+        state.directUseClusterLoading = false;
+        state.directUseClusterError = "";
+      },
+    },
     persistRecentPackages: () => {},
     persistPlatformRecent: () => {},
     refreshPackageStats: () => {},
@@ -2294,6 +2310,57 @@ function inspectionSelection(h: ReturnType<typeof harness>) {
   };
 }
 
+test("retained Workspace restoration settles cluster work and preserves its request sequence", () => {
+  const h = harness();
+  const boundary = { id: "edge-a" };
+  const result = { clusters: [{ ordinal: 1 }] };
+  Object.assign(h.state, {
+    directUseClusterGraphKey: "member-request-a",
+    directUseClusterBoundary: boundary,
+    directUseClusterResult: result,
+    directUseClusterLoading: true,
+    directUseClusterSeq: 7,
+  });
+
+  const snapshots: { state: typeof h.state }[] = [];
+  runInNewContext(
+    "capture(captureCanonicalWorkspaceRestoreSnapshot())",
+    {
+      ...h.context,
+      capture: (snapshot: { state: typeof h.state }) =>
+        snapshots.push(snapshot),
+    },
+  );
+  const snapshot = snapshots[0];
+  assert.ok(snapshot);
+  assert.equal(snapshot.state.directUseClusterLoading, false);
+  assert.equal(snapshot.state.directUseClusterSeq, 8);
+  assert.deepEqual(snapshot.state.directUseClusterBoundary, boundary);
+  assert.deepEqual(snapshot.state.directUseClusterResult, result);
+
+  runInNewContext("invalidateWorkspaceAsyncOwners()", h.context);
+  assert.equal(h.state.directUseClusterLoading, false);
+  assert.equal(h.state.directUseClusterSeq, 8);
+  assert.equal(h.state.directUseClusterGraphKey, "");
+  assert.equal(h.state.directUseClusterBoundary, null);
+  assert.equal(h.state.directUseClusterResult, null);
+  Object.assign(h.state, {
+    directUseClusterGraphKey: "member-request-b",
+    directUseClusterLoading: false,
+    directUseClusterSeq: 41,
+  });
+  runInNewContext(
+    "restoreCanonicalWorkspaceRestoreSnapshot(snapshot)",
+    { ...h.context, snapshot },
+  );
+
+  assert.equal(h.state.directUseClusterLoading, false);
+  assert.equal(h.state.directUseClusterSeq, 42);
+  assert.equal(h.state.directUseClusterGraphKey, "member-request-a");
+  assert.deepEqual(h.state.directUseClusterBoundary, boundary);
+  assert.deepEqual(h.state.directUseClusterResult, result);
+});
+
 function seedInspectionSelection(h: ReturnType<typeof harness>) {
   Object.assign(h.state, {
     selectedTypeId: "Source.Widget", selectedMemberKey: "Run",
@@ -2368,7 +2435,7 @@ test("Add appends the resolved coordinate, preserves inspection, invalidates mem
   assert.equal(h.retained[0]!.packageModel, added);
   assert.equal(h.retained[0]!.replacedPackage, null);
   assert.equal(added.types[0]?.id, "Added.Widget");
-  assert.deepEqual(h.recent, [["Added.Package", "4.5.6", "net10.0"]]);
+  assert.deepEqual(h.recent, [["Added.Package", "4.5.6", "net10.0", true]]);
   assert.equal(h.state.loading, false);
   assert.equal(h.state.queryNotice, "");
   assert.equal(h.state.queryNoticeRetryAction, null);
@@ -2652,7 +2719,7 @@ test("Add whose last slot fills during query refuses before retention and preser
   ]);
   assert.equal(h.retained.length, 1);
   assert.equal(h.retained[0]!.packageModel, arrived);
-  assert.deepEqual(h.recent, [["Arrived", "8.9.0", "net9.0"]]);
+  assert.deepEqual(h.recent, [["Arrived", "8.9.0", "net9.0", true]]);
   assert.deepEqual(h.state.packages, admitted);
   admitted.forEach((pkg, index) => assert.equal(h.state.packages[index], pkg));
   assert.deepEqual(h.state.workspaceDependencies, dependencies);

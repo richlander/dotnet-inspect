@@ -323,7 +323,7 @@ public abstract class PlatformTypeCatalogDerivationOutcome
 
 /// <summary>
 /// Derives one all-or-nothing structured catalog from an exact completed
-/// Platform reference population.
+/// Platform population.
 /// </summary>
 public static class PlatformTypeCatalogDerivation
 {
@@ -337,7 +337,7 @@ public static class PlatformTypeCatalogDerivation
         cancellationToken.ThrowIfCancellationRequested();
 
         var work = new WorkMeasurement();
-        if (!IsCompleteReferencePopulation(population))
+        if (!IsCompletePopulation(population))
         {
             return new PlatformTypeCatalogDerivationOutcome.Rejected(
                 population.Value,
@@ -623,7 +623,7 @@ public static class PlatformTypeCatalogDerivation
                 "Unknown Library declaration inventory bound."),
         };
 
-    private static bool IsCompleteReferencePopulation(
+    private static bool IsCompletePopulation(
         PlatformPopulationRealizationResult.Completed population) =>
         population.Outcome.Receipt.SettlementKind
             == PlatformHouseSettlementKind.Completed
@@ -632,7 +632,9 @@ public static class PlatformTypeCatalogDerivation
         {
             Population:
                     PlatformPopulationDemand.CompletePopulation,
-            View: PlatformViewDemand.Reference,
+            View:
+                    PlatformViewDemand.Reference
+                    or PlatformViewDemand.Implementation,
         };
 
     private sealed class WorkMeasurement

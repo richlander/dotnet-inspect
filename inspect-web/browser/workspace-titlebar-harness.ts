@@ -1,3 +1,4 @@
+import { bindPackageSelections } from "../src/package-controls.ts";
 import {
   bindScopeBar,
   captureScopeBarFocus,
@@ -58,7 +59,6 @@ import {
 import { renderPackageNav } from "../src/package-view.ts";
 import { renderLibrarySubjectNav } from "../src/library-subject-nav.ts";
 import { renderPackageDocuments } from "../src/doc-viewer.ts";
-import { renderPackageComparisonTargets } from "../src/package-comparison-targets.ts";
 import { allocationFactsFixture, analysisDiagnosticsFixture, callFactsFixture, exceptionRegionsFixture, memberFactsFixture, performanceOpportunitiesFixture, safetyFactsFixture } from "../test/member-facts-fixture.ts";
 import {
   memberFindingInteractionFixture,
@@ -388,7 +388,7 @@ function scopeBarHtml() {
 }
 
 const contentNavigationLabel = activeScope === "package"
-  ? "Frameworks"
+  ? "Frameworks & versions"
   : activeScope === "library"
     ? "Libraries"
   : memberMode ? "Members" : "Types";
@@ -398,9 +398,8 @@ const navigationHtml = workspaceMode
     ? renderPackageNav({
         frameworks: ["net10.0", "net10.0-windows10.0.19041.0"],
         activeFramework: "net10.0",
-        versionFieldHtml: packageOverviewMode
-          ? '<label class="version-select"><span>Version</span><select id="package-version"><option>10.0.0</option><option>9.0.0</option></select></label>'
-          : "",
+        versions: ["10.0.0", "9.0.0"],
+        activeVersion: "10.0.0",
         escapeHtml,
       })
   : activeScope === "library"
@@ -469,29 +468,6 @@ function detailHtml() {
             ).join("")
           : ""}
       </section>`;
-    const comparisonPackage = {
-      id: "System.Text.Json",
-      version: "10.0.0",
-      activeFramework: "net10.0",
-      source: { kind: "nuget.org" },
-    };
-    const comparisonHtml = `
-      <section id="package-comparison-targets" class="document-section">
-        ${renderPackageComparisonTargets({
-          package: comparisonPackage,
-          packages: [comparisonPackage],
-          diff: { kind: "previous" },
-          clone: { kind: "workspace" },
-          versions: {
-            status: "available",
-            inventory: {
-              versions: ["10.0.0", "9.0.0"],
-              currentVersionInsertionIndex: 0,
-              previousVersion: "9.0.0",
-            },
-          },
-        }, escapeHtml)}
-      </section>`;
     const documentsHtml = renderPackageDocuments([{
       kind: "readme",
       name: longMode ? `${name}.README.md` : "README.md",
@@ -553,7 +529,6 @@ function detailHtml() {
             packageInfoHtml,
             packageChildrenHtml:
               '<section class="document-section"><div class="section-title"><h2>Libraries</h2><span>1</span></div></section>',
-            comparisonHtml,
             documentsHtml,
           })
         : renderLibraryOverviewContent({
@@ -569,14 +544,6 @@ function detailHtml() {
         <h1 id="package-dependencies-surface-title">Dependencies</h1>
         <p>3 packages · 8 references</p>
       </header>
-      <section class="package-dependencies-controls" aria-label="Dependency coordinate">
-        <div class="package-coordinate-fields">
-          <label class="version-select">
-            <span>Version</span>
-            <select id="package-version"><option selected>10.0.0</option></select>
-          </label>
-        </div>
-      </section>
       <div class="package-dependencies-scroll">
         <div data-dependency-graph-surface>
           <section class="document-section dependency-group-selector">
@@ -604,10 +571,6 @@ function detailHtml() {
           </ul>
         </section>
       </div>
-      <footer class="api-surface-footer package-dependencies-surface-footer">
-        <span>System.Text.Json@10.0.0</span>
-        <span>net10.0</span>
-      </footer>
     </section>`;
   }
   if (packageMetadataMode) {
@@ -618,10 +581,6 @@ function detailHtml() {
       </header>
       <section class="package-metadata-controls" aria-label="Metadata coordinate"></section>
       <div class="package-metadata-scroll"></div>
-      <footer class="metadata-surface-footer package-metadata-surface-footer">
-        <span>System.Text.Json@10.0.0</span>
-        <span>net10.0</span>
-      </footer>
     </section>`;
   }
   if (metadataMode) {
@@ -635,10 +594,6 @@ function detailHtml() {
           <div class="section-title"><h2>Type shape</h2><span>ECMA-335 metadata</span></div>
         </section>
       </div>
-      <footer class="metadata-surface-footer">
-        <span>System.Text.Json.JsonSerializer</span>
-        <span>net10.0 · System.Text.Json.dll</span>
-      </footer>
     </section>`;
   }
   if (memberMode) {
@@ -826,16 +781,9 @@ function detailHtml() {
       </header>
       <div class="member-browser-controls api-surface-controls"></div>
       <div class="api-surface-scroll"></div>
-      <footer class="api-surface-footer"><span>Select a row to inspect its API</span></footer>
     </section>`;
   }
-  return `<h1>${subjectPath.at(-1)?.label}</h1>
-    <section class="document-section package-coordinate-editor">
-      <div class="section-title"><h2>Package coordinate</h2><span>1 target framework</span></div>
-      <div class="package-coordinate-fields">
-        <label class="version-select"><span>Version</span><select id="package-version"><option>10.0.0</option></select></label>
-      </div>
-    </section>`;
+  return `<h1>${subjectPath.at(-1)?.label}</h1>`;
 }
 const harnessKeybindings = new KeybindingRegistry();
 harnessKeybindings.register({
@@ -1307,6 +1255,7 @@ function bindHarnessWorkspace() {
 
 bindHarnessScopeBar();
 bindHarnessWorkspace();
+bindPackageSelections(document, { onFrameworkSelect: () => {}, onVersionSelect: () => {} });
 bindContentFrame(document, {
   onShowDetail: () => {
     contentFramePane = "detail";

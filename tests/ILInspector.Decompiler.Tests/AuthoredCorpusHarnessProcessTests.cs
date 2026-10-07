@@ -1034,6 +1034,10 @@ public partial class AuthoredCorpusHarnessProcessTests
             Assert.Null(sampled.FidelityReference);
             Assert.Null(baseline.Metrics.Fidelity.ReturnToSenderCutover);
             Assert.NotNull(baseline.RunIdentity);
+            Assert.Contains(
+                "RTS target selection",
+                run.Output,
+                StringComparison.Ordinal);
         }
         finally
         {
