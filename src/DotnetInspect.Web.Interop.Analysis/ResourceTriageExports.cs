@@ -50,8 +50,10 @@ public static partial class AnalysisExports
         {
             BrowserWorkspaceParticipant participant = scope.LibraryParticipant(coordinate, assemblyName);
             // Selecting this tab explicitly requests runtime-backed model resolution.
-            await using BrowserPlatformScopeResolution runtime =
+            await using BrowserPlatformScopeResolution runtimeSelection =
                 await BrowserPlatformWorkspace.OpenRuntimeAsync(coordinate.Framework);
+            await using BrowserPlatformScopeResolution runtime =
+                await OpenResourceTriagePopulationAsync(runtimeSelection);
             var inspection = await scope.UseMetadataParticipant(participant,
                 (group, target) => runtime.Scope.UseParticipant(runtime.Participant,
                     (runtimeGroup, coreLibrary) => AssemblyResourceTriageInspection.ExecuteWithRuntimeAsync(
@@ -73,12 +75,38 @@ public static partial class AnalysisExports
             await BrowserPlatformWorkspace.OpenAssemblyAsync(
                 targetFramework, platformVersion, assemblyFileName, pack))
         {
-            var inspection = resolution.Scope.UseParticipant(
-                resolution.Participant, AssemblyResourceTriageInspection.Execute);
+            await using BrowserPlatformScopeResolution population =
+                await OpenResourceTriagePopulationAsync(resolution);
+            var inspection = population.Scope.UseParticipant(
+                population.Participant, AssemblyResourceTriageInspection.Execute);
             result = ProjectResourceTriage(inspection);
             result = result with { Candidates = [.. result.Candidates.Select(candidate => candidate with { Assembly = assemblyFileName })] };
         }
         return JsonSerializer.Serialize(result, BrowserAnalysisJsonContext.Default.BrowserResourceTriage);
+    }
+
+    // Pack acquisition and context admission are separate. Analysis needs the
+    // runtime population, even when the Library view admitted only its selection.
+    static async Task<BrowserPlatformScopeResolution> OpenResourceTriagePopulationAsync(
+        BrowserPlatformScopeResolution selection)
+    {
+        await using BrowserPlatformScopeResolution runtime =
+            await BrowserPlatformWorkspace.OpenRuntimeAsync(
+                selection.Coordinate.Framework, selection.Coordinate.Version);
+        BrowserPlatformAssemblyRequest[] requests =
+        [
+            .. runtime.Scope.Context.AvailablePlatformAssemblies
+                .Where(coordinate => coordinate.Family == BrowserPlatformWorkspace.RuntimeFamily
+                    && !string.Equals(coordinate.Assembly, selection.Coordinate.Assembly,
+                        StringComparison.OrdinalIgnoreCase))
+                .Select(coordinate => new BrowserPlatformAssemblyRequest(
+                    coordinate.Assembly! + ".dll", "netcore.app")),
+            new(selection.Coordinate.Assembly! + ".dll",
+                selection.Coordinate.Family == BrowserPlatformWorkspace.RuntimeFamily
+                    ? "netcore.app" : "aspnetcore.app"),
+        ];
+        return await BrowserPlatformWorkspace.OpenAssembliesAsync(
+            selection.Coordinate.Framework, selection.Coordinate.Version, requests);
     }
 
     internal static BrowserResourceTriage ProjectResourceTriage(

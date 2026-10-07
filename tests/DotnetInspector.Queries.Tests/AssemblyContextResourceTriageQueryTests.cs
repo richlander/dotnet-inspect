@@ -121,6 +121,16 @@ public sealed class AssemblyContextResourceTriageQueryTests
         var runtimePolicy = new PackageAssemblyContextRoles.RoleBindingPolicy([.. runtimeAssemblies], core);
         await using var workspace = new InspectionWorkspace();
         using var package = workspace.CreateAssemblyContextGroup([new AssemblyContextParticipant(root, packagePolicy)]);
+        // Merely acquiring CoreLib does not admit the forwarding/runtime population.
+        var sparsePolicy = new PackageAssemblyContextRoles.RoleBindingPolicy([core], core);
+        using (var sparseRuntime = workspace.CreateAssemblyContextGroup(
+            [new AssemblyContextParticipant(core, sparsePolicy)]))
+        {
+            var sparse = await AssemblyContextResourceTriageQuery.ExecuteParticipantWithRuntimeAsync(
+                package, package.Participants[0], sparseRuntime, sparseRuntime.Participants[0]);
+            var sparseEntry = Assert.IsType<AssemblyContextEntry<AssemblyResourceTriageResult>.Available>(sparse);
+            Assert.IsType<ResourceTriageResult.Failed>(sparseEntry.Value.Triage);
+        }
         using var runtime = workspace.CreateAssemblyContextGroup(runtimeAssemblies.Select(assembly => new AssemblyContextParticipant(assembly, runtimePolicy)));
         var result = await AssemblyContextResourceTriageQuery.ExecuteParticipantWithRuntimeAsync(
                 package, package.Participants[0], runtime, runtime.Participants[0]);

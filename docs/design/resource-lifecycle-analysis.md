@@ -306,9 +306,10 @@ absence. Non-public or otherwise unnavigable candidates retain their evidence.
 `AssemblyContextResourceTriageQuery` owns execution over the selected admitted
 participant and does not inspect neighboring participants. API body selectors
 provide optional public-member navigation; navigation does not define the
-Finding population. Package analysis explicitly acquires the selected framework's
-complete runtime population and borrows its admitted images alongside the
-package context. The combined analysis retains exact roots, uses the runtime's
+Finding population. Selecting either package or platform triage explicitly
+expands the platform context to admit the selected framework's complete runtime
+population; acquiring its archive or selecting CoreLib alone is insufficient.
+Package analysis borrows its admitted images alongside the package context. The combined analysis retains exact roots, uses the runtime's
 selected intrinsic core library, and bounds retained images to 64 MiB.
 `AssemblyResourceTriageInspection` returns detached Content
 and an explicit non-projectable Share outcome until canonical Share projection

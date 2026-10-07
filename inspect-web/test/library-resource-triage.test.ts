@@ -30,6 +30,7 @@ test("incomplete results retain sound candidates and escaped limitations", () =>
   const html = renderLibraryResourceTriageSurface({ ...options, data: result({ outcome: "incomplete", limitations: [{ kind: "ExceptionFlow", detail: "<unsafe>", method: "Other" }] }) });
   assert.match(html, /1 candidate · incomplete/);
   assert.match(html, /rt~1234/);
+  assert.match(html, /<details><summary>1 analysis limitation<\/summary>/);
   assert.match(html, /&lt;unsafe&gt;/);
   assert.doesNotMatch(html, /<unsafe>/);
 });

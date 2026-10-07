@@ -52,7 +52,7 @@ export function renderLibraryResourceTriageSurface(options: ResourceTriageOption
       ...data.diagnostics.map(item => item.summary),
     ];
     const warning = partial || warnings.length
-      ? `<section class="document-section metadata-warning"><strong>${partial ? "This library could not be analyzed completely" : "Analysis diagnostics"}</strong><ul>${warnings.map(item => `<li>${escape(item)}</li>`).join("")}</ul></section>` : "";
+      ? `<section class="document-section metadata-warning"><strong>${partial ? "This library could not be analyzed completely" : "Analysis diagnostics"}</strong><details><summary>${warnings.length.toLocaleString()} analysis limitation${warnings.length === 1 ? "" : "s"}</summary><ul>${warnings.map(item => `<li>${escape(item)}</li>`).join("")}</ul></details></section>` : "";
     const note = `<p class="library-analysis-note">ArrayPool exception-cleanup candidates: an exception may bypass Return and cause pool churn. Static evidence has medium confidence. Return the pooled array from finally or catch-all cleanup.</p>`;
     const rows = data.candidates.map(candidate => {
       const link = candidate.typeId && candidate.stableSelector
