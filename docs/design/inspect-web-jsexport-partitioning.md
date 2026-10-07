@@ -248,6 +248,9 @@ candidate and hit records through Queries-owned `LoadedTypeSearchRanking`; it
 does not execute Type-matching, tier, fuzzy-ranking, or result-limit semantics.
 Exact-Library API identity likewise reaches the facade as a Queries-owned
 detached value, so the wire adapter does not reference Metadata identity types.
+Platform-forwarder rows and resolution routes likewise reach the adapter
+through Web Core-owned string projection, so the facade does not inspect
+Metadata identities or structured Type names.
 
 ### Metadata facade: 8 exports
 

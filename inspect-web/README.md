@@ -77,10 +77,10 @@ ceilings. Direct assembly-reference evidence now arrives as detached
 Queries-owned rows, so the facade does not project Metadata identities for that
 result, exact-Library identity arrives as a detached Queries-owned value, and
 the unused `DotnetInspector.Networking` and exact-Library
-`ILInspector.Metadata` project edges are retired. The broader compiled closure
-still contains Metadata types reached by Platform-forwarder adaptation; the
-separate graph rules preserve that explicit residual for the final focused
-successor under #8779.
+`ILInspector.Metadata` project edges are retired. Web Core now projects
+Platform-forwarder row and route strings for the wire adapter, retiring the
+facade's final compiled `ILInspector.Metadata` edge. The separate graph rules
+prevent all three retired edges from returning.
 
 The separate `inspect-web-library-facade-*-dependencies-stay-within-capability-ratchet`
 rules preserve the Library facade's smaller evaluated-project boundary and its

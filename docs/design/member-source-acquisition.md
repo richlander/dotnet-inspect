@@ -89,7 +89,7 @@ The immediate adapter-first adoption path now has five deliveries:
 
 This is a further partial adoption within the twelve-step #6512 migration,
 not completion of its full source-policy matrix. It retires ordinary member
-queries' `PdbSourceHouse.AcquireMemberAsync` composition and shares the pair's
+queries' former public PDB-source acquisition composition and shares the pair's
 previously private adapter/House composition. #9449 additionally retires the
 ordinary member query's retained-Library fallback orchestration: SourceHouse
 now owns exact-member `BestAvailable` ordering and one-lease settlement.

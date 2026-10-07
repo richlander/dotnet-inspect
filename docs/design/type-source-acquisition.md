@@ -255,7 +255,7 @@ not vary with default or `--all` listing accessibility.
 
 Retained-type acquisition followed PRs #7313, #7368, #7440, #7449, and #7502
 in the adapter-first path. It retired `AssemblyContextSourceQuery`'s type-side
-`PdbSourceHouse.AcquireTypeAsync` composition, not that public legacy API's
+use of the former public PDB-source House's type acquisition, not that API's
 remaining callers. #7953 retires the shared query's direct
 `CSharpDecompilerService.ProduceType` fallback in favor of exact-type
 SourceHouse settlement and adopts that result in Browser Type Source. #7963

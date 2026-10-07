@@ -693,10 +693,13 @@ internal struct MethodDefinitionUnit(
 
     public MethodBodyBlock GetBody()
     {
-        _requestSourceCoverage?.RecordBodyAttempted(MethodHandle);
+        _requestSourceCoverage?.RecordTerminalBodyAttempted(
+            MethodHandle);
         if (_body is not null)
         {
-            _requestSourceCoverage?.RecordBodyAcquired(MethodHandle);
+            _requestSourceCoverage?.RecordTerminalBodyAcquired(
+                MethodHandle,
+                _body);
             return _body;
         }
 
@@ -705,7 +708,9 @@ internal struct MethodDefinitionUnit(
             MethodDefinition.RelativeVirtualAddress);
         _body = body;
         _physicalSourceCoverage.RecordBodyAcquired(MethodHandle);
-        _requestSourceCoverage?.RecordBodyAcquired(MethodHandle);
+        _requestSourceCoverage?.RecordTerminalBodyAcquired(
+            MethodHandle,
+            body);
         return body;
     }
 
