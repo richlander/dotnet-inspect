@@ -588,6 +588,136 @@ public static partial class AnalysisExports
             BrowserAnalysisJsonContext.Default.BrowserPackagePerformance);
     }
 
+    static readonly BrowserManagedOperationBridge
+        LibraryPerformanceAnalysisOperations = new();
+
+    /// <summary>
+    /// How many Item events the streaming publication wrapper reports before
+    /// it yields back to the Browser's single Wasm thread. This is a tuning
+    /// value, not a schema or compatibility identity; see
+    /// docs/design/streaming-library-performance-analysis.md's "Cooperative
+    /// yielding" section.
+    /// </summary>
+    internal const int PerformanceAnalysisPublicationYieldInterval = 20;
+
+    [JSExport]
+    public static string CancelLibraryPerformanceAnalysis(
+        string operationId,
+        string reason)
+    {
+        BrowserPerformanceAnalysisCancellation result =
+            BrowserPerformanceAnalysisCancellation.From(
+                LibraryPerformanceAnalysisOperations.RequestCancellation(
+                    BrowserManagedOperationId.From(operationId),
+                    BrowserManagedOperationCancelReasons.Parse(reason)));
+        return JsonSerializer.Serialize(
+            result,
+            BrowserAnalysisJsonContext.Default
+                .BrowserPerformanceAnalysisCancellation);
+    }
+
+    /// <summary>
+    /// Streams the same product-ranked optimization-opportunity members as
+    /// <see cref="QueryPackagePerformance"/>, one durable Item event per
+    /// member in the existing ranked, capped order, instead of returning the
+    /// complete array in one round trip. The underlying computation,
+    /// ranking, navigable-surface filtering, and triage cap are unchanged;
+    /// see docs/design/streaming-library-performance-analysis.md.
+    /// </summary>
+    [JSExport]
+    public static async Task<string> QueryPackagePerformanceStreaming(
+        string operationId,
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyName,
+        JSObject eventSink)
+    {
+        ArgumentNullException.ThrowIfNull(eventSink);
+        BrowserManagedOperationResult<
+            BrowserPackagePerformanceSummary,
+            string,
+            string> result =
+            await LibraryPerformanceAnalysisOperations.RunAsync<
+                BrowserPackagePerformanceSummary,
+                string,
+                string,
+                BrowserPerformanceAnalysisEvent>(
+                BrowserManagedOperationId.From(operationId),
+                operationEvent => eventSink.SetProperty(
+                    "event",
+                    JsonSerializer.Serialize(
+                        operationEvent,
+                        BrowserAnalysisJsonContext.Default
+                            .BrowserPerformanceAnalysisEvent)),
+                async (token, events) =>
+                {
+                    BrowserPackagePerformanceSummary summary =
+                        await StreamPackagePerformanceItemsAsync(
+                            packageId,
+                            version,
+                            targetFramework,
+                            assemblyName,
+                            member => events.Report(
+                                new BrowserPerformanceAnalysisEvent(
+                                    BrowserPerformanceAnalysisEventKind.Item,
+                                    member)),
+                            token);
+                    return new BrowserManagedOperationBodyResult<
+                        BrowserPackagePerformanceSummary,
+                        string,
+                        string>.Succeeded(summary);
+                },
+                exception => new(exception.Message, exception.ToString()));
+        return JsonSerializer.Serialize(
+            BrowserPerformanceAnalysisResult.From(result),
+            BrowserAnalysisJsonContext.Default
+                .BrowserPerformanceAnalysisResult);
+    }
+
+    /// <summary>
+    /// Runs the existing synchronous <see cref="PackagePerformanceAsync"/>
+    /// computation unchanged, then reports each member of its final, already
+    /// -ranked, already-capped <c>Members</c> array to <paramref
+    /// name="onItem"/> in that array's existing order, yielding cooperatively
+    /// every <see cref="PerformanceAnalysisPublicationYieldInterval"/>
+    /// members so the events are observable as distinct host-boundary
+    /// crossings instead of one uninterrupted run. Internal and
+    /// JSObject-free so it is directly testable; <see
+    /// cref="QueryPackagePerformanceStreaming"/> is the JSExport adapter over
+    /// it.
+    /// </summary>
+    internal static async Task<BrowserPackagePerformanceSummary>
+        StreamPackagePerformanceItemsAsync(
+            string packageId,
+            string version,
+            string targetFramework,
+            string assemblyName,
+            Action<BrowserPerformanceMember> onItem,
+            CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(onItem);
+        BrowserPackagePerformance performance =
+            await PackagePerformanceAsync(
+                packageId, version, targetFramework, assemblyName);
+        for (int index = 0; index < performance.Members.Length; index++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            onItem(performance.Members[index]);
+            if ((index + 1) % PerformanceAnalysisPublicationYieldInterval
+                == 0)
+            {
+                await Task.Yield();
+            }
+        }
+
+        return new BrowserPackagePerformanceSummary(
+            performance.InspectionError,
+            performance.NonPublicOpportunities,
+            performance.TotalOpportunities,
+            performance.CompileLibrary);
+    }
+
     /// <summary>
     /// Research-owned structural metrics for one exact package library. The
     /// Browser host receives the typed Research document projected into its

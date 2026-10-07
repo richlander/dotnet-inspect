@@ -264,9 +264,12 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Equal(
             measurements.SelectedLibraryCount,
             realization.Coordinate.Root.AssetSelection.Assets.Count);
-        Assert.Equal(
-            [$"https://globalcdn.nuget.org/packages/{packageId}.{version}.nupkg"],
-            handler.Requested);
+        Assert.All(handler.Requested, url => Assert.Equal(
+            $"https://globalcdn.nuget.org/packages/{packageId}.{version}.nupkg", url));
+        if (archive.LongLength > PackageRangedRead.DefaultSizeCut)
+            Assert.True(handler.RangedPackageResponses > 0);
+        else
+            Assert.Single(handler.Requested);
     }
 
     [Fact]
@@ -314,9 +317,10 @@ public sealed partial class BrowserEngineBoundaryTests
             Assert.IsType<PackageRootBinding>(first.Coordinate.Binding);
         PackageRootBinding secondBinding =
             Assert.IsType<PackageRootBinding>(second.Coordinate.Binding);
-        Assert.NotSame(
-            firstBinding.SelectionIdentity,
-            secondBinding.SelectionIdentity);
+        if (first.Coordinate.Package.Content is RangedPackageContent)
+            Assert.Same(firstBinding.SelectionIdentity, secondBinding.SelectionIdentity);
+        else
+            Assert.NotSame(firstBinding.SelectionIdentity, secondBinding.SelectionIdentity);
         Assert.Same(
             first.Coordinate.Package.Content.GenerationIdentity,
             second.Coordinate.Package.Content.GenerationIdentity);
@@ -337,10 +341,13 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Same(
             firstBinding.SelectionIdentity,
             retainedBinding.SelectionIdentity);
-        Assert.NotSame(
-            secondBinding.SelectionIdentity,
-            retainedBinding.SelectionIdentity);
-        Assert.Single(handler.Requested);
+        if (first.Coordinate.Package.Content is RangedPackageContent)
+            Assert.Same(secondBinding.SelectionIdentity, retainedBinding.SelectionIdentity);
+        else
+        {
+            Assert.NotSame(secondBinding.SelectionIdentity, retainedBinding.SelectionIdentity);
+            Assert.Single(handler.Requested);
+        }
     }
 
     [Fact]
