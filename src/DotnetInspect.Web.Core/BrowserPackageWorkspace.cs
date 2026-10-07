@@ -923,32 +923,11 @@ internal static class BrowserPackageWorkspace
             packageLease.Lease(key);
         }
 
-        BrowserPackageIconPayload? icon = null;
-        if (acquired.Payload.Content is RangedPackageContent)
-        {
-            try
-            {
-                icon = BrowserPackage.ProjectIcon(PackageIconQuery.Execute(
-                    acquired.Payload.Content, packageId, acquired.Payload.Coordinate.Version));
-            }
-            catch (PackageEntryNotMaterializedException)
-            {
-                if (source is IPackageArchiveRangeSource rangeSource)
-                {
-                    PackageIconRangeResult iconResult = await PackageIconRangeQuery.ExecuteAsync(
-                        rangeSource, settled.Result.Coordinate, PackageIconReadLimits,
-                        deadline.Token).ConfigureAwait(false);
-                    if (iconResult is PackageIconRangeResult.Completed completed)
-                        icon = BrowserPackage.ProjectIcon(completed.Icon);
-                }
-            }
-        }
         var package = new BrowserPackage(
             packageId,
             acquired.Payload,
             cached.Bytes,
-            store,
-            icon);
+            store);
         var coordinate = new BrowserPackageCoordinate(
             package,
             contributed.Contribution.Binding);
@@ -2588,6 +2567,124 @@ internal static class BrowserPackageWorkspace
             .ConfigureAwait(false);
         return await OpenScopeAsync(package, request.TargetFramework, cancellationToken)
             .ConfigureAwait(false);
+    }
+
+    internal static Task<BrowserScopeLease<BrowserInspectionScope>> OpenMetadataScopeAsync(
+        string packageId,
+        string version,
+        string targetFramework,
+        string library,
+        CancellationToken cancellationToken = default) =>
+        OpenMetadataScopeAsync(packageId, version, targetFramework, library,
+            Gallery, PackageOperationTimeout, cancellationToken);
+
+    internal static async Task<BrowserScopeLease<BrowserInspectionScope>> OpenMetadataScopeAsync(
+        string packageId,
+        string version,
+        string targetFramework,
+        string library,
+        IPackageSourceClient source,
+        TimeSpan operationTimeout,
+        CancellationToken cancellationToken)
+    {
+        BrowserPackageRealization realization = await RunPackageOperationAsync(
+            async deadline =>
+            {
+                BrowserSessionPackageStore store = StoreFor(source);
+                string target = SelectionRequestToken(targetFramework);
+                string demand = CompositeKey(target, "metadata", library);
+                BrowserSessionPackageStore selectedStore = store.ForRealization(demand);
+                BrowserSessionPackageStore fullStore = store.ForRealization(target);
+                string? requestedVersion = string.IsNullOrWhiteSpace(version)
+                    || version.Equals("latest", StringComparison.OrdinalIgnoreCase) ? null : version;
+                InspectionEnvelope<PackageVersionSettlementOutcome> settlement =
+                    await SettleCoordinateAsync(new PackageCoordinate(packageId, requestedVersion),
+                        source, deadline, deadline.Token).ConfigureAwait(false);
+                if (settlement.Content is not PackageVersionSettlementOutcome.Settled settled)
+                    return RequireRealization(
+                        new BrowserPackageRealizationResult.NotSettled(settlement), deadline);
+                string resolvedVersion = settled.Result.Coordinate.Version;
+                lock (CacheSync)
+                {
+                    foreach (string key in new[]
+                    {
+                        fullStore.PackageKey(packageId, resolvedVersion),
+                        store.PackageKey(packageId, resolvedVersion),
+                        selectedStore.PackageKey(packageId, resolvedVersion),
+                    })
+                    {
+                        if (Cache.TryGetValue(key, out CacheEntry? cached)
+                            && cached.Realization is { } prior
+                            && (prior.SelectionRequest == target || prior.SelectionRequest == demand)
+                            && ReferenceEquals(cached.Content.GenerationIdentity,
+                                prior.Coordinate.Package.Content.GenerationIdentity))
+                        {
+                            Cache[key] = cached with { LastAccess = NextClock() };
+                            return prior;
+                        }
+                    }
+                }
+                if (string.IsNullOrWhiteSpace(targetFramework) || string.IsNullOrWhiteSpace(library))
+                    return RequireRealization(await RealizeCoreAsync(packageId, version,
+                        targetFramework, source, deadline).ConfigureAwait(false), deadline);
+
+                TimeSpan remaining = SourceSettlementOperationTimeout(deadline.Remaining);
+                var operation = PackageHouseOperation.Create(PackageHouseOperationProfile.Realize,
+                    requestTimeout: remaining, operationTimeout: remaining);
+                var request = new PackageLibraryRealizationRequest(
+                    new PackageHouseDemand.Exact(settled.Result.Coordinate),
+                    targetFramework, new PackageLibrarySelector(library),
+                    PackageLibraryRealizationDepth.Implementation, operation);
+                await using PackageSourceSettlementLease sourceLease =
+                    PackageSourceSettlementService.IssueLease(authority =>
+                        ReferenceEquals(authority.Association, source.Source.Association)
+                            ? source : throw new InvalidOperationException("Metadata requested another package source."));
+                using PackageSourceOperationLease sourceOperation = sourceLease.IssueOperationLease(
+                    deadline.Token, operation.RequestTimeout, operation.OperationTimeout);
+                PackageLibraryRealizationResult result = await PackageLibraryRealization.ExecuteAsync(
+                    request, SourceAuthorizationFor(source),
+                    new PackageLibraryRealizationPlan(
+                        (authority, _) => ReferenceEquals(authority.Association, source.Source.Association)
+                            ? store : throw new InvalidOperationException("Metadata requested another package store."),
+                        PayloadLimits, new BrowserPackageRealizationTransferPolicy(store, deadline, selectedStore)),
+                    sourceOperation).ConfigureAwait(false);
+                if (result is not PackageLibraryRealizationResult.Realized selected)
+                {
+                    if (result.Status is PackageLibraryRealizationStatus.Missing or PackageLibraryRealizationStatus.Ambiguous
+                        || result.Settlement.Result is PackageHouseResult.NoMatch)
+                        return RequireRealization(await RealizeCoreAsync(packageId, version,
+                            targetFramework, source, deadline).ConfigureAwait(false), deadline);
+                    throw new InvalidOperationException($"Metadata Library realization failed: {DescribePackageHouseResult(result.Settlement.Result)}.");
+                }
+                PackageHouseRootContribution contribution =
+                    PackageHouseRootContributionAdapter.Create(selected.Acquired)
+                        is PackageHouseRootContributionOutcome.Contributed contributed
+                            ? contributed.Contribution
+                            : throw new InvalidOperationException("Metadata realization did not issue a package Root.");
+                PackageRootBinding binding = selected.Handoff.ImplementationAsset is { } implementation
+                    ? contribution.Binding.WithAssetDemand(PackageAssetDemand.SurfaceAndImplementation,
+                        PackageImplementationNames.Create([Path.GetFileName(implementation.Path)]))
+                    : contribution.Binding.WithAssetDemand(PackageAssetDemand.Surface);
+                BrowserSessionPackageStore retainedStore = selected.Acquired.Payload.Content is RangedPackageContent
+                    ? selectedStore : store;
+                string packageKey = retainedStore.PackageKey(packageId, resolvedVersion);
+                using var acquired = new PackageLeaseSet();
+                CacheEntry retained;
+                lock (CacheSync)
+                {
+                    retained = Cache.TryGetValue(packageKey, out CacheEntry? cached) ? cached
+                        : throw new InvalidOperationException("Metadata acquisition did not publish its admitted package.");
+                    acquired.Lease(packageKey);
+                }
+                var coordinate = new BrowserPackageCoordinate(
+                    new BrowserPackage(packageId, selected.Acquired.Payload, retained.Bytes, retainedStore), binding);
+                var narrowed = new BrowserPackageRealization(coordinate, demand, settlement,
+                    PackageInfoMeasurementInspection.Project(selected.Acquired));
+                lock (CacheSync)
+                    Cache[packageKey] = Cache[packageKey] with { Realization = narrowed, LastAccess = NextClock() };
+                return narrowed;
+            }, operationTimeout, cancellationToken).ConfigureAwait(false);
+        return await OpenScopeAsync(realization, cancellationToken).ConfigureAwait(false);
     }
 
     internal static async Task<BrowserScopeLease<BrowserInspectionScope>> OpenRealizedScopeAsync(
