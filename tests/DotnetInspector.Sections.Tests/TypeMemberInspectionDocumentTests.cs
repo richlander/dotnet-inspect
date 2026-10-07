@@ -362,6 +362,7 @@ public sealed class TypeMemberInspectionDocumentTests
             MetadataTypeDeclarationCategory.Class,
             TypeAttributes.Public,
             isHidden: false,
+            isCompilerGenerated: false,
             isByRefLike: false,
             isReadOnly: false,
             definesCoreLibraryRoot: false,

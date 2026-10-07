@@ -1093,6 +1093,37 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
+    [InlineData("System.__Canon", true)]
+    [InlineData(
+        "DotnetInspect.Cli.Tests.__CompilerGeneratedExactTypeDiscoveryProbe",
+        false)]
+    public async Task
+        Type_DirectLibraryExactType_CompilerGeneratedIsNotApi(
+            string typeName,
+            bool coreLibrary)
+    {
+        string assemblyPath = coreLibrary
+            ? typeof(System.Text.StringBuilder).Assembly.Location
+            : TestAssemblyPath;
+        var (exit, output, error) =
+            await RunAppAsync(
+                "type",
+                typeName,
+                "--library",
+                assemblyPath,
+                "--all",
+                "-D",
+                SectionNames.TypeInfo,
+                "--tsv");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            $"Type '{typeName}' not found.",
+            error);
+    }
+
+    [Theory]
     [InlineData("System.Attribute", false)]
     [InlineData("System.TimeSpan", true)]
     public async Task

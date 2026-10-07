@@ -83,6 +83,7 @@ public sealed record TypeSubject
         MetadataTypeDeclarationCategory category,
         TypeAttributes attributes,
         bool isHidden,
+        bool isCompilerGenerated,
         bool isByRefLike,
         bool isReadOnly,
         bool definesCoreLibraryRoot,
@@ -114,6 +115,7 @@ public sealed record TypeSubject
         Category = category;
         Attributes = attributes;
         IsHidden = isHidden;
+        IsCompilerGenerated = isCompilerGenerated;
         IsByRefLike = isByRefLike;
         IsReadOnly = isReadOnly;
         DefinesCoreLibraryRoot = definesCoreLibraryRoot;
@@ -130,6 +132,7 @@ public sealed record TypeSubject
         MetadataTypeDeclarationCategory category,
         TypeAttributes attributes,
         bool isHidden,
+        bool isCompilerGenerated,
         bool isByRefLike,
         bool isReadOnly,
         bool definesCoreLibraryRoot,
@@ -143,6 +146,7 @@ public sealed record TypeSubject
             category,
             attributes,
             isHidden,
+            isCompilerGenerated,
             isByRefLike,
             isReadOnly,
             definesCoreLibraryRoot,
@@ -175,6 +179,7 @@ public sealed record TypeSubject
     public MetadataTypeDeclarationCategory Category { get; }
     public TypeAttributes Attributes { get; }
     public bool IsHidden { get; }
+    public bool IsCompilerGenerated { get; }
     public bool IsByRefLike { get; }
     public bool IsReadOnly { get; }
     public bool DefinesCoreLibraryRoot { get; }

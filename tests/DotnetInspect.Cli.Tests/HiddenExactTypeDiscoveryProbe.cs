@@ -5,3 +5,7 @@ namespace DotnetInspect.Cli.Tests;
 public sealed class HiddenExactTypeDiscoveryProbe
 {
 }
+
+public sealed class __CompilerGeneratedExactTypeDiscoveryProbe
+{
+}

@@ -142,6 +142,7 @@ public sealed class MetadataTypeDeclarationEvidenceTests
             posted.Evidence.BaseKind);
         Assert.True(posted.Evidence.InterfaceCount > 0);
         Assert.False(posted.Evidence.IsHidden);
+        Assert.False(posted.Evidence.IsCompilerGenerated);
         Assert.False(posted.Evidence.IsByRefLike);
         Assert.True(posted.Evidence.DefinesCoreLibraryRoot);
         Assert.Null(posted.Evidence.DeclaringType);
@@ -228,6 +229,31 @@ public sealed class MetadataTypeDeclarationEvidenceTests
                         handle)));
 
         Assert.True(posted.Evidence.IsHidden);
+    }
+
+    [Fact]
+    public void CompilerGeneratedNamePostsAdmissionEvidence()
+    {
+        string path =
+            typeof(__CompilerGeneratedTypeDeclarationProbe)
+                .Assembly.Location;
+        using var stream = File.OpenRead(path);
+        using var pe = new PEReader(stream);
+        MetadataReader reader = pe.GetMetadataReader();
+        TypeDefinitionHandle handle = FindType(
+            reader,
+            "ILInspector.Metadata.Tests",
+            nameof(__CompilerGeneratedTypeDeclarationProbe));
+
+        var posted = Assert.IsType<
+            MetadataTypeDeclarationResult.Posted>(
+                Run(
+                    path,
+                    MetadataTypeDefinitionAddress.FromHandle(
+                        reader,
+                        handle)));
+
+        Assert.True(posted.Evidence.IsCompilerGenerated);
     }
 
     [Fact]
@@ -2266,6 +2292,10 @@ public readonly ref struct TypeDeclarationReadonlyRefStruct
 [System.ComponentModel.EditorBrowsable(
     System.ComponentModel.EditorBrowsableState.Never)]
 public sealed class TypeDeclarationHiddenClass
+{
+}
+
+public sealed class __CompilerGeneratedTypeDeclarationProbe
 {
 }
 

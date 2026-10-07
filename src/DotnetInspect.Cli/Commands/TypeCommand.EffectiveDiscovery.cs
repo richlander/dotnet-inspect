@@ -312,6 +312,7 @@ public static partial class TypeCommand
             is MetadataTypeDeclarationCategory.Class
                 or MetadataTypeDeclarationCategory.Interface
                 or MetadataTypeDeclarationCategory.Delegate
+        && !subject.IsCompilerGenerated
         && (includeAll
             || !subject.IsHidden
                 && subject.DeclaringTypeDefinitionToken is null

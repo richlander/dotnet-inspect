@@ -87,6 +87,7 @@ public sealed record MetadataTypeDeclarationEvidence(
     MetadataTypeDeclarationSignature Signature,
     TypeAttributes Attributes,
     bool IsHidden,
+    bool IsCompilerGenerated,
     MetadataTypeDeclarationCategory Category,
     MetadataTypeDeclarationBaseKind BaseKind,
     int InterfaceCount,
@@ -178,6 +179,9 @@ internal sealed class MetadataTypeDeclarationEvidenceOperation
             MetadataTypeDefinitionIndex index = GetIndex(handle);
             MetadataTypeDefinitionName selectedName =
                 ReadName(handle);
+            bool isCompilerGenerated =
+                TypeFilters.IsCompilerGenerated(
+                    selectedName.Segments[^1]);
             if (!index.TryGetDefinition(
                     selectedName,
                     out TypeDefinitionHandle unique,
@@ -292,6 +296,7 @@ internal sealed class MetadataTypeDeclarationEvidenceOperation
                     genericParameters.Signature,
                     attributes,
                     isHidden,
+                    isCompilerGenerated,
                     category,
                     classification.BaseKind,
                     interfaceCount,
