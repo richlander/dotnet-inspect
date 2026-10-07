@@ -731,8 +731,11 @@ For one library, its field-set records — `Library Info`,
 them, on a selection of only them, or on the default overview fails before
 acquisition. An explicit selection that mixes them with inventories counts and
 windows the inventories alone, so `library MyLib.dll -S @Metadata --count` lists
-each metadata table without an image field count. A `Context:` section counts
-its one located row.
+each metadata table without an image field count. `Context: Source Location`,
+`Member`, `Instruction`, `Callsite`, and `Return Address` count their one
+located row; `Context: Exception`, `Allocation`, `Safety`, and `Cost` count
+the regions or facts at the coordinate. `library address ... -D --details`
+reports these declarations for the coordinate sections.
 
 ```bash
 dotnet-inspect package System.Text.Json -D --details

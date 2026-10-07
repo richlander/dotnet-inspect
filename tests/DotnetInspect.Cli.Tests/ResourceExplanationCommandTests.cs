@@ -69,6 +69,10 @@ public sealed class ResourceExplanationCommandTests : IDisposable
     [InlineData("metadata-image", "table", "scalar")]
     [InlineData("metadata-type-def", "table", "inventory")]
     [InlineData("reference-hierarchy", "hierarchy", "inventory")]
+    // Coordinate sections resolve through the Library address route.
+    [InlineData("context-member", "table", "inventory")]
+    [InlineData("context-exception", "table", "inventory")]
+    [InlineData("metadata-heap", "table", "inventory")]
     public async Task Explain_LibrarySection_ReportsDeclaredShapeAndCardinality(
         string section,
         string shape,

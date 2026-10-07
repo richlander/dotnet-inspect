@@ -441,9 +441,12 @@ unchanged.
    no Text. Its field-set records — single-Library `Library Info`, the
    SourceLink availability and integrity records, `Symbols`, and
    `Metadata: Image` — are scalar Tables; every other section is an
-   inventory. Each coordinate-scoped `Context:` section is a one-row Table
-   whose row unit is the located coordinate, as a member `Signature` is,
-   and `Metadata: Heap` rows are heap entries.
+   inventory. The coordinate-scoped `Context:` sections that locate one
+   thing — `Source Location`, `Member`, `Instruction`, `Callsite`, and
+   `Return Address` — are one-row Tables whose row unit is the located
+   coordinate, as a member `Signature` is. `Context: Exception`,
+   `Allocation`, `Safety`, and `Cost` list the regions or facts at the
+   coordinate, one row each, and `Metadata: Heap` rows are heap entries.
 3. **Type owner.** Classifies the `type` sections, including the member tree
    and the `Source` family.
 4. **Member owner.** Classifies the `member` sections, including overload

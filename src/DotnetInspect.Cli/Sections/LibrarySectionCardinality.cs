@@ -10,10 +10,12 @@ namespace DotnetInspect.Cli.Sections;
 /// field-set records that describe one subject are scalar: single-Library
 /// <c>Library Info</c>, the SourceLink availability and integrity records,
 /// <c>Symbols</c>, and <c>Metadata: Image</c>. The coordinate-scoped
-/// <c>Context:</c> sections are not field sets: like a member
-/// <c>Signature</c>, each is a one-row Table whose row unit is the located
-/// coordinate, so Count observes that row (1). <c>Metadata: Heap</c> rows are
-/// heap entries. Every listing, including the Graph
+/// <c>Context:</c> sections are not field sets. Those that locate one thing
+/// (source location, member, instruction, callsite, return address) are,
+/// like a member <c>Signature</c>, one-row Tables whose row unit is the
+/// located coordinate, so Count observes that row (1); the exception,
+/// allocation, safety, and cost contexts list one row per region or fact at
+/// the coordinate. <c>Metadata: Heap</c> rows are heap entries. Every listing, including the Graph
 /// <c>Dependency Structure</c>, is an inventory with Rows and Count. The
 /// all-libraries survey declares its own library-row inventory.
 /// </summary>
