@@ -64,13 +64,32 @@ public static class InstructionDecoder
         InstructionVisitor<TState> visitor,
         out int instructionsVisited)
     {
+        instructionsVisited = 0;
+        return VisitWithProgress(
+            body,
+            ref state,
+            visitor,
+            ref instructionsVisited);
+    }
+
+    /// <summary>
+    /// Visits one method body without copying IL or materializing decoded
+    /// instructions, preserving the completed-prefix count when decoding
+    /// fails.
+    /// </summary>
+    public static bool VisitWithProgress<TState>(
+        MethodBodyBlock body,
+        ref TState state,
+        InstructionVisitor<TState> visitor,
+        ref int instructionsVisited)
+    {
         ArgumentNullException.ThrowIfNull(body);
         ArgumentNullException.ThrowIfNull(visitor);
+        ArgumentOutOfRangeException.ThrowIfNegative(instructionsVisited);
 
         BlobReader reader = body.GetILReader();
         ILOpCode previous = default;
         bool hasPrevious = false;
-        instructionsVisited = 0;
         while (reader.RemainingBytes > 0)
         {
             int offset = reader.Offset;

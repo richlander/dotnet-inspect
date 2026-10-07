@@ -206,6 +206,71 @@ public sealed class MethodDefinitionRequestSetTests
     }
 
     [Fact]
+    public void Execute_FusesNoRetentionInstructionSourceAcrossLanes()
+    {
+        MethodDefinitionSourceAssociation direct =
+            Association(
+                MethodCallCountProducer.DirectInvocations,
+                ProducerTerminal.Count);
+        MethodDefinitionSourceAssociation callSites =
+            Association(
+                MethodCallCountProducer.CallSites,
+                ProducerTerminal.Count);
+
+        MethodDefinitionSourceRequestSetExecution execution =
+            Execute(AcceptedPlan([direct, callSites]));
+        MethodDefinitionInstructionWorkCoverage physical =
+            Assert.Single(execution.GroupReceipts)
+                .PhysicalCoverage.InstructionWork;
+        MethodDefinitionInstructionWorkCoverage directWork =
+            execution.ResultOf(direct)
+                .SourceReceipt.Coverage.InstructionWork;
+        MethodDefinitionInstructionWorkCoverage callSiteWork =
+            execution.ResultOf(callSites)
+                .SourceReceipt.Coverage.InstructionWork;
+
+        Assert.True(physical.NoRetentionSourcesOpened > 0);
+        Assert.Equal(0, physical.LazyRetainedSourcesOpened);
+        Assert.Equal(
+            physical.NoRetentionSourcesOpened,
+            directWork.NoRetentionSourcesOpened);
+        Assert.Equal(
+            physical.NoRetentionSourcesOpened,
+            callSiteWork.NoRetentionSourcesOpened);
+        Assert.Equal(
+            physical.InstructionsVisited,
+            directWork.InstructionsVisited);
+        Assert.Equal(
+            physical.InstructionsVisited,
+            callSiteWork.InstructionsVisited);
+    }
+
+    [Fact]
+    public void Execute_RetainedInstructionFailureReceiptsCompletedPrefix()
+    {
+        MethodDefinitionSourceAssociation retained =
+            Association(
+                RetainedInstructionProducer.Instance,
+                ProducerTerminal.Count);
+
+        MethodDefinitionSourceRequestSetExecution execution =
+            Execute(
+                AcceptedPlan([retained]),
+                TwoMethodsInExcludedTypeWithFirstBody(
+                    [0x0A, 0x00, 0x28]));
+        MethodDefinitionInstructionWorkCoverage work =
+            execution.ResultOf(retained)
+                .SourceReceipt.Coverage.InstructionWork;
+
+        Assert.Equal(
+            ProducerOutcome.Failed,
+            ResultOf<int>(execution, retained).Outcome);
+        Assert.Equal(0, work.NoRetentionSourcesOpened);
+        Assert.Equal(1, work.LazyRetainedSourcesOpened);
+        Assert.Equal(1, work.InstructionsVisited);
+    }
+
+    [Fact]
     public void Execute_SharedClosingsEqualIndependentReferenceResults()
     {
         CountingProducer producer = CountingProducer.Instance;

@@ -164,7 +164,7 @@ public abstract class MethodDefinitionProducer<TFact, TAccumulator, TResult>
         IMethodDefinitionProducer.InstructionAnalyzers =>
             InstructionAnalyzers;
 
-    MethodDefinitionExecution.ProducerState IMethodDefinitionProducer.CreateState(
+    internal virtual MethodDefinitionExecution.ProducerState CreateState(
         MethodDefinitionExecution execution,
         ProducerTerminal terminal,
         int? rowLimit,
@@ -172,12 +172,25 @@ public abstract class MethodDefinitionProducer<TFact, TAccumulator, TResult>
         UnitFactRetention retention) =>
         new State(this, execution, terminal, rowLimit, dependencies, retention);
 
+    MethodDefinitionExecution.ProducerState IMethodDefinitionProducer.CreateState(
+        MethodDefinitionExecution execution,
+        ProducerTerminal terminal,
+        int? rowLimit,
+        ImmutableArray<int> dependencies,
+        UnitFactRetention retention) =>
+        CreateState(
+            execution,
+            terminal,
+            rowLimit,
+            dependencies,
+            retention);
+
     /// <summary>
     /// A producer's per-execution state, typed by its fact, accumulator, and
     /// result. The executor reaches it through a virtual call, and a kernel
     /// folds in its own loop and sets the accumulator once.
     /// </summary>
-    internal sealed class State : MethodDefinitionExecution.ProducerState<TResult>
+    internal class State : MethodDefinitionExecution.ProducerState<TResult>
     {
         readonly MethodDefinitionProducer<TFact, TAccumulator, TResult> _producer;
         TAccumulator _accumulator;
@@ -246,21 +259,26 @@ public abstract class MethodDefinitionProducer<TFact, TAccumulator, TResult>
         public override bool Visit(scoped MethodDefinitionView view)
         {
             TFact fact = _producer.Visit(view);
+            return AcceptFact(view.Token, fact);
+        }
+
+        protected bool AcceptFact(int unitToken, TFact fact)
+        {
             _accumulator = _producer.Accumulate(_accumulator, fact);
             if (_classifies)
             {
-                _classToken = view.Token;
+                _classToken = unitToken;
                 _unitClass = _producer.UnitClass(fact);
             }
 
             if (_keepCurrent)
             {
-                _currentToken = view.Token;
+                _currentToken = unitToken;
                 _currentFact = fact;
             }
             else if (_factsByUnit is not null)
             {
-                _factsByUnit[view.Token] = fact;
+                _factsByUnit[unitToken] = fact;
             }
 
             return _producer.Settles(fact);
@@ -603,23 +621,29 @@ public readonly ref struct MethodDefinitionView
             var visit = new MethodBodyInstructionShapeVisitState<TState>(
                 state,
                 visitor);
-            bool completed = InstructionDecoder.Visit(
-                GetBody(),
-                ref visit,
-                static (
-                    ref MethodBodyInstructionShapeVisitState<TState> current,
-                    ILOpCode opcode,
-                    int _,
-                    int encodedLength) =>
-                        current.Visitor(
-                            ref current.State,
-                            opcode,
-                            encodedLength),
-                out int instructionsVisited);
-            state = visit.State;
-            _unit.RecordNoRetentionInstructionWork(
-                instructionsVisited);
-            return completed;
+            int instructionsVisited = 0;
+            try
+            {
+                return InstructionDecoder.VisitWithProgress(
+                    GetBody(),
+                    ref visit,
+                    static (
+                        ref MethodBodyInstructionShapeVisitState<TState> current,
+                        ILOpCode opcode,
+                        int _,
+                        int encodedLength) =>
+                            current.Visitor(
+                                ref current.State,
+                                opcode,
+                                encodedLength),
+                    ref instructionsVisited);
+            }
+            finally
+            {
+                state = visit.State;
+                _unit.RecordNoRetentionInstructionWork(
+                    instructionsVisited);
+            }
         }
 
         MethodBodyBlock body = GetBody();
@@ -630,28 +654,30 @@ public readonly ref struct MethodDefinitionView
         int retainedBefore = sequence.RetainedCount;
         int visited = 0;
         InstructionCursor cursor = sequence.GetCursor();
-        while (cursor.MoveNext())
+        try
         {
-            InstructionEntry instruction = cursor.Current;
-            visited++;
-            if (!visitor(
-                    ref state,
-                    instruction.OpCode,
-                    instruction.Length))
+            while (cursor.MoveNext())
             {
-                _unit.RecordRetainedInstructionWork(
-                    sourceOpened,
-                    sequence.RetainedCount - retainedBefore,
-                    visited);
-                return false;
+                InstructionEntry instruction = cursor.Current;
+                visited++;
+                if (!visitor(
+                        ref state,
+                        instruction.OpCode,
+                        instruction.Length))
+                {
+                    return false;
+                }
             }
-        }
 
-        _unit.RecordRetainedInstructionWork(
-            sourceOpened,
-            sequence.RetainedCount - retainedBefore,
-            visited);
-        return true;
+            return true;
+        }
+        finally
+        {
+            _unit.RecordRetainedInstructionWork(
+                sourceOpened,
+                sequence.RetainedCount - retainedBefore,
+                visited);
+        }
     }
 
     /// <summary>The same-unit fact of a declared visit dependency.</summary>
@@ -856,6 +882,14 @@ internal struct MethodDefinitionUnit(
                 MethodBodyInstructionSourceKind.NoRetentionStream,
                 instructionsVisited);
         }
+    }
+
+    public readonly void RecordPhysicalNoRetentionInstructionWork(
+        int instructionsVisited)
+    {
+        _physicalSourceCoverage.RecordInstructionWork(
+            MethodBodyInstructionSourceKind.NoRetentionStream,
+            instructionsVisited);
     }
 
     public readonly void RecordRetainedInstructionWork(

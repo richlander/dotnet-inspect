@@ -630,8 +630,11 @@ gated in Release:
 - `MethodBodyAnalyzerPlanner_JoinIsOrderIndependent`
 - `MethodBodyAnalyzerPlanner_PreservesRealClassifierResults`
 - `Plan_JoinsInstructionDemandWithoutWideningIndividualLanes`
+- `Execute_FusesNoRetentionInstructionSourceAcrossLanes`
 - `Execute_SharesRetainedInstructionSourceAcrossLanes`
+- `Execute_RetainedInstructionFailureReceiptsCompletedPrefix`
 - `MethodCallCountProducer_DoesNotResolveMalformedTarget`
+- `MethodCallCountProducer_DiscoveryFailureIsVisible`
 
 The following deeper-source gates remain **unverified**:
 

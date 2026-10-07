@@ -480,10 +480,12 @@ The Release gates
 shape. Production `MethodBodyAnalyzerPlan` now validates those owner-issued
 requirements through the generic capability planner. Method Query Source keeps
 each lane's minimum demand, joins the complete physical group independently,
-and selects either the no-retention stream or one packet-local retained
-sequence. The exact-member call-count producer is the first real operation on
-that path. CLI and Browser/Wasm profile adoption and legacy-path retirement
-remain outside this planning slice.
+and selects either one fused no-retention stream or one packet-local retained
+sequence. Forward-only consumers contribute typed callbacks to the shared
+stream; retained consumers use independent cursors over the shared sequence.
+The exact-member call-count producer is the first real operation on that path.
+CLI and Browser/Wasm profile adoption and legacy-path retirement remain outside
+this planning slice.
 
 ## Failure and lifetime
 
@@ -569,8 +571,9 @@ Method Query Source stack:
    production capabilities, let the request-set planner pass the complete
    analyzer requirement set to the Method producer, and expose one real
    body-analysis operation through one shared host-neutral API. The production
-   planner, Method-source group join, shared retained sequence, exact
-   instruction-work receipt, and call-count adopter implement this slice.
+   planner, Method-source group join, fused no-retention callbacks, shared
+   retained sequence, exact instruction-work receipt, and call-count adopter
+   implement this slice.
 2. **Host adoption and retirement.** Consume that API from CLI and
    Browser/Wasm, publish exact NativeAOT before/after evidence, and retire the
    superseded eager or repeated decode path.
