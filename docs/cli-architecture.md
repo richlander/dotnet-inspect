@@ -212,7 +212,8 @@ After the authoritative child parse succeeds, the CLI may add a short routing
 note to stderr for a whole-name platform Library selected by the Router or
 an ecosystem-owned Package target. It never asks the user to choose, changes
 the rewritten command, or mixes this prose into stdout or an output file.
-Structural discovery and explicit commands retain their existing presentation.
+Structural discovery, explicit-source overrides, and explicit commands retain
+their existing presentation.
 
 The motivating nuget.org assets are `System.Linq@4.3.0` and
 `System.Text.Json@9.0.0`, whose IDs can also name platform Libraries.

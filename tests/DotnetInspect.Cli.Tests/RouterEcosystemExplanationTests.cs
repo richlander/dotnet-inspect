@@ -92,6 +92,23 @@ public sealed class RouterEcosystemExplanationTests
         using var payload = System.Text.Json.JsonDocument.Parse(implicitResult.Output);
     }
 
+    [Theory]
+    [InlineData("--package", "System.Text.Json@9.0.0", 0)]
+    [InlineData("--platform", "System.Text.Json", 0)]
+    [InlineData("--framework", "runtime@10.0", 0)]
+    [InlineData("--workspace", "not-a-packet", 0)]
+    [InlineData("--version", "10.0", 1)]
+    public async Task ExplicitSourceOverrideDoesNotReceivePlatformDefaultNote(string option, string value, int expectedExitCode)
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        string[] args = CommandLineBuilder.PreprocessArgs(
+            ["System.Text.Json", option, value, "--help"], root);
+        var result = await ConsoleCapture.RunAsync(() =>
+            CommandLineBuilder.InvokeAsync(root.Parse(args), args));
+        Assert.Equal(expectedExitCode, result.ExitCode);
+        Assert.DoesNotContain("Routing to platform library", result.Error);
+    }
+
     [Fact]
     public async Task ExplicitCoordinateStillRoutesToPackageWithoutPrompt()
     {

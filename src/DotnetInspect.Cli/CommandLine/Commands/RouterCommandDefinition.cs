@@ -384,7 +384,9 @@ public static class RouterCommandDefinition
                 rootCommand);
             ParseResult childParse = rootCommand.Parse(rewritten);
             if (childParse.Errors.Count == 0
-                && !opts.IsDiscoveryMode(sourceParseResult))
+                && !opts.IsDiscoveryMode(sourceParseResult)
+                && !CommandLineBuilder.HasParsedOption(childParse, "--workspace")
+                && !CommandLineBuilder.HasParsedOption(childParse, "--version"))
             {
                 RouterEcosystemExplanation.Write(
                     tokens[0], rewritten[0], selectedPlatformFramework);
@@ -657,7 +659,9 @@ public static class RouterCommandDefinition
                         ((AssemblySurfaceClassificationOutcome.Classified)
                             classification).Classification.Kind
                         == AssemblySurfaceKind.Facade;
-                    selectedPlatform?.Invoke(resolvedFramework);
+                    if (!hasExplicitApiSource
+                        && !ContainsOption(tail, "--framework"))
+                        selectedPlatform?.Invoke(resolvedFramework);
                     return target.Count(c => c == '.') >= 2 && isFacade
                         ? ["type", target, .. tail]
                         : ["library", target, .. tail];
