@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import {
   surface,
   installFacades,
+  openApplicationAction,
   releaseFacade,
   root,
   openProductDestination,
@@ -371,7 +372,7 @@ test("Diagnostics opens from Settings and the data bar without entering Spotligh
   await page.locator("#application-menu-button").click();
   await expect(page.locator("#application-menu"))
     .not.toContainText("Diagnostics");
-  await page.locator('[data-application-action="settings"]').click();
+  await openApplicationAction(page, "settings");
   await page.locator("#settings-diagnostics-open").click();
 
   await expect(page).toHaveURL(/\/diagnostics$/);
@@ -438,11 +439,10 @@ test("Diagnostics leaves retained Workspace available without marking it current
   await page.setViewportSize({ width: 1440, height: 900 });
   await installDiagnosticsFacades(page);
   await page.goto(root);
-  await openProductDestination(page, "workspace");
+  await openProductDestination(page, "workspace", { waitForCommit: true });
   await expect(page.locator("#inspector-panel h1")).toHaveText("Workspace");
 
-  await page.locator("#application-menu-button").click();
-  await page.locator('[data-application-action="settings"]').click();
+  await openApplicationAction(page, "settings");
   await page.locator("#settings-diagnostics-open").click();
   await expect(page).toHaveURL(/\/diagnostics$/);
 
@@ -652,8 +652,7 @@ test("Diagnostics treats a refreshed history entry as direct", async ({
 }) => {
   await installDiagnosticsFacades(page);
   await page.goto(root);
-  await page.locator("#application-menu-button").click();
-  await page.locator('[data-application-action="settings"]').click();
+  await openApplicationAction(page, "settings");
   await page.locator("#settings-diagnostics-open").click();
   await expect(page).toHaveURL(/\/diagnostics$/);
 

@@ -429,7 +429,7 @@ test("Workspace occurrence activation retains Package Info", async ({ page }) =>
   const overview = page.locator(".package-overview-surface");
   await expect(overview.locator(".package-info-rows")).toBeVisible();
 
-  await openProductDestination(page, "workspace");
+  await openProductDestination(page, "workspace", { waitForCommit: true });
   const occurrence = page.locator("[data-workspace-activate]");
   await expect(occurrence).toBeEnabled();
   await occurrence.click();
@@ -450,19 +450,19 @@ test("Workspace product navigation exits every routed product surface", async ({
   await page.goto(root);
 
   const openWorkspace = async () => {
-    await openProductDestination(page, "workspace");
+    await openProductDestination(page, "workspace", { waitForCommit: true });
     await expect(page.locator("#inspector-panel h1")).toHaveText("Workspace");
   };
 
-  await openProductDestination(page, "home");
+  await openProductDestination(page, "home", { waitForCommit: true });
   await expect(page).toHaveURL("/");
   await openWorkspace();
 
-  await openProductDestination(page, "query");
+  await openProductDestination(page, "query", { waitForCommit: true });
   await expect(page).toHaveURL(/\/query$/);
   await openWorkspace();
 
-  await openProductDestination(page, "activity");
+  await openProductDestination(page, "activity", { waitForCommit: true });
   await expect(page).toHaveURL(/\/activity$/);
   await openWorkspace();
 
@@ -477,11 +477,11 @@ test("Workspace projection failure pushes a degraded package successor", async (
   await page.setViewportSize({ width: 1440, height: 900 });
   await installFacades(page);
   await page.goto(root);
-  await openProductDestination(page, "query");
+  await openProductDestination(page, "query", { waitForCommit: true });
   await expect(page).toHaveURL(/\/query$/);
 
   await releaseFacade(page, "fail-workspace-encode");
-  await openProductDestination(page, "workspace");
+  await openProductDestination(page, "workspace", { waitForCommit: true });
 
   await expect(page.locator("#inspector-panel h1")).toHaveText("Workspace");
   await expect(page).not.toHaveURL(/\/query$/);
@@ -503,11 +503,20 @@ for (const width of [1440, 800, 390]) {
     await page.goto(root);
     const overview = page.locator(".package-overview-surface");
     await expect(overview).toBeVisible();
-    expect(await overview.boundingBox()).toEqual(
-      await page.locator("#inspector-panel").boundingBox());
+    await expect(async () => {
+      const [overviewBox, inspectorBox] = await Promise.all([
+        overview.boundingBox(),
+        page.locator("#inspector-panel").boundingBox(),
+      ]);
+      expect(overviewBox).not.toBeNull();
+      expect(inspectorBox).not.toBeNull();
+      expect(overviewBox).toEqual(inspectorBox);
+    }).toPass();
     await expect(page.locator(".type-heading, .package-coordinate-editor")).toHaveCount(0);
     await expect(overview.getByRole("heading", { level: 1 })).toHaveText("Example.Package");
-    expect((await overview.locator(".overview-identity h1").boundingBox())!.width).toBeGreaterThan(100);
+    await expect.poll(async () =>
+      (await overview.locator(".overview-identity h1").boundingBox())?.width
+        ?? 0).toBeGreaterThan(100);
     await expect(overview.locator(".overview-identity [data-package-icon]")).toBeVisible();
     await expect(overview.locator("#package-version")).toHaveCount(0);
     await expect(page.locator(".package-version-nav [data-package-version]")).not.toHaveCount(0);
@@ -1625,7 +1634,7 @@ test("browser history from before reload reuses the active Workspace", async ({ 
   await expect(page.locator(".inspected-target")).toContainText("Second.Package");
   await expect.poll(() =>
     currentWorkspaceHistoryState(page)).toEqual(reloadedWorkspace);
-  await openProductDestination(page, "workspace");
+  await openProductDestination(page, "workspace", { waitForCommit: true });
   await expect(page.locator(".workspace-card")).toHaveCount(1);
   await expect(page.locator(".query-notice-text", {
     hasText: "Workspace limit reached",
