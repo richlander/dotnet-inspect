@@ -706,6 +706,48 @@ public partial class UnsafeEvidencePresenceTests
 
     [Fact]
     public void
+        MethodQuerySource_GeneratedExpansionResolvesNestedSourceStateMachine()
+    {
+        string path =
+            FixtureCatalog.AnalysisStringLiterals.AssemblyPath();
+        TypeDefinitionHandle outer = FindFixtureType(
+            path,
+            "ILInspector.Analysis.ImplementationProfileFixtures",
+            "GeneratedExpansionNestedSourceSample");
+        TypeDefinitionHandle inner = FindNestedFixtureType(
+            path,
+            outer,
+            "Inner");
+        MethodDefinitionHandle method = FindFixtureMethod(
+            path,
+            inner,
+            "NestedAsync");
+
+        using FileStream stream = File.OpenRead(path);
+        using var peReader = new PEReader(
+            stream,
+            PEStreamOptions.PrefetchEntireImage);
+        MetadataReader reader = peReader.GetMetadataReader();
+        using var builder = new LibraryBodyAnalysisBuilder(
+            path,
+            reader,
+            peReader,
+            generatedExpansionWork:
+                new MethodDefinitionGeneratedExpansionWork(
+                    MethodDefinitionGeneratedExpansionLimits.Default));
+
+        MethodDefinitionGeneratedExpansionResult expansion =
+            builder.ExpandGeneratedExecutionBodies([method]);
+
+        Assert.Equal(
+            1,
+            expansion.Coverage.Origins.Count(origin => origin.Kind
+                == MethodDefinitionGeneratedExpansionOriginKind
+                    .StateMachineExecutionBody));
+    }
+
+    [Fact]
+    public void
         MethodQuerySource_GeneratedExpansionSettlesTargetedStateMachineClaimsOnce()
     {
         string path =
@@ -1548,6 +1590,30 @@ public partial class UnsafeEvidencePresenceTests
                             ProducerTerminal.Complete),
                     ]))
             .Description;
+
+    static TypeDefinitionHandle FindNestedFixtureType(
+        string path,
+        TypeDefinitionHandle declaringType,
+        string expectedName)
+    {
+        using FileStream stream = File.OpenRead(path);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        foreach (TypeDefinitionHandle handle in reader
+                     .GetTypeDefinition(declaringType)
+                     .GetNestedTypes())
+        {
+            if (reader.StringComparer.Equals(
+                    reader.GetTypeDefinition(handle).Name,
+                    expectedName))
+            {
+                return handle;
+            }
+        }
+
+        throw new InvalidOperationException(
+            $"Nested fixture type '{expectedName}' was not found.");
+    }
 
     static TypeDefinitionHandle FindFixtureType(
         string path,
