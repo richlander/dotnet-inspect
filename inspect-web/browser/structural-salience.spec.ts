@@ -1,4 +1,6 @@
 import { expect, test } from "@playwright/test";
+import { renderMemberNav, type MemberGroup } from "../src/type-panel.ts";
+import type { ItemAchievement } from "../src/item-achievements.ts";
 import {
   chooseInspector,
   chooseSubject,
@@ -12,6 +14,67 @@ import {
 } from "./library-hierarchy.support.ts";
 
 test.use({ viewport: { width: 900, height: 900 } });
+
+test("Member and overload achievements retain three visible horizontal slots", async ({ page }) => {
+  const group: MemberGroup = {
+    key: "method:Run",
+    name: "Run",
+    kind: "method",
+    overloads: [
+      { signature: "public void Run(int value)", parameters: [{ type: "int" }] },
+      { signature: "public void Run(string value)", parameters: [{ type: "string" }] },
+    ],
+  };
+  const achievements: ItemAchievement[] = [
+    { kind: "top-leverage", description: "Top Leverage" },
+    { kind: "api-diff", description: "API differences" },
+    { kind: "implementation-hub", description: "Implementation Hub" },
+  ];
+  const html = renderMemberNav({
+    type: surface.types[0]!,
+    entries: [
+      { kind: "member", group },
+      { kind: "overload", group, index: 0 },
+      { kind: "overload", group, index: 1 },
+    ],
+    memberCount: 2,
+    visibleMemberCount: 2,
+    filterControlsHtml: "",
+    selectedMemberKey: group.key,
+    selectedOverloadIndex: 1,
+    escapeHtml: String,
+    typeDisplayName: type => type.name,
+    shortKind: String,
+    highlight: String,
+    memberAchievements: (_group, index) => index === null
+      ? achievements
+      : achievements.slice(0, 2),
+    overloadHeat: () => ({ heatStrength: null, hub: true, description: "Implementation Hub" }),
+  });
+  await page.goto("/browser/annotated-source.html");
+  await page.setContent(`<!doctype html>
+    <link rel="stylesheet" href="/src/styles.css">
+    ${html}`);
+  const rows = page.locator(".member-row, .overload-nav-row");
+  await expect(rows).toHaveCount(3);
+  for (const row of await rows.all()) {
+    const glyphs = row.locator(".item-achievement-glyph");
+    await expect(glyphs).toHaveCount(3);
+    const bounds = await row.boundingBox();
+    const boxes = await Promise.all((await glyphs.all()).map(glyph => glyph.boundingBox()));
+    expect(bounds).not.toBeNull();
+    expect(boxes.every(box => box !== null)).toBe(true);
+    for (let index = 0; index < boxes.length; index++) {
+      const box = boxes[index]!;
+      expect(box.height).toBe(16);
+      expect(box.y).toBe(boxes[0]!.y);
+      expect(box.y).toBeGreaterThanOrEqual(bounds!.y);
+      expect(box.y + box.height).toBeLessThanOrEqual(bounds!.y + bounds!.height);
+      if (index > 0)
+        expect(box.x).toBeGreaterThanOrEqual(boxes[index - 1]!.x + 16);
+    }
+  }
+});
 
 test("aggregate Type lists load icon-only cues automatically", async ({
   page,

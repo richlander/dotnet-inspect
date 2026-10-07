@@ -1247,12 +1247,12 @@ kbd {
   -webkit-mask-image: var(--item-achievement-mask);
   mask-image: var(--item-achievement-mask);
 }
-.type-row > .item-achievement-rail {
+.type-browser:not(.member-nav) .type-row > .item-achievement-rail {
   grid-template-columns: repeat(2, 16px);
   width: 34px;
 }
-.type-row > .item-achievement-rail > .item-achievement-glyph { grid-column: 2; }
-.type-row > .item-achievement-rail > .api-diff { grid-column: 1; }
+.type-browser:not(.member-nav) .type-row > .item-achievement-rail > .item-achievement-glyph { grid-column: 2; }
+.type-browser:not(.member-nav) .type-row > .item-achievement-rail > .api-diff { grid-column: 1; }
 .item-achievement-glyph.surface-sea-level,
 .item-achievement-glyph.implementation-sea-level {
   --item-achievement-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M1.5 6c1 0 1-.8 2-.8s1 .8 2 .8 1-.8 2-.8 1 .8 2 .8 1-.8 2-.8 1 .8 2 .8 1-.8 2-.8'/%3E%3Cpath d='M2 9c1 0 1-.8 2-.8s1 .8 2 .8 1-.8 2-.8 1 .8 2 .8 1-.8 2-.8 1 .8 2 .8'/%3E%3Cpath d='M3 12c1 0 1-.8 2-.8s1 .8 2 .8 1-.8 2-.8 1 .8 2 .8 1-.8 2-.8 1 .8 2 .8'/%3E%3C/svg%3E");
