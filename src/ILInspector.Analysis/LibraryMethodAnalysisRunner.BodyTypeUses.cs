@@ -179,8 +179,9 @@ internal sealed partial class LibraryMethodAnalysisRunner
             {
                 diagnostics.Add(
                     new(
-                        AnalysisLibraryBodyUseDiagnosticKind
-                            .UnavailableLogicalOwner,
+                        owner.Status == BodyUseOwnerStatus.Rejected
+                            ? AnalysisLibraryBodyUseDiagnosticKind.RejectedLogicalOwner
+                            : AnalysisLibraryBodyUseDiagnosticKind.UnavailableLogicalOwner,
                         methodToken,
                         null,
                         owner.Status == BodyUseOwnerStatus.Rejected

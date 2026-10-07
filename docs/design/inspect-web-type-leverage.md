@@ -160,6 +160,14 @@ The facade may normalize the signature and body row shapes into common incoming
 and outgoing degree fields only because the evidence mode remains attached to
 the enclosing channel. It does not compare or combine those values.
 
+Schema version 3 adds `bodiesRejectedOwnership` to body coverage, counting
+Analysis-issued `RejectedLogicalOwner` diagnostics. It is a subset of
+physical-only coverage, not a new body population. Expected physical-only
+coverage is silent only when this count and all unavailable/limited counts
+are zero. Rejected attribution remains useful qualification information.
+Settled qualification does not offer Retry; acquisition failures retain their
+recovery action.
+
 The Browser validates the schema, methodology, evidence mode, namespace
 coverage, exact shard order, pole-order identities, and duplicate Type
 identities before publication. Malformed transport fails visibly rather than
@@ -240,7 +248,9 @@ The contract is gated at four boundaries:
   the surface document.
 - Analysis-facade boundary tests prove package and platform wire projection,
   reference-only surface success, implementation unavailability, qualification,
-  and exact generic/nested Type identity.
+  and exact generic/nested Type identity. The
+  `StructuralSalience_SeparatesRoutineAndRejectedOwnership` package test proves
+  both typed ownership outcomes survive the production facade.
 - TypeScript unit tests prove independent channel validation, same-direction
   and opposing dual poles, cache replacement, retry, and stale-publication
   suppression.

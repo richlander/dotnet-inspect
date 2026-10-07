@@ -109,6 +109,7 @@ const bodyCoverage = {
   bodiesConsidered: 8,
   bodiesExamined: 8,
   bodiesPhysicalOnly: 0,
+  bodiesRejectedOwnership: 0,
   bodiesUnavailable: 0,
   bodiesLimited: 0,
   operandsConsidered: 16,
@@ -131,7 +132,7 @@ const bodyToolsShard: BrowserLibraryTypeLeverageShard = {
 };
 
 const document: BrowserLibraryStructuralSalience = {
-  schemaVersion: 2,
+  schemaVersion: 3,
   surface: {
     outcome: "available",
     methodologyVersion: "structural-salience.v3",
@@ -323,11 +324,11 @@ test("malformed exact-identity orders fail visibly", () => {
   );
 });
 
-test("the exhaustive wire shape requires schema version two", () => {
+test("the exhaustive wire shape requires schema version three", () => {
   assert.throws(
     () => projectTypeLeverage({
       ...document,
-      schemaVersion: 3,
+      schemaVersion: 2,
     }),
     /Unsupported structural-salience schema version/,
   );
@@ -621,4 +622,27 @@ test("physical-only bodies do not hide incomplete operand evidence", () => {
   });
   assert.match(typeLeverageFeedback(projection)?.message ?? "", /operand could not be resolved/);
   assert.equal(projection.disposition, "complete");
+});
+
+test("typed ownership rejection stays visible without Retry or surface qualification", () => {
+  const detail = "Generated-body ownership evidence was rejected.";
+  const projection = projectTypeLeverage({
+    ...document,
+    implementation: {
+      ...document.implementation,
+      typeLeverageShards: [{
+        ...bodyShard,
+        disposition: "qualified",
+        bodyCoverage: { ...bodyCoverage, bodiesExamined: 7,
+          bodiesPhysicalOnly: 1, bodiesRejectedOwnership: 1 },
+        diagnostics: [detail],
+      }, bodyToolsShard],
+    },
+  });
+  const feedback = typeLeverageFeedback(projection);
+  assert.match(feedback?.message ?? "", /ownership evidence was rejected/);
+  assert.equal(feedback?.retry, undefined);
+  assert.equal(projection.disposition, "complete");
+  assert.deepEqual(projection.implementationDiagnostics, [detail]);
+  assert.deepEqual(projection.byType, projectTypeLeverage(document).byType);
 });

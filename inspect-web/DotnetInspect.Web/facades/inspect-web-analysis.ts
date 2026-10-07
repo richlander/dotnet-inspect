@@ -526,6 +526,7 @@ export interface BrowserLibraryBodyUseCoverage {
   readonly operandsExamined: number;
   readonly operandsUnavailable: number;
   readonly operandsLimited: number;
+  readonly bodiesRejectedOwnership: number;
 }
 
 export interface BrowserLibraryDependencyCounts {

@@ -97,7 +97,7 @@ function availableSurface(
   readonly namespaceIndex: BrowserLibraryNamespaceLeverageIndex;
   };
 } {
-  if (result.schemaVersion !== 2)
+  if (result.schemaVersion !== 3)
     throw new Error("Unsupported structural-salience schema version.");
   const surface = result.surface;
   if (surface.outcome !== "available"
@@ -310,6 +310,7 @@ export function projectTypeLeverage(
       const coverage = bodyShard.bodyCoverage;
       const expectedPhysicalOnly = bodyShard.disposition.toLowerCase() === "qualified"
         && coverage.bodiesPhysicalOnly > 0
+        && coverage.bodiesRejectedOwnership === 0
         && coverage.bodiesUnavailable === 0
         && coverage.bodiesLimited === 0
         && coverage.operandsUnavailable === 0
@@ -410,7 +411,6 @@ export function typeLeverageFeedback(
   return {
     message: `Structural salience has qualified evidence${details.length
       ? `: ${details.join("; ")}` : ""}`,
-    retry: "type-leverage",
   };
 }
 
