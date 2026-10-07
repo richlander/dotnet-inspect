@@ -507,6 +507,20 @@ jobs:
           --filter-class 'DotnetInspector.Queries.Tests.ViewFacetRegistryTests'
           --filter-not-trait "Speed=Slow" --minimum-expected-tests 300
 
+      - name: Run portable query tests
+        run: >-
+          dotnet run --project tests/DotnetInspector.PortableQueries.Tests -c Release
+          --no-build --
+          --filter-not-trait "Speed=Slow" --minimum-expected-tests 1300
+
+      - name: Run producer-capability adopter tests
+        run: >-
+          dotnet run --project tests/DotnetInspector.Sections.Tests -c Release
+          --no-build --
+          --filter-class 'DotnetInspector.Sections.Tests.PackageChildrenInspectionTests'
+          --filter-class 'DotnetInspector.Sections.Tests.QuerySpaceSectionRowCompositionTests'
+          --filter-not-trait "Speed=Slow" --minimum-expected-tests 22
+
       - name: Run InertText tests
         run: dotnet run --project tests/InertText.Tests -c Release --no-build
 
