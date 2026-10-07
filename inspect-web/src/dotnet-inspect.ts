@@ -5990,7 +5990,7 @@ function selectedTypeMetadataLibraryIdentity() {
 function selectDefaultPackageSubject(pkg: AppPackage) {
   state.workspaceSubjectOpen = false;
   state.atLibraryRoot =
-    pkg.assemblies.length > 0 && Boolean(pkg.assemblyId);
+    packageLibrariesForModel(pkg).some(library => library.id === pkg.assemblyId);
   state.atPackageRoot = !state.atLibraryRoot;
   state.libraryScope = state.atLibraryRoot
     ? new Set([pkg.assemblyId])
@@ -12110,6 +12110,7 @@ function maybeAutoLoadPackageSurfaceForLibraryNavigation() {
   const pkg = state.package;
   if (!pkg
     || !state.atLibraryRoot
+    || (state.libraryLens === "overview" && state.libraryScope?.size === 1)
     || !packageSurfaceCanLoadTypes(pkg)) {
     return;
   }

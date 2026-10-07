@@ -929,6 +929,7 @@ function acquisitionDependencies(
 ): PackageAcquisitionDependencies {
   return {
     queryPackageSummary: async () => ({
+      defaultLibraryId: null,
       versionSettlement: {
         content: {
           kind: "Settled",
@@ -1089,6 +1090,7 @@ test("NotSettled package loads preserve the complete shared baseline", async () 
   } satisfies BrowserPackageVersionSettlementInspection;
   const acquisition = createPackageAcquisition(acquisitionDependencies({
     queryPackageSummary: async () => ({
+      defaultLibraryId: null,
       versionSettlement,
       packageInfo: null,
       packageChildren: null,

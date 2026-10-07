@@ -71,7 +71,8 @@ public sealed record BrowserPackageLoadResult(
     BrowserPackageInfoMeasurementInspection? PackageInfo,
     BrowserPackageChildrenInspection? PackageChildren,
     BrowserPackageDocument[] Documents,
-    BrowserPackageSurface? Surface);
+    BrowserPackageSurface? Surface,
+    string? DefaultLibraryId = null);
 
 public sealed record BrowserPackageRootLoadResult(
     BrowserPackageChildrenInspection PackageChildren,

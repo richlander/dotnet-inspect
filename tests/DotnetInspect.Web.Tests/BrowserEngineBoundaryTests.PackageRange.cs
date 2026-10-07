@@ -1,4 +1,6 @@
 using System.Text;
+using System.Text.Json;
+using DotnetInspect.Web.Interop.Package;
 using DotnetInspector.Packages;
 using DotnetInspector.Sections;
 using NuGetFetch;
@@ -7,6 +9,29 @@ namespace DotnetInspect.Web.Tests;
 
 public sealed partial class BrowserEngineBoundaryTests
 {
+    [Fact]
+    public async Task PackageSummary_PreservesProductDefaultAlongsideCompleteLibraryInventory()
+    {
+        string id = $"Summary.Default.{Guid.NewGuid():N}";
+        byte[] assembly = File.ReadAllBytes(typeof(BrowserPackage).Assembly.Location);
+        byte[] archive = PackageEntries(
+            ($"{id}.nuspec", Encoding.UTF8.GetBytes(
+                $"<package><metadata><id>{id}</id><version>1.0.0</version></metadata></package>")),
+            ("lib/net11.0/AAA.dll", assembly),
+            ($"lib/net11.0/{id}.dll", assembly));
+        await BrowserPackageWorkspace.RegisterGalleryPackageAsync(
+            new BrowserPackage(id, "1.0.0", archive, fromCache: false,
+                producerKey: BrowserPackageWorkspace.Gallery.Source.Producer.Key));
+        BrowserPackageLoadResult summary = Assert.IsType<BrowserPackageLoadResult>(
+            JsonSerializer.Deserialize(await PackageExports.QueryPackageSummary(id, "1.0.0", "net11.0"),
+                BrowserPackageJsonContext.Default.BrowserPackageLoadResult));
+        Assert.Null(summary.Surface);
+        Assert.Equal($"compile:lib/net11.0/{id}.dll", summary.DefaultLibraryId);
+        Assert.Equal(2, summary.PackageChildren!.Content.Libraries.Length);
+        Assert.Equal("AAA.dll", summary.PackageChildren.Content.Libraries[0].AssemblyName);
+        Assert.Contains(summary.PackageChildren.Content.Libraries, library => library.AssetId == summary.DefaultLibraryId);
+    }
+
     [Fact]
     public async Task PackageRealization_RangeRetainsSelectedFoldersAndReusesGeneration()
     {

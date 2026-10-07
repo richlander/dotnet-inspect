@@ -739,11 +739,22 @@ Release to `artifacts/inspect-web-publish`.
 
 <!-- markdownlint-enable MD013 -->
 
-`QueryPackage` is the site's default path. It runs against the product-selected
-compile assets, so `ref/` assemblies remain authoritative when the package ships
-them. It asks the API-surface query for the composed scope — the default consumer
-surface plus non-public types — so a public type keeps its public member list
-while non-public types remain reachable through the accessibility filter. Public
+The initial package open calls `QueryPackageSummary`, which carries the
+complete bounded Library inventory and the product-selected default asset ID.
+The application selects that Library from the inventory even before a broad
+surface is loaded. Library Overview asks `QueryLibraryApi` for that exact
+Library's bounded public API summary and `InspectLibrary` for its Enablements;
+both reuse the admitted PackageHouse realization. It does not automatically
+request the package-wide Type surface. All Libraries Overview, explicit Type
+navigation, and API browsing retain that broad request. Explicit links and
+restored subjects keep their requested selection.
+
+`QueryPackage` is the broad Type-navigation path. It runs against the
+product-selected compile assets, so `ref/` assemblies remain authoritative
+when the package ships them. It asks the API-surface query for the composed
+scope — the default consumer surface plus non-public types — so a public type
+keeps its public member list while non-public types remain reachable through
+the accessibility filter. Public
 types hidden by the extractor stay hidden rather than re-entering the default
 bucket with private members. That scope is one extraction inside
 `ApiSurfaceExtractor`, not two composed in the query layer, so a package load

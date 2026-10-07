@@ -332,6 +332,7 @@ function packageLoadResult(
     },
     documents: surface.documents,
     surface,
+    defaultLibraryId: surface.defaultAssemblyId,
   };
 }
 

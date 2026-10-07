@@ -220,9 +220,12 @@ export function createNuGetPackageSummaryModel(
   documents: readonly InspectedPackageDocument[],
   versionSettlement?: BrowserPackageVersionSettlementInspection,
   packageInfo?: BrowserPackageInfoMeasurementInspection,
+  defaultLibraryId?: string | null,
 ): AppPackage {
   const content = packageChildren.content;
-  const firstLibrary = content.libraries[0];
+  const firstLibrary = defaultLibraryId
+    ? content.libraries.find(library => library.assetId === defaultLibraryId)
+    : content.libraries[0];
   const activeFramework = content.targetFramework
     ?? packageInfo?.content.selectedTargetFramework
     ?? "";
@@ -1155,6 +1158,7 @@ export function createPackageAcquisition(
       let packageChildren:
         BrowserPackageChildrenInspection | undefined;
       let documents: readonly InspectedPackageDocument[] = [];
+      let defaultLibraryId: string | null | undefined;
       if (request.rootRequest !== undefined) {
         if (!dependencies.queryPackageRoot) {
           throw new Error("Exact package Root opening is unavailable.");
@@ -1189,6 +1193,7 @@ export function createPackageAcquisition(
         }
         packageChildren = loadResult.packageChildren;
         documents = loadResult.documents;
+        defaultLibraryId = loadResult.defaultLibraryId;
         result = loadResult.surface ?? undefined;
       }
       if (request.isCurrent && !request.isCurrent()) return null;
@@ -1213,7 +1218,8 @@ export function createPackageAcquisition(
           packageChildren,
           documents,
           versionSettlement,
-          packageInfo);
+          packageInfo,
+          defaultLibraryId);
       } else {
         throw new Error(
           "A Package load requires either a surface or Package children.");
