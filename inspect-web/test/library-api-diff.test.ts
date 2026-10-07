@@ -1195,6 +1195,76 @@ test("Type Diff does not claim unchanged when body comparison is unavailable", (
   assert.doesNotMatch(html, /This Type has no public API or method body changes/);
 });
 
+test("unavailable bodies keep mixed Library, Type, and Member results incomplete", () => {
+  const result = withMembers();
+  assert.ok(result.value);
+  const unavailable = {
+    ...result,
+    value: {
+      ...result.value,
+      aggregate: {
+        ...result.value.aggregate,
+        unavailableMethodBodyCount: 1,
+      },
+    },
+  };
+
+  const libraryHtml = renderLibraryApiDiff(
+    readyState(unavailable),
+    String,
+  );
+  const typeHtml = renderLibraryApiDiff(
+    readyState(unavailable),
+    String,
+    {
+      subject: {
+        kind: "type",
+        typeIdentifier: "after-widget",
+      },
+    },
+  );
+  const missingMemberHtml = renderLibraryApiDiff(
+    readyState(unavailable),
+    String,
+    {
+      subject: {
+        kind: "member",
+        typeIdentifier: "missing-type",
+        memberFingerprint: "missing-member",
+      },
+    },
+  );
+  const changedMemberHtml = renderLibraryApiDiff(
+    readyState(unavailable),
+    String,
+    {
+      subject: {
+        kind: "member",
+        typeIdentifier: "after-widget",
+        memberFingerprint: "digest-run",
+      },
+    },
+  );
+
+  assert.match(libraryHtml, /Comparison incomplete/);
+  assert.match(libraryHtml, /1 body comparison unavailable/);
+  assert.match(typeHtml, /Comparison incomplete/);
+  assert.match(typeHtml, /1 body comparison unavailable/);
+  assert.match(
+    missingMemberHtml,
+    /This Member's method body could not be compared/,
+  );
+  assert.doesNotMatch(
+    missingMemberHtml,
+    /This Member is unchanged/,
+  );
+  assert.match(changedMemberHtml, /Comparison incomplete/);
+  assert.match(
+    changedMemberHtml,
+    /Method body comparison was unavailable for this Member/,
+  );
+});
+
 test("Member Diff contains only the API and Source comparison documents", () => {
   const html = renderLibraryApiDiff(readyState(withMembers()), String, {
     subject: {

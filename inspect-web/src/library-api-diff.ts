@@ -2020,6 +2020,12 @@ function renderLibrarySubject(
       aggregate.methodBodyChangeCount,
       "method body changes",
     ),
+    compactCount(
+      aggregate.unavailableMethodBodyCount,
+      aggregate.unavailableMethodBodyCount === 1
+        ? "body comparison unavailable"
+        : "body comparisons unavailable",
+    ),
   ].filter(Boolean);
   if (value.types.length === 0) {
     if (aggregate.unavailableMethodBodyCount > 0) {
@@ -2047,7 +2053,10 @@ function renderLibrarySubject(
   }
   return {
     status: options.resultSummaryInDataBar
-      ? "" : `Comparison complete. ${aggregate.changedTypeCount.toLocaleString()} changed Types.`,
+      ? ""
+      : aggregate.unavailableMethodBodyCount > 0
+        ? `Comparison incomplete. ${aggregate.changedTypeCount.toLocaleString()} changed Types.`
+        : `Comparison complete. ${aggregate.changedTypeCount.toLocaleString()} changed Types.`,
     content: `${options.resultSummaryInDataBar ? ""
       : `<div class="library-api-diff-metrics">${metrics.map(metric =>
         `<span>${escapeHtml(metric)}</span>`).join("")}</div>`}
@@ -2092,6 +2101,12 @@ function renderTypeSubject(
       type.changedMemberCount === 1 ? "Member" : "Members"
     }`,
     ...type.categories.map(categoryLabel),
+    compactCount(
+      value.aggregate.unavailableMethodBodyCount,
+      value.aggregate.unavailableMethodBodyCount === 1
+        ? "body comparison unavailable"
+        : "body comparisons unavailable",
+    ),
   ].filter(Boolean);
   // Type-level compatibility changes (kind, base type, interfaces, generic
   // parameters, attributes) precede the Member inventory.
@@ -2104,7 +2119,9 @@ function renderTypeSubject(
   // so the row is absent rather than advertised with a placeholder.
   if (type.members.length === 0) {
     return {
-      status: `Comparison complete. ${metrics[0] ?? "No changed Members"}.`,
+      status: value.aggregate.unavailableMethodBodyCount > 0
+        ? `Comparison incomplete. ${metrics[0] ?? "No changed Members"}.`
+        : `Comparison complete. ${metrics[0] ?? "No changed Members"}.`,
       content: `<div class="library-api-diff-metrics">${metrics.map(metric =>
         `<span>${escapeHtml(metric)}</span>`).join("")}</div>${typeChanges}${
         renderCompareEmpty(
@@ -2117,7 +2134,9 @@ function renderTypeSubject(
     };
   }
   return {
-    status: `Comparison complete. ${type.members.length.toLocaleString()} changed Members.`,
+    status: value.aggregate.unavailableMethodBodyCount > 0
+      ? `Comparison incomplete. ${type.members.length.toLocaleString()} changed Members.`
+      : `Comparison complete. ${type.members.length.toLocaleString()} changed Members.`,
     content: `<div class="library-api-diff-metrics">${metrics.map(metric =>
       `<span>${escapeHtml(metric)}</span>`).join("")}</div>${typeChanges}
       <ol class="library-api-diff-members" aria-label="Changed Members">${type.members.map(member =>
@@ -2142,6 +2161,16 @@ function renderMemberSubject(
     ? undefined
     : findMember(type, memberFingerprint);
   if (type === undefined || member === undefined) {
+    if (value.aggregate.unavailableMethodBodyCount > 0) {
+      return {
+        status: "Comparison incomplete.",
+        content: renderCompareEmpty(
+          "Method body comparison unavailable",
+          "This Member's method body could not be compared, so it cannot be classified as unchanged.",
+          escapeHtml,
+        ),
+      };
+    }
     return {
       status: "Comparison complete. This Member is unchanged.",
       content: renderCompareEmpty(
@@ -2164,12 +2193,17 @@ function renderMemberSubject(
     member,
     escapeHtml,
   );
+  const unavailableBody = value.aggregate.unavailableMethodBodyCount > 0
+    ? `<p class="library-api-diff-note">Method body comparison was unavailable for this Member.</p>`
+    : "";
   return {
-    status: `Comparison complete. Member ${libraryApiDiffMemberStateLabel(member).toLowerCase()}.`,
+    status: value.aggregate.unavailableMethodBodyCount > 0
+      ? `Comparison incomplete. Member ${libraryApiDiffMemberStateLabel(member).toLowerCase()}.`
+      : `Comparison complete. Member ${libraryApiDiffMemberStateLabel(member).toLowerCase()}.`,
     content: `${correspondenceHtml}
       <section class="library-api-diff-change-section" aria-labelledby="library-api-diff-changes-title">
         <h2 id="library-api-diff-changes-title">What changed</h2>
-        ${changes}
+        ${unavailableBody}${changes}
       </section>
       ${options.memberDiffSection ?? ""}`,
   };

@@ -86,7 +86,8 @@ public static class LibraryDiffSummaryInspection
         AssemblyContextParticipant after,
         ApiSurfaceProjectionLimits limits,
         IReadOnlySet<string>? typeFilters = null,
-        ApiDiffScope diffScope = ApiDiffScope.Signature)
+        ApiDiffScope diffScope = ApiDiffScope.Signature,
+        IReadOnlySet<string>? memberTargetIdentities = null)
     {
         AssemblyContextApiComparisonResult comparison =
             AssemblyContextApiComparisonQuery.Execute(
@@ -115,7 +116,8 @@ public static class LibraryDiffSummaryInspection
                 comparison,
                 beforeEndpoint,
                 afterEndpoint,
-                typeFilters);
+                typeFilters,
+                memberTargetIdentities);
         return new(
             outcome,
             new InspectionShare.NonProjectable(
@@ -131,7 +133,8 @@ public static class LibraryDiffSummaryInspection
         AssemblyContextApiComparisonResult result,
         LibraryApiDiffEndpointSummary beforeEndpoint,
         LibraryApiDiffEndpointSummary afterEndpoint,
-        IReadOnlySet<string>? typeFilters)
+        IReadOnlySet<string>? typeFilters,
+        IReadOnlySet<string>? memberTargetIdentities)
     {
         if (!beforeEndpoint.IsComplete || !afterEndpoint.IsComplete)
         {
@@ -266,7 +269,10 @@ public static class LibraryDiffSummaryInspection
         {
             if (member.BeforeHandle is null
                 || member.AfterHandle is null
-                || !IsSelected(member, typeFilters))
+                || !IsSelected(
+                    member,
+                    typeFilters,
+                    memberTargetIdentities))
             {
                 continue;
             }
@@ -331,7 +337,8 @@ public static class LibraryDiffSummaryInspection
         ImmutableArray<LibraryDiffSummaryType> selectedTypes =
         [
             .. selectedTypeBuilders
-                .Select(type => type.Build())
+                .Select(type =>
+                    type.Build(memberTargetIdentities))
                 .Where(type =>
                     type.Categories != LibraryDiffCategory.None
                     || type.Members.Length > 0),
@@ -403,13 +410,22 @@ public static class LibraryDiffSummaryInspection
 
     static bool IsSelected(
         MemberBuilder member,
-        IReadOnlySet<string>? filters)
-        => filters is null
-            || filters.Count == 0
+        IReadOnlySet<string>? typeFilters,
+        IReadOnlySet<string>? memberTargetIdentities)
+        => MatchesTypeFilter(member, typeFilters)
+            && MatchesMemberTarget(
+                member,
+                memberTargetIdentities);
+
+    static bool MatchesTypeFilter(
+        MemberBuilder member,
+        IReadOnlySet<string>? typeFilters)
+        => typeFilters is null
+            || typeFilters.Count == 0
             || member.Before?.DeclaringType is { } before
-                && filters.Contains(before.Identifier)
+                && typeFilters.Contains(before.Identifier)
             || member.After?.DeclaringType is { } after
-                && filters.Contains(after.Identifier);
+                && typeFilters.Contains(after.Identifier);
 
     static bool IsSelected(
         TypeBuilder type,
@@ -417,6 +433,18 @@ public static class LibraryDiffSummaryInspection
         => filters is null
             || filters.Count == 0
             || filters.Contains(type.Identifier);
+
+    static bool MatchesMemberTarget(
+        MemberBuilder member,
+        IReadOnlySet<string>? memberTargetIdentities)
+        => memberTargetIdentities is null
+            || memberTargetIdentities.Count == 0
+            || member.Before is { } before
+                && memberTargetIdentities.Contains(
+                    before.Anchor.StableSelector)
+            || member.After is { } after
+                && memberTargetIdentities.Contains(
+                    after.Anchor.StableSelector);
 
     static Dictionary<ResearchTargetRelationshipRole, int> BodyTokens(
         ApiMemberHandle handle)
@@ -663,12 +691,17 @@ public static class LibraryDiffSummaryInspection
         internal string Identifier =>
             After?.Identifier ?? Before!.Identifier;
 
-        internal LibraryDiffSummaryType Build()
+        internal LibraryDiffSummaryType Build(
+            IReadOnlySet<string>? memberTargetIdentities)
         {
             ImmutableArray<LibraryDiffSummaryMember> members =
             [
                 .. Members
                     .DistinctBy(member => member.Identifier)
+                    .Where(member =>
+                        MatchesMemberTarget(
+                            member,
+                            memberTargetIdentities))
                     .Select(member => member.Build())
                     .Where(member =>
                         member.Categories

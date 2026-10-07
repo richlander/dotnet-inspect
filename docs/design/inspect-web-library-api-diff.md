@@ -239,9 +239,12 @@ requests admit their complete baseline before building the Browser inventory;
 summary requests have no duplicate baseline. Exceeding any bound produces
 typed `Rejected`; it never returns a truncated successful inventory.
 
-When a narrowed Type has no confirmed category row but one or more method
-bodies could not be compared, the Browser presents an incomplete-comparison
-state rather than claiming that the Type is unchanged.
+Unavailable method-body evidence keeps Library, Type, and Member presentation
+in an incomplete-comparison state even when other changes were confirmed. An
+exact Member request restricts its shallow summary to the requested Type and
+member stable selector, so its aggregate unavailable-body count belongs to
+that Member and can never turn an unrelated failure into a false unchanged or
+incomplete result.
 
 A Browser transport rejection omits both `inspection` and endpoint evidence
 from its rejection arm, retains the accepted bounded request and exact

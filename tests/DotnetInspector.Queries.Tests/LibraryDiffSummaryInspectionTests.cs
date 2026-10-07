@@ -92,6 +92,31 @@ public sealed class LibraryDiffSummaryInspectionTests
     }
 
     [Fact]
+    public async Task Execute_MemberFilterAvoidsUnrelatedTypeMembers()
+    {
+        LibraryDiffSummary complete = await Execute();
+        LibraryDiffSummaryType type = complete.Types.First(
+            candidate => candidate.Members.Length > 1);
+        LibraryDiffSummaryMember member = type.Members[0];
+        string targetIdentity =
+            (member.After ?? member.Before!).Anchor.StableSelector;
+
+        LibraryDiffSummary summary = await Execute(
+            new HashSet<string>(
+                [type.Identifier],
+                StringComparer.Ordinal),
+            memberTargetIdentities: new HashSet<string>(
+                [targetIdentity],
+                StringComparer.Ordinal));
+
+        LibraryDiffSummaryType filteredType =
+            Assert.Single(summary.Types);
+        LibraryDiffSummaryMember filteredMember =
+            Assert.Single(filteredType.Members);
+        Assert.Equal(member.Identifier, filteredMember.Identifier);
+    }
+
+    [Fact]
     public async Task Execute_AttributeScopeIncludesAttributeOnlyChanges()
     {
         const string typeName =
@@ -212,7 +237,8 @@ public sealed class LibraryDiffSummaryInspectionTests
 
     static async Task<LibraryDiffSummary> Execute(
         IReadOnlySet<string>? typeFilters = null,
-        ApiDiffScope diffScope = ApiDiffScope.Signature)
+        ApiDiffScope diffScope = ApiDiffScope.Signature,
+        IReadOnlySet<string>? memberTargetIdentities = null)
     {
         var policy = new TestBindingPolicy();
         await using var workspace = new InspectionWorkspace();
@@ -236,7 +262,8 @@ public sealed class LibraryDiffSummaryInspectionTests
                 Assert.Single(afterGroup.Participants),
                 GenerousLimits,
                 typeFilters,
-                diffScope);
+                diffScope,
+                memberTargetIdentities);
         return Assert.IsType<
             LibraryDiffSummaryOutcome.Available>(
                 envelope.Content).Summary;

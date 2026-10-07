@@ -330,7 +330,11 @@ public static partial class MetadataExports
                                             BrowserApiSurfacePolicy.Limits,
                                             typeFilters,
                                             ApiDiffScope.Signature
-                                                | ApiDiffScope.Attributes)
+                                                | ApiDiffScope.Attributes,
+                                            new HashSet<string>(
+                                                request
+                                                    .MemberTargetIdentities,
+                                                StringComparer.Ordinal))
                                         : null;
                             return (detail, summary);
                         }));
