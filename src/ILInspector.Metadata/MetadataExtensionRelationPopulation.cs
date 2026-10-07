@@ -493,10 +493,15 @@ internal static partial class MetadataRelationInspection
                 reader,
                 static _ => true,
                 request.IncludeNonPublic,
+                ExtensionCandidateAdmission.ApiMethodSurface,
                 cancellationToken,
                 candidate =>
                 {
                     cancellationToken.ThrowIfCancellationRequested();
+                    // The rich API surface's Extension Methods population
+                    // holds extension methods only, not extension properties.
+                    if (candidate.IsProperty)
+                        return false;
                     operation.Charge(
                         MetadataOperationDimension
                             .DeclarationCandidates);

@@ -1495,6 +1495,51 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
     }
 
+    [Theory]
+    [InlineData("ObsoleteExtensionTarget", true)]
+    [InlineData("PropertyBlockTarget", false)]
+    public async Task
+        Type_BareDiscoveryAdmitsExtensionMethodsLikeApiSurface(
+            string typeName,
+            bool listsExtensionMethods)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            $"DotnetInspect.Cli.Tests.ExactTypeDiscoveryExtensions.{typeName}",
+            "--library",
+            TestAssemblyPath,
+            "-D",
+            "--tsv");
+
+        Assert.True(exit == 0, $"Discovery failed: {error}");
+        Assert.Empty(error);
+        Assert.Equal(
+            listsExtensionMethods,
+            output.Contains(
+                $"{SectionNames.ExtensionMethods}\tsection",
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task
+        Type_AuditDiscoveryCountsSameImageExtensionMethods()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            "DotnetInspect.Cli.Tests.ExactTypeDiscoveryExtensions.IExtensionOnlyTarget",
+            "--library",
+            TestAssemblyPath,
+            "-D",
+            SectionCategoryNames.Audit,
+            "--tsv");
+
+        Assert.True(exit == 0, $"Discovery failed: {error}");
+        Assert.Empty(error);
+        Assert.Contains(
+            $"{SectionNames.SafetyFacts}\tsection",
+            output);
+    }
+
     [Fact]
     public async Task
         Type_DiscoveryRejectsNameThatDoesNotRoundTrip()

@@ -176,11 +176,13 @@ public static partial class TypeCommand
     }
 
     static bool RequiresMemberApplicability(TypeOptions options) =>
-        RequiresExtensionPresence(options)
+        options.Discover is null or { Length: 0 }
         || RequiresAuditMemberApplicability(options);
 
+    // Same-image extension methods are body-backed Members of the rich
+    // ApiType, so every Member-applicability request needs their presence.
     static bool RequiresExtensionPresence(TypeOptions options) =>
-        options.Discover is null or { Length: 0 };
+        RequiresMemberApplicability(options);
 
     static bool RequiresAuditMemberApplicability(
         TypeOptions options) =>

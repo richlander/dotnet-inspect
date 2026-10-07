@@ -174,6 +174,7 @@ internal static partial class MetadataRelationInspection
             reader,
             includesType,
             includeNonPublic,
+            ExtensionCandidateAdmission.Relation,
             cancellationToken,
             candidate =>
             {
@@ -188,10 +189,23 @@ internal static partial class MetadataRelationInspection
             candidates.ToImmutable());
     }
 
+    /// <summary>
+    /// Selects the hidden-member rule a visit applies. The relation
+    /// population treats non-compatibility <c>Obsolete</c> members as
+    /// hidden. The API method surface hides a member only by
+    /// <c>EditorBrowsable(Never)</c>, matching the rich API surface.
+    /// </summary>
+    private enum ExtensionCandidateAdmission
+    {
+        Relation,
+        ApiMethodSurface,
+    }
+
     private static bool VisitExtensionCandidates(
         MetadataReader reader,
         Func<TypeDefinitionHandle, bool> includesType,
         bool includeNonPublic,
+        ExtensionCandidateAdmission admission,
         CancellationToken cancellationToken,
         Func<ExtensionDeclarationCandidate, bool> visit,
         Action observeExcluded)
@@ -306,9 +320,15 @@ internal static partial class MetadataRelationInspection
                         && ((method.Attributes
                                 & MethodAttributes.MemberAccessMask)
                                 != MethodAttributes.Public
-                            || AttributeReader.HasHiddenAttribute(
-                                reader,
-                                method.GetCustomAttributes())));
+                            || (admission
+                                    == ExtensionCandidateAdmission.Relation
+                                ? AttributeReader.HasHiddenAttribute(
+                                    reader,
+                                    method.GetCustomAttributes())
+                                : AttributeReader
+                                    .HasEditorBrowsableNeverAttribute(
+                                        reader,
+                                        method.GetCustomAttributes()))));
                 if (methodExcluded)
                 {
                     observeExcluded();
