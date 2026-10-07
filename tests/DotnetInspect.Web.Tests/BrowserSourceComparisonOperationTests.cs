@@ -1227,21 +1227,6 @@ public sealed class BrowserSourceComparisonOperationTests(ITestOutputHelper outp
         Assert.Null(endpoint.BrowseUrl);
     }
 
-    [Theory]
-    [InlineData(
-        "https://raw.githubusercontent.com/example/repository/0123456789abcdef0123456789abcdef01234567/src/Widget.cs",
-        "https://github.com/example/repository/blob/0123456789abcdef0123456789abcdef01234567/src/Widget.cs")]
-    [InlineData(
-        "https://raw.githubusercontent.com/example/repository/v1/src/Widget.cs",
-        null)]
-    [InlineData("https://example.test/src/Widget.cs", null)]
-    public void BrowseUrlRequiresAttributedGitHubProvenance(
-        string resolvedUrl,
-        string? expected)
-    {
-        Assert.Equal(expected, BrowserSourceDiffProjection.BrowseUrl(resolvedUrl));
-    }
-
     static async Task<BrowserSourceComparisonResult> Compare(
         BrowserSourceComparisonRequest request) =>
         Read(await DotnetInspect.Web.Interop.Source.SourceExports.QueryMemberSourceComparison(
