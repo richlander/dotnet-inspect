@@ -9,38 +9,50 @@ pattern is designed but not yet implemented.
 
 [Engine-to-browser async event streams](engine-browser-async-event-stream.md)
 supplies ordering, durable-event meaning, credit, cancellation, and terminal
-semantics. [Assembly Analysis Operation](assembly-analysis-operation.md)
-supplies the eventual per-member producer-outcome source. This design owns
-only the binding between incremental per-member outcomes and the one
-`library:analysis` Browser surface: its event vocabulary, its cooperative
-yielding obligation, and its progressive rendering contract.
+semantics. [Assembly Analysis Operation](assembly-analysis-operation.md) and
+[Method Query Source](method-query-source.md) remain the eventual authority
+for any per-member compute-phase observability; no such signal exists today.
+This design owns only the binding between the `library:analysis` Browser
+surface and that async event stream: its event vocabulary, its
+cooperative-yield obligation, and its progressive rendering contract — scoped
+first to streaming the already-complete ranked result, and extending to
+compute-phase preview once that prerequisite exists.
 
 ## Owner and exact claim
 
 **Streaming Library Performance Analysis** owns:
 
-> Given a sequential visitation of an assembly's analyzable members that
-> produces one optimization-opportunity outcome per visited member, publish
-> each member's outcome as a durable Item event no later than a bounded
-> cooperative-yield interval, in visitation order, over the existing
-> engine-to-browser async event-stream contract; and render each admitted row
-> into the `library:analysis` surface as it arrives, replacing the current
-> single blocking wait with progressive, order-preserving disclosure.
+> Given the existing `AssemblyContextOptimizationOpportunitiesQuery` ranking
+> for an assembly, publish a bounded, replaceable, best-effort preview of that
+> ranking's current state as advisory Progress events while classification is
+> in flight, and publish the final ranked, triage-capped member list as
+> ordered durable Item events immediately after classification completes —
+> over the existing engine-to-browser async event-stream contract — so the
+> `library:analysis` surface shows live classification progress and then
+> admits rows incrementally, instead of remaining a bare spinner until one
+> complete result lands.
 
 This owner defines:
 
 - the `LibraryPerformanceAnalysisEvent` adopter event vocabulary (Progress,
   Item, ItemFailure, Completed) bound to the async event-stream's four
   semantic categories;
-- the per-member `Item` row shape, which is the existing
-  `BrowserPerformanceMember` wire record — this design does not introduce a
-  new row schema;
-- the cooperative-yield obligation that makes a CPU-bound, non-I/O-bound
-  visitation observably incremental on a single Wasm thread;
-- the `library-analysis.ts` progressive-render contract: order-preserving row
-  admission, a live running status line, and partial-result display before
-  terminal completion; and
-- the first production adoption and its measured product witness.
+- the Progress payload as a bounded, replaceable preview: a "`N` of `M`
+  members classified" checkpoint plus an optional best-effort snapshot of the
+  current in-progress top-of-ranking set. A later Progress event may reorder,
+  evict, or omit any member named by an earlier one; no Progress payload is
+  evidence that a member belongs in the final list;
+- the Item row shape, which is the existing `BrowserPerformanceMember` wire
+  record published only for members in the already-final, already-ranked,
+  already-capped list — this design does not introduce a new row schema and
+  does not publish a durable Item before that list is known;
+- the cooperative-yield obligation that keeps both the compute phase's
+  Progress checkpoints and the post-ranking Item publication observable on a
+  single Wasm thread instead of one uninterrupted synchronous run; and
+- the `library-analysis.ts` progressive-render contract: a live, replaceable
+  preview list during Progress, converging to the authoritative row-by-row
+  admission during Item publication, and the first production adoption's
+  measured product witness.
 
 It does not define:
 
@@ -58,7 +70,12 @@ It does not define:
   adoption is a separate effort;
 - member ranking, triage policy, confidence classification, or opportunity
   counting (owned by the existing `AssemblyContextOptimizationOpportunitiesQuery`
-  / its eventual Assembly Analysis Operation producer);
+  / its eventual Assembly Analysis Operation producer) — the final Item list
+  and the Completed accounting are exactly today's existing computed values,
+  only delivered incrementally instead of as one array;
+- a per-member incremental completion signal from the underlying body-analysis
+  producer. No such signal exists at the time of writing; see
+  [Prerequisite](#prerequisite-per-member-compute-observability);
 - Wasm call-graph scope cost or peak memory
   ([#3333](https://github.com/richlander/dotnet-inspect/issues/3333)); and
 - CLI output for an equivalent analysis command. The CLI already renders a
@@ -81,21 +98,29 @@ The production witness is the public surface `Aspire.Hosting@13.6.1` on
 whose member list is long enough that the wait is clearly perceptible before
 any row is visible. The user-visible goal is the same perceptible-work
 property already proven for Package Query: a result pane that shows ongoing
-progress and real rows as they are classified, rather than appearing idle and
-then changing directly to a bounded complete result.
+progress, rather than appearing idle and then changing directly to a bounded
+complete result; and, once the complete result is known, rows that paint in
+over a short visible interval rather than as one blocking layout.
 
 Adoption measures:
 
-- time from accepted analysis request to the first rendered row;
-- time from accepted request to the first rendered row for a representative
+- time from accepted analysis request to the first Progress checkpoint, once
+  the [prerequisite](#prerequisite-per-member-compute-observability) exists —
+  this requires a compute-phase observability signal this design does not
+  itself add;
+- time from classification completion to the first and last rendered Item
+  row, confirming incremental admission is visibly faster to first paint than
+  one blocking array render for a long list;
+- time from accepted request to first rendered row for a representative
   mid-size package, to confirm no regression for assemblies that previously
   rendered promptly; and
 - total time to terminal completion, confirmed unchanged from the current
-  synchronous path within measurement noise.
+  synchronous path within measurement noise — this design does not claim to
+  reduce total classification cost.
 
 The current single-result route is the base measurement and remains available
 until the progressive route demonstrates the same visible result semantics
-with earlier useful rows.
+with earlier useful rows or faster perceived row admission.
 
 ## Existing owners remain authoritative
 
@@ -105,22 +130,28 @@ with earlier useful rows.
 remains the authority for producer order, the four semantic event categories,
 exactly one semantic completion, durable-item credit and pull-ahead, and
 cancellation handoff. This design names one adopter event union whose Item
-payload is a `BrowserPerformanceMember` and whose Progress payload is a
-bounded "N of M members classified" checkpoint; it does not add a fifth
-category, a second completion, or a bespoke credit model.
+payload is a `BrowserPerformanceMember` restricted to already-final rows, and
+whose Progress payload is a bounded, replaceable preview; it does not add a
+fifth category, a second completion, or a bespoke credit model, and it does
+not weaken the owning rule that a published Item is never later replaced or
+discarded.
 
 ### Per-member outcome source
 
 [Assembly Analysis Operation](assembly-analysis-operation.md) and
 [Method Query Source](method-query-source.md) remain the authority for how
 members are visited, populated, and completed, and for producer-outcome and
-failure evidence. Until that migration lands for the optimization-opportunity
-producer, this design's first adoption wraps the existing
-`AssemblyContextOptimizationOpportunitiesQuery` visitation in a cooperative
-async enumerator (below) without changing its population, ranking, or
-completion semantics. When the producer migrates, the same event vocabulary
-binds to the migrated per-member source completion instead; this design does
-not gate on, or redefine, that migration's sequencing.
+failure evidence. At the time of writing, no owner exposes a per-member
+completion signal during `AssemblyContextOptimizationOpportunitiesQuery`'s
+classification; see
+[Prerequisite](#prerequisite-per-member-compute-observability). This design's
+Item-publication phase does not need that signal: it activates only after the
+existing synchronous call returns the complete, already-ranked, already-capped
+result, and streams that known result's rows instead of returning them as one
+array. When a future per-member signal exists, the same event vocabulary
+additionally carries Progress checkpoints during the compute phase itself;
+this design does not gate on, redefine, or require that migration's
+sequencing.
 
 ### Row shape and vocabulary
 
@@ -134,62 +165,90 @@ of once for the whole assembly — not their shape or meaning.
 ## Contract shape
 
 ```text
-AssemblyContextOptimizationOpportunitiesQuery visitation
-  (sequential, one outcome per visited member)
-  -> cooperative async wrapper
-       after each bounded batch of visited members:
-         yield Progress(visited, total)   [advisory, replaceable]
-         yield Item(member)*              [durable, one per visited member
-                                            admitted into the ranked result]
-         await a cooperative suspension point
+AssemblyContextOptimizationOpportunitiesQuery.ExecuteParticipant(...)
+  (today: one synchronous call; returns the complete, already-ranked,
+   already-capped member list — no mid-call observability exists; see
+   Prerequisite)
+  -> [future, gated on the prerequisite]
+       cooperative compute-phase wrapper
+         after each bounded interval of producer-reported progress:
+           yield Progress(visited, total, best-effort preview)
+             [advisory, replaceable; never a durable Item]
+  -> once the complete ranked, capped result is known
+       cooperative publication wrapper
+         for each member in the final list, in final rank order:
+           yield Item(member)        [durable; already-final, never replaced]
+           after each bounded batch: await a cooperative suspension point
   -> engine-to-browser async event-stream adapter
        existing ordering, credit, cancellation, and completion rules
   -> Browser callback
-       admits each Item row into the live `library:analysis` list
-       in arrival order
-       replaces the "Analyzing allocations…" spinner with a running
-       status line once the first row or progress checkpoint arrives
+       Progress replaces the spinner with a live, replaceable preview
+       Item appends one row at a time to the authoritative list, in the
+         list's final order
   -> Completed
        final BrowserPackagePerformance accounting
        (NonPublicOpportunities, TotalOpportunities, InspectionError)
-       reconciles the progressively admitted rows; it does not re-publish
-       them
+       identical to today's single-call result; it does not recompute or
+       re-derive totals from the admitted Item rows
 ```
+
+### Prerequisite: per-member compute observability
+
+At the time of writing, `AssemblyContextOptimizationOpportunitiesQuery`
+(`src/DotnetInspector.Queries/AssemblyContextOptimizationOpportunitiesQuery.cs`)
+calls `LibraryBodyAnalysisService.ExecuteImage` once and receives the complete
+classification before any ranking or grouping runs; there is no externally
+observable per-member checkpoint during that call. This design does not add
+one — that capability, if pursued, belongs to the method-body analysis
+producer lineage
+([Assembly Analysis Operation](assembly-analysis-operation.md),
+[Method Query Source](method-query-source.md), and the tracked migration in
+[#8965](https://github.com/richlander/dotnet-inspect/issues/8965)/
+[#8577](https://github.com/richlander/dotnet-inspect/issues/8577)).
+
+Until that signal exists, this design's compute-phase Progress claim is
+unimplementable, and adoption delivers only the post-completion Item-streaming
+phase described above: the existing blocking call still runs to completion
+before any event is published, but the known result then streams
+incrementally instead of returning as one array. The Progress claim activates
+once the prerequisite lands, without any change to this document.
 
 ### Cooperative yielding
 
-The optimization-opportunity visitation is CPU-bound over an already-loaded,
-in-memory assembly; it has no natural `await` suspension point between
-members the way Package Query's network-bound candidate evaluation does.
-Without a deliberate yield, wrapping the synchronous call in
-`IAsyncEnumerable<T>` would still run to completion before the first `await`
-returns control to the browser's single Wasm thread, defeating the purpose of
-this design.
+Both phases are CPU-bound over an already-loaded, in-memory assembly; neither
+has a natural `await` suspension point the way Package Query's network-bound
+candidate evaluation does. Without a deliberate yield, wrapping either phase
+in `IAsyncEnumerable<T>` would still run to completion before the first
+`await` returns control to the browser's single Wasm thread, defeating the
+purpose of this design.
 
-The wrapper therefore introduces one bounded cooperative-yield interval: after
-visiting at most a fixed small count of members (an implementation tuning
-value, not a schema or compatibility identity), it publishes any buffered
-Progress/Item events and performs one cooperative suspension before resuming
-visitation. This interval trades a small amount of wall-clock throughput for
-keeping the Browser main thread responsive and for making the per-member
-Item events actually observable as distinct host-boundary crossings rather
-than all becoming ready at once immediately before the first `await`.
+Each wrapper therefore introduces one bounded cooperative-yield interval:
+after at most a fixed small count of units (visited members for the compute
+phase once it exists; published rows for the publication phase, an
+implementation tuning value and not a schema or compatibility identity), it
+publishes any buffered events and performs one cooperative suspension before
+resuming. This interval trades a small amount of wall-clock throughput for
+keeping the Browser main thread responsive and for making published events
+actually observable as distinct host-boundary crossings.
 
-The sequential reference visitation order is normative, matching Assembly
-Analysis Operation's sequential-executor baseline; a later concurrent
-visitation must remain result-equivalent before this design changes its
-yield points to match.
+The final list's rank order is normative for Item publication order. A later
+concurrent implementation of either phase must remain result-equivalent to
+this sequential reference before changing yield points.
 
 ### Progressive rendering
 
 `library-analysis.ts` is extended so that:
 
 - the first Progress or Item event replaces the blocking spinner state with a
-  live list plus a running "`N` of `M` members classified" status, rather
-  than requiring full completion to leave the loading state;
-- each admitted Item appends one row to the visible list in arrival order,
-  consistent with the existing `ApplyPerformanceMemberLimit` triage cap
-  computed over rows admitted so far;
+  live status, rather than requiring full completion to leave the loading
+  state;
+- while Progress events arrive, any preview rows they carry are rendered as
+  replaceable and visually distinguished from confirmed rows, and a later
+  Progress event may reorder or remove them;
+- each admitted Item appends one confirmed row to the visible list in the
+  list's final order, consistent with the existing `ApplyPerformanceMemberLimit`
+  triage cap — Item publication order is already the final order, so no
+  client-side re-sort is needed;
 - the existing partial/`inspectionError` warning and empty-result states
   render only at Completed, exactly as today; and
 - cancellation (navigating away from the surface, or selecting a different
@@ -202,7 +261,8 @@ yield points to match.
 This design does not:
 
 - change `AssemblyContextOptimizationOpportunitiesQuery`'s member population,
-  ranking, confidence classification, or triage cap semantics;
+  ranking, confidence classification, or triage cap semantics — the Item list
+  and Completed accounting are exactly today's existing computed values;
 - change `BrowserPerformanceMember` or `BrowserPackagePerformance`'s field
   vocabulary;
 - adopt Progressive JSONL Delivery's compact wire encoding — the first
@@ -211,10 +271,14 @@ This design does not:
   effort against that document's own owner;
 - change CLI analysis output;
 - redefine Assembly Analysis Operation's producer, source, or planning
-  contracts, or require that migration to land first; this design's
-  cooperative wrapper is a transitional adapter over the existing
-  `AssemblyContextOptimizationOpportunitiesQuery` visitation and is replaced,
-  not extended, when a migrated per-member source becomes available; and
+  contracts, or add a per-member compute-observability signal itself — see
+  [Prerequisite](#prerequisite-per-member-compute-observability); this
+  design's publication wrapper is a transitional adapter over the existing
+  `AssemblyContextOptimizationOpportunitiesQuery` call and is replaced, not
+  extended, when a migrated per-member source becomes available;
+- claim that compute-phase Progress is deliverable before that prerequisite
+  lands; without it, adoption delivers only post-completion Item streaming;
+  and
 - address Wasm call-graph scope cost or peak memory
   ([#3333](https://github.com/richlander/dotnet-inspect/issues/3333)); a
   faster perceived start does not change total analysis cost.
@@ -225,15 +289,23 @@ Following
 [Matching evidence to claims](../evidence-and-validation.md#matching-evidence-to-claims),
 implementation must show:
 
-- an automated test that the cooperative wrapper publishes more than one
-  Item event, in visitation order, for an assembly with more than one
-  analyzable member, with no event published out of visitation order;
-- an automated test that Completed accounting
-  (`NonPublicOpportunities`/`TotalOpportunities`) matches the sum of
-  progressively admitted public rows plus the existing non-public count,
-  for both a partial-failure and a clean run;
-- a before/after measurement of time-to-first-row on the `Aspire.Hosting`
-  production witness, run through the repository's accepted performance
-  evidence path rather than ad hoc timing; and
+- an automated test that, for an assembly whose final ranked list has more
+  than one member, the publication wrapper emits one Item event per member in
+  exactly the final list's order, set, and count, for both a boundary input at
+  the existing 200-member triage cap and an input below it;
+- an automated test that Completed's `NonPublicOpportunities` and
+  `TotalOpportunities` values are bit-for-bit identical, for the same input,
+  to the existing synchronous `AssemblyContextOptimizationOpportunitiesResult`
+  computation — not a sum over admitted Item rows, which are a
+  navigation-filtered, capped projection of that total by existing design;
+- if the [prerequisite](#prerequisite-per-member-compute-observability) has
+  landed: an automated test that a later Progress preview never reintroduces
+  a member excluded by an earlier Progress preview as durable, and that no
+  Progress payload is treated as part of the outcome before Completed or the
+  corresponding Item;
+- a before/after measurement of time from classification completion to full
+  row rendering on the `Aspire.Hosting` production witness, run through the
+  repository's accepted performance evidence path rather than ad hoc timing;
+  and
 - confirmation that total time-to-completion for that same witness does not
   regress beyond measurement noise relative to the current synchronous path.

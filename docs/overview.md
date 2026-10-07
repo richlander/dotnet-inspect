@@ -765,10 +765,12 @@ producers that will extend that space.
   adapter-side pull, batching, and cancellation obligations before Browser
   publication.
 - [`docs/design/streaming-library-performance-analysis.md`](design/streaming-library-performance-analysis.md)
-  owns binding incremental per-member optimization-opportunity outcomes to the
-  engine-to-browser async event stream, the cooperative-yield obligation that
-  makes a CPU-bound member visitation observably incremental on a single Wasm
-  thread, and the `library:analysis` surface's progressive-rendering contract.
+  owns binding the `library:analysis` surface to the engine-to-browser async
+  event stream: a replaceable Progress preview during classification (gated on
+  a not-yet-existing per-member compute-observability prerequisite) and
+  durable, order-preserving Item streaming of the already-ranked, already-capped
+  result once classification completes, plus the cooperative-yield obligation
+  that keeps either phase observable on a single Wasm thread.
 - [`docs/design/custom-attribute-value-decoding.md`](design/custom-attribute-value-decoding.md)
   owns the safety contract for decoding custom-attribute values
   from untrusted metadata: the bounding, fail-closed, and fidelity invariants
