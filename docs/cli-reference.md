@@ -226,15 +226,18 @@ System.Text.Json 11.0.0.0
 `--tree` and `-v:m` select the same Tree, and `--mermaid` renders the same
 nodes as a Mermaid graph. Platform, package, and file sources are accepted,
 together with `--framework`, `--version`, `--preview`, one `--tfm`,
-`--namesake-library`, and NuGet source options. A package that contributes
-more than one Library keeps the multi-Library view; explicit `--tree` or
-`--mermaid` on such a package fails and asks for the assembly within the
-package. Any other option, including `-S`, `-v:n`, `-v:d`, and every format
-option, keeps the sectioned Library view. Library facts remain available as
-`-S "Library Info"`.
+`--namesake-library`, NuGet source options, and `--verbose`. A package that
+contributes more than one Library keeps the multi-Library view; explicit
+`--tree` or `--mermaid` on such a package fails and asks for the assembly
+within the package. Any other option, including `-S`, `-v:n`, `-v:d`, every
+format option, and a `DOTNET_INSPECT_FORMAT` default, keeps the sectioned
+Library view; combined with such an option, `--tree` and `--mermaid` keep
+their `-S "Reference Hierarchy"` requirement. Library facts remain available
+as `-S "Library Info"`.
 
-A Library whose Type population cannot be read completely fails with the
-reason instead of rendering a partial Tree.
+A Library with no public Types renders its identity line marked
+`(no public types)`. A Library whose Type population cannot be read completely
+fails with the reason instead of rendering a partial Tree.
 
 ### Library namespace Type listings
 

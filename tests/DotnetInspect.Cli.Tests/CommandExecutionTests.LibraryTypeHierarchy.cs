@@ -2,6 +2,7 @@ using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Planning;
 using DotnetInspector.Presentation;
 using DotnetInspector.Sections;
+using InertText;
 
 namespace DotnetInspect.Cli.Tests;
 
@@ -151,5 +152,137 @@ public partial class CommandExecutionTests
         Assert.Null(rows.Continuation);
         Assert.NotEmpty(rows.Items);
         Assert.All(rows.Items, row => Assert.Null(row.MemberCount));
+    }
+
+    [Fact]
+    public async Task Library_EmptyPublicPopulation_RendersAsEmpty()
+    {
+        string tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"library-hierarchy-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            string path = Path.Combine(tempDir, "Empty.Library.dll");
+            WriteReferenceFixtureAssembly(path, "Empty.Library");
+
+            var (exit, output, error) = await RunAppAsync("library", path);
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Equal(
+                "Empty.Library 1.0.0.0 (no public types)",
+                output.TrimEnd());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("json")]
+    [InlineData("markdown")]
+    [InlineData("mermaid")]
+    public async Task Library_EnvironmentFormat_KeepsStandardViewUnlessTreeIsExplicit(
+        string format)
+    {
+        string? original =
+            Environment.GetEnvironmentVariable("DOTNET_INSPECT_FORMAT");
+        try
+        {
+            Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", format);
+            var environment = await RunAppAsync(
+                "library",
+                LibraryTypeHierarchyFixturePath);
+            var explicitTree = await RunAppAsync(
+                "library",
+                LibraryTypeHierarchyFixturePath,
+                "--tree");
+
+            Assert.DoesNotContain(
+                "World.Blue.Nodes (1 type)",
+                environment.Output,
+                StringComparison.Ordinal);
+            Assert.Equal(0, explicitTree.Exit);
+            Assert.StartsWith(
+                "DotnetInspector.Fixtures ",
+                explicitTree.Output,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(
+                "DOTNET_INSPECT_FORMAT",
+                original);
+        }
+    }
+
+    [Theory]
+    [InlineData("--tree")]
+    [InlineData("--mermaid")]
+    public async Task Library_MultiLibraryPackage_ExplicitHierarchyFails(
+        string gesture)
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            var bare = await RunAppAsync("library", "--package", packagePath);
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                "--package",
+                packagePath,
+                gesture);
+
+            Assert.Equal(0, bare.Exit);
+            Assert.Contains("Latest.One.dll", bare.Output, StringComparison.Ordinal);
+            Assert.Contains("Latest.Two.dll", bare.Output, StringComparison.Ordinal);
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(
+                LibraryCommandPlanner.OneLibraryError,
+                error,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Library_TypeHierarchyRowsFailures_AreVisible()
+    {
+        LibraryTypePopulationRowsOutcome[] failures =
+        [
+            new LibraryTypePopulationRowsOutcome.Read(
+                LibraryTypePopulationOrdering.Metadata,
+                [],
+                new LibraryTypePopulationContinuation(
+                    new InertString(TextPolicy.Field, "receipt"))),
+            new LibraryTypePopulationRowsOutcome.Incomplete(
+                LibraryTypePopulationRowsBound.RetainedDeclarations,
+                Limit: 10,
+                Measured: 11),
+            new LibraryTypePopulationRowsOutcome.Unavailable(
+                LibraryTypePopulationRowsUnavailableReason
+                    .UnsupportedModuleExport),
+            new LibraryTypePopulationRowsOutcome.Rejected(
+                LibraryTypePopulationRowsRejection.InvalidContinuation),
+            new LibraryTypePopulationRowsOutcome.Failed(
+                LibraryTypePopulationRowsFailure.MalformedMetadata),
+        ];
+
+        Assert.All(
+            failures,
+            failure => Assert.NotNull(
+                LibraryTypeHierarchyCommand.DescribeRowsFailure(failure)));
+        Assert.NotNull(LibraryTypeHierarchyCommand.DescribeRowsFailure(null));
+        Assert.Null(
+            LibraryTypeHierarchyCommand.DescribeRowsFailure(
+                new LibraryTypePopulationRowsOutcome.Read(
+                    LibraryTypePopulationOrdering.Metadata,
+                    [],
+                    Continuation: null)));
     }
 }

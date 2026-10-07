@@ -68,7 +68,8 @@ internal static class LibraryTypeHierarchyCommand
                     _ => "The Library inspection returned an unknown outcome.",
                 });
         }
-        if (Describe(available.Document.Types?.Rows) is { } rowsFailure)
+        if (DescribeRowsFailure(available.Document.Types?.Rows)
+            is { } rowsFailure)
             return Unavailable(rowsFailure);
 
         try
@@ -85,7 +86,7 @@ internal static class LibraryTypeHierarchyCommand
         }
     }
 
-    private static string? Describe(
+    internal static string? DescribeRowsFailure(
         LibraryTypePopulationRowsOutcome? rows) =>
         rows switch
         {

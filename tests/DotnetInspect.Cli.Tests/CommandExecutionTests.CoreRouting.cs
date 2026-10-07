@@ -368,8 +368,9 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("# System.Text.Json.dll", output);
-        Assert.Contains("## Library Info", output);
+        Assert.StartsWith("System.Text.Json ", output, StringComparison.Ordinal);
+        Assert.Contains("─ System.Text.Json (", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("## Library Info", output, StringComparison.Ordinal);
     }
 
     [Fact]

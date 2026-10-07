@@ -46,7 +46,8 @@ internal static class LibraryCommandPlanner
     /// Plans a <c>library</c> invocation. The Type hierarchy is the default
     /// only when every explicit option selects the Library source, the
     /// hierarchy format, minimal verbosity, or diagnostic logging; any other
-    /// demand keeps the standard path.
+    /// demand, including a <c>DOTNET_INSPECT_FORMAT</c> default that no
+    /// explicit format gesture overrides, keeps the standard path.
     /// </summary>
     internal static LibraryCommandPlanningResult Plan(
         LibraryOptions options,
@@ -56,7 +57,12 @@ internal static class LibraryCommandPlanner
         ArgumentNullException.ThrowIfNull(options);
 
         bool tree = options.Tree;
+        bool environmentFormat =
+            options.FormatExplicitlySet
+            && !options.FormatFlagExplicitlySet
+            && !tree;
         if (!onlyHierarchyOptionsExplicitlySet
+            || environmentFormat
             || options.Verbosity != Verbosity.Minimal
             || string.Equals(
                 options.Tfm,

@@ -969,7 +969,7 @@ public partial class LibraryCommand
             return 1;
         }
 
-        if (options.Tree && options.Discover == null)
+        if (options.Tree && options.Discover == null && !typeHierarchy)
         {
             if (options.Print
                 || options.Value

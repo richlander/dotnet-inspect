@@ -603,6 +603,11 @@ owner removes the qualifier from their raw text and re-encodes only the
 remainder. The empty namespace is the global namespace. The owner forms every
 node, including its spelling, before the sink receives the first one.
 
+A complete population with no declarations is empty, not absent. Every
+lowering marks it on the root node, for example
+`Empty.Library 1.0.0.0 (no public types)`, so the result is never a
+success-shaped bare identity line.
+
 A forwarder remains a first-class declaration node and never resolves a target
 definition. In the Member Count profile, a definition's Count is the row's
 counted outcome and a forwarder's is not applicable, never zero.

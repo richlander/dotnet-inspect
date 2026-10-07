@@ -427,9 +427,14 @@ Library source options, so every other option keeps the sectioned view.
 several Libraries keeps its multi-Library view until exact subject resolution
 lands, and explicit hierarchy gestures there fail. Collapse, namespace input,
 exhaustive `-v:n`/`-v:d` Trees, and Inspect Web adoption remain open.
-`CommandExecutionTests.LibraryTypeHierarchy` gates the admitted gestures, the
-competing-demand boundary, and the work bound: the default plan requests no
-Member Count, and no returned row carries one.
+An empty public population renders as such (obligation 5).
+`CommandExecutionTests.LibraryTypeHierarchy` gates:
+- the admitted gestures;
+- the competing-demand boundary, including a `DOTNET_INSPECT_FORMAT` default;
+- the multi-Library rejection;
+- the empty population and the visible Rows failures;
+- the work bound: the default plan requests no Member Count, and no returned
+  row carries one.
 
 ## Gates
 
