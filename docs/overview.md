@@ -764,6 +764,11 @@ producers that will extend that space.
   durable partial items and item failures, one semantic completion, and
   adapter-side pull, batching, and cancellation obligations before Browser
   publication.
+- [`docs/design/streaming-library-performance-analysis.md`](design/streaming-library-performance-analysis.md)
+  owns binding incremental per-member optimization-opportunity outcomes to the
+  engine-to-browser async event stream, the cooperative-yield obligation that
+  makes a CPU-bound member visitation observably incremental on a single Wasm
+  thread, and the `library:analysis` surface's progressive-rendering contract.
 - [`docs/design/custom-attribute-value-decoding.md`](design/custom-attribute-value-decoding.md)
   owns the safety contract for decoding custom-attribute values
   from untrusted metadata: the bounding, fail-closed, and fidelity invariants
