@@ -18,10 +18,37 @@ public sealed class ViewFacetRegistryTests
         Assert.Equal(ViewFacetRole.MemberOverview, descriptor.Role);
     }
 
+    [Fact]
+    public void LibraryRoles_ResolveTypesForLibraryAndReferencesForAllLibraries()
+    {
+        ViewFacetRegistry registry = InspectionViewFacetCatalog.Registry;
+
+        ViewFacetDescriptor types =
+            registry.GetRequiredDescriptor(
+                StructuralSubjectKind.Library,
+                ViewFacetRole.LibraryTypes);
+
+        Assert.Equal("library.types", types.Id.Value);
+        Assert.Equal(
+            ["library.types", "library.info", "library.references"],
+            registry.Descriptors
+                .Where(static d => d.Kind == StructuralSubjectKind.Library)
+                .Take(3)
+                .Select(static d => d.Id.Value));
+        Assert.Equal(
+            "library.references",
+            registry.GetRequiredDescriptor(
+                    StructuralSubjectKind.Library,
+                    ViewFacetRole.LibraryReferences)
+                .Id.Value);
+    }
+
     [Theory]
     [InlineData(StructuralSubjectKind.Workspace, "overview", "workspace.overview")]
     [InlineData(StructuralSubjectKind.Ecosystem, "overview", "ecosystem.overview")]
     [InlineData(StructuralSubjectKind.Package, "dependencies", "package.dependencies")]
+    [InlineData(StructuralSubjectKind.Library, "types", "library.types")]
+    [InlineData(StructuralSubjectKind.Library, "info", "library.info")]
     [InlineData(StructuralSubjectKind.Library, "ecosystem-dependencies",
         "library.ecosystem-dependencies")]
     [InlineData(StructuralSubjectKind.Library, "compare", "library.compare")]
@@ -636,6 +663,12 @@ public sealed class ViewFacetRegistryTests
                 "Dependency Hierarchy",
                 "Rooted transitive package dependencies for the selected target framework.",
                 300),
+            new("library.types", StructuralSubjectKind.Library, "Types",
+                "Public Type declarations of the active Library, by namespace.",
+                50, ViewFacetRole.LibraryTypes),
+            new("library.info", StructuralSubjectKind.Library, "Info",
+                "Identity, image, description, and enablement facts for the active Library.",
+                75),
             new("library.references", StructuralSubjectKind.Library, "References",
                 "Direct assembly references for the active Library.",
                 100, ViewFacetRole.LibraryReferences),
@@ -717,6 +750,10 @@ public sealed class ViewFacetRegistryTests
                     InspectionViewFacetExecution.PackageDependencies),
                 ("package.dependency-hierarchy",
                     InspectionViewFacetExecution.PackageDependencyHierarchy),
+                ("library.types",
+                    InspectionViewFacetExecution.LibraryTypes),
+                ("library.info",
+                    InspectionViewFacetExecution.LibraryInfo),
                 ("library.references",
                     InspectionViewFacetExecution.LibraryReferences),
                 ("library.ecosystem-dependencies",

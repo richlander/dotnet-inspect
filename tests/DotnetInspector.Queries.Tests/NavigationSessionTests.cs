@@ -62,7 +62,7 @@ public sealed partial class NavigationSessionTests
         Assert.Equal(retainedMember, workspace.Snapshot.Hierarchy[5].Subject!.Id);
         NavigationConsumerResult library = await session.ExecuteAsync(session.Snapshot.Libraries[1].Navigation.Action!, TestContext.Current.CancellationToken);
         Assert.Equal(StructuralSubjectKind.Library, library.Snapshot.ActiveSubject.Kind);
-        Assert.Equal("library.references", library.Snapshot.LensOutcome.EffectiveLens!.Facet);
+        Assert.Equal("library.types", library.Snapshot.LensOutcome.EffectiveLens!.Facet);
         Assert.Null(library.Snapshot.Libraries[1].Navigation.Action);
     }
 

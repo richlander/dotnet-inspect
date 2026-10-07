@@ -25,13 +25,14 @@ from compact Counts.
 
 The Library document is the second adopter
 ([#9593](https://github.com/richlander/dotnet-inspect/issues/9593)). Its
-owner admits one profile over the complete Type declaration population:
+owner's default profile lists the complete Type declaration population as
+leaves, grouped by namespace, and an explicit profile may add Member Counts:
 
 ```text
 Library (FullSpelling)
   -> namespaces (Rows, Name)
     -> Type declarations (Rows, Name)
-      -> Members (Count)
+      -> Members (Count, explicit profile only)
 ```
 
 [Library inspection documents](library-inspection-document.md#hierarchy-projection)
