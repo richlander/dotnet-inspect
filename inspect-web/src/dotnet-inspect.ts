@@ -7780,7 +7780,6 @@ function currentMemberBodyDiffContext(): MemberBodyDiffContext | null {
     typeIdentity: subject.kind === "library" ? null : typeIdentifierOf(subject.type),
     memberFingerprint: subject.kind === "member" ? subject.overload?.anchorDigest ?? null : null,
     methodToken: subject.kind === "member" ? state.selectedBodyTarget?.metadataToken ?? subject.overload?.metadataToken ?? null : null,
-    tools: renderLibraryDiffTools(subject),
   };
 }
 
@@ -7812,7 +7811,7 @@ function renderCompareSurface(): string {
   if (packageComparisonTargets.get(subject.pkg).diffContent.kind === "member-body") {
     const body = memberBodyDiff.render();
     if (body) return body;
-    return renderCompareFrame({ subjectKind, subjectLabel, mode, targetText, tools: renderLibraryDiffTools(subject),
+    return renderCompareFrame({ subjectKind, subjectLabel, mode, targetText, externalToolbar: true,
       status: "Member Body unavailable", content: "<p>Select an available Gallery comparison target.</p>", escapeHtml });
   }
   const options = libraryApiDiffRenderOptions(subject);
@@ -7825,7 +7824,7 @@ function renderCompareSurface(): string {
     resultSummaryInDataBar: currentDataBarResult() !== null,
     subjectLabel,
     targetText,
-    tools: renderLibraryDiffTools(subject),
+    tools: "",
     ...(memberContext === null
       ? {}
       : { memberDiffSection: memberDiffExplorer.renderInline(memberContext) }),
@@ -9223,7 +9222,10 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
     activeScope === "package" && state.packageLens === "vulnerabilities";
   const libraryMetadataWorkingSurface =
     activeScope === "library" && state.libraryLens === "metadata";
-  const compareWorkingSurface = currentCompareSubject() !== null;
+  const compareSubject = currentCompareSubject();
+  const compareWorkingSurface = compareSubject !== null;
+  const memberBodyWorkingSurface = compareSubject !== null && currentCompareMode() === "diff"
+    && packageComparisonTargets.get(compareSubject.pkg).diffContent.kind === "member-body";
   const memberDiffExploreTarget = currentMemberDiffExploreContext();
   const libraryReferencesWorkingSurface =
     activeScope === "library" && state.libraryLens === "references";
@@ -9255,7 +9257,7 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
         ? "Libraries"
       : navMode() === "member" && current ? "Members" : "Types";
   const contentNavigationIntegrated =
-    apiWorkingSurface
+    !memberBodyWorkingSurface && (apiWorkingSurface
     || metadataWorkingSurface
     || overviewWorkingSurface
     || packageDependenciesWorkingSurface
@@ -9263,7 +9265,7 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
     || libraryMetadataWorkingSurface
     || libraryReferencesWorkingSurface
     || libraryAnalysisWorkingSurface
-    || memberWorkingSurface;
+    || memberWorkingSurface);
 
   if (scopeBarOwnsFocus) {
     app.tabIndex = -1;
@@ -9274,8 +9276,11 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
   replaceChildrenPreservingRenderedInteractions(app, `
     <div class="workbench"${state.memberAnnotatedModal || applicationModalOpen ? " inert" : ""}>
       ${workbenchShellHtml({
-        contextualActionsHtml: !loadingPackageContent && (memberDiffExploreTarget || sourcePageKind || packageDependenciesWorkingSurface || metadataWorkingSurface)
-          ? `<div class="working-surface-actions" role="group" aria-label="${memberDiffExploreTarget ? "Member Diff actions" : metadataWorkingSurface ? "Type graph actions" : packageDependenciesWorkingSurface ? "Dependency graph actions" : sourcePageKind ? "Source actions" : "Member actions"}">
+        contextualActionsHtml: !loadingPackageContent && (compareWorkingSurface || memberDiffExploreTarget || sourcePageKind || packageDependenciesWorkingSurface || metadataWorkingSurface)
+          ? `<div class="working-surface-actions" role="group" aria-label="${compareWorkingSurface ? "Compare actions" : memberDiffExploreTarget ? "Member Diff actions" : metadataWorkingSurface ? "Type graph actions" : packageDependenciesWorkingSurface ? "Dependency graph actions" : sourcePageKind ? "Source actions" : "Member actions"}">
+              ${compareSubject !== null && currentCompareMode() === "diff"
+                ? `<div class="compare-page-actions">${renderLibraryDiffTools(compareSubject)}${memberBodyWorkingSurface
+                  ? `${memberBodyDiff.renderActions()}` : ""}</div>` : ""}
               ${memberDiffExploreTarget
                 ? '<button type="button" id="member-diff-explore" data-member-diff-explore>Explore</button>'
                 : ""}
