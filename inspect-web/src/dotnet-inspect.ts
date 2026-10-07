@@ -1,3 +1,4 @@
+import { createSubjectIconLoader } from "./subject-icon.ts";
 import {
   createPackagePublicationDates,
   platformPublicationCoordinate,
@@ -4925,6 +4926,29 @@ function renderInspectedSubjectIcon(pkg: AppPackage): string {
   </span>`;
 }
 
+const loadInspectedSubjectIcon = createSubjectIconLoader({
+  afterPaint: () => new Promise<void>(resolve => {
+    requestAnimationFrame(() => setTimeout(resolve, 0));
+  }),
+  current: () => state.package,
+  query: (id, version) => inspectPackageIcon(id, version),
+  apply: icon => {
+    for (const image of document.querySelectorAll<HTMLImageElement>(
+      ".subject-icon [data-package-icon]")) {
+      image.src = `data:${icon.mediaType};base64,${icon.base64}`;
+    }
+  },
+});
+
+function scheduleInspectedSubjectIcon() {
+  const pkg = state.package;
+  if (!pkg || pkg.icon || pkg.source.kind !== "nuget.org"
+    || pkg.isRuntimePack || state.rootKind === "library"
+    || scope() === "workspace"
+    || !document.querySelector(".subject-icon [data-package-icon]")) return;
+  void loadInspectedSubjectIcon(pkg);
+}
+
 function errorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
   if (isRecord(error) && typeof error.message === "string") return error.message;
@@ -6011,9 +6035,11 @@ function selectedTypeMetadataLibraryIdentity() {
 function selectDefaultPackageSubject(pkg: AppPackage) {
   state.workspaceSubjectOpen = false;
   state.atLibraryRoot =
-    pkg.assemblies.length > 0 && Boolean(pkg.assemblyId);
+    packageLibrariesForModel(pkg).some(library => library.id === pkg.assemblyId);
   state.atPackageRoot = !state.atLibraryRoot;
-  state.libraryScope = null;
+  state.libraryScope = state.atLibraryRoot
+    ? new Set([pkg.assemblyId])
+    : null;
   state.packageLens = "overview";
   state.libraryLens = "overview";
 }
@@ -9421,6 +9447,7 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
     ${renderAnnotatedSourceModal()}`);
 
   bindPackageIconFallbacks(document);
+  scheduleInspectedSubjectIcon();
   bindEvents();
   bindLibraryOpenEvents();
   if (loadingPackageContent) {
@@ -12210,6 +12237,7 @@ function maybeAutoLoadPackageSurfaceForLibraryNavigation() {
   const pkg = state.package;
   if (!pkg
     || !state.atLibraryRoot
+    || (state.libraryLens === "overview" && state.libraryScope?.size === 1)
     || !packageSurfaceCanLoadTypes(pkg)) {
     return;
   }

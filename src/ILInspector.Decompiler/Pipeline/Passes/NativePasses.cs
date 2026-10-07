@@ -143,6 +143,8 @@ internal static class NativePasses
     public static SlotMaterializationPass SlotMaterialization => new();
     [Native(NativeCategory.EmitArtifact, "reference assignment testimony refreshed immediately before stack-slot storage consumes it")]
     public static ReferenceSlotTargetBindingPass ReferenceSlotTargetBinding => new();
+    [Native(NativeCategory.EmitArtifact, "unobserved evaluation-stack storage retired to pure removal or exact target-typed evaluation discards before storage planning")]
+    public static ProducerOnlySlotRetirementPass ProducerOnlySlotRetirement => new();
     [Native(NativeCategory.EmitArtifact, "reference-coalesce assignment testimony and no-IL object argument conversions decided before emission")]
     public static ReferenceCoalesceBindingPass ReferenceCoalesceBinding => new();
     [Native(NativeCategory.EmitArtifact, "reference-conditional arm assignment targets refreshed after final rewrites for emission")]

@@ -53,7 +53,10 @@ slice, including nested candidates. It may therefore contain one or many
 Libraries; compile selection does not collapse that projection to a namesake or
 representative Library. The legacy `DefaultAsset` convenience remains outside
 this package-local projection claim until its current consumers adopt aggregate
-Navigation.
+Navigation or its
+[First Library](inspection-subject-navigation.md#initial-aggregate-and-package)
+request. `DefaultAsset` matches file stems in selection order, while First
+Library matches owner-issued assembly names in Library order.
 
 ## Receipts
 

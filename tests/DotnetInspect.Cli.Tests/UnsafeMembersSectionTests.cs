@@ -10,6 +10,26 @@ namespace DotnetInspect.Cli.Tests;
 public class UnsafeMembersSectionTests
 {
     [Fact]
+    public async Task
+        DirectLibraryExactTypeDiscovery_UsesUnsafeApplicabilityProbe()
+    {
+        var result = await ConsoleCapture.RunAsync(
+            () => TypeCommand.ExecuteAsync(
+                new TypeOptions
+                {
+                    TypeName = typeof(SampleUnsafeClass).FullName,
+                    AssemblyPath =
+                        typeof(SampleUnsafeClass).Assembly.Location,
+                    Discover = [SectionNames.UnsafeMembers],
+                    CompanionOutput = CompanionOutput.None,
+                }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Contains("Reason", result.Output);
+    }
+
+    [Fact]
     public async Task LibraryUnsafeMembers_IncludesSignaturesCallsAndOpcodes()
     {
         var result = await ConsoleCapture.RunAsync(() => LibraryCommand.ExecuteAsync(new LibraryOptions
