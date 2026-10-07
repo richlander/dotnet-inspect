@@ -354,6 +354,75 @@ public partial class PackageQueryTests
     }
 
     [Fact]
+    public async Task WorkspacePrefixScope_RemovedExistingPackageIsNotCommitted()
+    {
+        SearchResult[] matches = [Match("Contoso.Alpha")];
+        var source = new FakePackageSource(matches, new Dictionary<string, byte[]>());
+        var store = await PrefixScopeStoreAsync(matches);
+        var registration = new WorkspaceRegistration.PackagePrefix(
+            new PackagePrefixDeclaration("Contoso."));
+        await using var workspace =
+            new InspectionWorkspace([registration]);
+        WorkspaceRegistrationRevision revision =
+            CurrentRegistration(workspace);
+        PackagePrefixWorkspaceScopeRealizationOutcome.Settled first =
+            Assert.IsType<
+                PackagePrefixWorkspaceScopeRealizationOutcome.Settled>(
+                await PackagePrefixWorkspaceScopeRealization.ExecuteAsync(
+                    Request(
+                        workspace,
+                        revision,
+                        registration,
+                        await CurrentScopeAsync(workspace),
+                        source,
+                        store,
+                        maximumPackages: 10),
+                    TestContext.Current.CancellationToken));
+        WorkspaceScopeSnapshot populated =
+            Assert.IsType<WorkspaceScopeOperationResult.Committed>(
+                first.ScopeOperation).Snapshot;
+        WorkspacePackageOccurrenceDescriptor occurrence =
+            Assert.Single(populated.Packages);
+        WorkspaceScopeSnapshot removed =
+            Assert.IsType<WorkspaceScopeOperationResult.Committed>(
+                await workspace.RemovePackageOccurrenceAsync(
+                    populated.Revision,
+                    occurrence.Occurrence.Identity,
+                    DateTimeOffset.UtcNow.AddMinutes(1),
+                    TestContext.Current.CancellationToken)).Snapshot;
+
+        PackagePrefixWorkspaceScopeRealizationOutcome.Settled second =
+            Assert.IsType<
+                PackagePrefixWorkspaceScopeRealizationOutcome.Settled>(
+                await PackagePrefixWorkspaceScopeRealization.ExecuteAsync(
+                    Request(
+                        workspace,
+                        revision,
+                        registration,
+                        populated,
+                        source,
+                        store,
+                        maximumPackages: 10),
+                    TestContext.Current.CancellationToken));
+
+        Assert.Empty(removed.Packages);
+        Assert.False(second.IsComplete);
+        var rejection =
+            Assert.IsType<WorkspaceScopeOperationResult.Rejected>(
+                second.ScopeOperation);
+        Assert.Equal(
+            WorkspaceScopeRejection.RevisionMismatch,
+            rejection.Reason);
+        Assert.Empty(rejection.Snapshot.Packages);
+        PackagePrefixWorkspaceCandidateResult candidate =
+            Assert.Single(second.Candidates);
+        Assert.Equal(
+            PackagePrefixWorkspaceCandidateDisposition.NotCommitted,
+            candidate.Disposition);
+        Assert.Null(candidate.Occurrence);
+    }
+
+    [Fact]
     public async Task WorkspacePrefixScope_ScopeMovementRejectsPreparedBatch()
     {
         SearchResult candidate = Match("Contoso.Alpha");

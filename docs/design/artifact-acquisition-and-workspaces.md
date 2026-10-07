@@ -3665,12 +3665,14 @@ Concurrent Scope movement therefore produces the existing typed rejection
 rather than merging against a different population.
 
 The result distinguishes `Existing`, `Admitted`, `PreparationFailed`,
-`CapacityDeclined`, and `NotCommitted`. `Admitted` requires a committed or
-no-effect Scope result and an exact resulting occurrence. Search truncation,
-search failure, preparation failure, capacity decline, cancellation,
-supersession, or Scope rejection keeps realization incomplete. Partial Root
-preparation evidence remains visible, but no prepared candidate is described
-as a Scope member when the batch does not commit.
+`CapacityDeclined`, and `NotCommitted`. `Existing` and `Admitted` both require
+a committed or no-effect Scope result and an exact matching occurrence from
+that final snapshot. Membership from the caller-supplied snapshot is not
+reported as current when publication rejects, fails, or is cancelled. Search
+truncation, search failure, preparation failure, capacity decline,
+cancellation, supersession, or Scope rejection keeps realization incomplete.
+Partial Root preparation evidence remains visible, but no candidate is
+described as a Scope member when the batch does not commit.
 
 The motivating real asset is the nuget.org prefix
 `Microsoft.Extensions.Logging`. Production

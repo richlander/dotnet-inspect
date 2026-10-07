@@ -454,10 +454,18 @@ public static class PackagePrefixWorkspaceScopeRealization
         {
             if (ExistingOccurrence is not null)
             {
+                WorkspacePackageOccurrenceDescriptor? finalOccurrence =
+                    finalScope?.Packages.FirstOrDefault(candidate =>
+                        Equals(
+                            candidate.Occurrence.Package.Coordinate,
+                            ExistingOccurrence.Occurrence.Package.Coordinate));
                 return new(
                     Package,
-                    PackagePrefixWorkspaceCandidateDisposition.Existing,
-                    ExistingOccurrence,
+                    finalOccurrence is null
+                        ? PackagePrefixWorkspaceCandidateDisposition
+                            .NotCommitted
+                        : PackagePrefixWorkspaceCandidateDisposition.Existing,
+                    finalOccurrence,
                     []);
             }
 
