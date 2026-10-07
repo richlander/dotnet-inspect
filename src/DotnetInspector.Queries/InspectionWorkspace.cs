@@ -2032,6 +2032,13 @@ public sealed partial class InspectionWorkspace :
             options,
             retainedSnapshots: null);
 
+    internal bool ContainsAssemblyContextGroup(
+        AssemblyContextGroup group)
+    {
+        lock (_gate)
+            return _groups.Contains(group);
+    }
+
     internal AssemblyContextGroup CreateAssemblyContextGroupWithRetainedImages(
         IEnumerable<AssemblyContextParticipant> participants,
         IReadOnlyDictionary<

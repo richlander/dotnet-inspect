@@ -1508,6 +1508,17 @@ alternative; a bare `-n` on it is the rendered-line window. `Signature` is a
 one-row inventory whose row is the resolved member, so `--count` answers `1`.
 Count maps over several sections keep their per-section meaning.
 
+`Implementers` and `Derived Types` are explicit, expensive Type sections in
+`@Relations`. They preserve the exact Type occurrence selected for ordinary
+Type output while scanning the selected source population. Count and Rows are
+independent producer terminals: Count-only requests no rows, and a finite head
+or closed-range `--rows` window reaches the producer as a finite prefix bound.
+An unbounded request uses a 10,000-row safety bound and reports continuation as
+incomplete output. Tail selection is rejected because the forward-only producer
+cannot satisfy it without privately materializing the complete population.
+Package relation rows include the package-relative asset in `Source`, so
+distinct `ref`, `lib`, or runtime occurrences remain distinguishable.
+
 Every other type or member Text with a bare payload (`API Declarations` on the
 `type` command, `Decompiled Source`, `Annotated Source`, `PDB Source`, `IL`,
 and the overlays) has a fact row: `--table`, `--tsv`, and `--jsonl` emit its

@@ -429,6 +429,12 @@ public record TypeOptions : ApiOptions
         get;
         init;
     }
+    internal TypeHierarchyRelationsInspection?
+        TypeHierarchyRelations
+    {
+        get;
+        init;
+    }
 
     /// <summary>
     /// True when no explicit output format was selected (default invocation).
@@ -448,6 +454,35 @@ public record TypeOptions : ApiOptions
         || ShapeOutput
         || Count;
 }
+
+internal sealed record TypeHierarchyRelationsInspection(
+    TypeHierarchyRelationSectionInspection? Implementers,
+    TypeHierarchyRelationSectionInspection? DerivedTypes)
+{
+    internal bool IsComplete =>
+        (Implementers?.IsComplete ?? true)
+        && (DerivedTypes?.IsComplete ?? true);
+}
+
+internal sealed record TypeHierarchyRelationSectionInspection(
+    InspectionEnvelope<WorkspaceTypeHierarchySubjectRelationsDocument>
+        Inspection,
+    IReadOnlyList<TypeHierarchyRelationCandidate> Candidates)
+{
+    internal bool IsComplete =>
+        (Inspection.Content.Relations.Count is null
+            or SubjectRelationPopulationCountOutcome.Counted)
+        && (Inspection.Content.Relations.Rows is null
+            or SubjectRelationPopulationRowsOutcome.Read
+            {
+                Continuation: null,
+            });
+}
+
+internal sealed record TypeHierarchyRelationCandidate(
+    string Type,
+    string Library,
+    string Source);
 
 /// <summary>
 /// Options specific to the member command.

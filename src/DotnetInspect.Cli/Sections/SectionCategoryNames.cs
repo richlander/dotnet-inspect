@@ -72,6 +72,12 @@ public static class SectionCategoryNames
     public const string Calls = "@Calls";
 
     /// <summary>
+    /// Type hierarchy relationships composed across the selected Workspace
+    /// declaration population.
+    /// </summary>
+    public const string Relations = "@Relations";
+
+    /// <summary>
     /// Actual source content: decompiled, original, and annotated source views plus source diffs
     /// (API/member scope). Distinct from <see cref="SourceLink"/>, which is about SourceLink/PDB
     /// provenance and availability rather than the source text itself.
