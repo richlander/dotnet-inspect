@@ -1500,10 +1500,11 @@ public sealed class ExactTypeWorkspaceRouteTests
                 {
                     SectionNames.Implementers,
                 },
+            Count = true,
             CompanionOutput = CompanionOutput.None,
         };
 
-        (int exitCode, _, string error) =
+        (int exitCode, string output, string error) =
             await ConsoleCapture.RunAsync(
                 () => TypeCommand.ExecuteAsync(
                     options,
@@ -1523,6 +1524,7 @@ public sealed class ExactTypeWorkspaceRouteTests
                     TestContext.Current.CancellationToken));
 
         Assert.Equal(1, exitCode);
+        Assert.Empty(output);
         Assert.Contains(
             "Package-prefix Workspace Scope update was rejected: "
                 + nameof(WorkspaceScopeRejection.DeadlineExpired),

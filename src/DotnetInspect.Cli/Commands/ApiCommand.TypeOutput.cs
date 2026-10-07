@@ -73,11 +73,17 @@ public partial class ApiCommand
     {
         count = null;
         failure = null;
+        if (!additionalEvidenceComplete)
+        {
+            failure =
+                $"The '{sectionName}' count is incomplete or unavailable.";
+            return false;
+        }
+
         if (inspection is null)
             return true;
 
-        if (!additionalEvidenceComplete
-            || !inspection.AdditionalEvidenceComplete
+        if (!inspection.AdditionalEvidenceComplete
             || inspection.Inspection.Content.Relations.Count
             is not SubjectRelationPopulationCountOutcome.Counted counted)
         {
