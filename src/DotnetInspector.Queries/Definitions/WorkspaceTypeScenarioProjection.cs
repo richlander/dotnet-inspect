@@ -184,27 +184,3 @@ public static class WorkspaceTypeScenarioProjection
             path,
             message);
 }
-
-internal static class PortableIdentityProjection
-{
-    internal static PortableLibraryIdentity FromAssembly(
-        AssemblyReferenceIdentity identity)
-    {
-        ArgumentNullException.ThrowIfNull(identity);
-        Version version = identity.Version
-            ?? throw new InvalidOperationException(
-                "The selected Library has no exact assembly version.");
-        return new PortableLibraryIdentity(
-            identity.Name,
-            version.ToString(4),
-            string.IsNullOrEmpty(identity.Culture)
-                || identity.Culture.Equals(
-                    "neutral",
-                    StringComparison.OrdinalIgnoreCase)
-                    ? null
-                    : identity.Culture,
-            string.IsNullOrEmpty(identity.PublicKeyToken)
-                ? null
-                : identity.PublicKeyToken);
-    }
-}

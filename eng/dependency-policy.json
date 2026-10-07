@@ -198,8 +198,7 @@
         "DotnetInspect.Web.Core",
         "DotnetInspector.Ecosystems",
         "DotnetInspector.Queries",
-        "DotnetInspector.Sections",
-        "ILInspector.Metadata"
+        "DotnetInspector.Sections"
       ]
     },
     {
@@ -224,7 +223,6 @@
         "DotnetInspector.Sections",
         "DotnetInspector.SourceSelection",
         "ILInspector.Decompiler",
-        "ILInspector.Metadata",
         "InertText",
         "NuGetFetch",
         "QuerySpace.Primitives"
