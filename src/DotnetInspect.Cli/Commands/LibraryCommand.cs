@@ -824,19 +824,39 @@ public partial class LibraryCommand
             || options.Discover is not null;
 
         if (!rendersOwnPayload
-            && !IsAllTfmPackageSelection(options)
-            && LibrarySectionCardinality.ValidateExactTerminals(
-                options.Select,
-                options.SelectDefault,
-                options.IncludeSections,
-                options.FixedOverview,
-                options.Verbosity,
-                options.Count,
-                options.Rows is not null,
-                options.Discover is not null) is { } cardinalityError)
+            && !IsAllTfmPackageSelection(options))
         {
-            CommandError.Write(cardinalityError);
-            return 1;
+            ExactTerminalAdmission admission =
+                LibrarySectionCardinality.AdmitExactTerminals(
+                    options.Select,
+                    options.SelectDefault,
+                    options.IncludeSections,
+                    options.FixedOverview,
+                    options.Verbosity,
+                    options.Count,
+                    options.Rows is not null,
+                    options.Discover is not null);
+            if (admission.Error is { } cardinalityError)
+            {
+                CommandError.Write(cardinalityError);
+                return 1;
+            }
+            if (admission.InventorySections is { } inventorySections)
+            {
+                options = options with
+                {
+                    IncludeSections = inventorySections,
+                    ScalarSectionsOmitted = true,
+                    ExactIncludeSectionsOverride =
+                        options.ExactIncludeSectionsOverride?
+                            .Where(inventorySections.Contains)
+                            .ToHashSet(StringComparer.OrdinalIgnoreCase),
+                    UserIncludeSectionsOverride =
+                        options.UserIncludeSectionsOverride?
+                            .Where(inventorySections.Contains)
+                            .ToHashSet(StringComparer.OrdinalIgnoreCase),
+                };
+            }
         }
 
         if (options.JsonOutput
@@ -1031,7 +1051,10 @@ public partial class LibraryCommand
                 return 1;
 
             var ordered = OutputFormatter.ResolveCountMapSections(
-                pipeline, options.IncludeSections, options.FixedOverview);
+                pipeline,
+                options.IncludeSections,
+                options.FixedOverview,
+                keepSectionMap: options.ScalarSectionsOmitted);
             if (!CountOutput.ValidateMapFormat(
                     options.Format, ordered, options.Tree))
                 return 1;

@@ -714,9 +714,9 @@ acquire the target. They add the owner-issued section properties to the
 top-level catalog, or report one exact category or section in detail:
 `Formats`, and, where the owner declares them, `Shape` (`table`, `hierarchy`,
 or `text`, per [Section shapes](design/section-shapes.md)), `Cardinality`
-(`scalar` or `inventory`), and `Terminals`. Package, Type, and Member declare
-all of them (`Call Graph` is a graph and declares no shape); Library declares
-cardinality for `Library Info`. A category reports the formats supported by its
+(`scalar` or `inventory`), and `Terminals`. Every owner declares all of them;
+`Call Graph` and Library `Dependency Structure` are graphs and declare no
+shape. A category reports the formats supported by its
 complete expansion plus the formats of each member; it never selects or drops
 members to satisfy a format. Use the result to choose an exact section before
 requesting a single-result projection such as `--tree` or `--mermaid`.
@@ -724,6 +724,15 @@ requesting a single-result projection such as `--tree` or `--mermaid`.
 for one section, beside its formats and members. The catalogs are `library`,
 `package`, `type` (the type listing), `member` (one type's members),
 `member-overload`, and `member-detail` (one exact member).
+
+For one library, its field-set records — `Library Info`,
+`SourceLink: Availability`, `SourceLink: Integrity`, `Symbols`, and
+`Metadata: Image` — are scalar: they have no rows to count or window. `--count` or `--rows` on one of
+them, on a selection of only them, or on the default overview fails before
+acquisition. An explicit selection that mixes them with inventories counts and
+windows the inventories alone, so `library MyLib.dll -S @Metadata --count` lists
+each metadata table without an image field count. A `Context:` section counts
+its one located row.
 
 ```bash
 dotnet-inspect package System.Text.Json -D --details

@@ -509,7 +509,7 @@ public partial class PackageCommand
             return 1;
         }
         if (options.PackageLibrary is not null
-            && LibrarySectionCardinality.ValidateExactTerminals(
+            && LibrarySectionCardinality.AdmitExactTerminals(
                 options.Select,
                 options.SelectDefault,
                 options.IncludeSections,
@@ -517,7 +517,7 @@ public partial class PackageCommand
                 options.Verbosity,
                 options.Count,
                 options.Rows is not null,
-                options.Discover is not null) is { } cardinalityError)
+                options.Discover is not null).Error is { } cardinalityError)
         {
             CommandError.Write(cardinalityError);
             return 1;

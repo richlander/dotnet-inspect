@@ -434,7 +434,16 @@ unchanged.
    listing outside the `@Files` door as today. Replay selectors leave the
    JSON content.
 2. **Library owner.** Classifies the `library` sections, including the Type
-   inventory and `Library Info`, under the same three shapes.
+   inventory and `Library Info`, under the same three shapes (#9511). Every
+   section is a Table except `Reference Hierarchy`, a Hierarchy of rooted
+   reference occurrences, and `Dependency Structure`, a Graph of namespace
+   nodes and edges that keeps its diagram formats. The library catalog has
+   no Text. Its field-set records — single-Library `Library Info`, the
+   SourceLink availability and integrity records, `Symbols`, and
+   `Metadata: Image` — are scalar Tables; every other section is an
+   inventory. Each coordinate-scoped `Context:` section is a one-row Table
+   whose row unit is the located coordinate, as a member `Signature` is,
+   and `Metadata: Heap` rows are heap entries.
 3. **Type owner.** Classifies the `type` sections, including the member tree
    and the `Source` family.
 4. **Member owner.** Classifies the `member` sections, including overload

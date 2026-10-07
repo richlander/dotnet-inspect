@@ -109,8 +109,10 @@ public partial class CommandExecutionTests
 
             Assert.Equal(1, libraryExit);
             Assert.Empty(libraryOutput);
+            // Library Info is a scalar record, so the mixed Count observes
+            // References alone, which still cannot render as a tree.
             Assert.Contains(
-                $"Section '{SectionNames.LibraryInfo}' is scalar",
+                "References is direct evidence and cannot be rendered as a hierarchy",
                 libraryError);
             Assert.Equal(1, packageExit);
             Assert.Empty(packageOutput);
@@ -1897,12 +1899,18 @@ public partial class CommandExecutionTests
             "| References | section | library/sections/references "
             + "| --markdown, --plaintext, --json, --table, --tsv, --jsonl |",
             output);
+        Assert.Contains("| Shape |", output);
         Assert.Contains("| Cardinality |", output);
         Assert.Contains("| Terminals |", output);
         Assert.Contains(
             "| Library Info | section | library/sections/library-info "
             + "| --markdown, --plaintext, --json, --table, --tsv, --jsonl "
-            + "| scalar |  |",
+            + "| table | scalar |  |",
+            output);
+        Assert.Contains(
+            "| Signals | section | library/sections/signals "
+            + "| --markdown, --plaintext, --json, --table, --tsv, --jsonl "
+            + "| table | inventory | rows, count |",
             output);
         Assert.DoesNotContain("File not found", output);
     }
@@ -1985,8 +1993,19 @@ public partial class CommandExecutionTests
             row.GetProperty("formats")
                 .EnumerateArray()
                 .Select(item => item.GetString()));
-        Assert.False(row.TryGetProperty("cardinality", out _));
-        Assert.False(row.TryGetProperty("terminals", out _));
+        // Reference Hierarchy is a Hierarchy whose rows are its reference
+        // occurrences.
+        Assert.Equal(
+            "hierarchy",
+            row.GetProperty("shape").GetString());
+        Assert.Equal(
+            "inventory",
+            row.GetProperty("cardinality").GetString());
+        Assert.Equal(
+            ["rows", "count"],
+            row.GetProperty("terminals")
+                .EnumerateArray()
+                .Select(item => item.GetString()));
     }
 
     [Fact]
@@ -2055,34 +2074,119 @@ public partial class CommandExecutionTests
 
     [Fact]
     public async Task
-        LibraryCommand_MixedAndFixedScalarSelectionsRejectCount()
+        LibraryCommand_ScalarOnlyAndImplicitSelectionsRejectCount()
+    {
+        // A selection of scalars only, or the implicit overview (which always
+        // includes Library Info), has no rows to count.
+        string missingPath = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-missing-{Guid.NewGuid():N}.dll");
+        var scalars = await RunAppAsync(
+            "library",
+            missingPath,
+            "-S",
+            $"{SectionNames.Symbols},{SectionNames.SourceLinkAvailability}",
+            "--count");
+        var implicitOverview = await RunAppAsync(
+            "library",
+            missingPath,
+            "--count");
+
+        Assert.Equal(1, scalars.Exit);
+        Assert.Empty(scalars.Output);
+        Assert.Contains(
+            $"Section '{SectionNames.SourceLinkAvailability}' is scalar",
+            scalars.Error);
+        Assert.Equal(1, implicitOverview.Exit);
+        Assert.Empty(implicitOverview.Output);
+        Assert.Contains(
+            $"Section '{SectionNames.LibraryInfo}' is scalar",
+            implicitOverview.Error);
+    }
+
+    [Theory]
+    [InlineData("--count")]
+    [InlineData("--rows", "1")]
+    public async Task
+        LibraryCommand_LoneScalarRecordRejectsTerminalBeforeAcquisition(
+            params string[] terminal)
     {
         string missingPath = Path.Combine(
             Path.GetTempPath(),
             $"dotnet-inspect-missing-{Guid.NewGuid():N}.dll");
+
+        var (exit, output, error) = await RunAppAsync(
+        [
+            "library",
+            missingPath,
+            "-S",
+            SectionNames.Symbols,
+            .. terminal,
+        ]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            $"Section '{SectionNames.Symbols}' is scalar",
+            error);
+        Assert.Contains(terminal[0], error);
+    }
+
+    [Fact]
+    public async Task
+        LibraryCommand_MixedScalarSelectionCountsOnlyInventories()
+    {
+        // An explicit selection that mixes scalar records with inventories
+        // counts the inventories; a field count is never reported as rows,
+        // and the result keeps its per-section map.
         var mixed = await RunAppAsync(
             "library",
-            missingPath,
+            TestAssemblyPath,
             "-S",
-            $"{SectionNames.LibraryInfo},{SectionNames.References}",
-            "--count");
-        var fixedOverview = await RunAppAsync(
+            $"{SectionNames.LibraryInfo},{SectionNames.Symbols},"
+                + SectionNames.References,
+            "--count",
+            "--tsv");
+        var metadata = await RunAppAsync(
             "library",
-            missingPath,
+            TestAssemblyPath,
             "-S",
-            LibraryFixedOverviewSelection,
-            "--count");
+            "@Metadata",
+            "--count",
+            "--tsv");
 
-        Assert.Equal(1, mixed.Exit);
-        Assert.Empty(mixed.Output);
-        Assert.Contains(
-            $"Section '{SectionNames.LibraryInfo}' is scalar",
-            mixed.Error);
-        Assert.Equal(1, fixedOverview.Exit);
-        Assert.Empty(fixedOverview.Output);
-        Assert.Contains(
-            $"Section '{SectionNames.LibraryInfo}' is scalar",
-            fixedOverview.Error);
+        Assert.Equal(0, mixed.Exit);
+        Assert.Empty(mixed.Error);
+        string[] mixedRows = mixed.Output.Split(
+            '\n',
+            StringSplitOptions.RemoveEmptyEntries);
+        Assert.Equal("section\tcount", mixedRows[0]);
+        Assert.StartsWith(
+            $"{SectionNames.References}\t",
+            Assert.Single(mixedRows[1..]));
+
+        Assert.Equal(0, metadata.Exit);
+        Assert.Empty(metadata.Error);
+        Assert.Contains("Metadata: TypeDef\t", metadata.Output);
+        Assert.DoesNotContain(
+            MetadataSectionNames.Image,
+            metadata.Output);
+
+        // Rows is Count's peer over the same population: the scalar record
+        // leaves the windowed selection too.
+        var rows = await RunAppAsync(
+            "library",
+            TestAssemblyPath,
+            "-S",
+            $"{SectionNames.Symbols},{SectionNames.Signals}",
+            "--rows",
+            "1..2",
+            "--markdown");
+
+        Assert.Equal(0, rows.Exit);
+        Assert.Empty(rows.Error);
+        Assert.Contains($"## {SectionNames.Signals}", rows.Output);
+        Assert.DoesNotContain($"## {SectionNames.Symbols}", rows.Output);
     }
 
     [Fact]
