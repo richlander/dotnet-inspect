@@ -1072,11 +1072,9 @@ public static partial class PackageExports
     }
 
     /// <summary>
-    /// Ranks loaded type candidates against an incremental query through the product's
-    /// shared Type-name ranking: <see cref="TypeMatcher"/> direct matches, then the
-    /// <see cref="TypeNameMatchRanking"/> prefix, substring, and namespace-path tiers, then a
-    /// Levenshtein "did you mean" fallback. This inspects no artifact — the candidates are
-    /// names the client already holds — so it opens no workspace.
+    /// Adapts the client-held Type names through the product's host-neutral
+    /// <see cref="LoadedTypeSearchRanking"/>. This inspects no artifact, so it
+    /// opens no workspace.
     /// </summary>
     [JSExport]
     public static string SearchTypes(string query, string candidatesJson)
@@ -1084,82 +1082,29 @@ public static partial class PackageExports
         BrowserTypeCandidate[] candidates = JsonSerializer.Deserialize(
             candidatesJson,
             BrowserPackageJsonContext.Default.BrowserTypeCandidateArray) ?? [];
-        query = query?.Trim() ?? "";
-
-        if (query.Length == 0)
-        {
-            return JsonSerializer.Serialize(
-                candidates
-                    .OrderBy(candidate => candidate.Name.Length)
-                    .ThenBy(candidate => candidate.Name, StringComparer.OrdinalIgnoreCase)
-                    .Take(30)
-                    .Select(candidate => new BrowserTypeSearchHit(candidate.Key, "all"))
-                    .ToArray(),
-                BrowserPackageJsonContext.Default.BrowserTypeSearchHitArray);
-        }
-
-        var hits = new List<BrowserTypeSearchHit>();
-        var used = new HashSet<string>(StringComparer.Ordinal);
-
-        Comparer<string> withinTier =
-            Comparer<string>.Create(TypeNameMatchRanking.CompareWithinTier);
-
-        void AddTier(string kind, Func<BrowserTypeCandidate, bool> predicate)
-        {
-            foreach (BrowserTypeCandidate candidate in candidates
-                .Where(candidate => !used.Contains(candidate.Key) && predicate(candidate))
-                .OrderBy(candidate => candidate.Full, withinTier))
-            {
-                if (used.Add(candidate.Key))
-                    hits.Add(new BrowserTypeSearchHit(candidate.Key, kind));
-            }
-        }
-
-        bool isGlob = TypeMatcher.IsTypeGlobPattern(query);
-        AddTier(
-            "exact",
-            candidate => TypeMatcher.Matches(candidate.Full, query)
-                || (isGlob && TypeMatcher.MatchesTypeFilter(candidate.Full, query)));
-        Dictionary<string, TypeNameMatchTier?> tiers = candidates
-            .DistinctBy(static candidate => candidate.Key)
-            .ToDictionary(
-                static candidate => candidate.Key,
-                candidate => TypeNameMatchRanking.Classify(candidate.Full, query),
-                StringComparer.Ordinal);
-        AddTier("prefix", candidate => tiers[candidate.Key] == TypeNameMatchTier.Prefix);
-        AddTier("substring", candidate => tiers[candidate.Key] == TypeNameMatchTier.Substring);
-        AddTier("path", candidate => tiers[candidate.Key] == TypeNameMatchTier.Path);
-
-        var remaining = new Dictionary<string, List<string>>(StringComparer.Ordinal);
-        foreach (BrowserTypeCandidate candidate in candidates.Where(candidate => !used.Contains(candidate.Key)))
-        {
-            if (!remaining.TryGetValue(candidate.Full, out List<string>? keys))
-                remaining[candidate.Full] = keys = [];
-            keys.Add(candidate.Key);
-        }
-
-        if (remaining.Count > 0)
-        {
-            foreach ((string name, _) in TypeMatcher.FindClosest(
-                remaining.Keys,
+        BrowserTypeSearchHit[] hits =
+            LoadedTypeSearchRanking.Rank(
                 query,
-                minSimilarity: 0.5,
-                maxResults: 8))
-            {
-                if (!remaining.TryGetValue(name, out List<string>? keys))
-                    continue;
-                foreach (string key in keys)
-                {
-                    if (used.Add(key))
-                        hits.Add(new BrowserTypeSearchHit(key, "fuzzy"));
-                }
-            }
-        }
-
+                candidates,
+                static (key, kind) =>
+                    new BrowserTypeSearchHit(key, MatchKind(kind)));
         return JsonSerializer.Serialize(
-            hits.Take(40).ToArray(),
+            hits,
             BrowserPackageJsonContext.Default.BrowserTypeSearchHitArray);
     }
+
+    private static string MatchKind(LoadedTypeSearchMatchKind kind) =>
+        kind switch
+        {
+            LoadedTypeSearchMatchKind.All => "all",
+            LoadedTypeSearchMatchKind.Exact => "exact",
+            LoadedTypeSearchMatchKind.Prefix => "prefix",
+            LoadedTypeSearchMatchKind.Substring => "substring",
+            LoadedTypeSearchMatchKind.Path => "path",
+            LoadedTypeSearchMatchKind.Fuzzy => "fuzzy",
+            _ => throw new InvalidOperationException(
+                "Unknown loaded Type search match kind."),
+        };
 
     /// <summary>Session acquisition statistics. Inspects no artifact and opens no workspace.</summary>
     [JSExport]
