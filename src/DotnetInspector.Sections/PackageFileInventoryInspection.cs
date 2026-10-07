@@ -220,6 +220,7 @@ public static class PackageFileInventoryInspection
         if (!TryCreateRows(
                 scanner,
                 coordinate.PackageId,
+                resolution.Plan!,
                 out IReadOnlyList<PackageFileInventoryEntry> rows,
                 out PackageFileInventorySummary rowsSummary,
                 out string? rowsValidationError))
@@ -228,8 +229,10 @@ public static class PackageFileInventoryInspection
                 request.Query.Terminal,
                 rowsValidationError!);
         }
+        // This scope admits only Head/Tail/Window, with no query ordering.
+        // Predicates were pushed into the manifest scan before retaining rows.
         RowSelectionResult<PackageFileInventoryEntry> selection =
-            RowQueryExecutor.Apply(rows, resolution.Plan!);
+            RowSelectionExecutor.Apply(rows, resolution.Plan!.SelectionPlan, static _ => null);
         if (!selection.IsSuccess)
             return FailedWindow(
                 request.Query.Terminal,
@@ -319,6 +322,7 @@ public static class PackageFileInventoryInspection
     private static bool TryCreateRows(
         PackageContentEntryScanner scanner,
         string packageId,
+        ResolvedRowQueryPlan<PackageFileInventoryEntry> plan,
         out IReadOnlyList<PackageFileInventoryEntry> rows,
         out PackageFileInventorySummary summary,
         out string? error)
@@ -343,10 +347,9 @@ public static class PackageFileInventoryInspection
             if (!admitted)
                 continue;
 
-            values.Add(
-                new PackageFileInventoryEntry(
-                    entry.Path,
-                    entry.Length));
+            var row = new PackageFileInventoryEntry(entry.Path, entry.Length);
+            if (RowQueryExecutor.Matches(row, plan))
+                values.Add(row);
             ObservePackageWideFacts(
                 entry.Path,
                 expectedNuspec,

@@ -60,8 +60,8 @@ an empty successful inventory.
 The first production adoption supports the single-package, exact `Package
 files` section without `--path`, discovery,
 or `--print`. Its QuerySpace admits Head, Tail, and Window stages and the Rows
-and Count terminals. Rows constructs and ordinally sorts detached entries
-before selection. Count advances the entry scanner while validating paths, applying predicates, and
+and Count terminals. Rows evaluates predicates during manifest scanning, retains only matching
+detached entries, and ordinally sorts those entries before row-window selection. Count advances the entry scanner while validating paths, applying predicates, and
 deriving package-wide facts, then applies the same semantic stages to the
 validated cardinality; it does not sort, retain, or transport detached rows. Filtered Count
 evaluates one transient typed entry at a time. The CLI maps Rows into its existing section and shape
@@ -73,7 +73,11 @@ Pre-resolved Workspace packages, local archives, offline acquisition,
 multi-package aggregation, package file-family sections, path-filtered inventories,
 discovery, content, print, raw, tree, envelope, tool-wrapper redirects, and
 other unsupported modes remain on the legacy producer until focused successor slices
-adopt their contracts.
+adopt their contracts. Those fallbacks are reference slices: extraction
+materializes the existing file inventory, then the same shared vocabulary
+filters it. Streaming filter and Count pushdown for those fallback routes is
+deferred to their owner adoptions under #8484; this slice claims no work
+reduction for them.
 
 ## Selected entry set
 
@@ -149,7 +153,6 @@ shortcut and predicate parity, directory identity, empty matches, and
 composed sections. `PackageFileHierarchyPresentationTests` enforces typed
 file/context identity, last-sibling disclosure, and destination failure.
 The hostile-file-name CLI gate checks containment through the shared sink.
-
 
 The production-route gates use a package whose `AGENTS.md` entry lies outside
 the selected row window and an admitted archive with a malformed nuspec body.
