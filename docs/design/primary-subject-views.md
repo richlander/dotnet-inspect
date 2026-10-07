@@ -66,6 +66,30 @@ The pattern has five obligations. An adopting command meets all of them:
    states the work it authorizes; identifying a tool Package's entry-point
    Library is the Package adoption's exception. Package tool settings normally
    provide that correspondence without opening the Library binary.
+
+   **One row population.** A default view presents exactly one row
+   population: the subject's children. Owner-issued groups such as namespaces
+   or Member categories are derived from those same rows and are not a second
+   population. The topology owner designates the one population edge; a
+   grouping edge partitions that population's rows, so its group counts sum
+   to the population Count (obligation 4). A default view never nests a
+   child's own population beneath its row (no rows of rows): a package view
+   does not list each Library's namespaces or Types, a Library view does not
+   list each Type's Members, and a Type view does not count each MemberGroup's
+   overloads.
+   The deeper level belongs to the next command on the
+   [containment ladder](#containment-ladder), so each row also previews the
+   gesture that expands it.
+
+   **Work bound.** A default view's work is bounded by its own row population.
+   It performs no acquisition, decoding, or enumeration that only a deeper
+   level would present, including per-row counts of a child's population. The
+   population owner gates this deterministically from product outcomes, for
+   example that the default request asks for no deeper terminal and that no
+   returned row carries one, or from a work fact the owner reports; NativeAOT
+   timing at each command adoption measures the end-to-end effect. Nested
+   populations multiply work by every parent row, so this bound is a
+   performance requirement as well as a reading-load requirement.
 3. **Info is opt-in.** Facts about the subject are one explicitly named
    subject-facts section, selected with `-S <section>`. It answers "what is
    this subject?" and does not re-render the children population. Whether
@@ -130,9 +154,12 @@ edge, that adoption must not present its rows as copyable arguments.
   native default presentation, and [Output shapes](output-shapes.md) owns
   `--tree` as a presentation modifier over one admitted Tree shape. The
   existing exact-Type Tree is the reference shape for the compact view:
-  per-kind MemberGroup branches, collapsed overloads, labeled context
+  per-kind MemberGroup branches, one row per MemberGroup, labeled context
   (`Inherits`, `Implements`), and a distinguished group of attached extension
-  Members (`Extension Methods`).
+  Members (`Extension Methods`). Under the work bound, the Type default
+  carries no per-MemberGroup or per-category overload Count; a category
+  header counts its MemberGroup rows, and `member <Type> <Name>` lists the
+  overloads.
 - **Library children:**
   [Library inspection documents and populations](library-inspection-document.md)
   owns the Library Type declaration population, including first-class
@@ -188,10 +215,11 @@ adopts it, in that owner's document, with its own gates.
 - **Children:** the public-surface Type declaration population, both
   definitions and forwarders.
 - **Tree:** namespaces with declaration counts, then declarations by short
-  name. A definition shows its kind, modifiers, and member count. A forwarder
-  keeps its declared name and namespace and is marked as forwarded (for
-  example `SomeType (forwarded)`). It shows no kind, modifiers, or member
-  count, because those would come from a target.
+  name. A definition shows its kind and modifiers. It shows no member count:
+  Members are the Type's own children, and `type <Type>` lists them. A
+  forwarder keeps its declared name and namespace and is marked as forwarded
+  (for example `SomeType (forwarded)`). It shows no kind or modifiers, because
+  those would come from a target.
 - **Namespace counts** include forwarders, and the total equals the
   population's Count.
 - **Complete formats** (Markdown, JSON, rows) carry every declaration with its
@@ -347,7 +375,7 @@ Observed with production dotnet-inspect 0.26.0 on 2026-09-23, unless noted:
 | dotnet-inspect.osx-arm64 0.26.0 | `DotnetToolRidPackage`; `DotNetCliTool Version="2"` with an `executable` runner; `tools/any/osx-arm64/` holds a 118 MB native executable and no DLLs | No selected target; the missing managed Libraries are stated |
 | platform `Timer` | `type Timer` silently renders `System.Threading.Timer` | Obligation 1 requires a visible ambiguity failure |
 | `member JsonSerializer` | Renders member-group tables duplicating `type` | Two commands render one subject's children |
-| `type JsonElement --platform System.Text.Json` | Tree shows `Inherits`, `Properties`, `Methods`, and `Extension Methods` declared on `JsonSerializer`; `-S "Member Index" --count` is 62, including the five `extension:Deserialize:N` rows | Several children sections plus labeled context; attached extensions are counted children with a distinct row kind |
+| `type JsonElement --platform System.Text.Json` | Tree shows `Inherits`, `Properties`, `Methods`, and `Extension Methods` declared on `JsonSerializer`; `-S "Member Index" --count` is 62 exact Members, including the five `extension:Deserialize:N` rows | Several children sections plus labeled context; the Type's children are MemberGroups, so the attached extension `Deserialize` is one counted child with a distinct row kind, and the 62 exact Members are the `member`-level population, not the Type children Count |
 | Microsoft.TestPlatform.ObjectModel 18.10.1 | Three Libraries for net8.0; `library` silently renders `Microsoft.TestPlatform.CoreUtilities.dll` | Obligation 1 requires Library subject resolution |
 
 The 97 and 1,447 figures come from the Library Type Count and Rows work in
@@ -370,8 +398,8 @@ presentation.
    selectors resolve exact Member leaf subjects and retain the Signature
    default. Exact-Member Info waits for the exact-Member facts section.
 2. **Exact `type`:** retain the existing native Type Tree as the reference
-   presentation, require exact Type resolution, and retire the Library-listing
-   fallback from `type`.
+   presentation without its overload Counts, require exact Type resolution,
+   and retire the Library-listing fallback from `type`.
 3. **Library subject and children:** exact Library subject resolution and
    selector, then the compact native `-v:m` Tree, `--namespace`, and exhaustive
    `-v:n`/`-v:d` inventories, consuming the Library Type declaration
@@ -405,8 +433,17 @@ against that adoption's motivating assets:
 - obligations 2 and 3: default (`-v:m`) output and the explicitly named
   facts section for each adopted command, with context never counted as
   children, and with forwarder rows (System.Text.Json) and attached extension
-  rows (`JsonElement`'s five `JsonSerializer.Deserialize` extensions) counted
-  as children and distinguished by row kind in every format;
+  rows counted as children and distinguished by row kind in every format.
+  `JsonElement`'s attached `JsonSerializer.Deserialize` extensions are one
+  MemberGroup row, counted as one child and marked by its `receiver` row kind;
+  its five exact overloads are reached through `member`, not counted by the
+  Type default;
+- obligation 2 work bound: for each adopted default, the population owner
+  shows from product outcomes that the default request asks for no deeper
+  terminal and that no returned row carries one, for example no Library
+  binary opened by `package`, no Member Count on `library` rows, and no
+  exact-Member Count on `type` MemberGroup rows; NativeAOT timing at the
+  command adoption measures the end-to-end effect;
 - obligation 4: at `-v:m`, a tree's grouped or collapsed counts sum to the
   population Count, forwarders included; at `-v:n` and `-v:d`, every format
   lists every child, for System.Text.Json and System.Private.CoreLib;

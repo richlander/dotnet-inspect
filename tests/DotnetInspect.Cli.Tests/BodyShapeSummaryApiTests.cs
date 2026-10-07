@@ -95,13 +95,17 @@ public sealed class BodyShapeSummaryApiTests
     }
 
     [Theory]
-    [InlineData("1", "new object()", "3")]
-    [InlineData("2..2", "new()", "1")]
+    [InlineData("-n", "1", "new object()", "3")]
+    [InlineData("--rows", "2..2", "new()", "1")]
+    [InlineData("--tail", "1", "new()", "1")]
     public async Task SummaryRowWindow_SelectsGroupsWithoutTruncatingCounts(
-        string window, string match, string count)
+        string selector, string window, string match, string count)
     {
+        string[] selection = selector == "--tail"
+            ? ["-n", window, "--tail"]
+            : [selector, window];
         var result = await Query("type", SectionNames.BodyShapeSummary,
-            "--columns", "Match;Count", "--rows", window, "--jsonl");
+            ["--columns", "Match;Count", .. selection, "--jsonl"]);
 
         Assert.Equal(0, result.ExitCode);
         Assert.DoesNotContain("has no data", result.Error);
@@ -121,7 +125,13 @@ public sealed class BodyShapeSummaryApiTests
     {
         var result = await Query(command, SectionNames.BodyShapeSummary,
             ["--columns", "Count", "--count", "--json",
-                .. window is null ? Array.Empty<string>() : ["--rows", window]]);
+                .. window switch
+                {
+                    null => Array.Empty<string>(),
+                    _ when window.Contains("..", StringComparison.Ordinal) =>
+                        ["--rows", window],
+                    _ => ["-n", window],
+                }]);
 
         Assert.Equal(0, result.ExitCode);
         Assert.Equal(expected, result.Output.Trim());

@@ -97,7 +97,13 @@ public static class TypeOverviewHierarchyInspection
                             continuation: continuation),
                         LibraryTypeDeclarationSelection.Definitions,
                         ApiTypeInventoryKinds.All),
-                    bounds);
+                    new LibraryInspectionBounds(
+                        bounds.MaxTypes,
+                        bounds.MaxMembers,
+                        bounds.MaxInspectionFailures,
+                        bounds.MaxTypeForwarders,
+                        bounds.MaxMetadataRows,
+                        bounds.MaxRetainedTextCharacters));
             InspectionEnvelope<LibraryInspectionOutcome>? listing =
                 AssemblyContextLibraryInspection.ExecuteOperation(
                     reference,

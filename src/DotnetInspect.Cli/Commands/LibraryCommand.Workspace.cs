@@ -171,6 +171,7 @@ public partial class LibraryCommand
                 : null,
             CloneCandidateRowSelection =
                 options.CloneCandidateRowSelection,
+            BodyShapeRowSelection = options.BodyShapeRowSelection,
             ReferenceRowSelection = options.ReferenceRowSelection,
             EcosystemDependencyRowSelection =
                 options.EcosystemDependencyRowSelection,

@@ -1634,6 +1634,12 @@ canaries:
   the bounded raw declaration surface outside the envelope so Web Core can
   lower that graph once without cloning it. The Browser Library facade adapts
   the portable values and does not reference uploaded-path Metadata values.
+- Library inspection plans and documents carry Sections-owned
+  `LibraryInspectionBounds`; their requested Enablements content is detached
+  immediately into `DotnetInspector.LibraryMetadata` values while
+  `ILInspector.Metadata` remains the semantic vocabulary owner. The Browser
+  Library facade therefore lowers exact-Library documents without a project or
+  compiled reference to either Metadata assembly.
 - Web Core's Platform-forwarder navigation projects forwarder display fields
   and ordered resolution routes into caller-shaped Browser values. The Package
   facade preserves the generated wire contract without referencing Metadata

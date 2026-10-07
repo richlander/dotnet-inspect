@@ -185,6 +185,12 @@ LibraryInspectionPlan
   finite aggregate work bounds
 ```
 
+`LibraryInspectionBounds` is a Sections-owned detached value. Its six finite
+limits govern retained Types, Members, inspection failures, type forwarders,
+metadata rows, and retained text characters without exposing the
+Metadata-owned extraction request. The same value is retained on the completed
+document as governing evidence.
+
 The plan uses closed typed requests rather than section names, verbosity,
 fields, columns, or renderer settings. Its first population request is:
 
@@ -250,7 +256,9 @@ later slices; until then the Browser plan exposes only the terms it lowers.
 The core request and CLI operation remain independent of Browser adoption.
 Browser adoption uses the generated input binding rather than adding a
 handwritten TypeScript request shape, flattened interim export, or duplicate
-JSON wrapper.
+JSON wrapper. The Browser adapter consumes the detached plan, bounds, and
+Enablements values; it does not construct or project `ILInspector.Metadata`
+contract values.
 
 ## Library document
 
@@ -300,7 +308,9 @@ closed groups because their costs differ:
   attribute text, contained as inert field text.
 - **Enablements** — every enablement named by
   [Library enablements](library-enablements.md), with that owner's states and
-  reasons.
+  reasons. The Library document carries a detached immutable projection of
+  those identifiers, states, reasons, and labels rather than the
+  Metadata-owned result types.
 
 Identity is always present and is not a requestable group. Image and
 Description describe the `ApiAssembly` content. Enablements ask how the
