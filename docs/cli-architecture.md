@@ -205,6 +205,47 @@ Commands may have specialized acquisition and projection steps, but those
 steps retain the same ownership boundary: the host composes the request;
 reusable owners produce the facts.
 
+### Bare-target ecosystem explanation
+
+Ordinary commandless routing retains its existing noninteractive defaults.
+After the authoritative child parse succeeds, the CLI may add a short routing
+note to stderr for a whole-name platform Library selected by the Router or
+an ecosystem-owned Package target. It never asks the user to choose, changes
+the rewritten command, or mixes this prose into stdout or an output file.
+Structural discovery, explicit-source overrides, and explicit commands retain
+their existing presentation.
+
+The motivating nuget.org assets are `System.Linq@4.3.0` and
+`System.Text.Json@9.0.0`, whose IDs can also name platform Libraries.
+A versionless platform Library carries its ecosystem name without claiming
+that an unspecified NuGet package version was pruned. A package coordinate
+retains package identity; its note consumes
+`EcosystemPackCatalog.IsEcosystemPackage` rather than treating a matching
+platform library name as pruning evidence.
+
+The pruning target is `TraversalTargetFrameworkPolicy.ProductDefault`,
+independent of package asset-selection `--tfm`. The host reads only the
+installed Runtime reference-pack inventory for that exact traversal release
+line through `InstalledPlatformPruneSource`. Annotation never downloads a
+pack, archive, or package version listing. A missing inventory preserves
+recognized ownership and reports unavailable pruning for a Runtime or
+ASP.NET Core ecosystem package. An exact comparable package reports pruned
+or not pruned; a versionless/non-comparable coordinate preserves uncertainty.
+The inventory's supplying-family and package-version comparison stay owned by
+[Static Ecosystem Packs](design/ecosystem-packs.md#package-classification-for-discovery)
+and [platform supply](design/platform-package-supply-policy.md).
+This is product supply evidence, not observation of a project's restore.
+
+This bounded CLI diagnostic consumes the typed shared classification result
+and lowers it through the existing contained `CommandError` stderr sink.
+It is not an inspection document and does not replace Markout payload lowering.
+The production adoption is the final CLI slice in #9513 (five total steps,
+four already merged), focused issue #9616. No routing architecture is replaced.
+`RouterEcosystemExplanationTests` gates exact, newer, unavailable and
+non-comparable evidence, selection/traversal independence, and preserved
+platform/package routing and stdout. Existing router suites continue to gate
+neighboring commandless syntax and defaults.
+
 ### Configured package search Roots
 
 The first production adoption in
