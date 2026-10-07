@@ -235,9 +235,10 @@ Home, and End move through destinations and Open Library; Escape closes it and
 returns focus to the trigger. Tab follows ordinary document order. Outside
 pointer or focus movement closes it without stealing focus.
 Shell maintenance that replaces an open menu while the current routed product
-destination remains Home, Query, Workspace, Activity, or Demos preserves the
-open state and the focused stable destination. A product-destination change closes
-the outgoing menu and follows the ordinary routed destination-focus contract.
+destination remains unchanged preserves the open state and the focused stable
+destination. This includes ordinary inspection, where no routed destination is
+selected. A product-destination change closes the outgoing menu and follows the
+ordinary routed destination-focus contract.
 Maintenance replacement also preserves focus when the closed trigger owns it.
 Surfaces outside that product-destination inventory retain their own
 replacement-focus contract.

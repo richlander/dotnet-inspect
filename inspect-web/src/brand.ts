@@ -389,7 +389,6 @@ export function bindProductNavigation(
         || !item
         || !menu.contains(item)
         || !isProductDestination(destination)
-        || !isProductDestination(renderedDestination)
         || actions.currentDestination() !== renderedDestination) {
         return;
       }

@@ -214,6 +214,26 @@ test("product navigation preserves its focused action across maintenance replace
     .toHaveAttribute("data-product-destination", "activity");
 });
 
+test("product navigation preserves its focused action without a routed destination", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/browser/workspace-titlebar.html?type=1");
+
+  await page.locator("[data-product-navigation-button]").click();
+  const workspace =
+    page.locator("[data-product-destination='workspace']");
+  await workspace.focus();
+  await expect(workspace).toBeFocused();
+
+  await page.evaluate(() => window.rerenderProductNavigationProbe());
+
+  await expect(page.locator(".product-navigation-menu")).toBeVisible();
+  await expect(page.locator("[data-product-navigation-button]"))
+    .toHaveAttribute("aria-expanded", "true");
+  await expect(workspace).toBeFocused();
+});
+
 test("product navigation preserves closed-trigger focus across maintenance replacement", async ({
   page,
 }) => {

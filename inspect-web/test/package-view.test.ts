@@ -64,7 +64,7 @@ function recordingActions(calls: string[]): PackageViewBindingActions {
     onGraphTypeSelect: target => calls.push(
       `graph-type:${target.typeId}:${target.packageId ?? ""}:`
         + `${target.version ?? ""}:${target.framework ?? ""}:`
-        + `${target.asset ?? ""}`),
+        + (target.asset ?? "")),
     onKindJump: value => calls.push(`kind:${value}`),
     onLibraryScopeSelect: (library, kind) =>
       calls.push(`library:${library}:${kind}`),
