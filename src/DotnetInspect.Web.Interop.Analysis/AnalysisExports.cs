@@ -699,7 +699,11 @@ public static partial class AnalysisExports
         ArgumentNullException.ThrowIfNull(onItem);
         BrowserPackagePerformance performance =
             await PackagePerformanceAsync(
-                packageId, version, targetFramework, assemblyName);
+                packageId,
+                version,
+                targetFramework,
+                assemblyName,
+                cancellationToken);
         for (int index = 0; index < performance.Members.Length; index++)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -1795,17 +1799,40 @@ public static partial class AnalysisExports
             failure,
             compileLibrary);
 
+    static Task<BrowserPackagePerformance> PackagePerformanceAsync(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyName) =>
+        PackagePerformanceAsync(
+            packageId,
+            version,
+            targetFramework,
+            assemblyName,
+            CancellationToken.None);
+
+    /// <summary>
+    /// Cancellation reaches package acquisition (<see
+    /// cref="BrowserPackageWorkspace.OpenScopeAsync"/> already honors it) and
+    /// the boundary immediately before the synchronous ranking query begins.
+    /// That query itself runs to completion once started; see
+    /// docs/design/streaming-library-performance-analysis.md's cancellation
+    /// section for why deeper interruption is out of scope here.
+    /// </summary>
     static async Task<BrowserPackagePerformance> PackagePerformanceAsync(
         string packageId,
         string version,
         string targetFramework,
-        string assemblyName)
+        string assemblyName,
+        CancellationToken cancellationToken)
     {
         await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
             await BrowserPackageWorkspace.OpenScopeAsync(
                 packageId,
                 version,
-                targetFramework);
+                targetFramework,
+                cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
         BrowserInspectionScope scope = scopeLease.Scope;
         BrowserPackageCoordinate coordinate = scope.Coordinates[0];
         BrowserCompileLibraryAvailability compileLibrary =
