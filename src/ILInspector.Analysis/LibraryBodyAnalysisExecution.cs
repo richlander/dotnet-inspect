@@ -109,7 +109,8 @@ public sealed record LibrarySafetyAnalysisResult
         IReadOnlyDictionary<
             int,
             ImmutableArray<UnsafetyOccurrence>> occurrences,
-        ImmutableArray<UnsafeMemberUse> memberUses)
+        ImmutableArray<UnsafeMemberUse> memberUses,
+        UnsafeMemberCensus? memberCensus = null)
     {
         Receipt = receipt;
         MemorySafetyRules = memorySafetyRules;
@@ -117,7 +118,25 @@ public sealed record LibrarySafetyAnalysisResult
         Evidence = evidence;
         Occurrences = occurrences;
         MemberUses = memberUses;
+        _memberCensus = memberCensus;
     }
+
+    readonly UnsafeMemberCensus? _memberCensus;
+
+    /// <summary>Whether this execution produced the unsafe member census.</summary>
+    public bool HasMemberCensus => _memberCensus is not null;
+
+    /// <summary>
+    /// Unsafe member findings' census: inventory roles folded into declared
+    /// members, with exposure and typed limitations.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">
+    /// This execution did not produce the census.
+    /// </exception>
+    public UnsafeMemberCensus MemberCensus =>
+        _memberCensus
+            ?? throw new InvalidOperationException(
+                "Unsafe member census was not produced by this analysis execution.");
 
     public LibraryBodyAnalysisReceipt Receipt { get; }
 
@@ -296,7 +315,8 @@ public sealed class LibraryBodyAnalysisExecution
             analysis.Safety.Modes,
             analysis.Safety.Evidence,
             analysis.Safety.Occurrences,
-            analysis.Safety.MemberUses);
+            analysis.Safety.MemberUses,
+            analysis.Safety.MemberCensus);
         Allocations = new(
             Receipt,
             analysis.Allocations);

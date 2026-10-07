@@ -403,6 +403,86 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
+    public async Task
+        DependencyCallGraph_ClassifiesRc1RuntimeTargets()
+    {
+        const string packageId = "System.Text.Json";
+        const string version = "11.0.0-rc.1.26425.128";
+        const string framework = "net11.0";
+        const string memberFingerprint = "ecd2fb3942";
+        BrowserProductWorkspacePlans.ConfigurePlatform();
+
+        BrowserPackageCoordinate coordinate =
+            await BrowserPackageWorkspace.ResolveAsync(
+                packageId,
+                version,
+                framework,
+                TestContext.Current.CancellationToken);
+        BrowserTypeSurfaceInfo type;
+        BrowserMemberSurfaceInfo member;
+        await using (
+            BrowserScopeLease<BrowserInspectionScope> scopeLease =
+                await BrowserPackageWorkspace.OpenScopeAsync(
+                    [coordinate],
+                    TestContext.Current.CancellationToken))
+        {
+            BrowserPackageSurfaceInfo surface =
+                BrowserPackageSurfaceProjection.ProjectSurface(
+                    scopeLease.Scope,
+                    coordinate);
+            type = Assert.Single(
+                surface.Types,
+                candidate => candidate.Id
+                    == "System.Text.Json.JsonSerializer");
+            member = Assert.Single(
+                type.Api,
+                candidate => candidate.AnchorDigest
+                    == memberFingerprint);
+        }
+
+        InspectionEnvelope<
+            PackageDependencyMemberCallGraphInspectionOutcome> envelope =
+            await BrowserPackageWorkspace
+                .QueryDependencyMemberCallGraphAsync(
+                    packageId,
+                    version,
+                    framework,
+                    framework,
+                    type.Assembly,
+                    type.DefinitionId,
+                    member.Name,
+                    member.GraphSelectorKey,
+                    member.MetadataToken ?? 0,
+                    BrowserPackageWorkspace.ProductWorkspacePlan,
+                    PackageSupplyChainBaseline
+                        .SelfAndRegisteredEcosystems,
+                    TestContext.Current.CancellationToken);
+        var available =
+            Assert.IsType<
+                PackageDependencyMemberCallGraphInspectionOutcome
+                    .Available>(envelope.Content);
+        BrowserCallGraphInfo graph =
+            BrowserCallGraphProjection.Project(
+                available.Document,
+                packageId,
+                version,
+                framework);
+        string unclassified = string.Join(
+            Environment.NewLine,
+            graph.Targets
+                .Where(target =>
+                    target.Kind == "unclassified-boundary")
+                .Select(target =>
+                    $"{target.Assembly}:"
+                    + $"{target.TypeFullName}.{target.MemberName}"));
+        Assert.True(
+            graph.Diagnostics.UnclassifiedBoundaryEdges == 0,
+            $"Unclassified Runtime targets:{Environment.NewLine}"
+            + unclassified);
+    }
+
+    [Fact]
     public async Task PlatformHomeDemoRunCore_ProjectsMethodsWithSourceNativeActivation()
     {
         const string packageId =
@@ -750,6 +830,35 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Contains("ecosystem.runtime", ecosystems);
         Assert.Contains("ecosystem.aspnetcore", ecosystems);
         Assert.Contains("ecosystem.microsoft-extensions", ecosystems);
+    }
+
+    [Fact]
+    public void DependencyCallGraph_CurrentRuntimeTargetIsFrameworkBound()
+    {
+        Assert.True(
+            BrowserPackageDependencyMemberCallGraphContinuationSource
+                .TryCreateCurrentRuntimeTarget(
+                    PlatformFamily.DotNetRuntime,
+                    "net11.0",
+                    "11.0.0-rc.1.26425.128+commit",
+                    out PlatformFamilyTarget? target));
+        Assert.Equal(
+            PlatformVersion.Parse("11.0.0-rc.1.26425.128"),
+            target!.Version);
+        Assert.False(
+            BrowserPackageDependencyMemberCallGraphContinuationSource
+                .TryCreateCurrentRuntimeTarget(
+                    PlatformFamily.DotNetRuntime,
+                    "net10.0",
+                    "11.0.0-rc.1.26425.128+commit",
+                    out _));
+        Assert.False(
+            BrowserPackageDependencyMemberCallGraphContinuationSource
+                .TryCreateCurrentRuntimeTarget(
+                    PlatformFamily.AspNetCore,
+                    "net11.0",
+                    "11.0.0-rc.1.26425.128+commit",
+                    out _));
     }
 
     [Fact]
