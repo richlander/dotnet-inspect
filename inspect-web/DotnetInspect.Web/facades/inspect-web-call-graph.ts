@@ -77,6 +77,10 @@ export interface BrowserCallGraphTarget {
   readonly packageId: string | null;
   readonly packageVersion: string | null;
   readonly packageFramework: string | null;
+  readonly ownerKind: string | null;
+  readonly platformFamily: string | null;
+  readonly platformFramework: string | null;
+  readonly platformVersion: string | null;
 }
 
 export interface BrowserDirectUseCallSite {

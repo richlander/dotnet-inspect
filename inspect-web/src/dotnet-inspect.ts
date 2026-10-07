@@ -12,6 +12,7 @@ import {
   callGraphAssemblyIdentityMatches,
   callGraphDiagnosticsMessage,
   callGraphTargetPackageCoordinate,
+  callGraphTargetPlatformCoordinate,
   callGraphTargetMatchesType,
   callGraphTargetTypeId,
   combinedGraphTargetNavigationDisposition,
@@ -22571,6 +22572,7 @@ function callGraphTargetBinding(
     ...state.packages.filter(item => item !== state.package),
   ].filter((pkg): pkg is AppPackage => pkg != null);
   const packageCoordinate = callGraphTargetPackageCoordinate(target);
+  const platformCoordinate = callGraphTargetPlatformCoordinate(target);
   const coordinatePackages = packageCoordinate
     ? packages.filter(pkg =>
         pkg.id.toLowerCase() === packageCoordinate.id.toLowerCase()
@@ -22584,10 +22586,11 @@ function callGraphTargetBinding(
       failureSurface);
   }
   const coordinatePackage = coordinatePackages[0] ?? null;
-  const candidate =
-    resolveLoadedGraphTargetCandidate<AppPackage, AppTypeSurface>(
-      coordinatePackage ? [coordinatePackage] : packages,
-      target);
+  const candidate = platformCoordinate
+    ? { status: "missing" } as const
+    : resolveLoadedGraphTargetCandidate<AppPackage, AppTypeSurface>(
+        coordinatePackage ? [coordinatePackage] : packages,
+        target);
   if (candidate.status === "resident"
       && (coordinatePackage !== null || destination !== "default")) {
     const residentPackage =
@@ -22615,9 +22618,12 @@ function callGraphTargetBinding(
   }
   const packageAvailable =
     packageCoordinate !== null && coordinatePackage === null;
-  const pack = runtimePackForFramework(
+  let pack = runtimePackForFramework(
     runtimePackPackage(),
-    platformCatalogFramework(state.package?.activeFramework || ""));
+    platformCoordinate?.framework
+      ?? platformCatalogFramework(state.package?.activeFramework || ""));
+  if (platformCoordinate && pack?.version !== platformCoordinate.version)
+    pack = null;
   const runtimeCandidate = !packageAvailable
     && (candidate.status === "missing"
       || candidate.status === "skew") && pack
@@ -23390,25 +23396,30 @@ async function drillPlatformNode(
       "the target does not carry a complete navigable identity");
     return;
   }
-  const framework = platformCatalogFramework(currentPackage().activeFramework);
+  const coordinate = callGraphTargetPlatformCoordinate(node);
+  const framework = coordinate?.framework
+    ?? platformCatalogFramework(currentPackage().activeFramework);
   const runtimePack = runtimePackForFramework(
     runtimePackPackage(),
     framework);
   const captured = capturedShareTabs();
-  const platformVersion = resolvedPlatformTargetVersion(
-    captured.resolvedTabs,
-    runtimePack,
-    framework);
+  const platformVersion = coordinate?.version
+    ?? resolvedPlatformTargetVersion(
+      captured.resolvedTabs,
+      runtimePack,
+      framework);
   return callGraphInspection.drill({
     contextId: platformDemoContextIdFor(state.package),
     framework,
     platformVersion,
     assembly: node.assembly,
-    pack: platformPackForGraphAssembly(
-      node.assembly,
-      node.platformPack,
-      runtimePackPackage(),
-      framework) ?? "",
+    pack: coordinate?.pack
+      ?? platformPackForGraphAssembly(
+        node.assembly,
+        node.platformPack,
+        runtimePackPackage(),
+        framework)
+      ?? "",
     assemblyVersion: node.assemblyVersion,
     assemblyCulture: node.assemblyCulture,
     assemblyPublicKeyToken: node.assemblyPublicKeyToken,
@@ -23480,11 +23491,15 @@ async function navigateOrDrillPlatform(
       failureSurface);
     return;
   }
-  const framework = platformCatalogFramework(
-    state.package?.activeFramework || "");
+  const coordinate = callGraphTargetPlatformCoordinate(node);
+  const framework = coordinate?.framework
+    ?? platformCatalogFramework(
+      state.package?.activeFramework || "");
   let pack = runtimePackForFramework(
     runtimePackPackage(),
     framework);
+  if (coordinate && pack?.version !== coordinate.version)
+    pack = null;
   if (!pack) {
     const retainedPlatform = retainedMissingPlatformTarget(
       state.workspaceShareBasis?.tabs,
@@ -23494,14 +23509,15 @@ async function navigateOrDrillPlatform(
     state.platformDrillError = "";
     const preservedFocus = renderPreservingMemberFocus();
     const targetPack =
-      platformPackForGraphAssembly(
+      coordinate?.pack
+      ?? platformPackForGraphAssembly(
         node.assembly,
         node.platformPack,
         runtimePackPackage(),
         framework);
     const runtimeResult = await loadRuntimeGraphAssembly(
       framework,
-      retainedPlatform?.version ?? "",
+      coordinate?.version ?? retainedPlatform?.version ?? "",
       node.assembly,
       targetPack,
       navigationIsCurrent);
@@ -23548,14 +23564,15 @@ async function navigateOrDrillPlatform(
     state.platformDrillError = "";
     const preservedFocus = renderPreservingMemberFocus();
     const targetPack =
-      platformPackForGraphAssembly(
+      coordinate?.pack
+      ?? platformPackForGraphAssembly(
         node.assembly,
         node.platformPack,
         runtimePackPackage(),
         framework);
     const runtimeResult = await loadRuntimeGraphAssembly(
       framework,
-      pack.version,
+      coordinate?.version ?? pack.version,
       node.assembly,
       targetPack,
       navigationIsCurrent);

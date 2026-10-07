@@ -395,6 +395,12 @@ public partial record ApiOptions
 
 public record TypeOptions : ApiOptions
 {
+    internal bool MermaidExplicitlySet { get; init; }
+    internal bool NonHierarchyFormatExplicitlySet { get; init; }
+    internal bool LineWindowExplicitlySet { get; init; }
+    internal bool ShapeOrDiscoveryControlExplicitlySet { get; init; }
+    internal bool PerformanceTriageControlExplicitlySet { get; init; }
+    internal bool TypeTargetUsedPlatformPrefixFallback { get; init; }
     public string? WorkspacePacket { get; init; }
     public WorkspaceShareFormat? ShareFormat { get; init; }
     public string? TypeFilter { get; init; }
