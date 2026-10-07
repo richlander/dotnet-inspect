@@ -867,12 +867,18 @@ not admit a method. In particular, `localloc` lowered into an initialized
 Span-backed stack allocation under skipped-local-initialization semantics do.
 That holds through Roslyn's collection-initializer lowerings
 (`RuntimeHelpers.CreateSpan` or RVA `cpblk` copies and per-element stores
-through the allocation pointer): when the same allocation reaches the `Span<T>`
-constructor, in-bounds stores at constant displacements into a constant-size
-allocation are not pointer dereferences. Other stores through the allocation,
-and any allocation stored to a pointer local before wrapping, keep their roles.
-Source pointer stores that match the initializer shape exactly are
-indistinguishable in IL and are reported as the safe form.
+through the allocation pointer), whatever the element expressions contain.
+Recognition runs on the shared typed stack
+([Instruction substrate](instruction-substrate.md)): producer provenance must
+carry the `localloc` result, through `dup`, pointer conversion, and constant
+`add`, to the `Span<T>(void*, int)` constructor at displacement zero. A store
+into that allocation is not a pointer dereference when its displacement and
+extent are provably within the allocation size, counting constants and
+`sizeof(T)` multiples. Stores that are unprovable or out of bounds keep their
+roles, as does an allocation whose pointer passes through a local the compiler
+keeps. An incomplete typed stack recognizes nothing. Release builds elide a
+single-use pointer local, so source pointer stores that match the initializer
+shape exactly are indistinguishable in IL and are reported as the safe form.
 
 The inventory reports compiled roles, not source spelling. It does not claim
 that an `unsafe` block existed, distinguish block and expression forms, grade a

@@ -110,13 +110,6 @@ internal static class MethodSafetyAnalysis
         var occurrences = ImmutableArray.CreateBuilder<UnsafetyOccurrence>();
         var localValues = new Dictionary<int, StackValue>();
         var stack = new List<StackValue>();
-        var initializedSpanStackAllocations = new HashSet<int>();
-        var stackAllocationSizes = new Dictionary<int, long>();
-        // In-bounds stores at constant displacements into a constant-size
-        // stackalloc that never left the evaluation stack: the shape Roslyn
-        // emits for collection initializers. They are retracted when the same
-        // allocation is wrapped by Span<T>.
-        var stackAllocationStores = new List<(int Index, int Offset)>();
         foreach (var instruction in context.Instructions.Instructions)
         {
             int offset = instruction.Offset;
@@ -137,13 +130,8 @@ internal static class MethodSafetyAnalysis
                         break;
                     }
                     case ILOpCode.Localloc:
-                        Pop(stack, out var size);
-                        if (size.Constant is long constantSize)
-                            stackAllocationSizes[offset] = constantSize;
-                        stack.Add(new(
-                            StackValueKind.Pointer,
-                            offset,
-                            Displacement: 0));
+                        Pop(stack, out _);
+                        stack.Add(new(StackValueKind.Pointer));
                         occurrences.Add(new UnsafetyOccurrence(
                             context.Method,
                             offset,
@@ -186,23 +174,6 @@ internal static class MethodSafetyAnalysis
                             && address.Kind
                                 == StackValueKind.Pointer)
                         {
-                            if (address.StackAllocationOffset
-                                    is int storeAllocation
-                                && address.Displacement
-                                    is long displacement
-                                && displacement >= 0
-                                && StoreWidth(operation)
-                                    is int width
-                                && stackAllocationSizes.TryGetValue(
-                                    storeAllocation,
-                                    out long allocationSize)
-                                && displacement + width
-                                    <= allocationSize)
-                            {
-                                stackAllocationStores.Add((
-                                    occurrences.Count,
-                                    storeAllocation));
-                            }
                             occurrences.Add(new UnsafetyOccurrence(
                                 context.Method,
                                 offset,
@@ -239,37 +210,14 @@ internal static class MethodSafetyAnalysis
                     {
                         Pop(stack, out var right);
                         Pop(stack, out var left);
-                        bool subtract = operation
-                            is ILOpCode.Sub or ILOpCode.Sub_ovf_un;
-                        if (left.Kind == StackValueKind.Pointer)
-                        {
-                            stack.Add(left with
-                            {
-                                Displacement =
-                                    left.Displacement is long start
-                                    && right.Constant is long delta
-                                        ? subtract
-                                            ? start - delta
-                                            : start + delta
-                                        : null,
-                            });
-                        }
-                        else if (right.Kind == StackValueKind.Pointer
-                            && !subtract)
-                        {
-                            stack.Add(right with
-                            {
-                                Displacement =
-                                    right.Displacement is long start
-                                    && left.Constant is long delta
-                                        ? start + delta
-                                        : null,
-                            });
-                        }
-                        else
-                        {
-                            stack.Add(new(StackValueKind.Other));
-                        }
+                        stack.Add(
+                            left.Kind == StackValueKind.Pointer
+                                ? left
+                                : right.Kind == StackValueKind.Pointer
+                                    && operation is ILOpCode.Add
+                                        or ILOpCode.Add_ovf_un
+                                    ? right
+                                    : new(StackValueKind.Other));
                         break;
                     }
                     case ILOpCode.Mul:
@@ -293,16 +241,8 @@ internal static class MethodSafetyAnalysis
                             if (access.IsStore)
                             {
                                 Pop(stack, out var value);
-                                // A stored pointer is a source pointer
-                                // local, not a stack-only allocation.
                                 if (!access.IsArgument)
-                                {
-                                    localValues[access.Slot] = value with
-                                    {
-                                        StackAllocationOffset = null,
-                                        Displacement = null,
-                                    };
-                                }
+                                    localValues[access.Slot] = value;
                             }
                             else
                             {
@@ -317,9 +257,7 @@ internal static class MethodSafetyAnalysis
                         }
                         if (PushConstant(instruction))
                         {
-                            stack.Add(new(
-                                StackValueKind.Other,
-                                Constant: Int32Constant(instruction)));
+                            stack.Add(new(StackValueKind.Other));
                             break;
                         }
                         if (operation == ILOpCode.Newobj
@@ -330,24 +268,11 @@ internal static class MethodSafetyAnalysis
                                     checked((int)
                                         instruction
                                             .OperandValue));
-                            StackValue[] arguments =
-                                PopArguments(
-                                    stack,
-                                    constructor
-                                        .ParameterTypes
-                                        .Length);
-                            if (IsSpanPointerConstructor(
-                                    constructor)
-                                && arguments.Length > 0
-                                && arguments[0]
-                                        .StackAllocationOffset
-                                    is int stackAllocationOffset
-                                && arguments[0].Displacement == 0)
-                            {
-                                initializedSpanStackAllocations
-                                    .Add(
-                                        stackAllocationOffset);
-                            }
+                            PopArguments(
+                                stack,
+                                constructor
+                                    .ParameterTypes
+                                    .Length);
                             stack.Add(new(
                                 StackValueKind.Other));
                             break;
@@ -395,40 +320,34 @@ internal static class MethodSafetyAnalysis
             }
         }
 
-        if (stackAllocationStores.Count > 0)
+        SpanStackAllocations spans =
+            resolveMember is null
+            || !occurrences.Any(occurrence =>
+                occurrence.Kind == UnsafetyKind.StackAlloc)
+                ? SpanStackAllocations.None
+                : SpanStackAllocations.Recognize(
+                    context,
+                    resolveMember);
+        for (int index = occurrences.Count - 1;
+            index >= 0;
+            index--)
         {
-            var initializerStores = stackAllocationStores
-                .Where(store => initializedSpanStackAllocations
-                    .Contains(store.Offset))
-                .Select(store => store.Index)
-                .ToHashSet();
-            for (int index = occurrences.Count - 1;
-                index >= 0;
-                index--)
+            UnsafetyOccurrence occurrence = occurrences[index];
+            if (occurrence.Kind == UnsafetyKind.Deref
+                && spans.InitializerStores.Contains(
+                    occurrence.ILOffset))
             {
-                if (initializerStores.Contains(index))
-                    occurrences.RemoveAt(index);
+                occurrences.RemoveAt(index);
             }
-        }
-
-        if (context.LocalVariablesInitialized)
-        {
-            for (int index = 0;
-                index < occurrences.Count;
-                index++)
+            else if (occurrence.Kind == UnsafetyKind.StackAlloc
+                && context.LocalVariablesInitialized
+                && spans.WrappedAllocations.Contains(
+                    occurrence.ILOffset))
             {
-                UnsafetyOccurrence occurrence =
-                    occurrences[index];
-                if (occurrence.Kind
-                        == UnsafetyKind.StackAlloc
-                    && initializedSpanStackAllocations
-                        .Contains(occurrence.ILOffset))
+                occurrences[index] = occurrence with
                 {
-                    occurrences[index] = occurrence with
-                    {
-                        RequiresUnsafeContext = false,
-                    };
-                }
+                    RequiresUnsafeContext = false,
+                };
             }
         }
 
@@ -488,42 +407,7 @@ internal static class MethodSafetyAnalysis
         ManagedRef,
     }
 
-    readonly record struct StackValue(
-        StackValueKind Kind,
-        int? StackAllocationOffset = null,
-        long? Displacement = null,
-        long? Constant = null);
-
-    static long? Int32Constant(DecodedInstruction instruction)
-        => instruction.OpCode switch
-        {
-            ILOpCode.Ldc_i4_m1 => -1,
-            ILOpCode.Ldc_i4_0 => 0,
-            ILOpCode.Ldc_i4_1 => 1,
-            ILOpCode.Ldc_i4_2 => 2,
-            ILOpCode.Ldc_i4_3 => 3,
-            ILOpCode.Ldc_i4_4 => 4,
-            ILOpCode.Ldc_i4_5 => 5,
-            ILOpCode.Ldc_i4_6 => 6,
-            ILOpCode.Ldc_i4_7 => 7,
-            ILOpCode.Ldc_i4_8 => 8,
-            ILOpCode.Ldc_i4_s => (sbyte)instruction.OperandValue,
-            ILOpCode.Ldc_i4 => (int)instruction.OperandValue,
-            _ => null,
-        };
-
-    // Native-int width is taken at its 64-bit maximum so the bound check
-    // stays conservative on every target.
-    static int? StoreWidth(ILOpCode operation)
-        => operation switch
-        {
-            ILOpCode.Stind_i1 => 1,
-            ILOpCode.Stind_i2 => 2,
-            ILOpCode.Stind_i4 or ILOpCode.Stind_r4 => 4,
-            ILOpCode.Stind_i8 or ILOpCode.Stind_r8
-                or ILOpCode.Stind_i => 8,
-            _ => null,
-        };
+    readonly record struct StackValue(StackValueKind Kind);
 
     static bool Pop(
         List<StackValue> stack,
@@ -606,25 +490,6 @@ internal static class MethodSafetyAnalysis
         for (int index = count - 1; index >= 0; index--)
             Pop(stack, out arguments[index]);
         return arguments;
-    }
-
-    static bool IsSpanPointerConstructor(
-        MemberRef constructor)
-    {
-        TypeRef declaringType =
-            constructor.DeclaringType.Kind
-                == TypeRefKind.GenericInstance
-            ? constructor.DeclaringType.ElementType
-                ?? constructor.DeclaringType
-            : constructor.DeclaringType;
-        return constructor.Name == ".ctor"
-            && FrameworkIdentity.IsCoreLibraryType(
-                declaringType,
-                "System",
-                "Span`1")
-            && constructor.ParameterTypes.Length == 2
-            && constructor.ParameterTypes[0].Kind
-                == TypeRefKind.Pointer;
     }
 
     static bool PushConstant(DecodedInstruction instruction)

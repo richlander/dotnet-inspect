@@ -411,6 +411,12 @@ public static class StackallocInitializerResiduals
     }
 }
 
+public struct SpanInitializerPoint
+{
+    public int X;
+    public int Y;
+}
+
 public static class SpanStackallocInitializers
 {
     public static int ByteElements()
@@ -425,6 +431,57 @@ public static class SpanStackallocInitializers
         return values[0] + values[1];
     }
 
+    public static int WidenedConstantElement(long first)
+    {
+        Span<long> values = stackalloc long[] { first, 2 };
+        return (int)values[1];
+    }
+
+    public static int FieldElements(SpanInitializerPoint point)
+    {
+        Span<int> values = stackalloc int[] { point.X, point.Y };
+        return values[1];
+    }
+
+    public static int VirtualCallElement(string text)
+    {
+        Span<int> values = stackalloc int[] { text.Length, 1 };
+        return values[1];
+    }
+
+    public static int DivisionElement(int value)
+    {
+        Span<int> values = stackalloc int[] { value / 2, 1 };
+        return values[1];
+    }
+
+    public static int ArrayElement(int[] source)
+    {
+        Span<int> values = stackalloc int[] { source[0], 1 };
+        return values[1];
+    }
+
+    public static int ConditionalElement(bool flag)
+    {
+        Span<int> values = stackalloc int[] { flag ? 1 : 2, 3 };
+        return values[1];
+    }
+
+    public static int StructElements(
+        SpanInitializerPoint first,
+        SpanInitializerPoint second)
+    {
+        Span<SpanInitializerPoint> values =
+            stackalloc SpanInitializerPoint[] { first, second };
+        return values[1].X;
+    }
+
+    public static int NativeIntElements()
+    {
+        Span<nint> values = stackalloc nint[] { 1, 2 };
+        return (int)values[1];
+    }
+
     public static int PointerLocalWrapped(int length)
     {
         unsafe
@@ -433,6 +490,16 @@ public static class SpanStackallocInitializers
             values[0] = 1;
             values[1] = 2;
             return new Span<int>(values, length)[0];
+        }
+    }
+
+    public static int OutOfBoundsStoreWrapped()
+    {
+        unsafe
+        {
+            int* values = stackalloc int[3];
+            values[5] = 1;
+            return new Span<int>(values, 3)[0];
         }
     }
 }

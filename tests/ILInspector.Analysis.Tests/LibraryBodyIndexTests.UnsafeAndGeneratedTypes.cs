@@ -327,6 +327,14 @@ public partial class LibraryBodyIndexTests
                 "StackallocSpanInitializer"),
             ("SpanStackallocInitializers", "ByteElements"),
             ("SpanStackallocInitializers", "ArgumentElements"),
+            ("SpanStackallocInitializers", "WidenedConstantElement"),
+            ("SpanStackallocInitializers", "FieldElements"),
+            ("SpanStackallocInitializers", "VirtualCallElement"),
+            ("SpanStackallocInitializers", "DivisionElement"),
+            ("SpanStackallocInitializers", "ArrayElement"),
+            ("SpanStackallocInitializers", "ConditionalElement"),
+            ("SpanStackallocInitializers", "StructElements"),
+            ("SpanStackallocInitializers", "NativeIntElements"),
         })
         {
             Assert.DoesNotContain(
@@ -347,8 +355,10 @@ public partial class LibraryBodyIndexTests
                         == UnsafeMemberUseKind
                             .StackAllocation));
 
-        // Variable-length pointer stores are source dereferences even when
-        // the allocation is then wrapped by Span<T>.
+        // Stores the initializer shape cannot account for are source
+        // dereferences even when the allocation is then wrapped by Span<T>:
+        // a variable-length allocation, or a constant one written out of
+        // bounds.
         UnsafeMemberUse pointerLocal = Assert.Single(
             index.Safety.MemberUses,
             use =>
@@ -357,6 +367,16 @@ public partial class LibraryBodyIndexTests
                 && use.Method.Name == "PointerLocalWrapped");
         Assert.Contains(
             pointerLocal.Evidence,
+            evidence => evidence.Kind
+                == UnsafeMemberUseKind.PointerDereference);
+        UnsafeMemberUse outOfBounds = Assert.Single(
+            index.Safety.MemberUses,
+            use =>
+                use.Method.DeclaringType.Name
+                    == "SpanStackallocInitializers"
+                && use.Method.Name == "OutOfBoundsStoreWrapped");
+        Assert.Contains(
+            outOfBounds.Evidence,
             evidence => evidence.Kind
                 == UnsafeMemberUseKind.PointerDereference);
     }
