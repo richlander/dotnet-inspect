@@ -1,9 +1,11 @@
+using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 
+using ILInspector.Analysis.Planning;
 using ILInspector.Metadata;
 
 namespace ILInspector.Analysis;
@@ -54,6 +56,22 @@ internal sealed class LibraryBodyAsyncSourceResolver
     readonly Lazy<MetadataTypeDefinitionIndex>
         _typeDefinitionIndex;
     readonly Action? _typeDefinitionIndexBuilt;
+    readonly Action? _stateMachineExecutionMethodsBuilt;
+    readonly Action? _targetedStateMachineClaimsBuilt;
+    readonly ConcurrentDictionary<
+        TypeDefinitionHandle,
+        Lazy<TargetedSourceTypeChain>>
+        _targetedSourceTypeChains = new();
+    readonly ConcurrentDictionary<
+        TypeDefinitionHandle,
+        Lazy<IReadOnlyDictionary<
+            MetadataTypeDefinitionName,
+            MethodDefinitionHandle>>>
+        _targetedStateMachineClaimsBySourceType = new();
+    readonly ConcurrentDictionary<
+        TypeDefinitionHandle,
+        Lazy<IReadOnlyDictionary<string, TypeDefinitionHandle>>>
+        _targetedNestedTypesByParent = new();
 
     internal LibraryBodyAsyncSourceResolver(
         MetadataReader reader,
@@ -67,7 +85,9 @@ internal sealed class LibraryBodyAsyncSourceResolver
                 TypeDefinitionHandle>>
             localTypeDefinitions,
         Func<EntityHandle, TypeRef> typeFromEntity,
-        Action? typeDefinitionIndexBuilt = null)
+        Action? typeDefinitionIndexBuilt = null,
+        Action? stateMachineExecutionMethodsBuilt = null,
+        Action? targetedStateMachineClaimsBuilt = null)
     {
         _reader = reader;
         _assemblyIdentity = assemblyIdentity;
@@ -77,6 +97,10 @@ internal sealed class LibraryBodyAsyncSourceResolver
         _localTypeDefinitions = localTypeDefinitions;
         _typeFromEntity = typeFromEntity;
         _typeDefinitionIndexBuilt = typeDefinitionIndexBuilt;
+        _stateMachineExecutionMethodsBuilt =
+            stateMachineExecutionMethodsBuilt;
+        _targetedStateMachineClaimsBuilt =
+            targetedStateMachineClaimsBuilt;
         _classicAsyncExecutionMethods = new(
             BuildClassicAsyncExecutionMethods,
             LazyThreadSafetyMode.ExecutionAndPublication);
@@ -828,8 +852,305 @@ internal sealed class LibraryBodyAsyncSourceResolver
         return true;
     }
 
+    internal bool TryResolveTargetedStateMachineExecutionMethod(
+        MethodDefinitionHandle sourceHandle,
+        MethodDefinition sourceMethod,
+        MethodDefinitionGeneratedExpansionWork work,
+        out MethodDefinitionHandle executionMethod)
+    {
+        executionMethod = default;
+        StateMachineAttributeInfo attribute =
+            StateMachineExecutionAttribute(
+                sourceMethod.GetCustomAttributes());
+        if (!attribute.Present
+            || MethodClassificationScanner.ClassifyAsyncMethod(
+                    _reader,
+                    sourceMethod)
+                == MethodClassification.RuntimeAsync)
+        {
+            return false;
+        }
+        if (attribute.Rejected)
+        {
+            throw new BadImageFormatException(
+                "The state-machine attribute is malformed or ambiguous.");
+        }
+        if (attribute.Ignored)
+            return false;
+        if (!HasAnalyzableIlBody(sourceMethod)
+            || attribute.SerializedType is not { } serializedType
+            || StateMachineTypeDefinitionName(serializedType)
+                is not { } stateMachineType
+            || !HasUniqueTargetedStateMachineClaim(
+                sourceHandle,
+                sourceMethod.GetDeclaringType(),
+                stateMachineType,
+                work)
+            || !TryResolveTargetedStateMachineType(
+                sourceMethod.GetDeclaringType(),
+                stateMachineType,
+                work,
+                out TypeDefinitionHandle stateMachineHandle)
+            || stateMachineHandle.IsNil)
+        {
+            throw new BadImageFormatException(
+                "The state-machine source does not map to a unique valid "
+                + "execution body.");
+        }
+
+        bool resolved = attribute.Kind switch
+        {
+            StateMachineKind.ClassicAsync =>
+                TryGetAsyncStateMachineMoveNext(
+                    stateMachineHandle,
+                    out executionMethod,
+                    work),
+            StateMachineKind.AsyncIterator =>
+                ImplementsAsyncIteratorStateMachine(
+                    _reader.GetTypeDefinition(stateMachineHandle),
+                    work)
+                && TryGetAsyncStateMachineMoveNext(
+                    stateMachineHandle,
+                    out executionMethod,
+                    work,
+                    stateMachineInterfaceVerified: true),
+            StateMachineKind.Iterator =>
+                TryGetIteratorStateMachineMoveNext(
+                    stateMachineHandle,
+                    out executionMethod,
+                    work),
+            _ => false,
+        };
+        if (!resolved)
+        {
+            throw new BadImageFormatException(
+                "The state-machine source does not map to a unique valid "
+                + "execution body.");
+        }
+        return true;
+    }
+
+    bool HasUniqueTargetedStateMachineClaim(
+        MethodDefinitionHandle sourceHandle,
+        TypeDefinitionHandle sourceType,
+        MetadataTypeDefinitionName stateMachineType,
+        MethodDefinitionGeneratedExpansionWork work)
+    {
+        IReadOnlyDictionary<
+            MetadataTypeDefinitionName,
+            MethodDefinitionHandle> claims =
+                GetTargetedStateMachineClaims(sourceType, work);
+        return claims.TryGetValue(stateMachineType, out var claimant)
+            && claimant == sourceHandle;
+    }
+
+    bool TryResolveTargetedStateMachineType(
+        TypeDefinitionHandle sourceType,
+        MetadataTypeDefinitionName stateMachineType,
+        MethodDefinitionGeneratedExpansionWork work,
+        out TypeDefinitionHandle stateMachineHandle)
+    {
+        stateMachineHandle = default;
+        TargetedSourceTypeChain sourceChain =
+            GetTargetedSourceTypeChain(sourceType, work);
+        int count = sourceChain.Types.Length;
+        if (!sourceChain.Complete
+            || count == 0
+            || stateMachineType.Segments.Length < count)
+        {
+            return false;
+        }
+
+        TypeDefinition root =
+            _reader.GetTypeDefinition(sourceChain.Types[count - 1]);
+        if (!_reader.StringComparer.Equals(
+                root.Namespace,
+                stateMachineType.Namespace))
+        {
+            return false;
+        }
+        for (int segment = 0; segment < count; segment++)
+        {
+            TypeDefinition sourceSegment =
+                _reader.GetTypeDefinition(
+                    sourceChain.Types[count - segment - 1]);
+            if (!_reader.StringComparer.Equals(
+                    sourceSegment.Name,
+                    stateMachineType.Segments[segment]))
+            {
+                return false;
+            }
+        }
+
+        TypeDefinitionHandle current = sourceType;
+        for (int segment = count;
+            segment < stateMachineType.Segments.Length;
+            segment++)
+        {
+            IReadOnlyDictionary<string, TypeDefinitionHandle> nestedTypes =
+                GetTargetedNestedTypes(current, work);
+            if (!nestedTypes.TryGetValue(
+                    stateMachineType.Segments[segment],
+                    out TypeDefinitionHandle match)
+                || match.IsNil)
+            {
+                return false;
+            }
+            current = match;
+        }
+
+        stateMachineHandle = current;
+        return true;
+    }
+
+    TargetedSourceTypeChain GetTargetedSourceTypeChain(
+        TypeDefinitionHandle sourceType,
+        MethodDefinitionGeneratedExpansionWork work) =>
+        _targetedSourceTypeChains.GetOrAdd(
+            sourceType,
+            handle => new Lazy<TargetedSourceTypeChain>(
+                () => BuildTargetedSourceTypeChain(handle, work),
+                LazyThreadSafetyMode.ExecutionAndPublication)).Value;
+
+    TargetedSourceTypeChain BuildTargetedSourceTypeChain(
+        TypeDefinitionHandle sourceType,
+        MethodDefinitionGeneratedExpansionWork work)
+    {
+        Span<TypeDefinitionHandle> chain =
+            stackalloc TypeDefinitionHandle[
+                MetadataSafetyPolicy.MaxRelationshipNodes];
+        bool complete =
+            MetadataRelationshipTraversal
+                .TryWalkTypeDefinitionDeclaringChain(
+                    _reader,
+                    sourceType,
+                    chain,
+                    out int count,
+                    out _,
+                    out _);
+        for (int index = 1; index < count; index++)
+            work.RecordRelationshipNode(chain[index]);
+        return new([.. chain[..count]], complete);
+    }
+
+    IReadOnlyDictionary<
+        MetadataTypeDefinitionName,
+        MethodDefinitionHandle> GetTargetedStateMachineClaims(
+            TypeDefinitionHandle sourceType,
+            MethodDefinitionGeneratedExpansionWork work) =>
+        _targetedStateMachineClaimsBySourceType.GetOrAdd(
+            sourceType,
+            handle => new Lazy<IReadOnlyDictionary<
+                MetadataTypeDefinitionName,
+                MethodDefinitionHandle>>(
+                () => BuildTargetedStateMachineClaims(handle, work),
+                LazyThreadSafetyMode.ExecutionAndPublication)).Value;
+
+    IReadOnlyDictionary<
+        MetadataTypeDefinitionName,
+        MethodDefinitionHandle> BuildTargetedStateMachineClaims(
+            TypeDefinitionHandle sourceType,
+            MethodDefinitionGeneratedExpansionWork work)
+    {
+        _targetedStateMachineClaimsBuilt?.Invoke();
+        TargetedSourceTypeChain sourceChain =
+            GetTargetedSourceTypeChain(sourceType, work);
+        if (!sourceChain.Complete)
+        {
+            return new Dictionary<
+                MetadataTypeDefinitionName,
+                MethodDefinitionHandle>();
+        }
+
+        var claims = new Dictionary<
+            MetadataTypeDefinitionName,
+            MethodDefinitionHandle>();
+        foreach (TypeDefinitionHandle typeHandle in sourceChain.Types)
+        {
+            TypeDefinition type = _reader.GetTypeDefinition(typeHandle);
+            foreach (MethodDefinitionHandle methodHandle
+                in type.GetMethods())
+            {
+                work.RecordCandidateDefinition(methodHandle);
+                MethodDefinition method =
+                    _reader.GetMethodDefinition(methodHandle);
+                if (MethodClassificationScanner.ClassifyAsyncMethod(
+                        _reader,
+                        method)
+                    == MethodClassification.RuntimeAsync)
+                {
+                    continue;
+                }
+
+                StateMachineAttributeInfo candidate =
+                    StateMachineExecutionAttribute(
+                        method.GetCustomAttributes());
+                var claimedTypes =
+                    new HashSet<MetadataTypeDefinitionName>();
+                foreach (string claim
+                    in candidate.ClaimedSerializedTypes)
+                {
+                    if (StateMachineTypeDefinitionName(claim)
+                        is { } claimedType)
+                    {
+                        claimedTypes.Add(claimedType);
+                    }
+                }
+
+                foreach (MetadataTypeDefinitionName claimedType
+                    in claimedTypes)
+                {
+                    if (candidate.Rejected
+                        || candidate.SerializedType is null
+                        || !claims.TryAdd(
+                            claimedType,
+                            methodHandle))
+                    {
+                        claims[claimedType] = default;
+                    }
+                }
+            }
+        }
+        return claims;
+    }
+
+    IReadOnlyDictionary<string, TypeDefinitionHandle>
+        GetTargetedNestedTypes(
+            TypeDefinitionHandle parent,
+            MethodDefinitionGeneratedExpansionWork work) =>
+            _targetedNestedTypesByParent.GetOrAdd(
+                parent,
+                handle => new Lazy<
+                    IReadOnlyDictionary<
+                        string,
+                        TypeDefinitionHandle>>(
+                    () => BuildTargetedNestedTypes(handle, work),
+                    LazyThreadSafetyMode.ExecutionAndPublication)).Value;
+
+    IReadOnlyDictionary<string, TypeDefinitionHandle>
+        BuildTargetedNestedTypes(
+            TypeDefinitionHandle parent,
+            MethodDefinitionGeneratedExpansionWork work)
+    {
+        var result = new Dictionary<
+            string,
+            TypeDefinitionHandle>(
+                StringComparer.Ordinal);
+        foreach (TypeDefinitionHandle nested
+            in _reader.GetTypeDefinition(parent).GetNestedTypes())
+        {
+            work.RecordRelationshipNode(nested);
+            string name = _reader.GetString(
+                _reader.GetTypeDefinition(nested).Name);
+            if (!result.TryAdd(name, nested))
+                result[name] = default;
+        }
+        return result;
+    }
+
     StateMachineExecutionMethods BuildStateMachineExecutionMethods()
     {
+        _stateMachineExecutionMethodsBuilt?.Invoke();
         var sourcesByStateMachine = new Dictionary<
             MetadataTypeDefinitionName,
             StateMachineExecutionSource>();
@@ -978,7 +1299,8 @@ internal sealed class LibraryBodyAsyncSourceResolver
                             stateMachineHandle))
                     && TryGetAsyncStateMachineMoveNext(
                         stateMachineHandle,
-                        out executionMethod);
+                        out executionMethod,
+                        stateMachineInterfaceVerified: true);
             case StateMachineKind.Iterator:
                 return TryGetIteratorStateMachineMoveNext(
                     stateMachineHandle,
@@ -1279,16 +1601,20 @@ internal sealed class LibraryBodyAsyncSourceResolver
 
     bool TryGetAsyncStateMachineMoveNext(
         TypeDefinitionHandle typeHandle,
-        out MethodDefinitionHandle moveNext)
+        out MethodDefinitionHandle moveNext,
+        MethodDefinitionGeneratedExpansionWork? work = null,
+        bool stateMachineInterfaceVerified = false)
     {
         moveNext = default;
         var type = _reader.GetTypeDefinition(typeHandle);
-        if (!ImplementsAsyncStateMachine(type))
+        if (!stateMachineInterfaceVerified
+            && !ImplementsAsyncStateMachine(type, work))
             return false;
 
         foreach (var handle
             in type.GetMethodImplementations())
         {
+            work?.RecordRelationshipNode(handle);
             var implementation =
                 _reader.GetMethodImplementation(handle);
             MemberRef declaration =
@@ -1310,6 +1636,7 @@ internal sealed class LibraryBodyAsyncSourceResolver
 
             var body = (MethodDefinitionHandle)
                 implementation.MethodBody;
+            work?.RecordCandidateDefinition(body);
             MethodDefinition bodyDefinition =
                 _reader.GetMethodDefinition(body);
             if (bodyDefinition.GetDeclaringType()
@@ -1327,6 +1654,7 @@ internal sealed class LibraryBodyAsyncSourceResolver
 
         foreach (var handle in type.GetMethods())
         {
+            work?.RecordCandidateDefinition(handle);
             MethodDefinition method =
                 _reader.GetMethodDefinition(handle);
             if (!HasAnalyzableIlBody(method)
@@ -1347,17 +1675,19 @@ internal sealed class LibraryBodyAsyncSourceResolver
 
     bool TryGetIteratorStateMachineMoveNext(
         TypeDefinitionHandle typeHandle,
-        out MethodDefinitionHandle moveNext)
+        out MethodDefinitionHandle moveNext,
+        MethodDefinitionGeneratedExpansionWork? work = null)
     {
         moveNext = default;
         TypeDefinition type =
             _reader.GetTypeDefinition(typeHandle);
-        if (!ImplementsIteratorStateMachine(type))
+        if (!ImplementsIteratorStateMachine(type, work))
             return false;
 
         foreach (MethodImplementationHandle handle
             in type.GetMethodImplementations())
         {
+            work?.RecordRelationshipNode(handle);
             MethodImplementation implementation =
                 _reader.GetMethodImplementation(handle);
             MemberRef declaration =
@@ -1375,6 +1705,7 @@ internal sealed class LibraryBodyAsyncSourceResolver
             }
             var body = (MethodDefinitionHandle)
                 implementation.MethodBody;
+            work?.RecordCandidateDefinition(body);
             MethodDefinition bodyDefinition =
                 _reader.GetMethodDefinition(body);
             if (bodyDefinition.GetDeclaringType()
@@ -1392,6 +1723,7 @@ internal sealed class LibraryBodyAsyncSourceResolver
 
         foreach (MethodDefinitionHandle handle in type.GetMethods())
         {
+            work?.RecordCandidateDefinition(handle);
             MethodDefinition method =
                 _reader.GetMethodDefinition(handle);
             if (!HasAnalyzableIlBody(method)
@@ -1428,11 +1760,13 @@ internal sealed class LibraryBodyAsyncSourceResolver
                 == MethodImplAttributes.IL;
 
     bool ImplementsAsyncStateMachine(
-        TypeDefinition type)
+        TypeDefinition type,
+        MethodDefinitionGeneratedExpansionWork? work = null)
     {
         foreach (var handle
             in type.GetInterfaceImplementations())
         {
+            work?.RecordRelationshipNode(handle);
             TypeRef interfaceType = _typeFromEntity(
                 _reader.GetInterfaceImplementation(
                     handle).Interface);
@@ -1449,12 +1783,15 @@ internal sealed class LibraryBodyAsyncSourceResolver
     }
 
     bool ImplementsAsyncIteratorStateMachine(
-        TypeDefinition type)
+        TypeDefinition type,
+        MethodDefinitionGeneratedExpansionWork? work = null)
     {
         bool enumerator = false;
+        bool stateMachine = false;
         foreach (InterfaceImplementationHandle handle
             in type.GetInterfaceImplementations())
         {
+            work?.RecordRelationshipNode(handle);
             TypeRef interfaceType = DefinitionType(
                 _typeFromEntity(
                     _reader.GetInterfaceImplementation(
@@ -1464,17 +1801,23 @@ internal sealed class LibraryBodyAsyncSourceResolver
                 "System.Runtime",
                 "System.Collections.Generic",
                 "IAsyncEnumerator`1");
+            stateMachine |= FrameworkIdentity.IsKnownFrameworkType(
+                interfaceType,
+                "System.Threading.Tasks",
+                "System.Runtime.CompilerServices",
+                "IAsyncStateMachine");
         }
-        return enumerator
-            && ImplementsAsyncStateMachine(type);
+        return enumerator && stateMachine;
     }
 
     bool ImplementsIteratorStateMachine(
-        TypeDefinition type)
+        TypeDefinition type,
+        MethodDefinitionGeneratedExpansionWork? work = null)
     {
         foreach (InterfaceImplementationHandle handle
             in type.GetInterfaceImplementations())
         {
+            work?.RecordRelationshipNode(handle);
             TypeRef interfaceType = _typeFromEntity(
                 _reader.GetInterfaceImplementation(
                     handle).Interface);
@@ -1922,6 +2265,10 @@ internal sealed class LibraryBodyAsyncSourceResolver
             AuthenticatedStateMachines,
         IReadOnlySet<MetadataTypeDefinitionName>
             RejectedStateMachines);
+
+    sealed record TargetedSourceTypeChain(
+        ImmutableArray<TypeDefinitionHandle> Types,
+        bool Complete);
 
     readonly record struct StateMachineExecutionSource(
         MethodDefinitionHandle Source,
