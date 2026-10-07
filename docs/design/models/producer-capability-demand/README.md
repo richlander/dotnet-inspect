@@ -47,7 +47,7 @@ defects. Each was reproduced against the shipped C# validators.
 | Issue | Lean witness | Consequence |
 | --- | --- | --- |
 | [#9483](https://github.com/richlander/dotnet-inspect/issues/9483) | `Coverage.lastEdge_unsound_preserving` | Path validation takes `ExactCardinality` from the last covering edge only. Under the enum's documented "preserves" reading, a sound provision without the claim plus a sound edge certifying it forms an accepted path whose Count is not exact. The theorem states soundness, acceptance, and the unsatisfied result together. |
-| [#9484](https://github.com/richlander/dotnet-inspect/issues/9484) | `FailureRouting.shared_dependent_of_two_failures_rejected` | When two failed provisions share a dependent, no result set is accepted, whatever the dependent reports. |
+| [#9484](https://github.com/richlander/dotnet-inspect/issues/9484) | `FailureRouting.shared_dependent_of_two_failures_rejected` | When two failed provisions share a dependent, no result set is accepted, whatever the dependent reports. Fixed: the validator now implements `anyFailureAccepted`, which `any_sound` and `any_complete` prove sound and complete, and `exact_implies_any` shows to be a pure loosening. The design now states that a failure affects every dependent, settled or not; `any_rejects_settled_dependent` records why a rule over outcomes alone requires that. |
 
 The current Package Tree and section-row adopters do not reach either shape.
 
