@@ -737,6 +737,19 @@ located row; `Context: Exception`, `Allocation`, `Safety`, and `Cost` count
 the regions or facts at the coordinate. `library address ... -D --details`
 reports these declarations for the coordinate sections.
 
+The library command renders a lone explicitly selected section in its declared
+shape's native format when no format is named, per
+[Section shapes](design/section-shapes.md): a Table streams its TSV rows
+(`library MyLib.dll -S References`, the `Library Info` record as field/value
+TSV, each metadata table, and each `Context:` section on `library address`)
+and `Reference Hierarchy` renders its tree; `--markdown` or `--mermaid` names
+another of its formats. `Dependency Structure` is a graph and keeps its
+current rendering. An explicit format, an environment default, `--print`,
+`--row`, `--value`, `--urls`, `--paths`, `--tree`, `--count`, a projection,
+an envelope, or discovery keeps its existing behavior, and selecting several
+sections composes Markdown as before, including a mixed selection whose
+scalar records leave a `--rows` window.
+
 ```bash
 dotnet-inspect package System.Text.Json -D --details
 dotnet-inspect package System.Text.Json -D Files --details --json

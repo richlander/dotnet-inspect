@@ -858,6 +858,8 @@ public partial class LibraryCommand
                             .ToHashSet(StringComparer.OrdinalIgnoreCase),
                 };
             }
+
+            options = ApplyNativeShapeFormat(options);
         }
 
         if (options.JsonOutput

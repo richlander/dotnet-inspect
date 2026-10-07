@@ -196,7 +196,7 @@ public partial class CommandExecutionTests
                 "--library",
                 relativeLibraryPath,
                 "-S",
-                "Context: Member");
+                "Context: Member", "--markdown");
 
             Assert.Empty(error);
             Assert.Equal(0, exit);
@@ -332,7 +332,7 @@ public partial class CommandExecutionTests
                 "--library",
                 "lib/net8.0/Target.dll",
                 "-S",
-                "Context: Member");
+                "Context: Member", "--markdown");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -486,7 +486,7 @@ public partial class CommandExecutionTests
                 "--library",
                 library,
                 "-S",
-                "Context: Member");
+                "Context: Member", "--markdown");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -592,7 +592,7 @@ public partial class CommandExecutionTests
                 "--library",
                 "lib/net11.0/Coordinate.Package.dll",
                 "-S",
-                "Context: Source Location");
+                "Context: Source Location", "--markdown");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -734,7 +734,7 @@ public partial class CommandExecutionTests
                 "--tfm",
                 "net11.0",
                 "-S",
-                "Context: Member");
+                "Context: Member", "--markdown");
 
             Assert.Empty(error);
             Assert.Equal(0, exit);
@@ -873,7 +873,7 @@ public partial class CommandExecutionTests
             "--platform",
             "System.Text.Json",
             "-S",
-            "Context: Member");
+            "Context: Member", "--markdown");
 
         Assert.Equal(1, bare.Exit);
         Assert.Empty(bare.Output);
@@ -2541,7 +2541,7 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             "library", "address", "0x06000001+0x0",
             "--platform", "System.Text.Json",
-            "-S", "Context: Source Location");
+            "-S", "Context: Source Location", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2558,7 +2558,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "address", "0x06000001+0x0",
-            "--platform", "System.Text.Json", "-S", "IL Offset");
+            "--platform", "System.Text.Json", "-S", "IL Offset", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2599,7 +2599,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "--platform", "System.Text.Json",
-            "-S", "Context: Mem*,Library Info");
+            "-S", "Context: Mem*,Library Info", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Library Info", output);
@@ -2648,7 +2648,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "address", "0x06000001+0x0",
-            "--platform", "System.Text.Json", "-S", "Context: Member");
+            "--platform", "System.Text.Json", "-S", "Context: Member", "--markdown");
 
         Assert.Empty(error);
         Assert.Equal(0, exit);
@@ -2678,7 +2678,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "address", "0x06000001+0x0",
-            "--platform", "System.Text.Json", "-S", "Context: Instruction");
+            "--platform", "System.Text.Json", "-S", "Context: Instruction", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2731,7 +2731,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "address", "0x06000001+0x2",
-            "--platform", "System.Text.Json", "-S", "Context: Member");
+            "--platform", "System.Text.Json", "-S", "Context: Member", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2759,7 +2759,7 @@ public partial class CommandExecutionTests
         var token = typeof(ILOffsetExceptionFixture).GetMethod(nameof(ILOffsetExceptionFixture.TryCatch))!.MetadataToken;
         var (exit, output, error) = await RunAppAsync(
             "library", "address", $"0x{token:X}+0x1",
-            "--library", TestAssemblyPath, "-S", "Context: Exception");
+            "--library", TestAssemblyPath, "-S", "Context: Exception", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2787,7 +2787,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "address", "0x06000001+0x1",
-            "--platform", "System.Text.Json", "-S", "Context: Callsite");
+            "--platform", "System.Text.Json", "-S", "Context: Callsite", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2816,7 +2816,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "address", "0x06000001+0x6",
-            "--platform", "System.Text.Json", "-S", "Context: Return Address");
+            "--platform", "System.Text.Json", "-S", "Context: Return Address", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);

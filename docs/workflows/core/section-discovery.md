@@ -141,7 +141,7 @@ Unsafe Members
 ### 4a. Platform section
 
 ```bash
-dotnet-inspect library --platform System.Collections -S "Custom Attributes"
+dotnet-inspect library --platform System.Collections -S "Custom Attributes" --markdown
 ```
 
 ```expect
@@ -157,7 +157,7 @@ dotnet-inspect library --platform System.Collections -S "Custom Attributes"
 ### 4b. Library Info section
 
 ```bash
-dotnet-inspect library --package System.Collections@4.3.0 -S "Library Info"
+dotnet-inspect library --package System.Collections@4.3.0 -S "Library Info" --markdown
 ```
 
 ```expect
