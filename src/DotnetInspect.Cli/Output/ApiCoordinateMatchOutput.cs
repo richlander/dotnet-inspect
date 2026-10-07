@@ -3,7 +3,6 @@ using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspector.Presentation;
 using DotnetInspector.Sections;
-using Markout;
 
 namespace DotnetInspect.Cli.Output;
 
@@ -38,8 +37,8 @@ internal static class ApiCoordinateMatchOutput
                 envelope.Content,
                 Console.Out,
                 options.Format == OutputFormat.PlainText
-                    ? new PlainTextFormatter()
-                    : new MarkdownFormatter());
+                    ? ApiCoordinateMatchTextFormat.PlainText
+                    : ApiCoordinateMatchTextFormat.Markdown);
             wroteOutput = true;
         }
 
