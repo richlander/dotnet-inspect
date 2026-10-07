@@ -1,6 +1,0 @@
-name = "producer-capability-demand"
-version = "0.1.0"
-defaultTargets = ["ProducerCapabilityDemand"]
-
-[[lean_lib]]
-name = "ProducerCapabilityDemand"
