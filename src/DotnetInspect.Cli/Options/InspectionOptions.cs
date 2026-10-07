@@ -6,6 +6,7 @@ using DotnetInspector.Sections;
 using DotnetInspect.Cli.Sections;
 using ILInspector.Metadata;
 using ILInspector.Research;
+using DotnetInspect.Cli.Planning;
 
 namespace DotnetInspect.Cli.Options;
 
@@ -98,6 +99,13 @@ public record InspectionOptions : IProjectionOptions
     internal string? TypeNamespace { get; init; }
 
     internal bool IncludeNamespaceChildren { get; init; }
+
+    /// <summary>
+    /// The <c>library</c> command plan carried through package-sourced
+    /// Library selection.
+    /// </summary>
+    internal LibraryCommandPlan LibraryCommandPlan { get; init; } =
+        new LibraryCommandPlan.Standard();
 
     internal WorkspaceLibrarySelection? WorkspaceLibrarySelection { get; init; }
 

@@ -102,7 +102,14 @@ public partial class PackageCommand
         {
             conflicts.Add("-D/--discover");
         }
-        if (options.Tree && options.Discover == null && !options.Count) conflicts.Add("--tree");
+        if (options.Tree
+            && options.Discover == null
+            && !options.Count
+            && options.LibraryCommandPlan
+                is not LibraryCommandPlan.TypeHierarchy)
+        {
+            conflicts.Add("--tree");
+        }
         if (options.Columns != null) conflicts.Add("--columns");
         if (options.Fields != null) conflicts.Add("--fields");
 
@@ -196,6 +203,23 @@ public partial class PackageCommand
             return 1;
         IReadOnlyList<PackageLibrarySelection> selected =
             selectionResult.Libraries;
+        if (options.LibraryCommandPlan
+            is LibraryCommandPlan.TypeHierarchy hierarchy)
+        {
+            if (selected.Count == 1)
+            {
+                return await LibraryTypeHierarchyCommand.ExecuteAsync(
+                        selected[0].Path,
+                        hierarchy,
+                        CancellationToken.None)
+                    .ConfigureAwait(false);
+            }
+            if (hierarchy.Explicit)
+            {
+                CommandError.Write(LibraryCommandPlanner.OneLibraryError);
+                return 1;
+            }
+        }
 
         var packageReference = isLocalFile
             ? packageArg
@@ -924,6 +948,7 @@ public partial class PackageCommand
             TypeNamespace = options.TypeNamespace,
             IncludeNamespaceChildren =
                 options.IncludeNamespaceChildren,
+            CommandPlan = options.LibraryCommandPlan,
             TypeFilter = options.TypeFilter,
             AddressRequest =
                 options.LibraryAddressRequest,
