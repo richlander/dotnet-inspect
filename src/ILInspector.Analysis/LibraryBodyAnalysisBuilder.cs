@@ -4,6 +4,7 @@ using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 
 using Inspector.Findings;
+using ILInspector.Analysis.Planning;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
 
@@ -58,6 +59,8 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         _implementationMetricWork;
     readonly ImplementationMetricExecutionRecorder?
         _implementationMetricRecorder;
+    readonly MethodDefinitionGeneratedExpansionWork?
+        _generatedExpansionWork;
     readonly LibraryBodyAnalysisStageRecorder? _stageRecorder;
 
     internal LibraryBodyAnalysisBuilder(
@@ -72,6 +75,9 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         Action<MethodDefinitionHandle, int>? methodReferenceResolved = null,
         Action<TypeDefinitionHandle>? sourceGeneratedTypeClassified = null,
         Action? typeDefinitionIndexBuilt = null,
+        Action? stateMachineExecutionMethodsBuilt = null,
+        Action? targetedStateMachineClaimsBuilt = null,
+        Action? liftedDeclaringTypeChainWalked = null,
         Action? asyncStateMachineTypesBuilt = null,
         Action? parallelBuildStarting = null,
         Action<MetadataReader, MethodDefinitionHandle>?
@@ -80,6 +86,8 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             implementationMetricWork = null,
         ImplementationMetricExecutionRecorder?
             implementationMetricRecorder = null,
+        MethodDefinitionGeneratedExpansionWork?
+            generatedExpansionWork = null,
         LibraryBodyAnalysisStageRecorder? stageRecorder = null)
     {
         _path = path;
@@ -103,6 +111,8 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             implementationMetricWork;
         _implementationMetricRecorder =
             implementationMetricRecorder;
+        _generatedExpansionWork =
+            generatedExpansionWork;
         _stageRecorder = stageRecorder;
         _methodReferenceResolver =
             new LibraryBodyMethodReferenceResolver(
@@ -143,7 +153,9 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                     .IsSourceGeneratedTypeOrEnclosing,
                 LocalTypeDefinitions,
                 TypeFromEntity,
-                typeDefinitionIndexBuilt);
+                typeDefinitionIndexBuilt,
+                stateMachineExecutionMethodsBuilt,
+                targetedStateMachineClaimsBuilt);
         var liftedSourceOwnerResolver =
             new LibraryBodyLiftedSourceOwnerResolver(
                 reader,
@@ -153,7 +165,9 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                 _asyncSourceResolver,
                 methodBodyReferenceIndexed,
                 implementationMetricWork,
-                implementationMetricRecorder);
+                implementationMetricRecorder,
+                generatedExpansionWork,
+                liftedDeclaringTypeChainWalked);
         _declaredSourceResolver =
             new LibraryBodyDeclaredSourceResolver(
                 reader,
@@ -195,6 +209,22 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                 _asyncSiblingAccessibilityAnalyzer,
                 _genericConstraintClassifier
                     .HasGenericConstraints);
+    }
+
+    internal MethodDefinitionGeneratedExpansionResult
+        ExpandGeneratedExecutionBodies(
+            ImmutableArray<MethodDefinitionHandle> directMethods)
+    {
+        if (_generatedExpansionWork is null)
+        {
+            throw new InvalidOperationException(
+                "Generated expansion work was not configured.");
+        }
+
+        return _declaredSourceResolver
+            .ExpandGeneratedExecutionBodies(
+                directMethods,
+                _generatedExpansionWork);
     }
 
     public void Dispose() =>

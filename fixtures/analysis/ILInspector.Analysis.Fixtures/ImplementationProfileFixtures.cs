@@ -64,6 +64,80 @@ public static class ImplementationProfileSample
         => Changed?.Invoke();
 }
 
+public static class GeneratedUnsafeEvidenceSample
+{
+    public static async Task<int> AsyncGeneratedUnsafe(int value)
+    {
+        await Task.Yield();
+        return System.Runtime.CompilerServices.Unsafe.As<int, int>(
+            ref value);
+    }
+
+    public static int LiftedGeneratedUnsafe(int value)
+    {
+        int offset = 1;
+        Func<int, int> readUnsafe = current =>
+            System.Runtime.CompilerServices.Unsafe.As<int, int>(
+                ref current) + offset;
+        return readUnsafe(value);
+    }
+
+    public static int SiblingLiftedGeneratedUnsafe(int value)
+    {
+        int offset = 1;
+        Func<int, int> increment = current => current + offset;
+        Func<int, int> readUnsafe = current =>
+            System.Runtime.CompilerServices.Unsafe.As<int, int>(
+                ref current) + offset;
+        Func<int, int> decrement = current => current - offset;
+        return increment(value)
+            + readUnsafe(value)
+            + decrement(value);
+    }
+}
+
+public static class GeneratedExpansionAsyncSiblingSample
+{
+    public static async Task<int> FirstAsync(int value)
+    {
+        await Task.Yield();
+        return System.Runtime.CompilerServices.Unsafe.As<int, int>(
+            ref value);
+    }
+
+    public static async Task<int> SecondAsync(int value)
+    {
+        await Task.Yield();
+        return System.Runtime.CompilerServices.Unsafe.As<int, int>(
+            ref value);
+    }
+}
+
+public static class GeneratedExpansionLiftedChainBudgetSample
+{
+    public static int LiftedGeneratedUnsafe(int value)
+    {
+        int offset = 1;
+        Func<int, int> readUnsafe = current =>
+            System.Runtime.CompilerServices.Unsafe.As<int, int>(
+                ref current) + offset;
+        return readUnsafe(value);
+    }
+}
+
+public static class GeneratedExpansionNestedTypeBudgetSample
+{
+    public static int Identity(int value) => value;
+
+    public sealed class First
+    {
+        public sealed class Second
+        {
+            public sealed class Third;
+        }
+    }
+}
+
 // Public overloads that forward into a non-public same-name implementation
 // (the JsonDocument.Parse shape), and a public hub that a non-public
 // overload also calls (the JsonConvert.ToString shape).

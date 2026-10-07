@@ -6,6 +6,7 @@ using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Runtime.ExceptionServices;
 
+using ILInspector.Analysis.Planning;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
 
@@ -64,6 +65,9 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
         _implementationMetricWork;
     readonly ImplementationMetricExecutionRecorder?
         _implementationMetricRecorder;
+    readonly MethodDefinitionGeneratedExpansionWork?
+        _generatedExpansionWork;
+    readonly Action? _declaringTypeChainWalked;
     readonly ConcurrentDictionary<
         TypeDefinitionHandle,
         Lazy<IReadOnlyDictionary<string, ImmutableArray<MethodDefinitionHandle>>>>
@@ -84,6 +88,16 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
         LiftedOwnerGroupKey,
         Lazy<LiftedOwnerGroupEvidence>>
         _scopeExpansionLiftedOwnerGroups = new();
+    readonly ConcurrentDictionary<
+        TypeDefinitionHandle,
+        Lazy<IReadOnlyDictionary<
+            LiftedOwnerGroupKey,
+            ImmutableArray<MethodDefinitionHandle>>>>
+        _targetedLiftedMethodsByOwnerType = new();
+    readonly ConcurrentDictionary<
+        TypeDefinitionHandle,
+        Lazy<TargetedLiftedDeclaringTypeChain>>
+        _targetedLiftedDeclaringTypeChains = new();
     readonly Lazy<IReadOnlyDictionary<
         LiftedOwnerGroupKey,
         ImmutableArray<MethodDefinitionHandle>>>
@@ -98,7 +112,10 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
         ImplementationMetricWorkBudget?
             implementationMetricWork = null,
         ImplementationMetricExecutionRecorder?
-            implementationMetricRecorder = null)
+            implementationMetricRecorder = null,
+        MethodDefinitionGeneratedExpansionWork?
+            generatedExpansionWork = null,
+        Action? declaringTypeChainWalked = null)
     {
         _reader = reader;
         _peReader = peReader;
@@ -110,9 +127,24 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
             implementationMetricWork;
         _implementationMetricRecorder =
             implementationMetricRecorder;
+        _generatedExpansionWork =
+            generatedExpansionWork;
+        _declaringTypeChainWalked =
+            declaringTypeChainWalked;
         _liftedMethodsByOwner = new(
             BuildLiftedMethodsByOwner,
             LazyThreadSafetyMode.ExecutionAndPublication);
+    }
+
+    internal ImmutableArray<MethodDefinitionHandle>
+        PotentialLiftedMethods(
+            MethodDefinitionHandle ownerHandle)
+    {
+        MethodDefinition owner = _reader.GetMethodDefinition(ownerHandle);
+        var group = new LiftedOwnerGroupKey(
+            owner.GetDeclaringType(),
+            _reader.GetString(owner.Name));
+        return LiftedMethodsForGroup(group);
     }
 
     internal bool TryResolve(
@@ -163,10 +195,16 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
         bool cacheScopedGroup = false)
     {
         sourceOwner = default;
-        if (!TryGetLiftedOwnerGroup(
+        bool hasGroup = cacheScopedGroup
+            ? TryGetTargetedLiftedOwnerGroup(
                 liftedMethod,
                 out LiftedOwnerGroupKey group,
-                out bool rejected))
+                out bool rejected)
+            : TryGetLiftedOwnerGroup(
+                liftedMethod,
+                out group,
+                out rejected);
+        if (!hasGroup)
         {
             return rejected
                 ? LiftedSourceOwnerResolution.Rejected
@@ -409,9 +447,21 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
             return evidence;
         }
 
-        if (!_liftedMethodsByOwner.Value.TryGetValue(
-                group,
-                out ImmutableArray<MethodDefinitionHandle> liftedMethods))
+        ImmutableArray<MethodDefinitionHandle> liftedMethods;
+        if (ownerMethodScope is null)
+        {
+            if (!_liftedMethodsByOwner.Value.TryGetValue(
+                    group,
+                    out liftedMethods))
+            {
+                return evidence;
+            }
+        }
+        else
+        {
+            liftedMethods = LiftedMethodsForGroup(group);
+        }
+        if (liftedMethods.IsDefaultOrEmpty)
         {
             return evidence;
         }
@@ -427,11 +477,10 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
         {
             MethodDefinition ownerMethod =
                 _reader.GetMethodDefinition(ownerHandle);
-            _asyncSourceResolver
-                .TryResolveStateMachineExecutionMethod(
-                    ownerHandle,
-                    ownerMethod,
-                    out _);
+            TryResolveStateMachineExecutionMethod(
+                ownerHandle,
+                ownerMethod,
+                out _);
         }
 
         var candidates = new LiftedMethodCandidates(
@@ -488,8 +537,7 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
                     ref relationshipCount);
                 MethodDefinition ownerMethod =
                     _reader.GetMethodDefinition(ownerHandle);
-                if (_asyncSourceResolver
-                    .TryResolveStateMachineExecutionMethod(
+                if (TryResolveStateMachineExecutionMethod(
                         ownerHandle,
                         ownerMethod,
                         out MethodDefinitionHandle moveNextHandle))
@@ -526,8 +574,7 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
                     ref relationshipCount);
                 MethodDefinition bodyMethod =
                     _reader.GetMethodDefinition(current.Body);
-                if (_asyncSourceResolver
-                    .TryResolveStateMachineExecutionMethod(
+                if (TryResolveStateMachineExecutionMethod(
                         current.Body,
                         bodyMethod,
                         out MethodDefinitionHandle moveNextHandle))
@@ -745,8 +792,90 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
             }
             bodyOwners.Add(owner);
             relationshipCount++;
+            _generatedExpansionWork?.RecordRelationshipNode(body);
             pending.Enqueue((body, owner));
         }
+    }
+
+    ImmutableArray<MethodDefinitionHandle> LiftedMethodsForGroup(
+        LiftedOwnerGroupKey group)
+    {
+        IReadOnlyDictionary<
+            LiftedOwnerGroupKey,
+            ImmutableArray<MethodDefinitionHandle>> methods =
+            _targetedLiftedMethodsByOwnerType
+                .GetOrAdd(
+                    group.OwnerType,
+                    ownerType => new Lazy<
+                        IReadOnlyDictionary<
+                            LiftedOwnerGroupKey,
+                            ImmutableArray<MethodDefinitionHandle>>>(
+                        () => BuildTargetedLiftedMethods(ownerType),
+                        LazyThreadSafetyMode.ExecutionAndPublication))
+                .Value;
+        return methods.TryGetValue(
+                group,
+                out ImmutableArray<MethodDefinitionHandle> grouped)
+            ? grouped
+            : [];
+    }
+
+    IReadOnlyDictionary<
+        LiftedOwnerGroupKey,
+        ImmutableArray<MethodDefinitionHandle>>
+        BuildTargetedLiftedMethods(TypeDefinitionHandle ownerType)
+    {
+        var builders = new Dictionary<
+            LiftedOwnerGroupKey,
+            ImmutableArray<MethodDefinitionHandle>.Builder>();
+        var pending = new Queue<TypeDefinitionHandle>();
+        var visited = new HashSet<TypeDefinitionHandle>();
+        pending.Enqueue(ownerType);
+        while (pending.Count > 0)
+        {
+            TypeDefinitionHandle typeHandle = pending.Dequeue();
+            if (!visited.Add(typeHandle))
+                continue;
+
+            TypeDefinition type = _reader.GetTypeDefinition(typeHandle);
+            foreach (MethodDefinitionHandle methodHandle
+                in type.GetMethods())
+            {
+                _generatedExpansionWork?.RecordCandidateDefinition(
+                    methodHandle);
+                MethodDefinition method =
+                    _reader.GetMethodDefinition(methodHandle);
+                if (TryGetTargetedLiftedOwnerGroup(
+                        method,
+                        out LiftedOwnerGroupKey group))
+                {
+                    if (!builders.TryGetValue(
+                            group,
+                            out ImmutableArray<
+                                MethodDefinitionHandle>.Builder?
+                                methods))
+                    {
+                        methods = ImmutableArray.CreateBuilder<
+                            MethodDefinitionHandle>();
+                        builders.Add(group, methods);
+                    }
+                    methods.Add(methodHandle);
+                }
+            }
+            foreach (TypeDefinitionHandle nested
+                in type.GetNestedTypes())
+            {
+                _generatedExpansionWork?.RecordRelationshipNode(nested);
+                pending.Enqueue(nested);
+            }
+        }
+
+        return builders.ToDictionary(
+            static pair => pair.Key,
+            static pair => pair.Value
+                .OrderBy(static handle =>
+                    MetadataTokens.GetRowNumber(handle))
+                .ToImmutableArray());
     }
 
     IReadOnlyDictionary<
@@ -796,19 +925,18 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
         out bool rejected)
     {
         group = default;
-        string name = _reader.GetString(method.Name);
-        if (!CompilerGeneratedNames.TryGetLiftedOwnerName(
-                name,
-                out string ownerName))
+        if (!TryGetLiftedOwnerName(
+                method,
+                out string ownerName,
+                out rejected))
         {
-            rejected =
-                CompilerGeneratedNames.HasLiftedMethodMarker(name);
             return false;
         }
 
         Span<TypeDefinitionHandle> chain =
             stackalloc TypeDefinitionHandle[
                 MetadataSafetyPolicy.MaxRelationshipNodes];
+        _declaringTypeChainWalked?.Invoke();
         if (!MetadataRelationshipTraversal.TryWalkTypeDefinitionDeclaringChain(
                 _reader,
                 method.GetDeclaringType(),
@@ -820,8 +948,81 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
             rejected = true;
             return false;
         }
+        if (count == 0)
+        {
+            rejected = true;
+            return false;
+        }
 
-        int ownerIndex = count - 1;
+        group = CreateLiftedOwnerGroup(
+            chain[..count],
+            ownerName);
+        rejected = false;
+        return true;
+    }
+
+    bool TryGetTargetedLiftedOwnerGroup(
+        MethodDefinition method,
+        out LiftedOwnerGroupKey group) =>
+        TryGetTargetedLiftedOwnerGroup(
+            method,
+            out group,
+            out _);
+
+    bool TryGetTargetedLiftedOwnerGroup(
+        MethodDefinition method,
+        out LiftedOwnerGroupKey group,
+        out bool rejected)
+    {
+        group = default;
+        if (!TryGetLiftedOwnerName(
+                method,
+                out string ownerName,
+                out rejected))
+        {
+            return false;
+        }
+
+        TargetedLiftedDeclaringTypeChain chain =
+            GetTargetedLiftedDeclaringTypeChain(
+                method.GetDeclaringType());
+        if (!chain.Complete || chain.Types.IsEmpty)
+        {
+            rejected = true;
+            return false;
+        }
+
+        group = CreateLiftedOwnerGroup(
+            chain.Types.AsSpan(),
+            ownerName);
+        rejected = false;
+        return true;
+    }
+
+    bool TryGetLiftedOwnerName(
+        MethodDefinition method,
+        out string ownerName,
+        out bool rejected)
+    {
+        string name = _reader.GetString(method.Name);
+        if (!CompilerGeneratedNames.TryGetLiftedOwnerName(
+                name,
+                out ownerName))
+        {
+            rejected =
+                CompilerGeneratedNames.HasLiftedMethodMarker(name);
+            return false;
+        }
+
+        rejected = false;
+        return true;
+    }
+
+    LiftedOwnerGroupKey CreateLiftedOwnerGroup(
+        ReadOnlySpan<TypeDefinitionHandle> chain,
+        string ownerName)
+    {
+        int ownerIndex = chain.Length - 1;
         while (ownerIndex > 0
             && _reader.GetString(
                     _reader.GetTypeDefinition(chain[ownerIndex]).Name)
@@ -830,9 +1031,43 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
             ownerIndex--;
         }
 
-        group = new(chain[ownerIndex], ownerName);
-        rejected = false;
-        return true;
+        return new(chain[ownerIndex], ownerName);
+    }
+
+    TargetedLiftedDeclaringTypeChain
+        GetTargetedLiftedDeclaringTypeChain(
+            TypeDefinitionHandle declaringType) =>
+            _targetedLiftedDeclaringTypeChains.GetOrAdd(
+                declaringType,
+                handle => new Lazy<
+                    TargetedLiftedDeclaringTypeChain>(
+                    () => BuildTargetedLiftedDeclaringTypeChain(
+                        handle),
+                    LazyThreadSafetyMode.ExecutionAndPublication))
+                .Value;
+
+    TargetedLiftedDeclaringTypeChain
+        BuildTargetedLiftedDeclaringTypeChain(
+            TypeDefinitionHandle declaringType)
+    {
+        Span<TypeDefinitionHandle> chain =
+            stackalloc TypeDefinitionHandle[
+                MetadataSafetyPolicy.MaxRelationshipNodes];
+        bool complete =
+            MetadataRelationshipTraversal
+                .TryWalkTypeDefinitionDeclaringChain(
+                    _reader,
+                    declaringType,
+                    chain,
+                    out int count,
+                    out _,
+                    out _);
+        for (int index = 1; index < count; index++)
+        {
+            _generatedExpansionWork?.RecordRelationshipNode(
+                chain[index]);
+        }
+        return new([.. chain[..count]], complete);
     }
 
     IReadOnlyDictionary<string, ImmutableArray<MethodDefinitionHandle>>
@@ -944,8 +1179,7 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
                 ownerHandle);
         }
 
-        if (!_asyncSourceResolver
-            .TryResolveStateMachineExecutionMethod(
+        if (!TryResolveStateMachineExecutionMethod(
                 ownerHandle,
                 ownerMethod,
                 out MethodDefinitionHandle moveNextHandle))
@@ -956,6 +1190,23 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
             _reader.GetMethodDefinition(moveNextHandle).GetDeclaringType(),
             moveNextHandle);
     }
+
+    bool TryResolveStateMachineExecutionMethod(
+        MethodDefinitionHandle sourceHandle,
+        MethodDefinition sourceMethod,
+        out MethodDefinitionHandle executionMethod) =>
+        _generatedExpansionWork is { } work
+            ? _asyncSourceResolver
+                .TryResolveTargetedStateMachineExecutionMethod(
+                    sourceHandle,
+                    sourceMethod,
+                    work,
+                    out executionMethod)
+            : _asyncSourceResolver
+                .TryResolveStateMachineExecutionMethod(
+                    sourceHandle,
+                    sourceMethod,
+                    out executionMethod);
 
     bool IsManagedEntryPoint(
         MethodDefinitionHandle entryPointHandle)
@@ -1044,13 +1295,17 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
                         .SourceAttributionBodyProbe);
         _implementationMetricWork
             ?.ReserveAttributionProbeBody(methodToken);
+        _generatedExpansionWork?.RecordProbeBody(methodHandle);
         MethodBodyBlock body =
             _peReader.GetMethodBody(method.RelativeVirtualAddress);
-        byte[] il = body.GetILBytes() ?? [];
+        int encodedIlBytes = body.GetILReader().Length;
         _implementationMetricWork
             ?.ReserveAttributionProbeIlBytes(
                 methodToken,
-                il.Length);
+                encodedIlBytes);
+        _generatedExpansionWork?.RecordProbeEncodedIlBytes(
+            methodHandle,
+            encodedIlBytes);
         var calledDefinitions = new HashSet<int>();
         var referencedDefinitions = new HashSet<int>();
         var referencedMembers = new HashSet<MethodReferenceKey>(
@@ -1064,26 +1319,27 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
             method.GetDeclaringType());
         GenericScope scope =
             _primaryMetadataResolver.CreateScope(ownerType, method);
-        foreach (var instruction in InstructionDecoder.Decode(il))
+        InstructionDecoder.Visit(
+            body,
+            (opcode, operandToken, encodedLength) =>
         {
-            bool call = instruction.OpCode
+            _ = encodedLength;
+            bool call = opcode
                 is ILOpCode.Call or ILOpCode.Callvirt;
             if (!call
-                && instruction.OpCode is not (
+                && opcode is not (
                     ILOpCode.Ldftn or ILOpCode.Ldvirtftn))
             {
-                continue;
+                return true;
             }
 
-            int operandToken =
-                MethodInstructionFacts.OperandInt32(instruction);
             if (invalidDefinitionOperands.TryGetValue(
                     operandToken,
                     out ExceptionDispatchInfo? definitionFailure))
             {
                 if (call)
                     callFailure ??= definitionFailure;
-                continue;
+                return true;
             }
             try
             {
@@ -1115,7 +1371,7 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
                 referenceFailure ??= failure;
                 if (call)
                     callFailure ??= failure;
-                continue;
+                return true;
             }
 
             try
@@ -1128,7 +1384,7 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
                         (MethodSpecificationHandle)handle).Method;
                 }
                 if (handle.Kind != HandleKind.MemberReference)
-                    continue;
+                    return true;
 
                 referencedMembers.Add(
                     _methodReferenceResolver.ResolveIdentity(
@@ -1142,7 +1398,8 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
             {
                 referenceFailure ??= ExceptionDispatchInfo.Capture(ex);
             }
-        }
+            return true;
+        });
         attributionProbe?.Complete();
         return new(
             calledDefinitions,
@@ -1267,6 +1524,10 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
     readonly record struct LiftedDefinitionReference(
         MethodDefinitionHandle Method,
         bool Ambiguous);
+
+    sealed record TargetedLiftedDeclaringTypeChain(
+        ImmutableArray<TypeDefinitionHandle> Types,
+        bool Complete);
 
     sealed class LiftedOwnerGroupEvidence
     {
