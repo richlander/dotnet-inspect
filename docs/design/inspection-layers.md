@@ -1628,6 +1628,10 @@ canaries:
   a Queries-owned detached value with the same metadata fields. Browser-Wasm
   losslessly adapts that value without referencing Metadata identity types;
   Queries retains the semantic projection from the selected participant.
+- Web Core's Platform-forwarder navigation projects forwarder display fields
+  and ordered resolution routes into caller-shaped Browser values. The Package
+  facade preserves the generated wire contract without referencing Metadata
+  identities or structured Type names.
 - `AssemblyContextTypeDependencyQuery` retains the admitted descriptors for one
   binding-consistent group and invokes the Metadata-owned population scan once.
   Ordinary population lookup scans the committed participant order. Its

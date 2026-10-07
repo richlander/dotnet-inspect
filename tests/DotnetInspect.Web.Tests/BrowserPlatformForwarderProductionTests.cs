@@ -102,7 +102,7 @@ public sealed partial class BrowserEngineBoundaryTests
             Assert.Null(row.Declaration.MemberCount);
         });
         BrowserPlatformForwarderRowInfo first = XmlReaderForwarder(initial.View);
-        Assert.Equal("System.Xml.ReaderWriter", first.Declaration.Forwarding!.TargetAssembly.Name.ToString());
+        Assert.Equal("System.Xml.ReaderWriter", first.TargetAssembly);
         Assert.Equal(
             "canceled",
             Assert.IsType<BrowserPlatformForwarderNavigationResult.Blocked>(
@@ -120,7 +120,7 @@ public sealed partial class BrowserEngineBoundaryTests
 
         BrowserPlatformForwarderRowInfo second = XmlReaderForwarder(intermediate.View);
         Assert.NotEqual(first.Action, second.Action);
-        Assert.Equal("System.Private.Xml", second.Declaration.Forwarding!.TargetAssembly.Name.ToString());
+        Assert.Equal("System.Private.Xml", second.TargetAssembly);
         var terminal = RequireForwarderView(
             await navigation.ActivateAsync(second.Action, cancellationToken));
         Assert.Equal("System.Private.Xml", terminal.View.Coordinate.Assembly);
@@ -136,10 +136,23 @@ public sealed partial class BrowserEngineBoundaryTests
         using JsonDocument wire = JsonDocument.Parse(
             Interop.Package.PackageExports.SerializeForwarderResult(intermediate));
         Assert.Equal("opened", wire.RootElement.GetProperty("status").GetString());
-        Assert.Equal(2, wire.RootElement.GetProperty("hops").GetArrayLength());
+        JsonElement hops = wire.RootElement.GetProperty("hops");
+        Assert.Equal(2, hops.GetArrayLength());
+        Assert.Equal("System.Xml", hops[0].GetProperty("sourceAssembly").GetString());
+        Assert.Equal("System.Xml.ReaderWriter", hops[0].GetProperty("targetAssembly").GetString());
+        Assert.Equal("System.Xml.ReaderWriter", hops[1].GetProperty("sourceAssembly").GetString());
+        Assert.Equal("System.Private.Xml", hops[1].GetProperty("targetAssembly").GetString());
+        Assert.Equal("Resolved", wire.RootElement.GetProperty("resolutionKind").GetString());
+        Assert.Equal("System.Private.Xml", wire.RootElement.GetProperty("terminalAssembly").GetString());
         Assert.Equal(
             intermediate.View.SelectedTypeId,
             wire.RootElement.GetProperty("view").GetProperty("selectedTypeId").GetString());
+        JsonElement xmlReader = Assert.Single(
+            wire.RootElement.GetProperty("view").GetProperty("forwarders").EnumerateArray(),
+            row => row.GetProperty("id").GetString() == "System.Xml.ReaderWriter:System.Xml.XmlReader");
+        Assert.Equal("System.Xml.XmlReader", xmlReader.GetProperty("name").GetString());
+        Assert.Equal("System.Xml", xmlReader.GetProperty("namespace").GetString());
+        Assert.Equal("System.Private.Xml", xmlReader.GetProperty("targetAssembly").GetString());
         Assert.True(navigation.Close(terminal.View.Id));
         Assert.Equal(
             "stale",
@@ -223,7 +236,7 @@ public sealed partial class BrowserEngineBoundaryTests
 
     static BrowserPlatformForwarderRowInfo XmlReaderForwarder(BrowserPlatformForwarderViewInfo view) =>
         Assert.Single(view.Forwarders,
-            row => row.Declaration.Identity.ToEscapedFullName() == "System.Xml.XmlReader");
+            row => row.EscapedDefinitionId == "System.Xml.XmlReader");
 
     static BrowserPlatformForwarderNavigationResult.Opened RequireForwarderView(
         BrowserPlatformForwarderNavigationResult result)
