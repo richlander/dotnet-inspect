@@ -2115,6 +2115,7 @@ public static partial class TypeCommand
     static void WriteHierarchyDiagnostics(
         TypeHierarchyRelationsInspection inspection)
     {
+        WriteInspectionDiagnostics(inspection.EffectiveDiagnostics);
         foreach (TypeHierarchyRelationSectionInspection section
         in new[]
         {

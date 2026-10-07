@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Sections;
 using DotnetInspector.Packages;
@@ -464,8 +465,12 @@ public record TypeOptions : ApiOptions
 
 internal sealed record TypeHierarchyRelationsInspection(
     TypeHierarchyRelationSectionInspection? Implementers,
-    TypeHierarchyRelationSectionInspection? DerivedTypes)
+    TypeHierarchyRelationSectionInspection? DerivedTypes,
+    ImmutableArray<InspectionDiagnostic> Diagnostics = default)
 {
+    internal ImmutableArray<InspectionDiagnostic> EffectiveDiagnostics =>
+        Diagnostics.IsDefault ? [] : Diagnostics;
+
     internal bool IsComplete =>
         (Implementers?.IsComplete ?? true)
         && (DerivedTypes?.IsComplete ?? true);

@@ -1377,6 +1377,89 @@ public sealed class ExactTypeWorkspaceRouteTests
     }
 
     [Fact]
+    public async Task
+        WorkspacePackagePrefixReportsCandidateFailureWithPartialRows()
+    {
+        const string implementationPackage =
+            "ILInspector.Implementation";
+        const string missingPackage = "ILInspector.Missing";
+        (byte[] contract, byte[] implementation) =
+            BuildHierarchyPackageAssemblies();
+        SearchResult[] matches =
+        [
+            new(PackageId, Version),
+            new(implementationPackage, Version),
+            new(missingPackage, Version),
+        ];
+        var prefixSource = new PrefixPackageSource(matches);
+        var store = (InMemoryPackageStore)await CachedStoreAsync(
+            ($"lib/{Framework}/Hierarchy.Contract.dll", contract));
+        await AddPackageAsync(
+            store,
+            PackageId,
+            contract,
+            PackageSource.NuGetOrg.Url);
+        await AddPackageAsync(
+            store,
+            implementationPackage,
+            implementation,
+            PackageSource.NuGetOrg.Url);
+        using var client = new HttpClient(new NotFoundHandler());
+        string packet = EncodePacket(
+            format: 4,
+            [(PackageId, Version, Framework)],
+            [[0]],
+            focusedTab: 0,
+            selectedContext: 0);
+        var options = new TypeOptions
+        {
+            WorkspacePacket = packet,
+            TypeName = "Exact.Hierarchy.IContract",
+            IncludeSections =
+                new(StringComparer.OrdinalIgnoreCase)
+                {
+                    SectionNames.Implementers,
+                },
+            CompanionOutput = CompanionOutput.None,
+        };
+
+        (int exitCode, string output, string error) =
+            await ConsoleCapture.RunAsync(
+                () => TypeCommand.ExecuteAsync(
+                    options,
+                    ResolvedMemberInspectionPlan
+                        .FromCompatibilityOptions(options),
+                    new WorkspaceContextLoadOptions
+                    {
+                        HttpClient = client,
+                        SourceAuthorization =
+                            new UniformPackageSourceAuthorization(
+                                [Source, PackageSource.NuGetOrg]),
+                        PackageStore = store,
+                    },
+                    new(
+                        () => prefixSource,
+                        DateTimeOffset.UtcNow.AddMinutes(1)),
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(1, exitCode);
+        Assert.Contains(
+            "Exact.Hierarchy.Implementation",
+            output,
+            StringComparison.Ordinal);
+        string diagnostic =
+            Assert.Single(
+                error.Split(
+                    Environment.NewLine,
+                    StringSplitOptions.RemoveEmptyEntries),
+                line => line.Contains(
+                        $"Package-prefix candidate '{missingPackage}@{Version}' "
+                            + "could not be prepared:",
+                        StringComparison.Ordinal));
+        Assert.StartsWith("Warning: ", diagnostic, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task EligibleRoutePreservesEscapedDefinitionIdentity()
     {
         var store = await CachedStoreAsync(
@@ -1994,5 +2077,18 @@ public sealed class ExactTypeWorkspaceRouteTests
             throw new InvalidOperationException(
                 $"The eligible route bypassed injected Workspace capabilities: "
                 + request.RequestUri);
+    }
+
+    sealed class NotFoundHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(
+                new HttpResponseMessage(
+                    System.Net.HttpStatusCode.NotFound)
+                {
+                    RequestMessage = request,
+                });
     }
 }

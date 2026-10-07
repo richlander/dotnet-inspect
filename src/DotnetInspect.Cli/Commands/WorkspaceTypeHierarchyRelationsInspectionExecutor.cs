@@ -209,7 +209,7 @@ internal static class WorkspaceTypeHierarchyRelationsInspectionExecutor
                 realizationOutcome;
         WorkspaceScopeSnapshot scope =
             ScopeSnapshot(realization.ScopeOperation);
-        TypeHierarchyRelationSectionInspection? implementers =
+        PackagePrefixSectionExecution? implementers =
             options.IncludeSections?.Contains(
                 SectionNames.Implementers) == true
                 ? await ExecuteSectionAsync(
@@ -223,7 +223,7 @@ internal static class WorkspaceTypeHierarchyRelationsInspectionExecutor
                     SubjectRelationForm.Interface,
                     cancellationToken).ConfigureAwait(false)
                 : null;
-        TypeHierarchyRelationSectionInspection? derivedTypes =
+        PackagePrefixSectionExecution? derivedTypes =
             options.IncludeSections?.Contains(
                 SectionNames.DerivedTypes) == true
                 ? await ExecuteSectionAsync(
@@ -237,10 +237,17 @@ internal static class WorkspaceTypeHierarchyRelationsInspectionExecutor
                     SubjectRelationForm.BaseType,
                     cancellationToken).ConfigureAwait(false)
                 : null;
-        return (new(implementers, derivedTypes), null);
+        PackagePrefixWorkspaceTypeHierarchyExecution evidence =
+            (implementers ?? derivedTypes)!.Execution;
+        return (
+            new(
+                implementers?.Section,
+                derivedTypes?.Section,
+                CreateEvidenceDiagnostics(evidence)),
+            null);
     }
 
-    private static async Task<TypeHierarchyRelationSectionInspection>
+    private static async Task<PackagePrefixSectionExecution>
         ExecuteSectionAsync(
             InspectionWorkspace workspace,
             WorkspaceScopeSnapshot scope,
@@ -289,15 +296,184 @@ internal static class WorkspaceTypeHierarchyRelationsInspectionExecutor
                 ? execution.Inspection.Content.Implementers
                 : execution.Inspection.Content.DerivedTypes;
         return new(
-            execution.Inspection,
-            [
-                .. candidates.Select(candidate =>
-                    TypeHierarchyRelationsInspectionExecutor.Project(
-                        candidate,
-                        candidateSources)),
-            ],
-            execution.IsComplete);
+            new(
+                execution.Inspection,
+                [
+                    .. candidates.Select(candidate =>
+                        TypeHierarchyRelationsInspectionExecutor.Project(
+                            candidate,
+                            candidateSources)),
+                ],
+                execution.IsComplete),
+            execution);
     }
+
+    private static ImmutableArray<InspectionDiagnostic>
+        CreateEvidenceDiagnostics(
+            PackagePrefixWorkspaceTypeHierarchyExecution execution)
+    {
+        var diagnostics =
+            ImmutableArray.CreateBuilder<InspectionDiagnostic>();
+        PackagePrefixWorkspaceScopeRealizationOutcome.Settled realization =
+            execution.Evidence.Realization;
+        foreach (PackageQueryFailure failure in realization.Query.Failures)
+        {
+            string subject = failure.PackageId is null
+                ? "Package Query"
+                : failure.Version is null
+                    ? failure.PackageId
+                    : $"{failure.PackageId}@{failure.Version}";
+            diagnostics.Add(
+                Warning(
+                    "type-hierarchy.package-prefix-query",
+                    $"Package-prefix query '{subject}' reported "
+                        + $"{failure.Kind}: {failure.Message}",
+                    subject));
+        }
+
+        if (realization.Query.Summary.Completion is not (
+                PackageQueryCompletionKind.Exhausted
+                or PackageQueryCompletionKind.ExactPackageComplete))
+        {
+            diagnostics.Add(
+                Warning(
+                    "type-hierarchy.package-prefix-query",
+                    "Package-prefix query completion was "
+                        + $"{realization.Query.Summary.Completion}; "
+                        + "hierarchy evidence is incomplete."));
+        }
+
+        foreach (PackagePrefixWorkspaceCandidateResult candidate
+            in realization.Candidates)
+        {
+            string subject =
+                $"{candidate.Package.PackageId}@{candidate.Package.Version}";
+            switch (candidate.Disposition)
+            {
+                case PackagePrefixWorkspaceCandidateDisposition
+                    .PreparationFailed:
+                    if (candidate.Failures.IsEmpty)
+                    {
+                        diagnostics.Add(
+                            Warning(
+                                "type-hierarchy.package-prefix-candidate",
+                                $"Package-prefix candidate '{subject}' could "
+                                    + "not be prepared.",
+                                subject));
+                    }
+                    else
+                    {
+                        foreach (WorkspaceContextLoadFailure failure
+                            in candidate.Failures)
+                        {
+                            diagnostics.Add(
+                                Warning(
+                                    "type-hierarchy.package-prefix-candidate",
+                                    $"Package-prefix candidate '{subject}' "
+                                        + "could not be prepared: "
+                                        + $"{failure.Kind}: {failure.Message}",
+                                    subject));
+                        }
+                    }
+
+                    break;
+                case PackagePrefixWorkspaceCandidateDisposition
+                    .CapacityDeclined:
+                    diagnostics.Add(
+                        Warning(
+                            "type-hierarchy.package-prefix-candidate",
+                            $"Package-prefix candidate '{subject}' was not "
+                                + "admitted because Workspace package capacity "
+                                + "was reached.",
+                            subject));
+                    break;
+                case PackagePrefixWorkspaceCandidateDisposition.NotCommitted:
+                    diagnostics.Add(
+                        Warning(
+                            "type-hierarchy.package-prefix-candidate",
+                            $"Package-prefix candidate '{subject}' was "
+                                + "prepared but not committed to Workspace "
+                                + "Scope.",
+                            subject));
+                    break;
+            }
+        }
+
+        switch (realization.ScopeOperation)
+        {
+            case WorkspaceScopeOperationResult.Rejected rejected:
+                diagnostics.Add(
+                    Warning(
+                        "type-hierarchy.package-prefix-scope",
+                        "Package-prefix Workspace Scope update was rejected: "
+                            + $"{rejected.Reason}."));
+                break;
+            case WorkspaceScopeOperationResult.Failed failed:
+                diagnostics.Add(
+                    Warning(
+                        "type-hierarchy.package-prefix-scope",
+                        "Package-prefix Workspace Scope update failed: "
+                            + $"{failed.Failure}."));
+                break;
+            case WorkspaceScopeOperationResult.Cancelled:
+                diagnostics.Add(
+                    Warning(
+                        "type-hierarchy.package-prefix-scope",
+                        "Package-prefix Workspace Scope update was cancelled."));
+                break;
+            case WorkspaceScopeOperationResult.Superseded:
+                diagnostics.Add(
+                    Warning(
+                        "type-hierarchy.package-prefix-scope",
+                        "Package-prefix Workspace Scope update was "
+                            + "superseded."));
+                break;
+            case WorkspaceScopeOperationResult.Unavailable unavailable:
+                diagnostics.Add(
+                    Warning(
+                        "type-hierarchy.package-prefix-scope",
+                        "Package-prefix Workspace Scope was unavailable: "
+                            + $"{unavailable.RuntimeFailure}."));
+                break;
+        }
+
+        foreach (PackagePrefixWorkspaceTypeHierarchyAdmission admission
+            in execution.Evidence.Admissions)
+        {
+            if (admission.Failure is not { } failure)
+                continue;
+
+            string subject =
+                $"{admission.Candidate.Package.PackageId}@"
+                + $"{admission.Candidate.Package.Version}";
+            string artifact = failure.ArtifactFailure is null
+                ? string.Empty
+                : $": {failure.ArtifactFailure}";
+            diagnostics.Add(
+                Warning(
+                    "type-hierarchy.package-prefix-admission",
+                    $"Package-prefix candidate '{subject}' could not "
+                        + "contribute hierarchy declarations: "
+                        + $"{failure.Kind}{artifact}.",
+                    subject));
+        }
+
+        return diagnostics.ToImmutable();
+    }
+
+    private static InspectionDiagnostic Warning(
+        string code,
+        string summary,
+        string? correspondence = null) =>
+        new(
+            code,
+            InspectionDiagnosticSeverity.Warning,
+            summary,
+            correspondence);
+
+    private sealed record PackagePrefixSectionExecution(
+        TypeHierarchyRelationSectionInspection Section,
+        PackagePrefixWorkspaceTypeHierarchyExecution Execution);
 
     private static WorkspaceScopeSnapshot ScopeSnapshot(
         WorkspaceScopeOperationResult result) =>
