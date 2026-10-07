@@ -90,11 +90,6 @@ public sealed class ValueTypeReceiverAliasPass : IIrPass
     }
 
     static bool IsKnownValueTypeReceiver(IrFunction function)
-        => function.BaseType is
-        {
-            Kind: TypeRefKind.Definition,
-            Assembly: TypeRef.CoreLibrary,
-            Namespace: "System",
-            Name: "ValueType" or "Enum",
-        };
+        => MemberIdentity.IsCoreLibraryType(function.BaseType, "System", "ValueType")
+            || MemberIdentity.IsCoreLibraryType(function.BaseType, "System", "Enum");
 }
