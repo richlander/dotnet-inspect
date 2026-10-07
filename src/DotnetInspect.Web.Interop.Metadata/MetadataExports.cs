@@ -34,7 +34,7 @@ public static partial class MetadataExports
         string assemblyFileName)
     {
         await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
-            await BrowserPackageWorkspace.OpenScopeAsync(
+            await BrowserPackageWorkspace.OpenRealizedScopeAsync(
                 packageId,
                 version,
                 targetFramework);
@@ -133,7 +133,7 @@ public static partial class MetadataExports
         int maxRows)
     {
         await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
-            await BrowserPackageWorkspace.OpenScopeAsync(
+            await BrowserPackageWorkspace.OpenRealizedScopeAsync(
                 packageId,
                 version,
                 targetFramework);
@@ -189,7 +189,7 @@ public static partial class MetadataExports
         string heap)
     {
         await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
-            await BrowserPackageWorkspace.OpenScopeAsync(
+            await BrowserPackageWorkspace.OpenRealizedScopeAsync(
                 packageId,
                 version,
                 targetFramework);

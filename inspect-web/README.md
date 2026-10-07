@@ -749,6 +749,10 @@ request the package-wide Type surface. All Libraries Overview, explicit Type
 navigation, and API browsing retain that broad request. Explicit links and
 restored subjects keep their requested selection.
 
+Package Metadata overview, table windows, and heap listings also reuse the
+admitted realization. They retain their exact Library selection and existing
+metadata bounds; visiting Metadata does not require another complete archive.
+
 `QueryPackage` is the broad Type-navigation path. It runs against the
 product-selected compile assets, so `ref/` assemblies remain authoritative
 when the package ships them. It asks the API-surface query for the composed
