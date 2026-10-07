@@ -57,6 +57,66 @@ public class MemberCallsSectionTests
             count.Output.Trim());
     }
 
+    [Theory]
+    [InlineData(1, false)]
+    [InlineData(2, false)]
+    [InlineData(1, true)]
+    [InlineData(2, true)]
+    public async Task CallsSection_OverloadCountMatchesCompleteRouteRows(
+        int ordinal,
+        bool includeAll)
+    {
+        string[] args =
+        [
+            "member",
+            $"{typeof(MemberCallsFixture).FullName}."
+                + $"{nameof(MemberCallsFixture.Overloaded)}:{ordinal}",
+            "--library",
+            typeof(MemberCallsFixture).Assembly.Location,
+            "-S",
+            SectionNames.Calls,
+            .. includeAll ? ["--all"] : Array.Empty<string>(),
+        ];
+
+        // Rows use the complete member route; --count resolves the same
+        // selector over the selected Type's declarations only.
+        var rows = await RunCliAsync([.. args, "--json"]);
+        var count = await RunCliAsync([.. args, "--count"]);
+
+        Assert.Equal(0, rows.ExitCode);
+        Assert.Equal(0, count.ExitCode);
+        Assert.Empty(count.Error);
+        using var document = JsonDocument.Parse(rows.Output);
+        Assert.Equal(
+            document.RootElement
+                .GetProperty("calls")
+                .GetArrayLength()
+                .ToString(),
+            count.Output.Trim());
+    }
+
+    [Fact]
+    public async Task CallsSection_OverloadCountDoesNotBuildTheApiSurface()
+    {
+        // The complete member route resolves the assembly's type forwarders
+        // while building its API surface and reports that under --verbose.
+        // An overloaded Calls Count resolves over the selected Type's own
+        // declarations, so it never builds that surface.
+        var count = await RunCliAsync(
+            "member",
+            $"{typeof(MemberCallsFixture).FullName}."
+                + $"{nameof(MemberCallsFixture.Overloaded)}:2",
+            "--library",
+            typeof(MemberCallsFixture).Assembly.Location,
+            "-S",
+            SectionNames.Calls,
+            "--count",
+            "--verbose");
+
+        Assert.Equal(0, count.ExitCode);
+        Assert.DoesNotContain("forwarded types", count.Error);
+    }
+
     [Fact]
     public async Task CallsSection_CountWithCallerScopePreservesImpliedCallers()
     {

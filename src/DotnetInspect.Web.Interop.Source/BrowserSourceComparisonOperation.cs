@@ -6,7 +6,6 @@ using DotnetInspector.Sections;
 using DotnetInspect.Web;
 using DotnetInspect.Web.Interop.Source;
 using ILInspector.Metadata;
-using ILInspector.MetadataPrimitives;
 using NuGet.Versioning;
 using TsJsExport;
 

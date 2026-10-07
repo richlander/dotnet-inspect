@@ -167,7 +167,12 @@ public sealed record CSharpTypePhysicalBody(
     CSharpTypeBodyOutcome Outcome,
     DecompilationFidelity? Fidelity,
     string Fingerprint,
-    ImmutableArray<DecompilerDiagnostic> Diagnostics = default);
+    ImmutableArray<DecompilerDiagnostic> Diagnostics = default)
+{
+    public ProjectedMethodAddress ProjectedAddress => new(
+        Address.ModuleVersionId,
+        Address.Token);
+}
 
 public sealed record CSharpTypeOwnedBodyReference(
     int BodyId,

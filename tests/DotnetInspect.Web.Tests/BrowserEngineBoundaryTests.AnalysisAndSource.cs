@@ -1635,6 +1635,37 @@ public sealed partial class BrowserEngineBoundaryTests
         AssertStreamingMatchesFinal(final, summary, items);
     }
 
+    [Fact]
+    public async Task StreamPackagePerformanceItems_PreCanceledToken_NeverRunsTheRankingQuery()
+    {
+        // A token canceled before the call reaches package acquisition, so no
+        // Item is ever reported, instead of only being observed afterward in
+        // the per-member replay loop.
+        const string PackageId = "Browser.Performance.Streamed.PreCanceled";
+        byte[] image = BuildBoxingOpportunityImage(PackageId, methodCount: 40);
+        await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
+            new BrowserPackage(
+                PackageId,
+                "1.0.0",
+                PackagePair(image, image, $"{PackageId}.dll"),
+                fromCache: false));
+
+        var items = new List<BrowserPerformanceMember>();
+        using var preCanceled = new CancellationTokenSource();
+        preCanceled.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => DotnetInspect.Web.Interop.Analysis.AnalysisExports
+                .StreamPackagePerformanceItemsAsync(
+                    PackageId,
+                    "1.0.0",
+                    "net11.0",
+                    $"{PackageId}.dll",
+                    items.Add,
+                    preCanceled.Token));
+        Assert.Empty(items);
+    }
+
     static async Task<BrowserPackagePerformance> QueryFinalPerformance(
         string packageId) =>
         Assert.IsType<BrowserPackagePerformance>(
