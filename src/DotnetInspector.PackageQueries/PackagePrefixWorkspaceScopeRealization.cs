@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 
+using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.SourceSelection;
 using NuGetFetch;
@@ -282,6 +283,17 @@ public static class PackagePrefixWorkspaceScopeRealization
             {
                 case WorkspacePackageRootAcquisitionOutcome.Acquired
                     acquired:
+                    if (ScopePreparationFailure(
+                            coordinate,
+                            acquired.Root)
+                        is { } preparationFailure)
+                    {
+                        candidates.Add(CandidatePlan.PreparationFailed(
+                            match.Package,
+                            [preparationFailure]));
+                        break;
+                    }
+
                     roots.Add(acquired.Root);
                     candidates.Add(CandidatePlan.Prepared(
                         match.Package,
@@ -366,6 +378,30 @@ public static class PackagePrefixWorkspaceScopeRealization
             targetFramework,
             runtimeIdentifier: null);
     }
+
+    static WorkspaceContextLoadFailure? ScopePreparationFailure(
+        RealizedMemberCoordinate.Package coordinate,
+        PackageRootBinding root) =>
+        root.Root.AssetSelection.Status switch
+        {
+            PackageCompileAssetSelectionStatus.NoMatchingTargetFramework =>
+                new(
+                    WorkspaceContextLoadFailureKind.PackageAssetUnavailable,
+                    WorkspaceMemberCoordinate.Package(
+                        coordinate.PackageId,
+                        coordinate.Version),
+                    "The candidate package carries no assembly assets for "
+                        + "the requested target framework."),
+            PackageCompileAssetSelectionStatus.InvalidImplementationAssets =>
+                new(
+                    WorkspaceContextLoadFailureKind.PackageAssetUnavailable,
+                    WorkspaceMemberCoordinate.Package(
+                        coordinate.PackageId,
+                        coordinate.Version),
+                    "The candidate package's implementation assets are "
+                        + "invalid for Workspace Scope preparation."),
+            _ => null,
+        };
 
     sealed record CandidatePlan(
         PackageQueryPackage Package,

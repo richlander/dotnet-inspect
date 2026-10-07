@@ -191,6 +191,108 @@ public partial class PackageQueryTests
     }
 
     [Fact]
+    public async Task WorkspacePrefixScope_UnpreparableRootFreesCapacity()
+    {
+        SearchResult[] existing =
+        [
+            .. Enumerable.Range(
+                    0,
+                    WorkspaceScopeLimits.DefaultMaxPackages - 1)
+                .Select(index => Match($"Contoso.Existing{index:D2}")),
+        ];
+        var registration = new WorkspaceRegistration.PackagePrefix(
+            new PackagePrefixDeclaration("Contoso."));
+        await using var workspace =
+            new InspectionWorkspace([registration]);
+        WorkspaceRegistrationRevision revision =
+            CurrentRegistration(workspace);
+        var store = await PrefixScopeStoreAsync(existing);
+        var existingSource = new FakePackageSource(
+            existing,
+            new Dictionary<string, byte[]>());
+        PackagePrefixWorkspaceScopeRealizationOutcome.Settled populated =
+            Assert.IsType<
+                PackagePrefixWorkspaceScopeRealizationOutcome.Settled>(
+                await PackagePrefixWorkspaceScopeRealization.ExecuteAsync(
+                    Request(
+                        workspace,
+                        revision,
+                        registration,
+                        await CurrentScopeAsync(workspace),
+                        existingSource,
+                        store,
+                        maximumPackages: existing.Length),
+                    TestContext.Current.CancellationToken));
+        WorkspaceScopeSnapshot nearlyFull =
+            Assert.IsType<WorkspaceScopeOperationResult.Committed>(
+                populated.ScopeOperation).Snapshot;
+        Assert.Equal(
+            WorkspaceScopeLimits.DefaultMaxPackages - 1,
+            nearlyFull.Packages.Length);
+
+        SearchResult unusable = Match("Contoso.Future");
+        SearchResult usable = Match("Contoso.Usable");
+        await CommitPrefixScopePackageAsync(
+            store,
+            unusable,
+            assetFramework: "net11.0");
+        await CommitPrefixScopePackageAsync(
+            store,
+            usable,
+            assetFramework: PrefixScopeFramework);
+        var source = new FakePackageSource(
+            [unusable, usable],
+            new Dictionary<string, byte[]>());
+        var authorization = new RecordingAuthorization(PrefixScopeSource);
+
+        PackagePrefixWorkspaceScopeRealizationOutcome.Settled settled =
+            Assert.IsType<
+                PackagePrefixWorkspaceScopeRealizationOutcome.Settled>(
+                await PackagePrefixWorkspaceScopeRealization.ExecuteAsync(
+                    Request(
+                        workspace,
+                        revision,
+                        registration,
+                        nearlyFull,
+                        source,
+                        store,
+                        maximumPackages: 2,
+                        authorization),
+                    TestContext.Current.CancellationToken));
+
+        Assert.False(settled.IsComplete);
+        Assert.Collection(
+            settled.Candidates,
+            candidate =>
+            {
+                Assert.Equal(
+                    PackagePrefixWorkspaceCandidateDisposition
+                        .PreparationFailed,
+                    candidate.Disposition);
+                Assert.Equal(
+                    WorkspaceContextLoadFailureKind
+                        .PackageAssetUnavailable,
+                    Assert.Single(candidate.Failures).Kind);
+            },
+            candidate => Assert.Equal(
+                PackagePrefixWorkspaceCandidateDisposition.Admitted,
+                candidate.Disposition));
+        Assert.Equal(
+            ["contoso.future", "contoso.usable"],
+            authorization.Requests);
+        WorkspaceScopeSnapshot committed =
+            Assert.IsType<WorkspaceScopeOperationResult.Committed>(
+                settled.ScopeOperation).Snapshot;
+        Assert.Equal(
+            WorkspaceScopeLimits.DefaultMaxPackages,
+            committed.Packages.Length);
+        Assert.Equal(
+            "contoso.usable",
+            committed.Packages[^1]
+                .Occurrence.Package.Coordinate.PackageId);
+    }
+
+    [Fact]
     public async Task WorkspacePrefixScope_ExistingPackageSkipsAcquisition()
     {
         SearchResult[] matches = [Match("Contoso.Alpha")];
@@ -586,17 +688,31 @@ public partial class PackageQueryTests
         var store = new InMemoryPackageStore();
         foreach (SearchResult package in packages)
         {
-            using var content = new MemoryStream(
-                PrefixScopePackage(package.Id, package.Version));
-            await store.CommitAsync(
-                package.Id,
-                package.Version,
-                NuGetCache.GetSourceKey(PrefixScopeSource.Url),
-                content,
-                TestContext.Current.CancellationToken);
+            await CommitPrefixScopePackageAsync(
+                store,
+                package,
+                assetFramework: null);
         }
 
         return store;
+    }
+
+    static async Task CommitPrefixScopePackageAsync(
+        InMemoryPackageStore store,
+        SearchResult package,
+        string? assetFramework)
+    {
+        using var content = new MemoryStream(
+            PrefixScopePackage(
+                package.Id,
+                package.Version,
+                assetFramework));
+        await store.CommitAsync(
+            package.Id,
+            package.Version,
+            NuGetCache.GetSourceKey(PrefixScopeSource.Url),
+            content,
+            TestContext.Current.CancellationToken);
     }
 
     static async Task<PackageRootBinding> PrefixScopeRootAsync(
@@ -632,7 +748,8 @@ public partial class PackageQueryTests
 
     static byte[] PrefixScopePackage(
         string packageId,
-        string version)
+        string version,
+        string? assetFramework = null)
     {
         using var buffer = new MemoryStream();
         using (var archive = new ZipArchive(
@@ -659,6 +776,16 @@ public partial class PackageQueryTests
                 archive.CreateEntry("readme.txt").Open())
             {
                 readme.Write("fixture"u8);
+            }
+
+            if (assetFramework is not null)
+            {
+                using Stream asset = archive.CreateEntry(
+                    $"lib/{assetFramework}/"
+                        + "DotnetInspector.Queries.Tests.dll").Open();
+                asset.Write(
+                    File.ReadAllBytes(
+                        typeof(PackageQueryTests).Assembly.Location));
             }
         }
 

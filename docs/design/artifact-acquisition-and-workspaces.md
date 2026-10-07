@@ -3657,7 +3657,9 @@ snapshot. Existing exact package coordinates consume no new slot. New
 candidates receive slots in Package Query order; a failed preparation frees
 that slot for the next candidate. After the available slots have successful
 preparations, later candidates are `CapacityDeclined` without package payload
-acquisition. The successful Root bindings enter one ordinary
+acquisition. A Root whose asset-selection status Workspace Scope would reject
+is a per-candidate `PreparationFailed`; it does not reserve capacity or enter
+the batch. The successful Root bindings enter one ordinary
 `AddPackagesAsync` batch against the supplied revision and publication base.
 Concurrent Scope movement therefore produces the existing typed rejection
 rather than merging against a different population.
@@ -3688,7 +3690,8 @@ does not silently raise or bypass it.
 The Release gates cover exact-producer reacquisition, stable candidate order,
 existing-package coalescing, preparation failure followed by later admission,
 capacity decline without acquisition, stale registration rejection before
-network work, the exact Package Query candidate-limit boundary, and Scope
+network work, the exact Package Query candidate-limit boundary,
+Scope-unpreparable Root rejection followed by later admission, and Scope
 movement during realization.
 
 ### Scoped execution over a committed package Root
