@@ -1,13 +1,13 @@
 # Method-source terminal work budget Lean proof
 
-This Lean 4 prototype is proof evidence for the terminal-work bounds in
+This Lean 4 model is proof evidence for the terminal-work bounds in
 [#9364](https://github.com/richlander/dotnet-inspect/pull/9364), part of the
 Lean pilot in
 [#9482](https://github.com/richlander/dotnet-inspect/issues/9482). The
 normative owner remains
-[`method-query-source.md`](../../docs/design/method-query-source.md), which
+[`method-query-source.md`](../../method-query-source.md), which
 says source requests own explicit finite terminal-work bounds,
-execution-local accounting, and exact receipts. This prototype changes no
+execution-local accounting, and exact receipts. This model changes no
 product contract or runtime path.
 
 ## Why Lean here

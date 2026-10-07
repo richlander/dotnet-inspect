@@ -23,6 +23,7 @@ internal static class ChangePlanSerializer
         "inspectWeb",
         "skillGate",
         "tla",
+        "lean",
     ];
 
     /// <summary>
@@ -236,7 +237,8 @@ internal static class ChangePlanSerializer
                 values[6],
                 values[7],
                 values[8],
-                values[9]);
+                values[9],
+                values[10]);
 
             JsonElement scopesElement =
                 RequireObject(root.GetProperty("scopes"), "scopes");
@@ -310,6 +312,7 @@ internal static class ChangePlanSerializer
         validations.InspectWeb,
         validations.SkillGate,
         validations.Tla,
+        validations.Lean,
     ];
 
     /// <summary>
