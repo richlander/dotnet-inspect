@@ -207,16 +207,22 @@ internal static class BrowserCallGraphProjection
                     !string.IsNullOrWhiteSpace(assembly))
                 .Distinct(StringComparer.OrdinalIgnoreCase),
         ];
-        Dictionary<int, PackageDependencyMemberCallGraphPackageSubject>
-            packageSubjects = document.PackageSubjects.ToDictionary(
-                static subject => subject.NodeId);
+        Dictionary<
+            int,
+            PackageDependencyMemberCallGraphNodeClassification.Package>
+            packageSubjects = document.NodeClassifications
+                .OfType<
+                    PackageDependencyMemberCallGraphNodeClassification
+                        .Package>()
+                .ToDictionary(static subject => subject.NodeId);
         if (!string.IsNullOrWhiteSpace(rootPackageId)
             && !string.IsNullOrWhiteSpace(rootPackageVersion)
             && !string.IsNullOrWhiteSpace(rootPackageFramework))
         {
             packageSubjects.TryAdd(
                 focusNodeId,
-                new(
+                new PackageDependencyMemberCallGraphNodeClassification
+                    .Package(
                     focusNodeId,
                     rootPackageId,
                     rootPackageVersion,
@@ -474,7 +480,8 @@ internal static class BrowserCallGraphProjection
 
     static BrowserCallGraphTargetInfo Target(
         InspectionGraphNode node,
-        PackageDependencyMemberCallGraphPackageSubject? packageSubject,
+        PackageDependencyMemberCallGraphNodeClassification.Package?
+            packageSubject,
         string kind)
     {
         Analysis.MemberRef member = NodeMember(node);

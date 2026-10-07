@@ -1605,6 +1605,7 @@ public sealed partial class InspectionWorkspace
                 ? null
                 : implementationRole.Select(entry => entry.Assembly),
             correspondences,
+            implementationCoreLibrary: null,
             shareImplementationGroup: preparation.Shared,
             surfaceOptions: roleOptions,
             implementationOptions: roleOptions,

@@ -137,6 +137,78 @@ public sealed class PackageAssemblyContextRolesTests
     }
 
     [Fact]
+    public async Task MixedRole_PrefersExactPackageAndUnifiesPlatformScope()
+    {
+        var requestedIdentity = new AssemblyReferenceIdentity(
+            "netstandard",
+            new Version(2, 0, 0, 0),
+            Culture: null,
+            PublicKeyToken: "cc7b13ffcd2ddd51");
+        ResolvedAssemblyReference package =
+            ResolvedAssemblyReference.Create(
+                requestedIdentity,
+                path: null,
+                () => new MemoryStream([1], writable: false),
+                AssemblyResolutionProvenance.Package(
+                    "NETStandard.Library",
+                    "2.0.3",
+                    "netstandard2.0",
+                    rid: null));
+        ResolvedAssemblyReference platform =
+            ResolvedAssemblyReference.Create(
+                requestedIdentity with
+                {
+                    Version = new Version(2, 1, 0, 0),
+                },
+                path: null,
+                () => new MemoryStream([2], writable: false),
+                AssemblyResolutionProvenance.Platform(
+                    "Microsoft.NETCore.App",
+                    "11.0.0",
+                    "mixed package role test"));
+        await using var workspace = new InspectionWorkspace();
+        using var roles = new PackageAssemblyContextRoles(
+            workspace,
+            [package],
+            [package, platform],
+            [new(package, package)],
+            implementationCoreLibrary: platform,
+            shareImplementationGroup: false,
+            surfaceOptions: null,
+            implementationOptions: null);
+        IAssemblyBindingPolicy policy =
+            roles.ImplementationParticipants[0].BindingPolicy;
+
+        AssemblyBindingSelection any = policy.Select(
+            new AssemblyBindingRequest(
+                AssemblyBindingTarget.Reference(requestedIdentity),
+                AssemblyBindingOrigin.FromAssembly(package),
+                AssemblyResolutionScope.Any)).Selection;
+        AssemblyBindingSelection platformScoped = policy.Select(
+            new AssemblyBindingRequest(
+                AssemblyBindingTarget.Reference(requestedIdentity),
+                AssemblyBindingOrigin.FromAssembly(package),
+                AssemblyResolutionScope.Platform)).Selection;
+        AssemblyBindingSelection intrinsic = policy.Select(
+            new AssemblyBindingRequest(
+                AssemblyBindingTarget.CoreLibrary(),
+                AssemblyBindingOrigin.FromAssembly(package),
+                AssemblyResolutionScope.Platform)).Selection;
+
+        Assert.Same(
+            package,
+            Assert.IsType<AssemblyBindingSelection.Selected>(any).Assembly);
+        Assert.Same(
+            platform,
+            Assert.IsType<AssemblyBindingSelection.Selected>(
+                platformScoped).Assembly);
+        Assert.Same(
+            platform,
+            Assert.IsType<AssemblyBindingSelection.Selected>(
+                intrinsic).Assembly);
+    }
+
+    [Fact]
     public async Task SharedRole_RequiresExactDescriptorsAndOneLimitPolicy()
     {
         ResolvedAssemblyReference surface = Assembly("Shared", marker: 1);
