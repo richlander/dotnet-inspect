@@ -402,15 +402,27 @@ names what is checked rather than offering a way to check less:
   hold on *any* well-formed `IrNode` graph, including the deliberately minimal
   `IrFunction`s that hand-built pass-unit fixtures construct
   (`IrInvariants.Enabled`).
-- **Semantic** invariants (e.g. local-slot indices within the enclosing
-  function/lambda's `Locals`) require a function that declares the slots it
-  references. These were opt-in until #3302 on the stated grounds that arming
-  them suite-wide would false-positive on ~120 minimal fixtures; measured, the
-  number was five. Those five now declare their locals, and the level is on by
-  default (`IrInvariants.CheckSemantics`), as a computed projection of `Enabled`
-  so the two cannot drift apart and the shipped tool's opt-out lowers both.
-  `CheckInvariant(includeSemantics: true)` still threads the level explicitly
-  for hermetic per-test coverage.
+- **Semantic** invariants require a complete function contract. They check that
+  local-slot indices are within the enclosing function or lambda's `Locals`,
+  and that every slot recorded in `EliminatedLocalSlots` remains unreferenced
+  in its owning local pool. These were opt-in until #3302 on the stated grounds
+  that arming them suite-wide would false-positive on ~120 minimal fixtures;
+  measured, the number was five. Those five now declare their locals, and the
+  level is on by default (`IrInvariants.CheckSemantics`), as a computed
+  projection of `Enabled` so the two cannot drift apart and the shipped tool's
+  opt-out lowers both. `CheckInvariant(includeSemantics: true)` still threads
+  the level explicitly for hermetic per-test coverage.
+
+The eliminated-local rule is a durability check, not a second liveness model
+(#9564). `IrFunction.MarkLocalEliminated` uses
+`LocalSlotReferencesInScope` to prove deadness before recording a slot; the
+semantic invariant reuses that same owner after every managed pass to prove a
+later rewrite did not reintroduce a same-pool reference. It also checks
+eliminated indices after `ResetLocals` transplants a local table. A
+same-numbered slot in an isolated lambda or local-function pool is unrelated
+and remains valid; a shared-scope nested body still addresses the outer pool.
+This would have caught the #3295 false-`Full` defect class at the first
+violating boundary instead of relying on later fidelity output.
 
 A hand-built fixture that trips the semantic level is referencing locals it does
 not declare; give the `IrFunction` its local table rather than lowering the
