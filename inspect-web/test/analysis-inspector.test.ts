@@ -37,8 +37,9 @@ test("Relationships is the first and default Analysis mode", () => {
       "relationships",
       "dependencies",
       "complexity",
-      "performance",
       "integrations",
+      "performance",
+      "resource-triage",
     ],
   );
 });
@@ -48,6 +49,7 @@ for (const mode of [
   "dependencies",
   "relationships",
   "performance",
+      "resource-triage",
   "integrations",
 ] as const satisfies readonly AnalysisMode[]) {
   test(`${mode} has one stable Analysis frame with an accessible mode panel`, () => {
@@ -61,9 +63,9 @@ for (const mode of [
     assert.equal(html.match(/<h1\b/g)?.length, 1);
     assert.match(html, /<h1 id="library-analysis-title">Analysis<\/h1>/);
     const header = html.match(/<header\b[^>]*>[\s\S]*?<\/header>/)?.[0] ?? "";
-    assert.equal(header.match(/role="tab"/g)?.length, 5);
+    assert.equal(header.match(/role="tab"/g)?.length, 6);
     assert.match(header, /<p title="Loading">Loading<\/p>[\s\S]*role="tablist"/);
-    assert.equal(html.match(/role="tab"/g)?.length, 5);
+    assert.equal(html.match(/role="tab"/g)?.length, 6);
     assert.equal(html.match(/aria-selected="true"/g)?.length, 1);
     assert.match(html, new RegExp(`data-analysis-mode="${mode}" aria-selected="true"`));
     assert.match(html, new RegExp(`role="tabpanel" aria-labelledby="analysis-mode-${mode}"`));
@@ -71,3 +73,14 @@ for (const mode of [
     assert.doesNotMatch(html, /metadata-surface-footer/);
   });
 }
+
+test("Performance and Resource Triage are direct Analysis tabs", () => {
+  for (const mode of ["performance", "resource-triage"] as const) {
+    const html = renderAnalysisInspector({ assemblyIdentity: "Fixture", assetPath: "Fixture.dll",
+      coordinate: "Fixture", pickerHtml: "", escapeHtml: String }, mode, "Ready", "");
+    assert.match(html, />Performance Triage<\/button>/);
+    assert.match(html, />Resource Triage<\/button>/);
+    assert.equal((html.match(/role="tablist"/g) ?? []).length, 1);
+    assert.doesNotMatch(html, /data-triage-mode/);
+  }
+});
