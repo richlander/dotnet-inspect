@@ -76,7 +76,8 @@ public sealed record BrowserPackageLoadResult(
 
 public sealed record BrowserPackageRootLoadResult(
     BrowserPackageChildrenInspection PackageChildren,
-    BrowserPackageDocument[] Documents);
+    BrowserPackageDocument[] Documents,
+    string? DefaultLibraryId = null);
 
 public sealed record BrowserPackageChildrenInspection(
     BrowserPackageChildren Content,

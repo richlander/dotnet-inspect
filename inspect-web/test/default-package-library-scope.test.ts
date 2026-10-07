@@ -96,3 +96,36 @@ test("summary model follows the declared default even when it is not the first L
   assert.equal(model.assemblies.length, 0);
   assert.equal(packageLibrariesForModel(model).length, 2);
 });
+
+test("a tool-only summary with no product compile default stays at Package", () => {
+  const assetId = "tools/net11.0/any/Tool.Payload.dll";
+  const children = {
+    content: { packageId: "Tool.Payload", packageVersion: "1.0.0", targetFramework: "net11.0",
+      status: "Available", isComplete: true, libraries: [
+        { assetId, assemblyName: "Tool.Payload", assetPath: assetId, role: "ToolEntryPoint" },
+      ] },
+  } as unknown as Parameters<typeof createNuGetPackageSummaryModel>[0];
+  const model = createNuGetPackageSummaryModel(children, [], undefined, undefined, null);
+  const state = { libraryScope: new Set(["previous"]), atLibraryRoot: true, atPackageRoot: false };
+  runInNewContext(`${selectDefault}\nselectDefaultPackageSubject(pkg);`, {
+    state,
+    packageLibrariesForModel,
+    pkg: model,
+  });
+  assert.equal(model.assemblyId, "");
+  assert.equal(state.atLibraryRoot, false);
+  assert.equal(state.atPackageRoot, true);
+  assert.equal(state.libraryScope, null);
+  assert.deepEqual(packageLibrariesForModel(model).map(library => library.id), [assetId]);
+});
+
+test("summary construction without a default field preserves its legacy fallback", () => {
+  const children = {
+    content: { packageId: "Sample", packageVersion: "1.0.0", targetFramework: "net8.0",
+      status: "Available", isComplete: true, libraries: [
+        { assetId: "first", assemblyName: "First", assetPath: "lib/First.dll" },
+      ] },
+  } as unknown as Parameters<typeof createNuGetPackageSummaryModel>[0];
+  const model = createNuGetPackageSummaryModel(children, []);
+  assert.equal(model.assemblyId, "first");
+});

@@ -1049,6 +1049,7 @@ export interface BrowserPackageQueryTermDescriptor {
 export interface BrowserPackageRootLoadResult {
   readonly packageChildren: BrowserPackageChildrenInspection;
   readonly documents: ReadonlyArray<BrowserPackageDocument>;
+  readonly defaultLibraryId: string | null;
 }
 
 export interface BrowserPackageRuntimeIdentifierChild {

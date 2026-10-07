@@ -223,7 +223,7 @@ export function createNuGetPackageSummaryModel(
   defaultLibraryId?: string | null,
 ): AppPackage {
   const content = packageChildren.content;
-  const firstLibrary = defaultLibraryId
+  const firstLibrary = defaultLibraryId !== undefined
     ? content.libraries.find(library => library.assetId === defaultLibraryId)
     : content.libraries[0];
   const activeFramework = content.targetFramework
@@ -1167,6 +1167,7 @@ export function createPackageAcquisition(
           await dependencies.queryPackageRoot(request.rootRequest);
         packageChildren = rootLoad.packageChildren;
         documents = rootLoad.documents;
+        defaultLibraryId = rootLoad.defaultLibraryId;
       } else {
         const loadResult = await dependencies.queryPackageSummary(
           request.packageId,

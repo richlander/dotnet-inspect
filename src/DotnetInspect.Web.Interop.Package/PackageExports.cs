@@ -109,7 +109,8 @@ public static partial class PackageExports
                         BrowserPackageWireProjection.Project(
                             packageChildren),
                         BrowserPackageWireProjection.Project(
-                            coordinate.Package.Documents()));
+                            coordinate.Package.Documents()),
+                        coordinate.DefaultAsset?.Id);
                 },
                 BrowserPackageWorkspace.PackageOperationTimeout);
         return JsonSerializer.Serialize(
