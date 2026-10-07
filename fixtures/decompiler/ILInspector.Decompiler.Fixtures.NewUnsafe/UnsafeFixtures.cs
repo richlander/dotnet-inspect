@@ -894,3 +894,66 @@ public sealed class AccessorContractFixtures
         }
     }
 }
+
+// Unsafe member findings attribution: generated bodies fold into the declared
+// member, and private and internal members are findings alongside public ones.
+public static class UnsafeFindingAttributionSamples
+{
+    public static System.Collections.Generic.IEnumerable<int> IteratorDereference(int[] values)
+    {
+        for (int index = 0; index < values.Length; index++)
+        {
+            int value;
+            unsafe
+            {
+                int* pointer = stackalloc int[1];
+                *pointer = values[index];
+                value = *pointer;
+            }
+            yield return value;
+        }
+    }
+
+    public static int LocalFunctionDereference(int[] values)
+    {
+        unsafe
+        {
+            return Read(values);
+        }
+
+        static unsafe int Read(int[] source)
+        {
+            unsafe
+            {
+                fixed (int* pointer = source)
+                {
+                    return *pointer;
+                }
+            }
+        }
+    }
+
+    static unsafe int PrivateDereference(int* pointer)
+    {
+        unsafe
+        {
+            return *pointer;
+        }
+    }
+
+    internal static unsafe int InternalDereference(int* pointer)
+    {
+        unsafe
+        {
+            return *pointer;
+        }
+    }
+
+    public static unsafe int CallsNonPublic(int* pointer)
+    {
+        unsafe
+        {
+            return PrivateDereference(pointer) + InternalDereference(pointer);
+        }
+    }
+}

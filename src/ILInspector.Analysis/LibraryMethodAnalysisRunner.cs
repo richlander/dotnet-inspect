@@ -167,6 +167,13 @@ internal interface ILibraryMethodAnalysisInfrastructure
         MethodDefinition method);
 }
 
+internal enum MethodBodyAvailability
+{
+    Present,
+    NoApplicableInput,
+    Missing,
+}
+
 internal enum DeclaredOwnerResolution
 {
     None,
@@ -187,6 +194,12 @@ internal sealed class LibraryMethodAnalysisResult
     public CallerUnsafeMode Mode;
     public bool IsLeverage;
     public bool HasBody;
+    // Owner-issued body availability from declaration flags; see
+    // docs/design/unsafe-member-findings.md#body-availability.
+    public MethodBodyAvailability BodyAvailability;
+    public bool RequiresDeclaredOwner;
+    public bool OwnerResolutionFailed;
+    public DeclaredOwnerResolution OwnerResolution;
     public ImmutableArray<UnsafeEvidence> UnsafeEvidence;
     public ImmutableArray<DirectCall> Calls;
     public ImmutableArray<StringMaterializationOccurrence>
@@ -731,6 +744,8 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                 methodDefinition.RelativeVirtualAddress != 0
                 && HasManagedIlBody(
                     methodDefinition.ImplAttributes);
+            result.BodyAvailability =
+                ClassifyBodyAvailability(methodDefinition);
             var scope = _infrastructure.CreateScope(
                 typeDefinition,
                 methodDefinition);
@@ -845,6 +860,7 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                         .IsAuthenticatedAsyncStateMachineExecutionMethod(
                             methodHandle,
                             methodDefinition));
+            result.RequiresDeclaredOwner = requiresDeclaredOwner;
             AsyncBodyAttribution? asyncBody = null;
             bool opportunityOwnershipResolved = true;
             DeclaredOwnerResolution ownerResolution =
@@ -915,6 +931,7 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                             : null;
                     result.DeclaredMethod = null;
                 }
+                result.OwnerResolution = ownerResolution;
                 opportunityOwnershipResolved =
                     ownerResolution
                         is DeclaredOwnerResolution.None
@@ -931,6 +948,7 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                 when (IsRecoverableMethodFailure(ex))
             {
                 result.DeclaredMethod = null;
+                result.OwnerResolutionFailed = true;
                 opportunityOwnershipResolved = false;
                 result.Diagnostic = new AnalysisDiagnostic(
                     MetadataTokens.GetToken(methodHandle),
@@ -1551,6 +1569,8 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                 methodDefinition.RelativeVirtualAddress != 0
                 && HasManagedIlBody(
                     methodDefinition.ImplAttributes);
+            result.BodyAvailability =
+                ClassifyBodyAvailability(methodDefinition);
             GenericScope scope = _infrastructure.CreateScope(
                 typeDefinition,
                 methodDefinition);
@@ -2133,6 +2153,28 @@ internal sealed partial class LibraryMethodAnalysisRunner(
             DirectCallCollectionAttempted = true,
             DirectCallCollectionComplete = complete,
         };
+    }
+
+    // A declaration that is abstract, a P/Invoke, or not a managed IL method
+    // has no body to inspect. A managed IL method without an RVA was expected
+    // to carry one, so its body is missing rather than inapplicable.
+    internal static MethodBodyAvailability ClassifyBodyAvailability(
+        MethodDefinition method)
+    {
+        if ((method.Attributes
+                & (MethodAttributes.Abstract
+                    | MethodAttributes.PinvokeImpl))
+                != 0
+            || !HasManagedIlBody(method.ImplAttributes)
+            || (method.ImplAttributes
+                & MethodImplAttributes.InternalCall)
+                != 0)
+        {
+            return MethodBodyAvailability.NoApplicableInput;
+        }
+        return method.RelativeVirtualAddress == 0
+            ? MethodBodyAvailability.Missing
+            : MethodBodyAvailability.Present;
     }
 
     internal static bool HasManagedIlBody(
