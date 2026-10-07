@@ -66,6 +66,26 @@ The pattern has five obligations. An adopting command meets all of them:
    states the work it authorizes; identifying a tool Package's entry-point
    Library is the Package adoption's exception. Package tool settings normally
    provide that correspondence without opening the Library binary.
+
+   **One row population.** A default view presents exactly one row
+   population: the subject's children. Owner-issued groups such as namespaces
+   or Member categories are derived from those same rows and are not a second
+   population. A default view never nests a child's own population beneath
+   its row (no rows of rows): a package view does not list each Library's
+   namespaces or Types, and a Library view does not list each Type's Members.
+   The deeper level belongs to the next command on the
+   [containment ladder](#containment-ladder), so each row also previews the
+   gesture that expands it.
+
+   **Work bound.** A default view's work is bounded by its own row population.
+   It performs no acquisition, decoding, or enumeration that only a deeper
+   level would present, including per-row counts of a child's population. The
+   population owner gates this deterministically from product outcomes, for
+   example that the default request asks for no deeper terminal and that no
+   returned row carries one, or from a work fact the owner reports; NativeAOT
+   timing at each command adoption measures the end-to-end effect. Nested
+   populations multiply work by every parent row, so this bound is a
+   performance requirement as well as a reading-load requirement.
 3. **Info is opt-in.** Facts about the subject are one explicitly named
    subject-facts section, selected with `-S <section>`. It answers "what is
    this subject?" and does not re-render the children population. Whether
@@ -188,10 +208,11 @@ adopts it, in that owner's document, with its own gates.
 - **Children:** the public-surface Type declaration population, both
   definitions and forwarders.
 - **Tree:** namespaces with declaration counts, then declarations by short
-  name. A definition shows its kind, modifiers, and member count. A forwarder
-  keeps its declared name and namespace and is marked as forwarded (for
-  example `SomeType (forwarded)`). It shows no kind, modifiers, or member
-  count, because those would come from a target.
+  name. A definition shows its kind and modifiers. It shows no member count:
+  Members are the Type's own children, and `type <Type>` lists them. A
+  forwarder keeps its declared name and namespace and is marked as forwarded
+  (for example `SomeType (forwarded)`). It shows no kind or modifiers, because
+  those would come from a target.
 - **Namespace counts** include forwarders, and the total equals the
   population's Count.
 - **Complete formats** (Markdown, JSON, rows) carry every declaration with its

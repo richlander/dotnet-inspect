@@ -119,6 +119,14 @@ Count does not require or imply Rows. Rows do not become Count by host-side
 enumeration. The adopting owner maps each requested closing to its existing
 typed population request and publishes the corresponding outcome.
 
+The vocabulary can express nested populations, but a subject's default view
+does not request them.
+[Primary subject views](primary-subject-views.md#authority-and-exact-claim)
+owns that rule: one row population per default view, with owner-issued groups
+derived from those rows and deeper levels reached through the next command.
+A Rows level that only groups the same population, such as a Library's
+namespaces or a Type's categories, is not a second population.
+
 ### Name or FullSpelling
 
 Every emitted node independently requests either:
