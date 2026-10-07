@@ -934,7 +934,9 @@ public partial class LibraryCommand
         if (!ValidateMultiTfmOutput(options))
             return 1;
 
-        if (options.Tree && options.Discover == null)
+        bool typeHierarchy =
+            options.CommandPlan is LibraryCommandPlan.TypeHierarchy;
+        if (options.Tree && options.Discover == null && !typeHierarchy)
         {
             if (!LibraryOutputCapabilities.Catalog.Supports(
                     DiscoveryOutputMode.Tree,
@@ -953,6 +955,7 @@ public partial class LibraryCommand
         if (options.Format == OutputFormat.Mermaid
             && options.Discover == null
             && !options.Count
+            && !typeHierarchy
             && !LibraryOutputCapabilities.Catalog.Supports(
                 DiscoveryOutputMode.Mermaid,
                 options.IncludeSections))
@@ -1292,6 +1295,15 @@ public partial class LibraryCommand
                         CancellationToken.None);
                 }
 
+                if (options.CommandPlan
+                    is LibraryCommandPlan.TypeHierarchy platformHierarchy)
+                {
+                    return await LibraryTypeHierarchyCommand.ExecuteAsync(
+                        resolvedPath!,
+                        platformHierarchy,
+                        cancellationToken);
+                }
+
                 AssemblyResolutionProvenance inspectionProvenance =
                     AssemblyResolutionProvenance.Platform(
                         framework!,
@@ -1559,6 +1571,24 @@ public partial class LibraryCommand
                         assemblyPaths[0],
                         options,
                         CancellationToken.None);
+                }
+
+                if (options.CommandPlan
+                    is LibraryCommandPlan.TypeHierarchy packageHierarchy)
+                {
+                    if (assemblyPaths.Count == 1)
+                    {
+                        return await LibraryTypeHierarchyCommand.ExecuteAsync(
+                            assemblyPaths[0],
+                            packageHierarchy,
+                            cancellationToken);
+                    }
+                    if (packageHierarchy.Explicit)
+                    {
+                        CommandError.Write(
+                            LibraryCommandPlanner.OneLibraryError);
+                        return 1;
+                    }
                 }
 
                 if (options.AddressRequest
@@ -1954,6 +1984,15 @@ public partial class LibraryCommand
                         assemblyPath,
                         options,
                         CancellationToken.None);
+                }
+
+                if (options.CommandPlan
+                    is LibraryCommandPlan.TypeHierarchy fileHierarchy)
+                {
+                    return await LibraryTypeHierarchyCommand.ExecuteAsync(
+                        assemblyPath,
+                        fileHierarchy,
+                        cancellationToken);
                 }
 
                 AssemblyResolutionProvenance inspectionProvenance =

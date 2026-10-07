@@ -199,6 +199,43 @@ exhaustive because fallback Member rows can precede Type rows and suppress weak
 Type matches. `--tail`, open-ended windows, and multi-stage row selection also
 remain exhaustive.
 
+### Library Type hierarchy
+
+A bare `library` command that resolves one Library renders its public-surface
+Type declarations as a Tree: the Library, its namespaces with declaration
+counts, and each declaration by name. Forwarded declarations are marked
+`(forwarded)`. The Tree shows no Member counts; use `type <Type>` for a Type's
+Members.
+
+```bash
+dotnet-inspect library System.Text.Json
+```
+
+```text
+System.Text.Json 11.0.0.0
+├─ System.Runtime.CompilerServices (3 types)
+│  ├─ IsExternalInit (forwarded)
+│  └─ …
+├─ System.Text.Json (20 types)
+│  ├─ enum JsonCommentHandling
+│  ├─ class JsonDocument
+│  └─ …
+└─ …
+```
+
+`--tree` and `-v:m` select the same Tree, and `--mermaid` renders the same
+nodes as a Mermaid graph. Platform, package, and file sources are accepted,
+together with `--framework`, `--version`, `--preview`, one `--tfm`,
+`--namesake-library`, and NuGet source options. A package that contributes
+more than one Library keeps the multi-Library view; explicit `--tree` or
+`--mermaid` on such a package fails and asks for the assembly within the
+package. Any other option, including `-S`, `-v:n`, `-v:d`, and every format
+option, keeps the sectioned Library view. Library facts remain available as
+`-S "Library Info"`.
+
+A Library whose Type population cannot be read completely fails with the
+reason instead of rendering a partial Tree.
+
 ### Library namespace Type listings
 
 An exact Library can list its public Type declarations from one exact

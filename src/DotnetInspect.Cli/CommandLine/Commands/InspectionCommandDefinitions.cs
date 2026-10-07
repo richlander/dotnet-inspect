@@ -2,6 +2,7 @@ using System.CommandLine;
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspect.Cli.Planning;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
@@ -1150,6 +1151,44 @@ public static class InspectionCommandDefinitions
                 SourceOptions = opts.ParseNuGetSourceOptions(parseResult),
                 ExtractResources = parseResult.GetValue(extractResourcesOption)
             };
+
+            Option[] typeHierarchyAdmittedOptions =
+            [
+                asmPlatformOption,
+                asmPackageOption,
+                namesakeLibraryOption,
+                asmPrereleaseOption,
+                asmFrameworkOption,
+                asmVersionOption,
+                asmTfmOption,
+                opts.Source,
+                opts.AddSource,
+                opts.NuGetConfig,
+                opts.Tree,
+                opts.Mermaid,
+                opts.Verbosity,
+                opts.Verbose,
+            ];
+            bool onlyTypeHierarchyOptions =
+                assemblyCommand.Options.All(option =>
+                    typeHierarchyAdmittedOptions.Contains(option)
+                    || parseResult.GetResult(option)
+                        is not { Implicit: false });
+            switch (LibraryCommandPlanner.Plan(
+                        options,
+                        onlyTypeHierarchyOptions,
+                        mermaidExplicitlySet:
+                            parseResult.GetResult(opts.Mermaid)
+                                is { Implicit: false }
+                            && parseResult.GetValue(opts.Mermaid)))
+            {
+                case LibraryCommandPlanningResult.Rejected rejected:
+                    CommandError.Write(rejected.Error);
+                    return 1;
+                case LibraryCommandPlanningResult.Planned planned:
+                    options = options with { CommandPlan = planned.Plan };
+                    break;
+            }
 
             return await LibraryCommand.ExecuteAsync(options, ct);
         });

@@ -611,6 +611,14 @@ counted outcome and a forwarder's is not applicable, never zero.
 owns the request vocabulary, the streaming sink, and shared format lowering.
 Tree and Mermaid do not regroup, recount, reorder, or respell these nodes.
 
+The CLI is the first host adopter. Bare `library L` selects the default leaf
+profile for one resolved Library. It executes the presentation plan's Type
+request under the CLI Library bounds and lowers the completed document to Tree
+or Mermaid. A rejected, failed, incomplete, or continued population is a
+visible error rather than a shortened Tree.
+[Primary subject views](primary-subject-views.md#adoption) owns the admitted
+gestures.
+
 ## Source execution
 
 The request model is source-feasible only if producers avoid eager object

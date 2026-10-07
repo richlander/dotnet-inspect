@@ -419,6 +419,18 @@ Library occurrence or RID Package. Inspect Web transports the same document,
 uses its declaration Counts, and retains exact compile asset IDs for Library
 navigation. Explicit sections remain the opt-in sectioned Package views.
 
+Library step 3 has adopted its compact native Tree for one resolved Library.
+Bare CLI `library L`, `--tree`, and `-v:m` render the Library owner's default
+leaf hierarchy. `--mermaid` lowers the same nodes. Admission is limited to
+Library source options, so every other option keeps the sectioned view.
+`-S "Library Info"` is the opt-in facts section. A package source that yields
+several Libraries keeps its multi-Library view until exact subject resolution
+lands, and explicit hierarchy gestures there fail. Collapse, namespace input,
+exhaustive `-v:n`/`-v:d` Trees, and Inspect Web adoption remain open.
+`CommandExecutionTests.LibraryTypeHierarchy` gates the admitted gestures, the
+competing-demand boundary, and the work bound: the default plan requests no
+Member Count, and no returned row carries one.
+
 ## Gates
 
 This document's obligations are gated through each adoption, in Release,
