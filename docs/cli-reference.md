@@ -262,7 +262,7 @@ ordinary section query options still control columns and rows:
 ```bash
 dnx dotnet-inspect -y -- library System.Text.Json \
   --where "Kind=ObjectCreationExpression" \
-  --columns "Member;Token;Match" --rows 3
+  --columns "Member;Token;Match" -n 3
 ```
 
 ```text
