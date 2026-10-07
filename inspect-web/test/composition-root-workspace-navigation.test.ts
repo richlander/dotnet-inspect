@@ -1146,12 +1146,12 @@ test("package Metadata retries remain explicit rather than render-driven", () =>
 
 test("Spotlight searches framework Libraries without offering a Platform root", () => {
   const results =
-    appSource.match(/function frameworkLibrarySpotlightResults\(query: string\): SpotlightResult\[\] \{[\s\S]*?\n}\n/)?.[0]
+    appSource.match(/function frameworkLibrarySpotlightResults\(query: string, includeApiResults = true\): SpotlightResult\[\] \{[\s\S]*?\n}\n/)?.[0]
     ?? "";
   assert.ok(results, "frameworkLibrarySpotlightResults was not found");
   assert.match(
     results,
-    /if \(platformSurfaceLoaded\(\)[\s\S]*activeRetainedWorkspacePosting === null\) \{[\s\S]*spotlightTypeMatches\(query\)/);
+    /if \(includeApiResults && platformSurfaceLoaded\(\)[\s\S]*activeRetainedWorkspacePosting === null\) \{[\s\S]*spotlightTypeMatches\(query\)/);
   assert.match(results, /kind: "framework-lib"/);
   assert.doesNotMatch(results, /kind: "platform"|rtpack-suggest/);
 });

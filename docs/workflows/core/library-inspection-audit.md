@@ -138,7 +138,7 @@ Does System.CommandLine have SourceLink? What PDB format does it use?
 ```
 
 ```bash
-dotnet-inspect library --package System.CommandLine@2.0.3 -v:d -S Symbols
+dotnet-inspect library --package System.CommandLine@2.0.3 -v:d -S Symbols --markdown
 ```
 
 ```expect
@@ -208,7 +208,7 @@ Custom Attributes
 > Goal: See resources embedded in the assembly.
 
 ```bash
-dotnet-inspect library System.Text.Json -v:d -S Resources
+dotnet-inspect library System.Text.Json -v:d -S Resources --markdown
 ```
 
 ```expect
@@ -222,7 +222,7 @@ SR.resources
 > Goal: See assembly-level attributes.
 
 ```bash
-dotnet-inspect library --package System.CommandLine@2.0.3 -v:d -S "Custom Attributes" -n 12 --lines
+dotnet-inspect library --package System.CommandLine@2.0.3 -v:d -S "Custom Attributes" -n 12 --lines --markdown
 ```
 
 ```expect
@@ -242,7 +242,7 @@ Tips:
 > Goal: See extension methods defined in the library.
 
 ```bash
-dotnet-inspect library System.Text.Json -v:d -S "Extension Methods" -n 15 --lines
+dotnet-inspect library System.Text.Json -v:d -S "Extension Methods" -n 15 --lines --markdown
 ```
 
 ```expect
@@ -282,7 +282,7 @@ TFM: .NETStandard,Version=v2.0
 > Goal: See type forwarding declarations in the assembly.
 
 ```bash
-dotnet-inspect library System.Text.Json -v:d -S "Type Forwarders"
+dotnet-inspect library System.Text.Json -v:d -S "Type Forwarders" --markdown
 ```
 
 ```expect
@@ -301,7 +301,7 @@ Tips:
 > Goal: See members with unsafe signatures or unsafe calls for security and interop review.
 
 ```bash
-dotnet-inspect library System.Private.CoreLib -S 'Unsafe Members' --rows 3
+dotnet-inspect library System.Private.CoreLib -S 'Unsafe Members' --rows 3 --markdown
 ```
 
 ```expect
@@ -315,7 +315,7 @@ Unsafe call
 > Goal: See native interop methods declared via DllImport/LibraryImport.
 
 ```bash
-dotnet-inspect library --package System.Drawing.Common@10.0.0 -S 'P/Invoke Methods' --rows 3
+dotnet-inspect library --package System.Drawing.Common@10.0.0 -S 'P/Invoke Methods' --rows 3 --markdown
 ```
 
 ```expect

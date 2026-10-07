@@ -1174,7 +1174,7 @@ test("framework assemblies are Library results without a Platform destination", 
   const html = spotlight.modalHtml();
   assert.match(html, /class="spotlight-group">Ecosystem/);
   assert.match(html, /data-sl-framework-lib="System\.Text\.Json"/);
-  assert.match(html, /\.NET Runtime · Library · net11\.0 · 11\.0\.0 · 42 types/);
+  assert.match(html, /\.NET Runtime · net11\.0 · 11\.0\.0 · 42 types/);
   assert.doesNotMatch(html, /data-sl-scope="runtime"|>Platform</);
 });
 
@@ -1210,8 +1210,8 @@ test("same-named Package and Library share one Ecosystem group with independent 
   assert.match(html, /aria-label="Library: \.NET Runtime"/);
   assert.equal((html.match(/class="spotlight-svg-icon spotlight-pruned"/g) ?? []).length, 1);
   assert.match(html, /Supplied by net10.0 @ 10.0.12/);
-  assert.match(html, /\.NET Runtime · Package · 4.3.0/);
-  assert.match(html, /\.NET Runtime · Library · net10\.0/);
+  assert.match(html, /\.NET Runtime · 4.3.0/);
+  assert.match(html, /\.NET Runtime · net10\.0/);
   assert.notEqual(spotlightResultIdentity(packageResult), spotlightResultIdentity(libraryResult));
   assert.deepEqual(spotlight.results(), [libraryResult, packageResult, external]);
 });
@@ -1270,4 +1270,29 @@ test("unavailable version comparison preserves pair order and unrelated hits sta
   assert.deepEqual(spotlight.results(), [pkg, unrelated, library]);
   pkg.ecosystem!.isPruned = true;
   assert.deepEqual(spotlight.results(), [library, unrelated, pkg]);
+});
+
+
+test("Spotlight artifact rows show date-only metadata without changing activation identity", () => {
+  const results: SpotlightResult[] = [
+    { kind: "pkg-nuget", hit: { id: "System.Text.Json", version: "9.0.0" }, ranges: [], publication: { status: "available", date: "2024-11-12" } },
+    { kind: "framework-lib", assembly: "System.Text.Json", pack: "netcore.app", publicTypes: 1, ranges: [], version: "10.0.12", publication: { status: "available", date: "2026-09-08" } },
+  ];
+  const identities = results.map(spotlightResultIdentity);
+  const { spotlight } = createHarness({ searchResults: () => results });
+  const html = spotlight.inlineHtml(false);
+  assert.match(html, /<time datetime="2024-11-12" aria-label="Published 2024-11-12" title="Published 2024-11-12">2024-11-12<\/time>/);
+  assert.match(html, /<time datetime="2026-09-08" aria-label="Published 2026-09-08" title="Published 2026-09-08">2026-09-08<\/time>/);
+  assert.deepEqual(spotlight.results().map(spotlightResultIdentity).sort((a, b) => a.localeCompare(b)), identities.sort((a, b) => a.localeCompare(b)));
+});
+
+
+test("Libraries is beside Packages and admits only Library observations", () => {
+  const library: SpotlightResult = { kind: "framework-lib", assembly: "System.Text.Json", pack: "netcore.app", publicTypes: 1, ranges: [] };
+  const pkg: SpotlightResult = { kind: "pkg-nuget", hit: { id: "System.Text.Json", version: "9.0.0" }, ranges: [] };
+  const { spotlight } = createHarness({ scope: "libraries", searchResults: () => [pkg, library, { kind: "package-activity" }] });
+  assert.deepEqual(spotlight.results(), [library]);
+  const html = spotlight.modalHtml();
+  assert.match(html, /data-sl-scope="packages"[^>]*>Packages<\/button>\s*<button[^>]*data-sl-scope="libraries"/);
+  assert.doesNotMatch(html, /data-sl-pkg-load|data-sl-package-activity/);
 });

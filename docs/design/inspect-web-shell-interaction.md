@@ -546,7 +546,40 @@ even when their names match. For a same-named Package and platform Library pair,
 the platform Library precedes a pruned Package. Otherwise the higher version
 leads, using shared NuGet version precedence; ties put the platform Library first.
 Unavailable comparison preserves the existing order. Unrelated observations
-retain their order. Calendar-date metadata remains the next slice tracked by #9513.
+retain their order.
+
+Spotlight keeps Package and platform Library observations on one line, with
+a compact `YYYY-MM-DD` publication date at the right. Its tooltip and accessible
+label identify the date as Published. Adjacent `Packages` and `Libraries`
+filters select the corresponding result kind; Libraries admits framework
+Library observations without Types, Members, or package discovery. All retains
+the combined Ecosystem grouping and same-name ordering. Dates describe the
+exact Package version or, for a
+platform Library, its containing `Microsoft.NETCore.App.Ref` or
+`Microsoft.AspNetCore.App.Ref` pack version when the catalog confirms that
+reference pack contains the Library. Implementation-only Libraries without an
+exact containing package coordinate leave their date undisclosed. The runtime
+patch is not a
+NETStandard.Library.Ref coordinate; absent exact pack identity leaves that
+Library date undisclosed. Ordinary nuget.org Package Overview uses the same
+coordinate-keyed date observation. File and other-feed Packages never borrow a
+same-named nuget.org date. Recent entries without retained nuget.org provenance
+leave the date undisclosed.
+
+Date enrichment does not delay discovery, classification, or activation. The
+Browser's existing nuget.org discovery boundary reads the service index once
+and exact-version registration leaves, with four concurrent requests, an
+8-second per-request deadline, and at most 256 session observations. It acquires
+no archives or pack payloads and does not enumerate version histories. A
+pending date displays `Published …`; absent, invalid, year-1900 unlisted
+sentinel, and failed metadata display `Published unavailable`, with failure
+reason disclosed in Spotlight's tooltip. Retained observations, including
+unavailable outcomes, expire with the page session. Dates preserve the feed's
+calendar day without local-time conversion; time of day is never displayed or
+used to order results. A completion refreshes current results from their
+identities and cannot publish old result rows. The existing native HTML
+Spotlight and Overview renderers lower this small typed metadata directly;
+this adds no inspection output format or ranking contract.
 
 Classification is a resource-free annotation helper in the Package facade,
 following `ClassifyPackageGraphIdentities`, rather than an inspection or
@@ -566,8 +599,9 @@ or the existing Library icon as fallback, even when it supplies a pruned Package
 Pruning applies to the Package, not to the supplying Library. False or unavailable
 comparisons do not produce pruning glyphs.
 Accessible glyph labels preserve Package or Library kind. Text metadata names
-the ecosystem consistently before the subject kind, such as `.NET Runtime ·
-Package` and `.NET Runtime · Library`, while retaining source disclosure. Ecosystem icons consume the classifier's owning identity, or
+the ecosystem consistently, such as `.NET Runtime`, without repeating Package
+or Library inside the row, while retaining source disclosure. Ecosystem icons
+consume the classifier's owning identity, or
 the framework Library's known source family. There is no trailing icon rail.
 Kind and status glyphs follow the structural-salience icon
 language. The four ecosystem marks use the operator-selected original

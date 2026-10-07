@@ -942,6 +942,7 @@ public partial class PackageCommand
             Tree = options.Tree,
             Select = options.Select,
             SelectDefault = options.SelectDefault,
+            SelectExplicitlySet = options.SelectExplicitlySet,
             Columns = options.Columns,
             Fields = options.Fields,
             FieldsExplicitlySet = options.FieldsExplicitlySet,
