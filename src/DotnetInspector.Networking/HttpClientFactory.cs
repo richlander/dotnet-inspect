@@ -270,6 +270,7 @@ public static class HttpClientFactory
             Credentials = null,
             PreAuthenticate = false,
             UseProxy = false,
+            MaxResponseDrainSize = 0,
             ConnectCallback = (context, cancellationToken) =>
                 NetworkDestinationPolicy.ConnectAsync(
                     context,
@@ -289,16 +290,31 @@ public static class HttpClientFactory
 
     /// <summary>
     /// Creates the owned credential-free handler chain for the NuGet.org
-    /// gallery authority. It is the shared credential-free chain; the
-    /// package-source test override replaces it as it replaces every other
+    /// gallery authority. Its desktop payload transport does not drain unread
+    /// responses. The package-source test override replaces it like every other
     /// configured package-source transport.
     /// </summary>
     public static HttpMessageHandler CreateCredentialFreeGalleryHandler(
         string sourceUrl)
     {
         ArgumentException.ThrowIfNullOrEmpty(sourceUrl);
-        return _packageSourceHandlerOverride?.Invoke(sourceUrl)
-            ?? CreateCredentialFreeHandler();
+        if (_packageSourceHandlerOverride is not null)
+            return _packageSourceHandlerOverride(sourceUrl);
+        if (OperatingSystem.IsBrowser())
+            return CreateCredentialFreeHandler();
+
+        HttpMessageHandler handler = new SocketsHttpHandler
+        {
+            AutomaticDecompression = DecompressionMethods.All,
+            UseCookies = false,
+            Credentials = null,
+            PreAuthenticate = false,
+            AllowAutoRedirect = false,
+            MaxResponseDrainSize = 0,
+        };
+        if (_options.Offline)
+            handler = new OfflineHandler(handler);
+        return new NetworkTelemetryHandler(handler, NetworkClientKinds.Shared);
     }
 
     internal static void SetPackageSourceHandlerForTesting(
@@ -395,6 +411,7 @@ public static class HttpClientFactory
             AllowAutoRedirect = true,
             MaxAutomaticRedirections = 5,
             UseProxy = false,
+            MaxResponseDrainSize = 0,
             ConnectCallback = SsrfGuardedConnectAsync,
         };
 
@@ -438,6 +455,7 @@ public static class HttpClientFactory
             AllowAutoRedirect = true,
             MaxAutomaticRedirections = 5,
             UseProxy = false,
+            MaxResponseDrainSize = 0,
             ConnectCallback = (context, cancellationToken) =>
                 NetworkDestinationPolicy.ConnectAsync(
                     context,
