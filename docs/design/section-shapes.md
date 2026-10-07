@@ -455,6 +455,9 @@ unchanged.
    coordinate, as a member `Signature` is. `Context: Exception`,
    `Allocation`, `Safety`, and `Cost` list the regions or facts at the
    coordinate, one row each, and `Metadata: Heap` rows are heap entries.
+   A lone selected Table streams its rows and `Reference Hierarchy` renders
+   its tree when no format is named; `Dependency Structure`, declaring no
+   shape, keeps its rendering.
 3. **Type owner.** Classifies the `type` sections, including the member tree
    and the `Source` family. The default Type overview is a Hierarchy: the
    Type, its categories as context, and its MemberGroups as rows, each

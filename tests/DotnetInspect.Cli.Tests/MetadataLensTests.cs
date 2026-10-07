@@ -109,7 +109,7 @@ public partial class CommandExecutionTests
             "library",
             typeof(object).Assembly.Location,
             "-S",
-            ReadyToRunSectionNames.Image);
+            ReadyToRunSectionNames.Image, "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -166,7 +166,7 @@ public partial class CommandExecutionTests
             "--metadata-root",
             "r2r-manifest",
             "-S",
-            MetadataSectionNames.Image);
+            MetadataSectionNames.Image, "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -652,7 +652,7 @@ public partial class CommandExecutionTests
     public async Task MetadataLens_ExactName_RendersOnlyThatTable()
     {
         var (exit, output, _) = await RunAppAsync(
-            "library", TestAssemblyPath, "-S", "Metadata: TypeRef", "--rows", "5");
+            "library", TestAssemblyPath, "-S", "Metadata: TypeRef", "--rows", "5", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Metadata: TypeRef", output, StringComparison.Ordinal);
@@ -673,7 +673,7 @@ public partial class CommandExecutionTests
     public async Task MetadataLens_Trace_ExecutesTypedQueryOnce()
     {
         var (exit, output, error) = await RunAppAsync(
-            "library", TestAssemblyPath, "-S", MetadataSectionNames.Image, "--trace");
+            "library", TestAssemblyPath, "-S", MetadataSectionNames.Image, "--trace", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Contains("| Metadata version |", output, StringComparison.Ordinal);
@@ -1089,7 +1089,7 @@ public partial class CommandExecutionTests
     public async Task MetadataLens_ImageSection_HasSameRowsInEveryFormat()
     {
         var (markdownExit, markdownOutput, _) = await RunAppAsync(
-            "library", TestAssemblyPath, "-S", MetadataSectionNames.Image);
+            "library", TestAssemblyPath, "-S", MetadataSectionNames.Image, "--markdown");
         var (tsvExit, tsvOutput, _) = await RunAppAsync(
             "library", TestAssemblyPath, "-S", MetadataSectionNames.Image, "--tsv");
         var (countExit, countOutput, countError) = await RunAppAsync(
@@ -1430,7 +1430,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, _) = await RunAppAsync(
             "library", TestAssemblyPath, "-S", MetadataSectionNames.ForHeap(HeapKind.String),
-            "--rows", "5");
+            "--rows", "5", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Metadata: #Strings", output, StringComparison.Ordinal);
@@ -1476,7 +1476,7 @@ public partial class CommandExecutionTests
     public async Task MetadataLens_UserStringHeapListing_ExplainsWhyItIsEmpty()
     {
         var (exit, output, _) = await RunAppAsync(
-            "library", TestAssemblyPath, "-S", MetadataSectionNames.ForHeap(HeapKind.UserString));
+            "library", TestAssemblyPath, "-S", MetadataSectionNames.ForHeap(HeapKind.UserString), "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Metadata: #US", output, StringComparison.Ordinal);
@@ -1587,7 +1587,7 @@ public partial class CommandExecutionTests
     public async Task MetadataLens_HexTableSelection_RendersTheCanonicalSection()
     {
         var (exit, output, _) = await RunAppAsync(
-            "library", TestAssemblyPath, "-S", "Metadata: 0x02", "--rows", "3");
+            "library", TestAssemblyPath, "-S", "Metadata: 0x02", "--rows", "3", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Contains("## " + MetadataSectionNames.ForTable(System.Reflection.Metadata.Ecma335.TableIndex.TypeDef), output, StringComparison.Ordinal);
@@ -1643,12 +1643,12 @@ public partial class CommandExecutionTests
     public async Task MetadataLens_BothTableSpellings_SelectOneSection()
     {
         var (aloneExit, aloneOutput, _) = await RunAppAsync(
-            "library", TestAssemblyPath, "-S", "Metadata: 0x02", "--rows", "3");
+            "library", TestAssemblyPath, "-S", "Metadata: 0x02", "--rows", "3", "--markdown");
         Assert.Equal(0, aloneExit);
 
         var (exit, output, _) = await RunAppAsync(
             "library", TestAssemblyPath,
-            "-S", "Metadata: 0x02", "-S", "Metadata: TypeDef", "--rows", "3");
+            "-S", "Metadata: 0x02", "-S", "Metadata: TypeDef", "--rows", "3", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Equal(1, output.Split('\n').Count(l => l.StartsWith("## ", StringComparison.Ordinal)));

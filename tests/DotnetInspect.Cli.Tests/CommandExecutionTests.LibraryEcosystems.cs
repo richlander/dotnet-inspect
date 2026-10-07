@@ -26,7 +26,7 @@ public partial class CommandExecutionTests
                 "library",
                 path,
                 "-S",
-                SectionNames.LibraryInfo);
+                SectionNames.LibraryInfo, "--markdown");
 
             Assert.True(
                 exit == 0,
