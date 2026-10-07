@@ -2118,7 +2118,7 @@ test("Spotlight async work is receipt-gated and refreshes either mounted surface
     /generation|spotlightPkgGeneration|spotlightPkgTimer/);
   assert.match(
     appSource,
-    /window\.__platformIndex\.then\(index => \{[\s\S]*if \(state\.spotlightOpen\) spotlight\.refresh\(\)/);
+    /window\.__platformIndex\.then\(index => \{[\s\S]*if \(state\.spotlightOpen \|\| state\.home\) spotlight\.refresh\(\)/);
   assert.doesNotMatch(appSource, /rtpack-suggest|data-sl-load-runtime/);
   assert.doesNotMatch(appSource, /function activateRuntimePack\(/);
 });
