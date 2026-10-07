@@ -68,10 +68,24 @@ target correspondence. It keeps the type-forwarder provenance. It does not
 run the C# or IL producer session; the document's text comes from the
 annotated documents.
 
-The correspondence decides which sides are compared. Only a `Paired`
-correspondence compares two sides, so two different overloads selected by
-the same name are never compared as one Member; that remains the
-correspondence owner's unavailable outcome.
+The ordinary correspondence decides which sides are compared. A `Paired`
+correspondence compares two sides; two different overloads selected by the
+same name remain the correspondence owner's unavailable outcome.
+
+An exact-pair query may instead consume a producer-corresponded Library API
+relation. It resolves each side's exact anchor and MethodDef address, admits
+one Research designated pair, and retains the semantic API relation in the
+shared inspection. Designation validates physical endpoints without inventing
+correspondence. The current endpoint's selector identifies the document even
+when the Before selector differs. An Added relation resolves only its occupied
+After endpoint and supplies typed Before absence.
+
+For these exact Member documents, the shared C# declaration renderer supplies
+the declaration preceding the body. The query shifts every original node and
+region span by the prefix length and retains fact ids, targets, and physical
+source provenance. The declaration is a C# structure node, so signature and
+body changes share one mapped C# sequence. IL remains the ordered instruction
+sequence owned below.
 
 For each side the correspondence admits, the query produces that side's
 `AnnotatedSourceDocument` through `AssemblyContextMemberProjectionQuery` on
@@ -120,9 +134,11 @@ Member has no body to decompile, such as an abstract or extern Member, with
 the producer's typed reason, and Failed when its projection fails. A side is
 Absent only with the correspondence's proof; failing to resolve is never
 treated as absence. A side never borrows the other side's outcome. When both
-sides are Present, the document holds its text and fact comparisons;
-otherwise it holds the sides alone, and a host presents a present side as
-source.
+sides are Present, the document holds its text and fact comparisons. A
+Present/Absent pair compares the complete occupied sequence against an empty
+sequence, producing all additions or all removals per medium. Unavailable,
+NotApplicable, and Failed outcomes never stand in for absence: the document
+retains the side states and a host presents any available text as source.
 
 ## Media and line maps
 
@@ -322,8 +338,9 @@ or a throw.
    confirm both sides are Present, both media have line maps whose ranges
    reproduce each sequence line from the document text, and each medium has
    a text comparison.
-2. Build it for an added Member and confirm the Before side is Absent and no
-   comparison is present.
+2. Build it for an added Member and confirm the Before side is Absent and
+   each included medium compares an empty Before against all occupied After
+   lines, with every relation Added.
 3. Build it for a Member whose declaring type is forwarded in one version to
    the assembly that defines it in the other, so both sides share a terminal
    domain, and confirm the forwarder provenance and both sides' resolved

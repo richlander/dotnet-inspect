@@ -455,6 +455,7 @@ internal sealed class MetadataHierarchyRelationAnalysisPass : IDisposable
                 reader,
                 candidateTarget,
                 _request.Target.Type,
+                _request.Target.Assembly,
                 out string? failure);
         matched =
             match == MetadataTypeDefinitionNameMatchResult.Match;
@@ -500,12 +501,30 @@ internal static class MetadataHierarchyRelationAnalysis
         MetadataReader reader,
         EntityHandle target,
         MetadataTypeDefinitionName expected) =>
-        MatchTarget(reader, target, expected, out _);
+        MatchTarget(
+            reader,
+            target,
+            expected,
+            expectedAssembly: null,
+            out _);
 
     internal static MetadataTypeDefinitionNameMatchResult MatchTarget(
         MetadataReader reader,
         EntityHandle target,
         MetadataTypeDefinitionName expected,
+        out string? failure) =>
+        MatchTarget(
+            reader,
+            target,
+            expected,
+            expectedAssembly: null,
+            out failure);
+
+    internal static MetadataTypeDefinitionNameMatchResult MatchTarget(
+        MetadataReader reader,
+        EntityHandle target,
+        MetadataTypeDefinitionName expected,
+        AssemblyReferenceIdentity? expectedAssembly,
         out string? failure)
     {
         ArgumentNullException.ThrowIfNull(reader);
@@ -552,6 +571,26 @@ internal static class MetadataHierarchyRelationAnalysis
                     _ => RejectUnsupported(out nameFailure),
                 };
             failure = nameFailure?.Detail;
+            if (result != MetadataTypeDefinitionNameMatchResult.Match
+                || expectedAssembly is null
+                || definition.Kind != HandleKind.TypeDefinition)
+            {
+                return result;
+            }
+            if (!TryReadTargetAssemblyIdentity(
+                    reader,
+                    definition,
+                    out AssemblyReferenceIdentity? targetAssembly,
+                    out failure))
+            {
+                return MetadataTypeDefinitionNameMatchResult.Rejected;
+            }
+            if (!AssemblyReferenceIdentity.EquivalentComparer.Equals(
+                    targetAssembly,
+                    expectedAssembly))
+            {
+                return MetadataTypeDefinitionNameMatchResult.NoMatch;
+            }
             return result;
         }
         catch (Exception exception)
@@ -569,6 +608,39 @@ internal static class MetadataHierarchyRelationAnalysis
         {
             nameFailure = null;
             return MetadataTypeDefinitionNameMatchResult.Rejected;
+        }
+    }
+
+    internal static bool TryReadTargetAssemblyIdentity(
+        MetadataReader reader,
+        EntityHandle definition,
+        out AssemblyReferenceIdentity? assembly,
+        out string? failure)
+    {
+        assembly = null;
+        failure = null;
+        try
+        {
+            if (definition.Kind != HandleKind.TypeDefinition)
+            {
+                failure =
+                    "The assembly-qualified hierarchy target is not a "
+                        + "TypeDef.";
+                return false;
+            }
+
+            assembly =
+                AssemblyReferenceIdentity.FromAssemblyDefinition(reader);
+            return true;
+        }
+        catch (Exception exception)
+            when (exception is BadImageFormatException
+                or ArgumentException
+                or InvalidOperationException
+                or OverflowException)
+        {
+            failure = exception.Message;
+            return false;
         }
     }
 }

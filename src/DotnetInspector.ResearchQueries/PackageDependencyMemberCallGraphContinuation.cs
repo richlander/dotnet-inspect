@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
+using DotnetInspector.PlatformHouse;
 using DotnetInspector.PlatformQueries;
 using DotnetInspector.Platforms;
 using DotnetInspector.Queries;
@@ -72,6 +73,24 @@ public abstract class
             PlatformFamilyTarget target,
             AssemblyReferenceResolutionWorkLedger work,
             CancellationToken cancellationToken);
+
+    public abstract ValueTask<PlatformTargetDiscoveryOutcome>
+        DiscoverIntrinsicCoreLibraryTargetAsync(
+            PlatformFamily family,
+            string targetFramework,
+            AssemblyReferenceResolutionWorkLedger work,
+            CancellationToken cancellationToken);
+
+    public abstract ValueTask<
+        PlatformPopulationArtifactMaterializationOutcome>
+        RealizeIntrinsicCoreLibraryPopulationAsync(
+            PlatformFamilyTarget target,
+            AssemblyReferenceResolutionWorkLedger work,
+            CancellationToken cancellationToken);
+
+    public abstract PlatformTypeCatalogDerivationBounds
+        IntrinsicCoreLibraryCatalogBounds
+    { get; }
 }
 
 public sealed class PackageDependencyMemberCallGraphContinuation :
@@ -136,6 +155,9 @@ public sealed class PackageDependencyMemberCallGraphContinuation :
             graphPreparation.GraphBindings.ToList();
         var attempted =
             new HashSet<AssemblyReferenceOccurrenceKey>();
+        bool intrinsicCoreLibraryAttempted = false;
+        PackageDependencyIntrinsicCoreLibraryContinuationEvidence?
+            intrinsicCoreLibraryContinuation = null;
         PackageDependencyMemberCallGraphGeneration? generation = null;
         var associations =
             new Dictionary<
@@ -154,6 +176,43 @@ public sealed class PackageDependencyMemberCallGraphContinuation :
             while (generation.Outcome
                 is PackageRoleMemberCallGraphOutcome.Available available)
             {
+                if (!intrinsicCoreLibraryAttempted
+                    && !available.IntrinsicCoreLibraryOccurrences.IsEmpty)
+                {
+                    intrinsicCoreLibraryAttempted = true;
+                    IntrinsicCoreLibraryContinuationResult intrinsic =
+                        await ContinueIntrinsicCoreLibraryAsync(
+                                coordinator,
+                                operation,
+                                generation,
+                                available.IntrinsicCoreLibraryOccurrences[0],
+                                request,
+                                lowerRequest,
+                                graphPreparation,
+                                additionalAssets,
+                                platformTargets,
+                                successorBindings,
+                                work,
+                                cancellationToken)
+                            .ConfigureAwait(false);
+                    intrinsicCoreLibraryContinuation = intrinsic.Evidence;
+                    if (intrinsic
+                        is IntrinsicCoreLibraryContinuationResult.Published
+                            intrinsicPublished)
+                    {
+                        PackageDependencyMemberCallGraphGeneration
+                            intrinsicPredecessor = generation;
+                        generation = intrinsicPublished.Generation;
+                        operation.Dispose();
+                        operation = intrinsicPublished.Operation;
+                        await intrinsicPredecessor.DisposeAsync()
+                            .ConfigureAwait(false);
+                        associations.Clear();
+                        continue;
+                    }
+                    break;
+                }
+
                 PackageAssemblyReferenceCallOccurrenceEvidence? occurrence =
                     available.AssemblyReferenceOccurrences.FirstOrDefault(
                         candidate => !attempted.Contains(Key(candidate)));
@@ -397,7 +456,8 @@ public sealed class PackageDependencyMemberCallGraphContinuation :
                         lowerRequest,
                         graphPreparation,
                         generation,
-                        cleanup);
+                        cleanup,
+                        intrinsicCoreLibraryContinuation);
             generation = null;
             return PackageDependencyMemberCallGraphInspection
                 .ProjectEnvelope(lowerOutcome);
@@ -409,6 +469,348 @@ public sealed class PackageDependencyMemberCallGraphContinuation :
             operation.Dispose();
         }
     }
+
+    async ValueTask<IntrinsicCoreLibraryContinuationResult>
+        ContinueIntrinsicCoreLibraryAsync(
+        WorkspaceReplacementCoordinator coordinator,
+        WorkspaceRealizationOperationLease predecessorOperation,
+        PackageDependencyMemberCallGraphGeneration predecessorGeneration,
+        PackageIntrinsicCoreLibraryCallOccurrenceEvidence occurrence,
+        PackageDependencyMemberCallGraphInspectionRequest request,
+        PackageDependencyMemberCallGraphRequest lowerRequest,
+        PackageDependencyMemberCallGraphPreparation graphPreparation,
+        List<PackageAssemblyContextAdditionalPackageAsset> additionalAssets,
+        List<PlatformFamilyTarget> platformTargets,
+        List<PackageRootBinding> successorBindings,
+        AssemblyReferenceResolutionWorkLedger work,
+        CancellationToken cancellationToken)
+    {
+        PackageDependencyIntrinsicCoreLibraryContextNonParticipationReceipt
+            context = predecessorGeneration
+                .CreateIntrinsicCoreLibraryContinuationEvidence(
+                    occurrence);
+        IntrinsicCoreLibraryPlatformApplicabilityPlanResult plan =
+            IntrinsicCoreLibraryPlatformApplicabilityQuery.Plan(
+                context,
+                predecessorGeneration.FocalScope,
+                PlatformFamily.DotNetRuntime);
+        if (plan
+            is IntrinsicCoreLibraryPlatformApplicabilityPlanResult
+                .OutsideOperationScope)
+        {
+            return new IntrinsicCoreLibraryContinuationResult.Terminal(
+                new(
+                    PackageDependencyIntrinsicCoreLibraryContinuationKind
+                        .OutsideOperationScope,
+                    null,
+                    "The call-graph focal scope does not admit the Runtime Platform population."));
+        }
+        if (plan
+            is IntrinsicCoreLibraryPlatformApplicabilityPlanResult
+                .Rejected planRejected)
+        {
+            return new IntrinsicCoreLibraryContinuationResult.Terminal(
+                new(
+                    PackageDependencyIntrinsicCoreLibraryContinuationKind
+                        .ApplicabilityRejected,
+                    null,
+                    planRejected.Reason.ToString()));
+        }
+
+        PlatformTargetDiscoveryOutcome discovery =
+            await _source.DiscoverIntrinsicCoreLibraryTargetAsync(
+                    PlatformFamily.DotNetRuntime,
+                    lowerRequest.Traversal.TraversalTargetPolicy
+                        .TargetFramework,
+                    work,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        if (discovery
+            is not PlatformTargetDiscoveryOutcome.Selected selected)
+        {
+            object evidence =
+                ((PlatformTargetDiscoveryOutcome.Incomplete)discovery)
+                    .Evidence;
+            return new IntrinsicCoreLibraryContinuationResult.Terminal(
+                new(
+                    PackageDependencyIntrinsicCoreLibraryContinuationKind
+                        .TargetUnavailable,
+                    null,
+                    evidence.ToString()
+                        ?? evidence.GetType().Name));
+        }
+
+        PlatformPopulationArtifactMaterializationOutcome platform =
+            await _source.RealizeIntrinsicCoreLibraryPopulationAsync(
+                    selected.Target,
+                    work,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        IntrinsicCoreLibraryRouteDecision decision =
+            IntrinsicCoreLibraryPlatformApplicabilityQuery.Execute(
+                ((IntrinsicCoreLibraryPlatformApplicabilityPlanResult
+                    .Eligible)plan).Plan,
+                platform,
+                _source.IntrinsicCoreLibraryCatalogBounds,
+                cancellationToken);
+        if (decision
+                is not IntrinsicCoreLibraryRouteDecision.Applicable
+                    applicable
+            || platform
+                is not PlatformPopulationArtifactMaterializationOutcome
+                    .Completed completed)
+        {
+            if (platform
+                is PlatformPopulationArtifactMaterializationOutcome
+                    .Completed retained)
+            {
+                _ = await PlatformPopulationAuthorityRetirement
+                    .RetireAsync(retained)
+                    .ConfigureAwait(false);
+            }
+            return new IntrinsicCoreLibraryContinuationResult.Terminal(
+                IntrinsicContinuationEvidence(
+                    decision,
+                    selected.Target));
+        }
+        PackageDependencyMemberCallGraphGeneration? provisional = null;
+        WorkspaceScopeSnapshot? successorScope = null;
+        WorkspaceRegistrationRevision? successorRegistrations = null;
+        ImmutableArray<PackageAssemblyContextPlatformLibrary>
+            retainedPlatformLibraries = [];
+        IntrinsicCoreLibraryWorkspaceContinuationOutcome continuation =
+            await IntrinsicCoreLibraryWorkspaceContinuationOperation
+                .ExecuteAsync(
+                    coordinator,
+                    predecessorOperation,
+                    applicable,
+                    completed,
+                    async (workspace, token) =>
+                    {
+                        WorkspaceRegistrationRevision registrations =
+                            Registration(workspace);
+                        ImmutableArray<PackageRootBinding> bindings =
+                            [.. successorBindings];
+                        WorkspaceScopeSnapshot scope =
+                            await AdmitPackagesAsync(
+                                    workspace,
+                                    registrations,
+                                    bindings,
+                                    request.WorkspaceDeadline,
+                                    token)
+                                .ConfigureAwait(false);
+                        var existingPlatforms =
+                            ImmutableArray.CreateBuilder<
+                                PackageAssemblyContextPlatformLibrary>();
+                        foreach (PlatformFamilyTarget target
+                            in platformTargets.Where(
+                                target => target != selected.Target))
+                        {
+                            existingPlatforms.AddRange(
+                                await _source
+                                    .AdmitPlatformPopulationAsync(
+                                        workspace,
+                                        registrations,
+                                        target,
+                                        work,
+                                        token)
+                                    .ConfigureAwait(false));
+                        }
+                        retainedPlatformLibraries =
+                            existingPlatforms.ToImmutable();
+                        successorScope = scope;
+                        successorRegistrations = registrations;
+                        provisional =
+                            await PackageDependencyMemberCallGraphOperation
+                                .ExecuteGenerationAsync(
+                                    workspace,
+                                    scope,
+                                    registrations,
+                                    bindings,
+                                    graphPreparation.Root,
+                                    lowerRequest.Focus,
+                                    lowerRequest.Graph,
+                                    lowerRequest.SupplyChainBaseline,
+                                    lowerRequest.RealizationOptions,
+                                    additionalAssets,
+                                    retainedPlatformLibraries,
+                                    token)
+                                .ConfigureAwait(false);
+                        PackageDependencyIntrinsicCoreLibraryContextNonParticipationReceipt
+                            successor = provisional
+                                .CreateIntrinsicCoreLibraryContinuationEvidence(
+                                    context);
+                        return new(
+                            successor,
+                            provisional.FocalScope);
+                    },
+                    _source.IntrinsicCoreLibraryCatalogBounds,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        if (continuation
+            is not IntrinsicCoreLibraryWorkspaceContinuationOutcome
+                .Published published)
+        {
+            if (provisional is not null)
+                await provisional.DisposeAsync().ConfigureAwait(false);
+            if (continuation
+                is IntrinsicCoreLibraryWorkspaceContinuationOutcome.Cancelled)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                throw new OperationCanceledException(cancellationToken);
+            }
+            return new IntrinsicCoreLibraryContinuationResult.Terminal(
+                WorkspaceContinuationEvidence(
+                    continuation,
+                    selected.Target));
+        }
+
+        WorkspaceRealizationOperationAdmission admission =
+            await coordinator.EnterOperationAsync(cancellationToken)
+                .ConfigureAwait(false);
+        if (admission
+                is not WorkspaceRealizationOperationAdmission.Admitted
+                    admitted
+            || !ReferenceEquals(
+                admitted.Lease.Realization,
+                published.Receipt.Successor.Identity))
+        {
+            if (admission
+                is WorkspaceRealizationOperationAdmission.Admitted invalid)
+            {
+                invalid.Lease.Dispose();
+            }
+            if (provisional is not null)
+                await provisional.DisposeAsync().ConfigureAwait(false);
+            throw new InvalidOperationException(
+                "The published intrinsic CoreLib successor could not issue its retained graph operation.");
+        }
+
+        WorkspaceRealizationOperationLease successorOperation =
+            admitted.Lease;
+        try
+        {
+            if (provisional is not null)
+            {
+                await provisional.DisposeAsync().ConfigureAwait(false);
+                provisional = null;
+            }
+            var platformLibraries =
+                retainedPlatformLibraries.ToBuilder();
+            platformLibraries.AddRange(
+                published.Receipt.PlatformAdmission.Occurrences.Select(
+                    library =>
+                        new PackageAssemblyContextPlatformLibrary(
+                            selected.Target,
+                            library,
+                            AssemblyReferenceIdentity.EquivalentComparer
+                                .Equals(
+                                    library.Library.ApiAssembly
+                                        .AssemblyIdentity!.Identity,
+                                    applicable.Receipt.Member.PlatformLibrary
+                                        .Library.ApiAssembly.AssemblyIdentity!
+                                        .Identity))));
+            PlatformFamilyTarget? previous = platformTargets.SingleOrDefault(
+                target => target.Family == selected.Target.Family);
+            if (previous is not null)
+                platformTargets.Remove(previous);
+            platformTargets.Add(selected.Target);
+
+            PackageDependencyMemberCallGraphGeneration generation =
+                await PackageDependencyMemberCallGraphOperation
+                    .ExecuteGenerationAsync(
+                        successorOperation.Workspace,
+                        successorScope
+                            ?? throw new InvalidOperationException(
+                                "The intrinsic CoreLib successor did not retain its Workspace Scope."),
+                        successorRegistrations
+                            ?? throw new InvalidOperationException(
+                                "The intrinsic CoreLib successor did not retain its registrations."),
+                        [.. successorBindings],
+                        graphPreparation.Root,
+                        lowerRequest.Focus,
+                        lowerRequest.Graph,
+                        lowerRequest.SupplyChainBaseline,
+                        lowerRequest.RealizationOptions,
+                        additionalAssets,
+                        platformLibraries.ToImmutable(),
+                        cancellationToken)
+                    .ConfigureAwait(false);
+            return new IntrinsicCoreLibraryContinuationResult.Published(
+                generation,
+                successorOperation,
+                new(
+                    PackageDependencyIntrinsicCoreLibraryContinuationKind
+                        .Published,
+                    selected.Target,
+                    null));
+        }
+        catch
+        {
+            successorOperation.Dispose();
+            throw;
+        }
+    }
+
+    static PackageDependencyIntrinsicCoreLibraryContinuationEvidence
+        IntrinsicContinuationEvidence(
+        IntrinsicCoreLibraryRouteDecision decision,
+        PlatformFamilyTarget target) =>
+        decision switch
+        {
+            IntrinsicCoreLibraryRouteDecision.OutsideOperationScope =>
+                new(
+                    PackageDependencyIntrinsicCoreLibraryContinuationKind
+                        .OutsideOperationScope,
+                    target,
+                    null),
+            IntrinsicCoreLibraryRouteDecision.Unavailable unavailable =>
+                new(
+                    PackageDependencyIntrinsicCoreLibraryContinuationKind
+                        .ApplicabilityUnavailable,
+                    target,
+                    unavailable.Reason.ToString()),
+            IntrinsicCoreLibraryRouteDecision.Rejected rejected =>
+                new(
+                    PackageDependencyIntrinsicCoreLibraryContinuationKind
+                        .ApplicabilityRejected,
+                    target,
+                    $"{rejected.Reason}; "
+                    + $"populationTarget={rejected.PopulationReceipt?.HouseReceipt.TargetSettlement.SettledTarget}; "
+                    + $"catalogTarget={rejected.Catalog?.Target}; "
+                    + $"catalogDerivation={rejected.CatalogDerivation?.Kind}"),
+            IntrinsicCoreLibraryRouteDecision.Incomplete incomplete =>
+                new(
+                    PackageDependencyIntrinsicCoreLibraryContinuationKind
+                        .ApplicabilityIncomplete,
+                    target,
+                    incomplete.Evidence.GetType().Name),
+            _ => throw new InvalidOperationException(
+                "Unknown terminal intrinsic CoreLib applicability decision."),
+        };
+
+    static PackageDependencyIntrinsicCoreLibraryContinuationEvidence
+        WorkspaceContinuationEvidence(
+        IntrinsicCoreLibraryWorkspaceContinuationOutcome continuation,
+        PlatformFamilyTarget target) =>
+        continuation switch
+        {
+            IntrinsicCoreLibraryWorkspaceContinuationOutcome.Rejected
+                rejected =>
+                new(
+                    PackageDependencyIntrinsicCoreLibraryContinuationKind
+                        .WorkspaceRejected,
+                    target,
+                    rejected.Reason.ToString()),
+            IntrinsicCoreLibraryWorkspaceContinuationOutcome.Failed failed =>
+                new(
+                    PackageDependencyIntrinsicCoreLibraryContinuationKind
+                        .WorkspaceFailed,
+                    target,
+                    failed.Failure.Message),
+            _ => throw new InvalidOperationException(
+                "Unknown terminal intrinsic CoreLib Workspace continuation outcome."),
+        };
 
     static AssemblyReferenceResolutionRequest
         CreateResolutionRequest(
@@ -1129,6 +1531,20 @@ public sealed class PackageDependencyMemberCallGraphContinuation :
             occurrence.CallSite.OperandToken,
             occurrence.Request.Target,
             occurrence.Request.Scope);
+
+    abstract record IntrinsicCoreLibraryContinuationResult(
+        PackageDependencyIntrinsicCoreLibraryContinuationEvidence Evidence)
+    {
+        internal sealed record Terminal(
+            PackageDependencyIntrinsicCoreLibraryContinuationEvidence Evidence)
+            : IntrinsicCoreLibraryContinuationResult(Evidence);
+
+        internal sealed record Published(
+            PackageDependencyMemberCallGraphGeneration Generation,
+            WorkspaceRealizationOperationLease Operation,
+            PackageDependencyIntrinsicCoreLibraryContinuationEvidence Evidence)
+            : IntrinsicCoreLibraryContinuationResult(Evidence);
+    }
 
     abstract record InitialRealizationOutcome
     {

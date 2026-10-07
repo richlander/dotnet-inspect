@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 
+using DotnetInspector.LibraryMetadata;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.PlatformHouse;
@@ -11,6 +12,27 @@ using DotnetInspector.Sections;
 using ILInspector.Metadata;
 
 namespace DotnetInspector.ResearchQueries;
+
+public abstract class PlatformTargetDiscoveryOutcome
+{
+    private protected PlatformTargetDiscoveryOutcome()
+    {
+    }
+
+    public sealed class Selected(
+        PlatformFamilyTarget target) :
+        PlatformTargetDiscoveryOutcome
+    {
+        public PlatformFamilyTarget Target { get; } = target;
+    }
+
+    public sealed class Incomplete(object evidence) :
+        PlatformTargetDiscoveryOutcome
+    {
+        public object Evidence { get; } = evidence
+            ?? throw new ArgumentNullException(nameof(evidence));
+    }
+}
 
 /// <summary>
 /// Owns the host-neutral Platform continuation lifecycle while hosts supply
@@ -24,6 +46,17 @@ public abstract class PackageDependencyMemberCallGraphPlatformContinuationSource
     readonly string _operationPrefix;
     readonly Dictionary<PlatformFamily, PlatformFamilyTarget>
         _selectedTargets = [];
+    static readonly PlatformTypeCatalogDerivationBounds
+        CoreLibraryCatalogBounds = new(
+            new LibraryTypeDeclarationInventoryInspectionBounds(
+                maximumAssemblyBytes: 512 * 1024 * 1024,
+                maximumRetainedDeclarations: 500_000,
+                maximumMetadataRows: int.MaxValue,
+                maximumRetainedTextCharacters: int.MaxValue),
+            maximumAssemblies: 512,
+            maximumAggregateAssemblyBytes: 2L * 1024 * 1024 * 1024,
+            maximumRetainedEntries: 1_500_000,
+            maximumDuration: TimeSpan.FromMinutes(2));
 
     protected PackageDependencyMemberCallGraphPlatformContinuationSource(
         PackageDependencyMemberCallGraphInspectionSource packages,
@@ -213,7 +246,7 @@ public abstract class PackageDependencyMemberCallGraphPlatformContinuationSource
             .ExecuteAsync(
                 packageRoute,
                 referencingContextSelection,
-                _packages.House,
+                _packages.SemanticContentHouse,
                 packageOperation,
                 async (_, token) =>
                     await PlatformAssemblyReferenceRouteAdapter
@@ -297,6 +330,47 @@ public abstract class PackageDependencyMemberCallGraphPlatformContinuationSource
         }
     }
 
+    public sealed override async ValueTask<PlatformTargetDiscoveryOutcome>
+        DiscoverIntrinsicCoreLibraryTargetAsync(
+            PlatformFamily family,
+            string targetFramework,
+            AssemblyReferenceResolutionWorkLedger work,
+            CancellationToken cancellationToken)
+    {
+        if (_selectedTargets.TryGetValue(
+                family,
+                out PlatformFamilyTarget? selected))
+        {
+            return new PlatformTargetDiscoveryOutcome.Selected(selected);
+        }
+
+        PlatformTargetDiscoveryOutcome discovery =
+            await DiscoverTargetAsync(
+                    family,
+                    targetFramework,
+                    work,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        if (discovery is PlatformTargetDiscoveryOutcome.Selected discovered)
+            _selectedTargets[family] = discovered.Target;
+        return discovery;
+    }
+
+    public sealed override ValueTask<
+        PlatformPopulationArtifactMaterializationOutcome>
+        RealizeIntrinsicCoreLibraryPopulationAsync(
+            PlatformFamilyTarget target,
+            AssemblyReferenceResolutionWorkLedger work,
+            CancellationToken cancellationToken) =>
+        RealizeImplementationPopulationAsync(
+            target,
+            work,
+            cancellationToken);
+
+    public sealed override PlatformTypeCatalogDerivationBounds
+        IntrinsicCoreLibraryCatalogBounds =>
+        CoreLibraryCatalogBounds;
+
     protected string OperationName(
         PlatformFamily family,
         string operation) =>
@@ -365,9 +439,10 @@ public abstract class PackageDependencyMemberCallGraphPlatformContinuationSource
             PlatformTargetSelectionPolicyGeneration.Create(
                 "generation-1"),
             PlatformVersion.Parse(
-                $"{fallbackFramework.Major}.{fallbackFramework.Minor}.0"),
+                $"{fallbackFramework.Major}.{fallbackFramework.Minor}.0-0"),
             preferredStage,
-            fallbackStage);
+            fallbackStage,
+            allowPrereleaseMinimum: true);
         return true;
     }
 
@@ -449,27 +524,6 @@ public abstract class PackageDependencyMemberCallGraphPlatformContinuationSource
             PlatformFamily.AspNetCore => "aspnetcore",
             _ => throw new ArgumentOutOfRangeException(nameof(family)),
         };
-
-    protected abstract class PlatformTargetDiscoveryOutcome
-    {
-        private protected PlatformTargetDiscoveryOutcome()
-        {
-        }
-
-        public sealed class Selected(
-            PlatformFamilyTarget target) :
-            PlatformTargetDiscoveryOutcome
-        {
-            public PlatformFamilyTarget Target { get; } = target;
-        }
-
-        public sealed class Incomplete(object evidence) :
-            PlatformTargetDiscoveryOutcome
-        {
-            public object Evidence { get; } = evidence
-                ?? throw new ArgumentNullException(nameof(evidence));
-        }
-    }
 
     protected sealed record UnsupportedPlatformTargetFrameworkEvidence(
         PlatformFamily Family,

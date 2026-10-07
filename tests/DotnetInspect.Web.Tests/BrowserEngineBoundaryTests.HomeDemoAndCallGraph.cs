@@ -1077,24 +1077,32 @@ public sealed partial class BrowserEngineBoundaryTests
                     scope,
                     registrations),
                 [],
+                IntrinsicCoreLibraryContinuation: null,
+                NodeClassifications:
                 [
-                    new PackageDependencyMemberCallGraphPackageSubject(
+                    new DotnetInspector.Sections
+                        .PackageDependencyMemberCallGraphNodeClassification
+                        .Package(
                         connectorNodeId,
                         "Microsoft.Extensions.Options",
                         "11.0.0",
                         "net8.0"),
-                    new PackageDependencyMemberCallGraphPackageSubject(
+                    new DotnetInspector.Sections
+                        .PackageDependencyMemberCallGraphNodeClassification
+                        .Package(
                         boundaryNodeId,
                         PackageId: "OpenTelemetry.Api",
                         PackageVersion: "1.2.3",
                         TargetFramework: "net8.0"),
-                    new PackageDependencyMemberCallGraphPackageSubject(
+                    new DotnetInspector.Sections
+                        .PackageDependencyMemberCallGraphNodeClassification
+                        .Package(
                         disconnectedConnectorNodeId,
                         "Microsoft.Extensions.Options",
                         "11.0.0",
                         "net8.0"),
                 ],
-                graph);
+                Graph: graph);
 
         BrowserCallGraphInfo projected =
             BrowserCallGraphProjection.Project(document);

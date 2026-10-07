@@ -155,11 +155,37 @@ internal sealed class
             PlatformTargetSelectionOutcome.Selected selected =>
                 new PlatformTargetDiscoveryOutcome.Selected(selected.Target),
             PlatformTargetSelectionOutcome.Terminal terminal =>
-                new PlatformTargetDiscoveryOutcome.Incomplete(terminal),
+                new PlatformTargetDiscoveryOutcome.Incomplete(
+                    DescribeTargetSelectionFailure(terminal)),
             _ => throw new InvalidOperationException(
                 "Unknown Platform target-selection outcome."),
         };
     }
+
+    static string DescribeTargetSelectionFailure(
+        PlatformTargetSelectionOutcome.Terminal terminal) =>
+        $"settlement={terminal.Receipt.SettlementKind}; "
+        + $"termination={terminal.Receipt.Termination?.Kind}; "
+        + $"sources={string.Join(
+            ", ",
+            terminal.Receipt.SourceSettlements.Select(
+                settlement =>
+                    $"{settlement.Contribution.Capability}:"
+                    + $"{settlement.Contribution.Kind}:"
+                    + $"{(settlement.Contribution
+                            is PlatformSourceContribution.Unavailable
+                                unavailable
+                        ? unavailable.Reason
+                        : "-")}:"
+                    + $"{settlement.Disposition}:"
+                    + $"{(settlement.Contribution
+                            is PlatformSourceContribution.TargetDiscovery
+                                discovery
+                        ? string.Join(
+                            "|",
+                            discovery.Candidates.Select(
+                                candidate => candidate))
+                        : "-")}"))}";
 
     public ValueTask DisposeAsync() =>
         _packageRuntime.DisposeAsync();
@@ -261,7 +287,8 @@ internal sealed class
                         family.PlatformRequest,
                         packageWork,
                         _packageRuntime.IssueOperation(
-                            family.PlatformRequest.CancellationToken))
+                            family.PlatformRequest,
+                            packageWork))
                     .ConfigureAwait(false);
         attempts.Add(
             packageResult switch
@@ -420,7 +447,9 @@ internal sealed class
                         request,
                         packageWork,
                         RuntimeInformation.RuntimeIdentifier,
-                        _packageRuntime.IssueOperation(cancellationToken))
+                        _packageRuntime.IssueOperation(
+                            request,
+                            packageWork))
                     .ConfigureAwait(false);
         if (package
             is not PackagePlatformHouseResult<

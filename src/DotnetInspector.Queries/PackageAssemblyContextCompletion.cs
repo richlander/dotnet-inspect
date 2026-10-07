@@ -95,7 +95,8 @@ public sealed record PackageAssemblyContextAdditionalPackageAsset(
 /// </summary>
 public sealed record PackageAssemblyContextPlatformLibrary(
     PlatformFamilyTarget Target,
-    WorkspaceLibraryOccurrence Library);
+    WorkspaceLibraryOccurrence Library,
+    bool DefinesCoreLibraryRoot = false);
 
 /// <summary>
 /// One Platform implementation participant in a mixed package/Platform role.
@@ -1275,11 +1276,39 @@ public sealed partial class InspectionWorkspace
                             preparation.Options,
                             yieldAsync)
                         .ConfigureAwait(false);
+            ImmutableArray<RoleAssembly> implementationBindingSupport =
+                platformLibraries.Any(
+                    static platform =>
+                        platform.DefinesCoreLibraryRoot)
+                    ? SelectSurfaceBindingSupport(
+                        surfaceRole,
+                        implementationRole)
+                    : [];
+            ImmutableArray<RoleAssembly> implementationContextRole =
+            [
+                .. implementationRole,
+                .. implementationBindingSupport,
+            ];
+            ImmutableArray<PackageAssemblyContextPlatformLibrary>
+                selectedPlatformLibraries =
+                    SelectNonCollidingPlatformLibraries(
+                        implementationContextRole,
+                        platformLibraries);
             (
                 ImmutableArray<ResolvedAssemblyReference>
                     platformAssemblies,
                 platformOperations) =
-                    CreatePlatformAssemblies(platformLibraries);
+                    CreatePlatformAssemblies(selectedPlatformLibraries);
+            ResolvedAssemblyReference? coreLibrary =
+                selectedPlatformLibraries
+                    .Select(
+                        (platform, index) =>
+                            (platform, assembly:
+                                platformAssemblies[index]))
+                    .Where(static item =>
+                        item.platform.DefinesCoreLibraryRoot)
+                    .Select(static item => item.assembly)
+                    .SingleOrDefault();
             ImmutableArray<PackageAssemblyRoleCorrespondence>
                 correspondences =
                     Correspondences(
@@ -1293,11 +1322,12 @@ public sealed partial class InspectionWorkspace
                 this,
                 surfaceRole.Select(entry => entry.Assembly),
                 [
-                    .. implementationRole.Select(
+                    .. implementationContextRole.Select(
                         entry => entry.Assembly),
                     .. platformAssemblies,
                 ],
                 correspondences,
+                coreLibrary,
                 preparation.Shared && platformLibraries.IsEmpty,
                 roleOptions,
                 roleOptions,
@@ -1308,13 +1338,13 @@ public sealed partial class InspectionWorkspace
             ImmutableArray<PackageAssemblyContextPlatformParticipant>
                 platformParticipants =
             [
-                .. platformLibraries.Select(
+                .. selectedPlatformLibraries.Select(
                     (platform, index) =>
                         new PackageAssemblyContextPlatformParticipant(
                             platform.Target,
                             platform.Library,
                             roles.ImplementationParticipants[
-                                implementationRole.Length + index])),
+                                implementationContextRole.Length + index])),
             ];
             var completion = new PackageAssemblyContextCompletion(
                 lifetime,
@@ -1448,6 +1478,45 @@ public sealed partial class InspectionWorkspace
         return (
             assemblies.MoveToImmutable(),
             operations.MoveToImmutable());
+    }
+
+    private static ImmutableArray<PackageAssemblyContextPlatformLibrary>
+        SelectNonCollidingPlatformLibraries(
+        ImmutableArray<RoleAssembly> packageRole,
+        ImmutableArray<PackageAssemblyContextPlatformLibrary>
+            platformLibraries)
+    {
+        var packageIdentities = new HashSet<AssemblyReferenceIdentity>(
+            packageRole.Select(
+                static entry => entry.Assembly.Identity),
+            AssemblyReferenceIdentity.EquivalentComparer);
+        return
+        [
+            .. platformLibraries.Where(
+                platform =>
+                    platform.Library.Library.ApiAssembly.AssemblyIdentity
+                        is { } identity
+                    && !packageIdentities.Contains(identity.Identity)),
+        ];
+    }
+
+    private static ImmutableArray<RoleAssembly>
+        SelectSurfaceBindingSupport(
+        ImmutableArray<RoleAssembly> surfaceRole,
+        ImmutableArray<RoleAssembly> implementationRole)
+    {
+        var implementationIdentities =
+            new HashSet<AssemblyReferenceIdentity>(
+                implementationRole.Select(
+                    static entry => entry.Assembly.Identity),
+                AssemblyReferenceIdentity.EquivalentComparer);
+        return
+        [
+            .. surfaceRole.Where(
+                entry =>
+                    !implementationIdentities.Contains(
+                        entry.Assembly.Identity)),
+        ];
     }
 
     static async Task<Exception?> ReleaseProvisionalRolesAsync(

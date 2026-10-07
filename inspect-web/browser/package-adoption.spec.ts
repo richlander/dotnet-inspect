@@ -1974,15 +1974,8 @@ test.describe("Package Activity website over real Wasm", () => {
     await page.goto("/");
     const homeSearch = page.locator("#spotlight-input");
     await expect(homeSearch).toBeVisible({ timeout: 120_000 });
+    await page.locator('[data-sl-scope="commands"]').click();
     await homeSearch.fill("activity");
-    // Package-search completion replaces the result list, so settle it before clicking
-    // the built-in Activity route.
-    const packageSearchHint = page.getByText(
-      "Searching nuget.org…",
-      { exact: true },
-    );
-    await expect(packageSearchHint).toBeVisible();
-    await expect(packageSearchHint).toHaveCount(0);
     await page.locator('[data-sl-package-activity="1"]').click();
     await expect(page).toHaveURL(/\/activity$/);
     await page.goBack();
@@ -4452,4 +4445,52 @@ test("publication dates remain visible in Package Overview and in-app Spotlight"
     expect(layout.right).toBeLessThanOrEqual(layout.rowRight);
   }
   await expect(page.locator('[data-sl-scope="libraries"]')).toBeVisible();
+});
+
+
+test("Spotlight finds literal package prefixes inline and keeps Activity in Commands", async ({ page, context }, testInfo) => {
+  test.setTimeout(240_000);
+  const searches: URL[] = [];
+  const archives: string[] = [];
+  context.on("request", request => {
+    if (/\.(nupkg|nuspec)(?:\?|$)/.test(request.url())) archives.push(request.url());
+  });
+  await context.route("https://azuresearch-usnc.nuget.org/**", async route => {
+    const url = new URL(route.request().url());
+    searches.push(url);
+    const data = url.searchParams.get("skip") === "0"
+      ? [{ id: "Newtonsoft.Json", version: "13.0.3", description: "JSON parser", owners: ["JamesNK"], totalDownloads: 100, verified: true },
+         { id: "Unrelated.Json", version: "1.0.0", description: "Newtonsoft compatible", owners: ["Fixture"], totalDownloads: 10, verified: false }]
+      : [];
+    await route.fulfill({ contentType: "application/json", headers: corsHeaders, body: JSON.stringify({ totalHits: 2, data }) });
+  });
+  await page.goto("/");
+  const input = page.locator("#spotlight-input");
+  await expect(input).toBeEditable({ timeout: 120_000 });
+  await input.fill("Newtonsoft.*");
+  await expect(page.locator('[data-sl-pkg-load="Newtonsoft.Json"]')).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator('[data-sl-pkg-load="Unrelated.Json"]')).toHaveCount(0);
+  await expect(page.locator('[data-sl-type], [data-sl-member], [data-sl-framework-lib], [data-sl-capability], [data-sl-package-query], [data-sl-package-activity]')).toHaveCount(0);
+  await expect(page.getByText("Package prefix search · up to 8 matches", { exact: true })).toBeVisible();
+  expect(page.url()).not.toContain("/query");
+  expect(searches.length).toBeGreaterThan(0);
+  expect(archives).toEqual([]);
+  await page.screenshot({ path: testInfo.outputPath("inline-package-prefix.png") });
+  await page.locator('[data-sl-scope="packages"]').click();
+  await expect(page.locator('[data-sl-pkg-load="Newtonsoft.Json"]')).toBeVisible();
+  const beforeInvalid = searches.length;
+  await input.fill("Newtonsoft.**");
+  await expect(page.locator(".spotlight-hint")).toContainText("Package search failed");
+  expect(searches).toHaveLength(beforeInvalid);
+  await page.locator('[data-sl-scope="commands"]').click();
+  await input.fill("activity");
+  const activity = page.locator('[data-sl-package-activity="1"]');
+  await expect(activity).toBeVisible();
+  await activity.click();
+  await expect(page).toHaveURL(/\/activity$/);
+  await expect(page.locator("#package-changes-ecosystem")).toBeFocused();
+  await page.goBack();
+  await expect(page).toHaveURL(/\/$/);
+  await expect(page.locator("#spotlight-input")).toBeFocused();
+  expect(archives).toEqual([]);
 });

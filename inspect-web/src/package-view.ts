@@ -15,6 +15,14 @@ export interface PackagePerformanceTarget {
   typeId: string;
 }
 
+export interface RelatedTypeNavigationTarget {
+  typeId: string;
+  packageId?: string;
+  version?: string;
+  framework?: string;
+  asset?: string;
+}
+
 export interface PackageViewBindingActions
   extends PackageDependencyBindingActions {
   onPackageChildLibrarySelect: (assetId: string) => void;
@@ -27,7 +35,7 @@ export interface PackageViewBindingActions
     packageVersion: string,
   ) => void;
   onDependencyGroupSelect: (index: number) => void;
-  onGraphTypeSelect: (typeId: string) => void;
+  onGraphTypeSelect: (target: RelatedTypeNavigationTarget) => void;
   onKindJump: (kind: string) => void;
   onLibraryScopeSelect: (
     library: string | undefined,
@@ -146,7 +154,21 @@ export function bindPackageView(
   root.querySelectorAll<HTMLElement>("[data-graph-type]").forEach(button =>
     button.addEventListener(
       "click",
-      () => actions.onGraphTypeSelect(button.dataset.graphType ?? "")));
+      () => actions.onGraphTypeSelect({
+        typeId: button.dataset.graphType ?? "",
+        ...(button.dataset.graphPackage
+          ? { packageId: button.dataset.graphPackage }
+          : {}),
+        ...(button.dataset.graphVersion
+          ? { version: button.dataset.graphVersion }
+          : {}),
+        ...(button.dataset.graphFramework
+          ? { framework: button.dataset.graphFramework }
+          : {}),
+        ...(button.dataset.graphAsset
+          ? { asset: button.dataset.graphAsset }
+          : {}),
+      })));
   root.querySelectorAll<HTMLElement>("[data-perf-selector]").forEach(button =>
     button.addEventListener("click", () => actions.onPerformanceMemberSelect({
       stableSelector: button.dataset.perfSelector ?? "",

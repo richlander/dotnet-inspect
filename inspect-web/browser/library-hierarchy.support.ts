@@ -32,10 +32,33 @@ async function openProductDestination(
   page: Page,
   destination:
     "home" | "query" | "workspace" | "ecosystems" | "activity" | "demos",
+  options: { waitForCommit?: boolean } = {},
 ): Promise<void> {
-  await page.locator("[data-product-navigation-button]").click();
-  await page.locator(
-    `[data-product-destination="${destination}"]`).click();
+  const button = page.locator("[data-product-navigation-button]");
+  const item = page.locator(`[data-product-destination="${destination}"]`);
+  const activate = async () => {
+    if (!await item.isVisible()) await button.click();
+    await expect(item).toBeVisible({ timeout: 1_000 });
+    await expect(item).not.toHaveAttribute("aria-disabled", "true", {
+      timeout: 1_000,
+    });
+    await item.evaluate(element => {
+      if (!(element instanceof HTMLElement))
+        throw new Error("Product destination is not interactive.");
+      element.focus();
+      element.click();
+    });
+  };
+  if (!options.waitForCommit) {
+    await expect(activate).toPass({ timeout: 15_000 });
+    return;
+  }
+  await expect(async () => {
+    await activate();
+    await expect(item).toHaveAttribute("aria-current", "page", {
+      timeout: 1_000,
+    });
+  }).toPass({ timeout: 15_000 });
 }
 
 function inspectorTab(page: Page, attribute: string, inspector: string) {
@@ -54,19 +77,26 @@ async function chooseInspector(
   const trigger = page.locator("[data-navigation-trigger='inspector']");
   await expect.poll(async () =>
     await tab.isVisible() || await trigger.isVisible()).toBe(true);
-  if (await tab.isVisible()) {
-    await tab.click();
-    return;
-  }
-
-  await trigger.click();
-  await page.locator("#inspector-navigation-menu")
-    .locator(`[${attribute}="${inspector}"]`)
-    .click();
+  await expect(async () => {
+    if (await tab.isVisible()) {
+      await tab.click();
+    } else {
+      const item = page.locator("#inspector-navigation-menu")
+        .locator(`[${attribute}="${inspector}"]`);
+      if (!await item.isVisible()) await trigger.click();
+      await item.evaluate(element => {
+        if (!(element instanceof HTMLElement))
+          throw new Error("Inspector choice is not interactive.");
+        element.focus();
+        element.click();
+      });
+    }
+    await expect(tab).toHaveAttribute("aria-selected", "true", {
+      timeout: 1_000,
+    });
+  }).toPass({ timeout: 15_000 });
   if (await trigger.isVisible()) {
     await expect(trigger).toHaveAccessibleName(label);
-  } else {
-    await expect(tab).toHaveAttribute("aria-selected", "true");
   }
 }
 
@@ -75,16 +105,45 @@ async function chooseSubject(page: Page, subject: string, label: string) {
   const trigger = page.locator("[data-navigation-trigger='subject']");
   await expect.poll(async () =>
     await tab.isVisible() || await trigger.isVisible()).toBe(true);
-  if (await tab.isVisible()) {
-    await tab.click();
-  } else {
-    await trigger.click();
-    await page.locator("#subject-navigation-menu")
-      .locator(`[data-scope="${subject}"]`)
-      .click();
-  }
-  await expect(tab).toHaveAttribute("aria-selected", "true");
+  await expect(async () => {
+    if (await tab.isVisible()) {
+      await tab.click();
+    } else {
+      const item = page.locator("#subject-navigation-menu")
+        .locator(`[data-scope="${subject}"]`);
+      if (!await item.isVisible()) await trigger.click();
+      await item.evaluate(element => {
+        if (!(element instanceof HTMLElement))
+          throw new Error("Subject choice is not interactive.");
+        element.focus();
+        element.click();
+      });
+    }
+    await expect(tab).toHaveAttribute("aria-selected", "true", {
+      timeout: 1_000,
+    });
+  }).toPass({ timeout: 15_000 });
   await expectCurrentSubjectVisible(page, subject, label);
+}
+
+async function openApplicationAction(
+  page: Page,
+  action: "settings" | "keyboard-help",
+): Promise<void> {
+  const button = page.locator("#application-menu-button");
+  const item = page.locator(`[data-application-action="${action}"]`);
+  const outcome = page.locator(
+    action === "settings" ? "#settings-dialog" : "#keyboard-help-dialog");
+  await expect(async () => {
+    if (!await item.isVisible()) await button.click();
+    await item.evaluate(element => {
+      if (!(element instanceof HTMLElement))
+        throw new Error("Application action is not interactive.");
+      element.focus();
+      element.click();
+    });
+    await expect(outcome).toBeVisible({ timeout: 1_000 });
+  }).toPass({ timeout: 15_000 });
 }
 
 async function selectLibrary(page: Page, libraryId: string) {
@@ -3975,6 +4034,7 @@ async function installLibraryUploadFacades(
 
 export {
   openProductDestination,
+  openApplicationAction,
   subjectTab,
   inspectorTab,
   chooseInspector,

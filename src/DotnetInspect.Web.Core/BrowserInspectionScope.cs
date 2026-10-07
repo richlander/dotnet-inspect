@@ -4,7 +4,9 @@ using System.Runtime.Versioning;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
+using DotnetInspector.SourceSelection;
 using ILInspector.Metadata;
+using NuGetFetch;
 
 namespace DotnetInspect.Web;
 
@@ -67,6 +69,7 @@ internal sealed class BrowserInspectionScope : IAsyncDisposable
     readonly PackageAssemblyContextRealization _realization;
     readonly BrowserWorkspaceRole? _surface;
     readonly BrowserWorkspaceRole? _implementation;
+    readonly WorkspaceDeclarationContext? _surfaceDeclarationContext;
 
     BrowserInspectionScope(
         ImmutableArray<BrowserPackageCoordinate> coordinates,
@@ -92,19 +95,27 @@ internal sealed class BrowserInspectionScope : IAsyncDisposable
                     realization.ImplementationGroup,
                     realization.ImplementationParticipants,
                     coordinates);
+        _surfaceDeclarationContext =
+            _surface is null
+            || !artifactBacked
+            || _surface.Participants.Any(participant =>
+                participant.Assembly.Identity.Version is null)
+            ? null
+            : _surface.Use(group => AdmitSurfaceDeclarationContext(
+                workspace,
+                group,
+                _surface.Participants));
     }
 
     /// <summary>
     /// Opens one browser workspace over an exact coordinate set.
     /// </summary>
     /// <remarks>
-    /// One acquisition-bound coordinate is realized through the shared
-    /// artifact-backed path, which retains its selected assets in one artifact
+    /// Acquisition-bound coordinates are realized through the shared
+    /// artifact-backed path, which retains all selected assets in one artifact
     /// generation whose session the product workspace owns until
-    /// <see cref="DisposeAsync"/> closes it. A composite workspace over several
-    /// coordinates still uses the synchronous binding-consistent realization,
-    /// which is the only shape that composes several package Roots into one
-    /// group.
+    /// <see cref="DisposeAsync"/> closes it. Legacy coordinates without
+    /// acquisition bindings retain the synchronous realization fallback.
     /// <c>BrowserWorkspace_SingleCoordinateScopeIsArtifactBacked</c> and
     /// <c>BrowserWorkspace_CompositeScopeKeepsBindingConsistentRoles</c> gate
     /// that split.
@@ -124,10 +135,10 @@ internal sealed class BrowserInspectionScope : IAsyncDisposable
         }
 
         ImmutableArray<BrowserPackageCoordinate> exact = [.. coordinates];
-        return exact is [{ Binding: { } binding }]
+        return exact.All(static coordinate => coordinate.Binding is not null)
             ? await CreateArtifactBackedAsync(
                     exact,
-                    binding,
+                    [.. exact.Select(static coordinate => coordinate.Binding!)],
                     cancellationToken)
                 .ConfigureAwait(false)
             : await CreateCompositeAsync(exact).ConfigureAwait(false);
@@ -135,7 +146,7 @@ internal sealed class BrowserInspectionScope : IAsyncDisposable
 
     static async ValueTask<BrowserInspectionScope> CreateArtifactBackedAsync(
         ImmutableArray<BrowserPackageCoordinate> coordinates,
-        PackageRootBinding binding,
+        IReadOnlyList<PackageRootBinding> bindings,
         CancellationToken cancellationToken)
     {
         InspectionWorkspace workspace = new();
@@ -144,7 +155,7 @@ internal sealed class BrowserInspectionScope : IAsyncDisposable
         {
             realization =
                 await workspace.RealizePackageAssemblyContextRolesAsync(
-                        binding,
+                        bindings,
                         RealizationPolicy,
                         cancellationToken)
                     .ConfigureAwait(false);
@@ -239,6 +250,9 @@ internal sealed class BrowserInspectionScope : IAsyncDisposable
     /// generation whose session the product workspace releases on close.
     /// </summary>
     public bool ArtifactBacked { get; }
+
+    internal bool HasSurfaceDeclarationContext =>
+        _surfaceDeclarationContext is not null;
 
     public ImmutableArray<BrowserPackageCoordinate> Coordinates { get; }
 
@@ -359,6 +373,31 @@ internal sealed class BrowserInspectionScope : IAsyncDisposable
     public TResult UseSurface<TResult>(Func<AssemblyContextGroup, TResult> query) =>
         Surface.Use(query);
 
+    internal TResult UseSurfaceDeclarationContext<TResult>(
+        Func<
+            InspectionWorkspace,
+            WorkspaceDeclarationContext,
+            TResult> operation)
+    {
+        ArgumentNullException.ThrowIfNull(operation);
+        if (_surfaceDeclarationContext is null)
+        {
+            throw new InvalidOperationException(
+                "The inspection scope has no retained surface declaration context.");
+        }
+
+        return operation(_workspace, _surfaceDeclarationContext);
+    }
+
+    internal BrowserWorkspaceParticipant? FindParticipant(
+        AssemblyAcquisitionRegistration registration)
+    {
+        ArgumentNullException.ThrowIfNull(registration);
+        return SurfaceParticipants.FirstOrDefault(candidate => ReferenceEquals(
+            candidate.Participant.Assembly.Registration,
+            registration));
+    }
+
     /// <summary>
     /// Hands one compile-asset participant to a participant-scoped product query.
     /// </summary>
@@ -468,6 +507,61 @@ internal sealed class BrowserInspectionScope : IAsyncDisposable
         BrowserPackageCoordinate coordinate,
         PackageCompileAsset asset)
         => Implementation.FindParticipant(coordinate, asset);
+
+    static WorkspaceDeclarationContext AdmitSurfaceDeclarationContext(
+        InspectionWorkspace workspace,
+        AssemblyContextGroup group,
+        IReadOnlyList<BrowserWorkspaceParticipant> participants)
+    {
+        WorkspaceAssemblyDeclarationContextMember[] members =
+        [
+            .. participants.Select(static participant =>
+            {
+                BrowserPackageCoordinate coordinate = participant.Coordinate;
+                return new WorkspaceAssemblyDeclarationContextMember(
+                    participant.Participant,
+                    new ExactLibrarySourceCoordinate.Package(
+                        PackageSourceCoordinate.Create(
+                            coordinate.PackageId,
+                            coordinate.Version),
+                        new ManagedMetadataIdentity.Assembly(
+                            participant.Assembly.Identity)),
+                    WorkspaceMemberCoordinate.Package(
+                        coordinate.PackageId,
+                        coordinate.Version,
+                        coordinate.Framework,
+                        runtimeIdentifier: null),
+                    coordinate.RealizedCoordinate,
+                    new FindPackageSourceRequest(
+                        coordinate.Framework,
+                        requestedRuntimeIdentifier: null));
+            }),
+        ];
+        WorkspaceContextInput input = new()
+        {
+            Members = [.. members.Select(static member => member.Declared)],
+        };
+
+        return WorkspaceAssemblyDeclarationContextAdmission.Admit(
+                workspace,
+                group,
+                input,
+                members)
+            switch
+            {
+                WorkspaceAssemblyDeclarationContextAdmissionOutcome.Admitted
+                    admitted =>
+                    admitted.Context,
+                WorkspaceAssemblyDeclarationContextAdmissionOutcome.Rejected
+                    rejected =>
+                    throw new InvalidOperationException(
+                        "The retained Browser surface could not be admitted: "
+                            + rejected.Reason),
+                _ => throw new InvalidOperationException(
+                    "The retained Browser surface returned an unknown "
+                        + "admission result."),
+            };
+    }
 
     /// <summary>
     /// Resolves one exact package library through the implementation-preferred metadata role.

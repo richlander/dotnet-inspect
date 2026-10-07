@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import {
   surface,
   installFacades,
+  openApplicationAction,
   releaseFacade,
   root,
   openProductDestination,
@@ -140,6 +141,7 @@ test("Home preserves exact Spotlight activation across positional ID changes", a
   await expect(page.locator(".home-search"))
     .toHaveAttribute("aria-busy", "false");
 
+  await page.locator('[data-sl-scope="commands"]').click();
   const activity = page.locator('[data-sl-package-activity="1"]');
   await activity.focus();
   await expect(activity).toBeFocused();
@@ -370,7 +372,7 @@ test("Diagnostics opens from Settings and the data bar without entering Spotligh
   await page.locator("#application-menu-button").click();
   await expect(page.locator("#application-menu"))
     .not.toContainText("Diagnostics");
-  await page.locator('[data-application-action="settings"]').click();
+  await openApplicationAction(page, "settings");
   await page.locator("#settings-diagnostics-open").click();
 
   await expect(page).toHaveURL(/\/diagnostics$/);
@@ -437,11 +439,10 @@ test("Diagnostics leaves retained Workspace available without marking it current
   await page.setViewportSize({ width: 1440, height: 900 });
   await installDiagnosticsFacades(page);
   await page.goto(root);
-  await openProductDestination(page, "workspace");
+  await openProductDestination(page, "workspace", { waitForCommit: true });
   await expect(page.locator("#inspector-panel h1")).toHaveText("Workspace");
 
-  await page.locator("#application-menu-button").click();
-  await page.locator('[data-application-action="settings"]').click();
+  await openApplicationAction(page, "settings");
   await page.locator("#settings-diagnostics-open").click();
   await expect(page).toHaveURL(/\/diagnostics$/);
 
@@ -599,7 +600,7 @@ test("Diagnostics cache refresh does not reclaim relinquished heading focus", as
   await expect(page.locator(".diagnostics-inline-loading")).toHaveCount(0);
 });
 
-test("Diagnostics cache refresh returns product-menu focus to the replacement brand", async ({
+test("Diagnostics cache refresh preserves the open product menu", async ({
   page,
 }) => {
   await installDiagnosticsFacades(page, { cachePending: true });
@@ -614,8 +615,11 @@ test("Diagnostics cache refresh returns product-menu focus to the replacement br
   await releaseFacade(page, "finish-package-cache-stats");
 
   await expect(page.locator(".diagnostics-inline-loading")).toHaveCount(0);
-  await expect(page.locator(".product-navigation-menu")).toBeHidden();
-  await expect(page.locator("#diagnostics-product")).toBeFocused();
+  await expect(page.locator(".product-navigation-menu")).toBeVisible();
+  await expect(page.locator("#diagnostics-product"))
+    .toHaveAttribute("aria-expanded", "true");
+  await expect(page.locator('[data-product-destination="home"]'))
+    .toBeFocused();
 });
 
 test("Diagnostics parks recognized focus before refresh replacement", async ({
@@ -651,8 +655,7 @@ test("Diagnostics treats a refreshed history entry as direct", async ({
 }) => {
   await installDiagnosticsFacades(page);
   await page.goto(root);
-  await page.locator("#application-menu-button").click();
-  await page.locator('[data-application-action="settings"]').click();
+  await openApplicationAction(page, "settings");
   await page.locator("#settings-diagnostics-open").click();
   await expect(page).toHaveURL(/\/diagnostics$/);
 

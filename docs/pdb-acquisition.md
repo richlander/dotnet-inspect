@@ -545,10 +545,12 @@ metadata type is resolved before that inference, and the resulting mapping
 retains `Inferred` rather than presenting the filename relationship as a
 sequence-point correlation.
 
-`PdbSourceHouse` is the clearing house for this PDB-provenance-based source
-scenario: it composes the candidate origins, fetch policy, checksum
-verification, source decoding, and typed failure outcomes into one settled
-result. It intentionally does not include decompiler-generated source.
+`PdbSourceHouse` retains the legacy candidate-origin and fetch-policy
+composition for this PDB-provenance-based source scenario. It intentionally
+does not include decompiler-generated source.
+`PdbSourceInspectionProjection` owns the compatibility member/type inspection
+models and projects checksum, mapping, decoded-text, absence, and failure
+evidence into them without selecting or acquiring a source candidate.
 `AssemblyContextSourceQuery` owns that higher Queries-layer fallback.
 The [selected-member source pair](design/member-source-pair-query.md),
 [shared member acquisition](design/member-source-acquisition.md), and
@@ -561,9 +563,10 @@ The target [SourceHouse composition](design/source-house.md), tracked by
 [#6512](https://github.com/richlander/dotnet-inspect/issues/6512), replaces
 that product composition with one content-first House over
 `SourceLinkService`, `CSharpDecompilerService`, and authorized acquisition
-capabilities. Product candidate ordering moves from `PdbSourceHouse` to
-SourceHouse, while this document continues to own PDB acquisition, SourceLink
-interpretation, checksum semantics, and authored-source evidence.
+capabilities. Product candidate ordering moves from `PdbSourceHouse` to SourceHouse, while
+this document continues to own PDB acquisition, SourceLink interpretation,
+checksum semantics, authored-source evidence, and its compatibility
+projection.
 
 Every successful path must satisfy the shared Portable PDB checksum verifier
 (exact or accepted line-ending-normalized correspondence) before its content

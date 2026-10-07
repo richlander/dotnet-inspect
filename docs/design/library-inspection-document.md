@@ -542,6 +542,58 @@ The Type row is not a `TypeDocument`. It does not contain complete member,
 source, documentation, analysis, or decompilation results. Those require a
 separate exact Type request.
 
+### Hierarchy projection
+
+Hierarchy is an explicit host-neutral request over this owner's Type
+population, not an inference from a selected renderer. The Library document
+admits the `LibraryNamespacesAndTypes` topology:
+
+```text
+Library
+  -> Namespace
+    -> Type declaration
+      -> Member
+```
+
+The admitted profile requests namespace Rows by Name, Type declaration Rows by
+Name or FullSpelling, and Member Count beneath each declaration. The root may
+be spelled by Name (the Library name) or FullSpelling (name and version).
+
+```text
+System.Text.Json 10.0.0.0
+├─ System.Text.Json (20 types)
+│  ├─ class JsonSerializer (104 members)
+│  └─ …
+└─ System.Text.Json.Nodes (5 types)
+   └─ …
+```
+
+The plan requests complete, unfaceted, public-surface Type Rows with a Member
+Count on every definition. The owner rejects a continued, partial, faceted, or
+uncounted population and any other terminal or spelling choice before the sink
+receives a node; it never emits a shortened hierarchy.
+
+The owner defines the hierarchy's sibling order: namespaces by ordinal name,
+then declarations within each namespace by ordinal display name. Rows ordering
+remains Metadata order; the hierarchy groups and orders the complete
+population rather than changing the Rows terminal. A namespace node carries
+its exact declaration Count over that complete population. A Type node carries
+the owner-issued row and its owner-issued spelling: FullSpelling is the
+qualified display name, and Name removes only the namespace qualifier, so a
+nested declaration keeps its containing Type (`JsonElement.ArrayEnumerator`).
+The namespace and qualified name are independently encoded values, so the
+owner removes the qualifier from their raw text and re-encodes only the
+remainder. The empty namespace is the global namespace. The owner forms every
+node, including its spelling, before the sink receives the first one.
+
+A definition's Member Count is the row's counted outcome. A forwarder remains a
+first-class declaration node whose Member Count is not applicable; the
+hierarchy neither reports zero nor resolves a target definition.
+
+[Host-neutral hierarchy projection](host-neutral-hierarchy-projection.md)
+owns the request vocabulary, the streaming sink, and shared format lowering.
+Tree and Mermaid do not regroup, recount, reorder, or respell these nodes.
+
 ## Source execution
 
 The request model is source-feasible only if producers avoid eager object

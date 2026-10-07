@@ -154,7 +154,10 @@ public sealed partial class InspectionWorkspace
                 };
                 ArtifactPackageRootResources resources =
                     await ConstructPackageArtifactRootAsync(
-                        package, rootOptions, provisional: true, end.Token)
+                        [package],
+                        rootOptions,
+                        provisional: true,
+                        end.Token)
                         .ConfigureAwait(false);
                 var projection = new ArtifactRootScopeProjection(
                     correspondence,

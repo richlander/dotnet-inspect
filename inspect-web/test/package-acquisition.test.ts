@@ -17,6 +17,7 @@ import {
   resolvePackageLibrary,
   resolveReplacementPackageLibrary,
   runtimeAssemblyIsResident,
+  workspaceTypeByOccurrence,
   type AppPackage,
   type PackageAcquisitionDependencies,
 } from "../src/package-acquisition.ts";
@@ -92,6 +93,85 @@ test("library selection prefers exact asset identity and rejects ambiguous names
   assert.equal(resolvePackageLibrary(libraries, "Shared.dll"), null);
   assert.equal(resolvePackageLibrary(libraries, "EMPTY.dll"), empty);
   assert.equal(resolvePackageLibrary(libraries, "missing"), null);
+});
+
+test("workspace Type occurrence selection retains package and asset identity", () => {
+  const createPackage = (
+    packageId: string,
+    assetId: string,
+    assetPath: string,
+  ) => {
+    const descriptor = {
+      ...assembly(assetId, "Shared"),
+      asset: assetPath,
+    };
+    return createNuGetPackageModel(packageSurface({
+      package: packageId,
+      assemblies: [descriptor],
+      defaultAssemblyId: assetId,
+      types: [{
+        ...typeSurface("Shared.Implementer", "Shared"),
+        assemblyId: assetId,
+      }],
+    }));
+  };
+  const left = createPackage(
+    "Package.Left",
+    "asset:left",
+    "lib/net10.0/left/Shared.dll");
+  const right = createPackage(
+    "Package.Right",
+    "asset:right",
+    "lib/net10.0/right/Shared.dll");
+
+  assert.deepEqual(
+    workspaceTypeByOccurrence([left, right], {
+      packageId: "package.right",
+      version: "1.2.3",
+      framework: "NET10.0",
+      asset: "lib/net10.0/right/Shared.dll",
+      typeId: "Shared.Implementer",
+    }),
+    {
+      pkg: right,
+      type: right.types[0],
+    });
+  assert.equal(
+    workspaceTypeByOccurrence([left, right], {
+      packageId: "Package.Right",
+      version: "1.2.3",
+      framework: "net10.0",
+      asset: "lib/net10.0/left/Shared.dll",
+      typeId: "Shared.Implementer",
+    }),
+    null);
+
+  const nestedDescriptor = {
+    ...assembly("asset:nested", "Nested"),
+    asset: "lib/net10.0/Nested.dll",
+  };
+  const nested = createNuGetPackageModel(packageSurface({
+    package: "Package.Nested",
+    assemblies: [nestedDescriptor],
+    defaultAssemblyId: nestedDescriptor.id,
+    types: [{
+      ...typeSurface("Shared.Outer.Inner", "Nested"),
+      definitionId: "Shared.Outer+Inner",
+      assemblyId: nestedDescriptor.id,
+    }],
+  }));
+  assert.deepEqual(
+    workspaceTypeByOccurrence([nested], {
+      packageId: "Package.Nested",
+      version: "1.2.3",
+      framework: "net10.0",
+      asset: "lib/net10.0/Nested.dll",
+      typeId: "Shared.Outer+Inner",
+    }),
+    {
+      pkg: nested,
+      type: nested.types[0],
+    });
 });
 
 test("replacement Library selection follows one product compile-asset correspondence", () => {

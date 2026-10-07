@@ -158,12 +158,16 @@ import {
   resolvePackageLibrary,
   resolveReplacementPackageLibrary,
   runtimeAssemblyIsResident,
+  workspaceTypeByOccurrence,
   type AppMemberSurface,
   type AppPackage,
   type AppTypeSurface,
   type InspectedMemberSurface,
   type InspectedTypeSurface,
 } from "./package-acquisition.ts";
+import type {
+  BrowserTypeHierarchyRow,
+} from "./facades/inspect-web-metadata.d.ts";
 import {
   bindPlatformForwarders,
   filterForwardedTypes,
@@ -183,6 +187,7 @@ import {
   renderPackageNav,
   packageNavigationVersions,
   type PackageViewBindingActions,
+  type RelatedTypeNavigationTarget,
 } from "./package-view.ts";
 import {
   alphabetizeLibrarySubjects,
@@ -633,9 +638,11 @@ import {
   type LibraryApiDiffState,
   type LibraryApiDiffSubject,
 } from "./library-api-diff.ts";
+import { createMemberBodyDiff, type MemberBodyDiffContext } from "./member-body-diff.ts";
 import { createMemberDiffExplorer } from "./member-diff-explorer.ts";
 import {
   bindCompareFrame,
+  renderCompareFrame,
   restoreCompareTabFocus,
   type CompareSubjectKind,
 } from "./compare-surface.ts";
@@ -5006,6 +5013,16 @@ const libraryApiDiff = createLibraryApiDiffCoordinator({
   },
   render,
 });
+const memberBodyDiff = createMemberBodyDiff({
+  authority: operationAuthority,
+  query: (id, request) => engineClient.source.queryMemberBodyDiff(id, request),
+  cancel: (id, reason) => { observeAsync(engineClient.source.cancelMemberBodyDiff(id, reason), "Canceling Member Body comparison"); },
+  diagnostic: diagnostic => { console.error("Member Body operation authority failure.", diagnostic); },
+  render: renderPreservingMemberFocus, document, escapeHtml,
+  activateType: activateCompareType,
+  activateMember: member => activateCompareMember(member.fingerprint!, member.methodToken),
+});
+
 const memberDiffExplorer = createMemberDiffExplorer({
   document,
   operationAuthority,
@@ -5084,10 +5101,13 @@ const spotlight = createSpotlight({
     spotlightPackageSearchIsLoading(state.spotlightPackageSearch),
   packageSearchError: () =>
     spotlightPackageSearchError(state.spotlightPackageSearch),
+  packageSearchNotice: () => state.spotlightQuery.includes("*")
+    ? `Package prefix search · up to ${SPOTLIGHT_PACKAGE_PREFIX_LIMIT} matches` : "",
   typeSearchLoading: () => spotlightTypeFind.loading(),
   typeSearchError: () => spotlightTypeFind.error(),
   typeSearchNotice: () => spotlightTypeFind.notice(),
-  scheduleCapabilitySearch: () => spotlightCapabilitySearch.schedule(),
+  scheduleCapabilitySearch: () => state.spotlightQuery.includes("*")
+    ? spotlightCapabilitySearch.reset() : spotlightCapabilitySearch.schedule(),
   resetCapabilitySearch: () => spotlightCapabilitySearch.reset(),
   capabilitySearchMessage: () =>
     spotlightCapabilitySearchMessage(
@@ -7410,7 +7430,8 @@ function compareSubjectLabel(subject: CompareSubject): string {
 
 function currentLibraryApiDiffSelection(): LibraryApiDiffSelection | null {
   const subject = currentCompareSubject();
-  if (!subject || currentCompareMode() !== "diff") return null;
+  if (!subject || currentCompareMode() !== "diff"
+    || packageComparisonTargets.get(subject.pkg).diffContent.kind === "member-body") return null;
   if (subject.kind === "member"
     && (!subject.overload
       || !subject.overload.anchorDigest
@@ -7431,7 +7452,7 @@ function currentLibraryApiDiffSelection(): LibraryApiDiffSelection | null {
           {
             const content =
               packageComparisonTargets.get(pkg).diffContent;
-            return content.kind === "api"
+            return content.kind !== "string-literals"
               ? {
                   surface: "Library",
                   analyses: ["api"],
@@ -7718,7 +7739,6 @@ LibraryApiDiffMemberExploreContext | null {
 }
 
 function renderLibraryDiffTools(subject: CompareSubject): string {
-  if (subject.kind !== "library") return "";
   const content = packageComparisonTargets.get(subject.pkg).diffContent;
   const literalControls = content.kind === "string-literals"
     ? `<label class="compare-tool">
@@ -7738,11 +7758,36 @@ function renderLibraryDiffTools(subject: CompareSubject): string {
       Content
       <select id="compare-diff-content">
         <option value="api"${content.kind === "api" ? " selected" : ""}>Public API</option>
+        <option value="member-body"${content.kind === "member-body" ? " selected" : ""}>Member Body</option>
         <option value="string-literals"${content.kind === "string-literals" ? " selected" : ""}>String literals</option>
       </select>
     </label>
     ${literalControls}
   </div>`;
+}
+
+function currentMemberBodyDiffContext(): MemberBodyDiffContext | null {
+  const subject = currentCompareSubject();
+  if (!subject || currentCompareMode() !== "diff"
+    || packageComparisonTargets.get(subject.pkg).diffContent.kind !== "member-body"
+    || subject.pkg.source.kind !== "nuget.org") return null;
+  const target = resolveEffectiveDiffTarget(packageComparisonTargets.get(subject.pkg).diff,
+    catalogRequests.packageVersions(subject.pkg));
+  if (target.kind !== "available") return null;
+  return {
+    packageModel: subject.pkg,
+    request: {
+      packageId: subject.pkg.id, beforeVersion: target.version, afterVersion: subject.pkg.version,
+      framework: subject.pkg.activeFramework, compileAssetId: subject.library.id,
+      generation: typeAnalysisWorkspaceGeneration(subject.pkg), inventoryId: null, memberId: null,
+    },
+    subject: subject.kind, subjectLabel: compareSubjectLabel(subject),
+    targetText: compareTargetText(subject, "diff"),
+    typeIdentity: subject.kind === "library" ? null : typeIdentifierOf(subject.type),
+    memberFingerprint: subject.kind === "member" ? subject.overload?.anchorDigest ?? null : null,
+    methodToken: subject.kind === "member" ? state.selectedBodyTarget?.metadataToken ?? subject.overload?.metadataToken ?? null : null,
+    tools: renderLibraryDiffTools(subject),
+  };
 }
 
 function currentDataBarResult() {
@@ -7770,6 +7815,12 @@ function renderCompareSurface(): string {
       selectedRank: state.compareCloneSelectedRank,
     });
   }
+  if (packageComparisonTargets.get(subject.pkg).diffContent.kind === "member-body") {
+    const body = memberBodyDiff.render();
+    if (body) return body;
+    return renderCompareFrame({ subjectKind, subjectLabel, mode, targetText, tools: renderLibraryDiffTools(subject),
+      status: "Member Body unavailable", content: "<p>Select an available Gallery comparison target.</p>", escapeHtml });
+  }
   const options = libraryApiDiffRenderOptions(subject);
   const memberContext = libraryApiDiffMemberExploreContext(
     state.libraryApiDiff,
@@ -7780,9 +7831,7 @@ function renderCompareSurface(): string {
     resultSummaryInDataBar: currentDataBarResult() !== null,
     subjectLabel,
     targetText,
-    ...(subject.kind === "library"
-      ? { tools: renderLibraryDiffTools(subject) }
-      : {}),
+    tools: renderLibraryDiffTools(subject),
     ...(memberContext === null
       ? {}
       : { memberDiffSection: memberDiffExplorer.renderInline(memberContext) }),
@@ -7813,7 +7862,7 @@ function activateCompareType(typeIdentifier: string) {
   render();
 }
 
-function activateCompareMember(memberFingerprint: string) {
+function activateCompareMember(memberFingerprint: string, bodyToken: number | null = null) {
   const subject = currentCompareSubject();
   if (!subject || subject.kind === "library") return;
   const type = subject.type;
@@ -7833,12 +7882,14 @@ function activateCompareMember(memberFingerprint: string) {
     return;
   }
   state.compareCloneSelectedRank = null;
+  const selector = match.group.overloads[match.overloadIndex]?.bodySelectors?.find(body => body.token === bodyToken);
+  const body = selector ? { memberName: selector.memberName, selectorKey: selector.selectorKey, metadataToken: selector.token } : null;
   navigateToMember(
     subject.pkg,
     type,
     match.group,
     match.overloadIndex,
-    null,
+    body,
     "compare");
 }
 
@@ -7852,7 +7903,7 @@ function selectCompareMode(mode: CompareMode) {
 
 function selectLibraryDiffContent(content: DiffContent) {
   const subject = currentCompareSubject();
-  if (subject?.kind !== "library") return;
+  if (!subject) return;
   try {
     packageComparisonTargets.selectDiffContent(subject.pkg, content);
     render();
@@ -8492,8 +8543,8 @@ function selectMemberNavEntry(entry: MemberNavEntry, focusList: boolean) {
   const replacementAuthority = captureContentFrameReplacementAuthority();
   if (entry.kind === "member") {
     if (entry.group.key === state.selectedMemberKey) {
-      if (ordinaryMethodGroup(entry.group)) {
-        state.memberSection = "overview";
+      if (ordinaryMethodGroup(entry.group) || state.memberSection === "compare") {
+        if (state.memberSection !== "compare") state.memberSection = "overview";
         openMemberGroup(entry.group.key);
       } else if (selectMemberFamilyParent(state, entry.group)) {
         clearMemberContentCache();
@@ -8835,6 +8886,7 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
   reconcileEcosystemPackageDiscovery();
   reconcileTypeAccessibilityVocabulary();
   reconcilePlatformForwarderView();
+  memberBodyDiff.reconcile(currentMemberBodyDiffContext());
   libraryApiDiff.reconcile(currentLibraryApiDiffSelection());
   compareClone.reconcile(currentCompareCloneTarget());
   memberDiffExplorer.reconcile(currentMemberDiffExploreContext());
@@ -11983,7 +12035,7 @@ function prepareSpotlightResults() {
   const requestsTypes = state.spotlightScope === "commands"
     ? /^type(?:\s|$)/i.test(query)
     : Boolean(query)
-      && (state.spotlightScope === "all"
+      && ((state.spotlightScope === "all" && !query.includes("*"))
         || state.spotlightScope === "types"
         || state.spotlightScope === "members");
   if (!state.spotlightOpen || !requestsTypes) return;
@@ -13110,7 +13162,7 @@ const packageViewActions: PackageViewBindingActions = {
       openDependencyPackage(id, version),
       "Opening a dependency package"),
   onDependencyOpen: switchToPackageForDependencies,
-  onGraphTypeSelect: navigateToTypeByName,
+  onGraphTypeSelect: navigateToRelatedType,
   onKindJump: kind => {
     state.atPackageRoot = false;
     state.atLibraryRoot = false;
@@ -15289,7 +15341,8 @@ function spotlightResults(): SpotlightResult[] {
   }
 
   const all = spotlightScope === "all";
-  const requestsTypes = all || spotlightScope === "types";
+  const prefixQuery = (all || spotlightScope === "packages") && query.includes("*");
+  const requestsTypes = (all && !prefixQuery) || spotlightScope === "types";
   spotlightTypeFind.schedule(
     activeRetainedWorkspacePosting,
     query,
@@ -15298,6 +15351,16 @@ function spotlightResults(): SpotlightResult[] {
   const results: SpotlightResult[] = [];
 
   if (all || spotlightScope === "packages") {
+    if (prefixQuery) {
+      for (const hit of visibleSpotlightPackageHits(state.spotlightPackageSearch, query)) {
+        const pkg = findOpenPackageForQuery(state, {
+          packageId: hit.id, version: hit.version ?? "latest", explicitVersion: true,
+        });
+        results.push(pkg ? { kind: "pkg-loaded", pkg, ranges: [] }
+          : { kind: "pkg-nuget", hit, ranges: [] });
+      }
+      return annotateSpotlightPublicationDates(annotateSpotlightEcosystems(results));
+    }
     const parsedPackageQuery = parsePackageQuery(query);
     if (parsedPackageQuery?.explicitVersion) {
       const openPackage = findOpenPackageForQuery(state, parsedPackageQuery);
@@ -15346,11 +15409,6 @@ function spotlightResults(): SpotlightResult[] {
       results.push({ kind: "pkg-nuget", hit, ranges: computeHighlightRanges(hit.id, query.toLowerCase()) });
       if (all && ++added >= 4) break;
     }
-    results.push({
-      kind: "package-query",
-      prefix: validPackageQuerySearchText(query),
-    });
-    results.push({ kind: "package-activity" });
   }
   if (all && query) {
     for (const capability of visibleSpotlightCapabilityResults(
@@ -15416,9 +15474,34 @@ function isNugetSearchResult(value: unknown): value is NugetSearchResult {
     && (value.description === undefined || typeof value.description === "string");
 }
 
-async function querySpotlightPackages(query: string): Promise<SpotlightPackageHit[]> {
+const SPOTLIGHT_PACKAGE_PREFIX_LIMIT = 8;
+
+async function querySpotlightPackagePrefix(query: string, signal: AbortSignal): Promise<SpotlightPackageHit[]> {
+  const source = createBrowserPackageQueryDataSource({
+    cancel: (operationId, reason) => cancelPackageQuery(operationId, reason),
+    requestMatches: (operationId, credit) => inspectRequestPackageQueryMatches(operationId, credit),
+    run: (...args) => inspectRunPackageQuery(...args),
+  });
+  const hits: SpotlightPackageHit[] = [];
+  const failures: string[] = [];
+  const completion = await source.run({
+    ...createQueryRequest(query),
+    includePrerelease: true,
+    requestedLimit: SPOTLIGHT_PACKAGE_PREFIX_LIMIT,
+    requestedMatchLimit: SPOTLIGHT_PACKAGE_PREFIX_LIMIT,
+  }, rows => {
+    for (const row of rows) hits.push({ id: row.packageId, version: row.version });
+  }, failure => failures.push(failure), () => {}, signal);
+  if (completion.kind === "cancelled") throw new DOMException("Package prefix search was cancelled.", "AbortError");
+  if (completion.kind === "failed") failures.push(completion.reason);
+  if (failures.length) throw new Error(failures.join("; "));
+  return hits;
+}
+
+async function querySpotlightPackages(query: string, signal: AbortSignal): Promise<SpotlightPackageHit[]> {
+  if (query.includes("*")) return querySpotlightPackagePrefix(query, signal);
   const url = `https://azuresearch-usnc.nuget.org/query?q=${encodeURIComponent(query)}&take=8&prerelease=true&semVerLevel=2.0.0`;
-  const response = await fetch(url);
+  const response = await fetch(url, { signal });
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
   const payload: unknown = await response.json();
   if (!isRecord(payload)
@@ -15594,6 +15677,7 @@ function bindCompareEvents() {
         render();
         return;
       }
+      if (currentMemberBodyDiffContext()) { memberBodyDiff.retry(); return; }
       const selection = currentLibraryApiDiffSelection();
       if (!selection || selection.target.kind !== "available") return;
       libraryApiDiff.retry(selection);
@@ -15601,7 +15685,7 @@ function bindCompareEvents() {
     },
   });
   const subject = currentCompareSubject();
-  if (subject?.kind === "library") {
+  if (subject) {
     bindDiffContent(
       document,
       packageComparisonTargets.get(subject.pkg).diffContent,
@@ -15612,6 +15696,7 @@ function bindCompareEvents() {
     activateType: activateCompareType,
     activateMember: activateCompareMember,
   });
+  memberBodyDiff.bind(document);
   memberDiffExplorer.bindInline(document);
   const memberExplore = document.querySelector<HTMLElement>(
     "[data-member-diff-explore]",
@@ -15779,9 +15864,6 @@ function openSpotlightCapability(result: SpotlightCapabilityResult): void {
 function pickSpotlightResult(result: SpotlightResult) {
   if (!result) { closeSpotlight(); return; }
   switch (result.kind) {
-    case "package-query":
-      openPackageQueryRoute(result.prefix);
-      break;
     case "package-activity":
       openPackageActivityRoute();
       break;
@@ -16773,6 +16855,7 @@ function workbenchModalOwnsFocus() {
     || graphSourceIsOpen(state.graphSource)
     || documentViewerIsOpen(state.docViewer)
     || state.memberAnnotatedModal !== null
+    || memberBodyDiff.isOpen
     || memberDiffExplorer.isOpen
     || graphExplorer.isOpen;
 }
@@ -21724,6 +21807,32 @@ function navigateToTypeByName(fullName: string) {
   navigateToWorkspaceType(candidate.pkg, candidate.type);
 }
 
+function navigateToRelatedType(target: RelatedTypeNavigationTarget) {
+  const coordinate =
+    target.packageId
+    && target.version
+    && target.framework
+    && target.asset
+      ? {
+          packageId: target.packageId,
+          version: target.version,
+          framework: target.framework,
+          asset: target.asset,
+          typeId: target.typeId,
+        }
+      : null;
+  if (!coordinate) {
+    navigateToTypeByName(target.typeId);
+    return;
+  }
+
+  const candidate = workspaceTypeByOccurrence(
+    state.packages,
+    coordinate);
+  if (!candidate) return;
+  navigateToWorkspaceType(candidate.pkg, candidate.type);
+}
+
 function navigateToWorkspaceType(
   pkg: AppPackage,
   target: AppTypeSurface,
@@ -21750,20 +21859,41 @@ function navigateToType(
   loadCurrentSelectionData("Loading the selected Type");
 }
 
-// A related type is openable only when one loaded Workspace surface owns its
-// exact query identity. Ambiguous or external relationships stay static.
-function typeIsNavigable(fullName: string) {
-  return uniqueWorkspaceTypeByQueryId<AppTypeSurface, AppPackage>(
-    state.packages,
-    fullName) !== null;
+// Hierarchy rows retain an exact package/asset occurrence. Other related-Type
+// chips remain openable only when one loaded Workspace surface owns the query
+// identity.
+function typeIsNavigable(
+  fullName: string,
+  occurrence?: BrowserTypeHierarchyRow,
+) {
+  return occurrence
+    ? workspaceTypeByOccurrence(state.packages, {
+        packageId: occurrence.packageId,
+        version: occurrence.version,
+        framework: occurrence.framework,
+        asset: occurrence.asset,
+        typeId: occurrence.type,
+      }) !== null
+    : uniqueWorkspaceTypeByQueryId<AppTypeSurface, AppPackage>(
+        state.packages,
+        fullName) !== null;
 }
 
-// Render a related-type chip as an active button only for a unique loaded
-// Workspace type.
-function relatedTypeChip(name: string) {
+// Render a related-type chip as an active button only when its retained
+// occurrence or fallback query identity resolves uniquely.
+function relatedTypeChip(
+  name: string,
+  occurrence?: BrowserTypeHierarchyRow,
+) {
   const short = escapeHtml(shortTypeName(name));
-  if (typeIsNavigable(name)) {
-    return `<button class="type-chip" data-graph-type="${escapeHtml(name)}" title="${escapeHtml(name)}">${short}</button>`;
+  if (typeIsNavigable(name, occurrence)) {
+    const coordinate = occurrence
+      ? ` data-graph-package="${escapeHtml(occurrence.packageId)}"`
+        + ` data-graph-version="${escapeHtml(occurrence.version)}"`
+        + ` data-graph-framework="${escapeHtml(occurrence.framework)}"`
+        + ` data-graph-asset="${escapeHtml(occurrence.asset)}"`
+      : "";
+    return `<button class="type-chip" data-graph-type="${escapeHtml(name)}"${coordinate} title="${escapeHtml(name)}">${short}</button>`;
   }
   return `<span class="type-chip is-static" title="${escapeHtml(name)} — not uniquely available in the loaded Workspace surfaces">${short}</span>`;
 }
@@ -26133,6 +26263,7 @@ function workspaceKeyboardContextIsActive(): boolean {
     && !graphSourceIsOpen(state.graphSource)
     && !documentViewerIsOpen(state.docViewer)
     && state.memberAnnotatedModal === null
+    && !memberBodyDiff.isOpen
     && !memberDiffExplorer.isOpen
     && !state.spotlightOpen;
 }
@@ -26269,7 +26400,7 @@ registerContainedShortcuts(
 registerContainedShortcuts(
   "member-diff-explorer.contain-browser-shortcut",
   WORKBENCH_KEYBINDING_PRIORITY.graphSource,
-  () => memberDiffExplorer.isOpen,
+  () => memberDiffExplorer.isOpen || memberBodyDiff.isOpen,
 );
 
 keybindings.register({

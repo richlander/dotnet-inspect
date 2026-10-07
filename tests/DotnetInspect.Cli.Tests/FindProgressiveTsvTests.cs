@@ -60,6 +60,33 @@ public class FindProgressiveTsvTests
     }
 
     [Fact]
+    public async Task ProgressiveProjectionKeepsRequestedColumns()
+    {
+        var result = await Run(
+            "find", "JsonSerializer*", "--library", JsonLibrary,
+            "--tsv", "--columns", "Coordinate,Kind");
+
+        Assert.Equal(0, result.ExitCode);
+        string[] lines = result.Output.TrimEnd('\n').Split('\n');
+        Assert.Equal("coordinate\tkind", lines[0]);
+        Assert.Contains(lines.Skip(1), line =>
+            line.StartsWith("System.Text.Json.JsonSerializer\ttype", StringComparison.Ordinal));
+        Assert.All(lines, line => Assert.Equal(2, line.Split('\t').Length));
+    }
+
+    [Fact]
+    public void WriterRejectsDuplicateProjectionNames()
+    {
+        using var output = new StringWriter();
+
+        var exception = Assert.Throws<ArgumentException>(() =>
+            new FindDiscoveryTsvWriter(
+                output, showHeader: true, ["Coordinate", "coordinate"], fields: null));
+
+        Assert.Equal("Duplicate column name: coordinate", exception.Message);
+    }
+
+    [Fact]
     public async Task SelectionKeepsEstablishedBufferedPathAndProjection()
     {
         var result = await Run("find", ".Serialize", "--library", JsonLibrary,

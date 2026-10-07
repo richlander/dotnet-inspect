@@ -400,11 +400,12 @@ internal static class ExactTypeInspectionQuery
         ArgumentNullException.ThrowIfNull(authority);
         using WorkspaceRealizationOperationUse operation =
             authority.EnterUse();
-        return Execute(
-            operation.Realization,
-            context,
-            request,
-            projectionLimits);
+        return ExecutePackageContext(
+                operation.Realization,
+                context,
+                request,
+                projectionLimits)
+            .Result;
     }
 
     internal static ExactTypeInspectionResult Execute(
@@ -414,14 +415,51 @@ internal static class ExactTypeInspectionQuery
         ApiSurfaceProjectionLimits? projectionLimits = null)
     {
         ArgumentNullException.ThrowIfNull(workspace);
-        return Execute(
+        return ExecutePackageContext(
+                workspace.Identity,
+                context,
+                request,
+                projectionLimits)
+            .Result;
+    }
+
+    internal static ExactTypeInspectionExecution ExecutePackageContext(
+        InspectionWorkspace workspace,
+        WorkspaceDeclarationContext context,
+        ExactTypeInspectionRequest request,
+        ApiSurfaceProjectionLimits? projectionLimits = null)
+    {
+        ArgumentNullException.ThrowIfNull(workspace);
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(request);
+        if (context.ContextLoadOutcome
+            is not WorkspaceContextLoadOutcome.Loaded loaded)
+        {
+            return new(
+                ExactTypeInspectionResult.RuntimeUnavailable(
+                    request,
+                    "The selected Workspace context was not realized."),
+                [],
+                Target: null);
+        }
+        if (!ReferenceEquals(
+                context.Receipt.Workspace,
+                loaded.Workspace))
+        {
+            throw new ArgumentException(
+                "The selected Workspace context receipt does not belong to "
+                    + "its loaded context.",
+                nameof(context));
+        }
+
+        return ExecutePackageContext(
             workspace.Identity,
-            context,
+            new ExactTypeInspectionContext(loaded),
             request,
             projectionLimits);
     }
 
-    static ExactTypeInspectionResult Execute(
+    static ExactTypeInspectionExecution ExecutePackageContext(
         InspectionWorkspaceIdentity realization,
         ExactTypeInspectionContext context,
         ExactTypeInspectionRequest request,
@@ -434,12 +472,16 @@ internal static class ExactTypeInspectionQuery
             PackageParticipants(loaded, request);
         if (participants.IsEmpty)
         {
-            return ExactTypeInspectionResult.RuntimeUnavailable(
-                request,
-                "The admitted realization does not contain the requested package coordinate.");
+            return new(
+                ExactTypeInspectionResult.RuntimeUnavailable(
+                    request,
+                    "The admitted realization does not contain the requested package coordinate."),
+                [],
+                Target: null);
         }
 
-        return ExecuteCore(
+        ExactTypeInspectionTarget? target = null;
+        ExactTypeInspectionResult result = ExecuteCore(
             realization,
             context,
             request.Type,
@@ -447,9 +489,18 @@ internal static class ExactTypeInspectionQuery
             participants,
             definingSource: null,
             definingSources: null,
-            selectedTarget: null,
+            selected => target = selected,
             ApiSurfaceScope.PublicWithNonPublicTypes,
             projectionLimits);
+        return new(
+            result,
+            [],
+            result.IsAvailable
+                ? target
+                    ?? throw new InvalidOperationException(
+                        "An available exact Type result requires one live "
+                            + "inspection target.")
+                : null);
     }
 
     internal static ExactTypeInspectionExecution ExecuteSelectedContext(
@@ -466,6 +517,7 @@ internal static class ExactTypeInspectionQuery
             operation.Realization,
             context,
             request,
+            definingRegistration: null,
             scope,
             projectionLimits);
     }
@@ -476,12 +528,28 @@ internal static class ExactTypeInspectionQuery
         SelectedContextExactTypeInspectionRequest request,
         ApiSurfaceScope scope = ApiSurfaceScope.PublicWithNonPublicTypes,
         ApiSurfaceProjectionLimits? projectionLimits = null)
+        => ExecuteSelectedContext(
+            workspace,
+            context,
+            request,
+            definingRegistration: null,
+            scope,
+            projectionLimits);
+
+    internal static ExactTypeInspectionExecution ExecuteSelectedContext(
+        InspectionWorkspace workspace,
+        WorkspaceDeclarationContext context,
+        SelectedContextExactTypeInspectionRequest request,
+        AssemblyAcquisitionRegistration? definingRegistration,
+        ApiSurfaceScope scope = ApiSurfaceScope.PublicWithNonPublicTypes,
+        ApiSurfaceProjectionLimits? projectionLimits = null)
     {
         ArgumentNullException.ThrowIfNull(workspace);
         return ExecuteSelectedContext(
             workspace.Identity,
             context,
             request,
+            definingRegistration,
             scope,
             projectionLimits);
     }
@@ -490,6 +558,7 @@ internal static class ExactTypeInspectionQuery
         InspectionWorkspaceIdentity realization,
         WorkspaceDeclarationContext context,
         SelectedContextExactTypeInspectionRequest request,
+        AssemblyAcquisitionRegistration? definingRegistration,
         ApiSurfaceScope scope,
         ApiSurfaceProjectionLimits? projectionLimits)
     {
@@ -536,12 +605,29 @@ internal static class ExactTypeInspectionQuery
         var definingSources =
             ImmutableArray.CreateBuilder<ExactTypeDefiningSource>();
         ExactTypeInspectionTarget? target = null;
+        ImmutableArray<AssemblyContextParticipant> participants =
+            definingRegistration is null
+                ? loaded.Group.Participants
+                :
+                [
+                    .. loaded.Group.Participants.Where(participant =>
+                        ReferenceEquals(
+                            participant.Assembly.Registration,
+                            definingRegistration)),
+                ];
+        if (definingRegistration is not null && participants.Length != 1)
+        {
+            throw new ArgumentException(
+                "The selected exact-Type registration must identify one "
+                    + "participant in the retained Workspace context.",
+                nameof(definingRegistration));
+        }
         ExactTypeInspectionResult result = ExecuteCore(
             realization,
             new ExactTypeInspectionContext(loaded),
             request.Type,
             request.SelectionKind,
-            loaded.Group.Participants,
+            participants,
             DefiningSource,
             definingSources,
             selected => target = selected,

@@ -30,8 +30,26 @@ public static class MemberProjectionProducer
                     request.PublicOnly)
                 : IrImporter.Import(request.Source, request.MethodToken.Value);
 
-            var imported = ImportFunction()
-                ?? throw new InvalidOperationException($"{request.Type}::{request.Method} has no IL body");
+            var imported = ImportFunction();
+            if (imported is null)
+            {
+                DecompilerResult failure = DecompilerResult.Failure(
+                    DiagnosticIds.InternalError,
+                    $"{request.Type}::{request.Method} has no IL body");
+                return new MemberProjectionResult(
+                    request.AnnotatedSource ? failure : null,
+                    request.CostOverlay ? new CostOverlayResult(failure, []) : null,
+                    request.SemanticsOverlay ? failure : null,
+                    request.FactRows ? [] : null,
+                    failure.Trace,
+                    SourceDocumentFailure:
+                        request.SourceDocument ? failure : null,
+                    SourceDocumentFailureKind:
+                        request.SourceDocument
+                            ? MemberProjectionSourceDocumentFailureKind
+                                .NoManagedBody
+                            : null);
+            }
 
             var effectiveRegistry = request.Registry ?? ResearchFactRegistry.Default;
             var analysis = request.Analysis
@@ -221,7 +239,11 @@ public static class MemberProjectionProducer
                 sourceDocumentFactIdentities,
                 factProjection.Receipt,
                 awaitCompletionPathNodeIds,
-                allocationExceptionPaths);
+                allocationExceptionPaths,
+                SourceDocumentFailureKind:
+                    sourceDocumentFailure is null
+                        ? null
+                        : MemberProjectionSourceDocumentFailureKind.Failed);
         }
         catch (Exception ex)
         {
@@ -239,7 +261,11 @@ public static class MemberProjectionProducer
                 request.SemanticsOverlay ? failure : null,
                 request.FactRows ? [] : null,
                 failure.Trace,
-                SourceDocumentFailure: request.SourceDocument ? failure : null);
+                SourceDocumentFailure: request.SourceDocument ? failure : null,
+                SourceDocumentFailureKind:
+                    request.SourceDocument
+                        ? MemberProjectionSourceDocumentFailureKind.Failed
+                        : null);
         }
     }
 

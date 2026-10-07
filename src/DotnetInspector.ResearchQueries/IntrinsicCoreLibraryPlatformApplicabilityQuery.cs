@@ -472,7 +472,9 @@ public static class IntrinsicCoreLibraryPlatformApplicabilityQuery
             .. focalScope.PlatformPopulations.Where(
                 population => population.Family == family),
         ];
-        if (populations.IsEmpty)
+        if (populations.IsEmpty
+            && focalScope.FocalLength
+                is not MemberCallGraphFocalLength.Everything)
         {
             return new IntrinsicCoreLibraryPlatformApplicabilityPlanResult
                 .OutsideOperationScope(context, focalScope);
@@ -560,6 +562,32 @@ public static class IntrinsicCoreLibraryPlatformApplicabilityQuery
             _ => throw new InvalidOperationException(
                 "Unknown Platform type-catalog derivation outcome."),
         };
+    }
+
+    public static IntrinsicCoreLibraryRouteDecision Rebind(
+        IntrinsicCoreLibraryPlatformApplicabilityPlan plan,
+        IntrinsicCoreLibraryRouteApplicabilityReceipt predecessor)
+    {
+        ArgumentNullException.ThrowIfNull(plan);
+        ArgumentNullException.ThrowIfNull(predecessor);
+        if (plan.FamilyComposition.Family
+                != predecessor.FamilyComposition.Family
+            || plan.TargetType != predecessor.Plan.TargetType)
+        {
+            return new IntrinsicCoreLibraryRouteDecision.Rejected(
+                IntrinsicCoreLibraryPlatformApplicabilityRejectionReason
+                    .PlatformEvidenceMismatch,
+                plan.Context,
+                plan.FocalScope,
+                plan.FamilyComposition.Family,
+                catalog: predecessor.Catalog);
+        }
+
+        return new IntrinsicCoreLibraryRouteDecision.Applicable(
+            new(
+                plan,
+                predecessor.Catalog,
+                predecessor.Definition));
     }
 
     static IntrinsicCoreLibraryRouteDecision SelectDefinition(

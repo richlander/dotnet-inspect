@@ -256,7 +256,8 @@ public sealed partial class InspectionWorkspace
                     [.. entries.Select(item => item.Reference)];
                 IAssemblyBindingPolicy policy = bindingPolicy is null
                     ? new PackageAssemblyContextRoles.RoleBindingPolicy(
-                        [.. references.Select(item => item.Assembly)])
+                        [.. references.Select(item => item.Assembly)],
+                        coreLibrary: null)
                     : bindingPolicy(references);
                 ArgumentNullException.ThrowIfNull(policy);
                 long groupBudget = entries.Sum(item => item.RetainedBytes);

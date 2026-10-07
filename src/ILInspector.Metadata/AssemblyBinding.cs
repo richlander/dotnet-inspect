@@ -688,6 +688,13 @@ public interface IAssemblyBindingPolicy
 }
 
 /// <summary>
+/// A policy that owns an explicit intrinsic CoreLib selection instead of
+/// deriving it from the requesting assembly's facade references.
+/// </summary>
+public interface IExplicitIntrinsicCoreLibraryBindingPolicy :
+    IAssemblyBindingPolicy;
+
+/// <summary>
 /// An owner-attested policy whose selection performs no discovery or acquisition.
 /// </summary>
 /// <remarks>

@@ -149,7 +149,7 @@ test("the app retains Compare mode per Package and reconciles both modes from re
   const activateMember = appSource.match(/function activateCompareMember\([\s\S]*?\n\}/)?.[0] ?? "";
   assert.match(
     activateMember,
-    /navigateToMember\(\s*subject\.pkg,\s*type,\s*match\.group,\s*match\.overloadIndex,\s*null,\s*"compare"\);/);
+    /navigateToMember\(\s*subject\.pkg,\s*type,\s*match\.group,\s*match\.overloadIndex,\s*body,\s*"compare"\);/);
   assert.match(activateMember, /overload\.anchorDigest !== memberFingerprint/);
   assert.doesNotMatch(activateMember, /textContent|innerText|display/);
   // Change target returns to Package Overview's Comparison targets work area.
