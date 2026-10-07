@@ -78,6 +78,38 @@ The core does **not** own or claim:
 - runtime-async or iterator reconstruction; or
 - a new accepted classic recipe family.
 
+## Ordered single-await continuation effects
+
+The existing single-void-await recipe may retain a flat continuation suffix of
+expression statements and field stores, in their original order. Acceptance
+requires the exact raw continuation statement roots in the same order,
+followed by the sole completion leave; each statement also owes its existing
+value, effect, import-origin and structured-ancestor proof. Changed order,
+omitted effects, altered values or extra completion edges cannot be healed by
+the planning view. No early-return guard, conditional await or additional
+recipe family is licensed by this correspondence.
+
+The motivating asset is `Utf8JsonWriter.DisposeAsync` in dotnet/runtime at
+commit `ab19415702aa8139d5369e47c73edb47343c34ad`, path
+`src/libraries/System.Text.Json/src/System/Text/Json/Writer/Utf8JsonWriter.cs`.
+Its post-await `ResetHelper()` call and three null field writes motivate the
+ordered suffix. A minimal independently compiled `ContinuationFixtures` body
+retains a cleanup call and two null writes; close planning mutations exercise
+order, omission, value and completion boundaries. The real writer's early
+return remains a separate control obligation, so this slice does not claim it
+is reconstructed. The shared classic pass exposes admitted bodies to both
+CLI and browser consumers through the existing product pipeline. Separating
+continuation effects from writer guards makes eleven currently planned slices
+under #9625.
+
+`ClassicInversePreservesAwaitContinuationCleanup` gates Full raised output;
+`ClassicInverseContinuationCannotBeHealedByPlanning` gates order, omission,
+value, field identity, volatility and completion boundaries.
+`ClassicInverseContinuationPlanIsDetachedAndBudgeted` gates detached field-store
+materialization and visible budget failure. `AwaitContinuationCleanup_CompileBackExact`
+gates Exact raised product whole-member compilation. These gates do not establish
+reconstruction of the motivating writer's early-return guard.
+
 ## Demo
 
 Consider a supported recipe whose result store is nested under a condition:
@@ -252,7 +284,7 @@ rebind, address-use, and source-name boundaries.
 flow and post-await effects remain outside the accepted recipe set after this
 slice. Adoption uses the existing shared core in CLI and Browser/Wasm; no new
 host path or replacement architecture is introduced. This adds one prerequisite
-slice to the #9625 plan, for ten currently planned slices.
+slice to the #9625 plan.
 
 ### Recipe demonstration matrix
 
