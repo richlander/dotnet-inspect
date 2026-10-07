@@ -6436,8 +6436,6 @@ button.library-api-diff-row[aria-current="true"] { background: var(--panel-raise
 }
 /* Member Body keeps one vertical reader in both its inline and expanded hosts. */
 .member-body-reader { min-width: 0; display: flex; flex-direction: column; }
-.member-body-reader .section-title { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
-.member-body-reader .section-title h2 { margin-right: auto; }
 .member-body-scroll { min-width: 0; overflow: auto; max-height: 65vh; }
 .member-body-inventory { display: flex; flex-direction: column; gap: .5rem; }
 .member-body-inventory > button, .member-body-inventory > div { text-align: left; padding: .75rem; display: flex; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
@@ -6455,6 +6453,30 @@ button.library-api-diff-row[aria-current="true"] { background: var(--panel-raise
 .member-body-reader { min-height: 0; }
 .member-body-reader > .member-body-scroll { min-height: 0; flex: 1; max-height: none; }
 .member-body-inventory.member-body-scroll { max-height: none; }
+.compare-surface.compare-full-bleed { grid-template-rows: auto minmax(0, 1fr); }
+.compare-controls-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; padding: 4px 12px; border-bottom: 1px solid var(--line); }
+.compare-page-actions { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.compare-page-actions .compare-tools { align-items: center; width: auto; }
+.compare-page-actions .compare-tool { display: flex; align-items: center; gap: 6px; }
+.compare-controls-row .compare-context { flex: 0 1 auto; min-width: 0; align-items: center; }
+.compare-controls-row .compare-mode-tabs { gap: 6px; align-items: center; }
+.compare-controls-row .compare-mode-tabs button { min-height: 28px; padding: 0 6px; }
+.compare-page-actions [data-member-body-medium][aria-pressed="true"] { color: var(--accent); border-color: var(--accent); }
+.member-body-reader .source-diff-viewer-summary,
+.member-body-reader .source-diff-viewer-controls,
+.member-body-reader .member-diff-source-diff { border-left: 0; border-right: 0; }
+@media (max-width: 1050px) {
+  .workbench:has(.targetbar .compare-page-actions) { grid-template-rows: 42px auto auto minmax(0, 1fr) 30px; }
+  .targetbar:has(.compare-page-actions) { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: 41px auto; gap: 0; }
+  .targetbar:has(.compare-page-actions) .inspected-target { width: 100%; height: 41px; }
+  .targetbar:has(.compare-page-actions) .working-surface-actions { min-width: 0; width: 100%; height: auto; min-height: 40px; padding: 4px 8px; }
+  .compare-page-actions { width: 100%; flex-wrap: wrap; justify-content: flex-end; gap: 5px 8px; }
+  .compare-controls-row .compare-context { flex: 1 1 auto; max-width: none; }
+}
+@media (max-width: 600px) {
+  .compare-controls-row { flex-wrap: wrap; padding-inline: 8px; }
+  .compare-controls-row .compare-context { flex: 1 1 220px; }
+}
 
 
 

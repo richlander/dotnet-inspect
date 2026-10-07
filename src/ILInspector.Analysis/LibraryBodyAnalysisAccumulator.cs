@@ -269,6 +269,12 @@ internal sealed class LibraryBodyAnalysisAccumulator
 
         var methodArray = methods.ToImmutable();
         var directCalls = calls.ToImmutable();
+        ImmutableArray<UnsafeMemberUse> unsafeMemberUses =
+            _includeMethodEvidence
+                ? BuildUnsafeMemberUses(
+                    results,
+                    directCalls)
+                : [];
         bool fieldAccessCensusComplete =
             results.All(result =>
                 !result.RequiresCompleteFieldAccessCensus
@@ -325,7 +331,8 @@ internal sealed class LibraryBodyAnalysisAccumulator
                     impl,
                     expl,
                     unavailable),
-                Occurrences: unsafetyOccurrences),
+                Occurrences: unsafetyOccurrences,
+                MemberUses: unsafeMemberUses),
             Allocations: new(allocationOccurrences),
             Optimizations: new(
                 Opportunities: optimizationOpportunities.ToImmutable(),
@@ -336,6 +343,91 @@ internal sealed class LibraryBodyAnalysisAccumulator
                     scopeExcludedOpportunityTokens,
                 ExceptionTypeNames: _exceptionTypeNames),
             Diagnostics: diagnostics.ToImmutable());
+    }
+
+    static ImmutableArray<UnsafeMemberUse> BuildUnsafeMemberUses(
+        IReadOnlyList<LibraryMethodAnalysisResult> results,
+        ImmutableArray<DirectCall> calls)
+    {
+        var callsByCaller = calls
+            .Where(static call =>
+                call.TargetCallerUnsafeMode
+                    == CallerUnsafeMode.Explicit)
+            .GroupBy(static call =>
+                call.EvidenceMethod.MetadataToken)
+            .ToDictionary(
+                static group => group.Key,
+                static group => group.ToImmutableArray());
+        var uses = ImmutableArray.CreateBuilder<UnsafeMemberUse>();
+
+        foreach (LibraryMethodAnalysisResult result in results)
+        {
+            if (result.Caller is not { } method)
+                continue;
+
+            var evidence =
+                ImmutableArray.CreateBuilder<
+                    UnsafeMemberUseEvidence>();
+            if (result.Mode == CallerUnsafeMode.Explicit)
+            {
+                evidence.Add(new(
+                    UnsafeMemberUseKind.ExplicitContract,
+                    ILOffset: null,
+                    "The member has an explicit updated-model caller-unsafe contract."));
+            }
+
+            foreach (UnsafetyOccurrence occurrence
+                in result.Unsafety.IsDefault
+                    ? []
+                    : result.Unsafety)
+            {
+                if (!occurrence.RequiresUnsafeContext)
+                    continue;
+
+                evidence.Add(new(
+                    occurrence.Kind switch
+                    {
+                        UnsafetyKind.Deref =>
+                            UnsafeMemberUseKind.PointerDereference,
+                        UnsafetyKind.CallIndirect =>
+                            UnsafeMemberUseKind.IndirectCall,
+                        UnsafetyKind.StackAlloc =>
+                            UnsafeMemberUseKind.StackAllocation,
+                        _ => throw new InvalidOperationException(
+                            $"Unsupported unsafe-member occurrence kind '{occurrence.Kind}'."),
+                    },
+                    occurrence.ILOffset,
+                    occurrence.Detail
+                        ?? occurrence.Kind.ToString()));
+            }
+
+            if (callsByCaller.TryGetValue(
+                    method.MetadataToken,
+                    out ImmutableArray<DirectCall>
+                        explicitCalls))
+            {
+                foreach (DirectCall call in explicitCalls)
+                {
+                    evidence.Add(new(
+                        UnsafeMemberUseKind
+                            .ExplicitContractCall,
+                        call.ILOffset,
+                        call.Callee
+                            .ToQualifiedDisplayString()));
+                }
+            }
+
+            if (evidence.Count > 0)
+            {
+                uses.Add(new(
+                    method,
+                    result.Mode
+                        == CallerUnsafeMode.Explicit,
+                    evidence.ToImmutable()));
+            }
+        }
+
+        return uses.ToImmutable();
     }
 
     static ImmutableArray<DirectCall> NormalizeSameImageCallContracts(

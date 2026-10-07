@@ -746,7 +746,7 @@ public partial class LibraryCommand
             {
                 CommandError.Write(
                     "Body Shapes composition accepts Performance Triage filters, "
-                    + "but not --top or --order-by. Use --rows to limit rendered matches.");
+                    + "but not --top or --order-by. Use -n or --rows to limit matches.");
                 return 1;
             }
             if (options.BodyKindQuery.HasFilter
@@ -1437,6 +1437,8 @@ public partial class LibraryCommand
                         documentInspection: documentInspection);
                 if (!TrySelectAssemblyReferences(inspection, options.ReferenceRowSelection))
                     return 1;
+                if (!TrySelectBodyShapes(inspection, options.BodyShapeRowSelection))
+                    return 1;
                 if (!TrySelectLibraryEcosystemDependencies(
                         inspection,
                         options.EcosystemDependencyRowSelection))
@@ -1785,6 +1787,13 @@ public partial class LibraryCommand
                 {
                     return 1;
                 }
+                if (!inspections.All(inspection =>
+                        TrySelectBodyShapes(
+                            inspection,
+                            options.BodyShapeRowSelection)))
+                {
+                    return 1;
+                }
                 if (inspections.Count == 1
                     && !TrySelectLibraryEcosystemDependencies(
                         inspections[0],
@@ -2104,6 +2113,8 @@ public partial class LibraryCommand
                         inspectedContentHash: inspectedContentHash,
                         documentInspection: documentInspection);
                 if (!TrySelectAssemblyReferences(inspection, options.ReferenceRowSelection))
+                    return 1;
+                if (!TrySelectBodyShapes(inspection, options.BodyShapeRowSelection))
                     return 1;
                 if (!TrySelectLibraryEcosystemDependencies(
                         inspection,
@@ -3014,6 +3025,33 @@ public partial class LibraryCommand
         inspection.AssemblyReferenceDisplayOrder = selected;
         if (inspection.AssemblyInfo is not null)
             inspection.AssemblyInfo.References = [.. selected];
+        return true;
+    }
+
+    /// <summary>
+    /// Selects the lone Body Shapes view's rows once, before any format or
+    /// Count renders them, so every lowering observes the same rows.
+    /// </summary>
+    internal static bool TrySelectBodyShapes(
+        LibraryInspection inspection,
+        RowSelectionIntent<string>? intent)
+    {
+        if (intent is null
+            || inspection.EffectiveBodyShapeSearchResult is not { } result)
+        {
+            return true;
+        }
+
+        if (!BodyShapeRowSelection.TrySelect(
+                intent,
+                inspection.BodyShapeSections,
+                result.Matches,
+                out BodyShapeRowSelection? selection))
+        {
+            return false;
+        }
+
+        inspection.BodyShapeRowSelection = selection;
         return true;
     }
 

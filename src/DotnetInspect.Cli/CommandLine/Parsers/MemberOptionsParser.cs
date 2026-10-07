@@ -397,6 +397,12 @@ public static class MemberOptionsParser
             CloneCandidateRowSelectionAdoption.IsActive(
                 parseResult,
                 opts);
+        bool selectsBodyShapeRows =
+            !selectsCloneCandidateRows
+            && BodyShapeRowSelectionAdoption.IsActive(
+                parseResult,
+                opts,
+                args.TfmOption);
         if (!CliRowSelectionCommandRegistry.TryGetPreparedSemanticIntent(
                 parseResult,
                 selectsCallRows
@@ -405,6 +411,8 @@ public static class MemberOptionsParser
                     ? "Member Callers"
                     : selectsCloneCandidateRows
                     ? "Clone Candidates"
+                    : selectsBodyShapeRows
+                    ? "Body Shapes"
                     : "Member Facts",
                 out RowSelectionIntent<string>? rowSelection,
                 out string? rowSelectionError))
@@ -728,6 +736,7 @@ public static class MemberOptionsParser
             FactsRowSelection = selectsCallRows
                 || selectsCallerRows
                 || selectsCloneCandidateRows
+                || selectsBodyShapeRows
                 ? null
                 : rowSelection,
             CallRowSelection = selectsCallRows
@@ -738,6 +747,10 @@ public static class MemberOptionsParser
                 : null,
             CloneCandidateRowSelection =
                 selectsCloneCandidateRows
+                    ? rowSelection
+                    : null,
+            BodyShapeRowSelection =
+                selectsBodyShapeRows
                     ? rowSelection
                     : null,
             PerformanceTriage = performanceTriage,

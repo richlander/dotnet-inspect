@@ -11,4 +11,11 @@ public sealed record UnsafetyOccurrence(
     MethodIdentity Method,
     int ILOffset,
     UnsafetyKind Kind,
-    string? Detail);
+    string? Detail)
+{
+    /// <summary>
+    /// Whether the reconstructed operation requires an unsafe context under
+    /// updated language semantics.
+    /// </summary>
+    public bool RequiresUnsafeContext { get; init; } = true;
+}

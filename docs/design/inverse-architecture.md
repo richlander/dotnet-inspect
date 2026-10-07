@@ -42,6 +42,85 @@ So the framing carries three qualifiers everywhere: **semantic equivalence**,
 a **declared domain**, and **per-node assumptions**. The rest of this document is
 mostly the enumeration of those assumptions.
 
+## Constructor default-argument spills
+
+The constructor-chain argument fold recovers the compiler's `default(T)`
+argument lowering: an adjacent `initobj T` through a local address followed
+by a sole value load inside the base or this constructor call. The motivating
+witnesses are System.Text.Json 11.0.0-rc.1.26425.128 JsonArray constructors
+`0x06000831` and `0x06000832`. Their source is pinned to dotnet/runtime
+[`ab19415702aa8139d5369e47c73edb47343c34ad`, JsonArray.cs](https://github.com/dotnet/runtime/blob/ab19415702aa8139d5369e47c73edb47343c34ad/src/libraries/System.Text.Json/src/System/Text/Json/Nodes/JsonArray.cs):
+array and span constructors use `base()`, whose optional nullable argument
+becomes a default-value local in Release IL.
+
+`SpilledReceiverFold` owns the shared all-or-nothing argument-run effect-order
+proof. Constructor-chain recovery supplies the function scope to admit these
+initializations; other consumers retain their store-based admission. The
+initialization type, addressed storage type, and sole loaded value type must
+agree. The initialization is the local's sole write, its address is used only
+by that initialization, and the local is referenced or bound nowhere outside
+the initialization and value-load pair. Deferred nested-function loads decline.
+The existing shared ownership atom checks structured binders as well as plain
+loads and stores. A default value reads no storage and has no constructor or
+other observable effect; it is reorder-trivial in that shared proof.
+
+Recovery removes the initialization and replaces its sole load with typed
+`DefaultValue`, carrying the initialization's source origin. It consumes no
+blocks, branch edges, labels, or exception boundaries; the argument run is
+adjacent in one block. Other spill computations retain the shared ordering and
+unconditional-evaluation proof. Escaped addresses, additional reads or writes,
+structured rebinding, type disagreement, and unsafe effect order remain
+lowered. Residual direct constructor calls retain their honest Partial
+fidelity diagnostic.
+
+`ConstructorChainArgumentOrderTests.DefaultValueSpill_InlinesOwnedInitialization`
+and `DefaultValueSpill_UnownedOrMismatchedStorageDoesNotInline` gate ownership
+and type boundaries alongside existing ordering declines.
+`DefaultConstructorArgumentTests.CompilerDefaultArgument_RaisesConstructorInitializer`
+pins compiler-produced array, span, and this-chain positives.
+`CompilerDefaultArguments_CompileBackExact` gates independently measured raised
+and lowered product compile-back outcomes. Real runtime render A/B and
+revision-bound structural review supplement these focused gates; they do not
+turn readable output into an Exact claim. Adoption uses the existing shared
+Decompiler pipeline in CLI and Browser/Wasm, with no host-specific step.
+
+## Terminal throws in local-function bodies
+
+A local-function body that the ordinary raising pipeline has already reduced
+into one block may end in `Throw` for any return type. That terminal statement
+is a complete body just as a final `Return` is: it evaluates the same exception
+operand after the same preceding effects and exits through the same exception.
+The local-function admission predicate recognizes that terminal without
+rewriting the operand, adding a return, or replacing the body. The same
+predicate governs standalone local functions and static dependency closures.
+Existing receiver, environment, parameter/ref-kind, generic identity,
+reference-closure, naming, unsupported-node, and isolated-scope checks remain
+required. No loop or exception-handler admission is added by this rule.
+
+The motivating real witness is System.Text.Json
+11.0.0-rc.1.26425.128 `JsonElement.GetBoolean` (`0x060002F8`). Its generated
+`ThrowJsonElementWrongTypeException` helper is a static bool method with one
+`Throw` statement. Its authored source is pinned to dotnet/runtime
+[`ab19415702aa8139d5369e47c73edb47343c34ad`, JsonElement.cs](https://github.com/dotnet/runtime/blob/ab19415702aa8139d5369e47c73edb47343c34ad/src/libraries/System.Text.Json/src/System/Text/Json/Document/JsonElement.cs).
+The existing local-function machinery imports that sibling body, emits its
+source declaration, and rewrites references under the existing component
+ownership proof. This admission change consumes no additional blocks, locals,
+labels, or edges and keeps exception construction and preceding calls in place.
+
+`ThrowingLocalFunctionTests.CompilerTerminalThrow_RaisesWithCompleteDeclarations`
+gates compiler-produced value-returning and void helpers, preceding effects,
+and a static dependency closure whose leaf throws. The positives fail before
+this admission. `ThrowingLocalWithUnavailableBody_RemainsPartial` retains the
+missing import-seam and missing dependency boundaries.
+`CompilerTerminalThrows_CompileBackExact` checks product-issued whole members
+in raised and lowered views. Existing local-function tests gate capture,
+receiver, reference, generic, naming, and scope declines; runtime render A/B
+and revision-bound structural review supplement the focused tests. Full
+projection fidelity and compile-back Exact remain distinct verdicts.
+Adoption uses the existing shared Decompiler pipeline in CLI and Browser/Wasm.
+DeepEquals's ordinary loop helper remains outside this independently coherent
+terminal-throw slice.
+
 ## Two references, used differently
 
 The architecture relates to the two forward compilers in fundamentally different ways.

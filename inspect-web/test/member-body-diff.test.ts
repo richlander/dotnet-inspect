@@ -27,7 +27,7 @@ function context(): MemberBodyDiffContext {
   return { packageModel: {}, request: { packageId: "Example", beforeVersion: "1.0.0", afterVersion: "2.0.0",
     framework: "net10.0", compileAssetId: "asset", generation: "generation", inventoryId: null, memberId: null },
   subject: "member", subjectLabel: "Run", targetText: "1 → 2", typeIdentity: "N.T", memberFingerprint: "123",
-  methodToken: 0x06000001, tools: "" };
+  methodToken: 0x06000001 };
 }
 const flush = (): Promise<void> => new Promise(resolve => setImmediate(resolve));
 const escape = (value: unknown): string => String(value).replaceAll("<", "&lt;");
@@ -84,9 +84,9 @@ test("removed and ambiguous Members have no current destination", () => {
   assert.equal(memberBodyDestination(ambiguous, context()), null);
 });
 
-test("reader preserves absence, unavailable, and size-limit outcomes", () => {
+test("reader omits the absence banner and preserves unavailable and size-limit outcomes", () => {
   const reader = { document, medium: "CSharp" as const, mode: "unified" as const };
-  assert.match(renderMemberBodyReader({ ...reader, document: { ...document, beforeOutcome: "Absent" } }, escape), /Not present on this side/);
+  assert.doesNotMatch(renderMemberBodyReader({ ...reader, document: { ...document, beforeOutcome: "Absent" } }, escape), /Not present on this side/);
   assert.match(renderMemberBodyReader({ ...reader, document: { ...document, media: [{ medium: "CSharp", beforeText: null, afterText: null, diff: null, limit: "Too complex: Lines" }] } }, escape), /Too complex: Lines/);
   assert.match(renderMemberBodyReader({ ...reader, document: { ...document, beforeOutcome: "Unavailable", beforeDetail: "Exact body unavailable", media: [{ medium: "CSharp", beforeText: null, afterText: null, diff: null, limit: null }] } }, escape), /Exact body unavailable/);
 });
