@@ -13,9 +13,19 @@ public static class PackageManifestContent
     public static string? FindRootManifest(IPackageContent content)
     {
         ArgumentNullException.ThrowIfNull(content);
+        return FindRootManifest(content.EnumerateEntries());
+    }
+
+    /// <summary>
+    /// Selects the single root nuspec from an archive directory without
+    /// requiring any entry body to be materialized.
+    /// </summary>
+    public static string? FindRootManifest(IEnumerable<string> entryPaths)
+    {
+        ArgumentNullException.ThrowIfNull(entryPaths);
         string[] manifests =
         [
-            .. content.EnumerateEntries()
+            .. entryPaths
                 .Where(path => path.EndsWith(
                     ".nuspec",
                     StringComparison.OrdinalIgnoreCase)),

@@ -691,6 +691,15 @@ Type and population binding, filtering intent, ordering, continuation, Share,
 and diagnostics; it does not spell complete Member signatures or adopt host
 rendering.
 
+[`CompleteTypeDocumentInspectionOperation`](../src/DotnetInspector.Sections/CompleteTypeDocumentInspection.cs)
+uses the same exact-Type Library path but asks Metadata for the complete
+declaration population. Metadata spells every admitted method, property,
+field, and event during the same classified-Member scan that defines compact
+membership, so one assembly borrow and one exact-Type resolution produce a
+`TypeDocument` whose declarations retain the overview's population binding.
+The operation promotes nested bounds and failures to its closed document
+outcome; rendering and host adoption remain separate work.
+
 The capability-led pilot for
 [#8802](https://github.com/richlander/dotnet-inspect/issues/8802) is the current
 MemberGroup inspection delivered by
