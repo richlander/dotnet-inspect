@@ -141,3 +141,28 @@ export function focusContentNavigationToggle(root: ParentNode) {
   root.querySelector<HTMLElement>("#content-navigation-toggle")
     ?.focus({ preventScroll: true });
 }
+
+export interface ContentNavigationScroll {
+  readonly scope: string;
+  readonly top: number;
+  readonly left: number;
+}
+
+export function captureContentNavigationScroll(
+  root: ParentNode,
+): ContentNavigationScroll | null {
+  const list = root.querySelector<HTMLElement>(".type-list[data-nav-scope]");
+  const scope = list?.dataset.navScrollScope ?? list?.dataset.navScope;
+  return list && scope ? { scope, top: list.scrollTop, left: list.scrollLeft } : null;
+}
+
+export function restoreContentNavigationScroll(
+  root: ParentNode,
+  snapshot: ContentNavigationScroll | null,
+): void {
+  if (!snapshot) return;
+  const list = root.querySelector<HTMLElement>(".type-list[data-nav-scope]");
+  if (!list || (list.dataset.navScrollScope ?? list.dataset.navScope) !== snapshot.scope) return;
+  list.scrollTop = snapshot.top;
+  list.scrollLeft = snapshot.left;
+}

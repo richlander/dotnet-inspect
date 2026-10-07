@@ -105,7 +105,6 @@
         "DotnetInspector.Queries",
         "DotnetInspector.Sections",
         "DotnetInspector.Services",
-        "ILInspector.Metadata",
         "QuerySpace"
       ]
     },

@@ -27,12 +27,12 @@ public sealed class BrowserExactLibraryApiOperationTests
         (BrowserPackage package, PackageCompileAsset first,
             PackageCompileAsset second) = await RegisterAsync();
 
-        BrowserExactLibraryApiInspection inspection = Read(
-            await PackageExports.QueryLibraryApi(
-                package.PackageId,
-                package.Version,
-                Framework,
-                first.Id));
+        string json = await PackageExports.QueryLibraryApi(
+            package.PackageId,
+            package.Version,
+            Framework,
+            first.Id);
+        BrowserExactLibraryApiInspection inspection = Read(json);
         BrowserExactLibraryApiInspection neighbor = Read(
             await PackageExports.QueryLibraryApi(
                 package.PackageId,
@@ -67,6 +67,23 @@ public sealed class BrowserExactLibraryApiOperationTests
         Assert.NotEqual(
             Guid.Empty,
             inspection.Content.Assembly?.ModuleVersionId);
+        Assert.Equal(
+            typeof(PackageExports).Assembly.GetName().Name,
+            inspection.Content.Assembly?.Identity.Name);
+        Assert.Equal(
+            typeof(PackageExports).Assembly.GetName().Version?.ToString(),
+            inspection.Content.Assembly?.Identity.Version);
+        using (JsonDocument document = JsonDocument.Parse(json))
+        {
+            JsonElement identity = document.RootElement
+                .GetProperty("content")
+                .GetProperty("assembly")
+                .GetProperty("identity");
+            Assert.True(identity.TryGetProperty("name", out _));
+            Assert.True(identity.TryGetProperty("version", out _));
+            Assert.True(identity.TryGetProperty("culture", out _));
+            Assert.True(identity.TryGetProperty("publicKeyToken", out _));
+        }
         Assert.Equal(
             BrowserInspectionShareKind.Available,
             inspection.Share.Kind);

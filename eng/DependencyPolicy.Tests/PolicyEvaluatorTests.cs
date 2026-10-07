@@ -1233,7 +1233,6 @@ public sealed class PolicyEvaluatorTests
                 "DotnetInspector.Queries",
                 "DotnetInspector.Sections",
                 "DotnetInspector.Services",
-                "ILInspector.Metadata",
                 "QuerySpace",
             ],
             Assert.IsType<string[]>(projectRule.AllowOnly));
