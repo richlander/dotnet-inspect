@@ -140,6 +140,7 @@ test("Home preserves exact Spotlight activation across positional ID changes", a
   await expect(page.locator(".home-search"))
     .toHaveAttribute("aria-busy", "false");
 
+  await page.locator('[data-sl-scope="commands"]').click();
   const activity = page.locator('[data-sl-package-activity="1"]');
   await activity.focus();
   await expect(activity).toBeFocused();

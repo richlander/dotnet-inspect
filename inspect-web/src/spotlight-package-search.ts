@@ -81,7 +81,7 @@ export function spotlightPackageSearchError(
 
 export interface SpotlightPackageSearchDependencies<TSchedule> {
   state: SpotlightPackageSearchState;
-  queryPackages: (query: string) => Promise<readonly SpotlightPackageHit[]>;
+  queryPackages: (query: string, signal: AbortSignal) => Promise<readonly SpotlightPackageHit[]>;
   schedule: (callback: () => Promise<void>, delay: number) => TSchedule;
   cancelScheduled: (scheduled: TSchedule) => void;
   updateResults: () => void;
@@ -92,18 +92,23 @@ export function createSpotlightPackageSearch<TSchedule>(
 ) {
   const { state } = dependencies;
   let scheduled: TSchedule | null = null;
+  let active: AbortController | null = null;
   const packageScopeIsActive = () =>
     state.spotlightScope === "all"
     || state.spotlightScope === "packages";
 
   return {
     reset() {
+      active?.abort("disposed");
+      active = null;
       if (scheduled !== null) dependencies.cancelScheduled(scheduled);
       scheduled = null;
       state.spotlightPackageSearch = { status: "idle" };
     },
 
     schedule() {
+      active?.abort("superseded");
+      active = null;
       const query = state.spotlightQuery.trim();
       const current = state.spotlightPackageSearch;
       if (scheduled !== null) {
@@ -114,11 +119,11 @@ export function createSpotlightPackageSearch<TSchedule>(
         state.spotlightPackageSearch = settledPackageSearch(current);
         return;
       }
-      if (parsePackageQuery(query)?.explicitVersion === true) {
+      if (!query.includes("*") && parsePackageQuery(query)?.explicitVersion === true) {
         state.spotlightPackageSearch = { status: "idle" };
         return;
       }
-      if (query.length < 2) {
+      if (query.length < 2 && !query.includes("*")) {
         state.spotlightPackageSearch = { status: "idle" };
         return;
       }
@@ -136,8 +141,10 @@ export function createSpotlightPackageSearch<TSchedule>(
       scheduled = dependencies.schedule(async () => {
         scheduled = null;
         let next: SpotlightPackageSearchResultState;
+        const controller = new AbortController();
+        active = controller;
         try {
-          const hits = await dependencies.queryPackages(query);
+          const hits = await dependencies.queryPackages(query, controller.signal);
           next = { status: "ready", query, hits: [...hits] };
         } catch (error) {
           const message = error instanceof Error
@@ -150,6 +157,7 @@ export function createSpotlightPackageSearch<TSchedule>(
               `Package search failed: ${message}. Edit the search to try again.`,
           };
         }
+        if (active === controller) active = null;
         if (state.spotlightPackageSearch !== pending
           || state.spotlightQuery.trim() !== query
           || !packageScopeIsActive()) return;

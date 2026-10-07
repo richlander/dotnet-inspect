@@ -1244,16 +1244,8 @@ test("Package query and Activity are routed Spotlight actions", () => {
     appSource.match(/function syncUrl\(\)[\s\S]*?\n}/)?.[0]
     ?? "";
 
-  assert.match(
-    results,
-    /kind: "package-query",[\s\S]*prefix: validPackageQuerySearchText\(query\),/);
-  assert.match(results, /kind: "package-activity"/);
-  assert.match(
-    appSource,
-    /case "package-query":\s*openPackageQueryRoute\(result\.prefix\);\s*break;/);
-  assert.match(
-    appSource,
-    /case "package-activity":\s*openPackageActivityRoute\(\);\s*break;/);
+  assert.doesNotMatch(results, /kind: "package-query"|kind: "package-activity"/);
+  assert.match(appSource, /case "package-activity":\s*openPackageActivityRoute\(\);\s*break;/);
   assert.match(
     route,
     /const predecessorEntryId = ensureCurrentHistoryEntryId\(\);[\s\S]*const successorState = predecessorEntryId[\s\S]*packageQueryHistoryState\([\s\S]*predecessorEntryId,[\s\S]*returnFocus[\s\S]*if \(!workspaceLocation\.push\("\/query", successorState\)\) \{[\s\S]*reportProductNavigationFailure\(\s*"query",[\s\S]*return false;[\s\S]*state\.packageQueryOpen = true;[\s\S]*focusPackageQueryInput\(\)/);

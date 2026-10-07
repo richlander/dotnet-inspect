@@ -690,18 +690,39 @@ the Shell-owned production renderer.
 [Package-row removal](inspect-web-package-removal.md) owns the trailing close
 control for open and recent NuGet package rows in Home and modal Spotlight.
 
-Spotlight exposes visible `Package query` and `Package Activity` actions.
-Activating either closes Spotlight and requests its routed surface. When the
-current package-search text is a valid package-ID prefix, Package query
-preserves it as the query surface's initial prefix; otherwise the query surface
-starts with an empty prefix. Seeding the prefix does not start source work.
-Package Activity ignores free-text search and preserves its session-local
-report state. `Run query` or a facet selection dispatches the query request under
-[Package Query Experience](package-query-experience.md).
-[Inspect Web Navigation Consumer](inspect-web-navigation-consumer.md#package-query-entry-and-return)
-and its
-[Package Activity entry contract](inspect-web-navigation-consumer.md#package-activity-entry-and-return)
-commit each route's history entry and destination focus.
+In `All` and `Packages`, an input containing `*` requests inline bounded
+package-prefix discovery through the existing shared
+[Package Query input selection](package-query-input-selection.md) contract.
+One terminal star selects a literal package-ID prefix; malformed stars or
+invalid prefixes produce its visible invalid-input outcome before acquisition.
+For example, `Newtonsoft.*` includes `Newtonsoft.Json@13.0.3` without admitting
+IDs outside the literal `Newtonsoft.` prefix. These are discovery rows, not
+inspection facets or a routed Query page. The existing typed shared plan limits
+both candidates and matches to eight, enables prerelease versions, and requests
+only basic search metadata. Spotlight discloses the bound without claiming
+exhaustive enumeration. It stages the bounded operation's rows until successful
+completion; any producer failure displays an error rather than a successful
+partial result. No manifest or package archive is acquired until activation.
+Editing text, changing scope, dismissing, or superseding Search cancels its
+request; existing exact-input publication receipts exclude stale completion.
+
+Ordinary open-text search and `PackageId@Version` retain their existing behavior.
+Types and Members retain their own pattern semantics in those scopes. Prefix
+input in All does not initiate Type, Member, Library, or capability discovery.
+The production Firefox gate uses the exact `Newtonsoft.Json@13.0.3` identity
+with deterministic source metadata and a neighboring non-prefix ID to enforce
+literal matching and no archive requests, plus invalid-input and supersession
+controls.
+
+Spotlight has no Query category or unconditional Package query action. The
+existing Query page remains available through product navigation and installed
+capability results. `Package Activity` is a routed command in `Commands`,
+available from Home and an inspection even without an active Package. Matching
+its name or choosing it closes Spotlight and preserves its existing session
+report state. The shared modal controls and
+[Navigation Consumer's Activity entry contract](inspect-web-navigation-consumer.md#package-activity-entry-and-return)
+retain history, destination focus, and return focus. The Query page's own
+editor, `Run query`, facets, and source contract are unchanged.
 
 ### Open
 
@@ -991,15 +1012,16 @@ outcomes.
    coordinate button without reopening its menu.
 8. Reopen package-scoped Spotlight, select the result, and confirm that the same
    acquisition transition is used as pointer-driven package selection.
-9. Enter valid package-ID-prefix text, activate the visible `Package query`
-   action, and confirm that Spotlight closes, `/query` is pushed, and the text
-   becomes the initial prefix without starting source work.
-10. Repeat with text that is not a valid package-ID prefix and confirm that the
-    query surface starts with an empty prefix.
-11. Activate the visible `Package Activity` action and confirm that Spotlight
-    closes, `/activity` is pushed, and the Ecosystem selector receives focus.
-    Use Back and Forward and confirm the prior Search focus and Activity
-    destination are restored.
+9. Enter `Newtonsoft.*` in All and Packages and confirm that bounded package
+   results appear inline without leaving Search or acquiring archives. Confirm
+   a non-prefix metadata match is absent and the eight-result bound is visible.
+10. Enter malformed wildcard input and confirm a visible failure before source
+    work; change the input while work is pending and confirm cancellation and
+    absence of stale results. Types and Members retain their scoped patterns.
+11. Select Commands on Home and in an inspection, enter `activity`, activate
+    Package Activity, and confirm `/activity` is pushed and its Ecosystem
+    selector receives focus. Back restores Search focus. All and Packages have
+    no Query category or unconditional route actions.
 12. Open general and command-scoped Spotlight at the narrow supported width and
     confirm that every footer-guidance item, including `Ctrl P search`, remains
     visible within the modal.
