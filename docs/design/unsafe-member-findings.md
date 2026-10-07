@@ -50,7 +50,8 @@ The family is one `AnalysisFindings` descriptor over one finding per
 source-declared member. A member's finding exists exactly when the inventory
 admits the member itself or at least one physical body attributed to it.
 
-Each finding retains:
+Each finding's payload is a member-level record, since the inventory's
+`UnsafeMemberUse` has no per-evidence physical body. It retains:
 
 - the declared member's `MethodIdentity`;
 - whether that member carries an explicit updated-model caller-unsafe
@@ -60,16 +61,20 @@ Each finding retains:
 - the member's exposure.
 
 Evidence order is semantic only within one physical body. Finding enumeration
-is an identity set. The identity key is the declared member's signature
-identity; physical tokens, IL offsets, and generated names are provenance, not
-identity, so a recompilation that renames a closure class does not change the
-finding's identity.
+is an identity set. The identity key is the declared member's signature: its
+assembly name, declaring type, metadata name, generic arity, parameter types,
+and return type. The module version ID, metadata token, and caller-unsafe mode
+are excluded, as are physical tokens, IL offsets, and generated names, which
+are provenance. A recompilation that renames a closure class or adds an
+explicit contract therefore does not change the finding's identity.
 
 ## Attribution
 
 A physical body contributes to a declared member only through the existing
-authenticated declared-source resolution for async state machines, iterators,
-lambdas, and local functions, followed to its ultimate source owner. A body
+authenticated declared-owner resolution for async state machines, iterators,
+lambdas, and local functions, followed to its ultimate source owner. The
+authority is that typed resolution, not a flattened physical-to-source map
+that cannot distinguish an ordinary body from an unresolved generated one. A body
 that is not compiler-generated is its own declared member.
 
 A generated body whose owner cannot be authenticated is not guessed. It does
@@ -85,8 +90,11 @@ calls; they never confer or remove the owner's contract.
 ## Exposure
 
 Exposure is `Public` exactly when the declared member is in Metadata's public
-MethodDef root inventory for the analyzed image, and `NonPublic` otherwise. It
-is a declaration fact. It does not claim call-graph reachability from public
+MethodDef root inventory for the analyzed image, and `NonPublic` when that
+inventory completed without it. When the inventory reached a bound or failed,
+exposure is `Unknown` for every finding and the census records that limitation;
+a partial root prefix never classifies a member as `NonPublic`. Exposure is a
+declaration fact. It does not claim call-graph reachability from public
 API, and protected or internal-visible-to access is not public exposure.
 
 A bounded witness that a public root reaches a non-public finding is a separate
@@ -102,20 +110,34 @@ bodies never imply propagation.
 
 ## Completeness and unknown evidence
 
-The inspection distinguishes a complete census, an incomplete census, and a
-failed inspection. A complete empty census means every in-scope member's
-bodies were inspected and none was admitted. The census is incomplete, with
-typed limitations naming the affected physical bodies, when:
+The census is measured against a declared scope: the inventory's admission
+rule together with its stated non-claims, such as cross-assembly explicit
+contracts and field-focused roles. Those standing non-claims bound what
+"complete" means; they are not per-run limitations, and their absence of
+evidence is not a negative claim.
 
-- the body-analysis receipt lacks full method-evidence scope;
-- a body's analysis failed or its managed body was unavailable;
-- generated-body attribution exhausted its bound or could not authenticate an
-  owner; or
-- the inventory's own non-claims apply, such as cross-assembly explicit
-  contracts not yet consumed.
+The family result follows the
+[Resource Lifecycle](resource-lifecycle-analysis.md) precedent and has three
+outcomes:
 
-Findings produced before a limitation remain sound and are retained. Absent
-evidence for a member is never published as a negative finding.
+- **Complete:** every in-scope body was inspected and attributed, and exposure
+  is known. The findings are a complete `FindingInspection<T>` census; an empty
+  one is a complete negative within the declared scope.
+- **Incomplete:** the sound findings produced so far, as a
+  `FindingInspection<T>` complete over those findings, together with typed
+  limitations. A limitation names the affected physical body when it has one.
+- **Failed:** an inspection failure, not an observation.
+
+The census is incomplete when the body-analysis receipt lacks full
+method-evidence scope, a body's analysis failed or its managed body was
+unavailable, a generated body's owner could not be authenticated or attribution
+exhausted its bound, or the public root inventory was bounded or failed.
+
+A finding is sound when produced, because admission and attribution are
+positive and per member. A limitation never removes or weakens one. An
+incomplete census is never offered to Finding comparison as a complete census;
+the comparison consumer decides how to present an incomplete side, and must not
+report a member as removed because the newer side could not inspect it.
 
 ## Non-claims
 
@@ -154,7 +176,9 @@ Focused Release gates cover, in both legacy and updated-model fixtures:
 - an explicit contract on the declared member only, and no propagation from
   generated or legacy evidence;
 - identity stability across a rename of a generated closure class;
-- an unattributable generated body reported as a limitation, not a finding;
-  and
+- an unattributable generated body reported as a limitation, not a finding,
+  including an async lambda whose lifted owner is unresolved;
+- a bounded or failed public root inventory yielding `Unknown` exposure and an
+  incomplete census; and
 - scoped, failed, and unavailable bodies producing an incomplete census rather
   than a complete empty one.
