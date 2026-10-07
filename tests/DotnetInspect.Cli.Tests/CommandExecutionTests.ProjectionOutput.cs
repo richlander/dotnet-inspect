@@ -569,7 +569,6 @@ public partial class CommandExecutionTests
     [InlineData("--versions-with-feed", "--value")]
     [InlineData("--versions", "--urls")]
     [InlineData("--tfms", "--paths")]
-    [InlineData("--layout", "--print")]
     [InlineData("--content", "--value")]
     public async Task ProjectedJsonRoutingAudit_PackageLensPayloadFailsBeforeAcquisition(
         string lens,
@@ -596,7 +595,6 @@ public partial class CommandExecutionTests
     [InlineData("--versions")]
     [InlineData("--versions-with-feed")]
     [InlineData("--tfms")]
-    [InlineData("--layout")]
     [InlineData("--content")]
     public async Task ProjectedJsonRoutingAudit_PackageLensFieldsFailBeforeAcquisition(
         string lens)
@@ -641,13 +639,17 @@ public partial class CommandExecutionTests
                 "--tfms", "--json", "--columns", "TFM");
             var layout = await RunAppAsync(
                 "package", packagePath,
-                "--layout", "--json", "--columns", "Path");
+                "--files", "--json", "--columns", "Path");
 
+            var section = await RunAppAsync("package", packagePath,
+                "-S", "Files", "--json", "--columns", "Path");
+            Assert.Equal(section.Exit, layout.Exit);
+            Assert.Equal(section.Output, layout.Output);
+            Assert.Equal(section.Error, layout.Error);
             foreach (var (lens, result) in new[]
             {
                 ("--versions", versions),
                 ("--tfms", tfms),
-                ("--layout", layout),
             })
             {
                 Assert.Equal(1, result.Exit);
@@ -1585,7 +1587,7 @@ public partial class CommandExecutionTests
                 "--columns", "TFM",
                 "--count", "--rows", "1..1");
             var layout = await RunAppAsync(
-                "package", packagePath, "--layout",
+                "package", packagePath, "--files",
                 "--count", "--rows", "1..1");
             var discovery = await RunAppAsync(
                 "library", TestAssemblyPath, "-D", "",

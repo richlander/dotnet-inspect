@@ -35,6 +35,7 @@ public partial class PackageCommand
             options.FormatExplicitlySet
             || options.Print
             || options.Raw
+            || options.JsonArray
             || options.Tree
             || options.Count
             || options.Value
@@ -43,7 +44,6 @@ public partial class PackageCommand
             || options.Roots
             || options.ShowContent
             || options.ListVersions
-            || options.ListLayout
             || options.ListTfms
             || options.Discover is not null
             || options.Schema
@@ -268,7 +268,7 @@ public partial class PackageCommand
     /// subject identity and issued properties on the title line, then the
     /// selected file rows grouped under their directories. Directory nodes are
     /// context, so <c>-n</c> and <c>--rows</c> select files before the tree is
-    /// built, as the layout lens does.
+    /// lowered through the shared hierarchy sink.
     /// </summary>
     private static void WritePackageFilesTree(
         InspectionResult result,
@@ -277,17 +277,22 @@ public partial class PackageCommand
         var text = new PackageInspectionText(result);
         List<PackageFileText> files =
             GetPackageFileTextRows(result, text, PackageSections.Files);
-        string[] paths =
+        DotnetInspector.Queries.PackageFileInventoryEntry[] selected =
         [
             .. RowWindow.Apply(options.Rows, files)
-                .Select(static file => file.Path.ToString()),
+                .Select(static file => new DotnetInspector.Queries.PackageFileInventoryEntry(
+                    file.Path.ToString(), file.Size)),
         ];
 
         var properties = new List<ResultProperty>(2);
         if (!string.IsNullOrWhiteSpace(result.Source))
             properties.Add(new ResultProperty("source", result.Source));
-        if (!string.IsNullOrWhiteSpace(options.Tfm))
-            properties.Add(new ResultProperty("target", options.Tfm));
+        string? target = options.PackageFilePredicates
+            .FirstOrDefault(term => term.Key.Equals("Target", StringComparison.OrdinalIgnoreCase)
+                && term.Operator == QuerySpace.PortableQueryOperator.Equal)?.Value
+            ?? (options.Tfm?.Equals("all", StringComparison.OrdinalIgnoreCase) == true ? null : options.Tfm);
+        if (!string.IsNullOrWhiteSpace(target))
+            properties.Add(new ResultProperty("target", target));
         string title = ResultTitle.Compose(
             $"{result.PackageName} {result.Version}".Trim(),
             properties);
@@ -295,10 +300,9 @@ public partial class PackageCommand
         OutputDestination.Write(
             options.OutputPath,
             null,
-            output => PackageOutputFormatter.WriteFileTree(
-                output,
+            output => DotnetInspector.Presentation.PackageFileHierarchyPresentation.WriteTree(
+                selected,
                 title,
-                paths,
-                collapseSingleChildDirectories: true));
+                output));
     }
 }

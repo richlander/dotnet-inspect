@@ -492,7 +492,7 @@ public partial class CommandExecutionTests
             "package",
             "Package.That.Must.Not.Resolve",
             "--tfms",
-            "--layout",
+            "--files",
             "--rows",
             "..1");
 
@@ -1571,7 +1571,7 @@ public partial class CommandExecutionTests
         {
             (string Lens, string[] Arguments)[] cases =
             [
-                ("--layout", ["--layout"]),
+                ("--files", ["--files"]),
                 ("--tfms", ["--tfms"]),
                 ("--versions", ["--versions"]),
                 ("--content", ["--content", "--path", "README.md"]),
@@ -2050,51 +2050,7 @@ public partial class CommandExecutionTests
         }
     }
 
-    [Fact]
-    public async Task Package_DependencyTree_ProgrammaticSelectionRejectsLens()
-    {
-        var (packagePath, tempDir) = CreateLocalDependencyPackage();
-        try
-        {
-            var rendered = await ConsoleCapture.RunAsync(
-                () => PackageCommand.ExecuteAsync(
-                    new InspectionOptions
-                    {
-                        PackageArgs = [packagePath],
-                        Tree = true,
-                        IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-                        {
-                            PackageSections.DependencyHierarchy,
-                        },
-                        ListLayout = true,
-                    }));
 
-            Assert.Equal(1, rendered.ExitCode);
-            Assert.Empty(rendered.Output);
-            Assert.Contains("--tree cannot be combined with --layout", rendered.Error);
-
-            var rowFormat = await ConsoleCapture.RunAsync(
-                () => PackageCommand.ExecuteAsync(
-                    new InspectionOptions
-                    {
-                        PackageArgs = [packagePath],
-                        Tree = true,
-                        IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-                        {
-                            PackageSections.DependencyHierarchy,
-                        },
-                        Tsv = true,
-                    }));
-
-            Assert.Equal(1, rowFormat.ExitCode);
-            Assert.Empty(rowFormat.Output);
-            Assert.Contains("--tree cannot be combined with count, shape, tabular, JSON, or field/column projections", rowFormat.Error);
-        }
-        finally
-        {
-            Directory.Delete(tempDir, recursive: true);
-        }
-    }
 
     [Fact]
     public async Task Package_TreeDefaultsToPackageChildren()
@@ -2122,7 +2078,7 @@ public partial class CommandExecutionTests
             Assert.Contains(
                 "omit the section for the Package children tree",
                 categoryError);
-            Assert.DoesNotContain("--layout", categoryError);
+            Assert.DoesNotContain("--files", categoryError);
             Assert.Equal(1, aliasExit);
             Assert.Contains("--dependencies has been removed", aliasError);
             Assert.DoesNotContain("--tree requires", aliasError);

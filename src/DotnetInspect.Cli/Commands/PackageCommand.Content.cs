@@ -10,6 +10,7 @@ using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
 using DotnetInspect.Cli.Planning;
 using DotnetInspector.Queries;
+using QuerySpace;
 using QuerySpace.Composition;
 using QuerySpace.Rows;
 using NuGetFetch;
@@ -800,12 +801,17 @@ public partial class PackageCommand
 
     private static List<PackageFile> FilterPackageFiles(List<PackageFile> files, InspectionOptions options)
     {
-        List<PackageFile> scopedFiles =
-            HasTargetFrameworkFileFilter(options)
-                ? PackageFileLister.FilterByTargetFramework(
-                    files,
-                    options.Tfm!)
-                : files;
+        IReadOnlyList<PortableQueryTerm> predicates = PackageFilePredicates(options);
+        List<PackageFile> scopedFiles = files;
+        if (predicates.Count > 0)
+        {
+            var resolution = PackageFileInventoryQuery.FileRowsScope.Resolve(
+                PortableQueryIntent.Create(predicates, [], [], []));
+            var plan = resolution.Plan
+                ?? throw new ArgumentException("Invalid package file predicates.", nameof(options));
+            scopedFiles = [.. files.Where(file =>
+                RowQueryExecutor.Matches(new PackageFileInventoryEntry(file.Path, file.Size), plan))];
+        }
         var selectors = PathSelectors(options);
         if (selectors.Length == 0)
             return scopedFiles;
@@ -839,6 +845,18 @@ public partial class PackageCommand
             .ToList();
     }
 
+    private static IReadOnlyList<PortableQueryTerm> PackageFilePredicates(InspectionOptions options)
+    {
+        if (!HasTargetFrameworkFileFilter(options)
+            || options.PackageFilePredicates.Any(term =>
+                term.Key.Equals("Target", StringComparison.OrdinalIgnoreCase)
+                && term.Operator == PortableQueryOperator.Equal
+                && term.Value.Equals(options.Tfm, StringComparison.OrdinalIgnoreCase)))
+            return options.PackageFilePredicates;
+        return [.. options.PackageFilePredicates,
+            new("Target", PortableQueryOperator.Equal, options.Tfm!)];
+    }
+
     private static string[] PathSelectors(InspectionOptions options)
         => options.PathFilters is { Length: > 0 } filters ? filters
             : options.PathFilter is { Length: > 0 } filter ? [filter]
@@ -855,7 +873,8 @@ public partial class PackageCommand
 
     private static bool HasPackageFileFilter(InspectionOptions options)
         => HasPathFilter(options)
-            || HasTargetFrameworkFileFilter(options);
+            || HasTargetFrameworkFileFilter(options)
+            || options.PackageFilePredicates.Count > 0;
 
     private static bool RequestsPackageFileRows(InspectionOptions options)
         => HasPathFilter(options)
@@ -1196,7 +1215,8 @@ public partial class PackageCommand
         var query = PackageFileInventoryQuery.CreateRequest(
             options.PackageFileRowSelection
                 ?? RowSelectionIntent<string>.Empty,
-            terminal);
+            terminal,
+            PackageFilePredicates(options));
         InspectionEnvelope<PackageFileInventoryDocument> envelope =
             await PackageFileInventoryCommandCapability.Binding
                 .ExecuteAsync(new(settlement, query))
@@ -1504,7 +1524,7 @@ public partial class PackageCommand
                 || options.Urls
                 || options.Paths
                 || options.Roots)
-            && !HasPackageFileFilter(options)
+            && !HasPathFilter(options)
             && options.IncludeSections is { Count: 1 } sections
             && sections.Single().Equals(
                 PackageSections.Files,

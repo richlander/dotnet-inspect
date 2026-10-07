@@ -1922,8 +1922,8 @@ public sealed class InspectionPlanningTests
     [InlineData("format", "--mermaid is standalone")]
     [InlineData("package-version", "--library cannot be combined with --versions")]
     [InlineData("package-dependencies", "--library cannot be combined with --dependencies")]
-    [InlineData("package-layout", "--library cannot be combined with --layout")]
-    [InlineData("aggregate-layout", "Library aggregate inspection cannot be combined with --layout")]
+    [InlineData("package-layout", "--library cannot be combined with --files")]
+    [InlineData("aggregate-layout", "Library aggregate inspection cannot be combined with --files")]
     public async Task StaticSchema_PreservesRouteValidationAddedByReplacement(
         string scenario,
         string expectedError)
@@ -1965,7 +1965,7 @@ public sealed class InspectionPlanningTests
                 "Missing.Package",
                 "--library",
                 "ref/net8.0/Missing.dll",
-                "--layout",
+                "--files",
                 "-D",
                 "--schema",
             ],
@@ -1974,7 +1974,7 @@ public sealed class InspectionPlanningTests
                 "package",
                 "Missing.Package",
                 "--library",
-                "--layout",
+                "--files",
                 "-D",
                 "--schema",
             ],
@@ -2078,10 +2078,10 @@ public sealed class InspectionPlanningTests
     }
 
     [Theory]
-    [InlineData("library", "--layout=false")]
-    [InlineData("library", "--layout:false")]
-    [InlineData("all", "--layout=false")]
-    [InlineData("all", "--layout:false")]
+    [InlineData("library", "--files=false")]
+    [InlineData("library", "--files:false")]
+    [InlineData("all", "--files=false")]
+    [InlineData("all", "--files:false")]
     public async Task StaticPackageLibrarySchema_ExplicitFalseLayoutIsDisabled(
         string route,
         string layout)
@@ -2104,12 +2104,12 @@ public sealed class InspectionPlanningTests
 
         Assert.Equal(0, result.Exit);
         Assert.DoesNotContain(
-            "cannot be combined with --layout",
+            "cannot be combined with --files",
             result.Error);
     }
 
     [Theory]
-    [InlineData("--layout", null)]
+    [InlineData("--files", null)]
     [InlineData("--tfms", null)]
     [InlineData("--print", null)]
     [InlineData("--dependencies", null)]
@@ -2135,8 +2135,8 @@ public sealed class InspectionPlanningTests
     }
 
     [Theory]
-    [InlineData("--layout=false")]
-    [InlineData("--layout:false")]
+    [InlineData("--files=false")]
+    [InlineData("--files:false")]
     [InlineData("--tfms=false")]
     public async Task PackageLibraryAlternativesPreserveDisabledConflictingOptions(string option)
     {
@@ -4118,7 +4118,7 @@ public sealed class InspectionPlanningTests
                     ? "ref/net8.0/Missing.dll"
                     : null,
             AllLibraries = route == "all",
-            ListLayout = true,
+            FilesExplicitlySet = true,
         };
 
         var result = await ConsoleCapture.RunAsync(
@@ -4127,8 +4127,8 @@ public sealed class InspectionPlanningTests
         Assert.Equal(1, result.ExitCode);
         Assert.Contains(
             route == "library"
-                ? "--library cannot be combined with --layout"
-                : "Library aggregate inspection cannot be combined with --layout",
+                ? "--library cannot be combined with --files"
+                : "Library aggregate inspection cannot be combined with --files",
             result.Error);
         Assert.DoesNotContain(
             "Package 'Missing.Package' not found",

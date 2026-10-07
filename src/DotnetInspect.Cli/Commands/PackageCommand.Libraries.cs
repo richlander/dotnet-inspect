@@ -60,8 +60,8 @@ public partial class PackageCommand
 
         List<string> conflicts = [];
         if (options.AllLibraries) conflicts.Add("Library aggregate");
-        if (options.ListLayout || options.ListLayoutExplicitlySet)
-            conflicts.Add("--layout");
+        if (options.FilesExplicitlySet)
+            conflicts.Add("--files");
         if (HasPathFilter(options)) conflicts.Add("--path");
         if (options.ListTfms) conflicts.Add("--tfms");
         if (options.ListVersions) conflicts.Add("--versions/--version");
@@ -82,8 +82,8 @@ public partial class PackageCommand
     {
         List<string> conflicts = [];
         if (options.PackageLibrary != null) conflicts.Add("--library");
-        if (options.ListLayout || options.ListLayoutExplicitlySet)
-            conflicts.Add("--layout");
+        if (options.FilesExplicitlySet)
+            conflicts.Add("--files");
         if (HasPathFilter(options)) conflicts.Add("--path");
         if (options.ListTfms) conflicts.Add("--tfms");
         if (options.ListVersions) conflicts.Add("--versions/--version");
