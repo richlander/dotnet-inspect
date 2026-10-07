@@ -6,8 +6,8 @@ This document is the normative design for **Host-neutral hierarchy
 projection**. The substrate is tracked by
 [#9458](https://github.com/richlander/dotnet-inspect/issues/9458).
 Type Overview and shared presentation are the first adopters under
-[#8430](https://github.com/richlander/dotnet-inspect/issues/8430), whose
-counted transport-host adoption will reach both the CLI and Inspect Web.
+[#8430](https://github.com/richlander/dotnet-inspect/issues/8430). The CLI
+adopts the compact profile; Inspect Web adoption remains separate.
 
 The first shared presentation profile is the compact Type hierarchy:
 
@@ -255,9 +255,9 @@ Shared presentation owns both initial lowerings:
   identifiers and Mermaid escaping.
 
 The shared presentation API accepts only Tree or Mermaid intent,
-accessibility policy, the completed owner document, and the destination. A
-focused CLI adoption will pass those values without owning Markout, node
-formatting, or hierarchy formation. Inspect Web may request either format or
+accessibility policy, the completed owner document, and the destination. The
+CLI exact-Type hierarchy route adopts this profile without owning Markout,
+node formatting, or hierarchy formation. Inspect Web may request either format or
 a later Browser transport without duplicating hierarchy formation.
 
 The expanded Mermaid example

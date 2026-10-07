@@ -395,6 +395,7 @@ public partial record ApiOptions
 
 public record TypeOptions : ApiOptions
 {
+    internal TypeOverviewHierarchyPresentationFormat? HierarchyFormat { get; init; }
     public string? WorkspacePacket { get; init; }
     public WorkspaceShareFormat? ShareFormat { get; init; }
     public string? TypeFilter { get; init; }

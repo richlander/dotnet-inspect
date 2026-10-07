@@ -504,6 +504,8 @@ public static class TypeOptionsParser
             DocsExplicitlySet = false,
             PreferRenderedUrls = parseResult.GetValue(opts.PreferRenderedUrls),
             JsonOutput = !envelopeOutput && outputFormat == OutputFormat.Json,
+            MermaidOutput = !envelopeOutput
+                && outputFormat == OutputFormat.Mermaid,
             EnvelopeOutput = envelopeOutput,
             CompactJson = parseResult.GetValue(args.CompactOption),
             Tabular =

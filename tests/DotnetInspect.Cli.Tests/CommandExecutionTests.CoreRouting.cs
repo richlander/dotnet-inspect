@@ -2014,8 +2014,11 @@ public partial class CommandExecutionTests
         var direct = await RunAppAsync(["type", target, .. tail]);
         var routed = await RunAppAsync([target, .. tail]);
 
-        Assert.Equal(direct, routed);
+        Assert.Equal(1, direct.Exit);
+        Assert.Empty(direct.Output);
+        Assert.Contains("--mermaid requires a standalone exact Type", direct.Error);
         Assert.Equal(1, routed.Exit);
+        Assert.Empty(routed.Output);
         Assert.Contains("Unrecognized option '--mermaid'", routed.Error);
     }
 

@@ -218,7 +218,8 @@ internal static class LibraryTypeListingCommand
         CancellationToken cancellationToken,
         string? @namespace = null,
         MetadataNamespaceMatch namespaceMatch =
-            MetadataNamespaceMatch.Exact)
+            MetadataNamespaceMatch.Exact,
+        int maximumRows = int.MaxValue)
     {
         var rows = ImmutableArray.CreateBuilder<LibraryTypeShape>();
         LibraryDocument? firstDocument = null;
@@ -268,6 +269,8 @@ internal static class LibraryTypeListingCommand
                 return null;
             }
 
+            if (rows.Count + read.Items.Length > maximumRows)
+                return null;
             rows.AddRange(read.Items);
             continuation = read.Continuation;
             if (continuation is not null)

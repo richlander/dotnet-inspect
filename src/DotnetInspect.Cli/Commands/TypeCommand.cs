@@ -8,6 +8,7 @@ using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Presentation;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
 using DotnetInspector.Sections;
@@ -233,9 +234,11 @@ public static class TypeCommand
         {
             try
             {
-                if (await TryExecutePlatformPrefixBrowseAsync(options, typePipeline) is { } prefixBrowseExitCode)
+                if (options.HierarchyFormat is null
+                    && await TryExecutePlatformPrefixBrowseAsync(options, typePipeline) is { } prefixBrowseExitCode)
                     return prefixBrowseExitCode;
-                if (!options.RouterCompletedPlatformLookup
+                if (options.HierarchyFormat is null
+                    && !options.RouterCompletedPlatformLookup
                     && await TryExecuteFindIfMissAsync(options)
                         is { } findIfMissExitCode)
                     return findIfMissExitCode;
@@ -328,6 +331,25 @@ public static class TypeCommand
         bool inspectionIncomplete = false;
         try
         {
+            if (options.HierarchyFormat is { } hierarchyFormat)
+            {
+                int? hierarchyExitCode =
+                    await TypeOverviewHierarchyCommand.TryExecuteAsync(
+                        source,
+                        options,
+                        hierarchyFormat,
+                        cancellationToken);
+                if (hierarchyExitCode is not null)
+                    return hierarchyExitCode.Value;
+                if (hierarchyFormat
+                    == TypeOverviewHierarchyPresentationFormat.Mermaid)
+                {
+                    CommandError.Write(
+                        "--mermaid requires an available compact exact Type hierarchy.");
+                    return 1;
+                }
+            }
+
             if (loadedSurface is null
                 && preselectedType is null
                 && !options.EffectiveDiscovery
@@ -1970,7 +1992,7 @@ public static class TypeCommand
         }
     }
 
-    static void WriteInspectionDiagnostics(
+    internal static void WriteInspectionDiagnostics(
         IEnumerable<InspectionDiagnostic> diagnostics)
     {
         foreach (InspectionDiagnostic diagnostic in diagnostics)
