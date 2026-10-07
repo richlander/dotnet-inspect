@@ -9,7 +9,7 @@ public static class PackageQueryDurableRowContract
     public const string Direction = "serialize";
     public const string VocabularyCatalog = "dotnet-inspect.product";
     public const string VocabularySnapshotIdentity =
-        "sha256:f0527bd80f85c7683fcf3797da980ef38b3266116f375cc44323796775d884df";
+        "sha256:1c48720af80cda1e0c37e0759f6b3c987c35b6358db7a44a1eadd1671e47ec73";
     public const string Vocabulary = "package-query.durable-row";
     public const string PackageId = "package-id";
     public const string Version = "version";

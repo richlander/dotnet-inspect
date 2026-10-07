@@ -17,7 +17,7 @@ internal static class ProductVocabularyPin
     public const int FormatVersion = 1;
 
     public const string SnapshotIdentity =
-        "sha256:f0527bd80f85c7683fcf3797da980ef38b3266116f375cc44323796775d884df";
+        "sha256:1c48720af80cda1e0c37e0759f6b3c987c35b6358db7a44a1eadd1671e47ec73";
 
     /// <summary>
     /// The SHA-256 of the Resource Explanation Document JSON each host
@@ -30,7 +30,7 @@ internal static class ProductVocabularyPin
         new(
             "vocabularies",
             1,
-            "sha256:7cedbe8a3c10f419b0a4f718272a519a44cb38c9f41323be611845d905960a43"),
+            "sha256:edf9e7452c84cc3afa291beb10c7d9cec28f3d4c5c4cf5e353800cb010153f07"),
         new(
             "vocabularies/csharp.style-choices",
             1,
