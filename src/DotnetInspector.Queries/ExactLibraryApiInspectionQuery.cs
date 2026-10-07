@@ -124,10 +124,16 @@ public enum ExactLibraryApiInspectionFailureKind
     ProjectionTruncated,
 }
 
+public readonly record struct ExactLibraryApiAssemblyReferenceIdentity(
+    string Name,
+    Version? Version,
+    string? Culture,
+    string? PublicKeyToken);
+
 public sealed record ExactLibraryApiInspectionFailure(
     ExactLibraryApiInspectionFailureKind Kind,
     string Detail,
-    AssemblyReferenceIdentity? SubjectAssembly = null);
+    ExactLibraryApiAssemblyReferenceIdentity? SubjectAssembly = null);
 
 public sealed record ExactLibraryApiAsset(
     string Id,
@@ -137,7 +143,7 @@ public sealed record ExactLibraryApiAsset(
     ExactLibraryApiAssetKind Kind);
 
 public sealed record ExactLibraryApiAssemblyIdentity(
-    AssemblyReferenceIdentity Identity,
+    ExactLibraryApiAssemblyReferenceIdentity Identity,
     Guid ModuleVersionId);
 
 public sealed record ExactLibraryApiSourceCoordinate(
@@ -455,7 +461,9 @@ public static class ExactLibraryApiInspectionQuery
             .Select(failure => new ExactLibraryApiInspectionFailure(
                 ExactLibraryApiInspectionFailureKind.InspectionIncomplete,
                 $"{failure.Operation}: {failure.Kind}: {failure.Detail}",
-                failure.SubjectAssembly))
+                failure.SubjectAssembly is null
+                    ? null
+                    : DetachAssemblyIdentity(failure.SubjectAssembly)))
             .ToImmutableArray();
         ApiTypeInventoryResult inventory = ApiInventoryQuery.Types(surface);
         return new ExactLibraryApiQueryExecution(
@@ -604,7 +612,7 @@ public static class ExactLibraryApiInspectionQuery
         {
             AssemblyImageAccessResult<Guid>.Available available =>
                 new ExactLibraryApiAssemblyIdentity(
-                    participant.Assembly.Identity,
+                    DetachAssemblyIdentity(participant.Assembly.Identity),
                     available.Value),
             AssemblyImageAccessResult<Guid>.Rejected rejected =>
                 throw new InvalidOperationException(
@@ -614,4 +622,12 @@ public static class ExactLibraryApiInspectionQuery
                 "The exact Library assembly identity could not be read."),
         };
     }
+
+    static ExactLibraryApiAssemblyReferenceIdentity DetachAssemblyIdentity(
+        AssemblyReferenceIdentity identity) =>
+        new(
+            identity.Name,
+            identity.Version,
+            identity.Culture,
+            identity.PublicKeyToken);
 }

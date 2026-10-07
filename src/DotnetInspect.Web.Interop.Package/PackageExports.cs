@@ -8,7 +8,6 @@ using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.SourceHouse;
-using ILInspector.Metadata;
 using QuerySpace;
 using QuerySpace.Composition;
 
