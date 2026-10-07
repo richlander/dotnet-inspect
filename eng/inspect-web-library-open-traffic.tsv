@@ -1,0 +1,7 @@
+case	side	tcpReadBytes
+avalonia-base	after	4823861
+avalonia-base	before	14985970
+dapper	after	446592
+dapper	before	446592
+roslyn	after	4136928
+roslyn	before	21086632

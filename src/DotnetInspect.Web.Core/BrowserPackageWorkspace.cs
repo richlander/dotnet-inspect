@@ -2590,6 +2590,22 @@ internal static class BrowserPackageWorkspace
             .ConfigureAwait(false);
     }
 
+    internal static async Task<BrowserScopeLease<BrowserInspectionScope>> OpenRealizedScopeAsync(
+        string packageId,
+        string? version,
+        string? targetFramework,
+        CancellationToken cancellationToken = default)
+    {
+        BrowserPackageRealization realization = await RunPackageOperationAsync(
+            async deadline => RequireRealization(
+                await RealizeCoreAsync(packageId, version,
+                    targetFramework, Gallery, deadline).ConfigureAwait(false),
+                deadline),
+            PackageOperationTimeout,
+            cancellationToken).ConfigureAwait(false);
+        return await OpenScopeAsync(realization, cancellationToken).ConfigureAwait(false);
+    }
+
     internal static async Task<BrowserScopeLease<BrowserInspectionScope>> OpenScopeAsync(
         BrowserPackage package,
         string? targetFramework,
