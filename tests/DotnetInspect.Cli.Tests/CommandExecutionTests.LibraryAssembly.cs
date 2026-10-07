@@ -2104,6 +2104,34 @@ public partial class CommandExecutionTests
             implicitOverview.Error);
     }
 
+    [Fact]
+    public async Task
+        LibraryAndPackage_CategoryCoordinateSectionsDoNotMakeAScalarMixed()
+    {
+        // Without an address, @Context reaches no section this request can
+        // address, so Symbols stands alone and fails before acquisition on
+        // both the direct and the package-library routes.
+        string missingPath = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-missing-{Guid.NewGuid():N}");
+        string selection = $"{SectionNames.Symbols},@Context";
+        var library = await RunAppAsync(
+            "library", missingPath + ".dll", "-S", selection, "--count");
+        var package = await RunAppAsync(
+            "package", missingPath + ".nupkg",
+            "--library", "Missing.dll",
+            "-S", selection, "--count");
+
+        foreach (var result in new[] { library, package })
+        {
+            Assert.Equal(1, result.Exit);
+            Assert.Empty(result.Output);
+            Assert.Contains(
+                $"Section '{SectionNames.Symbols}' is scalar",
+                result.Error);
+        }
+    }
+
     [Theory]
     [InlineData("--count")]
     [InlineData("--rows", "1")]

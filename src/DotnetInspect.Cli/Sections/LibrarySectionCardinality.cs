@@ -1,4 +1,6 @@
+using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
+using DotnetInspect.Cli.Planning;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Sections;
 
@@ -97,7 +99,8 @@ internal static class LibrarySectionCardinality
         Verbosity verbosity,
         bool count,
         bool rows,
-        bool discovery)
+        bool discovery,
+        StructuralSectionInput availableInputs)
     {
         if (discovery || (!count && !rows))
             return default;
@@ -128,7 +131,18 @@ internal static class LibrarySectionCardinality
         if (resolution.HasError)
             return default;
         if (resolution.Sections is not null)
-            selected = resolution.Sections;
+        {
+            // A category selects only what applies, so a section it reaches
+            // whose coordinate or filter this request lacks leaves the
+            // selection, as Library normalization drops it before execution.
+            // An exact selector keeps it and fails in that normalization.
+            selected = resolution.Sections
+                .Where(section =>
+                    resolution.ExactSections.Contains(section)
+                    || (LibraryCommand.GetStructuralSectionInput(section)
+                        & ~availableInputs) == 0)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        }
 
         HashSet<string> candidates =
             catalog.Pipeline.GetCandidateSections(

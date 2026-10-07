@@ -835,7 +835,8 @@ public partial class LibraryCommand
                     options.Verbosity,
                     options.Count,
                     options.Rows is not null,
-                    options.Discover is not null);
+                    options.Discover is not null,
+                    AvailableSectionInputs(options));
             if (admission.Error is { } cardinalityError)
             {
                 CommandError.Write(cardinalityError);
@@ -4578,6 +4579,18 @@ public partial class LibraryCommand
         }
         return sections;
     }
+
+    private static StructuralSectionInput AvailableSectionInputs(
+        LibraryOptions options) =>
+        (HasILAddressRequest(options)
+            ? StructuralSectionInput.IlCoordinate
+            : StructuralSectionInput.None)
+        | (options.AddressRequest is LibraryAddressRequest.HeapPoint
+            ? StructuralSectionInput.HeapCoordinate
+            : StructuralSectionInput.None)
+        | (options.BodyKindQuery.HasFilter
+            ? StructuralSectionInput.BodyKindFilter
+            : StructuralSectionInput.None);
 
     private static bool HasILAddressRequest(LibraryOptions options) =>
         options.AddressRequest
