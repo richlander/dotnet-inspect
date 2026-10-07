@@ -49,6 +49,18 @@ public class SpanAttributionTests
         throw new InvalidOperationException("unbalanced body");
     }
 
+    // A product-shaped range: from the start of the line holding startMarker
+    // (leading indentation included, as CSharpTypePrinter issues it) through the
+    // end of endMarker.
+    static CSharpSourceRange ProductRange(string source, string startMarker, string endMarker)
+    {
+        int marker = source.IndexOf(startMarker, StringComparison.Ordinal);
+        Assert.True(marker >= 0, $"marker '{startMarker}' not found");
+        int lineStart = source.LastIndexOf('\n', marker) + 1;
+        int end = source.IndexOf(endMarker, marker, StringComparison.Ordinal) + endMarker.Length;
+        return new CSharpSourceRange(lineStart, end - lineStart);
+    }
+
     static bool Isolated(string decompiled, string authored, string memberHead = "int M()", int occurrence = 0)
         => SpanAttribution.IsolatingBodyError(
             decompiled,
@@ -254,6 +266,109 @@ public class SpanAttributionTests
             """;
 
         Assert.False(Isolated(decompiled, authored));
+    }
+
+    [Fact]
+    public void DecompiledBodyIsolated_DeclinesWhenPrecedingTextSwallowsTheBody()
+    {
+        // A sibling body's verbatim string runs into the target and ends at the
+        // target's own quote, so the parser no longer sees the target's braces.
+        // The errors that follow land inside the target's product range without
+        // belonging to it; attribution must decline rather than credit the
+        // valid target.
+        const string decompiled = """
+            class C
+            {
+                string N() { return @"abc; }
+                int M() { return "x".Length; }
+                int Filler = Shell.Broken;
+            }
+            """;
+        const string authored = """
+            class C
+            {
+                string N() { return "abc"; }
+                int M() { return 42; }
+                int Filler = Shell.Broken;
+            }
+            """;
+
+        var compiled = Compile(decompiled);
+        var targetRange = BodyAfter(decompiled, "int M()");
+        Assert.Contains(compiled, diagnostic => diagnostic.Severity == DiagnosticSeverity.Error
+            && targetRange.Start <= diagnostic.Location.SourceSpan.Start
+            && diagnostic.Location.SourceSpan.Start < targetRange.End);
+        Assert.False(Isolated(decompiled, authored));
+    }
+
+    [Fact]
+    public void DecompiledBodyIsolated_CreditsAnIndentedProductBlockRange()
+    {
+        // CSharpTypePrinter's block range starts at the line's indentation.
+        const string decompiled = """
+            class C
+            {
+                int M()
+                {
+                    int x = ;
+                    return 0;
+                }
+                int Filler = Shell.Broken;
+            }
+            """;
+        const string authored = """
+            class C
+            {
+                int M()
+                {
+                    return 42;
+                }
+                int Filler = Shell.Broken;
+            }
+            """;
+
+        var decompiledRange = ProductRange(decompiled, "{\n        int x", "return 0;\n    }");
+        Assert.True(SpanAttribution.IsolatingBodyError(
+            decompiled,
+            decompiledRange,
+            Compile(decompiled),
+            ProductRange(authored, "{\n        return 42", "return 42;\n    }"),
+            Compile(authored)) is not null);
+    }
+
+    [Fact]
+    public void DecompiledBodyIsolated_CreditsAnExpressionBodyProductRange()
+    {
+        // An expression-bodied accessor's range covers the arrow through the
+        // semicolon; the authored substitution replaces it with a block.
+        const string decompiled = """
+            class C
+            {
+                int P { get => 1 + ; }
+                int Filler = Shell.Broken;
+            }
+            """;
+        const string authored = """
+            class C
+            {
+                int P { get
+                {
+                    return 1;
+                } }
+                int Filler = Shell.Broken;
+            }
+            """;
+
+        int arrow = decompiled.IndexOf("=> 1 + ;", StringComparison.Ordinal);
+        var decompiledRange = new CSharpSourceRange(arrow, "=> 1 + ;".Length);
+        int block = authored.IndexOf("{\n        return 1;", StringComparison.Ordinal);
+        int blockEnd = authored.IndexOf("return 1;\n    }", StringComparison.Ordinal) + "return 1;\n    }".Length;
+        Assert.True(SpanAttribution.IsolatingBodyError(
+            decompiled,
+            decompiledRange,
+            Compile(decompiled),
+            new CSharpSourceRange(block, blockEnd - block),
+            Compile(authored)) is not null);
     }
 
     // The allowlist that each methodology version is defined by. A version's entry is

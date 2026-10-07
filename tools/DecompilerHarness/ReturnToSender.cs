@@ -2810,7 +2810,6 @@ static class ReturnToSender
         CSharpCompilationOptions compileOptions,
         IReadOnlyList<MetadataReference> references)
     {
-        var request = artifact.Request;
         var control = TryCompileAuthoredBody(
             artifact,
             sourceIndex,

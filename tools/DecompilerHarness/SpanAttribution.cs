@@ -4,6 +4,7 @@ using ILInspector.CSharp;
 
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Text;
 
 namespace ILInspector.DecompilerHarness;
@@ -75,6 +76,12 @@ internal static class SpanAttribution
     /// (unresolved names/types/members, conversions, overloads) are never credited
     /// because a broken shell reconstructor produces them identically to a real
     /// body defect.
+    ///
+    /// The product range is credited only while the decompiled unit still parses
+    /// it as the body clause (see <see cref="ParsesAsBodyClause"/>). Text before
+    /// the range, such as an unterminated literal in a sibling body, can swallow
+    /// the target's braces; its errors then land inside the range without
+    /// belonging to the target, so attribution declines.
     /// </summary>
     internal static Diagnostic? IsolatingBodyError(
         string decompiledSource,
@@ -93,8 +100,21 @@ internal static class SpanAttribution
         if (CountErrorsInSpan(authoredDiagnostics, authoredSpan) != 0)
             return null;
 
+        SyntaxTree tree;
+        try
+        {
+            tree = CSharpSyntaxTree.ParseText(decompiledSource, parseOptions);
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+
+        if (!ParsesAsBodyClause(tree.GetRoot(), decompiledSpan))
+            return null;
+
         // Shell-independent syntax error: the decompiled body text does not parse.
-        if (FirstSyntaxErrorInSpan(decompiledSource, decompiledSpan, parseOptions) is { } syntaxError)
+        if (FirstSyntaxErrorInSpan(tree, decompiledSpan) is { } syntaxError)
             return syntaxError;
 
         // Shell-independent body-intrinsic semantic error (locals/control flow).
@@ -117,30 +137,54 @@ internal static class SpanAttribution
     static TextSpan ToTextSpan(CSharpSourceRange range) => new(range.Start, range.Length);
 
     /// <summary>
+    /// True when the parse still sees the product range as one body clause: a
+    /// block whose braces are the range's first and last tokens, or an
+    /// expression body whose arrow opens the range and whose semicolon closes it.
+    /// Leading whitespace in the range is ignored.
+    /// </summary>
+    static bool ParsesAsBodyClause(SyntaxNode root, TextSpan range)
+    {
+        var first = root.FindToken(range.Start);
+        if (first.SpanStart < range.Start)
+            first = first.GetNextToken();
+        if (first.Span.IsEmpty || first.SpanStart >= range.End)
+            return false;
+
+        return first.Parent switch
+        {
+            BlockSyntax block when first.IsKind(SyntaxKind.OpenBraceToken)
+                => block.Span.End == range.End && !block.CloseBraceToken.IsMissing,
+            ArrowExpressionClauseSyntax arrow when first.IsKind(SyntaxKind.EqualsGreaterThanToken)
+                => SemicolonAfter(arrow) is { IsMissing: false } semicolon
+                    && semicolon.Span.End == range.End,
+            _ => false,
+        };
+    }
+
+    static SyntaxToken? SemicolonAfter(ArrowExpressionClauseSyntax arrow) => arrow.Parent switch
+    {
+        AccessorDeclarationSyntax accessor => accessor.SemicolonToken,
+        BaseMethodDeclarationSyntax method => method.SemicolonToken,
+        PropertyDeclarationSyntax property => property.SemicolonToken,
+        IndexerDeclarationSyntax indexer => indexer.SemicolonToken,
+        LocalFunctionStatementSyntax local => local.SemicolonToken,
+        _ => null,
+    };
+
+    /// <summary>
     /// Returns the first Error-severity <em>syntactic</em> diagnostic whose span
     /// intersects <paramref name="bodySpan"/>, or null. Uses
     /// <see cref="SyntaxTree.GetDiagnostics()"/>, which reports only parser/lexer
     /// diagnostics, so a hit proves the decompiled body text is unparseable
     /// regardless of any shell state.
     ///
-    /// <paramref name="parseOptions"/> must match the options the pipeline
-    /// compiled with. Language-version gating is a binding diagnostic rather than
+    /// The tree must be parsed with the options the pipeline compiled with. Language-version gating is a binding diagnostic rather than
     /// a parser one today, but re-parsing under different options than the
     /// compile is a latent source of phantom syntax errors, which would inflate
     /// the metric.
     /// </summary>
-    static Diagnostic? FirstSyntaxErrorInSpan(string source, TextSpan bodySpan, CSharpParseOptions? parseOptions)
+    static Diagnostic? FirstSyntaxErrorInSpan(SyntaxTree tree, TextSpan bodySpan)
     {
-        SyntaxTree tree;
-        try
-        {
-            tree = CSharpSyntaxTree.ParseText(source, parseOptions);
-        }
-        catch (Exception)
-        {
-            return null;
-        }
-
         foreach (var diagnostic in tree.GetDiagnostics())
         {
             if (diagnostic.Severity != DiagnosticSeverity.Error)
