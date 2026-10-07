@@ -758,6 +758,7 @@ public static class MethodDefinitionSourceRequestSet
     sealed class SourceGroupBuilder
     {
         readonly List<MethodDefinitionSourceAssociation> _associations = [];
+        MethodBodyInstructionSourceKind? _instructionSource;
 
         public QuerySpaceSourceBindingIdentity Source { get; } =
             QuerySpaceSourceBindingIdentity.Create(
@@ -782,12 +783,22 @@ public static class MethodDefinitionSourceRequestSet
                 return false;
             }
 
-            return true;
+            MethodBodyInstructionSourceKind? requestedSource =
+                MethodBodyAnalyzerPlanner.Plan(request.Work)?.Source;
+            return requestedSource is null
+                || _instructionSource is null
+                || requestedSource == _instructionSource;
         }
 
         public void Add(
-            MethodDefinitionSourceAssociation association) =>
+            MethodDefinitionSourceAssociation association)
+        {
             _associations.Add(association);
+            _instructionSource ??=
+                MethodBodyAnalyzerPlanner
+                    .Plan(association.Request.Work)?
+                    .Source;
+        }
     }
 }
 

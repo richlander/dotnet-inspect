@@ -908,7 +908,8 @@ internal struct MethodDefinitionUnit(
         {
             _requestSourceCoverage?.RecordInstructionWork(
                 MethodBodyInstructionSourceKind.LazyRetainedSequence,
-                requestInstructionsVisited);
+                requestInstructionsVisited,
+                sourceOpened);
         }
     }
 
