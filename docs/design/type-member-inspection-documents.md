@@ -385,6 +385,33 @@ model. Future CLI Tree and Mermaid adoption will select shared presentation
 profiles over the owner-issued hierarchy; Count and other projections retain
 their independently admitted routes.
 
+As a performance prerequisite for later slice 7 adoption, exact direct-Library
+effective discovery in the CLI uses the transitional host-neutral Type
+inspection operation without claiming adoption of the four public document
+declarations. Exact `Type Info` requests only the detached Type subject. Bare
+discovery adds declared Member-group selector Counts and a separately typed
+same-image contextual-extension Exists request. Both share one opened assembly
+image; neither constructs Member-group Rows or the rich API surface. Direct
+bare discovery admits only minimal, non-tree output, which lists categories
+without their members, so it does not run the opt-in unsafe applicability
+probe; exact `Unsafe Members` discovery still runs it on demand. Unsupported
+declaration shapes, non-exact or non-round-tripping names, and requests that
+list category members retain the established route and its probe.
+
+The motivating production case is .NET 11 RC1 CoreLib
+`System.Text.StringBuilder`, whose previous exact direct-Library effective
+discovery extracted the complete assembly API surface. On two approved D4as v6
+hosts, every measured command ran through `perf-guard` over 20 interleaved
+NativeAOT samples. Exact output remained byte-identical:
+
+| Request | Before median | Perf-2 median / p95 | Perf-3 median / p95 |
+| --- | ---: | ---: | ---: |
+| `-D "Type Info"` | 805.06 ms | 46.84 / 48.52 ms | 47.50 / 49.64 ms |
+| bare `-D` | 815.52 ms | 48.03 / 49.01 ms | 48.74 / 50.02 ms |
+
+The inspected CoreLib SHA-256 is
+`9573ebabb9af0671f76f4aa958223b8a0b50c299affcb1a2f75c9ee717305fc8`.
+
 ## Required evidence
 
 Implementation slices must add Release gates proving:

@@ -1,3 +1,4 @@
+import { createSubjectIconLoader } from "./subject-icon.ts";
 import {
   createPackagePublicationDates,
   platformPublicationCoordinate,
@@ -181,6 +182,7 @@ import {
   resolvePackagePerformanceMember,
   workspaceDependencyKey,
   type PackagePerformance,
+  type PackageResourceTriage,
 } from "./package-inspection.ts";
 import {
   bindPackageDependencyList,
@@ -365,6 +367,8 @@ import {
   isAnalysisMode,
   restoreAnalysisTabFocus,
 } from "./analysis-inspector.ts";
+import { bindTriageCode, singlePerformanceBodyTarget, triageIssuePreview } from "./triage-code.ts";
+import { renderLibraryResourceTriageSurface, renderMemberResourceTriageSurface } from "./library-resource-triage.ts";
 import { renderLibraryAnalysisSurface } from "./library-analysis.ts";
 import {
   bindLibraryMetricsInteractions,
@@ -949,6 +953,7 @@ let inspectLibraryApiDiff:
   EngineClient["metadata"]["queryLibraryApiDiff"];
 let inspectCloneCandidates:
   EngineClient["analysis"]["queryCloneCandidates"];
+let renderTriageCaret: EngineClient["analysis"]["renderTriageCaret"];
 let inspectMemberFacts: EngineClient["analysis"]["queryMemberFacts"];
 let inspectPackageIntegrations:
   EngineClient["analysis"]["queryPackageIntegrations"];
@@ -956,6 +961,8 @@ let inspectPackageOpportunities:
   EngineClient["analysis"]["queryPackageOpportunities"];
 let inspectPackagePerformance:
   EngineClient["analysis"]["queryPackagePerformance"];
+let inspectPackageResourceTriage:
+  EngineClient["analysis"]["queryPackageResourceTriage"];
 let inspectPackageLibraryDependencyStructure:
   EngineClient["analysis"]["queryPackageLibraryDependencyStructure"];
 let inspectPackageLibraryMetrics:
@@ -982,6 +989,8 @@ let inspectPlatformOpportunities:
   EngineClient["analysis"]["queryPlatformOpportunities"];
 let inspectPlatformPerformance:
   EngineClient["analysis"]["queryPlatformPerformance"];
+let inspectPlatformResourceTriage:
+  EngineClient["analysis"]["queryPlatformResourceTriage"];
 let cancelSourceInspection: EngineClient["source"]["cancelSourceQuery"];
 let cancelTypeSourceInspection:
   EngineClient["source"]["cancelTypeSourceQuery"];
@@ -1155,10 +1164,12 @@ async function loadEngineModule() {
     } = engineClient.metadata);
     ({
       queryCloneCandidates: inspectCloneCandidates,
+      renderTriageCaret,
       queryMemberFacts: inspectMemberFacts,
       queryPackageIntegrations: inspectPackageIntegrations,
       queryPackageOpportunities: inspectPackageOpportunities,
       queryPackagePerformance: inspectPackagePerformance,
+      queryPackageResourceTriage: inspectPackageResourceTriage,
       queryPackageLibraryDependencyStructure:
         inspectPackageLibraryDependencyStructure,
       queryPackageLibraryMetrics: inspectPackageLibraryMetrics,
@@ -1180,6 +1191,7 @@ async function loadEngineModule() {
       queryPlatformIntegrations: inspectPlatformIntegrations,
       queryPlatformOpportunities: inspectPlatformOpportunities,
       queryPlatformPerformance: inspectPlatformPerformance,
+      queryPlatformResourceTriage: inspectPlatformResourceTriage,
     } = engineClient.analysis);
     ({
       cancelSourceQuery: cancelSourceInspection,
@@ -1498,6 +1510,10 @@ const initialState = {
   packagePerformanceLoading: false,
   packagePerformanceError: "",
   packagePerformanceKey: "",
+  packageResourceTriage: null,
+  packageResourceTriageLoading: false,
+  packageResourceTriageError: "",
+  packageResourceTriageKey: "",
   packageLibraryMetrics: null,
   packageLibraryMetricsLoading: false,
   packageLibraryMetricsError: "",
@@ -1671,6 +1687,7 @@ interface StateOverrides {
   packageIntegrations: BrowserPackageIntegrations | null;
   packageOpportunities: BrowserPackageOpportunities | null;
   packagePerformance: PackagePerformance | null;
+  packageResourceTriage: PackageResourceTriage | null;
   packageMetadata: PackageMetadata | null;
   explorer: AppExplorerState | null;
   memberCallGraph: InspectedCallGraph | null;
@@ -1954,6 +1971,7 @@ function normalizeWorkspaceAsyncSnapshotState(
   const packageIntegrationsLoading = snapshotState.packageIntegrationsLoading;
   const packageOpportunitiesLoading = snapshotState.packageOpportunitiesLoading;
   const packagePerformanceLoading = snapshotState.packagePerformanceLoading;
+  const packageResourceTriageLoading = snapshotState.packageResourceTriageLoading;
   const packageMetadataLoading = snapshotState.packageMetadataLoading;
   const memberCallGraphLoading = snapshotState.memberCallGraphLoading;
   const memberCallGraphExpanding = snapshotState.memberCallGraphExpanding;
@@ -1971,6 +1989,7 @@ function normalizeWorkspaceAsyncSnapshotState(
   snapshotState.packageIntegrationsLoading = false;
   snapshotState.packageOpportunitiesLoading = false;
   snapshotState.packagePerformanceLoading = false;
+  snapshotState.packageResourceTriageLoading = false;
   snapshotState.packageMetadataLoading = false;
   snapshotState.memberCallGraphLoading = false;
   snapshotState.memberCallGraphExpanding = false;
@@ -2021,6 +2040,7 @@ function normalizeWorkspaceAsyncSnapshotState(
   if (packageIntegrationsLoading) snapshotState.packageIntegrationsKey = "";
   if (packageOpportunitiesLoading) snapshotState.packageOpportunitiesKey = "";
   if (packagePerformanceLoading) snapshotState.packagePerformanceKey = "";
+  if (packageResourceTriageLoading) snapshotState.packageResourceTriageKey = "";
   if (packageMetadataLoading) snapshotState.packageMetadataKey = "";
   if (memberCallGraphLoading || memberCallGraphExpanding) {
     snapshotState.memberCallGraphKey = "";
@@ -4906,6 +4926,29 @@ function renderInspectedSubjectIcon(pkg: AppPackage): string {
   </span>`;
 }
 
+const loadInspectedSubjectIcon = createSubjectIconLoader({
+  afterPaint: () => new Promise<void>(resolve => {
+    requestAnimationFrame(() => setTimeout(resolve, 0));
+  }),
+  current: () => state.package,
+  query: (id, version) => inspectPackageIcon(id, version),
+  apply: icon => {
+    for (const image of document.querySelectorAll<HTMLImageElement>(
+      ".subject-icon [data-package-icon]")) {
+      image.src = `data:${icon.mediaType};base64,${icon.base64}`;
+    }
+  },
+});
+
+function scheduleInspectedSubjectIcon() {
+  const pkg = state.package;
+  if (!pkg || pkg.icon || pkg.source.kind !== "nuget.org"
+    || pkg.isRuntimePack || state.rootKind === "library"
+    || scope() === "workspace"
+    || !document.querySelector(".subject-icon [data-package-icon]")) return;
+  void loadInspectedSubjectIcon(pkg);
+}
+
 function errorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
   if (isRecord(error) && typeof error.message === "string") return error.message;
@@ -5992,9 +6035,11 @@ function selectedTypeMetadataLibraryIdentity() {
 function selectDefaultPackageSubject(pkg: AppPackage) {
   state.workspaceSubjectOpen = false;
   state.atLibraryRoot =
-    pkg.assemblies.length > 0 && Boolean(pkg.assemblyId);
+    packageLibrariesForModel(pkg).some(library => library.id === pkg.assemblyId);
   state.atPackageRoot = !state.atLibraryRoot;
-  state.libraryScope = null;
+  state.libraryScope = state.atLibraryRoot
+    ? new Set([pkg.assemblyId])
+    : null;
   state.packageLens = "overview";
   state.libraryLens = "overview";
 }
@@ -7941,7 +7986,8 @@ function memberSourceHasConcreteOverload() {
 function memberSectionUsesWorkingSurface(section: MemberSection) {
   return section === "overview"
     || section === "call-graph"
-    || section === "facts";
+    || section === "facts"
+    || section === "resource-triage";
 }
 
 function typeAnalysisWorkspaceGeneration(pkg: AppPackage) {
@@ -8366,8 +8412,8 @@ function loadMemberSectionContent(id: MemberSection) {
     observeAsync(loadSelectedMemberSource(), "Loading member source");
   else if (id === "call-graph")
     observeAsync(loadSelectedMemberCallGraph(), "Loading the member call graph");
-  else if (id === "facts")
-    observeAsync(loadSelectedMemberFactsSurface(), "Loading member facts");
+  else if (id === "facts" || id === "resource-triage")
+    observeAsync(loadSelectedMemberAnalysisSurface(), "Loading member analysis");
   else if (id === "overview")
     observeAsync(loadSelectedMemberOverview(), "Loading member overview");
   else if (id === "compare")
@@ -9246,6 +9292,8 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
     activeScope === "library" && state.libraryLens === "references";
   const libraryAnalysisWorkingSurface =
     activeScope === "library" && state.libraryLens === "analysis";
+  const memberAnalysisWorkingSurface = activeScope === "member"
+    && (state.memberSection === "facts" || state.memberSection === "resource-triage");
   const memberOverloadPicker =
     currentMember !== undefined
     && (currentMember.sourceOverloadCount
@@ -9291,7 +9339,7 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
   replaceChildrenPreservingRenderedInteractions(app, `
     <div class="workbench"${state.memberAnnotatedModal || applicationModalOpen ? " inert" : ""}>
       ${workbenchShellHtml({
-        contextualActionsHtml: !loadingPackageContent && (compareWorkingSurface || memberDiffExploreTarget || sourcePageKind || packageDependenciesWorkingSurface || metadataWorkingSurface)
+        contextualActionsHtml: !loadingPackageContent && (compareWorkingSurface || memberDiffExploreTarget || sourcePageKind || packageDependenciesWorkingSurface || metadataWorkingSurface || memberAnalysisWorkingSurface)
           ? `<div class="working-surface-actions" role="group" aria-label="${compareWorkingSurface ? "Compare actions" : memberDiffExploreTarget ? "Member Diff actions" : metadataWorkingSurface ? "Type graph actions" : packageDependenciesWorkingSurface ? "Dependency graph actions" : sourcePageKind ? "Source actions" : "Member actions"}">
               ${compareSubject !== null && currentCompareMode() === "diff"
                 ? `<div class="compare-page-actions">${renderLibraryDiffTools(compareSubject)}${memberBodyWorkingSurface
@@ -9305,6 +9353,8 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
               ${packageDependenciesWorkingSurface
                 ? `<button type="button" id="dependency-graph-explore" data-graph-explore${dependencyGraphAvailable() ? "" : " disabled"}>Explore</button>`
                 : ""}
+              ${memberAnalysisWorkingSurface
+                ? `<button type="button" id="explore-source" data-annotated-action="explore"${state.memberAnnotated ? "" : " disabled"}>Explore</button>` : ""}
               ${sourcePageKind
                 ? renderSourcePageActions({
                     source: sourcePageSource,
@@ -9397,6 +9447,7 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
     ${renderAnnotatedSourceModal()}`);
 
   bindPackageIconFallbacks(document);
+  scheduleInspectedSubjectIcon();
   bindEvents();
   bindLibraryOpenEvents();
   if (loadingPackageContent) {
@@ -9469,6 +9520,7 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
     maybeAutoLoadPackageVulnerabilities();
     maybeAutoLoadPackageIntegrations();
     maybeAutoLoadPackagePerformance();
+    maybeAutoLoadPackageResourceTriage();
     maybeAutoLoadPackageLibraryMetrics();
     maybeAutoLoadPackageLibraryDependencyStructure();
     maybeAutoLoadTypeLeverage();
@@ -10618,6 +10670,7 @@ function libraryLensBody() {
         case "dependencies":
           return renderPackageLibraryDependencyStructure();
         case "performance": return renderPackagePerformance();
+        case "resource-triage": return renderPackageResourceTriage();
         case "integrations": return renderPackageIntegrations();
         default: return assertNever(state.analysisMode, "analysis mode");
       }
@@ -11023,6 +11076,11 @@ const packageInspection = createPackageInspectionCoordinator({
     packageModel.version,
     packageModel.activeFramework,
     library),
+  queryPackageResourceTriage: (packageModel, library) => inspectPackageResourceTriage(
+    packageModel.id,
+    packageModel.version,
+    packageModel.activeFramework,
+    library),
   queryPackageLibraryDependencyStructure: (packageModel, library) =>
     inspectPackageLibraryDependencyStructure(
       packageModel.id,
@@ -11047,6 +11105,17 @@ const packageInspection = createPackageInspectionCoordinator({
         platformVersion,
         assemblyFileName,
         pack)),
+  queryPlatformResourceTriage: async (
+    framework,
+    platformVersion,
+    assemblyFileName,
+    pack,
+  ) =>
+    inspectPlatformResourceTriage(
+        framework,
+        platformVersion,
+        assemblyFileName,
+        pack),
   queryPlatformLibraryDependencyStructure: (
     framework,
     platformVersion,
@@ -11265,6 +11334,31 @@ function renderPackagePerformance() {
   });
 }
 
+function renderPackageResourceTriage() {
+  const pkg = currentPackage();
+  const library = selectedLibrary();
+  const scopedLib = scopedPlatformLibrary();
+  const current = packageScopeSignature();
+  return renderLibraryResourceTriageSurface({
+    libraryName: library?.name ?? "",
+    assemblyIdentity: library ? libraryIdentity(library) : "No library selected",
+    assetPath: library?.asset ?? "",
+    coordinate: `${pkg.activeFramework} · ${pkg.id}@${pkg.version}`,
+    requireLibrary: pkg.isRuntimePack && !scopedLib,
+    pickerHtml: pkg.isRuntimePack
+      ? platformLibrarySelectHtml({
+          dataAttr: "data-platform-analysis-library",
+          selected: scopedLib || "",
+        })
+      : "",
+    fresh: state.packageResourceTriageKey === current,
+    loading: state.packageResourceTriageLoading,
+    error: state.packageResourceTriageError,
+    data: state.packageResourceTriage,
+    escapeHtml,
+  });
+}
+
 function packageLibraryAnalysisOptions(): LibraryAnalysisOptions {
   const pkg = currentPackage();
   const library = selectedLibrary();
@@ -11348,6 +11442,23 @@ function maybeAutoLoadPackagePerformance() {
   if (Boolean(state.package?.isRuntimePack) && !scopedPlatformLibrary()) return;
   if (state.packagePerformanceKey === packageScopeSignature()) return;
   observeAsync(loadPackagePerformance(), "Loading package analysis");
+}
+async function loadPackageResourceTriage() {
+  const pkg = currentPackage();
+  const scopedLib = selectedLibraryRequest() || null;
+  return packageInspection.loadResourceTriage(
+    pkg,
+    packageScopeSignature(),
+    scopedLib);
+}
+
+function maybeAutoLoadPackageResourceTriage() {
+  if (!state.atLibraryRoot || state.libraryLens !== "analysis") return;
+  if (aggregateLibrarySubjectIsActive()) return;
+  if (state.analysisMode !== "resource-triage") return;
+  if (Boolean(state.package?.isRuntimePack) && !scopedPlatformLibrary()) return;
+  if (state.packageResourceTriageKey === packageScopeSignature()) return;
+  observeAsync(loadPackageResourceTriage(), "Loading resource triage");
 }
 
 function loadPackageLibraryMetrics() {
@@ -11848,6 +11959,7 @@ function drillToPerfMember(
   stableSelector: string,
   assembly: string,
   typeId: string,
+  resourceMethodToken?: number,
 ) {
   const pkg = currentPackage();
   const target = resolvePackagePerformanceMember(pkg, {
@@ -11880,7 +11992,7 @@ function drillToPerfMember(
       stableSelector,
       expectedView,
       expectedPopulationKey,
-      expectedPopulationIntent),
+      expectedPopulationIntent, resourceMethodToken),
     "Loading the ranked Member");
 }
 
@@ -11889,6 +12001,7 @@ async function selectPerformanceMember(
   expectedView: string,
   expectedPopulationKey: string,
   expectedPopulationIntent: number,
+  resourceMethodToken?: number,
 ) {
   const populationReceipt = await loadSelectedTypeMemberPopulation();
   if (viewSignature() !== expectedView) return;
@@ -11909,7 +12022,19 @@ async function selectPerformanceMember(
     state.selectedMemberKey = group.key;
     state.selectedOverloadIndex = overloadIndex;
     render();
-    await loadSelectedMemberDocumentation();
+    const ranked = state.packagePerformanceKey === packageScopeSignature()
+      ? state.packagePerformance?.members.find(candidate => candidate.stableSelector === stableSelector
+          && candidate.typeId === type.definitionId && candidate.assembly === type.assembly)
+      : null;
+    const body = resourceMethodToken === undefined ? singlePerformanceBodyTarget(ranked) : null;
+    state.selectedBodyTarget = body ? { memberName: body.memberName, selectorKey: body.selectorKey, metadataToken: body.methodToken } : null;
+    if (resourceMethodToken !== undefined) {
+      const selector = group.overloads[overloadIndex]?.bodySelectors.find(candidateBody => candidateBody.token === resourceMethodToken);
+      if (selector) state.selectedBodyTarget = { memberName: selector.memberName, selectorKey: selector.selectorKey, metadataToken: selector.token };
+    }
+    state.memberSection = resourceMethodToken === undefined ? "facts" : "resource-triage";
+    render();
+    await loadSelectedMemberAnalysisSurface();
     return;
   }
   showToast("That ranked Member is no longer loaded in the selected Type.");
@@ -12112,6 +12237,7 @@ function maybeAutoLoadPackageSurfaceForLibraryNavigation() {
   const pkg = state.package;
   if (!pkg
     || !state.atLibraryRoot
+    || (state.libraryLens === "overview" && state.libraryScope?.size === 1)
     || !packageSurfaceCanLoadTypes(pkg)) {
     return;
   }
@@ -12728,6 +12854,11 @@ function renderApiLens(item: AppTypeSurface) {
 
 function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
   const selectedOverload = selectedMemberOverload(type, member);
+  const resourceCandidates = state.packageResourceTriageKey === packageScopeSignature()
+    ? (state.packageResourceTriage?.candidates ?? []).filter(candidate => candidate.assembly === type.assembly
+        && candidate.typeId === type.definitionId && candidate.stableSelector === selectedOverload?.stableSelector
+        && (!state.selectedBodyTarget?.metadataToken || candidate.methodToken === state.selectedBodyTarget.metadataToken))
+    : [];
   const hasSelectedOverload =
     state.selectedOverloadIndex != null
     && selectedOverload !== undefined;
@@ -12997,8 +13128,15 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
           </section>`
         : `<section class="document-section empty-member-section"><h2>Call graph query failed</h2><p>${escapeHtml(callGraphError || "No call graph result was returned.")}</p></section>`;
     content = `<div data-call-graph-surface>${content}</div>`;
-  } else if (state.memberSection === "facts") {
-    content = renderMemberFacts(state);
+  } else if (state.memberSection === "facts" || state.memberSection === "resource-triage") {
+    content = (state.memberSection === "resource-triage"
+      ? renderMemberResourceTriageSurface({
+          fresh: state.packageResourceTriageKey === packageScopeSignature(),
+          loading: state.packageResourceTriageLoading, error: state.packageResourceTriageError,
+          data: state.packageResourceTriage, escapeHtml,
+        }, resourceCandidates)
+      : "")
+      + renderMemberFacts(state, !currentPackage().isRuntimePack);
   } else if (state.memberSection === "source") {
     content = renderMemberSourceHtml();
   } else if (state.memberSection === "compare") {
@@ -13020,7 +13158,7 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
   return `
     <section class="member-surface" aria-labelledby="member-surface-title">
       <header class="api-surface-head member-surface-head">
-        <h1 id="member-surface-title">${escapeHtml(member.name)}</h1>
+        <h1 id="member-surface-title">${escapeHtml(state.memberSection === "resource-triage" ? (resourceCandidates.length ? "Pool churn on exception" : "Resource Triage") : member.name)}</h1>
         <div class="member-surface-meta">
           <p>${escapeHtml(member.kind)} <span>· ${sourceOverloadIndex + 1} of ${sourceOverloadCount}</span></p>
           ${callGraphExplore}
@@ -13224,7 +13362,7 @@ const packageViewActions: PackageViewBindingActions = {
     drillToPerfMember(
       target.stableSelector,
       target.assembly,
-      target.typeId);
+      target.typeId, target.resourceMethodToken);
   },
 };
 
@@ -13369,7 +13507,8 @@ async function openPlatformLensLibrary(
   state.typeTraitFilter = "";
   normalizeLibrarySelection();
   if (lens === "analysis") {
-    if (state.analysisMode === "performance") await loadPackagePerformance();
+    if (state.analysisMode === "resource-triage") await loadPackageResourceTriage();
+    else if (state.analysisMode === "performance") await loadPackagePerformance();
     else if (state.analysisMode === "integrations")
       await loadPackageIntegrations();
     else if (state.analysisMode === "complexity"
@@ -14446,6 +14585,32 @@ function bindPlatformForwarderEvents() {
   });
 }
 
+function bindTriageCodeEvents() {
+  const triagePackage = state.package;
+  if (triagePackage) {
+    const triagePlatformLibrary = document.querySelector("[data-triage-code]")
+      && triagePackage.isRuntimePack && selectedLibrary()
+      ? platformLibraryForRequest(triagePackage, selectedLibrary()!.id) : null;
+    const triageTaste = JSON.stringify(state.taste);
+    bindTriageCode(document, async target => {
+      await waitForLibraryEngineReady();
+      if (!target.issueOffsets?.length) return null;
+      const census = triagePlatformLibrary
+        ? await inspectPlatformMemberFindingCensus(triagePackage.activeFramework, triagePackage.version,
+            target.assembly, triagePlatformLibrary.pack, target.typeId, target.typeId,
+            target.memberName, "", target.selector, target.methodToken, triageTaste, null)
+        : await inspectMemberFindingCensus(triagePackage.id, triagePackage.version, triagePackage.activeFramework,
+            target.assembly, target.typeId, target.typeId, target.memberName, "",
+            target.selector, target.methodToken, triageTaste);
+      const preview = triageIssuePreview(census.annotatedSource.document, target.issueOffsets);
+      if (!preview) return null;
+      const carets: string[] = [];
+      for (const focus of preview.focus) carets.push(await renderTriageCaret(preview.code, focus.column, focus.length));
+      return { code: preview.code, carets };
+    }, highlightCSharp);
+  }
+}
+
 function bindEvents() {
   packageControls.bind(document);
   bindWorkspaceSubjectEvents();
@@ -14455,6 +14620,7 @@ function bindEvents() {
   bindMetadataViewerEvents();
   bindAnalysisInspectorEvents();
   bindPackageOpportunitiesEvents();
+  bindTriageCodeEvents();
   bindGraphSourceEvents();
   bindDocViewerEvents();
   bindMemberFactsEvents();
@@ -17682,7 +17848,8 @@ async function loadSelectionData() {
   switch (state.memberSection) {
     case "source": await loadSelectedMemberSource(); return;
     case "call-graph": await loadSelectedMemberCallGraph(); return;
-    case "facts": await loadSelectedMemberFactsSurface(); return;
+    case "facts":
+    case "resource-triage": await loadSelectedMemberAnalysisSurface(); return;
     case "compare": return;
     default: return assertNever(state.memberSection, "member section");
   }
@@ -24296,9 +24463,17 @@ async function loadSelectedMemberFacts() {
   });
 }
 
+async function loadSelectedMemberAnalysisSurface() {
+  await Promise.all([
+    loadSelectedMemberFactsSurface(),
+    state.memberSection === "resource-triage" && state.packageResourceTriageKey !== packageScopeSignature()
+      ? loadPackageResourceTriage() : Promise.resolve(),
+  ]);
+}
+
 async function loadSelectedMemberFactsSurface() {
   await Promise.all([
-    loadSelectedMemberFacts(),
+    currentPackage().isRuntimePack ? Promise.resolve() : loadSelectedMemberFacts(),
     loadSelectedMemberAnnotatedSource(),
   ]);
 }
