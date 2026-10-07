@@ -1474,16 +1474,16 @@ public static class TypeCommand
         {
             using WorkspaceTypeAssemblyPath assemblyPath =
                 WorkspaceTypeAssemblyPath.Create(target);
+            string renderedAssemblyPath =
+                renderSource.SelectedLibraryPath
+                ?? assemblyPath.Value;
             ApiSurface api = target.Surface;
             api.Name = renderSource.Name;
             api.Version = renderSource.Version;
             api.Source = renderSource.Source;
             api.Tfm = renderSource.TargetFramework;
             api.Library =
-                target.Assembly.AssetFileName
-                ?? (target.AssemblyPath is { } materializedPath
-                    ? Path.GetFileName(materializedPath)
-                    : target.Assembly.Identity.Name + ".dll");
+                Path.GetFileName(renderedAssemblyPath);
 
             var sourceAssemblies =
                 new Dictionary<ApiType, ResolvedAssemblyReference>(
@@ -1502,16 +1502,16 @@ public static class TypeCommand
                 };
             var loaded = new ApiServices.LoadedApiSurface(
                 api,
-                assemblyPath.Value,
+                renderedAssemblyPath,
                 assemblyPath.Value,
                 sourceAssemblies,
                 RootBindingContext: bindingContext,
                 BindingContexts: bindingContexts);
             var source = new ApiSourceResult(
-                SearchPath: assemblyPath.Value,
+                SearchPath: renderedAssemblyPath,
                 RuntimeAssemblyPath:
                     renderSource.Source == SourceKind.Platform
-                        ? assemblyPath.Value
+                        ? renderedAssemblyPath
                         : null,
                 PackageName: renderSource.PackageName,
                 PackageVersion: renderSource.PackageVersion,
@@ -1757,7 +1757,8 @@ public static class TypeCommand
     string? PackageName,
     string? PackageVersion,
     string? ResolvedPackagePath,
-    string? PlatformFramework)
+    string? PlatformFramework,
+    string? SelectedLibraryPath)
     {
         internal static ExactTypeRenderSource From(
             ExactTypeInspectionRequest request) =>
@@ -1769,7 +1770,8 @@ public static class TypeCommand
                 request.PackageId,
                 request.Version,
                 $"{request.PackageId}@{request.Version}",
-                PlatformFramework: null);
+                PlatformFramework: null,
+                SelectedLibraryPath: null);
 
         internal static ExactTypeRenderSource From(
             SelectedContextExactTypeSource source)
@@ -1785,7 +1787,8 @@ public static class TypeCommand
                         package.PackageId,
                         package.Version,
                         $"{package.PackageId}@{package.Version}",
-                        PlatformFramework: null),
+                        PlatformFramework: null,
+                        SelectedLibraryPath: null),
                 TypeDeclarationLocatorRealization.PlatformRealization platform =>
                     new(
                         platform.Family,
@@ -1795,7 +1798,8 @@ public static class TypeCommand
                         PackageName: null,
                         PackageVersion: null,
                         ResolvedPackagePath: null,
-                        PlatformFramework: platform.Framework),
+                        PlatformFramework: platform.Framework,
+                        SelectedLibraryPath: null),
                 _ => new(
                     source.Library.LibraryIdentity.Name,
                     source.Library.LibraryIdentity.Version?.ToString(),
@@ -1813,7 +1817,8 @@ public static class TypeCommand
                     PackageName: null,
                     PackageVersion: null,
                     ResolvedPackagePath: null,
-                    PlatformFramework: null),
+                    PlatformFramework: null,
+                    SelectedLibraryPath: null),
             };
         }
 
@@ -1828,7 +1833,13 @@ public static class TypeCommand
                 source.PackageName,
                 source.PackageVersion,
                 source.ResolvedPackagePath,
-                source.PlatformFramework);
+                source.PlatformFramework,
+                string.Equals(
+                    source.ApiSource,
+                    SourceKind.Platform,
+                    StringComparison.Ordinal)
+                        ? source.SearchPath
+                        : null);
     }
 
     sealed class WorkspaceTypeAssemblyPath : IDisposable

@@ -50,4 +50,30 @@ public sealed class TypeHierarchyRelationsInspectionExecutorTests
         Assert.NotNull(request.Count);
         Assert.Equal(5, request.Rows?.MaximumRows);
     }
+
+    [Fact]
+    public void DefaultPlatformHierarchyUsesEveryPlatformFramework()
+    {
+        IReadOnlyList<string> frameworks =
+            TypeHierarchyRelationsInspectionExecutor
+                .PlatformHierarchyFamilies(new TypeOptions());
+
+        Assert.Equal(
+            ["runtime", "aspnetcore", "netstandard"],
+            frameworks);
+    }
+
+    [Fact]
+    public void ExplicitPlatformHierarchyFrameworkNarrowsThePopulation()
+    {
+        IReadOnlyList<string> frameworks =
+            TypeHierarchyRelationsInspectionExecutor
+                .PlatformHierarchyFamilies(
+                    new TypeOptions
+                    {
+                        PlatformFramework = "runtime",
+                    });
+
+        Assert.Equal(["runtime"], frameworks);
+    }
 }
