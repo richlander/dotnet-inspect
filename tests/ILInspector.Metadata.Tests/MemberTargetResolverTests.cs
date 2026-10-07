@@ -10,6 +10,9 @@ public class MemberTargetResolverTests
     [InlineData("Explicit~abc123", "Explicit", null, "abc123", null, null)]
     [InlineData("Implicit~abc123", "Implicit", null, "abc123", null, null)]
     [InlineData("operator:op_Implicit~abc123", "op_Implicit", null, "abc123", "operator", null)]
+    [InlineData("operator:implicit~abc123", "op_Implicit", null, "abc123", "operator", null)]
+    [InlineData("extension:Explicit~abc123", "Explicit", null, "abc123", "extension-method", null)]
+    [InlineData("extension:Implicit~abc123", "Implicit", null, "abc123", "extension-method", null)]
     [InlineData("M<T>", "M", null, null, null, 1)]
     [InlineData("M`1", "M", null, null, null, 1)]
     [InlineData("M<TKey,TValue>:3", "M", 3, null, null, 2)]
@@ -85,6 +88,29 @@ public class MemberTargetResolverTests
         Assert.True(result.Found);
         Assert.Equal(targetMember.Signature, result.Target!.ApiMember.Member.Signature);
         Assert.Equal(digest, result.Target.DigestPrefix);
+    }
+
+    [Theory]
+    [InlineData("Explicit", "method")]
+    [InlineData("Implicit", "method")]
+    [InlineData("Explicit", "extension-method")]
+    [InlineData("Implicit", "extension-method")]
+    public void Resolve_IssuedDigestAnchorPreservesOrdinaryMethodName(string name, string kind)
+    {
+        var member = new ApiMember
+        {
+            Name = name,
+            Kind = kind,
+            Signature = $"int {name}(int value)",
+        };
+        var type = new ApiType { Namespace = "Sample", Name = "Widget", Members = [member] };
+        var anchor = ApiMemberIdentity.GetMemberAnchor(type, member);
+
+        var result = MemberTargetResolver.Resolve(type, MemberTargetSelector.Parse(anchor.StableSelector));
+
+        Assert.True(result.Found, result.Diagnostic?.Message);
+        Assert.Same(member, result.Target!.ApiMember.Member);
+        Assert.Equal(anchor, result.Target.Anchor);
     }
 
     [Fact]
