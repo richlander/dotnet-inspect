@@ -254,11 +254,19 @@ Shared presentation owns both initial lowerings:
 - Mermaid writes the same semantic nodes and edges with format-local stable
   identifiers and Mermaid escaping.
 
-The shared presentation API accepts only Tree or Mermaid intent,
-accessibility policy, the completed owner document, and the destination. The
-CLI exact-Type hierarchy route adopts this profile without owning Markout,
-node formatting, or hierarchy formation. Inspect Web may request either format or
-a later Browser transport without duplicating hierarchy formation.
+`TypeOverviewHierarchyInspection` accepts the host-selected assembly, exact
+Type query, Tree or Mermaid intent, accessibility policy, and operation
+bounds. It owns direct-Library materialization, exact Type identity
+resolution, and construction of the owner-issued `TypeOverviewDocument`
+request. `TypeOverviewHierarchyPresentation.Write` then accepts only the
+completed owner document, admitted presentation plan, and destination.
+
+The CLI exact-Type hierarchy route selects the source, format, policy, and
+destination without owning Library Type enumeration, exact-Type matching,
+Markout, node formatting, or hierarchy formation. Inspect Web may use the same
+inspection API with its selected assembly, or supply an already completed
+document to a later Browser transport, without duplicating hierarchy
+formation.
 
 The expanded Mermaid example
 `JsonSerializer -> DeserializeAsync -> exact DeserializeAsync overloads`

@@ -2,7 +2,6 @@ using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Presentation;
-using DotnetInspector.Sections;
 using DotnetInspector.SourceSelection;
 using ILInspector.Metadata;
 
@@ -23,8 +22,7 @@ internal static class TypeOverviewHierarchyCommand
         ApiSourceResult source,
         TypeOptions options,
         TypeOverviewHierarchyPresentationFormat format,
-        CancellationToken cancellationToken,
-        int maximumInventoryRows = 5_000)
+        CancellationToken cancellationToken)
     {
         string? path =
             ApiServices.FindApiDll(
@@ -50,51 +48,25 @@ internal static class TypeOverviewHierarchyCommand
             return Unavailable(
                 format,
                 "A compact Type hierarchy requires a managed assembly descriptor.");
-        TypeOverviewHierarchyPresentationPlan presentation =
-            TypeOverviewHierarchyPresentation.CreateCompactPlan(
-                format,
-                options.IncludeAll);
-        InspectionEnvelope<TypeOverviewDocumentInspectionOutcome>? envelope =
-            await ExactLibraryInspectionExecutor.ExecuteAsync(
+        TypeOverviewHierarchyInspectionExecution execution =
+            await TypeOverviewHierarchyInspection.ExecuteAsync(
                 ready.Reference,
-                session =>
-                {
-                    LibraryTypeListingResult? listing =
-                        LibraryTypeListingCommand.ReadRows(
-                            session,
-                            new(
-                                LibraryTypeDeclarationSelection.Definitions,
-                                ApiTypeInventoryKinds.All),
-                            cancellationToken,
-                            maximumRows: maximumInventoryRows,
-                            writeFailures: false);
-                    if (listing is null)
-                        return null;
-
-                    var identities = listing.Rows.ToDictionary(
-                        static row => row.Identity.ToEscapedFullName(),
-                        static row => row.Identity,
-                        StringComparer.Ordinal);
-                    LookupResult lookup =
-                        TypeMatcher.Lookup(
-                            identities.Keys,
-                            source.TypeName!);
-                    if (lookup.Match is not { } match)
-                        return null;
-
-                    return session.ExecuteTypeOverviewDocument(
-                        new(
-                            identities[match],
-                            presentation.Members.Rows!,
-                            s_bounds,
-                            presentation.Members.Spelling,
-                            presentation.Members.Accessibility,
-                            presentation.Members.Receiver,
-                            presentation.Members.IncludeHidden,
-                            presentation.Hierarchy),
-                        cancellationToken);
-                },
-                cancellationToken);
+                NoResolverAssemblyBindingPolicy.Instance,
+                source.TypeName!,
+                format,
+                options.IncludeAll,
+                s_bounds,
+                new(
+                    maxCapturedImageBytes: 512 * 1024 * 1024,
+                    maxRetainedArtifactBytes: 512 * 1024 * 1024),
+                cancellationToken)
+            .ConfigureAwait(false);
+        foreach (string cleanupFailure in execution.CleanupFailures)
+            CommandError.Write(cleanupFailure);
+        if (!execution.CleanupFailures.IsEmpty)
+            return 1;
+        InspectionEnvelope<TypeOverviewDocumentInspectionOutcome>? envelope =
+            execution.Inspection;
         if (envelope?.Content
             is not TypeOverviewDocumentInspectionOutcome.Available available)
         {
@@ -111,7 +83,8 @@ internal static class TypeOverviewHierarchyCommand
                         $"Type overview inspection reached the {incomplete.Bound} bound ({incomplete.Measured}/{incomplete.Limit}).",
                     TypeOverviewDocumentInspectionOutcome.Failed failed =>
                         $"Type overview inspection failed: {failed.Reason}.",
-                    _ => "The compact exact Type hierarchy is unavailable.",
+                    _ => execution.Failure
+                        ?? "The compact exact Type hierarchy is unavailable.",
                 });
         }
 
@@ -131,7 +104,7 @@ internal static class TypeOverviewHierarchyCommand
             TypeCommand.WriteInspectionDiagnostics(envelope.Diagnostics);
             TypeOverviewHierarchyPresentation.Write(
                 available.Document,
-                presentation,
+                execution.Presentation,
                 Console.Out);
             return 0;
         }

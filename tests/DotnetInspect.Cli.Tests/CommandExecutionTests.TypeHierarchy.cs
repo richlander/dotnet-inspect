@@ -1,8 +1,3 @@
-using DotnetInspect.Cli.Commands;
-using DotnetInspect.Cli.Inspectors;
-using DotnetInspect.Cli.Options;
-using DotnetInspector.Presentation;
-
 namespace DotnetInspect.Cli.Tests;
 
 public partial class CommandExecutionTests
@@ -162,27 +157,4 @@ public partial class CommandExecutionTests
         }
     }
 
-    [Fact]
-    public async Task TypeHierarchy_BoundedPreliminaryInventory_DoesNotPublishOutput()
-    {
-        var options = new TypeOptions
-        {
-            TypeName = "DotnetInspect.Cli.Tests.SampleClassForTesting",
-            AssemblyPath = TestAssemblyPath,
-        };
-        var (source, sourceError) = await ApiSourceResolver.ResolveAsync(options);
-        Assert.Null(sourceError);
-
-        var (exit, output, error) = await ConsoleCapture.RunAsync(
-            async () => await TypeOverviewHierarchyCommand.TryExecuteAsync(
-                source,
-                options,
-                TypeOverviewHierarchyPresentationFormat.Mermaid,
-                CancellationToken.None,
-                maximumInventoryRows: 0) ?? 0);
-
-        Assert.Equal(1, exit);
-        Assert.Empty(output);
-        Assert.Contains("unavailable", error);
-    }
 }
