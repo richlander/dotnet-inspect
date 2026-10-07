@@ -350,7 +350,7 @@ export function workspaceTypeByOccurrence(
     return libraries.flatMap(library =>
       pkg.types
         .filter(type =>
-          (type.queryId ?? type.id) === coordinate.typeId
+          (type.definitionId ?? type.id) === coordinate.typeId
           && type.assemblyId === library.id)
         .map(type => ({ pkg, type })));
   });

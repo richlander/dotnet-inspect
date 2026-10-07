@@ -818,6 +818,53 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public async Task TypeProjection_HierarchyRetainsNestedDefinitionIdentity()
+    {
+        const string packageId =
+            "Browser.TypeHierarchy.NestedIdentity";
+        const string assemblyName =
+            "Browser.TypeHierarchy.NestedIdentity";
+        const string interfaceName =
+            "Browser.TypeHierarchy.NestedIdentity.Contract";
+        const string outerTypeName =
+            "Browser.TypeHierarchy.NestedIdentity.Outer";
+        const string nestedDefinitionName =
+            "Browser.TypeHierarchy.NestedIdentity.Outer+Implementer";
+
+        _ = await Coordinate(
+            packageId,
+            Package(
+                BuildNestedHierarchyIdentityImage(
+                    assemblyName,
+                    interfaceName,
+                    outerTypeName,
+                    "Implementer"),
+                $"lib/net11.0/{assemblyName}.dll"));
+
+        BrowserTypeMetadata metadata = await QueryTypeProjection(
+            packageId,
+            $"{assemblyName}.dll",
+            interfaceName,
+            $$"""
+            [
+              {
+                "package": "{{packageId}}",
+                "version": "1.0.0",
+                "framework": "net11.0"
+              }
+            ]
+            """);
+
+        Assert.NotNull(metadata.Hierarchy);
+        var row = Assert.Single(metadata.Hierarchy.Rows);
+        Assert.Equal(nestedDefinitionName, row.Type);
+        Assert.Equal(packageId, row.PackageId);
+        Assert.Equal(
+            $"lib/net11.0/{assemblyName}.dll",
+            row.Asset);
+    }
+
+    [Fact]
     public async Task
         TypeProjection_ShareRejectsAmbiguousPackageAssetReplay()
     {
@@ -1300,6 +1347,41 @@ public sealed partial class BrowserEngineBoundaryTests
                 | TypeAttributes.Class);
         foreach (Type dependency in dependencies)
             nested.AddInterfaceImplementation(dependency);
+        nested.CreateType();
+        outer.CreateType();
+
+        using var stream = new MemoryStream();
+        assembly.Save(stream);
+        return stream.ToArray();
+    }
+
+    static byte[] BuildNestedHierarchyIdentityImage(
+        string assemblyName,
+        string interfaceName,
+        string outerTypeName,
+        string nestedTypeName)
+    {
+        var assembly = new PersistedAssemblyBuilder(
+            new AssemblyName(assemblyName),
+            typeof(object).Assembly);
+        ModuleBuilder module = assembly.DefineDynamicModule(assemblyName);
+        TypeBuilder hierarchyInterface = module.DefineType(
+            interfaceName,
+            TypeAttributes.Public
+                | TypeAttributes.Abstract
+                | TypeAttributes.Interface);
+        Type interfaceType = hierarchyInterface.CreateType();
+        TypeBuilder outer = module.DefineType(
+            outerTypeName,
+            TypeAttributes.Public
+                | TypeAttributes.Abstract
+                | TypeAttributes.Class);
+        TypeBuilder nested = outer.DefineNestedType(
+            nestedTypeName,
+            TypeAttributes.NestedPublic
+                | TypeAttributes.Abstract
+                | TypeAttributes.Class);
+        nested.AddInterfaceImplementation(interfaceType);
         nested.CreateType();
         outer.CreateType();
 

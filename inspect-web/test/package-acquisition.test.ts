@@ -145,6 +145,33 @@ test("workspace Type occurrence selection retains package and asset identity", (
       typeId: "Shared.Implementer",
     }),
     null);
+
+  const nestedDescriptor = {
+    ...assembly("asset:nested", "Nested"),
+    asset: "lib/net10.0/Nested.dll",
+  };
+  const nested = createNuGetPackageModel(packageSurface({
+    package: "Package.Nested",
+    assemblies: [nestedDescriptor],
+    defaultAssemblyId: nestedDescriptor.id,
+    types: [{
+      ...typeSurface("Shared.Outer.Inner", "Nested"),
+      definitionId: "Shared.Outer+Inner",
+      assemblyId: nestedDescriptor.id,
+    }],
+  }));
+  assert.deepEqual(
+    workspaceTypeByOccurrence([nested], {
+      packageId: "Package.Nested",
+      version: "1.2.3",
+      framework: "net10.0",
+      asset: "lib/net10.0/Nested.dll",
+      typeId: "Shared.Outer+Inner",
+    }),
+    {
+      pkg: nested,
+      type: nested.types[0],
+    });
 });
 
 test("replacement Library selection follows one product compile-asset correspondence", () => {
