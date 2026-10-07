@@ -361,6 +361,7 @@ public sealed class TypeMemberInspectionDocumentTests
             new TypeDocumentDeclarationSignature([]),
             MetadataTypeDeclarationCategory.Class,
             TypeAttributes.Public,
+            isHidden: false,
             isByRefLike: false,
             isReadOnly: false,
             definesCoreLibraryRoot: false,

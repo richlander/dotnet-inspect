@@ -82,6 +82,7 @@ public sealed record TypeSubject
         TypeDocumentDeclarationSignature signature,
         MetadataTypeDeclarationCategory category,
         TypeAttributes attributes,
+        bool isHidden,
         bool isByRefLike,
         bool isReadOnly,
         bool definesCoreLibraryRoot,
@@ -112,6 +113,7 @@ public sealed record TypeSubject
         TypeDefinitionToken = typeDefinitionToken;
         Category = category;
         Attributes = attributes;
+        IsHidden = isHidden;
         IsByRefLike = isByRefLike;
         IsReadOnly = isReadOnly;
         DefinesCoreLibraryRoot = definesCoreLibraryRoot;
@@ -127,6 +129,7 @@ public sealed record TypeSubject
         TypeDocumentDeclarationSignature signature,
         MetadataTypeDeclarationCategory category,
         TypeAttributes attributes,
+        bool isHidden,
         bool isByRefLike,
         bool isReadOnly,
         bool definesCoreLibraryRoot,
@@ -139,6 +142,7 @@ public sealed record TypeSubject
             signature,
             category,
             attributes,
+            isHidden,
             isByRefLike,
             isReadOnly,
             definesCoreLibraryRoot,
@@ -170,6 +174,7 @@ public sealed record TypeSubject
     public TypeDocumentDeclarationSignature Signature { get; }
     public MetadataTypeDeclarationCategory Category { get; }
     public TypeAttributes Attributes { get; }
+    public bool IsHidden { get; }
     public bool IsByRefLike { get; }
     public bool IsReadOnly { get; }
     public bool DefinesCoreLibraryRoot { get; }

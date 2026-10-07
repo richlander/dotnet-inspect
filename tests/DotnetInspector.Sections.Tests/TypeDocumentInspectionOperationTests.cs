@@ -354,6 +354,7 @@ public sealed class TypeDocumentInspectionOperationTests
             source.Signature,
             source.Category,
             source.Attributes,
+            source.IsHidden,
             source.IsByRefLike,
             source.IsReadOnly,
             source.DefinesCoreLibraryRoot,

@@ -266,6 +266,7 @@ public class TypeOverviewHierarchyPresentationTests
                 new TypeDocumentDeclarationSignature(parameters),
                 MetadataTypeDeclarationCategory.Class,
                 TypeAttributes.Public,
+                isHidden: false,
                 isByRefLike: false,
                 isReadOnly: false,
                 definesCoreLibraryRoot: false,

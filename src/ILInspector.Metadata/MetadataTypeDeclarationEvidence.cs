@@ -86,6 +86,7 @@ public sealed record MetadataTypeDeclarationEvidence(
     MetadataTypeIdentity.Primitive? PrimitiveAlias,
     MetadataTypeDeclarationSignature Signature,
     TypeAttributes Attributes,
+    bool IsHidden,
     MetadataTypeDeclarationCategory Category,
     MetadataTypeDeclarationBaseKind BaseKind,
     int InterfaceCount,
@@ -170,6 +171,9 @@ internal sealed class MetadataTypeDeclarationEvidenceOperation
             TypeDefinitionHandle handle = ResolveRequest();
             TypeDefinition definition = ReadDefinition(handle);
             TypeAttributes attributes = definition.Attributes;
+            bool isHidden = ReadHiddenStatus(
+                definition,
+                handle);
 
             MetadataTypeDefinitionIndex index = GetIndex(handle);
             MetadataTypeDefinitionName selectedName =
@@ -287,6 +291,7 @@ internal sealed class MetadataTypeDeclarationEvidenceOperation
                     primitiveAlias,
                     genericParameters.Signature,
                     attributes,
+                    isHidden,
                     category,
                     classification.BaseKind,
                     interfaceCount,
@@ -426,6 +431,33 @@ internal sealed class MetadataTypeDeclarationEvidenceOperation
         }
 
         return (isByRefLike, isReadOnly);
+    }
+
+    bool ReadHiddenStatus(
+        TypeDefinition definition,
+        TypeDefinitionHandle handle)
+    {
+        MetadataTypeDeclarationSite site = Site(
+            MetadataTypeDeclarationStage.CategoryClassification,
+            MetadataTypeDeclarationMechanism.RelationshipTraversal,
+            handle);
+        CustomAttributeHandleCollection attributes = Read(
+            site,
+            definition.GetCustomAttributes);
+        Charge(
+            site,
+            MetadataOperationDimension.RelationshipEdges,
+            attributes.Count);
+        _token.ThrowIfCancellationRequested();
+        return Read(
+            site,
+            () => AttributeReader.HasHiddenAttribute(
+                _reader,
+                attributes,
+                beforeMaterialize: amount => Charge(
+                    site,
+                    MetadataOperationDimension.StructuredNodes,
+                    amount)));
     }
 
     static MetadataTypeDefinitionName KnownAttributeName(string name) =>

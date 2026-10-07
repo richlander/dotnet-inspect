@@ -1056,6 +1056,42 @@ public partial class CommandExecutionTests
         Assert.NotEmpty(allOutput);
     }
 
+    [Fact]
+    public async Task
+        Type_DirectLibraryExactType_HiddenRequiresIncludeAll()
+    {
+        const string typeName =
+            "DotnetInspect.Cli.Tests.HiddenExactTypeDiscoveryProbe";
+        var (defaultExit, defaultOutput, defaultError) =
+            await RunAppAsync(
+                "type",
+                typeName,
+                "--library",
+                TestAssemblyPath,
+                "-D",
+                SectionNames.TypeInfo,
+                "--tsv");
+        var (allExit, allOutput, allError) =
+            await RunAppAsync(
+                "type",
+                typeName,
+                "--library",
+                TestAssemblyPath,
+                "--all",
+                "-D",
+                SectionNames.TypeInfo,
+                "--tsv");
+
+        Assert.Equal(1, defaultExit);
+        Assert.Empty(defaultOutput);
+        Assert.Contains(
+            $"Type '{typeName}' not found.",
+            defaultError);
+        Assert.Equal(0, allExit);
+        Assert.Empty(allError);
+        Assert.NotEmpty(allOutput);
+    }
+
     [Theory]
     [InlineData("System.Attribute", false)]
     [InlineData("System.TimeSpan", true)]
@@ -1098,6 +1134,7 @@ public partial class CommandExecutionTests
                 SectionNames.UnsafeMembers,
                 directOutput);
         }
+
     }
 
     [Theory]

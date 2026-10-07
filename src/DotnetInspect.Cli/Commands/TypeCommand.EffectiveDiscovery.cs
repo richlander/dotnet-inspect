@@ -313,7 +313,8 @@ public static partial class TypeCommand
                 or MetadataTypeDeclarationCategory.Interface
                 or MetadataTypeDeclarationCategory.Delegate
         && (includeAll
-            || subject.DeclaringTypeDefinitionToken is null
+            || !subject.IsHidden
+                && subject.DeclaringTypeDefinitionToken is null
                 && (subject.Attributes
                     & TypeAttributes.VisibilityMask)
                     == TypeAttributes.Public);
