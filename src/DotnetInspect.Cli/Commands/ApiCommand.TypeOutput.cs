@@ -1072,6 +1072,27 @@ public partial class ApiCommand
                     SectionNames.Source,
                     SelectedSourceLineCount(options.Rows, sourceLines));
             }
+            if (options.Rows is null
+                && options is TypeOptions
+                {
+                    TypeHierarchyRelations: { } relations,
+                })
+            {
+                if (!TrySetHierarchyCount(
+                        projection,
+                        SectionNames.Implementers,
+                        relations.Implementers,
+                        out string? hierarchyFailure)
+                    || !TrySetHierarchyCount(
+                        projection,
+                        SectionNames.DerivedTypes,
+                        relations.DerivedTypes,
+                        out hierarchyFailure))
+                {
+                    CommandError.Write(hierarchyFailure!);
+                    return 1;
+                }
+            }
             if (!TryReportEmptyProjection(
                     projection.WroteAnyContent,
                     options,
@@ -1132,6 +1153,28 @@ public partial class ApiCommand
 
             ApiOutputFormatter.WriteCallGraphWarning(view);
             return 0;
+        }
+
+        static bool TrySetHierarchyCount(
+            CountProjection projection,
+            string sectionName,
+            TypeHierarchyRelationSectionInspection? inspection,
+            out string? failure)
+        {
+            failure = null;
+            if (inspection is null)
+                return true;
+
+            if (inspection.Inspection.Content.Relations.Count
+                is not SubjectRelationPopulationCountOutcome.Counted counted)
+            {
+                failure =
+                    $"The '{sectionName}' count is incomplete or unavailable.";
+                return false;
+            }
+
+            projection.SetRows(sectionName, counted.Value);
+            return true;
         }
 
         if (textPayloadJson && LonePayloadJsonTextSection(options) is { } jsonTextSection)

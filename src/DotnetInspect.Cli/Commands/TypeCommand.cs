@@ -339,6 +339,75 @@ public static partial class TypeCommand
         bool inspectionIncomplete = false;
         try
         {
+            if (loadedSurface is null
+                && preselectedType is null
+                && !options.EffectiveDiscovery
+                && !string.IsNullOrEmpty(typeName)
+                && !new TypeGestureIntent(
+                        options.TypeFilter)
+                    .SelectsListingCatalog(
+                        options.TypeName)
+                && TypeHierarchyRelationsInspectionExecutor.IsSelected(
+                    options)
+                && options.TypeHierarchyRelations is null)
+            {
+                (int? hierarchyExitCode, string? hierarchyError) =
+                    await TypeHierarchyRelationsInspectionExecutor
+                        .ExecuteAsync(
+                            options,
+                            source,
+                            async execution =>
+                            {
+                                ExactTypeInspectionResult inspection =
+                                    execution.ExactType.Content.Inspection;
+                                if (!inspection.IsAvailable)
+                                {
+                                    WriteExactTypeNonSuccess(
+                                        inspection,
+                                        execution.ExactType.Diagnostics,
+                                        execution.ExactType.Content
+                                            .DefiningSources.Select(
+                                                FormatDefiningSource));
+                                    return 1;
+                                }
+
+                                TypeHierarchyRelationsInspection relations =
+                                    execution.Relations
+                                    ?? throw new InvalidOperationException(
+                                        "An available hierarchy Type requires "
+                                            + "relation inspection.");
+                                WriteHierarchyDiagnostics(relations);
+                                return await ExecuteWorkspaceExactTypeResultAsync(
+                                        options with
+                                        {
+                                            TypeHierarchyRelations =
+                                                relations,
+                                        },
+                                        plan,
+                                        inspection,
+                                        execution.ExactType.Diagnostics,
+                                        ExactTypeRenderSource.From(source),
+                                        execution.Target
+                                            ?? throw new InvalidOperationException(
+                                                "An available hierarchy Type "
+                                                    + "requires one live "
+                                                    + "inspection target."),
+                                        execution.PackageExtractPath)
+                                    .ConfigureAwait(false);
+                            },
+                            cancellationToken)
+                        .ConfigureAwait(false);
+                if (hierarchyError is not null)
+                {
+                    CommandError.Write(hierarchyError);
+                    return 1;
+                }
+
+                return hierarchyExitCode
+                    ?? throw new InvalidOperationException(
+                        "Hierarchy execution completed without an exit code.");
+            }
+
             if (string.IsNullOrEmpty(typeName)
                 || new TypeGestureIntent(
                         options.TypeFilter)
@@ -551,6 +620,13 @@ public static partial class TypeCommand
                                 effectiveOptions.ProjectAssetsPath,
                                 effectiveOptions.Tfm,
                                 effectiveOptions.SourceOptions));
+                    }
+
+                    if (effectiveOptions.TypeHierarchyRelations is
+                        { } hierarchyRelations)
+                    {
+                        inspectionIncomplete |=
+                            !hierarchyRelations.IsComplete;
                     }
 
                     // Real local names for the listing: acquire the portable
@@ -1400,7 +1476,8 @@ public static partial class TypeCommand
         ExactTypeInspectionResult result,
         IEnumerable<InspectionDiagnostic> diagnostics,
         ExactTypeRenderSource renderSource,
-        SelectedContextExactTypeLiveTarget target)
+        SelectedContextExactTypeLiveTarget target,
+        string? packageExtractPathOverride = null)
     {
         WriteInspectionDiagnostics(diagnostics);
 
@@ -1450,7 +1527,9 @@ public static partial class TypeCommand
                 PackageName: renderSource.PackageName,
                 PackageVersion: renderSource.PackageVersion,
                 ResolvedPackagePath: renderSource.ResolvedPackagePath,
-                PackageExtractPath: target.PackageExtractPath,
+                PackageExtractPath:
+                    packageExtractPathOverride
+                    ?? target.PackageExtractPath,
                 ApiSource: renderSource.Source,
                 ApiVersion: renderSource.Version,
                 PlatformFramework: renderSource.PlatformFramework,
@@ -1748,6 +1827,19 @@ public static partial class TypeCommand
                     PlatformFramework: null),
             };
         }
+
+        internal static ExactTypeRenderSource From(
+            ApiSourceResult source) =>
+            new(
+                source.PackageName
+                    ?? Path.GetFileNameWithoutExtension(source.SearchPath),
+                source.PackageVersion ?? source.ApiVersion,
+                source.ApiSource ?? SourceKind.Library,
+                source.SelectedTfm,
+                source.PackageName,
+                source.PackageVersion,
+                source.ResolvedPackagePath,
+                source.PlatformFramework);
     }
 
     sealed class WorkspaceTypeAssemblyPath : IDisposable
@@ -1911,6 +2003,30 @@ public static partial class TypeCommand
                         nameof(diagnostics),
                         diagnostic.Severity,
                         "Unknown inspection diagnostic severity.");
+            }
+        }
+    }
+
+    static void WriteHierarchyDiagnostics(
+        TypeHierarchyRelationsInspection inspection)
+    {
+        foreach (TypeHierarchyRelationSectionInspection section
+        in new[]
+        {
+            inspection.Implementers,
+            inspection.DerivedTypes,
+        }.OfType<TypeHierarchyRelationSectionInspection>())
+        {
+        WriteInspectionDiagnostics(section.Inspection.Diagnostics);
+        if (section.Inspection.Content.Relations.Rows
+            is SubjectRelationPopulationRowsOutcome.Read
+        {
+            Continuation: not null,
+        })
+        {
+            CommandError.WriteWarning(
+                "Hierarchy relation output reached the CLI row bound and "
+                    + "is incomplete.");
             }
         }
     }

@@ -239,7 +239,7 @@ test("settled API Diff evidence decorates exact Type and Member navigation rows"
   const typeNav = sourceText(functionDeclaration("renderTypeNavPane"));
   assert.match(
     typeNav,
-    /libraryApiDiffPresence\(state\.libraryApiDiff\)[\s\S]*diffPresence\.typeIdentifiers\.has\(item\.definitionId \?\? item\.id\)[\s\S]*achievements\.push\(apiDiffAchievement\)/,
+    /libraryApiDiffPresence\(state\.libraryApiDiff\)[\s\S]*typeLeverageAchievements\([\s\S]*diffPresence\.typeIdentifiers\.has\(item\.definitionId \?\? item\.id\)\s*\? apiDiffAchievement : null\)/,
   );
 
   const memberNav = sourceText(functionDeclaration("renderMemberNavPane"));

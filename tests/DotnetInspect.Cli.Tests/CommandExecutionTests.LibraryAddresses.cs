@@ -3103,6 +3103,26 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibraryCommand_IlOffsetPrint_MissingChecksumFailsBeforeNetwork()
+    {
+        var result = new ILOffsetProjection
+        {
+            Method = "Sample.Method",
+            File = "Sample.cs",
+            Line = 1,
+            Url = $"https://example.test/{Guid.NewGuid():N}/Sample.cs"
+        };
+
+        var (content, error) =
+            await LibraryCommand.ReadILOffsetSourceLineForTestsAsync(result);
+
+        Assert.Null(content);
+        Assert.Contains(
+            "The portable PDB does not provide a usable source checksum.",
+            error);
+    }
+
+    [Fact]
     public async Task LibraryCommand_IlOffsetSectionSelector_RequiresFlagParameter()
     {
         var (exit, _, error) = await RunAppAsync(
