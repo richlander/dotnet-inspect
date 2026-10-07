@@ -89,7 +89,7 @@ public class FindCommand
             using FindDiscoveryTsvWriter? tsv =
                 options.Tsv && !options.Count
                     ? new(Console.Out, !options.NoHeader,
-                        OutputFormatter.BuildProjection(options.Columns, options.Fields))
+                        options.Columns, options.Fields)
                     : null;
             bool progressive = tsv is not null && rowSelection is null;
             int streamedTypes = 0;
