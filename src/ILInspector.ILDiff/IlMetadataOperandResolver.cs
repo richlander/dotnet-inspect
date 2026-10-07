@@ -373,38 +373,51 @@ public static partial class IlBodyDiff
             if (!reader.IsAssembly)
                 return identity;
 
-            bool normalizeCurrent =
-                (normalization & IlBodyDiffNormalization.NormalizeCurrentAssemblyScope) != 0;
-            bool normalizePlatform =
-                (normalization & IlBodyDiffNormalization.NormalizePlatformAssemblyScope) != 0;
-            if (!normalizeCurrent && !normalizePlatform)
-                return identity;
-
             ReadOnlySpan<char> identitySpan = identity;
             int comma = identitySpan.IndexOf(',');
-            ReadOnlySpan<char> name = comma >= 0 ? identitySpan[..comma] : identitySpan;
+            string name = comma >= 0 ? identity[..comma] : identity;
             string currentAssembly = reader.GetString(reader.GetAssemblyDefinition().Name);
-            if (normalizeCurrent && name.Equals(currentAssembly, StringComparison.Ordinal))
-                return "<current>";
-            if (normalizePlatform
-                && !name.Equals(currentAssembly, StringComparison.Ordinal)
-                && IsPlatformAssembly(name))
-            {
-                return "<platform>";
-            }
-
-            return identity;
+            return AssemblyScopeToken(name, currentAssembly, normalization) ?? identity;
         }
 
-        static bool IsPlatformAssembly(ReadOnlySpan<char> name)
-            => name.Equals("mscorlib", StringComparison.Ordinal)
-                || name.Equals("netstandard", StringComparison.Ordinal)
-                || name.Equals("System", StringComparison.Ordinal)
-                || name.StartsWith("System.", StringComparison.Ordinal)
-                || name.Equals("Microsoft.CSharp", StringComparison.Ordinal)
-                || name.StartsWith("Microsoft.VisualBasic", StringComparison.Ordinal);
-
     }
+
+    /// <summary>
+    /// The shared scope token for a referenced assembly's simple name under the
+    /// requested scope normalization, or null when the reference keeps its exact
+    /// identity. Operand rendering and the compiler-generated ordinal correspondence key
+    /// share this one rule, so the key never distinguishes two references that operand
+    /// rendering shows as the same scope.
+    /// </summary>
+    internal static string? AssemblyScopeToken(
+        string assemblyName,
+        string? currentAssemblyName,
+        IlBodyDiffNormalization normalization)
+    {
+        bool isCurrent = currentAssemblyName is not null
+            && assemblyName.Equals(currentAssemblyName, StringComparison.Ordinal);
+        if ((normalization & IlBodyDiffNormalization.NormalizeCurrentAssemblyScope) != 0
+            && isCurrent)
+        {
+            return "<current>";
+        }
+        if ((normalization & IlBodyDiffNormalization.NormalizePlatformAssemblyScope) != 0
+            && !isCurrent
+            && IsPlatformAssembly(assemblyName))
+        {
+            return "<platform>";
+        }
+
+        return null;
+    }
+
+    static bool IsPlatformAssembly(ReadOnlySpan<char> name)
+        => name.Equals("mscorlib", StringComparison.Ordinal)
+            || name.Equals("netstandard", StringComparison.Ordinal)
+            || name.Equals("System", StringComparison.Ordinal)
+            || name.StartsWith("System.", StringComparison.Ordinal)
+            || name.Equals("Microsoft.CSharp", StringComparison.Ordinal)
+            || name.StartsWith("Microsoft.VisualBasic", StringComparison.Ordinal);
 
     sealed class SignatureIdentityProvider : ISignatureTypeProvider<string, object?>
     {

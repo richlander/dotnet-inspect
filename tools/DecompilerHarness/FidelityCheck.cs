@@ -74,6 +74,15 @@ static partial class FidelityCheck
     /// fallback is no longer needed.
     /// </para>
     /// <para>
+    /// v4 (#9586) builds the correspondence key under the same current- and
+    /// platform-assembly scope rule the comparison applies to operands. Under v3 the key
+    /// carried each referenced assembly's full identity, so a generated member whose
+    /// signature named a platform type never paired once the recompile resolved that type
+    /// against a different framework build, and identical bodies reported operand
+    /// differences (dotnet-inspect.any 0.14.0 <c>EcosystemIntegrationScanner.OrderApis</c>).
+    /// The flag set is unchanged; the equality rule loosened, and corpus numbers move.
+    /// </para>
+    /// <para>
     /// The flag set is the trigger this version is <em>gated</em> on, but it is not the
     /// whole of what it protects: the equality rules also include how
     /// <c>IlBodyDiff</c> renders an operand, and a renderer change moves them without
@@ -94,7 +103,7 @@ static partial class FidelityCheck
     /// argument and must bump.
     /// </para>
     /// </remarks>
-    internal const int CurrentContractVersion = 3;
+    internal const int CurrentContractVersion = 4;
 
     internal const IlBodyDiffNormalization ContractBodyDiffNormalization =
         IlBodyDiffNormalization.NormalizeVariableLayout
