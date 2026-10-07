@@ -15,13 +15,19 @@ namespace ILInspector.Analysis;
 /// Fail-closed: an incomplete typed stack, an unresolved producer, or an unprovable
 /// displacement or bound recognizes nothing, so the reported roles stay.
 /// </remarks>
+/// <param name="WrappingConstructors">
+/// The offset of the compiler-emitted <c>Span&lt;T&gt;(void*, int)</c> constructor that
+/// wraps each recognized allocation, keyed by the allocation's offset.
+/// </param>
 internal sealed record SpanStackAllocations(
     ImmutableHashSet<int> WrappedAllocations,
-    ImmutableHashSet<int> InitializerStores)
+    ImmutableHashSet<int> InitializerStores,
+    ImmutableDictionary<int, int> WrappingConstructors)
 {
     const int MaxTraceDepth = 32;
 
-    internal static SpanStackAllocations None { get; } = new([], []);
+    internal static SpanStackAllocations None { get; } =
+        new([], [], ImmutableDictionary<int, int>.Empty);
 
     internal static SpanStackAllocations Recognize(
         MethodBodyAnalysisContext context,
@@ -51,6 +57,7 @@ internal sealed record SpanStackAllocations(
         var tracer = new Tracer(stack, instructions);
 
         var wrapped = new Dictionary<int, TypeRef>();
+        var constructors = ImmutableDictionary.CreateBuilder<int, int>();
         foreach (DecodedInstruction instruction in instructions.Values)
         {
             if (instruction.OpCode != ILOpCode.Newobj)
@@ -66,6 +73,7 @@ internal sealed record SpanStackAllocations(
                 continue;
             }
             wrapped[allocation] = elementType;
+            constructors[allocation] = instruction.Offset;
         }
         if (wrapped.Count == 0)
             return None;
@@ -92,7 +100,8 @@ internal sealed record SpanStackAllocations(
         }
         return new(
             wrapped.Keys.ToImmutableHashSet(),
-            stores.ToImmutable());
+            stores.ToImmutable(),
+            constructors.ToImmutable());
     }
 
     static TypeRef? SpanElementType(MemberRef constructor)

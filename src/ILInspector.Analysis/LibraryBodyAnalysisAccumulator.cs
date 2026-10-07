@@ -275,7 +275,12 @@ internal sealed class LibraryBodyAnalysisAccumulator
             _includeMethodEvidence
                 ? BuildUnsafeMemberUses(
                     results,
-                    directCalls)
+                    directCalls,
+                    _primaryMetadataResolver.MemorySafetyRules
+                        is MemorySafetyRulesResult.Available
+                        {
+                            State: MemorySafetyRulesState.Updated,
+                        })
                 : [];
         UnsafeMemberCensus? unsafeMemberCensus =
             _includeMethodEvidence
@@ -432,14 +437,18 @@ internal sealed class LibraryBodyAnalysisAccumulator
 
     static ImmutableArray<UnsafeMemberUse> BuildUnsafeMemberUses(
         IReadOnlyList<LibraryMethodAnalysisResult> results,
-        ImmutableArray<DirectCall> calls)
+        ImmutableArray<DirectCall> calls,
+        bool primaryImageUsesUpdatedRules)
     {
         var callsByCaller = calls
-            .Where(static call =>
-                call.TargetCallerUnsafeMode
-                    == CallerUnsafeMode.Explicit)
-            .GroupBy(static call =>
-                call.EvidenceMethod.MetadataToken)
+            .Select(call => (
+                Call: call,
+                Source: ExplicitCallContractSource(
+                    call,
+                    primaryImageUsesUpdatedRules)))
+            .Where(static item => item.Source is not null)
+            .GroupBy(static item =>
+                item.Call.EvidenceMethod.MetadataToken)
             .ToDictionary(
                 static group => group.Key,
                 static group => group.ToImmutableArray());
@@ -488,17 +497,34 @@ internal sealed class LibraryBodyAnalysisAccumulator
 
             if (callsByCaller.TryGetValue(
                     method.MetadataToken,
-                    out ImmutableArray<DirectCall>
+                    out ImmutableArray<(
+                            DirectCall Call,
+                            UnsafeContractSource? Source)>
                         explicitCalls))
             {
-                foreach (DirectCall call in explicitCalls)
+                HashSet<int> loweredSpanConstructors =
+                    result.Unsafety.IsDefault
+                        ? []
+                        : [
+                            .. result.Unsafety
+                                .Where(static occurrence =>
+                                    occurrence.SpanConstructorOffset
+                                        is not null)
+                                .Select(static occurrence =>
+                                    occurrence.SpanConstructorOffset!.Value),
+                        ];
+                foreach ((DirectCall call, UnsafeContractSource? source)
+                    in explicitCalls)
                 {
+                    if (loweredSpanConstructors.Contains(call.ILOffset))
+                        continue;
                     evidence.Add(new(
                         UnsafeMemberUseKind
                             .ExplicitContractCall,
                         call.ILOffset,
                         call.Callee
-                            .ToQualifiedDisplayString()));
+                            .ToQualifiedDisplayString(),
+                        source));
                 }
             }
 
@@ -513,6 +539,33 @@ internal sealed class LibraryBodyAnalysisAccumulator
         }
 
         return uses.ToImmutable();
+    }
+
+    // A primary-image marker is authoritative. An image compiled under the
+    // updated rules is also authoritative for its unmarked definitions;
+    // otherwise the platform projection supplies the contract
+    // (docs/design/platform-caller-unsafe-contracts.md#contract-source).
+    internal static UnsafeContractSource? ExplicitCallContractSource(
+        DirectCall call,
+        bool primaryImageUsesUpdatedRules)
+    {
+        if (call.TargetCallerUnsafeMode == CallerUnsafeMode.Explicit)
+            return UnsafeContractSource.SameImage.Instance;
+        if (call.Kind is not (
+                CallKind.Call
+                or CallKind.CallVirtual
+                or CallKind.NewObject)
+            || (primaryImageUsesUpdatedRules
+                && call.TargetCallerUnsafeMode is not null))
+        {
+            return null;
+        }
+
+        PlatformCallerUnsafeContracts platform =
+            PlatformCallerUnsafeContracts.Embedded;
+        return platform.Contains(call.Callee)
+            ? platform.Source
+            : null;
     }
 
     static ImmutableArray<DirectCall> NormalizeSameImageCallContracts(
