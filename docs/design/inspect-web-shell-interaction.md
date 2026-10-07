@@ -643,7 +643,9 @@ persistent scope chip or shell control. Matching installed resources appear in
 one transient `Capabilities` group; a capability such as `library-literal` is
 a result named `Library literal`, not a `Literals` category. Each row presents
 the owner-issued resource name with its resource kind, owning route, and first
-canonical key as secondary metadata.
+canonical key as secondary metadata. Spotlight omits the Package query
+`depends-ecosystem` facet (`Depends on ecosystem`) from its capability results;
+the facet remains available in Package query.
 
 The result identity is the capability search result's canonical Resource Path.
 The shell does not reconstruct identity from the displayed name, metadata, or
@@ -711,7 +713,11 @@ IDs outside the literal `Newtonsoft.` prefix. These are discovery rows, not
 inspection facets or a routed Query page. The existing typed shared plan limits
 both candidates and matches to eight, enables prerelease versions, and requests
 only basic search metadata. Spotlight discloses the bound without claiming
-exhaustive enumeration. It stages the bounded operation's rows until successful
+exhaustive enumeration. The `Package prefix search` disclosure links to `/query`,
+seeds the current search text, closes Spotlight, and focuses the Package ID
+prefix input without running the query. For `Aspire*`, it preserves `Aspire*`
+as the editable input. The existing routed entry owns validation, history,
+and return focus. It stages the bounded operation's rows until successful
 completion; any producer failure displays an error rather than a successful
 partial result. No manifest or package archive is acquired until activation.
 Editing text, changing scope, dismissing, or superseding Search cancels its

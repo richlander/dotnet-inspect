@@ -1,7 +1,6 @@
 using System.Runtime.Versioning;
 using System.Text.Json;
 using DotnetInspector.Sections;
-using ILInspector.Metadata;
 
 using DotnetInspect.Web;
 
@@ -11,9 +10,10 @@ namespace DotnetInspect.Web.Interop.Library;
 internal static class BrowserLibraryWireProjection
 {
     internal static BrowserUploadedLibraryInspection Project(
-        InspectionEnvelope<EmbeddedLibraryInspectionResult> inspection)
+        EmbeddedLibraryInspectionExecution execution)
     {
-        ArgumentNullException.ThrowIfNull(inspection);
+        InspectionEnvelope<EmbeddedLibraryInspectionResult> inspection =
+            execution.Inspection;
         EmbeddedLibraryInspectionResult content = inspection.Content;
         BrowserUploadedLibraryInspectionOutcome outcome =
             content.Outcome switch
@@ -34,14 +34,7 @@ internal static class BrowserLibraryWireProjection
         if (content.IsAvailable)
         {
             BrowserSurfaceProjection.Surface projected =
-                BrowserSurfaceProjection.Project(
-                    content.Surface!,
-                    content.Accessibility,
-                    content.Assembly!,
-                    content.DeclaredName.ToString(),
-                    $"sha256:{content.Digest}",
-                    content.DeclaredName.ToString(),
-                    content.InspectionFailures);
+                BrowserSurfaceProjection.Project(execution);
             if (projected.IsTruncated)
             {
                 string detail = projected.InspectionError
@@ -196,31 +189,26 @@ internal static class BrowserLibraryWireProjection
             failure.Detail.ToString());
 
     static BrowserEmbeddedLibraryProvenance? Project(
-        AssemblyResolutionProvenance? provenance) =>
-        provenance switch
-        {
-            null => null,
-            AssemblyResolutionProvenance.EmbeddedAsset embedded =>
-                new(
-                    embedded.ContentRef,
-                    embedded.Digest,
-                    embedded.DeclaredName),
-            _ => throw new InvalidOperationException(
-                "Uploaded Library provenance must be Embedded."),
-        };
-
-    static BrowserLibraryAssemblyReference? Project(
-        AssemblyReferenceIdentity? assembly) =>
-        assembly is null
+        EmbeddedLibraryProvenance? provenance) =>
+        provenance is not { } embedded
             ? null
             : new(
-                assembly.Name,
-                assembly.Version?.ToString() ?? "",
-                assembly.Culture,
-                assembly.PublicKeyToken);
+                embedded.ContentRef,
+                embedded.Digest,
+                embedded.DeclaredName.ToString());
+
+    static BrowserLibraryAssemblyReference? Project(
+        EmbeddedLibraryAssemblyIdentity? assembly) =>
+        assembly is not { } identity
+            ? null
+            : new(
+                identity.Name,
+                identity.Version?.ToString() ?? "",
+                identity.Culture,
+                identity.PublicKeyToken);
 
     static BrowserLibraryInspectionFailure Project(
-        ApiSurfaceInspectionFailure failure) =>
+        EmbeddedLibraryApiSurfaceInspectionFailure failure) =>
         new(
             failure.Operation,
             failure.SubjectToken,

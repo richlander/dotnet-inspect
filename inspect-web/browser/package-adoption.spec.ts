@@ -4476,6 +4476,18 @@ test("Spotlight finds literal package prefixes inline and keeps Activity in Comm
   await page.screenshot({ path: testInfo.outputPath("inline-package-prefix.png") });
   await page.locator('[data-sl-scope="packages"]').click();
   await expect(page.locator('[data-sl-pkg-load="Newtonsoft.Json"]')).toBeVisible();
+  const prefixLink = page.getByRole("link", { name: "Package prefix search", exact: true });
+  await expect(prefixLink).toHaveAttribute("href", "/query");
+  const beforeHandoff = searches.length;
+  await prefixLink.click();
+  await expect(page).toHaveURL(/\/query$/);
+  await expect(page.locator("#package-query-prefix")).toHaveValue("Newtonsoft.*");
+  await expect(page.locator("#package-query-prefix")).toBeFocused();
+  expect(searches).toHaveLength(beforeHandoff);
+  await page.goBack();
+  await expect(input).toBeFocused();
+  await input.fill("Newtonsoft.*");
+  await expect(page.locator('[data-sl-pkg-load="Newtonsoft.Json"]')).toBeVisible();
   const beforeInvalid = searches.length;
   await input.fill("Newtonsoft.**");
   await expect(page.locator(".spotlight-hint")).toContainText("Package search failed");

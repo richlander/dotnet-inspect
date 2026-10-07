@@ -181,6 +181,7 @@ interface SpotlightOptions {
   packageSearchLoading: () => boolean;
   packageSearchError?: () => string;
   packageSearchNotice?: () => string;
+  openPackageQuery?: (query: string) => void;
   ecosystemError?: () => string;
   typeSearchLoading?: () => boolean;
   typeSearchError?: () => string;
@@ -654,8 +655,12 @@ export function createSpotlight(options: SpotlightOptions) {
       .join("");
     const typeNotice = typeSearch ? options.typeSearchNotice?.() ?? "" : "";
     const packageNotice = packageSearch ? options.packageSearchNotice?.() ?? "" : "";
-    const noticeHtml = [typeNotice, packageNotice].filter(Boolean)
-      .map(notice => `<div class="spotlight-hint" role="status">${escapeHtml(notice)}</div>`).join("");
+    const packageNoticeHtml = packageNotice && options.openPackageQuery
+      ? `<div class="spotlight-hint" role="status"><a href="/query" data-sl-prefix-query>Package prefix search</a>${escapeHtml(packageNotice.slice("Package prefix search".length))}</div>`
+      : packageNotice ? `<div class="spotlight-hint" role="status">${escapeHtml(packageNotice)}</div>` : "";
+    const noticeHtml = (typeNotice
+      ? `<div class="spotlight-hint" role="status">${escapeHtml(typeNotice)}</div>` : "")
+      + packageNoticeHtml;
     if (!items.length) {
       if (errorHtml) return errorHtml;
       const query = state.spotlightQuery.trim();
@@ -824,6 +829,11 @@ export function createSpotlight(options: SpotlightOptions) {
   }
 
   function bindResultClicks(root: ParentNode): void {
+    root.querySelector<HTMLAnchorElement>("[data-sl-prefix-query]")
+      ?.addEventListener("click", event => {
+        event.preventDefault();
+        options.openPackageQuery?.(state.spotlightQuery);
+      });
     root.querySelectorAll<HTMLElement>("[data-sl-result-identity]").forEach(item => {
       if (boundResultControls.has(item)) return;
       boundResultControls.add(item);

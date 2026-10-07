@@ -992,13 +992,23 @@ The operation:
    `AssemblyContextGroup` containing only that descriptor;
 5. executes the existing bounded assembly-context API-surface query; and
 6. disposes the workspace before returning a resource-free
-   `InspectionEnvelope<EmbeddedLibraryInspectionResult>`.
+   `EmbeddedLibraryInspectionExecution`.
 
-The returned Content preserves the declared name, digest, byte length,
-embedded provenance, assembly identity, API surface, accessibility buckets,
-completeness, and typed failure. Share is non-projectable because the bytes
-are intentionally session-local. Inspection failures remain visible as
-envelope diagnostics.
+The execution's `InspectionEnvelope<EmbeddedLibraryInspectionResult>` preserves
+the declared name, digest, byte length, detached embedded provenance, detached
+assembly identity, accessibility buckets, completeness, outcome, and typed
+inspection failures. Its public Content closure exposes no Metadata-owned type.
+Share is non-projectable because the bytes are intentionally session-local.
+Inspection failures remain visible as envelope diagnostics.
+
+The execution retains the bounded query's resource-free `ApiSurface` beside
+the envelope so a presentation adapter can lower the declaration graph without
+cloning it into a second host-neutral object graph. This raw operational value
+is not envelope content, is absent for rejected executions, and confers no
+workspace or image lifetime. Inspect Web passes the execution through its
+Library facade without reading the surface; Web Core alone lowers it into the
+existing Browser surface records.
+
 A successful result never implies sibling discovery, dependency acquisition,
 platform closure, package identity, local-file identity, source or PDB
 acquisition, persistence, or restoration.
@@ -1012,10 +1022,11 @@ ordinary Worker's serialized-character or collection-entry bound, the Browser
 facade converts that truncation to the same typed `ProjectionTruncated`
 rejection shape; it never serializes partial Library content as available.
 `EmbeddedLibraryInspectionTests` gates
-managed-image projection, upload provenance, byte bounds, native and malformed
-rejection, netmodule rejection, and Windows Metadata rejection. Inspect Web's
-Browser boundary and TypeScript Open tests gate the production call sites and
-Browser transport-truncation rejection.
+the portable Content closure, execution-surface separation, managed-image
+projection, upload provenance, byte bounds, native and malformed rejection,
+netmodule rejection, and Windows Metadata rejection. Inspect Web's Browser
+boundary and TypeScript Open tests gate the production call sites, detached
+failure adaptation, and Browser transport-truncation rejection.
 
 ### Explicit local/designated/platform assembly context
 
