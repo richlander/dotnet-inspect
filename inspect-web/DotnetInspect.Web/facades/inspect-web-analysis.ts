@@ -844,6 +844,8 @@ export interface BrowserResourceTriageCandidate {
   readonly impact: string;
   readonly remediation: string;
   readonly confidence: string;
+  readonly bodyTypeId: string | null;
+  readonly bodyMemberName: string | null;
 }
 
 export interface BrowserResourceTriageLimitation {

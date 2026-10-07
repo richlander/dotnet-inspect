@@ -148,18 +148,18 @@ test("a partial empty result does not claim established absence", () => {
 
   assert.match(html, /Analysis incomplete/);
   assert.match(html, /partial/);
-  assert.match(html, /A method body could not be analyzed/);
+  assert.match(html, /This library could not be analyzed completely/);
   assert.doesNotMatch(html, /No public allocation hot spots/);
 });
 
-test("partial rows remain available with a visible diagnostic", () => {
+test("partial rows remain available with a concise warning", () => {
   const html = renderLibraryAnalysisSurface({
     ...baseOptions,
     data: result({ inspectionError: "<bad> body" }),
   });
 
   assert.match(html, /This library could not be analyzed completely/);
-  assert.match(html, /&lt;bad&gt; body/);
+  assert.doesNotMatch(html, /<bad>|&lt;bad&gt;/);
   assert.match(html, /data-perf-selector="Run"/);
 });
 

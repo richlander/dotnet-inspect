@@ -365,6 +365,7 @@ import {
   isAnalysisMode,
   restoreAnalysisTabFocus,
 } from "./analysis-inspector.ts";
+import { bindTriageCode } from "./triage-code.ts";
 import { renderLibraryResourceTriageSurface } from "./library-resource-triage.ts";
 import { renderLibraryAnalysisSurface } from "./library-analysis.ts";
 import {
@@ -14501,6 +14502,26 @@ function bindPlatformForwarderEvents() {
   });
 }
 
+function bindTriageCodeEvents() {
+  const triagePackage = state.package;
+  if (triagePackage) {
+    const triagePlatformLibrary = document.querySelector("[data-triage-code]")
+      && triagePackage.isRuntimePack && selectedLibrary()
+      ? platformLibraryForRequest(triagePackage, selectedLibrary()!.id) : null;
+    const triageTaste = JSON.stringify(state.taste);
+    bindTriageCode(document, async target => {
+      await waitForLibraryEngineReady();
+      return triagePlatformLibrary
+        ? inspectPlatformMemberSource(triagePackage.activeFramework, triagePackage.version,
+            target.assembly, triagePlatformLibrary.pack, target.typeId, target.memberName,
+            target.selector, target.methodToken, 0, triageTaste, "decompiler-source", null)
+        : inspectMemberSource(triagePackage.id, triagePackage.version, triagePackage.activeFramework,
+            target.assembly, target.typeId, target.memberName, target.selector,
+            target.methodToken, 0, triageTaste, "decompiler-source");
+    });
+  }
+}
+
 function bindEvents() {
   packageControls.bind(document);
   bindWorkspaceSubjectEvents();
@@ -14510,6 +14531,7 @@ function bindEvents() {
   bindMetadataViewerEvents();
   bindAnalysisInspectorEvents();
   bindPackageOpportunitiesEvents();
+  bindTriageCodeEvents();
   bindGraphSourceEvents();
   bindDocViewerEvents();
   bindMemberFactsEvents();

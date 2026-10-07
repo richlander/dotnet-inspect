@@ -9,7 +9,7 @@ const candidate: BrowserResourceTriageCandidate = {
   candidateId: "rt~1234", findingId: "analysis.resource-lifecycle", provenance: "exact",
   assembly: "Fixture.dll", method: "Fixture.Read", methodToken: 0x06000001, moduleVersionId: "00000000-0000-0000-0000-000000000001",
   typeId: "Fixture", stableSelector: "Read~abc", resource: "ArrayPool<byte>",
-  shape: "pool-churn-on-exception", acquireOffset: 7,
+  shape: "pool-churn-on-exception", acquireOffset: 7, bodyTypeId: "Fixture", bodyMemberName: "Read",
   boundaries: [{ ilOffset: 18, operation: "System.IO.Stream.Read", kind: "ExternalInput" }],
   actionability: "UntrustedActionable", reason: "ExternalInputBoundaryBeforeCleanup",
   impact: "PoolChurnOnException", remediation: "EnsureExceptionalCleanup", confidence: "Medium",
@@ -23,15 +23,14 @@ test("Resource Triage retains candidate identity and IL evidence with member nav
   assert.match(html, /data-analysis-mode="resource-triage" aria-selected="true"/);
   assert.match(html, /data-perf-selector="Read~abc"/);
   assert.match(html, /data-perf-assembly="Fixture.dll"/);
-  for (const text of ["rt~1234", "IL_0007", "IL_0012", "External-input boundary", "medium confidence", "finally"]) assert.ok(html.includes(text));
+  for (const text of ["IL_0007", "IL_0012", "External-input boundary", "medium confidence", "finally"]) assert.ok(html.includes(text));
 });
 
-test("incomplete results retain sound candidates and escaped limitations", () => {
+test("incomplete results retain candidates with a concise warning", () => {
   const html = renderLibraryResourceTriageSurface({ ...options, data: result({ outcome: "incomplete", limitations: [{ kind: "ExceptionFlow", detail: "<unsafe>", method: "Other" }] }) });
   assert.match(html, /1 candidate · incomplete/);
-  assert.match(html, /rt~1234/);
-  assert.match(html, /<details><summary>1 analysis limitation<\/summary>/);
-  assert.match(html, /&lt;unsafe&gt;/);
+  assert.match(html, /This library could not be analyzed completely/);
+  assert.doesNotMatch(html, /analysis limitation|Module:|Finding:|rt~/);
   assert.doesNotMatch(html, /<unsafe>/);
 });
 
@@ -43,7 +42,7 @@ test("an incomplete empty census does not claim absence", () => {
 
 test("non-public candidates retain evidence without fabricated navigation", () => {
   const html = renderLibraryResourceTriageSurface({ ...options, data: result({ candidates: [{ ...candidate, typeId: null, stableSelector: null }] }) });
-  assert.match(html, /Member navigation unavailable/);
+  assert.match(html, /Decompiled method/);
   assert.match(html, /IL_0007/);
   assert.doesNotMatch(html, /data-perf-selector=/);
 });

@@ -291,7 +291,7 @@ establish:
 
 [#9607](https://github.com/richlander/dotnet-inspect/issues/9607) tracks one
 adoption slice: participant-scoped query execution, detached inspection
-composition, browser transport, and Library → Analysis → Resource Triage.
+composition, browser transport, and Library → Analysis → Triage → Resources.
 The CLI already consumes `ResourceTriageQuery`; the browser uses that same
 query with the shipped ArrayPool model. The motivating assets and retained
 oracle remain those in [Real assets and oracle](#real-assets-and-oracle).
@@ -314,6 +314,15 @@ selected intrinsic core library, and bounds retained images to 64 MiB.
 `AssemblyResourceTriageInspection` returns detached Content
 and an explicit non-projectable Share outcome until canonical Share projection
 is adopted. Browser transport preserves that Share and envelope diagnostics.
+
+The browser presents Performance and Resources under one Triage tab, using
+compact rows and the same explicitly expanded decompiled-method preview.
+The preview consumes the existing member Source API and exact implementation
+method identity, including private methods. It displays the complete decompiled
+method, not an asserted IL-to-source block correspondence. Module/Finding IDs
+and detailed limitations remain in the transport but are omitted from this view;
+the incomplete-analysis warning remains visible. Unknown actionability means
+the model cannot classify the operation's impact; the user must inspect the code.
 
 The browser uses an HTML renderer rather than Markout because the tab needs
 interactive member navigation inside its existing Analysis frame. Its typed

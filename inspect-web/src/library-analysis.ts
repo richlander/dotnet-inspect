@@ -1,6 +1,8 @@
 import type { BrowserPackagePerformance } from "./facades/inspect-web-analysis.d.ts";
 import { renderAnalysisInspector } from "./analysis-inspector.ts";
 
+import { renderTriageCode, triageMemberLabel } from "./triage-code.ts";
+
 type LibraryAnalysisResult = Pick<
   BrowserPackagePerformance,
   "members" | "inspectionError" | "nonPublicOpportunities" | "totalOpportunities"
@@ -18,14 +20,6 @@ export interface LibraryAnalysisOptions {
   error: string;
   data: LibraryAnalysisResult | null;
   escapeHtml: (value: unknown) => string;
-}
-
-function shortTypeName(fullName: string): string {
-  const generic = fullName.indexOf("<");
-  const head = generic < 0 ? fullName : fullName.slice(0, generic);
-  const tail = generic < 0 ? "" : fullName.slice(generic);
-  const dot = head.lastIndexOf(".");
-  return (dot < 0 ? head : head.slice(dot + 1)) + tail;
 }
 
 export function renderLibraryAnalysisSurface(options: LibraryAnalysisOptions): string {
@@ -56,24 +50,26 @@ export function renderLibraryAnalysisSurface(options: LibraryAnalysisOptions): s
         : "";
       status = `${members.length.toLocaleString()} public member${members.length === 1 ? "" : "s"} \u00b7 ${resolved.totalOpportunities.toLocaleString()} opportunit${resolved.totalOpportunities === 1 ? "y" : "ies"}${nonPublicStatus}${partial ? " \u00b7 partial" : ""}`;
       const warning = partial
-        ? `<section class="document-section metadata-warning"><strong>&#x26A0; This library could not be analyzed completely</strong><ul><li><code>${escapeHtml(resolved.inspectionError)}</code></li></ul></section>`
+        ? `<section class="document-section metadata-warning"><strong>&#x26A0; This library could not be analyzed completely</strong></section>`
         : "";
       const note = members.length
         ? `<p class="library-analysis-note">Ranked by product triage policy. Static IL classification &mdash; confirm impact with a benchmark or profiler. Select a member to open its API details.</p>`
         : "";
       const rows = members.map(member => {
-        const display = `${shortTypeName(member.typeId)}.${member.memberName}`;
+        const display = triageMemberLabel(member.typeId, member.memberName);
         const shapes = member.shapes
           .map(shape => `<span class="perf-shape">${escapeHtml(shape)}</span>`)
           .join("");
         const loopBadge = member.inLoopCount > 0
           ? `<span class="perf-loop" title="${member.inLoopCount} in a loop">&#x21BB; ${member.inLoopCount}</span>`
           : "";
-        return `<button class="perf-row" data-perf-selector="${escapeHtml(member.stableSelector)}" data-perf-assembly="${escapeHtml(member.assembly)}" data-perf-type="${escapeHtml(member.typeId)}" title="${escapeHtml(member.typeId)}.${escapeHtml(member.memberName)} &mdash; open member">
+        return `<article class="triage-item"><button class="perf-row" data-perf-selector="${escapeHtml(member.stableSelector)}" data-perf-assembly="${escapeHtml(member.assembly)}" data-perf-type="${escapeHtml(member.typeId)}" title="${escapeHtml(member.typeId)}.${escapeHtml(member.memberName)} &mdash; open member">
           <span class="perf-count">${member.opportunityCount}</span>
           <span class="perf-member"><span class="perf-name">${escapeHtml(display)}</span><span class="perf-shapes">${shapes}</span></span>
           <span class="perf-meta">${loopBadge}<span class="perf-confidence perf-${escapeHtml((member.confidence || "").toLowerCase())}">${escapeHtml(member.confidence || "\u2014")}</span></span>
-        </button>`;
+        </button>${renderTriageCode({ assembly: member.assembly, typeId: member.typeId,
+          memberName: member.memberName, selector: member.stableSelector,
+          methodToken: member.bodyTokens.length === 1 ? member.bodyTokens[0]! : 0 }, escapeHtml)}</article>`;
       }).join("");
       const nonPublicNote = resolved.nonPublicOpportunities > 0
         ? ` ${resolved.nonPublicOpportunities.toLocaleString()} opportunit${resolved.nonPublicOpportunities === 1 ? "y is" : "ies are"} in non-public members.`

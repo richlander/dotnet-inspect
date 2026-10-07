@@ -1,6 +1,8 @@
 import type { BrowserResourceTriage } from "./facades/inspect-web-analysis.d.ts";
 import { renderAnalysisInspector, type AnalysisInspectorContext } from "./analysis-inspector.ts";
 
+import { renderTriageCode, triageMemberLabel } from "./triage-code.ts";
+
 interface ResourceTriageOptions extends AnalysisInspectorContext {
   libraryName: string;
   requireLibrary: boolean;
@@ -13,13 +15,13 @@ interface ResourceTriageOptions extends AnalysisInspectorContext {
 const actionabilityLabels: Record<string, string> = {
   UntrustedActionable: "External-input boundary",
   TrustedLowActionability: "In-memory transform",
-  Unknown: "Unclassified boundary",
+  Unknown: "Actionability uncertain",
 };
 
 const boundaryLabels: Record<string, string> = {
   ExternalInput: "External-input boundary",
   InMemoryTransform: "In-memory transform",
-  Unknown: "Unclassified boundary",
+  Unknown: "Unclassified operation",
 };
 
 function il(offset: number): string {
@@ -46,26 +48,24 @@ export function renderLibraryResourceTriageSurface(options: ResourceTriageOption
   } else {
     const partial = data.outcome === "incomplete";
     status = `${data.candidates.length.toLocaleString()} candidate${data.candidates.length === 1 ? "" : "s"}${partial ? " \u00b7 incomplete" : ""}`;
-    const warnings = [
-      ...data.limitations.map(item => `${item.kind}${item.method ? ` (${item.method})` : ""}: ${item.detail}`),
-      ...(data.inspectionError ? [data.inspectionError] : []),
-      ...data.diagnostics.map(item => item.summary),
-    ];
-    const warning = partial || warnings.length
-      ? `<section class="document-section metadata-warning"><strong>${partial ? "This library could not be analyzed completely" : "Analysis diagnostics"}</strong><details><summary>${warnings.length.toLocaleString()} analysis limitation${warnings.length === 1 ? "" : "s"}</summary><ul>${warnings.map(item => `<li>${escape(item)}</li>`).join("")}</ul></details></section>` : "";
-    const note = `<p class="library-analysis-note">ArrayPool exception-cleanup candidates: an exception may bypass Return and cause pool churn. Static evidence has medium confidence. Return the pooled array from finally or catch-all cleanup.</p>`;
+    const warning = partial
+      ? `<section class="document-section metadata-warning"><strong>This library could not be analyzed completely</strong></section>` : "";
+    const note = `<p class="library-analysis-note">ArrayPool exception-cleanup candidates: an exception may bypass Return and cause pool churn. Static evidence has medium confidence. Actionability uncertain means the operation is not classified; inspect the code to judge its impact. Return the pooled array from finally or catch-all cleanup.</p>`;
     const rows = data.candidates.map(candidate => {
+      const display = triageMemberLabel(candidate.bodyTypeId ?? candidate.typeId ?? "", candidate.bodyMemberName ?? candidate.method);
       const link = candidate.typeId && candidate.stableSelector
-        ? `<button type="button" class="resource-triage-member" data-perf-selector="${escape(candidate.stableSelector)}" data-perf-assembly="${escape(candidate.assembly)}" data-perf-type="${escape(candidate.typeId)}">${escape(candidate.method)}</button>`
-        : `<strong>${escape(candidate.method)}</strong><span class="resource-triage-unlinked">Member navigation unavailable; IL evidence retained.</span>`;
+        ? `<button type="button" class="resource-triage-member" data-perf-selector="${escape(candidate.stableSelector)}" data-perf-assembly="${escape(candidate.assembly)}" data-perf-type="${escape(candidate.typeId)}">${escape(display)}</button>`
+        : `<strong title="${escape(candidate.method)}">${escape(display)}</strong>`;
       const boundaries = candidate.boundaries.map(boundary =>
         `<li><code>${il(boundary.ilOffset)}</code> ${escape(boundary.operation)} <span>${escape(boundaryLabels[boundary.kind] ?? boundary.kind)}</span></li>`).join("");
-      return `<article class="document-section resource-triage-candidate">
-        ${link}
-        <p>${escape(candidate.resource)} &middot; ${escape(actionabilityLabels[candidate.actionability] ?? candidate.actionability)} &middot; ${escape(candidate.confidence.toLowerCase())} confidence</p>
-        <p>Acquire: <code>${il(candidate.acquireOffset)}</code> &middot; Method: <code>0x${candidate.methodToken.toString(16).toUpperCase()}</code> &middot; Candidate: <code>${escape(candidate.candidateId)}</code></p>
-        <p>Module: <code>${escape(candidate.moduleVersionId)}</code> &middot; Finding: <code>${escape(candidate.findingId)}</code></p>
-        <ul>${boundaries}</ul>
+      const code = candidate.bodyTypeId && candidate.bodyMemberName
+        ? renderTriageCode({ assembly: candidate.assembly, typeId: candidate.bodyTypeId,
+            memberName: candidate.bodyMemberName, selector: candidate.stableSelector ?? "triage",
+            methodToken: candidate.methodToken }, escape) : "";
+      return `<article class="triage-item resource-triage-candidate">
+        <div class="perf-row"><span class="perf-count" aria-hidden="true">△</span><span class="perf-member"><span class="perf-name">${link}</span><span class="perf-shapes">${escape(candidate.resource)} · ${escape(actionabilityLabels[candidate.actionability] ?? candidate.actionability)} · Acquire <code>${il(candidate.acquireOffset)}</code></span></span><span class="perf-meta"><span class="perf-confidence">${escape(candidate.confidence.toLowerCase())}</span></span></div>
+        <ul class="triage-boundaries">${boundaries}</ul>
+        ${code}
       </article>`;
     }).join("");
     const empty = data.candidates.length ? "" : `<section class="document-section empty-document"><h2>${partial ? "No candidates in the available evidence" : "No ArrayPool exception-cleanup candidates found"}</h2><p>${partial ? "The census is incomplete; absence cannot be established." : "No candidates were found within the supported ArrayPool analysis."}</p></section>`;

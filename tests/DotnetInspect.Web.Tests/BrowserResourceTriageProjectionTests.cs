@@ -5,6 +5,7 @@ using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using ILInspector.Analysis;
 using ILInspector.Metadata;
+using ILInspector.MetadataPrimitives;
 using Inspector.Findings;
 
 namespace DotnetInspect.Web.Tests;
@@ -17,7 +18,10 @@ public sealed class BrowserResourceTriageProjectionTests
     {
         var subject = Subject();
         var method = new MethodIdentity("Fixture", Guid.NewGuid(),
-            ILInspector.Analysis.TypeRef.Definition("Fixture", "Fixture", "Entry"), "Read", [],
+            ILInspector.Analysis.TypeRef.Definition("Fixture", "Fixture", "Entry",
+                new ResolvableTypeReference(new TypeReferenceOrigin.CurrentAssembly(),
+                    Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                        MetadataTypeDefinitionName.Create("Fixture", ["Entry"])).Name)), "Read", [],
             ILInspector.Analysis.TypeRef.CoreLib("System", "Void"), 0x06000001, true);
         var lifecycle = new ResourceLifecycleOccurrence(method, "ArrayPool<byte>",
             "pool-churn-on-exception", 7, []);
@@ -46,6 +50,8 @@ public sealed class BrowserResourceTriageProjectionTests
         Assert.Equal(7, candidate.AcquireOffset);
         Assert.Equal(method.MetadataToken, candidate.MethodToken);
         Assert.Null(candidate.StableSelector);
+        Assert.Equal("Fixture.Entry", candidate.BodyTypeId);
+        Assert.Equal("Read", candidate.BodyMemberName);
         Assert.Equal("Fixture.Entry.Read()", candidate.Method);
         Assert.Single(result.Limitations);
         Assert.Equal("nonProjectable", result.Share!.Kind);

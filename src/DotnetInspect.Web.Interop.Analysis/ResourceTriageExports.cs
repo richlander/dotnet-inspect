@@ -25,7 +25,7 @@ public sealed record BrowserResourceTriageCandidate(
     string Resource, string Shape, int AcquireOffset,
     BrowserResourceTriageBoundary[] Boundaries,
     string Actionability, string Reason, string Impact,
-    string Remediation, string Confidence);
+    string Remediation, string Confidence, string? BodyTypeId = null, string? BodyMemberName = null);
 
 public sealed record BrowserResourceTriageBoundary(int IlOffset, string Operation, string Kind);
 public sealed record BrowserResourceTriageLimitation(string Kind, string Detail, string? Method);
@@ -174,7 +174,8 @@ public static partial class AnalysisExports
                     [.. assessment.Boundaries.Select(boundary => new BrowserResourceTriageBoundary(
                         boundary.Evidence.ILOffset, $"{boundary.Evidence.Operation.DeclaringType.ToQualifiedDisplayString()}.{boundary.Evidence.Operation.Name}", boundary.Kind.ToString()))],
                     assessment.Actionability.ToString(), assessment.Reason.ToString(),
-                    assessment.Impact.ToString(), assessment.Remediation.ToString(), assessment.Confidence.ToString());
+                    assessment.Impact.ToString(), assessment.Remediation.ToString(), assessment.Confidence.ToString(),
+                    occurrence.Method.DeclaringType.Resolution?.Type.ToEscapedFullName(), occurrence.Method.Name);
             })],
             [.. limitations.Select(limitation => new BrowserResourceTriageLimitation(
                 limitation.Kind.ToString(), limitation.Detail, limitation.Method is { } method ? ResourceTriageMethodLabel(method) : null))],

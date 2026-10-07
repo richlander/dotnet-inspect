@@ -38,7 +38,6 @@ test("Relationships is the first and default Analysis mode", () => {
       "dependencies",
       "complexity",
       "performance",
-      "resource-triage",
       "integrations",
     ],
   );
@@ -63,9 +62,9 @@ for (const mode of [
     assert.equal(html.match(/<h1\b/g)?.length, 1);
     assert.match(html, /<h1 id="library-analysis-title">Analysis<\/h1>/);
     const header = html.match(/<header\b[^>]*>[\s\S]*?<\/header>/)?.[0] ?? "";
-    assert.equal(header.match(/role="tab"/g)?.length, 6);
+    assert.equal(header.match(/role="tab"/g)?.length, 5);
     assert.match(header, /<p title="Loading">Loading<\/p>[\s\S]*role="tablist"/);
-    assert.equal(html.match(/role="tab"/g)?.length, 6);
+    assert.equal(html.match(/role="tab"/g)?.length, 5);
     assert.equal(html.match(/aria-selected="true"/g)?.length, 1);
     assert.match(html, new RegExp(`data-analysis-mode="${mode}" aria-selected="true"`));
     assert.match(html, new RegExp(`role="tabpanel" aria-labelledby="analysis-mode-${mode}"`));
@@ -73,3 +72,14 @@ for (const mode of [
     assert.doesNotMatch(html, /metadata-surface-footer/);
   });
 }
+
+test("Triage groups Performance and Resources beneath one Analysis tab", () => {
+  for (const mode of ["performance", "resource-triage"] as const) {
+    const html = renderAnalysisInspector({ assemblyIdentity: "Fixture", assetPath: "Fixture.dll",
+      coordinate: "Fixture", pickerHtml: "", escapeHtml: String }, mode, "Ready", "");
+    assert.equal((html.match(/>Triage<\/button>/g) ?? []).length, 1);
+    assert.match(html, /data-triage-mode="performance"/);
+    assert.match(html, /data-triage-mode="resource-triage"/);
+    assert.match(html, new RegExp(`data-triage-mode="${mode}" aria-pressed="true"`));
+  }
+});
