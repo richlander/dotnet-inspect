@@ -161,7 +161,12 @@ public sealed class AnnotatedSourceDiffDocumentQueryTests
         Assert.Equal(
             AnnotatedSourceDiffSideOutcomeKind.Present,
             published.Document.After.Outcome);
-        Assert.Null(Assert.Single(published.Document.Media).Comparison);
+        var comparison = Assert.Single(published.Document.Media).Comparison;
+        Assert.NotNull(comparison);
+        Assert.Empty(comparison.Analysis.Before);
+        Assert.NotEmpty(comparison.Analysis.After);
+        Assert.All(comparison.Analysis.Relations,
+            relation => Assert.IsType<Inspector.Findings.AnalysisDiffRelation.Addition>(relation));
     }
 
     [Fact]

@@ -258,7 +258,7 @@ internal sealed class WorkspaceResearchTargetFixture : IAsyncDisposable
         string name, bool definesType = true, AssemblyReferenceIdentity? forwardsTo = null,
         Guid? mvid = null, bool leadingType = false, string methodName = "Value",
         Version? version = null, int methodResult = 42, int typeGenericArity = 0,
-        bool nestedType = false, int forwarderCount = 1)
+        bool nestedType = false, int forwarderCount = 1, bool methodParameter = false)
     {
         string typeName = typeGenericArity == 0
             ? "Type"
@@ -303,8 +303,8 @@ internal sealed class WorkspaceResearchTargetFixture : IAsyncDisposable
                 metadata.AddNestedType(innerType, outerType);
             }
             var signature = new BlobBuilder();
-            new BlobEncoder(signature).MethodSignature().Parameters(0,
-                result => result.Type().Int32(), _ => { });
+            new BlobEncoder(signature).MethodSignature().Parameters(methodParameter ? 1 : 0,
+                result => result.Type().Int32(), parameters => { if (methodParameter) parameters.AddParameter().Type().Int32(); });
             var instructions = new BlobBuilder();
             var encoder = new InstructionEncoder(instructions);
             encoder.LoadConstantI4(methodResult);

@@ -584,13 +584,14 @@ public sealed record AnnotatedSourceDiffDocument
                 afterText.Lines.Count,
                 AnnotatedSourceDiffSideKind.After);
         if (limit is null
-            && beforeText is not null
-            && afterText is not null)
+            && (beforeText is not null || before.Side.Outcome == AnnotatedSourceDiffSideOutcomeKind.Absent)
+            && (afterText is not null || after.Side.Outcome == AnnotatedSourceDiffSideOutcomeKind.Absent)
+            && (beforeText is not null || afterText is not null))
         {
             AnalysisDiff<string> analysis =
                 TextFindings.CreateAnalysisDiff(
-                    beforeText.Text,
-                    afterText.Text,
+                    beforeText?.Text ?? "",
+                    afterText?.Text ?? "",
                     new FindingSubject(
                         $"annotated-source-diff:{subject.DeclaringType}:{subject.Selector}",
                         subject.Selector));
@@ -598,8 +599,8 @@ public sealed record AnnotatedSourceDiffDocument
                 analysis,
                 TextDiffCharacterization.Create(
                     analysis,
-                    beforeText.Text,
-                    afterText.Text));
+                    beforeText?.Text ?? "",
+                    afterText?.Text ?? ""));
         }
 
         return new(
@@ -747,10 +748,12 @@ public sealed record AnnotatedSourceDiffDocument
             return;
         }
 
-        bool bothPresent =
-            Before.Outcome == AnnotatedSourceDiffSideOutcomeKind.Present
-            && After.Outcome == AnnotatedSourceDiffSideOutcomeKind.Present;
-        if (!bothPresent)
+        bool comparableSides =
+            (Before.Outcome == AnnotatedSourceDiffSideOutcomeKind.Present
+                && After.Outcome is AnnotatedSourceDiffSideOutcomeKind.Present or AnnotatedSourceDiffSideOutcomeKind.Absent)
+            || (Before.Outcome == AnnotatedSourceDiffSideOutcomeKind.Absent
+                && After.Outcome == AnnotatedSourceDiffSideOutcomeKind.Present);
+        if (!comparableSides)
         {
             if (medium.Comparison is not null || medium.TooComplex is not null)
             {
@@ -770,8 +773,8 @@ public sealed record AnnotatedSourceDiffDocument
 
         AnalysisDiff<string> expected =
             TextFindings.CreateAnalysisDiff(
-                beforeText!,
-                afterText!,
+                beforeText ?? "",
+                afterText ?? "",
                 new FindingSubject(
                     $"annotated-source-diff:{Subject.DeclaringType}:{Subject.Selector}",
                     Subject.Selector));
@@ -782,7 +785,7 @@ public sealed record AnnotatedSourceDiffDocument
                 nameof(Media));
         }
         TextDiffCharacterization characterization =
-            TextDiffCharacterization.Create(expected, beforeText!, afterText!);
+            TextDiffCharacterization.Create(expected, beforeText ?? "", afterText ?? "");
         if (!Equivalent(
                 characterization,
                 medium.Comparison.Characterization))

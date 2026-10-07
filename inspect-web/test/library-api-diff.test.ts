@@ -673,7 +673,7 @@ test("application admission closes on every non-Compare route", () => {
   )?.[0] ?? "";
   assert.match(
     appSource,
-    /function currentLibraryApiDiffSelection\(\)[\s\S]*?const subject = currentCompareSubject\(\);\s*if \(!subject \|\| currentCompareMode\(\) !== "diff"\) return null;/,
+    /function currentLibraryApiDiffSelection\(\)[\s\S]*?const subject = currentCompareSubject\(\);\s*if \(!subject \|\| currentCompareMode\(\) !== "diff"\s*\|\| packageComparisonTargets\.get\(subject\.pkg\)\.diffContent\.kind === "member-body"\) return null;/,
     "Diff work is admitted only through the shared Compare subject gate and the retained Diff mode");
   for (const condition of [
     "state.home",

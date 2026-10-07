@@ -70,8 +70,6 @@ export type BrowserTypeSourceResultKind = "Succeeded" | "Failed" | "Canceled" | 
 
 export type InspectionDiagnosticSeverity = number;
 
-export type JsonValueKind = number;
-
 export type TypeApiDeclarationFailureKind = "ProjectionTruncated" | "ParticipantRejected" | "ParticipantFailed" | "InspectionIncomplete" | "AccessorMetadataUnavailable" | "PrinterNotRendered" | number;
 
 export type TypeApiDeclarationOutcome = "Available" | "NotFound" | "Unavailable" | number;
@@ -319,6 +317,79 @@ export interface BrowserIlBodyRow {
   readonly kind: string;
   readonly operation: BrowserIlBodyOperation;
   readonly message: string;
+}
+
+export interface BrowserMemberBodyCoverage {
+  readonly mechanism: string;
+  readonly evaluated: number;
+  readonly exact: number;
+  readonly changed: number;
+  readonly unavailable: number;
+  readonly incomplete: number;
+  readonly failed: number;
+}
+
+export interface BrowserMemberBodyDiffDocument {
+  readonly subject: string;
+  readonly media: ReadonlyArray<BrowserMemberBodyMedium>;
+  readonly beforeOutcome: string;
+  readonly afterOutcome: string;
+  readonly beforeDetail: string | null;
+  readonly afterDetail: string | null;
+}
+
+export interface BrowserMemberBodyDiffInventory {
+  readonly id: string;
+  readonly isComplete: boolean;
+  readonly coverage: ReadonlyArray<BrowserMemberBodyCoverage>;
+  readonly types: ReadonlyArray<BrowserMemberBodyType>;
+  readonly destinations: ReadonlyArray<BrowserMemberBodyMember>;
+}
+
+export interface BrowserMemberBodyDiffRequest {
+  readonly packageId: string;
+  readonly beforeVersion: string;
+  readonly afterVersion: string;
+  readonly framework: string;
+  readonly compileAssetId: string;
+  readonly generation: string;
+  readonly inventoryId: string | null;
+  readonly memberId: string | null;
+}
+
+export interface BrowserMemberBodyDiffResult {
+  readonly kind: string;
+  readonly inventory: BrowserMemberBodyDiffInventory | null;
+  readonly document: BrowserMemberBodyDiffDocument | null;
+  readonly detail: string | null;
+  readonly inspection: InspectionEnvelope<unknown> | null;
+}
+
+export interface BrowserMemberBodyMedium {
+  readonly medium: string;
+  readonly diff: BrowserSourceDiff | null;
+  readonly limit: string | null;
+  readonly beforeText: string | null;
+  readonly afterText: string | null;
+}
+
+export interface BrowserMemberBodyMember {
+  readonly id: string;
+  readonly display: string;
+  readonly outcome: string;
+  readonly mechanisms: ReadonlyArray<string>;
+  readonly fingerprint: string | null;
+  readonly selector: string | null;
+  readonly methodToken: number | null;
+  readonly identityFailure: string | null;
+  readonly typeIdentity: string | null;
+}
+
+export interface BrowserMemberBodyType {
+  readonly identity: string;
+  readonly display: string;
+  readonly canNavigate: boolean;
+  readonly members: ReadonlyArray<BrowserMemberBodyMember>;
 }
 
 export interface BrowserMemberFindingCensus {
@@ -802,12 +873,14 @@ type $ManagedExports = {
       readonly "Interop": {
         readonly "Source": {
           readonly "SourceExports": {
+            readonly "CancelMemberBodyDiff.271973316": (operationId: string, reason: string) => string;
             readonly "CancelMemberSourceComparison.271973316": (operationId: string, reason: string) => string;
             readonly "CancelMethodBodyComparison.271973316": (operationId: string, reason: string) => string;
             readonly "CancelSourceQuery.19325221": () => void;
             readonly "CancelTypeExplorerQuery.271973316": (operationId: string, reason: string) => string;
             readonly "CancelTypeSourceQuery.271973316": (operationId: string, reason: string) => string;
             readonly "QueryMemberAnnotatedSource.1135530322": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, typeQueryId: string, memberName: string, memberSignature: string, selectorKey: string, metadataToken: number, styleOptionsJson: string) => Promise<string>;
+            readonly "QueryMemberBodyDiff.451505237": (operationId: string, requestJson: string) => Promise<string>;
             readonly "QueryMemberFindingCensus.1135530322": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, typeQueryId: string, memberName: string, memberSignature: string, selectorKey: string, metadataToken: number, styleOptionsJson: string) => Promise<string>;
             readonly "QueryMemberSource.279098206": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number, documentBaselineOrdinal: number, styleOptionsJson: string, view: string) => Promise<string>;
             readonly "QueryMemberSourceComparison.451505237": (operationId: string, requestJson: string) => Promise<string>;
@@ -870,6 +943,18 @@ function $requireManagedExports(): $ManagedExports {
 }
 
 function $validateManagedExports(exports: unknown): asserts exports is $ManagedExports {
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "DotnetInspect");
+    value = $ownDataProperty(value, "Web");
+    value = $ownDataProperty(value, "Interop");
+    value = $ownDataProperty(value, "Source");
+    value = $ownDataProperty(value, "SourceExports");
+    value = $ownDataProperty(value, "CancelMemberBodyDiff.271973316");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Source.SourceExports.CancelMemberBodyDiff.271973316\u0027 is not callable.");
+    }
+  }
   {
     let value: unknown = exports;
     value = $ownDataProperty(value, "DotnetInspect");
@@ -940,6 +1025,18 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "QueryMemberAnnotatedSource.1135530322");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Source.SourceExports.QueryMemberAnnotatedSource.1135530322\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "DotnetInspect");
+    value = $ownDataProperty(value, "Web");
+    value = $ownDataProperty(value, "Interop");
+    value = $ownDataProperty(value, "Source");
+    value = $ownDataProperty(value, "SourceExports");
+    value = $ownDataProperty(value, "QueryMemberBodyDiff.451505237");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Source.SourceExports.QueryMemberBodyDiff.451505237\u0027 is not callable.");
     }
   }
   {
@@ -1149,6 +1246,12 @@ function $serializeJsonInput(
   return json;
 }
 
+export function cancelMemberBodyDiff(operationId: string, reason: string): BrowserTypeSourceCancellation {
+  const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Source"]["SourceExports"]["CancelMemberBodyDiff.271973316"](operationId, reason);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserTypeSourceCancellation;
+}
+
 export function cancelMemberSourceComparison(operationId: string, reason: string): BrowserTypeSourceCancellation {
   const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Source"]["SourceExports"]["CancelMemberSourceComparison.271973316"](operationId, reason);
   const $parsed: unknown = JSON.parse($result);
@@ -1181,6 +1284,12 @@ export async function queryMemberAnnotatedSource(packageId: string, version: str
   const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Source"]["SourceExports"]["QueryMemberAnnotatedSource.1135530322"](packageId, version, targetFramework, assemblyName, typeIdentity, typeQueryId, memberName, memberSignature, selectorKey, metadataToken, styleOptionsJson);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserAnnotatedSource;
+}
+
+export async function queryMemberBodyDiff(operationId: string, requestJson: BrowserMemberBodyDiffRequest): Promise<BrowserMemberBodyDiffResult> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Source"]["SourceExports"]["QueryMemberBodyDiff.451505237"](operationId, $serializeJsonInput(requestJson, "DotnetInspect.Web.Interop.Source.SourceExports.QueryMemberBodyDiff.451505237", "requestJson"));
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserMemberBodyDiffResult;
 }
 
 export async function queryMemberFindingCensus(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, typeQueryId: string, memberName: string, memberSignature: string, selectorKey: string, metadataToken: number, styleOptionsJson: string): Promise<BrowserMemberFindingCensus> {

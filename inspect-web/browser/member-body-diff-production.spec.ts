@@ -1,0 +1,30 @@
+import { expect, test } from "@playwright/test";
+import { chooseSubject, selectFirstExactLibrary } from "./library-subject-actions.ts";
+
+const site = process.env.INSPECT_WEB_SOURCE_DIFF_URL;
+
+test("Member Body opens inline and retains the document through media and Explore", async ({ page }) => {
+  test.skip(!site, "Set INSPECT_WEB_SOURCE_DIFF_URL to the published Wasm site.");
+  test.setTimeout(300_000);
+  await page.goto(`${new URL(site!).origin}/?package=System.Text.Json&version=11.0.0-preview.7.26381.103&framework=net10.0#pkg`);
+  await page.locator('[data-package-lens="compare"][role="tab"]').click({ timeout: 120_000 });
+  await page.locator("#package-diff-target").selectOption("exact:11.0.0-preview.6.26359.118");
+  await chooseSubject(page, "library");
+  await selectFirstExactLibrary(page);
+  await page.locator('[data-navigation-id="compare"][role="tab"]').click();
+  await page.locator("#compare-diff-content").selectOption("member-body");
+  await page.locator('[data-member-body-type="System.Text.Json.JsonSerializerOptions"]').click({ timeout: 180_000 });
+  const constructor = page.locator("[data-member-body-member]").filter({ hasText: /#ctor\(System.Text.Json.JsonSerializerOptions\)/ });
+  await constructor.click();
+  await expect(page.locator(".member-body-reader .source-diff-viewer")).toBeVisible({ timeout: 120_000 });
+  await expect(page.locator(".member-body-reader")).toContainText("_inferClosedTypePolymorphism");
+  await expect(page.getByRole("button", { name: "Show diff", exact: true })).toHaveCount(0);
+  await page.locator('[data-member-body-medium="Il"]').click();
+  await expect(page.locator(".member-body-reader .source-diff-viewer")).toContainText("IL_");
+  await page.locator("[data-member-body-explore]").click();
+  await expect(page.locator(".member-body-explore")).toBeVisible();
+  await expect(page.locator(".member-body-explore .source-diff-viewer")).toContainText("IL_");
+  await page.locator("[data-member-body-close]").click();
+  await expect(page.locator(".member-body-reader .source-diff-viewer")).toContainText("IL_");
+  await expect(page.locator("[data-member-body-explore]")).toBeFocused();
+});
