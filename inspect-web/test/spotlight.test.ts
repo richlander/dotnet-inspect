@@ -1206,7 +1206,7 @@ test("same-named Package and Library share one Ecosystem group with independent 
   const { spotlight } = createHarness({ searchResults: () => [external, packageResult, libraryResult] });
   const html = spotlight.modalHtml();
   assert.equal((html.match(/class="spotlight-group">Ecosystem/g) ?? []).length, 1);
-  assert.match(html, /aria-label="Pruned for net10.0"/);
+  assert.match(html, /aria-label="Package pruned for net10.0"/);
   assert.match(html, /Supplied by net10.0 @ 10.0.12/);
   assert.match(html, /\.NET Runtime · Package · 4.3.0/);
   assert.notEqual(spotlightResultIdentity(packageResult), spotlightResultIdentity(libraryResult));
@@ -1220,5 +1220,29 @@ test("false or unavailable pruning never renders a positive badge", () => {
       ecosystem: { id: "ecosystem.runtime", title: ".NET Runtime", isPruned, traversalTfm: "net10.0", platformVersion: "10.0.12" },
     }] });
     assert.doesNotMatch(spotlight.modalHtml(), /spotlight-pruned|Pruned for/);
+  }
+});
+
+
+test("artifact rows use one leading pruning, ecosystem, or fallback glyph", () => {
+  const ecosystem = { id: "ecosystem.aspire", title: "Aspire", isPruned: null, traversalTfm: "net10.0", platformVersion: "10.0.12" };
+  const prunedEcosystem = { ...ecosystem, id: "ecosystem.runtime", title: ".NET Runtime", isPruned: true };
+  const cases: { result: SpotlightResult; icon: string; label: string }[] = [
+    { result: { kind: "pkg-nuget", hit: { id: "Aspire.Hosting", version: "9.0.0" }, ranges: [], ecosystem }, icon: "sl-ecosystem-aspire", label: "Package: Aspire" },
+    { result: { kind: "pkg-nuget", hit: { id: "Example.External", version: "1.0.0" }, ranges: [] }, icon: "sl-package-icon", label: "Package" },
+    { result: { kind: "pkg-nuget", hit: { id: "Microsoft.Extensions.AI", version: "9.0.0" }, ranges: [], ecosystem: { ...ecosystem, id: "ecosystem.ai", title: "AI" } }, icon: "sl-package-icon", label: "Package" },
+    { result: { kind: "pkg-recent", entry: { id: "System.Linq", version: "4.3.0" }, ranges: [], ecosystem: prunedEcosystem }, icon: "spotlight-pruned", label: "Package pruned for net10.0" },
+    { result: { kind: "pkg-loaded", pkg: { id: "System.Linq", version: "4.3.0" }, ranges: [], ecosystem: prunedEcosystem }, icon: "spotlight-pruned", label: "Package pruned for net10.0" },
+    { result: { kind: "framework-lib", assembly: "System.Linq", pack: "netcore.app", publicTypes: 1, ranges: [], pruning: { traversalTfm: "net10.0", platformVersion: "10.0.12" } }, icon: "spotlight-pruned", label: "Library supplies pruned package for net10.0" },
+    { result: { kind: "framework-lib", assembly: "System.Linq", pack: "netcore.app", publicTypes: 1, ranges: [] }, icon: "sl-ecosystem-runtime", label: "Library: .NET Runtime" },
+    { result: { kind: "framework-lib", assembly: "Example.Library", pack: "other", publicTypes: 1, ranges: [] }, icon: "sl-library-icon", label: "Library" },
+  ];
+  for (const { result, icon, label } of cases) {
+    const { spotlight } = createHarness({ searchResults: () => [result] });
+    const html = spotlight.modalHtml();
+    assert.equal((html.match(/role="img"/g) ?? []).length, 1);
+    assert.match(html, new RegExp(`class="[^"\n]*${icon}[^"\n]*" role="img" aria-label="${label.replaceAll(".", "\\.")}"`));
+    assert.doesNotMatch(html, /spotlight-result-icons/);
+    assert.equal(spotlightResultIdentity(spotlight.results()[0]!), spotlightResultIdentity(result));
   }
 });

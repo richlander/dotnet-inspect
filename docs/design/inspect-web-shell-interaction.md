@@ -555,12 +555,18 @@ accessible text naming the traversal TFM and a tooltip identifying its pack
 version. False and unavailable comparisons never render a pruning badge.
 The badge describes pruning eligibility, not an observed restore decision.
 
-Package and Library kinds use SVG icons independent of loading state. A
-fixed-width trailing rail reserves separate ecosystem and pruning slots, so
-annotation arrival or pruning status does not shift the metadata text. Ecosystem
-icons consume the classifier's owning identity, or the framework Library's
-known source family; unillustrated ecosystems retain their text disclosure and
-an empty icon slot. Kind and status glyphs follow the structural-salience icon
+Each Package and Library row has one leading 20-pixel SVG glyph. Positive
+pruning evidence takes precedence, followed by an illustrated ecosystem, then
+the existing Package or Library icon as fallback. A pruned Package uses scissors
+in place of its kind icon. A framework Library uses scissors only when a
+same-named Package observation has positive shared-classifier pruning evidence
+for that Library's exact platform family, TFM, and pack version. This links the
+supplying Library to the pruned Package without inventing pruning from a name
+match. False or unavailable comparisons do not produce pruning glyphs.
+Accessible glyph labels preserve Package or Library kind; text metadata retains
+source disclosure. Ecosystem icons consume the classifier's owning identity, or
+the framework Library's known source family. There is no trailing icon rail.
+Kind and status glyphs follow the structural-salience icon
 language. The four ecosystem marks use the operator-selected original
 [Aspire family concept set](https://chatgpt.com/share/6ac58f0a-d2f4-83e8-8b09-6dbf61660302)
 and its purple palette; Aspire uses the official product SVG. The .NET mark

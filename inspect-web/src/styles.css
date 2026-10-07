@@ -6451,10 +6451,8 @@ button.library-api-diff-row[aria-current="true"] { background: var(--panel-raise
 .package-version-inclusion { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; color: var(--muted); font: 11px var(--mono); }
 .package-version-inclusion label { margin-bottom: 0; }
 
-/* Spotlight SVG glyphs: package kind, ecosystem ownership and pruning status. */
-.spotlight-artifact { grid-template-columns: 20px minmax(0, 1fr) auto 44px; }
+/* Spotlight uses one leading glyph: pruning, ecosystem, then artifact kind. */
 .spotlight-artifact .spotlight-item-ns { max-width: min(220px, 30vw); }
-.spotlight-result-icons { display: grid; grid-template-columns: repeat(2, 20px); gap: 4px; width: 44px; height: 20px; }
 .spotlight-icon-slot { display: block; width: 20px; height: 20px; }
 .spotlight-svg-icon { display: block; width: 20px; height: 20px; background: currentColor; mask: var(--spotlight-icon) center / contain no-repeat; }
 .spotlight-ecosystem-icon { background: var(--spotlight-icon) center / contain no-repeat; }

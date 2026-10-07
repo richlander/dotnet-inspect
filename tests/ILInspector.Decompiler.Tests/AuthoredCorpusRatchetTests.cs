@@ -1867,6 +1867,7 @@ public class AuthoredCorpusRatchetTests
     [InlineData(2, 2)]
     [InlineData(3, 3)]
     [InlineData(4, 4)]
+    [InlineData(5, 5)]
     public void InvalidAttributionLineages_AreExplicit(int methodology, int expectedLineage)
     {
         Assert.Equal(
@@ -1879,6 +1880,7 @@ public class AuthoredCorpusRatchetTests
     [InlineData(2, 1)]
     [InlineData(3, 1)]
     [InlineData(4, 2)]
+    [InlineData(5, 2)]
     public void SourceOutcomeLineages_AreExplicit(int methodology, int expectedLineage)
     {
         Assert.Equal(
@@ -1915,6 +1917,23 @@ public class AuthoredCorpusRatchetTests
         Assert.Equal(
             ["valid", "correct", "invalid", "productBodyDefect"],
             comparison.Metrics.Select(metric => metric.Name));
+    }
+
+    [Fact]
+    public void Ratchet_V5ComparesSourceOutcomesButNotInvalidAttributionWithV4()
+    {
+        // v5 changes only how span attribution finds the body (product ranges
+        // instead of a name search), so the source-outcome populations stay
+        // comparable while the invalid-attribution split starts a new lineage.
+        var comparison = AuthoredCorpusRatchet.Compare(
+            Key(),
+            Metrics(methodology: 5),
+            [Row(date: "2026-09-17", methodology: 4)]);
+
+        Assert.False(comparison.Skipped);
+        Assert.Equal("2026-09-17", comparison.Baseline!.Date);
+        Assert.DoesNotContain(comparison.Metrics, metric => metric.Name == "productBodyDefect");
+        Assert.Contains(comparison.Metrics, metric => metric.Name == "valid");
     }
 
     [Fact]
