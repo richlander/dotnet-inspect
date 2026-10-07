@@ -36,9 +36,9 @@ cancellation at body EOF or backend failure timing reliably.
 
 `SourceFetch` is an existing host-neutral adapter used by CLI member, type,
 library, API, diff, and source-enrichment paths through
-`VerifiedSourceTextFetch`, `PdbSourceHouse`, or SourceHouse. Browser/Wasm
-supplies the same adapter with an in-memory content store and a host source
-policy.
+`VerifiedSourceTextFetch` directly or as part of `PdbSourceHouse`, or through
+SourceHouse. Browser/Wasm supplies the same adapter with an in-memory content
+store and a host source policy.
 
 Shared type/member Source and the selected-member source pair also consume the public
 `FetchVerifiedSourceBytesAsync`/`FetchSourceResult` boundary through a
@@ -71,8 +71,9 @@ The adapter consumes, but does not redefine, these owner-issued behaviors:
   best-effort misses or acceptance, and cancellation before committing a
   write. The desktop compatibility adapter preserves `PersistentCache`'s
   best-effort read and write semantics.
-- `PdbSourceHouse`, or SourceHouse for shared type/member Source, member comparison and pairs, owns
-  local/repository/remote ordering, decoding, and settled PDB-source outcomes.
+- `PdbSourceHouse`, or SourceHouse for shared type/member Source, member
+  comparison, and pairs, owns local/repository/remote ordering and settled
+  PDB-source outcomes.
 - `SourceAvailabilityService` and `SourceIntegrityService` own their distinct
   endpoint and audit claims.
 
